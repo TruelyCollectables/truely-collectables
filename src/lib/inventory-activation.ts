@@ -11,10 +11,18 @@ export type InventoryActivationBlocker =
   | "missing_authenticity_disclosure"
   | "missing_cert_provider"
   | "missing_pass_guarantee_authenticator"
-  | "missing_provenance_evidence";
+  | "missing_provenance_evidence"
+  | "grader_verification_required"
+  | "grader_verification_conflict";
 
 function cleanText(value: string | null | undefined) {
   return value?.trim() || null;
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 function isAutographSensitive(params: {
@@ -55,11 +63,36 @@ export function getInventoryActivationBlockers(params: {
 }) {
   const blockers: InventoryActivationBlocker[] = [];
   const authenticity = extractAuthenticityProfile(params.metadata);
+  const collectibleAsset = recordValue(
+    recordValue(params.metadata).collectible_asset,
+  );
+  const gradingCompany = cleanText(
+    typeof collectibleAsset.grading_company === "string"
+      ? collectibleAsset.grading_company
+      : null,
+  );
+  const graderVerificationStatus = cleanText(
+    typeof collectibleAsset.grader_verification_status === "string"
+      ? collectibleAsset.grader_verification_status
+      : null,
+  );
 
   if (!params.sku) blockers.push("missing_sku");
   if (params.price <= 0) blockers.push("missing_price");
   if (params.quantity <= 0) blockers.push("missing_quantity");
   if (!params.imageUrl) blockers.push("missing_image");
+
+  if (gradingCompany) {
+    if (graderVerificationStatus === "conflict") {
+      blockers.push("grader_verification_conflict");
+    } else if (
+      !["verified", "manual_verified"].includes(
+        String(graderVerificationStatus || ""),
+      )
+    ) {
+      blockers.push("grader_verification_required");
+    }
+  }
 
   if (isAutographSensitive({
     title: params.title,

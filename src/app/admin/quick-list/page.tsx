@@ -29,6 +29,18 @@ export default function QuickListPage() {
             </div>
             <div className="flex flex-wrap gap-3">
               <Link
+                href="/admin/verified-reference-import"
+                className="rounded-full bg-emerald-300 px-5 py-3 text-sm font-black text-neutral-950 shadow-sm transition hover:bg-emerald-200"
+              >
+                Import Verified Cards
+              </Link>
+              <Link
+                href="/seller/inventory?status=draft&source=instacomp"
+                className="rounded-full border border-white/15 bg-white/10 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-white/15"
+              >
+                Pending Listings
+              </Link>
+              <Link
                 href="/admin/products"
                 className="rounded-full border border-white/15 bg-white/10 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-white/15"
               >
@@ -45,7 +57,7 @@ export default function QuickListPage() {
         </section>
 
         <section className="rounded-3xl border border-amber-200 bg-amber-50/90 px-5 py-4 text-sm font-bold leading-6 text-amber-950 shadow-sm">
-          <strong>Serial rule:</strong> a stamped card read as <span className="line-through opacity-60">50/89</span> is titled as <strong>/89</strong>. The exact stamped copy number stays in private scan evidence. AI can identify an autograph card, but it does not authenticate who physically signed the item.
+          <strong>Serial rule:</strong> public titles may summarize the print run as <strong>/89</strong>, but the exact physical copy stamp such as <strong>50/89</strong> stays attached to the permanent collectible asset. Grading company, grade and certification number stay with that physical card after sale.
         </section>
 
         <TruelyAccuracyWorkbench />
