@@ -50,10 +50,7 @@ export function getStripeTestSecretKey() {
 }
 
 export function getStripeLiveSecretKey() {
-  return (
-    matching(process.env.STRIPE_LIVE_SECRET_KEY, "sk_live_") ||
-    matching(process.env.STRIPE_SECRET_KEY, "sk_live_")
-  );
+  return matching(process.env.STRIPE_LIVE_SECRET_KEY, "sk_live_");
 }
 
 export function getStripeTestPublishableKey() {
@@ -64,9 +61,9 @@ export function getStripeTestPublishableKey() {
 }
 
 export function getStripeLivePublishableKey() {
-  return (
-    matching(process.env.NEXT_PUBLIC_STRIPE_LIVE_PUBLISHABLE_KEY, "pk_live_") ||
-    matching(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY, "pk_live_")
+  return matching(
+    process.env.NEXT_PUBLIC_STRIPE_LIVE_PUBLISHABLE_KEY,
+    "pk_live_",
   );
 }
 
@@ -80,12 +77,7 @@ export function getStripeTestWebhookSecret() {
 }
 
 export function getStripeLiveWebhookSecret() {
-  return (
-    matching(process.env.STRIPE_LIVE_WEBHOOK_SECRET, "whsec_") ||
-    (matching(process.env.STRIPE_SECRET_KEY, "sk_live_")
-      ? matching(process.env.STRIPE_WEBHOOK_SECRET, "whsec_")
-      : null)
-  );
+  return matching(process.env.STRIPE_LIVE_WEBHOOK_SECRET, "whsec_");
 }
 
 export function getOperationalStripeSecretKey() {
