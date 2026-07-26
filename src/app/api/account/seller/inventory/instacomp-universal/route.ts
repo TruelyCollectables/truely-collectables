@@ -4,6 +4,7 @@ import {
   getAuthenticatedAccountFromRequest,
 } from "../../../../../../lib/account-auth";
 import { buildInstaCompQueries } from "../../../../../../lib/instacomp";
+import { calculateInstaCompMarketPricing } from "../../../../../../lib/instacomp-market-pricing";
 import { verifyInstaCompCompetitionImages } from "../../../../../../lib/instacomp-comp-visual-verification";
 import { getUniversalEbaySerpProviders } from "../../../../../../lib/instacomp-ebay-serp-provider";
 import { normalizeListingImageUrls } from "../../../../../../lib/listing-image-utils";
@@ -94,20 +95,6 @@ function dedupeEvidence(values: Evidence[], limit = 60) {
       return true;
     })
     .slice(0, limit);
-}
-
-function soldSuggestion(values: Evidence[]) {
-  const prices = values
-    .map((value) => value.price)
-    .filter((price) => Number.isFinite(price) && price > 0)
-    .sort((left, right) => left - right);
-  if (!prices.length) return 0;
-  const middle = Math.floor(prices.length / 2);
-  const median =
-    prices.length % 2 === 0
-      ? (prices[middle - 1] + prices[middle]) / 2
-      : prices[middle];
-  return Math.round(median * 100) / 100;
 }
 
 async function downloadFrontImage(url: string) {
@@ -302,15 +289,19 @@ export async function POST(request: NextRequest) {
       60,
     );
 
-    const suggestedPrice = soldSuggestion(soldCompEvidence);
+    const pricingModel = calculateInstaCompMarketPricing({
+      sold: soldCompEvidence,
+      active: activeCompetition,
+    });
+    const suggestedPrice = pricingModel.suggestedPrice;
     const reliableSoldCompCount = soldCompEvidence.length;
     const hasReliableSoldComps = reliableSoldCompCount > 0 && suggestedPrice > 0;
     const pricingStatus = hasReliableSoldComps
       ? "suggested_from_reliable_sold_comps"
       : "seller_price_required";
     const pricingReason = hasReliableSoldComps
-      ? `${reliableSoldCompCount} exact sold comp${reliableSoldCompCount === 1 ? "" : "s"} passed the universal eBay identity filter. Active listings were not used to calculate the ${suggestedPrice.toFixed(2)} suggestion.`
-      : `The universal eBay sold lane returned no accepted exact sale. Seller pricing is required. Sold provider: ${universal.sold.message || universal.sold.status}.`;
+      ? `${reliableSoldCompCount} exact sold comp${reliableSoldCompCount === 1 ? "" : "s"} and ${activeCompetition.length} exact active listing${activeCompetition.length === 1 ? "" : "s"} produced a ${pricingModel.strategy.replaceAll("_", " ")} recommendation. Sold market value: ${pricingModel.marketValue.toFixed(2)}; Suggested Price: ${suggestedPrice.toFixed(2)}.`
+      : `The universal eBay sold lane returned no accepted exact sale. ${activeCompetition.length} exact active listing${activeCompetition.length === 1 ? " was" : "s were"} retained for competition review, but seller pricing is required because active asks alone cannot prove value.`;
     const checkedAt = new Date().toISOString();
 
     const currentInstaComp = recordValue(metadata.instacomp);
@@ -335,11 +326,14 @@ export async function POST(request: NextRequest) {
       ...metadata,
       instacomp: {
         ...currentInstaComp,
-        schema: "truely.instacompInventoryScan.v3",
+        schema: "truely.instacompInventoryScan.v4",
         exactStoredTitleQuery: universal.query,
         fallbackIdentityQuery: universal.fallbackQuery,
-        marketPrice: suggestedPrice,
+        marketPrice: pricingModel.marketValue,
         suggestedPrice,
+        quickSalePrice: pricingModel.quickSalePrice,
+        stretchPrice: pricingModel.stretchPrice,
+        pricingModel,
         pricingStatus,
         pricingReason,
         reliableSoldCompCount: hasReliableSoldComps ? reliableSoldCompCount : 0,
@@ -370,6 +364,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       ...legacy,
       suggestedPrice,
+      marketValue: pricingModel.marketValue,
+      quickSalePrice: pricingModel.quickSalePrice,
+      stretchPrice: pricingModel.stretchPrice,
+      pricingModel,
       pricingStatus,
       pricingReason,
       trustedForPricing: hasReliableSoldComps,

@@ -105,13 +105,13 @@ export async function POST(request: Request) {
         return Response.json(
           {
             error:
-              "No reliable sold-comp suggestion is available. Enter the seller price manually.",
+              "No reliable InstaComp market suggestion is available. Enter the seller price manually.",
           },
           { status: 409 },
         );
       }
       nextPrice = suggestedPrice;
-      priceSource = "instacomp_reliable_sold_comps";
+      priceSource = "instacomp_market_sweet_spot";
     }
 
     const now = new Date().toISOString();

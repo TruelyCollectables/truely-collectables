@@ -181,9 +181,9 @@ export function calculateInstaCompMarketPricing(params: {
   const soldAnchor = weightedMedian(soldRows, now) || soldStats.median || 0;
   const soldQ1 = soldStats.q1 || soldAnchor;
   const soldQ3 = soldStats.q3 || soldAnchor;
-  const soldListTarget = soldAnchor + Math.max(0, soldQ3 - soldAnchor) * 0.4;
-  const quickSale = soldQ1 || soldAnchor;
-  const stretch = Math.max(soldQ3 || soldAnchor, soldListTarget);
+  const soldListTarget = soldAnchor + Math.max(0, soldQ3 - soldAnchor) * 0.75;
+  const quickSale = Math.max(soldQ1 || soldAnchor, soldAnchor * 0.85);
+  const stretch = Math.max(soldQ3 || soldAnchor, soldAnchor * 1.25);
   const activeEntry =
     activeRows.length >= 3
       ? activeStats.q1 || activeStats.low
@@ -229,7 +229,7 @@ export function calculateInstaCompMarketPricing(params: {
     activeInfluenceApplied = true;
     if (activeRows.length === 1 && activeTarget < soldQ1 * 0.9) {
       strategy = "single_active_outlier_guard";
-      rawSuggestion = soldQ1;
+      rawSuggestion = quickSale;
       rationale.push(
         `The lone active listing at ${roundMoney(activeEntry).toFixed(2)} sits materially below the sold fair range, so TCOS did not chase one possible underpriced outlier.`,
       );
@@ -258,7 +258,9 @@ export function calculateInstaCompMarketPricing(params: {
     );
   }
 
-  const suggestedPrice = marketEnding(rawSuggestion, activeTarget);
+  const competitiveCeiling =
+    strategy === "single_active_outlier_guard" ? null : activeTarget;
+  const suggestedPrice = marketEnding(rawSuggestion, competitiveCeiling);
   const marketValue = marketEnding(soldAnchor);
   const quickSalePrice = marketEnding(quickSale);
   const stretchPrice = marketEnding(stretch);
