@@ -73,8 +73,12 @@ export default function InstaCompStoreActions() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not load inventory.");
       setInventory(Array.isArray(data.items) ? data.items : []);
-    } catch (nextError: any) {
-      setError(nextError?.message || "Could not load inventory for InstaComp.");
+    } catch (nextError: unknown) {
+      setError(
+        nextError instanceof Error
+          ? nextError.message
+          : "Could not load inventory for InstaComp.",
+      );
     } finally {
       setLoadingInventory(false);
     }
@@ -154,7 +158,10 @@ export default function InstaCompStoreActions() {
           : [];
         const providerMessage = providerProblems
           .slice(0, 2)
-          .map((problem: any) => problem.message || `${problem.label} unavailable`)
+          .map(
+            (problem: { message?: string; label?: string }) =>
+              problem.message || `${problem.label || "Provider"} unavailable`,
+          )
           .join("; ");
         nextResults.push({
           inventoryItemId: item.inventoryItemId,
@@ -170,7 +177,7 @@ export default function InstaCompStoreActions() {
                 ? `No exact comp. ${providerMessage}`
                 : "No exact comp passed the identity filter.",
         });
-      } catch (nextError: any) {
+      } catch (nextError: unknown) {
         nextResults.push({
           inventoryItemId: item.inventoryItemId,
           sku: item.sku,
@@ -178,7 +185,10 @@ export default function InstaCompStoreActions() {
           success: false,
           exactCompCount: 0,
           suggestedPrice: null,
-          message: nextError?.message || "InstaComp scan failed.",
+          message:
+            nextError instanceof Error
+              ? nextError.message
+              : "InstaComp scan failed.",
         });
       }
       setResults([...nextResults]);
@@ -238,10 +248,10 @@ export default function InstaCompStoreActions() {
           </button>
         ) : null}
         <Link
-          href="/seller/inventory?source=instacomp"
+          href="/seller/instacomp-pending"
           className="rounded-full border border-white/25 bg-white/10 px-4 py-2 text-sm font-black text-white hover:bg-white/15"
         >
-          Show InstaComp Results
+          Show InstaComp Pending
         </Link>
       </div>
 
@@ -256,8 +266,12 @@ export default function InstaCompStoreActions() {
         </div>
       ) : null}
 
-      {message ? <p className="mt-3 text-xs font-bold text-emerald-100">{message}</p> : null}
-      {error ? <p className="mt-3 text-xs font-bold text-rose-200">{error}</p> : null}
+      {message ? (
+        <p className="mt-3 text-xs font-bold text-emerald-100">{message}</p>
+      ) : null}
+      {error ? (
+        <p className="mt-3 text-xs font-bold text-rose-200">{error}</p>
+      ) : null}
 
       {results.length ? (
         <div className="mt-3 max-h-44 space-y-1 overflow-auto rounded-xl border border-white/15 bg-black/20 p-2 text-xs">
@@ -266,7 +280,8 @@ export default function InstaCompStoreActions() {
               key={result.inventoryItemId}
               className={result.success ? "text-slate-100" : "text-rose-200"}
             >
-              <strong>{result.success ? "DONE" : "FAILED"}</strong> — {result.sku || result.title}: {result.message}
+              <strong>{result.success ? "DONE" : "FAILED"}</strong> —{" "}
+              {result.sku || result.title}: {result.message}
             </div>
           ))}
         </div>
