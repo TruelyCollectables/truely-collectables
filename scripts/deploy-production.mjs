@@ -1056,6 +1056,45 @@ function gitPreflight() {
   }
 }
 
+function productionEnvironmentPreflight() {
+  const auditScript = path.resolve(
+    process.cwd(),
+    "scripts/audit-vercel-production-environment.mjs",
+  );
+
+  if (!fs.existsSync(auditScript)) {
+    throw new Error(
+      "Required Vercel Production environment audit script is missing. No deployment was started.",
+    );
+  }
+
+  console.log(
+    "Auditing required Vercel Production environment variable names before deployment preflight...",
+  );
+  const result = spawnSync(process.execPath, [auditScript], {
+    encoding: "utf8",
+    shell: false,
+    env: {
+      ...process.env,
+      VERCEL_SCOPE: scope,
+    },
+  });
+  const output = `${result.stdout || ""}${result.stderr || ""}`;
+
+  if (result.status !== 0) {
+    throw new Error(
+      `Vercel Production environment audit failed inside deploy-production.mjs. No deployment upload was started. Diagnostic: ${diagnosticSnippet(output)}`,
+    );
+  }
+
+  if (output.trim()) {
+    console.log(output.trim());
+  }
+  console.log(
+    "Production environment audit passed inside deploy-production.mjs. The audit started no deployment.",
+  );
+}
+
 if (redactionSelfTest) {
   runRedactionSelfTest();
   process.exit(0);
@@ -1099,6 +1138,8 @@ if (quotaStatusOnly) {
   }
   process.exit(0);
 }
+
+productionEnvironmentPreflight();
 
 if (!preflightOnly) {
   assertNoRecentQuotaBlock();
