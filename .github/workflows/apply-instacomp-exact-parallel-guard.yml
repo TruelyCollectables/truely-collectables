@@ -1,0 +1,31 @@
+name: Apply InstaComp Exact Parallel Guard
+
+on:
+  push:
+    branches:
+      - agent/instacomp-exact-parallel-guard-20260726
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/instacomp-exact-parallel-guard-20260726
+          fetch-depth: 0
+
+      - name: Apply exact-parallel guard
+        run: node scripts/apply-instacomp-exact-parallel-guard.mjs
+
+      - name: Commit final guard
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Reject wrong parallels from InstaComp exact competition"
+          git push origin HEAD:agent/instacomp-exact-parallel-guard-20260726
