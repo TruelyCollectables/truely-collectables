@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   calculateShipping,
+  getAvailableShippingMethods,
   getStandardEnvelopeEligibility,
   resolveShippingMethod,
 } from "../src/lib/shipping";
@@ -46,34 +47,60 @@ function contains(path: string, patterns: Array<string | RegExp>) {
 }
 
 function shippingChecks() {
+  for (const itemCount of [1, 2, 3, 4]) {
+    equal(
+      `Tracked Card Letter ${itemCount}-card buyer price`,
+      calculateShipping({
+        itemCount,
+        subtotal: 20,
+        listingPriceBasis: 20,
+        method: "STANDARD_ENVELOPE",
+      }),
+      1.99,
+    );
+  }
+
   equal(
-    "Standard Envelope one-card rate",
-    calculateShipping({ itemCount: 1, subtotal: 10, method: "STANDARD_ENVELOPE" }),
-    0.78,
+    "Four cards remain eligible at three estimated ounces",
+    getStandardEnvelopeEligibility({ itemCount: 4, subtotal: 20 }),
+    {
+      eligible: true,
+      estimatedOunces: 3,
+      listingPriceBasis: 20,
+      reason: null,
+    },
   );
   equal(
-    "Standard Envelope two-card rate",
-    calculateShipping({ itemCount: 2, subtotal: 10, method: "STANDARD_ENVELOPE" }),
-    1.07,
-  );
-  equal(
-    "Standard Envelope three-card rate",
-    calculateShipping({ itemCount: 3, subtotal: 20, method: "STANDARD_ENVELOPE" }),
-    1.36,
-  );
-  equal(
-    "Four cards exceed Standard Envelope weight",
-    getStandardEnvelopeEligibility({ itemCount: 4, subtotal: 20 }).eligible,
-    false,
-  );
-  equal(
-    "Over-$20 Standard Envelope request falls back to Ground Advantage",
+    "Offer sale price cannot lower original listing-price shipping tier",
     resolveShippingMethod({
       requestedMethod: "STANDARD_ENVELOPE",
       itemCount: 1,
-      subtotal: 20.01,
+      subtotal: 18,
+      listingPriceBasis: 24,
     }).method,
     "GROUND_ADVANTAGE",
+  );
+  equal(
+    "Ten-dollar order exposes all premium choices",
+    JSON.stringify(
+      getAvailableShippingMethods({
+        itemCount: 1,
+        subtotal: 10,
+        listingPriceBasis: 10,
+      }),
+    ),
+    JSON.stringify(["STANDARD_ENVELOPE", "GROUND_ADVANTAGE", "PRIORITY_MAIL"]),
+  );
+  equal(
+    "Twenty-four-dollar listing hides the letter tier",
+    JSON.stringify(
+      getAvailableShippingMethods({
+        itemCount: 1,
+        subtotal: 18,
+        listingPriceBasis: 24,
+      }),
+    ),
+    JSON.stringify(["GROUND_ADVANTAGE", "PRIORITY_MAIL"]),
   );
   equal(
     "Ground Advantage first five cards",
@@ -86,24 +113,52 @@ function shippingChecks() {
     7.24,
   );
   equal(
-    "Ground Advantage free-shipping threshold",
-    calculateShipping({ itemCount: 6, subtotal: 149, method: "GROUND_ADVANTAGE" }),
+    "Ground Advantage twelfth card",
+    calculateShipping({ itemCount: 12, subtotal: 100, method: "GROUND_ADVANTAGE" }),
+    8.74,
+  );
+  equal(
+    "Ground Advantage 10-ounce tier begins at thirteen cards",
+    calculateShipping({ itemCount: 13, subtotal: 100, method: "GROUND_ADVANTAGE" }),
+    10.99,
+  );
+  equal(
+    "Ground Advantage 10-ounce tier ends at nineteen cards",
+    calculateShipping({ itemCount: 19, subtotal: 100, method: "GROUND_ADVANTAGE" }),
+    10.99,
+  );
+  equal(
+    "Twenty cards force Priority Mail",
+    resolveShippingMethod({
+      requestedMethod: "GROUND_ADVANTAGE",
+      itemCount: 20,
+      subtotal: 100,
+    }).method,
+    "PRIORITY_MAIL",
+  );
+  equal(
+    "Priority Mail buyer price",
+    calculateShipping({ itemCount: 1, subtotal: 100, method: "PRIORITY_MAIL" }),
+    14.99,
+  );
+  equal(
+    "Exactly $250 does not cross the free Priority threshold",
+    calculateShipping({ itemCount: 1, subtotal: 250, method: "PRIORITY_MAIL" }),
+    14.99,
+  );
+  equal(
+    "Orders over $250 ship Priority Mail free",
+    calculateShipping({ itemCount: 1, subtotal: 250.01, method: "PRIORITY_MAIL" }),
     0,
   );
   equal(
-    "Priority Mail first five cards",
-    calculateShipping({ itemCount: 5, subtotal: 100, method: "PRIORITY_MAIL" }),
-    12.99,
-  );
-  equal(
-    "Priority Mail sixth card",
-    calculateShipping({ itemCount: 6, subtotal: 100, method: "PRIORITY_MAIL" }),
-    13.24,
-  );
-  equal(
-    "Priority Mail free-shipping threshold",
-    calculateShipping({ itemCount: 6, subtotal: 500, method: "PRIORITY_MAIL" }),
-    0,
+    "Orders over $250 force Priority Mail",
+    resolveShippingMethod({
+      requestedMethod: "STANDARD_ENVELOPE",
+      itemCount: 1,
+      subtotal: 250.01,
+    }).method,
+    "PRIORITY_MAIL",
   );
 }
 
@@ -168,6 +223,7 @@ function paymentAndInventoryChecks() {
 
   contains("src/lib/checkout-order-finalization.ts", [
     '.eq("stripe_session_id", session.id)',
+    "selectedCheckoutShipping",
     "getByLegacyProductIds",
     "consumeCheckoutReservationAfterSale",
     "decrementOrderInventoryOnce",
@@ -260,7 +316,7 @@ searchVisibilityChecks();
 
 const failed = checks.filter((item) => !item.passed);
 const output = {
-  suite: "truely-sunday-launch-one-build-v2",
+  suite: "truely-sunday-launch-one-build-v3",
   checkedAt: new Date().toISOString(),
   passed: failed.length === 0,
   total: checks.length,
