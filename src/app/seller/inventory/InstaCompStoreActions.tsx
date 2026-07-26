@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getFreshAccountSession } from "../../account/account-session";
 
 type InventoryItem = {
@@ -59,8 +59,8 @@ export default function InstaCompStoreActions() {
   const [error, setError] = useState("");
   const stopRequested = useRef(false);
 
-  async function loadInventory() {
-    setLoadingInventory(true);
+  const loadInventory = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoadingInventory(true);
     try {
       const session = await getFreshAccountSession(5 * 60, false);
       if (!session?.access_token) {
@@ -78,11 +78,15 @@ export default function InstaCompStoreActions() {
     } finally {
       setLoadingInventory(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
-    void loadInventory();
-  }, []);
+    const timer = window.setTimeout(() => {
+      void loadInventory(false);
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [loadInventory]);
 
   async function runItems(scope: "selected" | "all") {
     setError("");
