@@ -1,0 +1,68 @@
+name: Authenticated Production Smoke And Stripe Readiness
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "scripts/audit-authenticated-production-readiness.mjs"
+      - ".github/workflows/authenticated-production-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  authenticated-production-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SMOKE_ADMIN_PASSWORD: ${{ secrets.SMOKE_ADMIN_PASSWORD }}
+      SMOKE_BASE_URL: https://truelycollectables.com
+    steps:
+      - name: Check out current main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify temporary admin smoke secret
+        shell: bash
+        run: |
+          test -n "${SMOKE_ADMIN_PASSWORD:-}" || { echo "SMOKE_ADMIN_PASSWORD is missing"; exit 1; }
+
+      - name: Run authenticated redacted Launch Readiness audit
+        id: readiness
+        continue-on-error: true
+        shell: bash
+        run: node scripts/audit-authenticated-production-readiness.mjs > authenticated-production-readiness.log 2>&1
+
+      - name: Run complete existing Production smoke suite
+        id: smoke
+        continue-on-error: true
+        shell: bash
+        run: node scripts/smoke-production.mjs > production-smoke.log 2>&1
+
+      - name: Upload redacted smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: authenticated-production-smoke-evidence
+          path: |
+            authenticated-production-readiness.json
+            authenticated-production-readiness.log
+            production-smoke.log
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Enforce authenticated readiness and smoke
+        if: steps.readiness.outcome == 'failure' || steps.smoke.outcome == 'failure'
+        shell: bash
+        run: |
+          echo "Authenticated Production readiness or smoke failed. Review the redacted artifact."
+          exit 1
