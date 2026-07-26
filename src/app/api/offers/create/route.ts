@@ -195,33 +195,44 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    let ownerNotificationDelivered = false;
     if (resendApiKey) {
-      const resend = new Resend(resendApiKey);
-      const adminOffersUrl = `${configuredSiteOrigin()}/admin/offers`;
+      try {
+        const resend = new Resend(resendApiKey);
+        const adminOffersUrl = `${configuredSiteOrigin()}/admin/offers`;
+        const delivery = await resend.emails.send({
+          from: `${storeSettings.displayName} Offers <${storeSettings.offersEmail}>`,
+          to: storeSettings.salesEmail,
+          subject: "New Best Offer Received",
+          html: `
+            <h2>New Best Offer Received</h2>
+            <p><strong>Product:</strong> ${escapeHtml(offer.products?.title || product.title)}</p>
+            <p><strong>Original Listing Price:</strong> $${listingPriceAtOffer.toFixed(2)}</p>
+            <p><strong>Offer Amount:</strong> $${Number(offer.offer_amount).toFixed(2)}</p>
+            <p><strong>Minimum Shipping:</strong> ${escapeHtml(minimumShipping.name)} — $${minimumShipping.amount.toFixed(2)}</p>
+            <p><strong>Buyer Protection:</strong> ${buyerProtection.selected ? `$${buyerProtection.feeAmount.toFixed(2)} covering $${buyerProtection.coveredAmount.toFixed(2)}` : "Not selected"}</p>
+            <p>The buyer may upgrade shipping during payment, but the original listing price controls the minimum tier.</p>
+            <hr />
+            <p><strong>Customer Name:</strong> ${escapeHtml(offer.customer_name)}</p>
+            <p><strong>Customer Email:</strong> ${escapeHtml(offer.customer_email)}</p>
+            <p><a href="${escapeHtml(adminOffersUrl)}">Review this offer</a></p>
+          `,
+        });
 
-      await resend.emails.send({
-        from: `${storeSettings.displayName} Offers <${storeSettings.offersEmail}>`,
-        to: storeSettings.salesEmail,
-        subject: "New Best Offer Received",
-        html: `
-          <h2>New Best Offer Received</h2>
-          <p><strong>Product:</strong> ${escapeHtml(offer.products?.title || product.title)}</p>
-          <p><strong>Original Listing Price:</strong> $${listingPriceAtOffer.toFixed(2)}</p>
-          <p><strong>Offer Amount:</strong> $${Number(offer.offer_amount).toFixed(2)}</p>
-          <p><strong>Minimum Shipping:</strong> ${escapeHtml(minimumShipping.name)} — $${minimumShipping.amount.toFixed(2)}</p>
-          <p><strong>Buyer Protection:</strong> ${buyerProtection.selected ? `$${buyerProtection.feeAmount.toFixed(2)} covering $${buyerProtection.coveredAmount.toFixed(2)}` : "Not selected"}</p>
-          <p>The buyer may upgrade shipping during payment, but the original listing price controls the minimum tier.</p>
-          <hr />
-          <p><strong>Customer Name:</strong> ${escapeHtml(offer.customer_name)}</p>
-          <p><strong>Customer Email:</strong> ${escapeHtml(offer.customer_email)}</p>
-          <p><a href="${escapeHtml(adminOffersUrl)}">Review this offer</a></p>
-        `,
-      });
+        if (delivery.error) {
+          console.error("Best-offer owner notification failed:", delivery.error);
+        } else {
+          ownerNotificationDelivered = true;
+        }
+      } catch (notificationError) {
+        console.error("Best-offer owner notification failed:", notificationError);
+      }
     }
 
     return NextResponse.json({
       success: true,
       offer,
+      ownerNotificationDelivered,
     });
   } catch (err: any) {
     console.error("Offer create error:", err);
