@@ -1,3 +1,4 @@
+// InstaComp sold-market plus active-competition pricing model.
 export type InstaCompPriceEvidence = {
   price: number;
   soldAt?: string | null;
