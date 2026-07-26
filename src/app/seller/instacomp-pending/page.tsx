@@ -188,8 +188,36 @@ export default function InstaCompPendingPage() {
   const [bulkQuantity, setBulkQuantity] = useState("");
   const [bulkPrice, setBulkPrice] = useState("");
   const [autoPricing, setAutoPricing] = useState(false);
+  const [scanStartedAt, setScanStartedAt] = useState<number | null>(null);
+  const [scanElapsedSeconds, setScanElapsedSeconds] = useState(0);
+  const [scanPercent, setScanPercent] = useState(0);
+  const [scanSubject, setScanSubject] = useState("");
   const autoAttempted = useRef(new Set<string>());
   const autoRunning = useRef(false);
+
+  useEffect(() => {
+    if (scanStartedAt === null) return;
+    const timer = window.setInterval(() => {
+      setScanElapsedSeconds(Math.max(0, Math.floor((Date.now() - scanStartedAt) / 1000)));
+    }, 500);
+    return () => window.clearInterval(timer);
+  }, [scanStartedAt]);
+
+  function beginVisibleScan(subject: string) {
+    setScanSubject(subject);
+    setScanPercent(5);
+    setScanElapsedSeconds(0);
+    setScanStartedAt(Date.now());
+  }
+
+  function finishVisibleScan() {
+    setScanPercent(100);
+    window.setTimeout(() => {
+      setScanStartedAt(null);
+      setScanPercent(0);
+      setScanSubject("");
+    }, 650);
+  }
 
   const loadPending = useCallback(async (silent = false) => {
     if (silent) setRefreshing(true);
@@ -303,15 +331,23 @@ export default function InstaCompPendingPage() {
     setNotice("");
     setBatchMode(mode);
     setBatchProgress({ current: 0, total: targets.length });
+    beginVisibleScan(
+      targets.length === 1
+        ? targets[0].title
+        : `InstaComp batch: ${targets.length} cards`,
+    );
 
     let failures = 0;
     let reliable = 0;
     try {
       const session = await getFreshAccountSession(5 * 60, false);
       if (!session?.access_token) throw new Error("Log in to run InstaComp pricing.");
+      setScanPercent(12);
 
       for (const [index, item] of targets.entries()) {
         setPricingItemId(item.inventoryItemId);
+        setScanSubject(item.title);
+        setScanPercent(Math.max(12, Math.floor((index / targets.length) * 100)));
         try {
           const result = await scanPendingItem(item, session.access_token);
           if (result.suggestedPrice > 0) reliable += 1;
@@ -319,6 +355,7 @@ export default function InstaCompPendingPage() {
           failures += 1;
         }
         setBatchProgress({ current: index + 1, total: targets.length });
+        setScanPercent(Math.floor(((index + 1) / targets.length) * 100));
       }
 
       setNotice(
@@ -330,6 +367,7 @@ export default function InstaCompPendingPage() {
     } finally {
       setPricingItemId(null);
       setBatchMode(null);
+      finishVisibleScan();
     }
   }
 
@@ -345,20 +383,26 @@ export default function InstaCompPendingPage() {
     targets.forEach((item) => autoAttempted.current.add(item.inventoryItemId));
     autoRunning.current = true;
     setAutoPricing(true);
+    beginVisibleScan(`Automatic InstaComp intake: ${targets.length} card${targets.length === 1 ? "" : "s"}`);
 
     void (async () => {
       let failures = 0;
       try {
         const session = await getFreshAccountSession(5 * 60, false);
         if (!session?.access_token) return;
+        setScanPercent(12);
         for (const [index, item] of targets.entries()) {
           setPricingItemId(item.inventoryItemId);
-          setBatchProgress({ current: index + 1, total: targets.length });
+          setScanSubject(item.title);
+          setBatchProgress({ current: index, total: targets.length });
+          setScanPercent(Math.max(12, Math.floor((index / targets.length) * 100)));
           try {
             await scanPendingItem(item, session.access_token);
           } catch {
             failures += 1;
           }
+          setBatchProgress({ current: index + 1, total: targets.length });
+          setScanPercent(Math.floor(((index + 1) / targets.length) * 100));
         }
         setNotice(
           failures
@@ -370,6 +414,7 @@ export default function InstaCompPendingPage() {
         setPricingItemId(null);
         setAutoPricing(false);
         autoRunning.current = false;
+        finishVisibleScan();
       }
     })();
   }, [items, loadPending, loading]);
@@ -378,10 +423,13 @@ export default function InstaCompPendingPage() {
     setError("");
     setNotice("");
     setPricingItemId(item.inventoryItemId);
+    beginVisibleScan(item.title);
     try {
       const session = await getFreshAccountSession(5 * 60, false);
       if (!session?.access_token) throw new Error("Log in to run InstaComp pricing.");
+      setScanPercent(25);
       const result = await scanPendingItem(item, session.access_token);
+      setScanPercent(90);
       setNotice(
         result.suggestedPrice > 0
           ? `${item.title}: InstaComp suggests ${money(result.suggestedPrice)} from ${result.reliableSoldCompCount} reliable sold comp${result.reliableSoldCompCount === 1 ? "" : "s"}.`
@@ -392,6 +440,7 @@ export default function InstaCompPendingPage() {
       setError(errorMessage(nextError, "InstaComp pricing failed."));
     } finally {
       setPricingItemId(null);
+      finishVisibleScan();
     }
   }
 
@@ -828,10 +877,30 @@ export default function InstaCompPendingPage() {
             </div>
           </div>
 
-          {batchMode || autoPricing ? (
-            <p className="mt-3 text-xs font-black text-sky-900">
-              {autoPricing ? "Automatic intake pricing" : label(batchMode)}: {batchProgress.current}/{batchProgress.total}
-            </p>
+          {scanStartedAt !== null ? (
+            <div
+              className="mt-4 rounded-xl border-2 border-sky-700 bg-sky-50 p-3"
+              role="status"
+              aria-live="polite"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-black text-sky-950">
+                <span className="min-w-0 truncate">InstaComping: {scanSubject || "card evidence"}</span>
+                <span>{Math.max(0, Math.min(100, scanPercent))}% · {scanElapsedSeconds}s</span>
+              </div>
+              <div className="relative mt-2 h-4 overflow-hidden rounded-full border border-sky-900 bg-white">
+                <div
+                  className="h-full bg-sky-600 transition-[width] duration-500"
+                  style={{ width: `${Math.max(4, Math.min(100, scanPercent))}%` }}
+                />
+                <div className="absolute inset-0 animate-pulse bg-gradient-to-r from-transparent via-white/50 to-transparent" />
+              </div>
+              <p className="mt-2 text-[11px] font-bold text-sky-900">
+                Images → exact identity → sold evidence → active listing image verification → save result
+                {batchProgress.total > 1
+                  ? ` · ${batchProgress.current}/${batchProgress.total} cards complete`
+                  : " · elapsed time updates while the server is working"}
+              </p>
+            </div>
           ) : null}
         </section>
 
@@ -1153,6 +1222,11 @@ export default function InstaCompPendingPage() {
                                       ? ` · ${scoreLabel(comp.matchScore)}`
                                       : ""}
                                   </span>
+                                  {comp.flags.length ? (
+                                    <span className="mt-1 block text-[11px] font-semibold text-amber-800">
+                                      {comp.flags.join(" · ")}
+                                    </span>
+                                  ) : null}
                                 </span>
                               </a>
                             ))
