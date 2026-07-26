@@ -1,0 +1,83 @@
+name: Live Payment Identity Gate
+
+on:
+  pull_request:
+    paths:
+      - "src/lib/client-identity.ts"
+      - "src/lib/live-payment-launch*.ts"
+      - "src/app/api/checkout/route.ts"
+      - "src/app/admin/launch-readiness/**"
+      - "scripts/audit-vercel-production-environment.mjs"
+      - "scripts/run-live-payment-identity-gate-simulations.ts"
+      - ".github/workflows/live-payment-identity-gate.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "src/lib/client-identity.ts"
+      - "src/lib/live-payment-launch*.ts"
+      - "src/app/api/checkout/route.ts"
+      - "src/app/admin/launch-readiness/**"
+      - "scripts/audit-vercel-production-environment.mjs"
+      - "scripts/run-live-payment-identity-gate-simulations.ts"
+      - ".github/workflows/live-payment-identity-gate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-payment-identity-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      ADMIN_PASSWORD: build-only-placeholder-password
+      ADMIN_SESSION_SECRET: build-only-placeholder-session-secret
+      IP_INTELLIGENCE_REQUIRED: "true"
+      IP_INTELLIGENCE_API_URL: https://identity.example.invalid/{ip}
+      STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+      STRIPE_LIVE_SECRET_KEY: sk_live_build_only_placeholder
+      NEXT_PUBLIC_STRIPE_LIVE_PUBLISHABLE_KEY: pk_live_build_only_placeholder
+      STRIPE_LIVE_WEBHOOK_SECRET: whsec_live_build_only_placeholder
+      EBAY_CLIENT_ID: build-only-placeholder-client-id
+      EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+      EBAY_ENVIRONMENT: production
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate live-payment identity lock
+        run: node --import tsx scripts/run-live-payment-identity-gate-simulations.ts
+
+      - name: Validate payment owner marker
+        run: node --import tsx scripts/run-live-payment-owner-marker-simulations.ts
+
+      - name: Validate checkout webhook idempotency
+        run: node --import tsx scripts/run-checkout-webhook-idempotency-simulations.ts
+
+      - name: Validate Vercel environment audit self-test
+        run: node scripts/audit-vercel-production-environment.mjs --self-test
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Build production application
+        run: npm run build
