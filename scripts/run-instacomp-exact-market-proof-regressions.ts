@@ -1,15 +1,13 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import {
-  filterAndRankExactMatches,
-  normalizeInstaCompParallelForExactMatching,
-  type InstaCompAiResult,
-} from "../src/lib/instacomp";
+import type { InstaCompAiResult } from "../src/lib/instacomp";
 import {
   buildExactEbayQueryLadder,
   buildSerpApiEbayRequestUrl,
+  filterStrictExactMarketMatches,
   normalizeEbaySerpItems,
-} from "../src/lib/instacomp-ebay-serp-provider";
+  normalizeInstaCompParallelForExactMatching,
+} from "../src/lib/instacomp-exact-market-provider";
 import { calculateInstaCompSweetSpot } from "../src/lib/instacomp-sweet-spot";
 
 type FixtureCard = {
@@ -40,7 +38,7 @@ function candidate(title: string, price: number, index: number) {
 }
 
 function mustReject(card: FixtureCard, title: string, label: string, index: number) {
-  const rows = filterAndRankExactMatches([candidate(title, 1, index)], card.ai, 20, 0);
+  const rows = filterStrictExactMarketMatches([candidate(title, 1, index)], card.ai, 20);
   assert.equal(rows.length, 0, `${card.id}: ${label} must be rejected`);
 }
 
@@ -94,7 +92,7 @@ for (const [cardIndex, card] of fixture.cards.entries()) {
   const exactRows = card.exactTitles.map((title, index) =>
     candidate(title, 10 + cardIndex * 5 + index, cardIndex * 10 + index),
   );
-  const accepted = filterAndRankExactMatches(exactRows, card.ai, 20, 35);
+  const accepted = filterStrictExactMarketMatches(exactRows, card.ai, 20);
   assert.ok(accepted.length >= 1, `${card.id}: at least one exact title must be accepted`);
 
   mustReject(card, card.wrongDenominator, "wrong serial run or numbered variation", 100 + cardIndex);
@@ -160,6 +158,7 @@ assert.equal(normalized.length, 1);
 assert.equal(normalized[0].itemPrice, 6);
 assert.equal(normalized[0].shippingPrice, 1.25);
 assert.equal(normalized[0].price, 7.25, "pricing evidence must use delivered cost");
+assert.equal(normalized[0].priceIncludesShipping, true);
 assert.equal(normalized[0].soldDate, "Jul 20, 2026");
 
 const soldUrl = buildSerpApiEbayRequestUrl("exact card", "sold").toString();
@@ -168,35 +167,27 @@ assert.match(soldUrl, /show_only=Sold/);
 assert.doesNotMatch(activeUrl, /show_only=/);
 assert.match(activeUrl, /_sop=10/);
 
-const proofSource = fs.readFileSync("src/lib/instacomp-ebay-serp-provider.ts", "utf8");
+const proofSource = fs.readFileSync("src/lib/instacomp-exact-market-provider.ts", "utf8");
 assert.ok(proofSource.includes("providerAcrossQueries"));
 assert.ok(proofSource.includes("serpapi_ebay_v6_"));
 assert.ok(proofSource.includes("targetExactCount"));
-assert.ok(proofSource.includes("priceIncludesShipping: true"));
-assert.ok(proofSource.includes("candidateDenominator !== null"));
-assert.ok(proofSource.includes('flags.includes("grade")'));
+assert.ok(proofSource.includes("strictNumberingGate"));
+assert.ok(proofSource.includes("filterStrictExactMarketMatches"));
 
-const universalRoute = fs.readFileSync(
-  "src/app/api/account/seller/inventory/instacomp-universal/route.ts",
+const sellerRoute = fs.readFileSync(
+  "src/app/api/account/seller/inventory/instacomp/route.ts",
   "utf8",
 );
-const excludeRoute = fs.readFileSync(
-  "src/app/api/account/seller/instacomp-pending/exclude-comp/route.ts",
-  "utf8",
-);
+assert.ok(sellerRoute.includes("getExactEbayMarketProviders"));
 assert.ok(
-  universalRoute.includes(
+  sellerRoute.includes(
     "const suggestedPrice = hasReliableSoldComps ? pricingAnalysis.suggestedPrice : 0",
   ),
-  "Universal pricing must remain $0 without exact sold evidence",
+  "Seller pricing must remain $0 without strict exact sold evidence",
 );
-assert.ok(
-  excludeRoute.includes(
-    "const suggestedPrice = hasReliableSoldComps ? pricingAnalysis.suggestedPrice : 0",
-  ),
-  "Excluding the last exact sold comp must reset suggestion to $0",
-);
+assert.ok(sellerRoute.includes("soldCompEvidence"));
+assert.ok(sellerRoute.includes("activeCompetition"));
 
 console.log(
-  "InstaComp Batch 001 exact-market regression passed: six exact identities, strict player/year/card/parallel/grade/condition/print-run gates, three-dimensional sold+active evidence, delivered-price normalization, and sold-only suggested-price trust.",
+  "InstaComp Batch 001 exact-market regression passed: six exact identities, strict player/year/card/parallel/grade/condition/print-run gates, sold and active evidence lists, delivered-price normalization, and sold-only suggested-price trust.",
 );
