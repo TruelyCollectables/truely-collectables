@@ -4,12 +4,15 @@ on:
   push:
     branches:
       - main
+  pull_request:
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: write
 
 jobs:
   patch-validate:
+    if: github.event_name == 'push' || github.head_ref == 'agent/instacomp-market-sweet-spot-20260726'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
@@ -71,5 +74,9 @@ jobs:
             src/app/seller/instacomp-pending/page.tsx \
             scripts/run-instacomp-market-sweet-spot-regressions.ts \
             scripts/apply-instacomp-market-sweet-spot.mjs
+          if git diff --cached --quiet; then
+            echo "No market-pricing changes remain to commit."
+            exit 0
+          fi
           git commit -m "Combine sold value and active competition in InstaComp pricing"
           git push origin HEAD:agent/instacomp-market-sweet-spot-20260726
