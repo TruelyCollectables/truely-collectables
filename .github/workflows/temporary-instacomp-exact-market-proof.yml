@@ -1,0 +1,125 @@
+name: Temporary InstaComp Exact Market Proof
+
+on:
+  push:
+    branches:
+      - agent/instacomp-exact-market-proof-20260726
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instacomp-exact-market-proof
+  cancel-in-progress: false
+
+jobs:
+  patch-test-and-prove:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      ADMIN_PASSWORD: build-only-placeholder-password
+      ADMIN_SESSION_SECRET: build-only-placeholder-session-secret
+      STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+      EBAY_CLIENT_ID: build-only-placeholder-client-id
+      EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+      EBAY_ENVIRONMENT: production
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+      INSTACOMP_BYPASS_CACHE: "1"
+      SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Apply hardening and run three proof passes
+        shell: bash
+        run: |
+          set +e
+          mkdir -p docs .codex-run
+          : > .codex-run/instacomp-exact-market-proof.log
+
+          npm ci >> .codex-run/instacomp-exact-market-proof.log 2>&1
+          INSTALL=$?
+
+          node scripts/apply-instacomp-exact-market-proof.mjs >> .codex-run/instacomp-exact-market-proof.log 2>&1
+          PATCH=$?
+
+          node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts >> .codex-run/instacomp-exact-market-proof.log 2>&1
+          PASS1=$?
+          node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts >> .codex-run/instacomp-exact-market-proof.log 2>&1
+          PASS2=$?
+          node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts >> .codex-run/instacomp-exact-market-proof.log 2>&1
+          PASS3=$?
+
+          LIVE_ENV_ARGS=()
+          if [ -z "${SERPAPI_API_KEY:-}" ] && [ -n "${VERCEL_TOKEN:-}" ] && [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            mkdir -p .vercel
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+            npx vercel env pull .env.production.local --yes --environment=production --token "$VERCEL_TOKEN" >> .codex-run/instacomp-exact-market-proof.log 2>&1
+            VERCEL_PULL=$?
+            if [ "$VERCEL_PULL" -eq 0 ] && [ -f .env.production.local ]; then
+              LIVE_ENV_ARGS=(--env-file=.env.production.local)
+            fi
+          fi
+
+          if [ -z "${SERPAPI_API_KEY:-}" ]; then unset SERPAPI_API_KEY; fi
+          node "${LIVE_ENV_ARGS[@]}" --import tsx scripts/run-instacomp-batch-001-live-market-proof.ts >> .codex-run/instacomp-exact-market-proof.log 2>&1
+          LIVE=$?
+
+          npm run lint >> .codex-run/instacomp-exact-market-proof.log 2>&1
+          LINT=$?
+          npm run build >> .codex-run/instacomp-exact-market-proof.log 2>&1
+          BUILD=$?
+
+          rm -rf .vercel .env.production.local
+
+          {
+            echo "install=$INSTALL"
+            echo "patch=$PATCH"
+            echo "regression_pass_1=$PASS1"
+            echo "regression_pass_2=$PASS2"
+            echo "regression_pass_3=$PASS3"
+            echo "live_six_card_market_proof=$LIVE"
+            echo "lint=$LINT"
+            echo "build=$BUILD"
+            echo "validated_source_commit=$(git rev-parse HEAD)"
+            echo "--- assertions and errors ---"
+            grep -nE "AssertionError|Error:|release remains blocked|Live exact-market proof is blocked|Failed to|error TS|✖" .codex-run/instacomp-exact-market-proof.log | tail -n 200 || true
+            echo "--- log tail ---"
+            tail -n 220 .codex-run/instacomp-exact-market-proof.log
+          } > docs/instacomp-exact-market-validation.txt
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src scripts docs
+          git commit -m "Harden InstaComp exact sold and active market proof" || true
+          git push origin HEAD:agent/instacomp-exact-market-proof-20260726
+          PUSH=$?
+
+          test "$INSTALL" -eq 0 && \
+          test "$PATCH" -eq 0 && \
+          test "$PASS1" -eq 0 && \
+          test "$PASS2" -eq 0 && \
+          test "$PASS3" -eq 0 && \
+          test "$LIVE" -eq 0 && \
+          test "$LINT" -eq 0 && \
+          test "$BUILD" -eq 0 && \
+          test "$PUSH" -eq 0
