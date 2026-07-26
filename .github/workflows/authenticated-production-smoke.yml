@@ -1,4 +1,3 @@
-# Protected Production verification during final launch window.
 name: Authenticated Production Smoke And Stripe Readiness
 
 on:
@@ -7,6 +6,7 @@ on:
       - main
     paths:
       - "scripts/audit-authenticated-production-readiness.mjs"
+      - "scripts/verify-production-stripe-cron.mjs"
       - ".github/workflows/authenticated-production-smoke.yml"
   workflow_dispatch:
 
@@ -34,32 +34,7 @@ jobs:
           node-version: 22
 
       - name: Verify protected Production Stripe reconciliation
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -n "${TCOS_CRON_SECRET:-}" || { echo "TCOS_CRON_SECRET is missing"; exit 1; }
-          status=$(curl --silent --show-error --output "$RUNNER_TEMP/stripe-reconciliation.json" --write-out "%{http_code}" \
-            --header "Authorization: Bearer ${TCOS_CRON_SECRET}" \
-            "https://truelycollectables.com/api/cron/stripe-reconciliation")
-          node - "$status" "$RUNNER_TEMP/stripe-reconciliation.json" <<'NODE'
-          const fs = require('fs');
-          const status = Number(process.argv[2]);
-          const raw = fs.readFileSync(process.argv[3], 'utf8');
-          let body = null;
-          try { body = JSON.parse(raw); } catch {}
-          const safe = {
-            checkedAt: new Date().toISOString(),
-            httpStatus: status,
-            success: body?.success === true,
-            error: typeof body?.error === 'string' ? body.error : null,
-            runIdPresent: Boolean(body?.runId || body?.run_id),
-            itemCount: Number(body?.itemCount ?? body?.item_count ?? body?.items?.length ?? 0),
-            discrepancyCount: Number(body?.discrepancyCount ?? body?.discrepancy_count ?? 0),
-            secretValuesIncluded: false
-          };
-          fs.writeFileSync('production-stripe-cron-verification.json', JSON.stringify(safe, null, 2) + '\n');
-          if (status !== 200 || body?.success !== true) process.exit(1);
-NODE
+        run: node scripts/verify-production-stripe-cron.mjs
 
       - name: Check admin smoke secret availability
         id: admin_secret
@@ -69,21 +44,19 @@ NODE
             echo "available=true" >> "$GITHUB_OUTPUT"
           else
             echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "SMOKE_ADMIN_PASSWORD is unavailable; protected Stripe verification will still complete."
+            echo "SMOKE_ADMIN_PASSWORD is unavailable; protected Stripe verification completed."
           fi
 
       - name: Run authenticated redacted Launch Readiness audit
-        if: steps.admin_secret.outputs.available == 'true'
+        if: ${{ steps.admin_secret.outputs.available == 'true' }}
         id: readiness
         continue-on-error: true
-        shell: bash
         run: node scripts/audit-authenticated-production-readiness.mjs > authenticated-production-readiness.log 2>&1
 
       - name: Run complete existing Production smoke suite
-        if: steps.admin_secret.outputs.available == 'true'
+        if: ${{ steps.admin_secret.outputs.available == 'true' }}
         id: smoke
         continue-on-error: true
-        shell: bash
         run: node scripts/smoke-production.mjs > production-smoke.log 2>&1
 
       - name: Upload redacted smoke evidence
@@ -100,8 +73,7 @@ NODE
           retention-days: 7
 
       - name: Enforce authenticated readiness and smoke when available
-        if: steps.admin_secret.outputs.available == 'true' && (steps.readiness.outcome == 'failure' || steps.smoke.outcome == 'failure')
-        shell: bash
+        if: ${{ steps.admin_secret.outputs.available == 'true' && (steps.readiness.outcome == 'failure' || steps.smoke.outcome == 'failure') }}
         run: |
           echo "Authenticated Production readiness or smoke failed. Review the redacted artifact."
           exit 1
