@@ -24,16 +24,21 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Probe completed listings and print evidence
+      - name: Probe completed listings
+        continue-on-error: true
         shell: bash
         run: |
           set +e
           node --import tsx scripts/probe-ebay-completed-market.ts > docs/instacomp-ebay-completed-probe.log 2>&1
           STATUS=$?
           echo "probe_status=$STATUS" >> docs/instacomp-ebay-completed-probe.log
-          cat docs/instacomp-ebay-completed-probe.log
-          if [ -f docs/instacomp-ebay-completed-probe.json ]; then
-            echo "--- structured report ---"
-            cat docs/instacomp-ebay-completed-probe.json
-          fi
-          exit "$STATUS"
+          exit 0
+      - name: Upload probe evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-ebay-completed-probe
+          path: |
+            docs/instacomp-ebay-completed-probe.json
+            docs/instacomp-ebay-completed-probe.log
+          if-no-files-found: error
