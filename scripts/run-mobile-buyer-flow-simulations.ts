@@ -12,11 +12,8 @@ const offerForm = read("src/app/product/[id]/OfferForm.tsx");
 const cart = read("src/app/cart/CartClient.tsx");
 const checkoutButton = read("src/app/components/CheckoutButton.tsx");
 
-assert.match(
-  navbar,
-  /lg:hidden[\s\S]*overflow-x-auto/,
-  "Phone navigation must remain visible and horizontally scrollable below the desktop breakpoint.",
-);
+assert.match(navbar, /lg:hidden/, "Phone navigation must stay visible below the desktop breakpoint.");
+assert.match(navbar, /overflow-x-auto/, "Phone navigation must scroll instead of overflowing narrow screens.");
 for (const path of ["/shop", "/shop?q=rookie", "/shop?q=autograph", "/shop?q=PSA", "/account"]) {
   assert.ok(navbar.includes(`href: "${path}"`), `Mobile navigation must include ${path}.`);
 }
