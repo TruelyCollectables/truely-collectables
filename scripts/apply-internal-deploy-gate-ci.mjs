@@ -1,5 +1,6 @@
 import fs from "node:fs";
 
+// Re-triggered after the temporary workflow existed on the audit branch.
 const workflowPath = ".github/workflows/active-market-integrity.yml";
 let source = fs.readFileSync(workflowPath, "utf8");
 
