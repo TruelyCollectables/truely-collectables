@@ -35,7 +35,7 @@ export default function SellerInventoryLayout({
 
             <div className="flex flex-wrap gap-2 lg:max-w-md lg:justify-end">
               <Link
-                href="/seller/inventory?status=draft&source=instacomp"
+                href="/seller/instacomp-pending"
                 className="rounded-full bg-sky-300 px-4 py-2 text-sm font-black text-slate-950 shadow-sm hover:bg-sky-200"
               >
                 Open InstaComp Pending Listings
