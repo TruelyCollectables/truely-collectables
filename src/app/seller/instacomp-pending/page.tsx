@@ -59,6 +59,21 @@ type PendingItem = {
     pricingStatus: PricingStatus;
     pricingReason: string;
     reliableSoldCompCount: number;
+    pricingAnalysis: {
+      strategy: string;
+      soldCount: number;
+      activeCount: number;
+      soldLow: number | null;
+      soldMedian: number | null;
+      soldAverage: number | null;
+      soldHigh: number | null;
+      activeLow: number | null;
+      activeMedian: number | null;
+      activeAverage: number | null;
+      activeHigh: number | null;
+      soldListTarget: number | null;
+      competitiveTarget: number | null;
+    };
     pricingCheckedAt: string | null;
     listingPrice: number | null;
     listingPriceSource: string | null;
@@ -1069,6 +1084,26 @@ export default function InstaCompPendingPage() {
                       </p>
                       <p className="mt-1 text-sm font-semibold text-sky-950">
                         {item.instaComp.pricingReason}
+                      </p>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                        {[
+                          ["Sold range", item.instaComp.pricingAnalysis.soldLow !== null ? `${money(item.instaComp.pricingAnalysis.soldLow)}–${money(item.instaComp.pricingAnalysis.soldHigh)}` : "None"],
+                          ["Sold median", item.instaComp.pricingAnalysis.soldMedian !== null ? money(item.instaComp.pricingAnalysis.soldMedian) : "None"],
+                          ["Active range", item.instaComp.pricingAnalysis.activeLow !== null ? `${money(item.instaComp.pricingAnalysis.activeLow)}–${money(item.instaComp.pricingAnalysis.activeHigh)}` : "None"],
+                          ["Active median", item.instaComp.pricingAnalysis.activeMedian !== null ? money(item.instaComp.pricingAnalysis.activeMedian) : "None"],
+                          ["Sold list target", item.instaComp.pricingAnalysis.soldListTarget !== null ? money(item.instaComp.pricingAnalysis.soldListTarget) : "None"],
+                          ["Competition target", item.instaComp.pricingAnalysis.competitiveTarget !== null ? money(item.instaComp.pricingAnalysis.competitiveTarget) : "None"],
+                          ["Exact sold", item.instaComp.pricingAnalysis.soldCount],
+                          ["Exact active", item.instaComp.pricingAnalysis.activeCount],
+                        ].map(([title, value]) => (
+                          <div key={String(title)} className="rounded-lg border border-sky-300 bg-white p-2">
+                            <p className="text-[10px] font-black uppercase text-sky-800">{title}</p>
+                            <p className="mt-1 text-sm font-black text-neutral-950">{value}</p>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="mt-2 text-[11px] font-black uppercase tracking-wide text-sky-800">
+                        Strategy: {label(item.instaComp.pricingAnalysis.strategy)}
                       </p>
                       <div className="mt-3 flex flex-wrap gap-2">
                         <button
