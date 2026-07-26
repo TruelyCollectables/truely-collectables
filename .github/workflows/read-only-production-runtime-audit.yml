@@ -84,7 +84,7 @@ jobs:
 
       - name: Evaluate the real Production runtime without deployment
         id: runtime_audit
-        if: steps.environment_names.outcome == 'success'
+        if: steps.vercel_link.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
