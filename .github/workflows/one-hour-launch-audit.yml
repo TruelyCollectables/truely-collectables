@@ -1,0 +1,85 @@
+name: One-Hour Storefront Launch Audit
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "scripts/run-one-hour-launch-audit.mjs"
+      - ".github/workflows/one-hour-launch-audit.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  one-hour-launch-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+      VERCEL_PROJECT_NAME: truely-collectables
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify Vercel authentication
+        shell: bash
+        run: |
+          test -n "${VERCEL_TOKEN:-}" || { echo "VERCEL_TOKEN is missing"; exit 1; }
+
+      - name: Link the known Vercel project without deployment
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/tcos-vercel-cli-56.2.0"
+          npm --prefix "$RUNNER_TEMP/tcos-vercel-cli-56.2.0" exec --yes --package=vercel@56.2.0 -- \
+            vercel --cwd "$PWD" link --yes --project "$VERCEL_PROJECT_NAME" \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" --no-color
+
+      - name: List Production environment names
+        shell: bash
+        run: |
+          npm --prefix "$RUNNER_TEMP/tcos-vercel-cli-56.2.0" exec --yes --package=vercel@56.2.0 -- \
+            vercel --cwd "$PWD" env ls production --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" --no-color > vercel-production-env-names.txt
+
+      - name: Pull usable Production environment values without deployment
+        id: env_pull
+        continue-on-error: true
+        shell: bash
+        run: |
+          npm --prefix "$RUNNER_TEMP/tcos-vercel-cli-56.2.0" exec --yes --package=vercel@56.2.0 -- \
+            vercel --cwd "$PWD" env pull .env.storefront.production \
+            --environment=production --yes --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" --no-color
+
+      - name: Read deployment quota without deploying
+        continue-on-error: true
+        shell: bash
+        run: node scripts/deploy-production.mjs --quota-status --json > vercel-quota-status.json
+
+      - name: Audit live schema, current storefront, quota, and migration access
+        shell: bash
+        run: node scripts/run-one-hour-launch-audit.mjs
+
+      - name: Upload redacted launch audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: one-hour-launch-audit-evidence
+          path: one-hour-launch-audit.json
+          if-no-files-found: error
+          retention-days: 2
+
+      - name: Remove linked-project and environment files
+        if: always()
+        shell: bash
+        run: |
+          rm -rf .vercel
+          rm -f .env.storefront.production vercel-production-env-names.txt vercel-quota-status.json one-hour-launch-audit.json
