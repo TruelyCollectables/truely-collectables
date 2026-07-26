@@ -4,20 +4,13 @@ on:
   pull_request:
     paths:
       - "src/lib/active-market-*.ts"
-      - "src/app/api/account/seller/inventory/**/active-market-attack/route.ts"
-      - "src/app/api/account/seller/inventory/active-pricing/route.ts"
+      - "src/app/api/**/route.ts"
+      - "src/proxy.ts"
       - "src/app/seller/inventory/SellerActiveInventoryPricing.tsx"
       - "scripts/run-active-market-*-simulations.ts"
-      - "src/app/api/checkout/route.ts"
-      - "src/app/api/webhook/route.ts"
-      - "src/app/api/offers/**/route.ts"
       - "src/lib/checkout-inventory-reservations.ts"
       - "src/lib/checkout-order-finalization.ts"
       - "src/lib/live-payment-launch*.ts"
-      - "src/app/api/admin/seller-payouts/connect-refresh/route.ts"
-      - "src/app/api/ebay/import-listings/route.ts"
-      - "src/app/api/cron/ebay-store-fixed-price-sync/route.ts"
-      - "src/app/api/storefront/product-images/**/route.ts"
       - "src/app/admin/ebay/import-runner/EbayImportRunner.tsx"
       - "src/app/product/[id]/ProductActions.tsx"
       - "src/lib/ebay-front-back-image-sync.ts"
@@ -32,6 +25,7 @@ on:
       - "scripts/run-ebay-import-admin-client-simulations.ts"
       - "scripts/run-checkout-webhook-idempotency-simulations.ts"
       - "scripts/run-offer-checkout-idempotency-simulations.ts"
+      - "scripts/run-privileged-api-route-audit.mjs"
       - "supabase/migrations/20260725010000_checkout_inventory_reservations.sql"
       - "supabase/migrations/20260725170000_consume_checkout_reservations.sql"
       - ".github/workflows/active-market-integrity.yml"
@@ -40,20 +34,13 @@ on:
       - main
     paths:
       - "src/lib/active-market-*.ts"
-      - "src/app/api/account/seller/inventory/**/active-market-attack/route.ts"
-      - "src/app/api/account/seller/inventory/active-pricing/route.ts"
+      - "src/app/api/**/route.ts"
+      - "src/proxy.ts"
       - "src/app/seller/inventory/SellerActiveInventoryPricing.tsx"
       - "scripts/run-active-market-*-simulations.ts"
-      - "src/app/api/checkout/route.ts"
-      - "src/app/api/webhook/route.ts"
-      - "src/app/api/offers/**/route.ts"
       - "src/lib/checkout-inventory-reservations.ts"
       - "src/lib/checkout-order-finalization.ts"
       - "src/lib/live-payment-launch*.ts"
-      - "src/app/api/admin/seller-payouts/connect-refresh/route.ts"
-      - "src/app/api/ebay/import-listings/route.ts"
-      - "src/app/api/cron/ebay-store-fixed-price-sync/route.ts"
-      - "src/app/api/storefront/product-images/**/route.ts"
       - "src/app/admin/ebay/import-runner/EbayImportRunner.tsx"
       - "src/app/product/[id]/ProductActions.tsx"
       - "src/lib/ebay-front-back-image-sync.ts"
@@ -68,6 +55,7 @@ on:
       - "scripts/run-ebay-import-admin-client-simulations.ts"
       - "scripts/run-checkout-webhook-idempotency-simulations.ts"
       - "scripts/run-offer-checkout-idempotency-simulations.ts"
+      - "scripts/run-privileged-api-route-audit.mjs"
       - "supabase/migrations/20260725010000_checkout_inventory_reservations.sql"
       - "supabase/migrations/20260725170000_consume_checkout_reservations.sql"
       - ".github/workflows/active-market-integrity.yml"
@@ -139,6 +127,24 @@ jobs:
         with:
           node-version: 22
           cache: npm
+
+      - name: Audit privileged API route protection
+        id: privileged_api_audit
+        continue-on-error: true
+        run: node scripts/run-privileged-api-route-audit.mjs
+
+      - name: Upload privileged API route audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: privileged-api-route-audit
+          path: privileged-api-route-audit.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Enforce privileged API route audit
+        if: steps.privileged_api_audit.outcome == 'failure'
+        run: exit 1
 
       - name: Install dependencies
         run: npm ci
