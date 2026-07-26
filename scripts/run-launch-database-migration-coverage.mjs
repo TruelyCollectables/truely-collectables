@@ -15,15 +15,13 @@ const requirement = (category, name, description, tokens = [name]) => ({
 const requirements = [
   requirement(
     "inventory",
-    "canonical_inventory_product_uniqueness",
+    "inventory_items_store_legacy_product_unique_idx",
     "one canonical inventory row per store/product",
-    ["inventory_items_store_legacy_product_unique_idx"],
   ),
   requirement(
     "inventory",
-    "inventory_store_identity_parent_key",
-    "composite inventory identity required by store-scoped foreign keys",
-    ["inventory_items_id_store_id_unique_idx", "inventory_items_store_id_uidx"],
+    "inventory_items_id_store_id_unique_idx",
+    "composite inventory identity in referenced-column order",
   ),
   requirement(
     "checkout",
@@ -59,9 +57,8 @@ const requirements = [
   ),
   requirement(
     "orders",
-    "orders_store_stripe_session_uniqueness",
-    "one order per store and Stripe Checkout Session",
-    ["orders_store_stripe_session_uidx", "orders_store_stripe_session_unique_idx"],
+    "orders_store_stripe_session_uidx",
+    "one canonical order per store and Stripe Checkout Session",
   ),
   requirement(
     "orders",
@@ -70,15 +67,13 @@ const requirements = [
   ),
   requirement(
     "orders",
-    "orders_store_identity_parent_key",
-    "composite order identity required by store-scoped foreign keys",
-    ["orders_id_store_id_unique_idx", "orders_store_id_uidx"],
+    "orders_id_store_id_unique_idx",
+    "composite order identity in referenced-column order",
   ),
   requirement(
     "orders",
-    "products_store_identity_parent_key",
-    "composite product identity required by store-scoped foreign keys",
-    ["products_id_store_id_unique_idx", "products_store_id_uidx"],
+    "products_id_store_id_unique_idx",
+    "composite product identity in referenced-column order",
   ),
   requirement("orders", "order_items_quantity_positive_check", "positive order-item quantity"),
   requirement("orders", "order_items_price_nonnegative_check", "nonnegative order-item price"),
@@ -150,9 +145,7 @@ const results = requirements.map((item) => {
       .filter((migration) => migration.normalized.includes(normalizedToken))
       .map((migration) => migration.fileName);
 
-    if (files.length > 0) {
-      matches.push({ token, files });
-    }
+    if (files.length > 0) matches.push({ token, files });
   }
 
   return {
@@ -170,7 +163,7 @@ for (const result of results) {
       ` :: ${result.description}` +
       (result.covered
         ? ` :: ${matchedTokens} :: ${result.files.join(", ")}`
-        : ` :: expected one of ${result.tokens.join(" | ")}`),
+        : ` :: expected ${result.tokens.join(" | ")}`),
   );
 }
 
@@ -191,7 +184,7 @@ if (missing.length > 0) {
     `Launch database migration coverage is missing ${missing.length} required protection(s):\n${missing
       .map(
         (result) =>
-          `- [${result.category}] ${result.name}: ${result.description} (expected one of ${result.tokens.join(
+          `- [${result.category}] ${result.name}: ${result.description} (expected ${result.tokens.join(
             ", ",
           )})`,
       )
