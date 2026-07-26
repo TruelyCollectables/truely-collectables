@@ -5,43 +5,46 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { addToCart } from "../../../lib/cart";
 
-type Product = {
+export type StorefrontProductActionItem = {
   id: number;
   title: string;
   price: number;
   image_url?: string;
+  shipping_profile?: "card_letter_eligible" | "parcel_only";
 };
 
-type ProductImageResponse = {
-  images?: unknown;
-};
+type ProductImageResponse = { images?: unknown };
 
-export default function ProductActions({ product }: { product: Product }) {
+export default function ProductActions({
+  product,
+}: {
+  product: StorefrontProductActionItem;
+}) {
   const [images, setImages] = useState<string[]>(
     product.image_url ? [product.image_url] : [],
   );
+  const [selectedImage, setSelectedImage] = useState(0);
   const [cartMessage, setCartMessage] = useState("");
 
   useEffect(() => {
     const controller = new AbortController();
-
     fetch(`/api/storefront/product-images/${product.id}`, {
       signal: controller.signal,
       cache: "no-store",
     })
-      .then(async (response) => {
-        if (!response.ok) return null;
-        return (await response.json()) as ProductImageResponse;
-      })
+      .then(async (response) =>
+        response.ok ? ((await response.json()) as ProductImageResponse) : null,
+      )
       .then((payload) => {
         if (!payload || !Array.isArray(payload.images)) return;
-
         const nextImages = payload.images
           .map((image) => String(image || "").trim())
           .filter(Boolean)
-          .slice(0, 2);
-
-        if (nextImages.length) setImages(nextImages);
+          .slice(0, 20);
+        if (nextImages.length) {
+          setImages(nextImages);
+          setSelectedImage(0);
+        }
       })
       .catch((error: unknown) => {
         if (error instanceof Error && error.name === "AbortError") return;
@@ -58,6 +61,7 @@ export default function ProductActions({ product }: { product: Product }) {
       price: Number(product.price),
       quantity: 1,
       image_url: images[0] || product.image_url,
+      shipping_profile: product.shipping_profile,
     });
   }
 
@@ -77,39 +81,58 @@ export default function ProductActions({ product }: { product: Product }) {
         <section className="rounded border bg-neutral-50 p-3">
           <div className="flex items-center justify-between gap-3">
             <h3 className="text-sm font-black uppercase tracking-wide text-neutral-700">
-              Card Photos
+              Product Photos
             </h3>
             <span className="text-xs font-bold text-neutral-500">
-              {images.length >= 2 ? "Front + Back" : "Front only"}
+              {images.length} photo{images.length === 1 ? "" : "s"}
             </span>
           </div>
 
-          <div className="mt-3 grid grid-cols-1 gap-3 min-[360px]:grid-cols-2">
-            {images.slice(0, 2).map((image, index) => (
-              <figure key={`${image}-${index}`}>
-                <div className="relative aspect-[3/4] overflow-hidden rounded border bg-white">
+          <div className="relative mt-3 aspect-[4/5] overflow-hidden rounded border bg-white">
+            <Image
+              src={images[selectedImage] || images[0]}
+              alt={`${product.title} photo ${selectedImage + 1}`}
+              fill
+              sizes="(max-width: 1023px) 100vw, 430px"
+              quality={90}
+              className="object-contain p-2"
+            />
+          </div>
+
+          {images.length > 1 ? (
+            <div className="mt-3 grid grid-cols-4 gap-2 sm:grid-cols-5">
+              {images.map((image, index) => (
+                <button
+                  key={`${image}-${index}`}
+                  type="button"
+                  onClick={() => setSelectedImage(index)}
+                  aria-label={`View photo ${index + 1}`}
+                  className={`relative aspect-square overflow-hidden rounded border bg-white ${
+                    selectedImage === index
+                      ? "border-neutral-950 ring-2 ring-neutral-950"
+                      : "border-neutral-200"
+                  }`}
+                >
                   <Image
                     src={image}
-                    alt={`${product.title} ${index === 0 ? "front" : "back"}`}
+                    alt=""
                     fill
-                    sizes="(max-width: 359px) 100vw, (max-width: 1023px) 50vw, 200px"
-                    unoptimized
+                    sizes="96px"
+                    quality={85}
                     className="object-contain p-1"
                   />
-                </div>
-                <figcaption className="mt-1 text-center text-xs font-bold uppercase text-neutral-500">
-                  {index === 0 ? "Front" : "Back"}
-                </figcaption>
-              </figure>
-            ))}
-
-            {images.length < 2 ? (
-              <div className="flex aspect-[3/4] items-center justify-center rounded border border-dashed bg-white p-3 text-center text-xs font-bold text-neutral-500">
-                Back photo is being synchronized from the source listing.
-              </div>
-            ) : null}
-          </div>
+                </button>
+              ))}
+            </div>
+          ) : null}
         </section>
+      ) : null}
+
+      {product.shipping_profile === "parcel_only" ? (
+        <p className="rounded border border-blue-200 bg-blue-50 p-3 text-sm font-bold text-blue-950">
+          This item requires USPS Ground Advantage or Priority Mail. Tracked Card
+          Letter is not available.
+        </p>
       ) : null}
 
       <button
@@ -119,7 +142,6 @@ export default function ProductActions({ product }: { product: Product }) {
       >
         Make It Mine
       </button>
-
       <button
         type="button"
         onClick={handleAddToCart}
@@ -127,8 +149,10 @@ export default function ProductActions({ product }: { product: Product }) {
       >
         Add To Cart
       </button>
-
-      <div aria-live="polite" className="min-h-6 text-sm font-bold text-emerald-700">
+      <div
+        aria-live="polite"
+        className="min-h-6 text-sm font-bold text-emerald-700"
+      >
         {cartMessage ? (
           <>
             {cartMessage}{" "}
