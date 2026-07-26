@@ -12,14 +12,6 @@ type FixtureCard = {
   ai: InstaCompAiResult;
 };
 
-if (!process.env.SERPAPI_API_KEY) {
-  throw new Error("SERPAPI_API_KEY is required for the live six-card market proof.");
-}
-
-const fixture = JSON.parse(
-  fs.readFileSync("scripts/fixtures/instacomp-batch-001-exact-market.json", "utf8"),
-) as { cards: FixtureCard[] };
-
 function exactRows(rows: InstaCompComp[]) {
   return rows.filter(
     (row) =>
@@ -31,81 +23,96 @@ function exactRows(rows: InstaCompComp[]) {
   );
 }
 
-const report: Array<Record<string, unknown>> = [];
-for (const card of fixture.cards) {
-  try {
-    const result = await getUniversalEbaySerpProviders({
-      exactTitle: card.exactTitle,
-      fallbackQuery: card.exactTitle,
-      ai: card.ai,
-    });
-    const sold = exactRows(result.sold.results);
-    const active = exactRows(result.active.results);
-    const pricing = calculateInstaCompSweetSpot({ sold, active });
-    const suggestedPrice = sold.length > 0 ? pricing.suggestedPrice : 0;
-
-    report.push({
-      id: card.id,
-      title: card.exactTitle,
-      queries: result.queries,
-      soldCount: sold.length,
-      activeCount: active.length,
-      suggestedPrice,
-      pricingStrategy: sold.length > 0 ? pricing.strategy : "seller_price_required",
-      pricingExplanation:
-        sold.length > 0
-          ? pricing.explanation
-          : "No exact sold listing passed; seller pricing is required.",
-      sold: sold.slice(0, 10).map((row) => ({
-        title: row.title,
-        deliveredPrice: row.price,
-        itemPrice: row.itemPrice ?? null,
-        shippingPrice: row.shippingPrice ?? null,
-        soldAt: row.soldAt ?? null,
-        url: row.url,
-        flags: row.flags,
-      })),
-      active: active.slice(0, 10).map((row) => ({
-        title: row.title,
-        deliveredPrice: row.price,
-        itemPrice: row.itemPrice ?? null,
-        shippingPrice: row.shippingPrice ?? null,
-        listedAt: row.listedAt ?? null,
-        url: row.url,
-        flags: row.flags,
-      })),
-      soldProviderStatus: result.sold.status,
-      activeProviderStatus: result.active.status,
-      soldMessage: result.sold.message,
-      activeMessage: result.active.message,
-    });
-  } catch (error) {
-    report.push({
-      id: card.id,
-      title: card.exactTitle,
-      soldCount: 0,
-      activeCount: 0,
-      suggestedPrice: 0,
-      error: error instanceof Error ? error.message : String(error),
-    });
+async function main() {
+  if (!process.env.SERPAPI_API_KEY) {
+    throw new Error("SERPAPI_API_KEY is required for the live six-card market proof.");
   }
+
+  const fixture = JSON.parse(
+    fs.readFileSync("scripts/fixtures/instacomp-batch-001-exact-market.json", "utf8"),
+  ) as { cards: FixtureCard[] };
+
+  const report: Array<Record<string, unknown>> = [];
+  for (const card of fixture.cards) {
+    try {
+      const result = await getUniversalEbaySerpProviders({
+        exactTitle: card.exactTitle,
+        fallbackQuery: card.exactTitle,
+        ai: card.ai,
+      });
+      const sold = exactRows(result.sold.results);
+      const active = exactRows(result.active.results);
+      const pricing = calculateInstaCompSweetSpot({ sold, active });
+      const suggestedPrice = sold.length > 0 ? pricing.suggestedPrice : 0;
+
+      report.push({
+        id: card.id,
+        title: card.exactTitle,
+        queries: result.queries,
+        soldCount: sold.length,
+        activeCount: active.length,
+        suggestedPrice,
+        pricingStrategy: sold.length > 0 ? pricing.strategy : "seller_price_required",
+        pricingExplanation:
+          sold.length > 0
+            ? pricing.explanation
+            : "No exact sold listing passed; seller pricing is required.",
+        sold: sold.slice(0, 10).map((row) => ({
+          title: row.title,
+          deliveredPrice: row.price,
+          itemPrice: row.itemPrice ?? null,
+          shippingPrice: row.shippingPrice ?? null,
+          soldAt: row.soldAt ?? null,
+          url: row.url,
+          flags: row.flags,
+        })),
+        active: active.slice(0, 10).map((row) => ({
+          title: row.title,
+          deliveredPrice: row.price,
+          itemPrice: row.itemPrice ?? null,
+          shippingPrice: row.shippingPrice ?? null,
+          listedAt: row.listedAt ?? null,
+          url: row.url,
+          flags: row.flags,
+        })),
+        soldProviderStatus: result.sold.status,
+        activeProviderStatus: result.active.status,
+        soldMessage: result.sold.message,
+        activeMessage: result.active.message,
+      });
+    } catch (error) {
+      report.push({
+        id: card.id,
+        title: card.exactTitle,
+        soldCount: 0,
+        activeCount: 0,
+        suggestedPrice: 0,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  fs.mkdirSync("docs", { recursive: true });
+  fs.writeFileSync(
+    "docs/instacomp-batch-001-live-market-proof.json",
+    JSON.stringify({ generatedAt: new Date().toISOString(), cards: report }, null, 2),
+  );
+
+  const failures = report.filter(
+    (row) =>
+      Number(row.soldCount || 0) < 1 ||
+      Number(row.activeCount || 0) < 1 ||
+      Number(row.suggestedPrice || 0) <= 0,
+  );
+  assert.equal(
+    failures.length,
+    0,
+    `Live exact-market proof is blocked for: ${failures.map((row) => row.id).join(", ")}`,
+  );
+  console.log(JSON.stringify({ success: true, cards: report }, null, 2));
 }
 
-fs.mkdirSync("docs", { recursive: true });
-fs.writeFileSync(
-  "docs/instacomp-batch-001-live-market-proof.json",
-  JSON.stringify({ generatedAt: new Date().toISOString(), cards: report }, null, 2),
-);
-
-const failures = report.filter(
-  (row) =>
-    Number(row.soldCount || 0) < 1 ||
-    Number(row.activeCount || 0) < 1 ||
-    Number(row.suggestedPrice || 0) <= 0,
-);
-assert.equal(
-  failures.length,
-  0,
-  `Live exact-market proof is blocked for: ${failures.map((row) => row.id).join(", ")}`,
-);
-console.log(JSON.stringify({ success: true, cards: report }, null, 2));
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
