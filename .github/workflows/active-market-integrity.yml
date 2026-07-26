@@ -31,6 +31,8 @@ on:
       - "scripts/run-offer-checkout-idempotency-simulations.ts"
       - "scripts/run-ebay-oauth-state-simulations.ts"
       - "scripts/run-privileged-api-route-audit.mjs"
+      - "scripts/run-launch-database-migration-coverage.mjs"
+      - "scripts/run-launch-database-schema-definition-simulations.mjs"
       - "supabase/migrations/**"
       - ".github/workflows/active-market-integrity.yml"
   push:
@@ -65,6 +67,8 @@ on:
       - "scripts/run-offer-checkout-idempotency-simulations.ts"
       - "scripts/run-ebay-oauth-state-simulations.ts"
       - "scripts/run-privileged-api-route-audit.mjs"
+      - "scripts/run-launch-database-migration-coverage.mjs"
+      - "scripts/run-launch-database-schema-definition-simulations.mjs"
       - "supabase/migrations/**"
       - ".github/workflows/active-market-integrity.yml"
   workflow_dispatch:
@@ -136,6 +140,23 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Audit launch database migration coverage
+        id: migration_coverage_audit
+        continue-on-error: true
+        run: node scripts/run-launch-database-migration-coverage.mjs
+
+      - name: Upload launch database migration coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launch-database-migration-coverage
+          path: launch-database-migration-coverage.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Validate launch database schema definitions
+        run: node scripts/run-launch-database-schema-definition-simulations.mjs
+
       - name: Audit privileged API route protection
         id: privileged_api_audit
         continue-on-error: true
@@ -149,6 +170,10 @@ jobs:
           path: privileged-api-route-audit.json
           if-no-files-found: error
           retention-days: 7
+
+      - name: Enforce launch database migration coverage
+        if: steps.migration_coverage_audit.outcome == 'failure'
+        run: exit 1
 
       - name: Enforce privileged API route audit
         if: steps.privileged_api_audit.outcome == 'failure'
