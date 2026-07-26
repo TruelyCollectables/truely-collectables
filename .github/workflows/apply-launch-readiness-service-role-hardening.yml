@@ -1,0 +1,43 @@
+name: Apply Launch Readiness Service Role Hardening
+
+on:
+  push:
+    branches:
+      - agent/launch-readiness-service-role-blocker-20260726
+    paths:
+      - scripts/apply-launch-readiness-service-role-hardening.mjs
+      - .github/workflows/apply-launch-readiness-service-role-hardening.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor == 'TruelyCollectables'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out audit branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/launch-readiness-service-role-blocker-20260726
+          fetch-depth: 0
+
+      - name: Apply exact source transformation
+        run: node scripts/apply-launch-readiness-service-role-hardening.mjs
+
+      - name: Validate patch shape
+        run: git diff --check
+
+      - name: Commit transformed sources
+        shell: bash
+        run: |
+          if git diff --quiet -- src/app/admin/launch-readiness/page.tsx src/app/api/admin/launch-readiness/route.ts; then
+            echo "No transformed source changes were produced."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/admin/launch-readiness/page.tsx src/app/api/admin/launch-readiness/route.ts
+          git commit -m "Block launch readiness without Supabase service role"
+          git push origin HEAD:agent/launch-readiness-service-role-blocker-20260726
