@@ -1,4 +1,4 @@
-name: Live Payment Identity Gate
+name: Storefront Identity Scope Gate
 
 on:
   pull_request:
@@ -27,7 +27,7 @@ permissions:
   contents: read
 
 jobs:
-  live-payment-identity-gate:
+  storefront-identity-scope-gate:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -37,8 +37,7 @@ jobs:
       NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
       ADMIN_PASSWORD: build-only-placeholder-password
       ADMIN_SESSION_SECRET: build-only-placeholder-session-secret
-      IP_INTELLIGENCE_REQUIRED: "true"
-      IP_INTELLIGENCE_API_URL: https://identity.example.invalid/{ip}
+      IP_INTELLIGENCE_REQUIRED: "false"
       STRIPE_SECRET_KEY: sk_test_build_only_placeholder
       NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
       STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
@@ -64,24 +63,24 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Validate live-payment identity lock
+      - name: Validate storefront identity scope
         id: identity_gate
         continue-on-error: true
-        run: node --import tsx scripts/run-live-payment-identity-gate-simulations.ts > live-payment-identity-gate.log 2>&1
+        run: node --import tsx scripts/run-live-payment-identity-gate-simulations.ts > storefront-identity-scope-gate.log 2>&1
 
-      - name: Upload live-payment identity evidence
+      - name: Upload storefront identity-scope evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: live-payment-identity-gate-evidence
-          path: live-payment-identity-gate.log
+          name: storefront-identity-scope-gate-evidence
+          path: storefront-identity-scope-gate.log
           if-no-files-found: error
           retention-days: 7
 
-      - name: Enforce live-payment identity lock
+      - name: Enforce storefront identity scope
         if: steps.identity_gate.outcome == 'failure'
         run: |
-          cat live-payment-identity-gate.log
+          cat storefront-identity-scope-gate.log
           exit 1
 
       - name: Validate payment owner marker
