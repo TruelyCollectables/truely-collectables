@@ -19,7 +19,7 @@ jobs:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_SCOPE: truelycollectables-projects
       VERCEL_PROJECT_NAME: truely-collectables
-      LAUNCH_SHA: ecc5f566d9cfd9a2cc7bcac56a09a24672c92487
+      LAUNCH_SHA: 753f45d55c490763a299eb35254b3bcb6da3cf38
       NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
       NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
       SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
