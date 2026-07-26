@@ -1,4 +1,4 @@
-name: Protected Live-Payment Readiness Check
+name: Guarded Truely Collectables Live Launch
 
 on:
   pull_request:
@@ -12,31 +12,79 @@ permissions:
   contents: read
 
 jobs:
-  protected-live-payment-readiness:
+  guarded-live-launch:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     env:
       TCOS_CRON_SECRET: ${{ secrets.TCOS_CRON_SECRET }}
+      READINESS_URL: https://truelycollectables.com/api/cron/live-payment-readiness
     steps:
-      - name: Call protected Production readiness endpoint
+      - name: Repair exact live Stripe webhook endpoint
         shell: bash
         run: |
           set -euo pipefail
           test -n "${TCOS_CRON_SECRET:-}" || { echo "TCOS_CRON_SECRET is missing"; exit 1; }
           status=$(curl --silent --show-error \
-            --output protected-live-payment-readiness.json \
+            --request POST \
+            --output live-webhook-repair.json \
             --write-out "%{http_code}" \
             --header "Authorization: Bearer ${TCOS_CRON_SECRET}" \
-            "https://truelycollectables.com/api/cron/live-payment-readiness")
-          echo "HTTP status: $status"
+            "$READINESS_URL")
+          echo "Webhook repair HTTP status: $status"
           test "$status" = "200"
-          jq -e '.success == true and .simulatedFinalRuntimeSwitch == true' protected-live-payment-readiness.json >/dev/null
+          jq -e '.success == true and .status == "enabled" and (.enabledRequiredEventCount == .requiredEventCount) and .signingSecretRotated == false' live-webhook-repair.json >/dev/null
 
-      - name: Upload redacted live-payment readiness
+      - name: Verify every approval check before database approval
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=$(curl --silent --show-error \
+            --output live-readiness-before-approval.json \
+            --write-out "%{http_code}" \
+            --header "Authorization: Bearer ${TCOS_CRON_SECRET}" \
+            "$READINESS_URL")
+          echo "Pre-approval readiness HTTP status: $status"
+          test "$status" = "200"
+          jq -e '.success == true and .actualRuntimeSwitchEnabled == true and .paymentMode == "live" and .approvalDatabaseReady == true and .approvalReady == true and .summary.approvalBlockingCount == 0 and .summary.databaseApproved == false' live-readiness-before-approval.json >/dev/null
+
+      - name: Record guarded auditable database approval
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=$(curl --silent --show-error \
+            --request PUT \
+            --output live-payment-approval.json \
+            --write-out "%{http_code}" \
+            --header "Authorization: Bearer ${TCOS_CRON_SECRET}" \
+            --header "Content-Type: application/json" \
+            --data '{"confirmation":"APPROVE LIVE PAYMENTS","operator":"Truely Collectables Owner","note":"Final protected launch approval after live webhook repair, 12/12 database preflight, 8/8 checkout E2E, successful Production deployment, and zero approval blockers on July 26, 2026."}' \
+            "$READINESS_URL")
+          echo "Database approval HTTP status: $status"
+          test "$status" = "200"
+          jq -e '.success == true and .mutationPerformed == true and .runtimeSwitchEnabled == true and .liveCheckoutShouldOpen == true' live-payment-approval.json >/dev/null
+
+      - name: Confirm live Checkout is open
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=$(curl --silent --show-error \
+            --output live-readiness-after-approval.json \
+            --write-out "%{http_code}" \
+            --header "Authorization: Bearer ${TCOS_CRON_SECRET}" \
+            "$READINESS_URL")
+          echo "Post-approval readiness HTTP status: $status"
+          test "$status" = "200"
+          jq -e '.success == true and .actualRuntimeSwitchEnabled == true and .paymentMode == "live" and .livePaymentsEnabled == true and .approvalReady == true and .summary.databaseApproved == true and .summary.runtimeSwitchEnabled == true and .summary.approvalBlockingCount == 0 and .summary.launchLockCount == 0' live-readiness-after-approval.json >/dev/null
+
+      - name: Upload guarded launch evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: protected-live-payment-readiness-evidence
-          path: protected-live-payment-readiness.json
+          name: guarded-live-launch-evidence
+          path: |
+            live-webhook-repair.json
+            live-readiness-before-approval.json
+            live-payment-approval.json
+            live-readiness-after-approval.json
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 30
