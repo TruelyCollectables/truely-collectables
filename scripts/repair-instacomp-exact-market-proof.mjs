@@ -69,7 +69,7 @@ function replaceRequired(source, before, after, file) {
   source = replaceRequired(
     source,
     `    const suggestedPrice = pricingAnalysis.suggestedPrice;\n    const reliableSoldCompCount = pricingAnalysis.soldCount;\n    const hasReliableSoldComps = pricingAnalysis.soldCount > 0;\n    const pricingStatus = suggestedPrice > 0\n      ? "suggested_from_reliable_sold_comps"\n      : "seller_price_required";\n    const pricingReason = pricingAnalysis.explanation;`,
-    `    const reliableSoldCompCount = pricingAnalysis.soldCount;\n    const hasReliableSoldComps = reliableSoldCompCount > 0;\n    const suggestedPrice = hasReliableSoldComps ? pricingAnalysis.suggestedPrice : 0;\n    const pricingStatus = hasReliableSoldComps && suggestedPrice > 0\n      ? "suggested_from_reliable_sold_comps"\n      : "seller_price_required";\n    const pricingReason = hasReliableSoldComps\n      ? pricingAnalysis.explanation\n      : activeCompetition.length\n        ? `No exact sold listing passed. \${activeCompetition.length} exact active listing\${activeCompetition.length === 1 ? " is" : "s are"} shown only as current competition; seller pricing is required.`\n        : "No exact sold or active listing passed; seller pricing is required.";`,
+    `    const reliableSoldCompCount = pricingAnalysis.soldCount;\n    const hasReliableSoldComps = reliableSoldCompCount > 0;\n    const suggestedPrice = hasReliableSoldComps ? pricingAnalysis.suggestedPrice : 0;\n    const pricingStatus = hasReliableSoldComps && suggestedPrice > 0\n      ? "suggested_from_reliable_sold_comps"\n      : "seller_price_required";\n    const pricingReason = hasReliableSoldComps\n      ? pricingAnalysis.explanation\n      : activeCompetition.length\n        ? "No exact sold listing passed. " + activeCompetition.length +\n          " exact active listing" + (activeCompetition.length === 1 ? " is" : "s are") +\n          " shown only as current competition; seller pricing is required."\n        : "No exact sold or active listing passed; seller pricing is required.";`,
     file,
   );
   fs.writeFileSync(file, source);
@@ -87,7 +87,7 @@ function replaceRequired(source, before, after, file) {
   source = replaceRequired(
     source,
     `        pricingReason: pricingAnalysis.explanation,`,
-    `        pricingReason: hasReliableSoldComps\n          ? pricingAnalysis.explanation\n          : nextActive.length\n            ? `No exact sold listing remains. \${nextActive.length} exact active listing\${nextActive.length === 1 ? " is" : "s are"} shown only as competition; seller pricing is required.`\n            : "No exact sold or active listing remains; seller pricing is required.",`,
+    `        pricingReason: hasReliableSoldComps\n          ? pricingAnalysis.explanation\n          : nextActive.length\n            ? "No exact sold listing remains. " + nextActive.length +\n              " exact active listing" + (nextActive.length === 1 ? " is" : "s are") +\n              " shown only as competition; seller pricing is required."\n            : "No exact sold or active listing remains; seller pricing is required.",`,
     file,
   );
   fs.writeFileSync(file, source);
