@@ -6,6 +6,7 @@ import {
 } from "../../../../lib/shipping-dry-run";
 import { refreshTransactionEvidenceReportForOrder } from "../../../../lib/transaction-evidence";
 import { getActiveStoreId } from "../../../../lib/stores";
+import { enqueueAndAttemptOrderNotification } from "../../../../lib/order-notifications";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 
 export const dynamic = "force-dynamic";
@@ -51,6 +52,23 @@ export async function POST(req: Request) {
         { status: 409 },
       );
     }
+
+    const { data: order, error: orderLookupError } = await supabase
+      .from("orders")
+      .select(
+        "id,customer_email,customer_name,carrier,tracking_number,shipped_at,fulfillment_status",
+      )
+      .eq("id", orderId)
+      .eq("store_id", storeId)
+      .single();
+
+    if (orderLookupError || !order) {
+      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    }
+
+    const trackingChanged =
+      String(order.carrier || "").trim() !== carrier ||
+      String(order.tracking_number || "").trim() !== trackingNumber;
 
     let activeShippingLabel: ActiveShippingLabel | null = null;
 
@@ -165,7 +183,39 @@ export async function POST(req: Request) {
       );
     }
 
-    return NextResponse.json({ success: true });
+    let notification = null;
+    let notificationError: string | null = null;
+
+    if (trackingChanged && order.shipped_at) {
+      try {
+        notification = await enqueueAndAttemptOrderNotification({
+          supabase,
+          storeId,
+          orderId,
+          notificationType: "tracking_updated",
+          recipientEmail: order.customer_email,
+          recipientName: order.customer_name,
+          payload: {
+            orderId,
+            customerName: order.customer_name,
+            carrier,
+            trackingNumber,
+          },
+        });
+      } catch (error: any) {
+        notificationError = error?.message || "Tracking update notification failed";
+        console.error("Tracking update notification failed:", notificationError);
+      }
+    }
+
+    return NextResponse.json({
+      success: true,
+      emailSent: notification?.sent === true,
+      emailQueued: Boolean(notification),
+      notificationId: notification?.notificationId || null,
+      notificationStatus: notification?.status || null,
+      emailError: notification?.error || notificationError,
+    });
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message || "Tracking update failed" },

@@ -7,33 +7,11 @@ import {
 } from "../../../../lib/shipping-dry-run";
 import { getStoreSettings } from "../../../../lib/store-settings";
 import { getActiveStoreId } from "../../../../lib/stores";
+import { enqueueAndAttemptOrderNotification } from "../../../../lib/order-notifications";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 import { refreshTransactionEvidenceReportForOrder } from "../../../../lib/transaction-evidence";
 
 export const dynamic = "force-dynamic";
-
-function trackingUrl(carrier: string, trackingNumber: string) {
-  const encoded = encodeURIComponent(trackingNumber);
-
-  if (carrier === "USPS") {
-    return `https://tools.usps.com/go/TrackConfirmAction?tLabels=${encoded}`;
-  }
-
-  if (carrier === "UPS") {
-    return `https://www.ups.com/track?tracknum=${encoded}`;
-  }
-
-  if (carrier === "FedEx") {
-    return `https://www.fedex.com/fedextrack/?trknbr=${encoded}`;
-  }
-
-  return "";
-}
-
-function storeName(value: string) {
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : "our store";
-}
 
 function isMissingShippingInfrastructure(error: { code?: string; message?: string }) {
   const message = error.message?.toLowerCase() || "";
@@ -75,7 +53,8 @@ export async function POST(req: Request) {
         tracking_number,
         carrier,
         status,
-        fulfillment_status
+        fulfillment_status,
+        shipped_at
       `,
       )
       .eq("id", orderId)
@@ -152,7 +131,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const shippedAt = new Date().toISOString();
+    const shippedAt = order.shipped_at || new Date().toISOString();
 
     const { error } = await supabase
       .from("orders")
@@ -236,88 +215,36 @@ export async function POST(req: Request) {
       );
     }
 
-    let emailSent = false;
-    let emailError: string | null = null;
+    let notification = null;
+    let notificationError: string | null = null;
 
-    if (resendApiKey && order.customer_email) {
-      const trackUrl = trackingUrl(order.carrier, order.tracking_number);
-
-      const html = `
-        <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111;">
-          <h1>Your ${activeStoreName} order has shipped!</h1>
-
-          <p>Hi ${order.customer_name || "there"},</p>
-
-          <p>Great news - your order #${order.id} has shipped.</p>
-
-          <p>
-            <strong>Carrier:</strong> ${order.carrier}<br />
-            <strong>Tracking Number:</strong> ${order.tracking_number}
-          </p>
-
-          ${
-            trackUrl
-              ? `<p><a href="${trackUrl}" style="display:inline-block;background:#111;color:#fff;padding:10px 16px;text-decoration:none;border-radius:6px;">Track Your Package</a></p>`
-              : `<p>You can use your tracking number on the carrier's website to follow your package.</p>`
-          }
-
-          <p>Thank you for shopping with ${activeStoreName}!</p>
-
-          <p>- ${activeStoreName}</p>
-        </div>
-      `;
-
-      const text = `
-Your ${activeStoreName} order has shipped!
-
-Hi ${order.customer_name || "there"},
-
-Great news - your order #${order.id} has shipped.
-
-Carrier: ${order.carrier}
-Tracking Number: ${order.tracking_number}
-
-${trackUrl ? `Track your package: ${trackUrl}` : "You can use your tracking number on the carrier's website to follow your package."}
-
-Thank you for shopping with ${activeStoreName}!
-
-- ${activeStoreName}
-      `.trim();
-
-      try {
-        const emailRes = await fetch("https://api.resend.com/emails", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${resendApiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            from: storeSettings.orderFromEmail,
-            to: order.customer_email,
-            subject: `Your ${activeStoreName} order #${order.id} has shipped!`,
-            html,
-            text,
-          }),
-        });
-
-        const emailData = await emailRes.json().catch(() => ({}));
-
-        if (!emailRes.ok) {
-          emailError = JSON.stringify(emailData);
-          console.error("Shipment email failed:", emailData);
-        } else {
-          emailSent = true;
-        }
-      } catch (err: any) {
-        emailError = err.message || "Shipment email failed";
-        console.error("Shipment email failed:", emailError);
-      }
+    try {
+      notification = await enqueueAndAttemptOrderNotification({
+        supabase,
+        storeId,
+        orderId,
+        notificationType: "shipment_confirmation",
+        recipientEmail: order.customer_email,
+        recipientName: order.customer_name,
+        payload: {
+          orderId,
+          customerName: order.customer_name,
+          carrier: order.carrier,
+          trackingNumber: order.tracking_number,
+        },
+      });
+    } catch (error: any) {
+      notificationError = error?.message || "Shipment notification failed";
+      console.error("Shipment notification failed:", notificationError);
     }
 
     return NextResponse.json({
       success: true,
-      emailSent,
-      emailError,
+      emailSent: notification?.sent === true,
+      emailQueued: Boolean(notification),
+      notificationId: notification?.notificationId || null,
+      notificationStatus: notification?.status || null,
+      emailError: notification?.error || notificationError,
     });
   } catch (error: any) {
     return NextResponse.json(

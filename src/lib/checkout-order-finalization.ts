@@ -16,6 +16,7 @@ import {
 } from "./checkout-inventory-reservations";
 import { selectedCheckoutShipping } from "./stripe-selected-shipping";
 import { persistBuyerProtectionForOrder } from "./buyer-protection-order";
+import { enqueueAndAttemptOrderNotification } from "./order-notifications";
 
 export async function finalizeCheckoutOrder(params: {
   supabase: SupabaseClient;
@@ -340,6 +341,37 @@ export async function finalizeCheckoutOrder(params: {
       "Transaction evidence report failed:",
       reportError.message || reportError,
     );
+  }
+
+  if (!isE2ETest) {
+    try {
+      await enqueueAndAttemptOrderNotification({
+        supabase,
+        storeId,
+        orderId,
+        notificationType: "payment_confirmation",
+        recipientEmail: customerEmail,
+        recipientName: customerName,
+        payload: {
+          orderId,
+          customerName,
+          total,
+          subtotal,
+          shippingAmount,
+          shippingName,
+          items: (ledgerOrderItems || []).map((item) => ({
+            title: String(item.title || "Item"),
+            quantity: Number(item.quantity || 1),
+            price: Number(item.price || 0),
+          })),
+        },
+      });
+    } catch (notificationError: any) {
+      console.error(
+        "Payment confirmation notification failed:",
+        notificationError?.message || notificationError,
+      );
+    }
   }
 
   return { orderId };
