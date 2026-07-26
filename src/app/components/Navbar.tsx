@@ -6,6 +6,7 @@ const navigationLinks = [
   { href: "/shop?q=rookie", label: "Rookies" },
   { href: "/shop?q=autograph", label: "Autos" },
   { href: "/shop?q=PSA", label: "Graded" },
+  { href: "/account/orders", label: "Orders" },
   { href: "/account", label: "Account" },
 ];
 
@@ -75,7 +76,10 @@ export default function Navbar() {
           </div>
 
           <div className="-mx-4 mt-3 overflow-x-auto border-t border-neutral-200 px-4 pt-2 lg:hidden sm:-mx-6 sm:px-6">
-            <div className="flex min-w-max items-center gap-5" aria-label="Mobile store navigation">
+            <div
+              className="flex min-w-max items-center gap-5"
+              aria-label="Mobile store navigation"
+            >
               {navigationLinks.map((item) => (
                 <NavigationLink key={item.href} {...item} />
               ))}
