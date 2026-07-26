@@ -37,9 +37,15 @@ const comp = (title: string): Omit<InstaCompComp, "matchScore" | "flags"> => ({
   sourceCategory: "marketplace",
 });
 
-const red = comp("2025 Panini Select Shedeur Sanders Rookie Swatches Red Prizm #RSW-SSS");
-const blue = comp("2025 Panini Select Shedeur Sanders Rookie Swatches Blue Prizm #RSW-SSS");
-const redWhiteBlue = comp("2025 Panini Select Shedeur Sanders Rookie Swatches Red White Blue Prizm #RSW-SSS");
+const red = comp(
+  "2025 Panini Select Shedeur Sanders Rookie Swatches Relic Red Prizm #RSW-SSS",
+);
+const blue = comp(
+  "2025 Panini Select Shedeur Sanders Rookie Swatches Relic Blue Prizm #RSW-SSS",
+);
+const redWhiteBlue = comp(
+  "2025 Panini Select Shedeur Sanders Rookie Swatches Relic Red White Blue Prizm #RSW-SSS",
+);
 
 assert.equal(filterAndRankExactMatches([red], target, 5, 0).length, 1);
 assert.equal(filterAndRankExactMatches([blue], target, 5, 0).length, 0);
