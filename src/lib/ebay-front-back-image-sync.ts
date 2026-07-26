@@ -294,11 +294,15 @@ async function synchronizeImageRows(params: {
     const identity = listingImageIdentity(imageUrl);
     const candidates = existingByIdentity.get(identity) || [];
     const exact = candidates.find(
+      (row) => !usedIds.has(row.id) && row.image_url === imageUrl,
+    );
+    const normalizedMatch = candidates.find(
       (row) =>
         !usedIds.has(row.id) &&
         preferHighResolutionListingImage(row.image_url) === imageUrl,
     );
-    const matched = exact || candidates.find((row) => !usedIds.has(row.id));
+    const matched =
+      exact || normalizedMatch || candidates.find((row) => !usedIds.has(row.id));
     const payload = {
       image_url: imageUrl,
       alt_text: listingImageAltText(params.title, index),
