@@ -33,8 +33,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          node scripts/run-pr106-lint-diagnostics.mjs 2>&1 | tee market-intel-build.log
-          npm run build 2>&1 | tee -a market-intel-build.log
+          npm run build 2>&1 | tee market-intel-build.log
 
       - name: Upload build log
         if: always()
