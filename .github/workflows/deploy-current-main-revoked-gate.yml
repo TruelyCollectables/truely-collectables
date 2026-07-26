@@ -1,0 +1,101 @@
+name: Deploy Current Main With Revoked Payment Gate
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/deploy-current-main-revoked-gate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-current-main:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+      VERCEL_PROJECT_NAME: truely-collectables
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      ADMIN_PASSWORD: build-only-placeholder-password
+      ADMIN_SESSION_SECRET: build-only-placeholder-session-secret
+      STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+      STRIPE_LIVE_SECRET_KEY: sk_live_build_only_placeholder
+      NEXT_PUBLIC_STRIPE_LIVE_PUBLISHABLE_KEY: pk_live_build_only_placeholder
+      STRIPE_LIVE_WEBHOOK_SECRET: whsec_live_build_only_placeholder
+      EBAY_CLIENT_ID: build-only-placeholder-client-id
+      EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+      EBAY_ENVIRONMENT: production
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+    steps:
+      - name: Check out exact current main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Verify deployment authentication
+        shell: bash
+        run: |
+          test -n "${VERCEL_TOKEN:-}" || { echo "VERCEL_TOKEN is missing"; exit 1; }
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Build current main locally
+        run: npm run build
+
+      - name: Link the known Vercel project without deploying
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/tcos-vercel-cli-56.2.0"
+          npm --prefix "$RUNNER_TEMP/tcos-vercel-cli-56.2.0" exec --yes --package=vercel@56.2.0 -- \
+            vercel --cwd "$PWD" link --yes --project "$VERCEL_PROJECT_NAME" \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" --no-color
+
+      - name: Deploy current main to Production
+        id: deploy
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          node scripts/deploy-production.mjs 2>&1 | tee production-deploy.log
+
+      - name: Upload deployment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: current-main-production-deploy-evidence
+          path: production-deploy.log
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Remove Vercel project cache
+        if: always()
+        run: rm -rf .vercel
+
+      - name: Enforce successful Production deploy
+        if: steps.deploy.outcome == 'failure'
+        shell: bash
+        run: |
+          echo "Production deploy failed. Review the deployment evidence artifact."
+          exit 1
