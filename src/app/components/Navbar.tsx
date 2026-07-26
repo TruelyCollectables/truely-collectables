@@ -1,6 +1,14 @@
 import Link from "next/link";
 import { STORE_BRAND_NAME } from "../../lib/legal";
 
+const navigationLinks = [
+  { href: "/shop", label: "Shop" },
+  { href: "/shop?q=rookie", label: "Rookies" },
+  { href: "/shop?q=autograph", label: "Autos" },
+  { href: "/shop?q=PSA", label: "Graded" },
+  { href: "/account", label: "Account" },
+];
+
 function storeMark(value: string) {
   const initials = value
     .split(/\s+/)
@@ -12,6 +20,17 @@ function storeMark(value: string) {
   return initials || "TC";
 }
 
+function NavigationLink({ href, label }: { href: string; label: string }) {
+  return (
+    <Link
+      href={href}
+      className="inline-flex min-h-11 items-center justify-center whitespace-nowrap text-sm font-black text-neutral-800 hover:underline hover:decoration-yellow-300 hover:decoration-4 hover:underline-offset-4"
+    >
+      {label}
+    </Link>
+  );
+}
+
 export default function Navbar() {
   return (
     <>
@@ -19,65 +38,48 @@ export default function Navbar() {
         Real sports cards · live inventory · secure checkout · tracking included
       </div>
       <nav className="sticky top-0 z-50 w-full border-b-2 border-neutral-950 bg-white px-4 py-3 sm:px-6">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
-          <Link
-            href="/"
-            className="flex min-w-0 items-center gap-3"
-            aria-label={`${STORE_BRAND_NAME} home`}
-          >
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center border-2 border-neutral-950 bg-yellow-300 text-sm font-black uppercase shadow-[3px_3px_0_#111318]">
-              {storeMark(STORE_BRAND_NAME)}
-            </div>
-            <div className="min-w-0">
-              <span className="block truncate text-base font-black leading-none tracking-tight sm:text-xl">
-                {STORE_BRAND_NAME}
-              </span>
-              <span className="mt-1 block text-[10px] font-black uppercase tracking-[0.18em] text-neutral-500">
-                The Card Wall
-              </span>
-            </div>
-          </Link>
-
-          <div className="flex items-center gap-2 sm:gap-3">
-            <div className="hidden items-center gap-5 lg:flex">
-              <Link
-                href="/shop"
-                className="text-sm font-black text-neutral-800 hover:underline hover:decoration-yellow-300 hover:decoration-4 hover:underline-offset-4"
-              >
-                Shop
-              </Link>
-              <Link
-                href="/shop?q=rookie"
-                className="text-sm font-black text-neutral-800 hover:underline hover:decoration-yellow-300 hover:decoration-4 hover:underline-offset-4"
-              >
-                Rookies
-              </Link>
-              <Link
-                href="/shop?q=autograph"
-                className="text-sm font-black text-neutral-800 hover:underline hover:decoration-yellow-300 hover:decoration-4 hover:underline-offset-4"
-              >
-                Autos
-              </Link>
-              <Link
-                href="/shop?q=PSA"
-                className="text-sm font-black text-neutral-800 hover:underline hover:decoration-yellow-300 hover:decoration-4 hover:underline-offset-4"
-              >
-                Graded
-              </Link>
-              <Link
-                href="/account"
-                className="text-sm font-black text-neutral-800 hover:underline hover:decoration-yellow-300 hover:decoration-4 hover:underline-offset-4"
-              >
-                Account
-              </Link>
-            </div>
-
+        <div className="mx-auto max-w-7xl">
+          <div className="flex items-center justify-between gap-3 sm:gap-4">
             <Link
-              href="/cart"
-              className="border-2 border-neutral-950 bg-yellow-300 px-4 py-2 text-sm font-black text-neutral-950 shadow-[3px_3px_0_#111318] transition hover:-translate-y-0.5"
+              href="/"
+              className="flex min-w-0 items-center gap-3"
+              aria-label={`${STORE_BRAND_NAME} home`}
             >
-              Cart
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center border-2 border-neutral-950 bg-yellow-300 text-sm font-black uppercase shadow-[3px_3px_0_#111318]">
+                {storeMark(STORE_BRAND_NAME)}
+              </div>
+              <div className="min-w-0">
+                <span className="block truncate text-base font-black leading-none tracking-tight sm:text-xl">
+                  {STORE_BRAND_NAME}
+                </span>
+                <span className="mt-1 block text-[10px] font-black uppercase tracking-[0.18em] text-neutral-500">
+                  The Card Wall
+                </span>
+              </div>
             </Link>
+
+            <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+              <div className="hidden items-center gap-5 lg:flex">
+                {navigationLinks.map((item) => (
+                  <NavigationLink key={item.href} {...item} />
+                ))}
+              </div>
+
+              <Link
+                href="/cart"
+                className="inline-flex min-h-11 items-center justify-center border-2 border-neutral-950 bg-yellow-300 px-4 py-2 text-sm font-black text-neutral-950 shadow-[3px_3px_0_#111318] transition hover:-translate-y-0.5"
+              >
+                Cart
+              </Link>
+            </div>
+          </div>
+
+          <div className="-mx-4 mt-3 overflow-x-auto border-t border-neutral-200 px-4 pt-2 lg:hidden sm:-mx-6 sm:px-6">
+            <div className="flex min-w-max items-center gap-5" aria-label="Mobile store navigation">
+              {navigationLinks.map((item) => (
+                <NavigationLink key={item.href} {...item} />
+              ))}
+            </div>
           </div>
         </div>
       </nav>

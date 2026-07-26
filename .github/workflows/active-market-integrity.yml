@@ -16,17 +16,18 @@ on:
       - "src/lib/legal.ts"
       - "src/app/admin/live-payment-launch/**"
       - "src/app/admin/ebay/import-runner/EbayImportRunner.tsx"
-      - "src/app/product/[id]/ProductActions.tsx"
+      - "src/app/product/**"
       - "src/lib/ebay-front-back-image-sync.ts"
       - "src/lib/listing-image-utils.ts"
       - "src/modules/inventory/admin-engine.ts"
       - "src/modules/inventory/index.ts"
       - "src/app/layout.tsx"
+      - "src/app/components/Navbar.tsx"
+      - "src/app/components/CheckoutButton.tsx"
       - "src/app/components/Footer.tsx"
       - "src/app/components/PolicyShell.tsx"
-      - "src/app/shop/page.tsx"
-      - "src/app/cart/page.tsx"
-      - "src/app/cart/CheckoutPolicyNotice.tsx"
+      - "src/app/shop/**"
+      - "src/app/cart/**"
       - "src/app/terms/page.tsx"
       - "src/app/privacy/**"
       - "src/app/shipping/**"
@@ -41,6 +42,7 @@ on:
       - "scripts/run-offer-checkout-idempotency-simulations.ts"
       - "scripts/run-ebay-oauth-state-simulations.ts"
       - "scripts/run-public-trust-policy-simulations.ts"
+      - "scripts/run-mobile-buyer-flow-simulations.ts"
       - "scripts/run-privileged-api-route-audit.mjs"
       - "scripts/run-launch-database-migration-coverage.mjs"
       - "scripts/run-launch-database-schema-definition-simulations.mjs"
@@ -64,17 +66,18 @@ on:
       - "src/lib/legal.ts"
       - "src/app/admin/live-payment-launch/**"
       - "src/app/admin/ebay/import-runner/EbayImportRunner.tsx"
-      - "src/app/product/[id]/ProductActions.tsx"
+      - "src/app/product/**"
       - "src/lib/ebay-front-back-image-sync.ts"
       - "src/lib/listing-image-utils.ts"
       - "src/modules/inventory/admin-engine.ts"
       - "src/modules/inventory/index.ts"
       - "src/app/layout.tsx"
+      - "src/app/components/Navbar.tsx"
+      - "src/app/components/CheckoutButton.tsx"
       - "src/app/components/Footer.tsx"
       - "src/app/components/PolicyShell.tsx"
-      - "src/app/shop/page.tsx"
-      - "src/app/cart/page.tsx"
-      - "src/app/cart/CheckoutPolicyNotice.tsx"
+      - "src/app/shop/**"
+      - "src/app/cart/**"
       - "src/app/terms/page.tsx"
       - "src/app/privacy/**"
       - "src/app/shipping/**"
@@ -89,6 +92,7 @@ on:
       - "scripts/run-offer-checkout-idempotency-simulations.ts"
       - "scripts/run-ebay-oauth-state-simulations.ts"
       - "scripts/run-public-trust-policy-simulations.ts"
+      - "scripts/run-mobile-buyer-flow-simulations.ts"
       - "scripts/run-privileged-api-route-audit.mjs"
       - "scripts/run-launch-database-migration-coverage.mjs"
       - "scripts/run-launch-database-schema-definition-simulations.mjs"
@@ -220,6 +224,9 @@ jobs:
 
       - name: Validate public trust policies
         run: node --import tsx scripts/run-public-trust-policy-simulations.ts
+
+      - name: Validate mobile buyer flow
+        run: node --import tsx scripts/run-mobile-buyer-flow-simulations.ts
 
       - name: Validate live payment semantic colors
         run: node --import tsx scripts/run-live-payment-status-color-simulations.ts
