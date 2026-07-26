@@ -42,8 +42,8 @@ assert.throws(
 
 const [payload, signature] = adminStateValue.split(".");
 assert.ok(payload && signature, "Admin OAuth state must contain payload and signature.");
-const replacement = signature.endsWith("A") ? "B" : "A";
-const tamperedState = `${payload}.${signature.slice(0, -1)}${replacement}`;
+const replacement = signature.startsWith("A") ? "B" : "A";
+const tamperedState = `${payload}.${replacement}${signature.slice(1)}`;
 assert.throws(
   () => parseAdminMarketplaceOAuthState(tamperedState),
   /OAuth state signature mismatch/,
