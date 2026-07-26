@@ -408,6 +408,7 @@ export async function POST(request: Request) {
     const engine = new InventoryEngine(actor.storeId, repository, supabase);
     const batch = safeKey(payload.batch, "unbatched");
     const results: Array<Record<string, unknown>> = [];
+    let lifecycleTablesAvailable = true;
 
     for (const [index, record] of records.entries()) {
       const recordId = safeKey(record.recordId || record.cardId, `card-${index + 1}`);
@@ -430,22 +431,32 @@ export async function POST(request: Request) {
           );
         }
 
-        const { data: existingAsset, error: existingError } = await supabase
+        const sku = `VR-${batch}-${recordId}`
+          .toUpperCase()
+          .replace(/[^A-Z0-9-]+/g, "-")
+          .slice(0, 80);
+
+        let existingAsset: {
+          id: string;
+          inventory_item_id: string | null;
+          legacy_product_id: number | null;
+          title: string;
+        } | null = null;
+        const existingAssetResult = await supabase
           .from("collectible_assets")
           .select("id,inventory_item_id,legacy_product_id,title")
           .eq("store_id", actor.storeId)
           .eq("source_record_key", sourceRecordKey)
           .maybeSingle();
 
-        if (existingError) {
-          if (missingCollectibleAssetTables(existingError)) {
-            throw new InstaCompJobServerError(
-              "Collectible lifecycle tables are not installed yet. Apply the collectible-asset migration before importing.",
-              503,
-              "COLLECTIBLE_ASSET_MIGRATION_REQUIRED",
-            );
+        if (existingAssetResult.error) {
+          if (missingCollectibleAssetTables(existingAssetResult.error)) {
+            lifecycleTablesAvailable = false;
+          } else {
+            throw existingAssetResult.error;
           }
-          throw existingError;
+        } else {
+          existingAsset = existingAssetResult.data;
         }
 
         if (existingAsset) {
@@ -457,10 +468,34 @@ export async function POST(request: Request) {
             legacyProductId: existingAsset.legacy_product_id,
             title: existingAsset.title,
             editUrl: existingAsset.inventory_item_id
-              ? `/seller/inventory?status=draft&search=${encodeURIComponent(recordId)}`
+              ? `/seller/inventory?status=draft&search=${encodeURIComponent(sku)}`
               : null,
           });
           continue;
+        }
+
+        if (!lifecycleTablesAvailable) {
+          const { data: existingInventory, error: existingInventoryError } =
+            await supabase
+              .from("inventory_items")
+              .select("id,legacy_product_id,title,sku,status")
+              .eq("store_id", actor.storeId)
+              .eq("sku", sku)
+              .maybeSingle();
+          if (existingInventoryError) throw existingInventoryError;
+          if (existingInventory) {
+            results.push({
+              recordId,
+              status: "skipped_existing",
+              assetId: null,
+              inventoryItemId: existingInventory.id,
+              legacyProductId: existingInventory.legacy_product_id,
+              title: existingInventory.title,
+              lifecycleBackfillPending: true,
+              editUrl: `/seller/inventory?status=draft&search=${encodeURIComponent(sku)}`,
+            });
+            continue;
+          }
         }
 
         const title = textValue(record.title, 240);
@@ -537,11 +572,6 @@ export async function POST(request: Request) {
         ]);
         uploadedPaths = [front.path, back.path];
 
-        const sku = `VR-${batch}-${recordId}`
-          .toUpperCase()
-          .replace(/[^A-Z0-9-]+/g, "-")
-          .slice(0, 80);
-
         const description = descriptionLines({
           title,
           player,
@@ -610,6 +640,7 @@ export async function POST(request: Request) {
           grader_verification_status: graderVerification.status,
           grader_verification_url: graderVerification.verificationUrl,
           price_pending: true,
+          lifecycle_backfill_pending: !lifecycleTablesAvailable,
         };
         const inventoryMetadata = {
           source: "instacomp_human_verified_reference",
@@ -689,6 +720,23 @@ export async function POST(request: Request) {
         ]);
         if (updates[0].error) throw updates[0].error;
         if (updates[1].error) throw updates[1].error;
+
+        if (!lifecycleTablesAvailable) {
+          results.push({
+            recordId,
+            status: "created",
+            assetId: null,
+            inventoryItemId,
+            legacyProductId,
+            sku,
+            title,
+            graderVerificationStatus: graderVerification.status,
+            graderVerificationUrl: graderVerification.verificationUrl,
+            lifecycleBackfillPending: true,
+            editUrl: `/seller/inventory?status=draft&search=${encodeURIComponent(sku)}`,
+          });
+          continue;
+        }
 
         const { data: asset, error: assetError } = await supabase
           .from("collectible_assets")
