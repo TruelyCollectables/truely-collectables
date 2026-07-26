@@ -201,15 +201,18 @@ function buildReadinessItems(
     },
     {
       label: "Admin Access",
-      status: isConfigured(process.env.ADMIN_PASSWORD)
-        ? isConfigured(process.env.ADMIN_SESSION_SECRET)
+      status:
+        isConfigured(process.env.ADMIN_PASSWORD) &&
+        isConfigured(process.env.ADMIN_SESSION_SECRET)
           ? "ready"
-          : "warning"
-        : "blocked",
-      detail: isConfigured(process.env.ADMIN_SESSION_SECRET)
-        ? "Admin password and signed session secret are configured."
-        : "Admin sessions fall back to ADMIN_PASSWORD when ADMIN_SESSION_SECRET is missing.",
-      action: "Set ADMIN_PASSWORD and a separate strong ADMIN_SESSION_SECRET before launch.",
+          : "blocked",
+      detail:
+        isConfigured(process.env.ADMIN_PASSWORD) &&
+        isConfigured(process.env.ADMIN_SESSION_SECRET)
+          ? "Admin password and an independently configured signed-session secret are ready."
+          : "ADMIN_PASSWORD and ADMIN_SESSION_SECRET are both required. Admin session creation and validation fail closed when the dedicated session-signing secret is missing.",
+      action:
+        "Set ADMIN_PASSWORD and a separate strong ADMIN_SESSION_SECRET in the Vercel Production environment and local operator environment before launch.",
     },
     {
       label: "Stripe Key Mode",

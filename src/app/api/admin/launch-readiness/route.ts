@@ -52,6 +52,7 @@ function missingPrivilegedSupabaseEnvironment() {
     "NEXT_PUBLIC_SUPABASE_URL",
     "NEXT_PUBLIC_SUPABASE_ANON_KEY",
     "SUPABASE_SERVICE_ROLE_KEY",
+    "ADMIN_SESSION_SECRET",
   ].filter((name) => !process.env[name]?.trim());
 }
 
@@ -61,12 +62,12 @@ function buildPrivilegedSupabaseBlocker(
 ) {
   const href = "/admin/launch-readiness";
   const detail =
-    "Launch Readiness cannot verify privileged database state because the required Supabase bootstrap environment is incomplete. Admin Supabase clients fail closed and do not substitute the public anon key for the service-role key.";
+    "Launch Readiness cannot verify privileged runtime state because required server-only bootstrap environment is incomplete. Admin Supabase clients and admin sessions fail closed; the public anon key cannot replace the service-role key, and ADMIN_PASSWORD cannot replace the session-signing secret.";
   const action = `Set the missing Vercel Production and local operator environment variable name${
     missingEnvironmentVariables.length === 1 ? "" : "s"
   }: ${missingEnvironmentVariables.join(", ")}. Then rerun Launch Readiness before any live-payment or deployment approval.`;
   const attentionItem = {
-    label: "Supabase Privileged Bootstrap",
+    label: "Privileged Runtime Bootstrap",
     status: "blocked" as const,
     detail,
     action,
