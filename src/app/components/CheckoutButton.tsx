@@ -122,9 +122,11 @@ export default function CheckoutButton({
 
   return (
     <button
+      type="button"
       onClick={handleCheckout}
       disabled={loading}
-      className="rounded bg-neutral-950 px-6 py-3 font-black text-white disabled:opacity-50"
+      aria-busy={loading}
+      className="min-h-12 w-full rounded bg-neutral-950 px-6 py-3 text-base font-black text-white disabled:opacity-50"
     >
       {loading ? "Loading..." : "Proceed to Secure Checkout"}
     </button>
