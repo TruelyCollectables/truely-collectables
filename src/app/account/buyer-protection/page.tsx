@@ -9,37 +9,39 @@ import {
 } from "../../../lib/buyer-protection";
 import { getAccountSession } from "../account-session";
 
+type Preference = {
+  mode: "always_on" | "always_off";
+  policy_version: string | null;
+  terms_accepted_at: string | null;
+} | null;
+
 type ProtectionRecord = {
   id: string;
   order_id: number;
   status: string;
-  fee_amount: number;
   covered_item_amount: number;
-  policy_version: string;
   shipped_at: string | null;
   earliest_claim_at: string | null;
   claim_deadline_at: string | null;
-  order?: {
-    id: number;
-    created_at: string;
-    shipping_name: string | null;
-    tracking_number: string | null;
-    carrier: string | null;
-    fulfillment_status: string | null;
-  } | null;
   claim?: {
     id: string;
     status: string;
     submitted_at: string;
     decision_note: string | null;
     reimbursement_amount: number;
-    reimbursed_at: string | null;
   } | null;
   claimWindow: {
     eligible: boolean;
     status: string;
     detail: string;
   };
+};
+
+type ProtectionData = {
+  preference: Preference;
+  currentAlwaysOn: boolean;
+  requiresReacceptance: boolean;
+  protections: ProtectionRecord[];
 };
 
 function dateLabel(value: string | null | undefined) {
@@ -50,76 +52,100 @@ function money(value: number | string | null | undefined) {
   return `$${Number(value || 0).toFixed(2)}`;
 }
 
+async function fetchProtectionData(token: string): Promise<ProtectionData> {
+  const headers = { Authorization: `Bearer ${token}` };
+  const [preferenceResponse, claimsResponse] = await Promise.all([
+    fetch("/api/account/buyer-protection/preference", {
+      headers,
+      cache: "no-store",
+    }),
+    fetch("/api/account/buyer-protection/claims", {
+      headers,
+      cache: "no-store",
+    }),
+  ]);
+  const preferencePayload = await preferenceResponse.json();
+  const claimsPayload = await claimsResponse.json();
+
+  if (!preferenceResponse.ok) {
+    throw new Error(
+      preferencePayload.error || "Could not load protection preference",
+    );
+  }
+  if (!claimsResponse.ok) {
+    throw new Error(claimsPayload.error || "Could not load protected orders");
+  }
+
+  return {
+    preference: preferencePayload.preference || null,
+    currentAlwaysOn: preferencePayload.currentAlwaysOn === true,
+    requiresReacceptance:
+      preferencePayload.requiresReacceptance === true,
+    protections: Array.isArray(claimsPayload.protections)
+      ? claimsPayload.protections
+      : [],
+  };
+}
+
 export default function BuyerProtectionAccountPage() {
-  const [accessToken, setAccessToken] = useState("");
-  const [preference, setPreference] = useState<any>(null);
+  const [session] = useState(() =>
+    typeof window === "undefined" ? null : getAccountSession(),
+  );
+  const accessToken = session?.access_token || "";
+  const [preference, setPreference] = useState<Preference>(null);
   const [currentAlwaysOn, setCurrentAlwaysOn] = useState(false);
   const [requiresReacceptance, setRequiresReacceptance] = useState(false);
   const [protections, setProtections] = useState<ProtectionRecord[]>([]);
   const [termsAccepted, setTermsAccepted] = useState(false);
-  const [statementByOrder, setStatementByOrder] = useState<Record<number, string>>({});
-  const [loading, setLoading] = useState(true);
+  const [statementByOrder, setStatementByOrder] = useState<Record<number, string>>(
+    {},
+  );
+  const [loading, setLoading] = useState(Boolean(accessToken));
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  async function load(token: string) {
-    setLoading(true);
-    setError("");
-
-    try {
-      const headers = { Authorization: `Bearer ${token}` };
-      const [preferenceResponse, claimsResponse] = await Promise.all([
-        fetch("/api/account/buyer-protection/preference", {
-          headers,
-          cache: "no-store",
-        }),
-        fetch("/api/account/buyer-protection/claims", {
-          headers,
-          cache: "no-store",
-        }),
-      ]);
-      const preferencePayload = await preferenceResponse.json();
-      const claimsPayload = await claimsResponse.json();
-
-      if (!preferenceResponse.ok) {
-        throw new Error(
-          preferencePayload.error || "Could not load protection preference",
-        );
-      }
-      if (!claimsResponse.ok) {
-        throw new Error(claimsPayload.error || "Could not load protected orders");
-      }
-
-      setPreference(preferencePayload.preference || null);
-      setCurrentAlwaysOn(preferencePayload.currentAlwaysOn === true);
-      setRequiresReacceptance(
-        preferencePayload.requiresReacceptance === true,
-      );
-      setProtections(
-        Array.isArray(claimsPayload.protections)
-          ? claimsPayload.protections
-          : [],
-      );
-    } catch (loadError: any) {
-      setError(loadError.message || "Could not load Buyer Protection");
-    } finally {
-      setLoading(false);
-    }
+  function applyData(data: ProtectionData) {
+    setPreference(data.preference);
+    setCurrentAlwaysOn(data.currentAlwaysOn);
+    setRequiresReacceptance(data.requiresReacceptance);
+    setProtections(data.protections);
   }
 
   useEffect(() => {
-    const session = getAccountSession();
-    const token = session?.access_token || "";
-    setAccessToken(token);
-    if (token) load(token);
-    else setLoading(false);
-  }, []);
+    if (!accessToken) return;
+
+    let cancelled = false;
+    void fetchProtectionData(accessToken)
+      .then((data) => {
+        if (!cancelled) applyData(data);
+      })
+      .catch((loadError: Error) => {
+        if (!cancelled) {
+          setError(loadError.message || "Could not load Buyer Protection");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken]);
+
+  async function reload() {
+    if (!accessToken) return;
+    const data = await fetchProtectionData(accessToken);
+    applyData(data);
+  }
 
   async function savePreference(mode: "always_on" | "always_off") {
     if (!accessToken) return;
     if (mode === "always_on" && !termsAccepted) {
-      setError("Accept the current Buyer Protection terms before enabling Always On.");
+      setError(
+        "Accept the current Buyer Protection terms before enabling Always On.",
+      );
       return;
     }
 
@@ -154,9 +180,13 @@ export default function BuyerProtectionAccountPage() {
           : "Buyer Protection is off for future orders.",
       );
       setTermsAccepted(false);
-      await load(accessToken);
-    } catch (saveError: any) {
-      setError(saveError.message || "Could not save preference");
+      await reload();
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : "Could not save preference",
+      );
     } finally {
       setSaving(false);
     }
@@ -185,9 +215,13 @@ export default function BuyerProtectionAccountPage() {
 
       setMessage(`Claim submitted for order #${orderId}.`);
       setStatementByOrder((current) => ({ ...current, [orderId]: "" }));
-      await load(accessToken);
-    } catch (claimError: any) {
-      setError(claimError.message || "Could not submit claim");
+      await reload();
+    } catch (claimError) {
+      setError(
+        claimError instanceof Error
+          ? claimError.message
+          : "Could not submit claim",
+      );
     } finally {
       setSaving(false);
     }
@@ -227,8 +261,8 @@ export default function BuyerProtectionAccountPage() {
           </p>
           <h1 className="mt-2 text-4xl font-black">Buyer Protection</h1>
           <p className="mt-3 max-w-3xl text-neutral-600">
-            ${BUYER_PROTECTION_FEE.toFixed(2)} per qualifying Tracked Card Letter order.
-            Item subtotal only, up to $20. Shipping and the fee are excluded.
+            ${BUYER_PROTECTION_FEE.toFixed(2)} per qualifying Tracked Card Letter
+            order. Item subtotal only, up to $20. Shipping and the fee are excluded.
           </p>
         </div>
         <Link
@@ -273,8 +307,8 @@ export default function BuyerProtectionAccountPage() {
             />
             <span>
               I accept Buyer Protection version {BUYER_PROTECTION_POLICY_VERSION}. I
-              understand claims open after 7 full days and expire 21 calendar days after
-              shipment. Reimbursement excludes shipping and the protection fee.
+              understand claims open after 7 full days and expire 21 calendar days
+              after shipment. Reimbursement excludes shipping and the protection fee.
             </span>
           </label>
         ) : null}
@@ -327,7 +361,9 @@ export default function BuyerProtectionAccountPage() {
               <article key={protection.id} className="rounded border bg-white p-5">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <h3 className="text-xl font-black">Order #{protection.order_id}</h3>
+                    <h3 className="text-xl font-black">
+                      Order #{protection.order_id}
+                    </h3>
                     <p className="mt-1 text-sm font-semibold text-neutral-600">
                       Covered item amount: {money(protection.covered_item_amount)} ·
                       Status: {protection.status.replaceAll("_", " ")}
@@ -369,12 +405,17 @@ export default function BuyerProtectionAccountPage() {
                         : ""}
                     </p>
                     {protection.claim.decision_note ? (
-                      <p className="mt-1 font-semibold">{protection.claim.decision_note}</p>
+                      <p className="mt-1 font-semibold">
+                        {protection.claim.decision_note}
+                      </p>
                     ) : null}
                   </div>
                 ) : protection.claimWindow.eligible ? (
                   <div className="mt-4">
-                    <label className="block font-black" htmlFor={`claim-${protection.order_id}`}>
+                    <label
+                      className="block font-black"
+                      htmlFor={`claim-${protection.order_id}`}
+                    >
                       Describe the missing shipment
                     </label>
                     <textarea
