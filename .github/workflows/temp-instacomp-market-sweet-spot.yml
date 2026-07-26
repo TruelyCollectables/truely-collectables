@@ -50,6 +50,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Normalize deterministic patch targets
+        run: node scripts/normalize-instacomp-market-patch-targets.mjs
+
       - name: Apply full market-pricing package
         id: patch
         continue-on-error: true
@@ -82,7 +85,9 @@ jobs:
       - name: Commit validated package
         run: |
           rm -f scripts/apply-instacomp-market-sweet-spot.mjs
+          rm -f scripts/normalize-instacomp-market-patch-targets.mjs
           rm -f docs/instacomp-market-patch-failure.txt
+          rm -f docs/.instacomp-market-sweet-spot-retry
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/lib/instacomp-market-pricing.ts \
@@ -92,7 +97,9 @@ jobs:
             src/app/seller/instacomp-pending/page.tsx \
             scripts/run-instacomp-market-sweet-spot-regressions.ts \
             scripts/apply-instacomp-market-sweet-spot.mjs \
-            docs/instacomp-market-patch-failure.txt
+            scripts/normalize-instacomp-market-patch-targets.mjs \
+            docs/instacomp-market-patch-failure.txt \
+            docs/.instacomp-market-sweet-spot-retry
           if git diff --cached --quiet; then
             echo "No market-pricing changes remain to commit."
             exit 0
