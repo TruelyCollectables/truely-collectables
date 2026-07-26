@@ -4,13 +4,21 @@ export type ShippingMethod =
   | "PRIORITY_MAIL";
 
 export const STANDARD_ENVELOPE_MAX_SUBTOTAL = 20;
+export const STANDARD_ENVELOPE_MAX_CARDS = 4;
 export const STANDARD_ENVELOPE_MAX_ESTIMATED_OUNCES = 3;
-export const STANDARD_ENVELOPE_ESTIMATED_OUNCES_PER_CARD = 1;
+export const STANDARD_ENVELOPE_ESTIMATED_OUNCES_PER_CARD = 0.75;
+export const STANDARD_ENVELOPE_BUYER_PRICE = 1.99;
+export const GROUND_ADVANTAGE_TEN_OUNCE_MIN_CARDS = 13;
+export const GROUND_ADVANTAGE_TEN_OUNCE_MAX_CARDS = 19;
+export const GROUND_ADVANTAGE_TEN_OUNCE_PRICE = 10.99;
+export const PRIORITY_MAIL_MIN_CARDS = 20;
+export const PRIORITY_MAIL_BUYER_PRICE = 14.99;
+export const FREE_PRIORITY_MAIL_THRESHOLD = 250;
 export const SHIPPING_COVERAGE_PROVIDER = "Coverage";
 export const STANDARD_ENVELOPE_DELIVERY_EVIDENCE_PROVIDER =
   "LetterTrack / USPS IMb";
 export const UNDER_20_SELLER_PROTECTION_PROVIDER =
-  "TCOS Under-$20 Seller Protection";
+  "Truely Collectables Under-$20 Seller Protection";
 export const UNDER_20_SELLER_PROTECTION_RATE = 0.02;
 export const UNDER_20_SELLER_PROTECTION_MAX_COVERAGE = 20;
 export const UNDER_20_SELLER_PROTECTION_METADATA_KEY =
@@ -21,14 +29,14 @@ const STANDARD_ENVELOPE_RATES_FROM_JULY_12_2026 = [0.78, 1.07, 1.36];
 
 export const SHIPPING_RULES = {
   STANDARD_ENVELOPE: {
-    name: "TCOS Standard Envelope",
-    shortName: "Standard Envelope",
-    basePrice: 0,
-    cardsIncluded: 0,
+    name: "Tracked Card Letter — Limited USPS scan visibility",
+    shortName: "Tracked Card Letter",
+    basePrice: STANDARD_ENVELOPE_BUYER_PRICE,
+    cardsIncluded: STANDARD_ENVELOPE_MAX_CARDS,
     additionalCardPrice: 0,
     freeShippingThreshold: null,
     deliveryEstimate:
-      "Letter-mail visibility with Out for Delivery / Delivered in Mailbox evidence when USPS scan data is available",
+      "Limited USPS Intelligent Mail barcode scan visibility when available",
   },
 
   GROUND_ADVANTAGE: {
@@ -37,20 +45,26 @@ export const SHIPPING_RULES = {
     basePrice: 6.99,
     cardsIncluded: 5,
     additionalCardPrice: 0.25,
-    freeShippingThreshold: 149,
+    freeShippingThreshold: null,
     deliveryEstimate: "2–5 business days",
   },
 
   PRIORITY_MAIL: {
     name: "USPS Priority Mail",
     shortName: "Priority Mail",
-    basePrice: 12.99,
-    cardsIncluded: 5,
-    additionalCardPrice: 0.25,
-    freeShippingThreshold: 500,
+    basePrice: PRIORITY_MAIL_BUYER_PRICE,
+    cardsIncluded: PRIORITY_MAIL_MIN_CARDS,
+    additionalCardPrice: 0,
+    freeShippingThreshold: FREE_PRIORITY_MAIL_THRESHOLD,
     deliveryEstimate: "1–3 business days",
   },
 } as const;
+
+const shippingMethodRank: Record<ShippingMethod, number> = {
+  STANDARD_ENVELOPE: 0,
+  GROUND_ADVANTAGE: 1,
+  PRIORITY_MAIL: 2,
+};
 
 export function isShippingMethod(value: unknown): value is ShippingMethod {
   return (
@@ -93,17 +107,33 @@ export function standardEnvelopeRateForEstimatedOunces({
 export function getStandardEnvelopeEligibility({
   itemCount,
   subtotal,
+  listingPriceBasis = subtotal,
 }: {
   itemCount: number;
   subtotal: number;
+  listingPriceBasis?: number;
 }) {
   const estimatedOunces = estimateStandardEnvelopeOunces({ itemCount });
+  const normalizedListingPriceBasis = Math.max(
+    0,
+    Math.round(Number(listingPriceBasis || 0) * 100) / 100,
+  );
 
-  if (subtotal > STANDARD_ENVELOPE_MAX_SUBTOTAL) {
+  if (itemCount <= 0 || itemCount > STANDARD_ENVELOPE_MAX_CARDS) {
     return {
       eligible: false,
       estimatedOunces,
-      reason: `Standard Envelope is only available for card orders up to $${STANDARD_ENVELOPE_MAX_SUBTOTAL.toFixed(2)}.`,
+      listingPriceBasis: normalizedListingPriceBasis,
+      reason: `Tracked Card Letter is limited to ${STANDARD_ENVELOPE_MAX_CARDS} cards per order.`,
+    };
+  }
+
+  if (normalizedListingPriceBasis > STANDARD_ENVELOPE_MAX_SUBTOTAL) {
+    return {
+      eligible: false,
+      estimatedOunces,
+      listingPriceBasis: normalizedListingPriceBasis,
+      reason: `Tracked Card Letter requires an original listing-price total of $${STANDARD_ENVELOPE_MAX_SUBTOTAL.toFixed(2)} or less. Accepted offers do not lower this shipping tier.`,
     };
   }
 
@@ -111,45 +141,90 @@ export function getStandardEnvelopeEligibility({
     return {
       eligible: false,
       estimatedOunces,
-      reason: `Standard Envelope is only available up to ${STANDARD_ENVELOPE_MAX_ESTIMATED_OUNCES} estimated oz.`,
+      listingPriceBasis: normalizedListingPriceBasis,
+      reason: `Tracked Card Letter is limited to ${STANDARD_ENVELOPE_MAX_ESTIMATED_OUNCES} estimated oz.`,
     };
   }
 
   return {
     eligible: true,
     estimatedOunces,
+    listingPriceBasis: normalizedListingPriceBasis,
     reason: null,
   };
+}
+
+export function getMinimumShippingMethod({
+  itemCount,
+  subtotal,
+  listingPriceBasis = subtotal,
+}: {
+  itemCount: number;
+  subtotal: number;
+  listingPriceBasis?: number;
+}): ShippingMethod {
+  if (Number(subtotal || 0) > FREE_PRIORITY_MAIL_THRESHOLD) {
+    return "PRIORITY_MAIL";
+  }
+
+  if (itemCount >= PRIORITY_MAIL_MIN_CARDS) {
+    return "PRIORITY_MAIL";
+  }
+
+  const trackedLetter = getStandardEnvelopeEligibility({
+    itemCount,
+    subtotal,
+    listingPriceBasis,
+  });
+
+  return trackedLetter.eligible ? "STANDARD_ENVELOPE" : "GROUND_ADVANTAGE";
 }
 
 export function resolveShippingMethod({
   requestedMethod,
   itemCount,
   subtotal,
+  listingPriceBasis = subtotal,
 }: {
   requestedMethod: ShippingMethod;
   itemCount: number;
   subtotal: number;
+  listingPriceBasis?: number;
 }) {
   const standardEnvelope = getStandardEnvelopeEligibility({
     itemCount,
     subtotal,
+    listingPriceBasis,
   });
+  const minimumMethod = getMinimumShippingMethod({
+    itemCount,
+    subtotal,
+    listingPriceBasis,
+  });
+  const method =
+    shippingMethodRank[requestedMethod] < shippingMethodRank[minimumMethod]
+      ? minimumMethod
+      : requestedMethod;
 
-  if (requestedMethod === "STANDARD_ENVELOPE" && !standardEnvelope.eligible) {
-    return {
-      method: "GROUND_ADVANTAGE" as const,
-      requestedMethod,
-      standardEnvelope,
-      reason: standardEnvelope.reason,
-    };
+  let reason: string | null = null;
+
+  if (method !== requestedMethod) {
+    if (minimumMethod === "PRIORITY_MAIL") {
+      reason =
+        Number(subtotal || 0) > FREE_PRIORITY_MAIL_THRESHOLD
+          ? `Orders over $${FREE_PRIORITY_MAIL_THRESHOLD.toFixed(2)} ship by Priority Mail for free.`
+          : `${PRIORITY_MAIL_MIN_CARDS} or more cards require Priority Mail.`;
+    } else {
+      reason = standardEnvelope.reason;
+    }
   }
 
   return {
-    method: requestedMethod,
+    method,
     requestedMethod,
+    minimumMethod,
     standardEnvelope,
-    reason: null,
+    reason,
   };
 }
 
@@ -173,10 +248,10 @@ export function getShippingCoverage({
     coveredAmount: coverageAmount,
     status: "required_at_label_purchase",
     coverageType: isStandardEnvelope
-      ? "standard_envelope_delivery_evidence"
+      ? "tracked_card_letter_delivery_evidence"
       : "full_shipment_coverage",
     detail: isStandardEnvelope
-      ? "Delivery evidence is required for eligible raw-card Standard Envelope shipments. TCOS expects USPS IMb scan history with Out for Delivery / Delivered in Mailbox status when USPS data is available. Seller protection applies only when the seller opted into TCOS Under-$20 Seller Protection for the shipment."
+      ? "Eligible Truely Collectables card-letter shipments use LetterTrack / USPS Intelligent Mail barcode scan visibility when available. This is limited letter visibility, not guaranteed package tracking or proof of delivery."
       : "Included seller protection for tracked parcel shipments, subject to Coverage provider terms and carrier tracking evidence.",
   };
 }
@@ -217,11 +292,10 @@ export function getUnder20SellerProtection({
     coverageBasis: "item_sale_amount_excluding_shipping",
     reimbursesShipping: false,
     claimTrigger:
-      "Eligible only when the Standard Envelope delivery-evidence lane does not show delivered status under TCOS claim rules. Seller reimbursement is limited to the protected item sale amount up to $20 and excludes shipping.",
+      "Eligible only when the Tracked Card Letter delivery-evidence lane does not show delivered status under Truely Collectables claim rules. Seller reimbursement is limited to the protected item sale amount up to $20 and excludes shipping.",
     sellerRefundRule:
-      "If the buyer must be refunded for a protected under-$20 Standard Envelope shipment, TCOS seller protection reimburses the seller for the item sale amount up to $20 after the seller/buyer refund is processed; shipping is not reimbursed.",
-    legalLabel:
-      "seller_protection_not_insurance",
+      "If the buyer must be refunded for a protected under-$20 Tracked Card Letter shipment, Truely Collectables seller protection reimburses the seller for the item sale amount up to $20 after the seller/buyer refund is processed; shipping is not reimbursed.",
+    legalLabel: "seller_protection_not_insurance",
   };
 }
 
@@ -255,26 +329,46 @@ export function calculateShipping({
   itemCount,
   subtotal,
   method,
+  listingPriceBasis = subtotal,
 }: {
   itemCount: number;
   subtotal: number;
   method: ShippingMethod;
+  listingPriceBasis?: number;
 }) {
-  const rule = SHIPPING_RULES[method];
+  const resolved = resolveShippingMethod({
+    requestedMethod: method,
+    itemCount,
+    subtotal,
+    listingPriceBasis,
+  });
 
-  if (method === "STANDARD_ENVELOPE") {
-    const estimatedOunces = estimateStandardEnvelopeOunces({ itemCount });
-
-    return standardEnvelopeRateForEstimatedOunces({ estimatedOunces });
+  if (resolved.method === "PRIORITY_MAIL") {
+    return Number(subtotal || 0) > FREE_PRIORITY_MAIL_THRESHOLD
+      ? 0
+      : PRIORITY_MAIL_BUYER_PRICE;
   }
 
-  if (rule.freeShippingThreshold !== null && subtotal >= rule.freeShippingThreshold) {
-    return 0;
+  if (resolved.method === "STANDARD_ENVELOPE") {
+    return STANDARD_ENVELOPE_BUYER_PRICE;
   }
 
-  const extraCards = Math.max(itemCount - rule.cardsIncluded, 0);
+  if (
+    itemCount >= GROUND_ADVANTAGE_TEN_OUNCE_MIN_CARDS &&
+    itemCount <= GROUND_ADVANTAGE_TEN_OUNCE_MAX_CARDS
+  ) {
+    return GROUND_ADVANTAGE_TEN_OUNCE_PRICE;
+  }
 
-  return rule.basePrice + extraCards * rule.additionalCardPrice;
+  const extraCards = Math.max(
+    Math.min(itemCount, 12) - SHIPPING_RULES.GROUND_ADVANTAGE.cardsIncluded,
+    0,
+  );
+
+  return (
+    SHIPPING_RULES.GROUND_ADVANTAGE.basePrice +
+    extraCards * SHIPPING_RULES.GROUND_ADVANTAGE.additionalCardPrice
+  );
 }
 
 export function getFreeShippingMessage({
@@ -284,17 +378,27 @@ export function getFreeShippingMessage({
   subtotal: number;
   method: ShippingMethod;
 }) {
-  const rule = SHIPPING_RULES[method];
-
   if (method === "STANDARD_ENVELOPE") {
-    return "Trackable Standard Envelope is available for raw card orders up to $20 and 3 estimated oz.";
+    return `Tracked Card Letter is $${STANDARD_ENVELOPE_BUYER_PRICE.toFixed(2)} for up to ${STANDARD_ENVELOPE_MAX_CARDS} qualifying cards with an original listing-price total of $${STANDARD_ENVELOPE_MAX_SUBTOTAL.toFixed(2)} or less and a maximum estimated weight of ${STANDARD_ENVELOPE_MAX_ESTIMATED_OUNCES} oz.`;
   }
 
-  if (rule.freeShippingThreshold !== null && subtotal >= rule.freeShippingThreshold) {
-    return `✅ You unlocked FREE ${rule.shortName} shipping!`;
+  if (Number(subtotal || 0) > FREE_PRIORITY_MAIL_THRESHOLD) {
+    return `You unlocked FREE Priority Mail shipping for an order over $${FREE_PRIORITY_MAIL_THRESHOLD.toFixed(2)}.`;
   }
 
-  const amountAway = Number(rule.freeShippingThreshold) - subtotal;
+  if (method === "PRIORITY_MAIL") {
+    return `Priority Mail is $${PRIORITY_MAIL_BUYER_PRICE.toFixed(2)}. Orders over $${FREE_PRIORITY_MAIL_THRESHOLD.toFixed(2)} ship Priority Mail free.`;
+  }
 
-  return `🎯 Add $${amountAway.toFixed(2)} more for FREE ${rule.shortName} shipping.`;
+  if (
+    itemCountForMessage(subtotal) === null
+  ) {
+    return `Ground Advantage starts at $${SHIPPING_RULES.GROUND_ADVANTAGE.basePrice.toFixed(2)}. Orders over $${FREE_PRIORITY_MAIL_THRESHOLD.toFixed(2)} ship Priority Mail free.`;
+  }
+
+  return `Ground Advantage starts at $${SHIPPING_RULES.GROUND_ADVANTAGE.basePrice.toFixed(2)}. Orders over $${FREE_PRIORITY_MAIL_THRESHOLD.toFixed(2)} ship Priority Mail free.`;
+}
+
+function itemCountForMessage(_subtotal: number) {
+  return null;
 }
