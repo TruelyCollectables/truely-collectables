@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import Stripe from "stripe";
 import {
   evaluateLivePaymentLaunch,
+  LIVE_PAYMENT_APPROVAL_VERSION,
   REQUIRED_LIVE_WEBHOOK_EVENTS,
 } from "../../../../lib/live-payment-launch";
 import { getStripeLiveSecretKey } from "../../../../lib/stripe-credentials";
@@ -33,6 +34,10 @@ function authorize(request: Request) {
   }
 
   return null;
+}
+
+function clean(value: unknown, maxLength: number) {
+  return String(value || "").trim().slice(0, maxLength);
 }
 
 function expectedWebhookUrl() {
@@ -205,6 +210,117 @@ export async function POST(request: Request) {
           error instanceof Error
             ? error.message
             : "Live Stripe webhook repair failed.",
+        mutationPerformed: false,
+      },
+      { status: 500 },
+    );
+  }
+}
+
+export async function PUT(request: Request) {
+  const authorizationError = authorize(request);
+  if (authorizationError) return authorizationError;
+
+  const body = (await request.json().catch(() => ({}))) as Record<
+    string,
+    unknown
+  >;
+  const confirmation = clean(body.confirmation, 80);
+  const operator = clean(body.operator, 120);
+  const note = clean(body.note, 1000) || null;
+
+  if (confirmation !== "APPROVE LIVE PAYMENTS") {
+    return Response.json(
+      { success: false, error: "Type APPROVE LIVE PAYMENTS exactly." },
+      { status: 400 },
+    );
+  }
+
+  if (!operator) {
+    return Response.json(
+      { success: false, error: "Operator name is required." },
+      { status: 400 },
+    );
+  }
+
+  if (process.env.TCOS_LIVE_PAYMENTS_ENABLED !== "true") {
+    return Response.json(
+      {
+        success: false,
+        error:
+          "The real Production runtime switch is not enabled; database approval was not recorded.",
+      },
+      { status: 409 },
+    );
+  }
+
+  try {
+    const supabase = createSupabaseServerClient({ admin: true });
+    const storeId = getActiveStoreId();
+    const report = await evaluateLivePaymentLaunch({ supabase, storeId });
+
+    if (!report.approvalDatabaseReady || !report.approvalReady) {
+      return Response.json(
+        {
+          success: false,
+          error:
+            "Live payment approval remains blocked until every required Production check passes.",
+          approvalDatabaseReady: report.approvalDatabaseReady,
+          approvalReady: report.approvalReady,
+          approvalBlockers: report.summary.approvalBlockers,
+          mutationPerformed: false,
+        },
+        { status: 409 },
+      );
+    }
+
+    const now = new Date().toISOString();
+    const gatePayload = {
+      store_id: storeId,
+      gate_status: "approved",
+      approval_version: LIVE_PAYMENT_APPROVAL_VERSION,
+      approved_at: now,
+      approved_by: operator,
+      approval_note: note,
+      revoked_at: null,
+      revoked_by: null,
+      last_report: report,
+      updated_at: now,
+    };
+
+    const { error: gateError } = await supabase
+      .from("live_payment_launch_gates")
+      .upsert(gatePayload, { onConflict: "store_id" });
+    if (gateError) throw gateError;
+
+    const { error: eventError } = await supabase
+      .from("live_payment_launch_events")
+      .insert({
+        store_id: storeId,
+        event_type: "approved",
+        approval_version: LIVE_PAYMENT_APPROVAL_VERSION,
+        actor: operator,
+        note,
+        report,
+      });
+    if (eventError) throw eventError;
+
+    return Response.json({
+      success: true,
+      approvedAt: now,
+      approvalVersion: LIVE_PAYMENT_APPROVAL_VERSION,
+      runtimeSwitchEnabled: true,
+      liveCheckoutShouldOpen: true,
+      mutationPerformed: true,
+    });
+  } catch (error) {
+    return Response.json(
+      {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Protected live-payment approval failed.",
         mutationPerformed: false,
       },
       { status: 500 },
