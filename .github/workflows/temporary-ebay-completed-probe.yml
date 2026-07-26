@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - agent/instacomp-exact-market-proof-20260726
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
