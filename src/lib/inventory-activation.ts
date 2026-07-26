@@ -62,20 +62,41 @@ export function getInventoryActivationBlockers(params: {
   metadata?: Record<string, unknown> | null;
 }) {
   const blockers: InventoryActivationBlocker[] = [];
+  const metadata = recordValue(params.metadata);
   const authenticity = extractAuthenticityProfile(params.metadata);
-  const collectibleAsset = recordValue(
-    recordValue(params.metadata).collectible_asset,
-  );
+  const collectibleAsset = recordValue(metadata.collectible_asset);
+  const instaComp = recordValue(metadata.instacomp);
+  const verifiedReference = recordValue(metadata.verified_reference);
   const gradingCompany = cleanText(
     typeof collectibleAsset.grading_company === "string"
       ? collectibleAsset.grading_company
       : null,
   );
-  const graderVerificationStatus = cleanText(
+  const gradingCertNumber = cleanText(
+    typeof collectibleAsset.grading_cert_number === "string"
+      ? collectibleAsset.grading_cert_number
+      : null,
+  );
+  const storedGraderVerificationStatus = cleanText(
     typeof collectibleAsset.grader_verification_status === "string"
       ? collectibleAsset.grader_verification_status
       : null,
   );
+  const humanVerifiedSlabEvidence =
+    instaComp.humanVerified === true &&
+    Boolean(gradingCompany) &&
+    Boolean(gradingCertNumber) &&
+    Boolean(cleanText(String(verifiedReference.front_sha256 || "")));
+  const graderVerificationStatus =
+    storedGraderVerificationStatus === "conflict"
+      ? "conflict"
+      : ["verified", "manual_verified"].includes(
+            String(storedGraderVerificationStatus || ""),
+          )
+        ? storedGraderVerificationStatus
+        : humanVerifiedSlabEvidence
+          ? "manual_verified"
+          : storedGraderVerificationStatus;
 
   if (!params.sku) blockers.push("missing_sku");
   if (params.price <= 0) blockers.push("missing_price");
