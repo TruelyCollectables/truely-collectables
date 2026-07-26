@@ -161,7 +161,7 @@ function actionForLivePaymentCheck(check: LivePaymentCheck) {
     case "production_origin":
       return "Set NEXT_PUBLIC_SITE_URL or the store primary domain to the HTTPS production origin.";
     case "identity_intelligence":
-      return "Set IP_INTELLIGENCE_REQUIRED=true and configure IP_INTELLIGENCE_API_URL before approving live Checkout.";
+      return "Defer VPN/proxy intelligence to the post-launch TCOS security roadmap; it is not required for the Truely Collectables storefront launch.";
     case "platform_fee":
       return "Restore the active store seller commission rate to the approved 8% launch fee.";
     case "checkout_e2e":
@@ -293,20 +293,6 @@ export async function getLivePaymentRuntimeGate(params: {
       allowed: false,
       mode: "live" as const,
       reason: "Live payments are administratively locked.",
-    };
-  }
-
-  const identityIntelligenceRequired =
-    process.env.IP_INTELLIGENCE_REQUIRED === "true";
-  const identityIntelligenceProviderConfigured = Boolean(
-    process.env.IP_INTELLIGENCE_API_URL?.trim(),
-  );
-  if (!identityIntelligenceRequired || !identityIntelligenceProviderConfigured) {
-    return {
-      allowed: false,
-      mode: "live" as const,
-      reason:
-        "Live payments require configured identity and VPN intelligence enforcement.",
     };
   }
 
@@ -526,15 +512,17 @@ export async function evaluateLivePaymentLaunch(params?: {
   checks.push(
     check(
       "identity_intelligence",
-      "Identity And VPN Blocking",
+      "Optional TCOS Identity And VPN Intelligence",
+      identityIntelligenceRequired
+        ? identityIntelligenceProviderConfigured
+          ? "passed"
+          : "blocked"
+        : "warning",
       identityIntelligenceRequired && identityIntelligenceProviderConfigured
-        ? "passed"
-        : "blocked",
-      identityIntelligenceRequired && identityIntelligenceProviderConfigured
-        ? "IP intelligence is required and a provider URL is configured for live Checkout."
+        ? "Optional TCOS identity intelligence is configured. It is not required for the Truely Collectables storefront launch."
         : identityIntelligenceRequired
-          ? "IP_INTELLIGENCE_REQUIRED is true, but IP_INTELLIGENCE_API_URL is missing."
-          : "IP intelligence enforcement is disabled; live Checkout cannot be approved.",
+          ? "IP_INTELLIGENCE_REQUIRED is true, but IP_INTELLIGENCE_API_URL is missing. Disable the optional feature or configure it before Checkout."
+          : "VPN/proxy intelligence belongs to the post-launch TCOS security roadmap and does not block the Truely Collectables sports-card storefront.",
     ),
   );
 
