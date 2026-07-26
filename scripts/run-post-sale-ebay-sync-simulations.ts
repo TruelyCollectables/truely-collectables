@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { clientIdentityTestHelpers } from "../src/lib/client-identity";
 import {
   ebayQuantityRetryDelaySeconds,
   selectLowestSafeEbayQuantity,
@@ -48,6 +49,32 @@ assert.equal(ebayQuantityRetryDelaySeconds(4), 14400);
 assert.equal(ebayQuantityRetryDelaySeconds(5), 21600);
 assert.equal(ebayQuantityRetryDelaySeconds(99), 21600);
 
+assert.equal(
+  clientIdentityTestHelpers.firstHeaderIp("203.0.113.10:443"),
+  "203.0.113.10",
+  "IPv4 proxy ports must be stripped without altering the address",
+);
+assert.equal(
+  clientIdentityTestHelpers.firstHeaderIp("[2606:4700:4700::1111]:443"),
+  "2606:4700:4700::1111",
+  "IPv6 addresses must not be truncated at the first colon",
+);
+assert.equal(
+  clientIdentityTestHelpers.firstHeaderIp(
+    'for="[2606:4700:4700::1111]:443";proto=https',
+  ),
+  "2606:4700:4700::1111",
+  "Forwarded IPv6 syntax must preserve the complete address",
+);
+assert.equal(
+  clientIdentityTestHelpers.isPrivateOrReservedIp("10.0.0.1"),
+  true,
+);
+assert.equal(
+  clientIdentityTestHelpers.isPrivateOrReservedIp("2606:4700:4700::1111"),
+  false,
+);
+
 const migration = readFileSync(
   "supabase/migrations/20260726233000_post_sale_ebay_quantity_sync_outbox.sql",
   "utf8",
@@ -65,6 +92,7 @@ const clearCartOnSuccess = readFileSync(
   "utf8",
 );
 const checkoutRoute = readFileSync("src/app/api/checkout/route.ts", "utf8");
+const clientIdentity = readFileSync("src/lib/client-identity.ts", "utf8");
 
 for (const required of [
   "create table if not exists public.ebay_quantity_sync_outbox",
@@ -118,6 +146,13 @@ assert.ok(
   "the attempt must clear only after the success page verifies payment",
 );
 
+assert.ok(
+  clientIdentity.includes("if (!intelligenceRequired)") &&
+    clientIdentity.includes("missing_public_ip_unchecked") &&
+    clientIdentity.includes("private_or_reserved_ip_unchecked"),
+  "optional TCOS IP intelligence must not block the Truely Collectables storefront",
+);
+
 console.log(
-  "Post-sale eBay quantity, customer notification, and checkout replay safety simulations passed.",
+  "Post-sale eBay quantity, customer notification, checkout replay, and storefront identity safety simulations passed.",
 );
