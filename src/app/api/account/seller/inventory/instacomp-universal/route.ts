@@ -7,6 +7,7 @@ import { buildInstaCompQueries } from "../../../../../../lib/instacomp";
 import { verifyInstaCompCompetitionImages } from "../../../../../../lib/instacomp-comp-visual-verification";
 import { getUniversalEbaySerpProviders } from "../../../../../../lib/instacomp-ebay-serp-provider";
 import { normalizeListingImageUrls } from "../../../../../../lib/listing-image-utils";
+import { calculateInstaCompSweetSpot } from "../../../../../../lib/instacomp-sweet-spot";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 import { POST as runLegacySellerInstaComp } from "../instacomp/route";
@@ -94,20 +95,6 @@ function dedupeEvidence(values: Evidence[], limit = 60) {
       return true;
     })
     .slice(0, limit);
-}
-
-function soldSuggestion(values: Evidence[]) {
-  const prices = values
-    .map((value) => value.price)
-    .filter((price) => Number.isFinite(price) && price > 0)
-    .sort((left, right) => left - right);
-  if (!prices.length) return 0;
-  const middle = Math.floor(prices.length / 2);
-  const median =
-    prices.length % 2 === 0
-      ? (prices[middle - 1] + prices[middle]) / 2
-      : prices[middle];
-  return Math.round(median * 100) / 100;
 }
 
 async function downloadFrontImage(url: string) {
@@ -302,15 +289,17 @@ export async function POST(request: NextRequest) {
       60,
     );
 
-    const suggestedPrice = soldSuggestion(soldCompEvidence);
-    const reliableSoldCompCount = soldCompEvidence.length;
-    const hasReliableSoldComps = reliableSoldCompCount > 0 && suggestedPrice > 0;
-    const pricingStatus = hasReliableSoldComps
+    const pricingAnalysis = calculateInstaCompSweetSpot({
+      sold: soldCompEvidence,
+      active: activeCompetition,
+    });
+    const suggestedPrice = pricingAnalysis.suggestedPrice;
+    const reliableSoldCompCount = pricingAnalysis.soldCount;
+    const hasReliableSoldComps = pricingAnalysis.soldCount > 0;
+    const pricingStatus = suggestedPrice > 0
       ? "suggested_from_reliable_sold_comps"
       : "seller_price_required";
-    const pricingReason = hasReliableSoldComps
-      ? `${reliableSoldCompCount} exact sold comp${reliableSoldCompCount === 1 ? "" : "s"} passed the universal eBay identity filter. Active listings were not used to calculate the ${suggestedPrice.toFixed(2)} suggestion.`
-      : `The universal eBay sold lane returned no accepted exact sale. Seller pricing is required. Sold provider: ${universal.sold.message || universal.sold.status}.`;
+    const pricingReason = pricingAnalysis.explanation;
     const checkedAt = new Date().toISOString();
 
     const currentInstaComp = recordValue(metadata.instacomp);
@@ -342,6 +331,7 @@ export async function POST(request: NextRequest) {
         suggestedPrice,
         pricingStatus,
         pricingReason,
+        pricingAnalysis,
         reliableSoldCompCount: hasReliableSoldComps ? reliableSoldCompCount : 0,
         pricingCheckedAt: checkedAt,
         trustedForPricing: hasReliableSoldComps,
@@ -372,6 +362,7 @@ export async function POST(request: NextRequest) {
       suggestedPrice,
       pricingStatus,
       pricingReason,
+      pricingAnalysis,
       trustedForPricing: hasReliableSoldComps,
       exactCompCount: reliableSoldCompCount,
       reliableSoldCompCount: hasReliableSoldComps ? reliableSoldCompCount : 0,

@@ -163,6 +163,7 @@ export async function GET(request: Request) {
       const graderVerification = recordValue(metadata.grader_verification);
       const sellerReview = recordValue(metadata.seller_review);
       const sourceLinks = recordValue(instaComp.sourceLinks);
+      const pricingAnalysis = recordValue(instaComp.pricingAnalysis);
       const product = row.legacy_product_id
         ? productMap.get(row.legacy_product_id)
         : null;
@@ -238,6 +239,21 @@ export async function GET(request: Request) {
             0,
             Number(instaComp.reliableSoldCompCount || 0),
           ),
+          pricingAnalysis: {
+            strategy: textValue(pricingAnalysis.strategy) || "no_market",
+            soldCount: Math.max(0, Number(pricingAnalysis.soldCount || 0)),
+            activeCount: Math.max(0, Number(pricingAnalysis.activeCount || 0)),
+            soldLow: optionalPrice(pricingAnalysis.soldLow),
+            soldMedian: optionalPrice(pricingAnalysis.soldMedian),
+            soldAverage: optionalPrice(pricingAnalysis.soldAverage),
+            soldHigh: optionalPrice(pricingAnalysis.soldHigh),
+            activeLow: optionalPrice(pricingAnalysis.activeLow),
+            activeMedian: optionalPrice(pricingAnalysis.activeMedian),
+            activeAverage: optionalPrice(pricingAnalysis.activeAverage),
+            activeHigh: optionalPrice(pricingAnalysis.activeHigh),
+            soldListTarget: optionalPrice(pricingAnalysis.soldListTarget),
+            competitiveTarget: optionalPrice(pricingAnalysis.competitiveTarget),
+          },
           pricingCheckedAt: textValue(instaComp.pricingCheckedAt),
           listingPrice: optionalPrice(instaComp.listingPrice),
           listingPriceSource: textValue(instaComp.listingPriceSource),
@@ -270,11 +286,11 @@ export async function GET(request: Request) {
         count: items.length,
         pricingRule: {
           reliableSoldComps:
-            "Only exact sold comps calculate the suggested price. Active listings never set it.",
+            "Exact sold comps establish market value. Exact active listings establish current competition. InstaComp combines both into a transparent sweet-spot listing suggestion.",
           noReliableSoldComps:
             "$0.00 means no reliable sold comps passed; seller pricing is required.",
           activeCompetition:
-            "Active listings are shown separately only to inspect current competition.",
+            "Active listings are shown separately and also constrain the sweet-spot listing target without replacing sold-market evidence.",
         },
       },
       { headers: { "Cache-Control": "no-store" } },
