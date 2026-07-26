@@ -1,0 +1,32 @@
+name: Temporary InstaComp Auto Pricing Patch
+
+on:
+  push:
+    branches:
+      - agent/instacomp-pending-review-overhaul-20260726
+    paths:
+      - scripts/temp-fix-instacomp-auto-pricing.py
+      - .github/workflows/temp-fix-instacomp-auto-pricing.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/instacomp-pending-review-overhaul-20260726
+          fetch-depth: 0
+      - name: Apply patch
+        run: python scripts/temp-fix-instacomp-auto-pricing.py
+      - name: Commit patch and remove temporary files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "Fix automatic InstaComp intake race"
+            git push origin HEAD:agent/instacomp-pending-review-overhaul-20260726
+          fi
