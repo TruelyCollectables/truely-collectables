@@ -3,6 +3,7 @@
 The pending queue is a seller-controlled review boundary.
 
 - New scanned drafts automatically receive an InstaComp pricing attempt before seller review.
+- Automatic intake uses a stable one-pass guard so a UI state change cannot cancel or restart the same scan batch.
 - Only reliable exact sold comps calculate a suggested price.
 - A `$0.00` suggestion means no reliable sold comps passed and the seller must set the price.
 - Active listings are displayed separately as current competition and never calculate the sold-comp suggestion.
