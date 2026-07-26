@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
-import { buildLetterTrackDeliveryEvidenceSummary } from "../../../../../../../lib/lettertrack-delivery-evidence";
-import { getStripeLiveSecretKey, getStripeTestSecretKey } from "../../../../../../../lib/stripe-credentials";
-import { getActiveStoreId } from "../../../../../../../lib/stores";
-import { createSupabaseServerClient } from "../../../../../../../lib/supabase-server";
+import { buildLetterTrackDeliveryEvidenceSummary } from "../../../../../../lib/lettertrack-delivery-evidence";
+import {
+  getStripeLiveSecretKey,
+  getStripeTestSecretKey,
+} from "../../../../../../lib/stripe-credentials";
+import { getActiveStoreId } from "../../../../../../lib/stores";
+import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 
 export const dynamic = "force-dynamic";
 
@@ -93,7 +96,9 @@ export async function POST(request: Request) {
       .order("occurred_at", { ascending: true });
     if (trackingError) throw trackingError;
 
-    const evidence = buildLetterTrackDeliveryEvidenceSummary(trackingEvents || []);
+    const evidence = buildLetterTrackDeliveryEvidenceSummary(
+      trackingEvents || [],
+    );
     if (
       ["approved", "reimbursed"].includes(action) &&
       evidence.deliveredEvidencePresent &&
@@ -129,9 +134,11 @@ export async function POST(request: Request) {
       }
 
       if (claim.stripe_refund_id) {
-        return NextResponse.json(
-          { success: true, alreadyReimbursed: true, refundId: claim.stripe_refund_id },
-        );
+        return NextResponse.json({
+          success: true,
+          alreadyReimbursed: true,
+          refundId: claim.stripe_refund_id,
+        });
       }
 
       const stripeKey = order.is_test
@@ -139,7 +146,10 @@ export async function POST(request: Request) {
         : getStripeLiveSecretKey();
       if (!stripeKey) {
         return NextResponse.json(
-          { error: "The matching Stripe credential is unavailable for reimbursement" },
+          {
+            error:
+              "The matching Stripe credential is unavailable for reimbursement",
+          },
           { status: 503 },
         );
       }
@@ -228,7 +238,9 @@ export async function POST(request: Request) {
         reviewed_at: now,
         decision_note: note || null,
         reimbursement_amount:
-          action === "approved" ? Number(protection.covered_item_amount || 0) : 0,
+          action === "approved"
+            ? Number(protection.covered_item_amount || 0)
+            : 0,
         metadata,
         updated_at: now,
       })
