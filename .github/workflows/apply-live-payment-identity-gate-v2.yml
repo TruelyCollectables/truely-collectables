@@ -1,0 +1,43 @@
+name: Apply Live Payment Identity Gate V2
+
+on:
+  push:
+    branches:
+      - agent/live-payment-identity-gate-v2-20260726
+    paths:
+      - scripts/apply-live-payment-identity-gate.mjs
+      - .github/workflows/apply-live-payment-identity-gate-v2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor == 'TruelyCollectables'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out latest-main identity branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/live-payment-identity-gate-v2-20260726
+          fetch-depth: 0
+
+      - name: Apply exact identity transformation
+        run: node scripts/apply-live-payment-identity-gate.mjs
+
+      - name: Validate patch
+        run: git diff --check
+
+      - name: Commit hardened sources
+        shell: bash
+        run: |
+          if git diff --quiet -- src/lib/live-payment-launch-core.ts src/app/admin/launch-readiness/page.tsx scripts/audit-vercel-production-environment.mjs; then
+            echo "No identity changes were produced."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/live-payment-launch-core.ts src/app/admin/launch-readiness/page.tsx scripts/audit-vercel-production-environment.mjs
+          git commit -m "Make identity intelligence a live-payment gate"
+          git push origin HEAD:agent/live-payment-identity-gate-v2-20260726
