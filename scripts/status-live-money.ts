@@ -37,20 +37,27 @@ function missingEnvironmentVariables() {
     missing.push("NEXT_PUBLIC_SUPABASE_URL");
   }
 
-  if (
-    !configured(process.env.SUPABASE_SERVICE_ROLE_KEY) &&
-    !configured(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
-  ) {
-    missing.push("SUPABASE_SERVICE_ROLE_KEY or NEXT_PUBLIC_SUPABASE_ANON_KEY");
+  if (!configured(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)) {
+    missing.push("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+  }
+
+  if (!configured(process.env.SUPABASE_SERVICE_ROLE_KEY)) {
+    missing.push("SUPABASE_SERVICE_ROLE_KEY");
   }
 
   return missing;
 }
 
-function liveSecretStatus(primary: string | undefined, fallback: string | undefined, prefix: string) {
+function liveSecretStatus(
+  primary: string | undefined,
+  fallback: string | undefined,
+  prefix: string,
+) {
   if (hasPrefix(primary, prefix)) return "configured";
   if (hasPrefix(fallback, prefix)) return "configured via fallback";
-  if (configured(primary) || configured(fallback)) return "present but not live-shaped";
+  if (configured(primary) || configured(fallback)) {
+    return "present but not live-shaped";
+  }
   return "missing";
 }
 
@@ -59,15 +66,21 @@ function localEnvironmentStatus() {
     supabaseBootstrap: [
       {
         label: "NEXT_PUBLIC_SUPABASE_URL",
-        status: configured(process.env.NEXT_PUBLIC_SUPABASE_URL) ? "configured" : "missing",
+        status: configured(process.env.NEXT_PUBLIC_SUPABASE_URL)
+          ? "configured"
+          : "missing",
       },
       {
-        label: "SUPABASE_SERVICE_ROLE_KEY or NEXT_PUBLIC_SUPABASE_ANON_KEY",
-        status:
-          configured(process.env.SUPABASE_SERVICE_ROLE_KEY) ||
-          configured(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
-            ? "configured"
-            : "missing",
+        label: "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+        status: configured(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
+          ? "configured"
+          : "missing",
+      },
+      {
+        label: "SUPABASE_SERVICE_ROLE_KEY",
+        status: configured(process.env.SUPABASE_SERVICE_ROLE_KEY)
+          ? "configured"
+          : "missing - privileged database access is blocked",
       },
     ],
     finalLivePaymentRuntime: [
@@ -126,10 +139,15 @@ function redact(value: unknown) {
     .replace(/\bsk_(live|test)_[A-Za-z0-9_]+\b/g, "sk_$1_[redacted]")
     .replace(/\bpk_(live|test)_[A-Za-z0-9_]+\b/g, "pk_$1_[redacted]")
     .replace(/\bwhsec_[A-Za-z0-9_]+\b/g, "whsec_[redacted]")
-    .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, "jwt_[redacted]");
+    .replace(
+      /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g,
+      "jwt_[redacted]",
+    );
 }
 
-function classify(report: Awaited<ReturnType<typeof evaluateLivePaymentLaunch>>): {
+function classify(
+  report: Awaited<ReturnType<typeof evaluateLivePaymentLaunch>>,
+): {
   state: LiveMoneyState;
   readyForRuntimeSwitch: boolean;
   detail: string;
@@ -197,7 +215,9 @@ function classify(report: Awaited<ReturnType<typeof evaluateLivePaymentLaunch>>)
 
 function printItems(
   title: string,
-  items: Awaited<ReturnType<typeof evaluateLivePaymentLaunch>>["summary"]["nextActions"],
+  items: Awaited<
+    ReturnType<typeof evaluateLivePaymentLaunch>
+  >["summary"]["nextActions"],
 ) {
   if (!items.length) return;
   console.log(`${title}:`);
@@ -205,7 +225,9 @@ function printItems(
     console.log(`- ${redact(item.label)}: ${redact(item.action)}`);
   }
   if (items.length > 10) {
-    console.log(`- ...${items.length - 10} more item(s) omitted; open /admin/live-payment-launch for the full list.`);
+    console.log(
+      `- ...${items.length - 10} more item(s) omitted; open /admin/live-payment-launch for the full list.`,
+    );
   }
 }
 
@@ -232,7 +254,9 @@ function printEnvironmentChecklist() {
 }
 
 function actionPayload(
-  items: Awaited<ReturnType<typeof evaluateLivePaymentLaunch>>["summary"]["nextActions"],
+  items: Awaited<
+    ReturnType<typeof evaluateLivePaymentLaunch>
+  >["summary"]["nextActions"],
 ) {
   return items.map((item) => ({
     key: item.key,
@@ -281,6 +305,13 @@ function statusPayload(
 }
 
 async function main() {
+  const missing = missingEnvironmentVariables();
+  if (missing.length > 0) {
+    throw new Error(
+      `Missing required local live-money bootstrap environment: ${missing.join(", ")}`,
+    );
+  }
+
   const supabase = createSupabaseServerClient({ admin: true });
   const storeId = getActiveStoreId();
   const report = await evaluateLivePaymentLaunch({ supabase, storeId });
@@ -296,11 +327,17 @@ async function main() {
 
   console.log("Live money go/no-go status:");
   console.log(`- state: ${classification.state}`);
-  console.log(`- ready for runtime switch: ${classification.readyForRuntimeSwitch ? "yes" : "no"}`);
+  console.log(
+    `- ready for runtime switch: ${classification.readyForRuntimeSwitch ? "yes" : "no"}`,
+  );
   console.log(`- payment mode: ${report.paymentMode}`);
-  console.log(`- approval database ready: ${report.approvalDatabaseReady ? "yes" : "no"}`);
+  console.log(
+    `- approval database ready: ${report.approvalDatabaseReady ? "yes" : "no"}`,
+  );
   console.log(`- database approved: ${report.summary.databaseApproved ? "yes" : "no"}`);
-  console.log(`- runtime switch enabled: ${report.summary.runtimeSwitchEnabled ? "yes" : "no"}`);
+  console.log(
+    `- runtime switch enabled: ${report.summary.runtimeSwitchEnabled ? "yes" : "no"}`,
+  );
   console.log(`- live Checkout: ${report.livePaymentsEnabled ? "OPEN" : "LOCKED"}`);
   console.log(`- approval blockers: ${report.summary.approvalBlockingCount}`);
   console.log(`- launch locks: ${report.summary.launchLockCount}`);
@@ -313,11 +350,21 @@ async function main() {
   printItems("Launch locks", report.summary.launchLocks);
   printItems("Warnings", report.summary.warnings);
   console.log(`Evidence schema: ${LIVE_MONEY_JSON_EVIDENCE.schema}`);
-  console.log(`Post-smoke raw JSON command: ${LIVE_MONEY_JSON_EVIDENCE.statusCommand}`);
-  console.log(`Final-window raw preflight command: ${LIVE_MONEY_JSON_EVIDENCE.preflightCommand}`);
-  console.log(`Accepted go-live states: ${LIVE_MONEY_JSON_EVIDENCE.readyStates.join(", ")}`);
-  console.log(`Halt states: ${LIVE_MONEY_JSON_EVIDENCE.blockedStates.join(", ")}`);
-  console.log(`Archive requirement: ${LIVE_MONEY_JSON_EVIDENCE.archiveRequirement}`);
+  console.log(
+    `Post-smoke raw JSON command: ${LIVE_MONEY_JSON_EVIDENCE.statusCommand}`,
+  );
+  console.log(
+    `Final-window raw preflight command: ${LIVE_MONEY_JSON_EVIDENCE.preflightCommand}`,
+  );
+  console.log(
+    `Accepted go-live states: ${LIVE_MONEY_JSON_EVIDENCE.readyStates.join(", ")}`,
+  );
+  console.log(
+    `Halt states: ${LIVE_MONEY_JSON_EVIDENCE.blockedStates.join(", ")}`,
+  );
+  console.log(
+    `Archive requirement: ${LIVE_MONEY_JSON_EVIDENCE.archiveRequirement}`,
+  );
   printEnvironmentChecklist();
   console.log(`Read-only guarantee: ${readOnlyGuarantee}`);
 
@@ -333,7 +380,7 @@ main().catch((error) => {
     state: "BLOCKED_UNEVALUATED" as const,
     readyForRuntimeSwitch: false,
     detail: redact(error?.message || error || "unknown error"),
-    next: "Restore the missing bootstrap environment listed in missingEnvironmentVariables, then rerun npm run status:live-money.",
+    next: "Restore every missing bootstrap environment variable listed in missingEnvironmentVariables, then rerun npm run status:live-money.",
     environmentChecklist: LIVE_MONEY_JSON_EVIDENCE.environmentChecklist,
     localEnvironmentStatus: localEnvironmentStatus(),
     missingEnvironmentVariables: missingEnvironmentVariables(),
@@ -352,15 +399,23 @@ main().catch((error) => {
   console.log("- state: BLOCKED_UNEVALUATED");
   console.log("- ready for runtime switch: no");
   console.log(`- detail: ${payload.detail}`);
-  console.log(
-    `- next: ${payload.next}`,
-  );
+  console.log(`- next: ${payload.next}`);
   console.log(`Evidence schema: ${LIVE_MONEY_JSON_EVIDENCE.schema}`);
-  console.log(`Post-smoke raw JSON command: ${LIVE_MONEY_JSON_EVIDENCE.statusCommand}`);
-  console.log(`Final-window raw preflight command: ${LIVE_MONEY_JSON_EVIDENCE.preflightCommand}`);
-  console.log(`Accepted go-live states: ${LIVE_MONEY_JSON_EVIDENCE.readyStates.join(", ")}`);
-  console.log(`Halt states: ${LIVE_MONEY_JSON_EVIDENCE.blockedStates.join(", ")}`);
-  console.log(`Archive requirement: ${LIVE_MONEY_JSON_EVIDENCE.archiveRequirement}`);
+  console.log(
+    `Post-smoke raw JSON command: ${LIVE_MONEY_JSON_EVIDENCE.statusCommand}`,
+  );
+  console.log(
+    `Final-window raw preflight command: ${LIVE_MONEY_JSON_EVIDENCE.preflightCommand}`,
+  );
+  console.log(
+    `Accepted go-live states: ${LIVE_MONEY_JSON_EVIDENCE.readyStates.join(", ")}`,
+  );
+  console.log(
+    `Halt states: ${LIVE_MONEY_JSON_EVIDENCE.blockedStates.join(", ")}`,
+  );
+  console.log(
+    `Archive requirement: ${LIVE_MONEY_JSON_EVIDENCE.archiveRequirement}`,
+  );
   printEnvironmentChecklist();
   console.log(`Read-only guarantee: ${failedReadOnlyGuarantee}`);
   if (!allowBlocked) {
