@@ -61,6 +61,23 @@ function isMissingRateLimitCapability(error: { code?: string; message?: string }
   );
 }
 
+function unavailableRateLimitCheck(params: {
+  identity: ClientIdentity;
+  maxAttempts: number;
+  windowSeconds: number;
+}): PublicEndpointRateLimitCheck {
+  return {
+    allowed: false,
+    auditAvailable: false,
+    identity: params.identity,
+    retryAfterSeconds: 30,
+    attemptsInWindow: 0,
+    maxAttempts: params.maxAttempts,
+    windowSeconds: params.windowSeconds,
+    reason: "rate_limit_unavailable",
+  };
+}
+
 async function recordRateLimitEvent(params: {
   supabase: SupabaseClient;
   storeId: string;
@@ -72,24 +89,40 @@ async function recordRateLimitEvent(params: {
   windowSeconds: number;
   maxAttempts: number;
 }) {
-  const { error } = await params.supabase
-    .from("public_endpoint_rate_limit_events")
-    .insert({
-      store_id: params.storeId,
-      endpoint_key: params.endpointKey,
-      subject_key: params.subjectKey,
-      ip_address: params.identity.ipAddress || "unknown",
-      user_agent: params.identity.userAgent,
-      blocked: params.blocked,
-      block_reason: params.blockReason,
-      window_seconds: params.windowSeconds,
-      max_attempts: params.maxAttempts,
-      identity_risk: params.identity.risk,
-      identity_evidence: params.identity.evidence,
-    });
+  try {
+    const { error } = await params.supabase
+      .from("public_endpoint_rate_limit_events")
+      .insert({
+        store_id: params.storeId,
+        endpoint_key: params.endpointKey,
+        subject_key: params.subjectKey,
+        ip_address: params.identity.ipAddress || "unknown",
+        user_agent: params.identity.userAgent,
+        blocked: params.blocked,
+        block_reason: params.blockReason,
+        window_seconds: params.windowSeconds,
+        max_attempts: params.maxAttempts,
+        identity_risk: params.identity.risk,
+        identity_evidence: params.identity.evidence,
+      });
 
-  if (error && !isMissingRateLimitCapability(error)) {
-    console.error("Public endpoint rate-limit audit insert failed:", error.message);
+    if (error) {
+      if (!isMissingRateLimitCapability(error)) {
+        console.error(
+          "Public endpoint rate-limit audit insert failed:",
+          error.message,
+        );
+      }
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error(
+      "Public endpoint rate-limit audit insert failed:",
+      error instanceof Error ? error.message : "unknown error",
+    );
+    return false;
   }
 }
 
@@ -99,31 +132,39 @@ export async function checkPublicEndpointRateLimit(params: {
   maxAttempts: number;
   windowSeconds: number;
   subjectKey?: string | null;
+  supabase?: SupabaseClient | null;
+  failClosed?: boolean;
 }): Promise<PublicEndpointRateLimitCheck> {
   const identity = await getClientIdentity(params.request);
-  const supabase = getSupabaseClient();
+  const supabase = Object.prototype.hasOwnProperty.call(params, "supabase")
+    ? params.supabase ?? null
+    : getSupabaseClient();
+  const failClosed =
+    typeof params.failClosed === "boolean"
+      ? params.failClosed
+      : process.env.NODE_ENV === "production";
   const storeId = getActiveStoreId();
   const endpointKey = cleanKey(params.endpointKey, 120) || "unknown";
   const subjectKey = cleanKey(params.subjectKey);
 
   if (identity.blocked) {
-    if (supabase) {
-      await recordRateLimitEvent({
-        supabase,
-        storeId,
-        endpointKey,
-        subjectKey,
-        identity,
-        blocked: true,
-        blockReason: identity.blockReason || "blocked_identity",
-        windowSeconds: params.windowSeconds,
-        maxAttempts: params.maxAttempts,
-      });
-    }
+    const auditAvailable = supabase
+      ? await recordRateLimitEvent({
+          supabase,
+          storeId,
+          endpointKey,
+          subjectKey,
+          identity,
+          blocked: true,
+          blockReason: identity.blockReason || "blocked_identity",
+          windowSeconds: params.windowSeconds,
+          maxAttempts: params.maxAttempts,
+        })
+      : false;
 
     return {
       allowed: false,
-      auditAvailable: Boolean(supabase),
+      auditAvailable,
       identity,
       retryAfterSeconds: null,
       attemptsInWindow: params.maxAttempts,
@@ -134,16 +175,22 @@ export async function checkPublicEndpointRateLimit(params: {
   }
 
   if (!supabase) {
-    return {
-      allowed: true,
-      auditAvailable: false,
-      identity,
-      retryAfterSeconds: null,
-      attemptsInWindow: 0,
-      maxAttempts: params.maxAttempts,
-      windowSeconds: params.windowSeconds,
-      reason: null,
-    };
+    return failClosed
+      ? unavailableRateLimitCheck({
+          identity,
+          maxAttempts: params.maxAttempts,
+          windowSeconds: params.windowSeconds,
+        })
+      : {
+          allowed: true,
+          auditAvailable: false,
+          identity,
+          retryAfterSeconds: null,
+          attemptsInWindow: 0,
+          maxAttempts: params.maxAttempts,
+          windowSeconds: params.windowSeconds,
+          reason: null,
+        };
   }
 
   let query = supabase
@@ -163,20 +210,28 @@ export async function checkPublicEndpointRateLimit(params: {
   const { data, error } = await query;
 
   if (error) {
-    if (isMissingRateLimitCapability(error)) {
-      return {
-        allowed: true,
-        auditAvailable: false,
-        identity,
-        retryAfterSeconds: null,
-        attemptsInWindow: 0,
-        maxAttempts: params.maxAttempts,
-        windowSeconds: params.windowSeconds,
-        reason: null,
-      };
+    if (!isMissingRateLimitCapability(error)) {
+      console.error("Public endpoint rate-limit query failed:", error.message);
     }
 
-    throw error;
+    if (failClosed) {
+      return unavailableRateLimitCheck({
+        identity,
+        maxAttempts: params.maxAttempts,
+        windowSeconds: params.windowSeconds,
+      });
+    }
+
+    return {
+      allowed: true,
+      auditAvailable: false,
+      identity,
+      retryAfterSeconds: null,
+      attemptsInWindow: 0,
+      maxAttempts: params.maxAttempts,
+      windowSeconds: params.windowSeconds,
+      reason: null,
+    };
   }
 
   const rows = (data ?? []) as RateLimitEventRow[];
@@ -185,7 +240,7 @@ export async function checkPublicEndpointRateLimit(params: {
     ? secondsUntilWindowClears(rows, params.windowSeconds)
     : null;
 
-  await recordRateLimitEvent({
+  const auditAvailable = await recordRateLimitEvent({
     supabase,
     storeId,
     endpointKey,
@@ -197,9 +252,17 @@ export async function checkPublicEndpointRateLimit(params: {
     maxAttempts: params.maxAttempts,
   });
 
+  if (!blocked && !auditAvailable && failClosed) {
+    return unavailableRateLimitCheck({
+      identity,
+      maxAttempts: params.maxAttempts,
+      windowSeconds: params.windowSeconds,
+    });
+  }
+
   return {
     allowed: !blocked,
-    auditAvailable: true,
+    auditAvailable,
     identity,
     retryAfterSeconds,
     attemptsInWindow: rows.length,
@@ -210,6 +273,17 @@ export async function checkPublicEndpointRateLimit(params: {
 }
 
 export function publicEndpointRateLimitResponse(check: PublicEndpointRateLimitCheck) {
+  if (check.reason === "rate_limit_unavailable") {
+    return {
+      status: 503,
+      body: {
+        error:
+          "Security checks are temporarily unavailable. Please try again shortly.",
+        reason: check.reason,
+      },
+    };
+  }
+
   if (check.reason === "too_many_attempts") {
     const minutes = Math.max(1, Math.ceil((check.retryAfterSeconds || 60) / 60));
 
