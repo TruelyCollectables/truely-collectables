@@ -77,13 +77,21 @@ jobs:
           PASS3=$?
 
           LIVE_ENV_ARGS=()
-          if [ -z "${SERPAPI_API_KEY:-}" ] && [ -n "${VERCEL_TOKEN:-}" ] && [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+          if [ -z "${SERPAPI_API_KEY:-}" ] && [ -n "${VERCEL_TOKEN:-}" ]; then
             mkdir -p .vercel
-            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
-            npx vercel env pull .env.production.local --yes --environment=production --token "$VERCEL_TOKEN" >> .codex-run/instacomp-exact-market-proof.log 2>&1
-            VERCEL_PULL=$?
-            if [ "$VERCEL_PULL" -eq 0 ] && [ -f .env.production.local ]; then
-              LIVE_ENV_ARGS=(--env-file=.env.production.local)
+            if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+              printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+              VERCEL_LINK=0
+            else
+              npx vercel link --yes --project truely-collectables --scope truelycollectables-projects --token "$VERCEL_TOKEN" >> .codex-run/instacomp-exact-market-proof.log 2>&1
+              VERCEL_LINK=$?
+            fi
+            if [ "$VERCEL_LINK" -eq 0 ]; then
+              npx vercel env pull .env.production.local --yes --environment=production --token "$VERCEL_TOKEN" >> .codex-run/instacomp-exact-market-proof.log 2>&1
+              VERCEL_PULL=$?
+              if [ "$VERCEL_PULL" -eq 0 ] && [ -f .env.production.local ]; then
+                LIVE_ENV_ARGS=(--env-file=.env.production.local)
+              fi
             fi
           fi
 
@@ -109,7 +117,7 @@ jobs:
             echo "build=$BUILD"
             echo "validated_source_commit=$(git rev-parse HEAD)"
             echo "--- assertions and errors with context ---"
-            grep -nE -B 5 -A 16 "AssertionError|Error:|Transform failed|release remains blocked|Live exact-market proof is blocked|Failed to|error TS|✖" .codex-run/instacomp-exact-market-proof.log | tail -n 360 || true
+            grep -nE -B 5 -A 16 "AssertionError|Error:|Transform failed|release remains blocked|Live exact-market proof is blocked|Failed to|error TS|✖|Vercel" .codex-run/instacomp-exact-market-proof.log | tail -n 360 || true
             echo "--- log head ---"
             head -n 180 .codex-run/instacomp-exact-market-proof.log
             echo "--- log tail ---"
