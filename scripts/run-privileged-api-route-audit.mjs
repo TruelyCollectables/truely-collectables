@@ -6,6 +6,18 @@ const repositoryRoot = process.cwd();
 const apiRoot = path.join(repositoryRoot, "src/app/api");
 const proxyPath = path.join(repositoryRoot, "src/proxy.ts");
 const instaCompActorPath = path.join(repositoryRoot, "src/lib/instacomp-job-server.ts");
+const marketplaceTokenCryptoPath = path.join(
+  repositoryRoot,
+  "src/lib/marketplace-token-crypto.ts",
+);
+const adminEbayAuthPath = path.join(
+  repositoryRoot,
+  "src/app/api/ebay/auth/route.ts",
+);
+const ebayCallbackPath = path.join(
+  repositoryRoot,
+  "src/app/api/ebay/callback/route.ts",
+);
 const reportPath = path.join(repositoryRoot, "privileged-api-route-audit.json");
 
 function walk(directory) {
@@ -107,6 +119,20 @@ function explicitProtection(route, content, methods) {
     return offerGuards ? "explicit public offer guard contract" : null;
   }
 
+  if (route === "/api/ebay/callback") {
+    const ebayCallbackGuards =
+      methods.length === 1 &&
+      methods[0] === "GET" &&
+      called(content, "parseSellerMarketplaceOAuthState") &&
+      called(content, "parseAdminMarketplaceOAuthState") &&
+      /if\s*\(!state\)/.test(content) &&
+      /parseOAuthActor\s*\(state, storeId\)/.test(content) &&
+      /store_id:\s*actor\.state\.storeId/.test(content);
+    return ebayCallbackGuards
+      ? "signed seller-or-admin eBay OAuth state validation"
+      : null;
+  }
+
   if (route === "/api/storefront/product-images/[id]") {
     const storefrontImageGuards =
       methods.length === 1 &&
@@ -114,7 +140,7 @@ function explicitProtection(route, content, methods) {
       called(content, "createServerInventoryEngine") &&
       /getByLegacyProductId\s*\(/.test(content) &&
       /inventoryItemId/.test(content) &&
-      /normalizeListingImageUrls\s*\(/.test(content);
+      /selectFrontBackListingImages\s*\(/.test(content);
     return storefrontImageGuards
       ? "explicit launch-scoped public product-image read contract"
       : null;
@@ -154,9 +180,16 @@ function explicitProtection(route, content, methods) {
   return null;
 }
 
-assert.ok(fs.existsSync(apiRoot), "API route root is missing.");
-assert.ok(fs.existsSync(proxyPath), "src/proxy.ts is missing.");
-assert.ok(fs.existsSync(instaCompActorPath), "InstaComp actor helper is missing.");
+for (const requiredPath of [
+  apiRoot,
+  proxyPath,
+  instaCompActorPath,
+  marketplaceTokenCryptoPath,
+  adminEbayAuthPath,
+  ebayCallbackPath,
+]) {
+  assert.ok(fs.existsSync(requiredPath), `Required security source is missing: ${requiredPath}`);
+}
 
 const proxySource = source(proxyPath);
 for (const [name, pattern] of [
@@ -183,6 +216,51 @@ for (const [name, pattern] of [
     instaCompActorSource,
     pattern,
     `InstaComp actor authentication is missing ${name}.`,
+  );
+}
+
+const marketplaceTokenCryptoSource = source(marketplaceTokenCryptoPath);
+for (const [name, pattern] of [
+  ["HMAC state signature", /createHmac\("sha256", signingSecret\(\)\)/],
+  ["timing-safe signature comparison", /timingSafeEqual\(expectedSignature, providedSignature\)/],
+  ["seller state creation", /export function createSellerMarketplaceOAuthState/],
+  ["seller state parsing", /export function parseSellerMarketplaceOAuthState/],
+  ["admin state creation", /export function createAdminMarketplaceOAuthState/],
+  ["admin state parsing", /export function parseAdminMarketplaceOAuthState/],
+  ["state expiration", /expiresAt:\s*issuedAt \+ MARKETPLACE_OAUTH_STATE_TTL_SECONDS/],
+]) {
+  assert.match(
+    marketplaceTokenCryptoSource,
+    pattern,
+    `Marketplace OAuth state protection is missing ${name}.`,
+  );
+}
+
+const adminEbayAuthSource = source(adminEbayAuthPath);
+for (const [name, pattern] of [
+  ["signed admin state creation", /createAdminMarketplaceOAuthState\s*\(/],
+  ["active store binding", /storeId,[\s\S]*provider:\s*"ebay"/],
+  ["state query parameter", /&state=\$\{encodeURIComponent\(state\)\}/],
+]) {
+  assert.match(
+    adminEbayAuthSource,
+    pattern,
+    `Admin eBay authorization is missing ${name}.`,
+  );
+}
+
+const ebayCallbackSource = source(ebayCallbackPath);
+for (const [name, pattern] of [
+  ["missing-state rejection", /if\s*\(!state\)/],
+  ["seller state parser", /parseSellerMarketplaceOAuthState\s*\(/],
+  ["admin state parser", /parseAdminMarketplaceOAuthState\s*\(/],
+  ["active-store state validation", /parseOAuthActor\s*\(state, storeId\)/],
+  ["admin token store binding", /store_id:\s*actor\.state\.storeId/],
+]) {
+  assert.match(
+    ebayCallbackSource,
+    pattern,
+    `eBay callback is missing ${name}.`,
   );
 }
 
