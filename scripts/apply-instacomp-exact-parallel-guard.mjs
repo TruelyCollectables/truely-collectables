@@ -239,9 +239,8 @@ pendingPage = replaceOnce(
 
 write(pendingPagePath, pendingPage);
 
-const regressionPath = "scripts/run-instacomp-exact-parallel-regressions.ts";
 write(
-  regressionPath,
+  "scripts/run-instacomp-exact-parallel-regressions.ts",
   `import assert from "node:assert/strict";
 import {
   explainInstaCompParallelMismatch,
@@ -300,31 +299,7 @@ console.log("InstaComp exact-parallel regression passed: Blue and Red/White/Blue
 `,
 );
 
-const workflowPath = ".github/workflows/active-market-integrity.yml";
-let workflow = read(workflowPath);
-workflow = workflow.replaceAll(
-  '      - "src/lib/active-market-*.ts"',
-  '      - "src/lib/active-market-*.ts"\n      - "src/lib/instacomp.ts"',
-);
-workflow = workflow.replaceAll(
-  '      - "scripts/run-active-market-*-simulations.ts"',
-  '      - "scripts/run-active-market-*-simulations.ts"\n      - "scripts/run-instacomp-exact-parallel-regressions.ts"',
-);
-workflow = replaceOnce(
-  workflow,
-  `      - name: Validate checkout webhook idempotency
-        run: node --import tsx scripts/run-checkout-webhook-idempotency-simulations.ts`,
-  `      - name: Validate InstaComp exact-parallel rejection
-        run: node --import tsx scripts/run-instacomp-exact-parallel-regressions.ts
-
-      - name: Validate checkout webhook idempotency
-        run: node --import tsx scripts/run-checkout-webhook-idempotency-simulations.ts`,
-  "exact-parallel workflow step",
-);
-write(workflowPath, workflow);
-
 fs.rmSync("scripts/apply-instacomp-exact-parallel-guard.mjs");
-fs.rmSync(".github/workflows/apply-instacomp-exact-parallel-guard.yml");
 fs.rmSync("docs/instacomp-exact-parallel-guard-trigger.md");
 
-console.log("Applied InstaComp exact-parallel guard and removed one-shot patch machinery.");
+console.log("Applied InstaComp exact-parallel guard source changes.");
