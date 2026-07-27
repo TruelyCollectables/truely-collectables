@@ -7,6 +7,7 @@ on:
       - "src/app/instacomp-test/**"
       - "src/lib/instacomp*.ts"
       - "scripts/run-instacomp-live-pipeline-regressions.ts"
+      - "scripts/run-instacomp-batch-drop-regressions.ts"
       - ".github/workflows/instacomp-live-pipeline.yml"
   workflow_dispatch:
 
@@ -16,7 +17,13 @@ permissions:
 jobs:
   live-pipeline-regression:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+      ADMIN_SESSION_SECRET: build-only-placeholder-admin-session-secret
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -33,11 +40,20 @@ jobs:
       - name: Run live-pipeline regressions
         run: node --import tsx scripts/run-instacomp-live-pipeline-regressions.ts
 
+      - name: Run multi-card drag-drop regressions
+        run: node --import tsx scripts/run-instacomp-batch-drop-regressions.ts
+
       - name: Lint live scanner files
         run: >-
           npx eslint
           src/app/api/instacomp/live-scan/route.ts
+          src/app/instacomp-test/InstaCompBatchLiveScanner.tsx
           src/app/instacomp-test/InstaCompLiveScanner.tsx
           src/app/instacomp-test/page.tsx
+          src/lib/instacomp-batch-drop.ts
           src/lib/instacomp-live-pipeline.ts
+          scripts/run-instacomp-batch-drop-regressions.ts
           scripts/run-instacomp-live-pipeline-regressions.ts
+
+      - name: Build production application
+        run: npm run build
