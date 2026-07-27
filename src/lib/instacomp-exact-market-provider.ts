@@ -66,19 +66,27 @@ function normalizeKey(value: string) {
 
 function cacheKey(query: string, lane: EbayLane) {
   return createHash("sha256")
-    .update(`serpapi_ebay_v6_${lane}:${normalizeKey(query)}`)
+    .update(`serpapi_ebay_v7_${lane}:${normalizeKey(query)}`)
     .digest("hex");
 }
 
 function moneyFromRecord(value: unknown, allowZero = false): number | null {
   const record = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-  const direct = Number(record.extracted);
+  const direct = typeof value === "number" ? value : Number(record.extracted);
   if (Number.isFinite(direct) && (allowZero ? direct >= 0 : direct > 0)) return direct;
 
-  const raw = typeof record.raw === "string" ? record.raw : "";
-  if (allowZero && /free/i.test(raw)) return 0;
-  const rawMatch = raw.replace(/,/g, "").match(/-?\$?\s*(\d+(?:\.\d{1,2})?)/);
-  const rawNumber = rawMatch ? Number(rawMatch[1]) : NaN;
+  const raw =
+    typeof value === "string"
+      ? value
+      : typeof record.raw === "string"
+        ? record.raw
+        : "";
+  if (allowZero && /\bfree(?:\s+(?:shipping|delivery))?\b/i.test(raw)) return 0;
+  const currencyMatch = raw
+    .replace(/,/g, "")
+    .match(/(?:US\s*)?\$\s*(\d+(?:\.\d{1,2})?)/i);
+  const plainNumberMatch = raw.trim().match(/^\+?\s*(\d+(?:\.\d{1,2})?)$/);
+  const rawNumber = Number(currencyMatch?.[1] || plainNumberMatch?.[1]);
   if (Number.isFinite(rawNumber) && (allowZero ? rawNumber >= 0 : rawNumber > 0)) {
     return rawNumber;
   }

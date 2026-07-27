@@ -163,6 +163,40 @@ assert.equal(normalized[0].price, 7.25, "pricing evidence must use delivered cos
 assert.equal(normalized[0].priceIncludesShipping, true);
 assert.equal(normalized[0].soldDate, "Jul 20, 2026");
 
+const normalizedDocumentedShippingStrings = normalizeEbaySerpItems({
+  organic_results: [
+    {
+      title: fixture.cards[1].exactTitles[0],
+      link: "https://www.ebay.com/itm/free-shipping",
+      price: { raw: "$6.00", extracted: 6 },
+      shipping: "Free shipping",
+      sold_date: "Jul 20, 2026",
+    },
+    {
+      title: fixture.cards[1].exactTitles[0],
+      link: "https://www.ebay.com/itm/paid-shipping",
+      price: { raw: "$6.00", extracted: 6 },
+      shipping: "+$1.25 delivery",
+      sold_date: "Jul 20, 2026",
+    },
+    {
+      title: fixture.cards[1].exactTitles[0],
+      link: "https://www.ebay.com/itm/calculated-shipping",
+      price: { raw: "$6.00", extracted: 6 },
+      shipping: "Calculated at checkout",
+      sold_date: "Jul 20, 2026",
+    },
+  ],
+});
+assert.equal(normalizedDocumentedShippingStrings[0].shippingPrice, 0);
+assert.equal(normalizedDocumentedShippingStrings[0].price, 6);
+assert.equal(normalizedDocumentedShippingStrings[0].priceIncludesShipping, true);
+assert.equal(normalizedDocumentedShippingStrings[1].shippingPrice, 1.25);
+assert.equal(normalizedDocumentedShippingStrings[1].price, 7.25);
+assert.equal(normalizedDocumentedShippingStrings[1].priceIncludesShipping, true);
+assert.equal(normalizedDocumentedShippingStrings[2].shippingPrice, null);
+assert.equal(normalizedDocumentedShippingStrings[2].priceIncludesShipping, false);
+
 const seasonTarget: InstaCompAiResult = {
   player: "Season Guard",
   year: "2024-25",
@@ -277,7 +311,7 @@ assert.match(activeUrl, /_sop=10/);
 
 const proofSource = fs.readFileSync("src/lib/instacomp-exact-market-provider.ts", "utf8");
 assert.ok(proofSource.includes("providerAcrossQueries"));
-assert.ok(proofSource.includes("serpapi_ebay_v6_"));
+assert.ok(proofSource.includes("serpapi_ebay_v7_"));
 assert.ok(proofSource.includes("targetExactCount"));
 assert.ok(proofSource.includes("strictNumberingGate"));
 assert.ok(proofSource.includes("filterStrictExactMarketMatches"));

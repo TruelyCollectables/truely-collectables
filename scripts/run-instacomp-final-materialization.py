@@ -34,6 +34,7 @@ stages = [
     "scripts/harden-instacomp-final-async-regressions.py",
     "scripts/harden-instacomp-final-library-extraction.py",
     "scripts/apply-instacomp-deep-audit-fixes.py",
+    "scripts/apply-instacomp-serpapi-schema-fix.py",
     "scripts/assert-instacomp-final-source.py",
 ]
 
