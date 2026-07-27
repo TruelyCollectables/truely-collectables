@@ -1,0 +1,94 @@
+name: InstaComp Six Card Live Proof Pinned 20260727
+
+on:
+  push:
+    branches:
+      - agent/instacomp-exact-market-final-20260726
+    paths:
+      - ".github/workflows/instacomp-six-card-live-proof-pinned-20260727.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: instacomp-six-card-live-proof-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  prove:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+      INSTACOMP_BYPASS_CACHE: "1"
+      INSTACOMP_PROOF_INCLUDE_OPENAI_DISCOVERY: "1"
+
+    steps:
+      - name: Announce proof
+        run: |
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/143/comments" \
+            -f body="Pinned InstaComp six-card live provider proof started on commit \`${GITHUB_SHA}\` (Actions run ${GITHUB_RUN_ID})."
+
+      - name: Check out pinned commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Validate OpenAI and SerpAPI
+        run: |
+          node <<'NODE'
+          const openAi = await fetch("https://api.openai.com/v1/models", {
+            headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+            signal: AbortSignal.timeout(30000),
+          });
+          console.log(`OpenAI HTTP ${openAi.status}`);
+          if (!openAi.ok) process.exit(1);
+          const url = new URL("https://serpapi.com/search.json");
+          url.searchParams.set("engine", "ebay");
+          url.searchParams.set("ebay_domain", "ebay.com");
+          url.searchParams.set("_nkw", "Topps rookie card");
+          url.searchParams.set("_ipg", "1");
+          url.searchParams.set("api_key", process.env.SERPAPI_API_KEY);
+          const serp = await fetch(url, { signal: AbortSignal.timeout(45000) });
+          const payload = await serp.json().catch(() => ({}));
+          console.log(`SerpApi HTTP ${serp.status}`);
+          if (!serp.ok || payload?.error) process.exit(1);
+          NODE
+
+      - name: Run six-card proof
+        run: |
+          set -euo pipefail
+          mkdir -p docs .codex-run
+          node --import tsx scripts/run-instacomp-batch-001-live-market-proof.ts 2>&1 | tee .codex-run/instacomp-six-card-live-proof.log
+
+      - name: Upload proof evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-six-card-live-proof-${{ github.run_number }}
+          path: |
+            docs/instacomp-batch-001-live-market-proof.json
+            .codex-run/instacomp-six-card-live-proof.log
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Post final proof status
+        if: always()
+        run: |
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/143/comments" \
+            -f body="Pinned InstaComp six-card proof ${GITHUB_RUN_ID} finished with job status **${{ job.status }}** on commit \`${GITHUB_SHA}\`."
