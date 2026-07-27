@@ -1,0 +1,12 @@
+diff --git a/src/app/api/checkout/route.ts b/src/app/api/checkout/route.ts
+index c3fc1f5..e1f2e3d 100644
+--- a/src/app/api/checkout/route.ts
++++ b/src/app/api/checkout/route.ts
+@@ -367,6 +367,7 @@ export async function POST(request: Request) {
+       }
+ 
+       if (
++        claim.fingerprintMatches &&
+         existingSession.url &&
+         existingSession.status === "open" &&
+         claim.requestStatus === "session_created"
