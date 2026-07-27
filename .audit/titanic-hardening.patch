@@ -1,0 +1,122 @@
+diff --git a/src/app/api/webhook/route.ts b/src/app/api/webhook/route.ts
+index f9eb8fd..c731d08 100644
+--- a/src/app/api/webhook/route.ts
++++ b/src/app/api/webhook/route.ts
+@@ -25,6 +25,7 @@ import {
+   getStripeTestWebhookSecret,
+ } from "../../../lib/stripe-credentials";
+ import { finalizeCheckoutOrder } from "../../../lib/checkout-order-finalization";
++import { releaseCheckoutReservationForExpiredSession } from "../../../lib/checkout-inventory-reservations";
+ 
+ export const dynamic = "force-dynamic";
+ 
+@@ -298,6 +299,35 @@ export async function POST(req: Request) {
+       return NextResponse.json({ received: true, simulation: true });
+     }
+ 
++    if (event.type === "checkout.session.expired") {
++      const session = event.data.object as Stripe.Checkout.Session;
++      const metadata = session.metadata || {};
++
++      if (session.mode !== "payment" || metadata.store_id !== storeId) {
++        await finishStripeWebhookEvent({
++          ...journal,
++          status: "ignored",
++          metadata: { outcome: "expired_session_not_store_payment" },
++        });
++        return NextResponse.json({ received: true });
++      }
++
++      const released = await releaseCheckoutReservationForExpiredSession({
++        supabase,
++        storeId,
++        stripeSessionId: session.id,
++      });
++      await finishStripeWebhookEvent({
++        ...journal,
++        status: "processed",
++        metadata: {
++          outcome: "expired_checkout_reservation_released",
++          released_reservation_count: released.releasedCount,
++        },
++      });
++      return NextResponse.json({ received: true });
++    }
++
+     if (event.type === "account.updated") {
+       await updateSellerPayoutAccountFromStripe({
+         supabase,
+diff --git a/src/lib/checkout-inventory-reservations.ts b/src/lib/checkout-inventory-reservations.ts
+index 9b2789d..2399df3 100644
+--- a/src/lib/checkout-inventory-reservations.ts
++++ b/src/lib/checkout-inventory-reservations.ts
+@@ -248,3 +248,25 @@ export async function releaseCheckoutReservation(params: {
+ 
+   if (error) throw error;
+ }
++
++export async function releaseCheckoutReservationForExpiredSession(params: {
++  supabase: SupabaseClient;
++  storeId: string;
++  stripeSessionId: string;
++}) {
++  const now = new Date().toISOString();
++  const { data, error } = await params.supabase
++    .from("checkout_inventory_reservations")
++    .update({
++      status: "released",
++      released_at: now,
++      updated_at: now,
++    })
++    .eq("store_id", params.storeId)
++    .eq("stripe_session_id", params.stripeSessionId)
++    .eq("status", "active")
++    .select("id");
++
++  if (error) throw error;
++  return { releasedCount: data?.length || 0 };
++}
+diff --git a/src/lib/live-payment-launch-core.ts b/src/lib/live-payment-launch-core.ts
+index f09663b..e0877ac 100644
+--- a/src/lib/live-payment-launch-core.ts
++++ b/src/lib/live-payment-launch-core.ts
+@@ -16,6 +16,7 @@ export const LIVE_PAYMENT_APPROVAL_VERSION = "tcos-live-payments-v1";
+ export const REQUIRED_LIVE_WEBHOOK_EVENTS = [
+   "account.updated",
+   "checkout.session.completed",
++  "checkout.session.expired",
+   "refund.created",
+   "refund.updated",
+   "refund.failed",
+diff --git a/supabase/migrations/20260726234000_consume_attached_offer_checkout_reservations.sql b/supabase/migrations/20260726234000_consume_attached_offer_checkout_reservations.sql
+index 0c0746b..bbd21b4 100644
+--- a/supabase/migrations/20260726234000_consume_attached_offer_checkout_reservations.sql
++++ b/supabase/migrations/20260726234000_consume_attached_offer_checkout_reservations.sql
+@@ -31,7 +31,7 @@ begin
+ 
+   perform pg_advisory_xact_lock(
+     hashtextextended(
+-      p_store_id::text || ':' || p_order_id::text || ':' || p_legacy_product_id::text,
++      p_store_id::text || ':' || p_legacy_product_id::text,
+       0
+     )
+   );
+@@ -82,8 +82,7 @@ begin
+      where reservation.store_id = p_store_id
+        and reservation.legacy_product_id = p_legacy_product_id
+        and reservation.stripe_session_id = v_order_stripe_session_id
+-       and reservation.status = 'active'
+-       and reservation.expires_at > now()
++       and reservation.status in ('active', 'expired')
+      order by reservation.created_at asc
+      limit 1
+      for update;
+@@ -154,7 +153,7 @@ begin
+    where reservation.store_id = p_store_id
+      and reservation.legacy_product_id = p_legacy_product_id
+      and reservation.status = 'active'
+-     and reservation.expires_at > now();
++     and (reservation.expires_at > now() or reservation.stripe_session_id is not null);
+ 
+   v_previous := coalesce(v_inventory.quantity, 0);
+ 
