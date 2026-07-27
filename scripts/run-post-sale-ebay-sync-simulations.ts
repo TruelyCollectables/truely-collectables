@@ -208,9 +208,11 @@ assert.ok(
   "accepted-offer inventory must be reserved before Stripe creates a payable session",
 );
 assert.ok(
-  reservedOfferCheckout.includes('claim.requestStatus === "session_created"') &&
+  reservedOfferCheckout.includes("function replayResult(") &&
+    reservedOfferCheckout.includes("if (claim.stripeSessionId)") &&
+    reservedOfferCheckout.includes("return replayResult(existing, checkoutAttemptId)") &&
     reservedOfferCheckout.includes("replayed: true"),
-  "accepted-offer retries must replay the existing open Stripe Session",
+  "accepted-offer retries must verify and replay the existing open Stripe Session",
 );
 assert.ok(
   reservedOfferCheckout.includes(
