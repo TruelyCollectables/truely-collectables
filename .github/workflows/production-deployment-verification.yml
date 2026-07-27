@@ -1,5 +1,6 @@
 name: Production Deployment Verification
 
+# Registered production deployment trigger.
 on:
   push:
     branches:
