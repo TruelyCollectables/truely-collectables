@@ -1,0 +1,100 @@
+name: Temporary InstaComp Dependency Fix Writer
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/temporary-instacomp-dependency-fix-writer.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: temporary-instacomp-dependency-fix-writer-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  upgrade-audit-test-and-commit:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      ADMIN_PASSWORD: build-only-placeholder-password
+      ADMIN_SESSION_SECRET: build-only-placeholder-session-secret
+      STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build-only-placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+      EBAY_CLIENT_ID: build-only-placeholder-client-id
+      EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+      EBAY_ENVIRONMENT: production
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+
+    steps:
+      - name: Check out audit branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/instacomp-exact-market-final-20260726
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Apply explicit safe dependency versions
+        run: |
+          set -euo pipefail
+          npm pkg set \
+            'dependencies.next=16.2.12' \
+            'dependencies.sharp=0.35.3' \
+            'devDependencies.eslint-config-next=16.2.12' \
+            'devDependencies.@tailwindcss/postcss=4.3.3' \
+            'devDependencies.tailwindcss=4.3.3' \
+            'overrides.postcss=8.5.23'
+          npm install --package-lock-only
+          npm audit fix --package-lock-only
+          git diff --check
+
+      - name: Install exact upgraded dependencies
+        run: npm ci
+
+      - name: Enforce zero high or critical advisories
+        run: |
+          set -euo pipefail
+          npm audit --omit=dev --audit-level=high
+          npm audit --audit-level=high
+
+      - name: Run InstaComp regressions
+        run: |
+          set -euo pipefail
+          node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
+          node --import tsx scripts/run-instacomp-live-pipeline-regressions.ts
+          node --import tsx scripts/run-instacomp-provider-safety-regressions.ts
+          node --import tsx scripts/run-instacomp-final-audit-regressions.ts
+          node --import tsx scripts/run-instacomp-batch-drop-regressions.ts
+
+      - name: Lint repository
+        run: npm run lint
+
+      - name: Build production application
+        run: npm run build
+
+      - name: Commit upgraded dependencies
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          git diff --cached --check
+          git diff --cached --quiet && { echo "Dependency upgrades already committed"; exit 0; }
+          git commit -m "Upgrade vulnerable Next.js and image dependencies"
+          git push origin HEAD:agent/instacomp-exact-market-final-20260726
