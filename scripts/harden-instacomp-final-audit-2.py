@@ -12,6 +12,9 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
 def patch_benchmark() -> None:
     path = Path("src/app/api/instacomp/benchmark/ebay-25/route.ts")
     text = path.read_text()
+    if 'from "../../../../../lib/instacomp-benchmark-title";' in text:
+        return
+
     helper_marker = '''export function benchmarkTitleEligible(
 '''
     helper = '''function benchmarkTitleHasExpectedPlayer(
