@@ -66,6 +66,18 @@ def keep_first_function(path: Path, name: str) -> None:
     path.write_text(text)
 
 
+def remove_orphan_visual_review(path: Path) -> None:
+    text = path.read_text()
+    orphan = re.compile(
+        r'''\n\s*\) \{\n  return \{\n    \.\.\.params\.provider,\n    status: params\.accepted\.length \? "live" : "no_matches",\n    message: params\.accepted\.length\n      \? `\$\{params\.accepted\.length\} candidate image\$\{params\.accepted\.length === 1 \? "" : "s"\} passed exact-card visual proof\.`\n      : `\$\{params\.rejectedCount\} title candidate\$\{params\.rejectedCount === 1 \? " was" : "s were"\} rejected or inconclusive after image proof\.`,\n    results: params\.accepted,\n  \} satisfies InstaCompProviderResult;\n\}\n''',
+        re.S,
+    )
+    text, count = orphan.subn("\n", text)
+    if count > 1:
+        raise SystemExit(f"Removed {count} orphaned visual-review blocks; expected at most one")
+    path.write_text(text)
+
+
 def main() -> None:
     benchmark_path = Path("src/app/api/instacomp/benchmark/ebay-25/route.ts")
     keep_first_function(benchmark_path, "titleHasExactCardNumber")
@@ -73,6 +85,7 @@ def main() -> None:
     live_path = Path("src/app/api/instacomp/live-scan/route.ts")
     keep_first_function(live_path, "forceVisualProof")
     keep_first_function(live_path, "providerAfterVisualReview")
+    remove_orphan_visual_review(live_path)
 
     catalog_path = Path("src/lib/instacomp-curated-checklist.ts")
     keep_first_function(catalog_path, "catalogTokens")
