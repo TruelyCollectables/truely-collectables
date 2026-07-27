@@ -73,4 +73,25 @@ jobs:
         run: npm ci
 
       - name: Run six-card exact-market proof
-        run: node --import tsx scripts/run-instacomp-batch-001-live-market-proof.ts
+        id: live_proof
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p docs .codex-run
+          node --import tsx scripts/run-instacomp-batch-001-live-market-proof.ts 2>&1 | tee .codex-run/instacomp-six-card-proof.log
+
+      - name: Upload six-card proof diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-six-card-proof-${{ github.run_number }}
+          path: |
+            docs/instacomp-batch-001-live-market-proof.json
+            .codex-run/instacomp-six-card-proof.log
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Enforce six-card proof
+        if: always()
+        run: test "${{ steps.live_proof.outcome }}" = "success"
