@@ -22,18 +22,21 @@ jobs:
           ref: agent/emergency-post-launch-audit-fixes-20260726
           fetch-depth: 0
 
-      - name: Apply reviewed patch and remove temporary machinery
+      - name: Apply reviewed code patch
         shell: bash
         run: |
           set -euo pipefail
           test -f .audit/titanic-hardening.patch
-          git apply --check .audit/titanic-hardening.patch
-          git apply .audit/titanic-hardening.patch
+          git apply --check \
+            --exclude=.github/workflows/emergency-post-launch-audit.yml \
+            .audit/titanic-hardening.patch
+          git apply \
+            --exclude=.github/workflows/emergency-post-launch-audit.yml \
+            .audit/titanic-hardening.patch
           rm .audit/titanic-hardening.patch
           rmdir .audit 2>/dev/null || true
-          rm .github/workflows/apply-titanic-final-patch.yml
           git config user.name "Truely Collectables Audit"
           git config user.email "sales@truelycollectables.com"
           git add -A
-          git commit -m "Finalize Titanic storefront hardening"
+          git commit -m "Finalize Titanic storefront code hardening"
           git push origin HEAD:agent/emergency-post-launch-audit-fixes-20260726
