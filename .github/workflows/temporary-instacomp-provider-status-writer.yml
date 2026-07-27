@@ -1,6 +1,6 @@
 name: Temporary InstaComp Provider Status Writer
 
-# Registered-workflow trigger for deterministic SerpApi status patch.
+# Registered workflow retrigger after dependency-writer cleanup.
 on:
   push:
     branches:
