@@ -1,0 +1,48 @@
+diff --git a/scripts/import-verified-reference-batch001.mjs b/scripts/import-verified-reference-batch001.mjs
+index 6d8f20d..405776a 100644
+--- a/scripts/import-verified-reference-batch001.mjs
++++ b/scripts/import-verified-reference-batch001.mjs
+@@ -338,7 +338,7 @@ async function main() {
+   }
+ 
+   console.log("\n=== APPLYING DIRECTLY TO SUPABASE ===");
+-  if (!process.env.ADMIN_SESSION_SECRET?.trim() && !process.env.ADMIN_PASSWORD?.trim()) {
++  if (!process.env.ADMIN_SESSION_SECRET?.trim()) {
+     process.env.ADMIN_SESSION_SECRET = randomBytes(32).toString("hex");
+     console.log("Using an ephemeral in-process admin session for this local import only.");
+   }
+@@ -347,7 +347,7 @@ async function main() {
+       import("../src/lib/admin-session.ts"),
+       import("../src/app/api/admin/verified-reference-import/route.ts"),
+     ]);
+-  const sessionValue = await createAdminSessionValue();
++  const sessionValue = await createAdminSessionValue("cookie");
+   const formData = new FormData();
+   formData.set(
+     "verifiedReferenceFile",
+diff --git a/scripts/run-admin-login-simulations.mjs b/scripts/run-admin-login-simulations.mjs
+index 71ba0fb..89bdddf 100644
+--- a/scripts/run-admin-login-simulations.mjs
++++ b/scripts/run-admin-login-simulations.mjs
+@@ -165,7 +165,7 @@ scenario("admin login shows operator-readable failure guidance", () => {
+ scenario("admin login fails cleanly when session creation fails", () => {
+   for (const fragment of [
+     "let sessionValue: string;",
+-    "createAdminSessionValue()",
++    'createAdminSessionValue("cookie")',
+     "loginPayload.nextPath",
+     "loginRedirect(\n        req,\n        \"session_error\",\n        loginPayload.nextPath,\n      )",
+     "admin_session_not_created",
+diff --git a/scripts/run-admin-session-secret-fail-closed-simulations.mjs b/scripts/run-admin-session-secret-fail-closed-simulations.mjs
+index 75c875a..25554d0 100644
+--- a/scripts/run-admin-session-secret-fail-closed-simulations.mjs
++++ b/scripts/run-admin-session-secret-fail-closed-simulations.mjs
+@@ -83,7 +83,7 @@ for (const [label, fragment] of [
+ }
+ 
+ for (const fragment of [
+-  "createAdminSessionValue()",
++  'createAdminSessionValue("cookie")',
+   '"session_error"',
+   "appendExpiredAdminSessionCookies",
+ ]) {
