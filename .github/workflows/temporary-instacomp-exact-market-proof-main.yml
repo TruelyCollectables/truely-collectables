@@ -7,15 +7,14 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: instacomp-exact-market-proof-pr
+  group: instacomp-exact-market-proof-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  patch-test-and-prove:
-    if: github.actor != 'github-actions[bot]'
+  test-and-prove-current-head:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -41,33 +40,43 @@ jobs:
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out current event revision
+        uses: actions/checkout@v4
         with:
-          ref: agent/instacomp-exact-market-proof-20260726
-          fetch-depth: 0
+          fetch-depth: 1
 
-      - uses: actions/setup-node@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
 
-      - name: Apply hardening and run three proof passes
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply current InstaComp hardening
+        id: hardening
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          python -m py_compile scripts/harden-instacomp-*.py scripts/run-instacomp-certification-safe.py scripts/run-instacomp-certification-round2-safe.py
+          python scripts/harden-instacomp-ebay-benchmark.py
+          python scripts/harden-instacomp-benchmark-source.py
+          python scripts/harden-instacomp-benchmark-cleanup.py
+          python scripts/run-instacomp-certification-safe.py
+          python scripts/harden-instacomp-visual-proof.py
+          python scripts/harden-instacomp-visual-review-types.py
+          python scripts/harden-instacomp-benchmark-report.py
+          git diff --check
+
+      - name: Run three deterministic proof passes
+        id: regressions
+        continue-on-error: true
         shell: bash
         run: |
           set +e
           mkdir -p docs .codex-run
           : > .codex-run/instacomp-exact-market-proof.log
-
-          npm ci >> .codex-run/instacomp-exact-market-proof.log 2>&1
-          INSTALL=$?
-
-          if grep -q "serpapi_ebay_v6_" src/lib/instacomp-ebay-serp-provider.ts; then
-            node scripts/repair-instacomp-exact-market-proof.mjs >> .codex-run/instacomp-exact-market-proof.log 2>&1
-          else
-            node scripts/apply-instacomp-exact-market-proof.mjs >> .codex-run/instacomp-exact-market-proof.log 2>&1
-            node scripts/repair-instacomp-exact-market-proof.mjs >> .codex-run/instacomp-exact-market-proof.log 2>&1
-          fi
-          PATCH=$?
 
           node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts >> .codex-run/instacomp-exact-market-proof.log 2>&1
           PASS1=$?
@@ -76,26 +85,55 @@ jobs:
           node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts >> .codex-run/instacomp-exact-market-proof.log 2>&1
           PASS3=$?
 
-          LIVE_ENV_ARGS=()
-          if [ -z "${SERPAPI_API_KEY:-}" ] && [ -n "${VERCEL_TOKEN:-}" ]; then
+          echo "pass1=$PASS1" >> "$GITHUB_OUTPUT"
+          echo "pass2=$PASS2" >> "$GITHUB_OUTPUT"
+          echo "pass3=$PASS3" >> "$GITHUB_OUTPUT"
+          test "$PASS1" -eq 0 && test "$PASS2" -eq 0 && test "$PASS3" -eq 0
+
+      - name: Pull production provider configuration
+        id: provider_env
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          mkdir -p .codex-run
+          : > .codex-run/instacomp-provider-env.log
+          LIVE_ENV_FILE=""
+
+          if [ -n "${VERCEL_TOKEN:-}" ]; then
             mkdir -p .vercel
             if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
               printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
               VERCEL_LINK=0
             else
-              npx vercel link --yes --project truely-collectables --scope truelycollectables-projects --token "$VERCEL_TOKEN" >> .codex-run/instacomp-exact-market-proof.log 2>&1
+              npx vercel link --yes --project truely-collectables --scope truelycollectables-projects --token "$VERCEL_TOKEN" >> .codex-run/instacomp-provider-env.log 2>&1
               VERCEL_LINK=$?
             fi
             if [ "$VERCEL_LINK" -eq 0 ]; then
-              npx vercel env pull .env.production.local --yes --environment=production --token "$VERCEL_TOKEN" >> .codex-run/instacomp-exact-market-proof.log 2>&1
+              npx vercel env pull .env.production.local --yes --environment=production --token "$VERCEL_TOKEN" >> .codex-run/instacomp-provider-env.log 2>&1
               VERCEL_PULL=$?
               if [ "$VERCEL_PULL" -eq 0 ] && [ -f .env.production.local ]; then
-                LIVE_ENV_ARGS=(--env-file=.env.production.local)
+                LIVE_ENV_FILE=".env.production.local"
               fi
             fi
           fi
 
-          unset SERPAPI_API_KEY
+          echo "env_file=$LIVE_ENV_FILE" >> "$GITHUB_OUTPUT"
+          test -n "$LIVE_ENV_FILE"
+
+      - name: Run live six-card exact-market proof
+        id: live_proof
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          LIVE_ENV_FILE="${{ steps.provider_env.outputs.env_file }}"
+          LIVE_ENV_ARGS=()
+          if [ -n "$LIVE_ENV_FILE" ] && [ -f "$LIVE_ENV_FILE" ]; then
+            LIVE_ENV_ARGS=(--env-file="$LIVE_ENV_FILE")
+          fi
+
+          unset SERPAPI_API_KEY OPENAI_API_KEY
           unset EBAY_CLIENT_ID EBAY_CLIENT_SECRET
           unset GOOGLE_CSE_API_KEY GOOGLE_CUSTOM_SEARCH_API_KEY GOOGLE_CSE_CX GOOGLE_CUSTOM_SEARCH_CX
           unset PRICECHARTING_API_TOKEN SPORTSCARDSPRO_API_TOKEN SPORTSCARDS_PRO_API_TOKEN
@@ -103,6 +141,7 @@ jobs:
           node "${LIVE_ENV_ARGS[@]}" -e '
             const names = [
               "SERPAPI_API_KEY",
+              "OPENAI_API_KEY",
               "EBAY_CLIENT_ID",
               "EBAY_CLIENT_SECRET",
               "GOOGLE_CSE_API_KEY",
@@ -117,48 +156,61 @@ jobs:
           ' >> .codex-run/instacomp-exact-market-proof.log 2>&1
 
           node "${LIVE_ENV_ARGS[@]}" --import tsx scripts/run-instacomp-batch-001-live-market-proof.ts >> .codex-run/instacomp-exact-market-proof.log 2>&1
-          LIVE=$?
 
-          npm run lint >> .codex-run/instacomp-exact-market-proof.log 2>&1
-          LINT=$?
-          npm run build >> .codex-run/instacomp-exact-market-proof.log 2>&1
-          BUILD=$?
+      - name: Lint repository
+        id: lint
+        continue-on-error: true
+        run: npm run lint >> .codex-run/instacomp-exact-market-proof.log 2>&1
 
-          rm -rf .vercel .env.production.local .env.local
+      - name: Build production application
+        id: build
+        continue-on-error: true
+        run: npm run build >> .codex-run/instacomp-exact-market-proof.log 2>&1
 
+      - name: Write validation report
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p docs .codex-run
           {
-            echo "install=$INSTALL"
-            echo "patch=$PATCH"
-            echo "regression_pass_1=$PASS1"
-            echo "regression_pass_2=$PASS2"
-            echo "regression_pass_3=$PASS3"
-            echo "live_six_card_market_proof=$LIVE"
-            echo "lint=$LINT"
-            echo "build=$BUILD"
             echo "validated_source_commit=$(git rev-parse HEAD)"
+            echo "hardening=${{ steps.hardening.outcome }}"
+            echo "regression_pass_1=${{ steps.regressions.outputs.pass1 }}"
+            echo "regression_pass_2=${{ steps.regressions.outputs.pass2 }}"
+            echo "regression_pass_3=${{ steps.regressions.outputs.pass3 }}"
+            echo "provider_env=${{ steps.provider_env.outcome }}"
+            echo "live_six_card_market_proof=${{ steps.live_proof.outcome }}"
+            echo "lint=${{ steps.lint.outcome }}"
+            echo "build=${{ steps.build.outcome }}"
             echo "--- provider configuration (presence only) ---"
             grep "provider_env_presence=" .codex-run/instacomp-exact-market-proof.log || true
             echo "--- assertions and errors with context ---"
             grep -nE -B 5 -A 16 "AssertionError|Error:|Transform failed|release remains blocked|Live exact-market proof is blocked|Failed to|error TS|✖|Vercel" .codex-run/instacomp-exact-market-proof.log | tail -n 360 || true
             echo "--- log head ---"
-            head -n 180 .codex-run/instacomp-exact-market-proof.log
+            head -n 180 .codex-run/instacomp-exact-market-proof.log || true
             echo "--- log tail ---"
-            tail -n 280 .codex-run/instacomp-exact-market-proof.log
+            tail -n 280 .codex-run/instacomp-exact-market-proof.log || true
           } > docs/instacomp-exact-market-validation.txt
+          rm -rf .vercel .env.production.local .env.local
 
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src scripts docs
-          git commit -m "Validate repaired InstaComp exact sold and active proof" || true
-          git push origin HEAD:agent/instacomp-exact-market-proof-20260726
-          PUSH=$?
+      - name: Upload exact-market validation
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-exact-market-validation-${{ github.run_number }}
+          path: |
+            docs/instacomp-exact-market-validation.txt
+            docs/instacomp-batch-001-live-market-proof.json
+            .codex-run/instacomp-exact-market-proof.log
+          if-no-files-found: warn
+          retention-days: 30
 
-          test "$INSTALL" -eq 0 && \
-          test "$PATCH" -eq 0 && \
-          test "$PASS1" -eq 0 && \
-          test "$PASS2" -eq 0 && \
-          test "$PASS3" -eq 0 && \
-          test "$LIVE" -eq 0 && \
-          test "$LINT" -eq 0 && \
-          test "$BUILD" -eq 0 && \
-          test "$PUSH" -eq 0
+      - name: Enforce proof result
+        if: always()
+        run: |
+          test "${{ steps.hardening.outcome }}" = "success"
+          test "${{ steps.regressions.outcome }}" = "success"
+          test "${{ steps.provider_env.outcome }}" = "success"
+          test "${{ steps.live_proof.outcome }}" = "success"
+          test "${{ steps.lint.outcome }}" = "success"
+          test "${{ steps.build.outcome }}" = "success"
