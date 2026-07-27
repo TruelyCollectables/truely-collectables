@@ -18,12 +18,27 @@ export async function persistBuyerProtectionForOrder(params: {
   shippingMethod: string | null | undefined;
   metadata: Record<string, string>;
   isTest?: boolean;
+  paidFeeAmount?: number;
+  paidItemSubtotal?: number;
 }) {
-  if (params.metadata.buyer_protection_selected !== "true") return null;
+  const metadataSelected =
+    params.metadata.buyer_protection_selected === "true";
+  const feeAmount = money(
+    params.paidFeeAmount ?? params.metadata.buyer_protection_fee,
+  );
 
-  const feeAmount = money(params.metadata.buyer_protection_fee);
+  if (!metadataSelected && feeAmount === 0) return null;
+  if (metadataSelected !== (feeAmount > 0)) {
+    throw new Error(
+      "Paid Buyer Protection charge did not match the Checkout consent metadata.",
+    );
+  }
+
   const coveredAmount = money(
     params.metadata.buyer_protection_covered_amount,
+  );
+  const paidItemSubtotal = money(
+    params.paidItemSubtotal ?? coveredAmount,
   );
   const policyVersion = params.metadata.buyer_protection_policy_version;
   const termsAcceptedAt =
@@ -40,8 +55,17 @@ export async function persistBuyerProtectionForOrder(params: {
   if (feeAmount !== BUYER_PROTECTION_FEE) {
     throw new Error("Paid Buyer Protection fee did not match the policy fee.");
   }
-  if (coveredAmount <= 0 || coveredAmount > BUYER_PROTECTION_MAX_COVERAGE) {
-    throw new Error("Paid Buyer Protection coverage amount is invalid.");
+  if (
+    coveredAmount <= 0 ||
+    coveredAmount > BUYER_PROTECTION_MAX_COVERAGE ||
+    !Number.isFinite(paidItemSubtotal) ||
+    paidItemSubtotal <= 0 ||
+    paidItemSubtotal > BUYER_PROTECTION_MAX_COVERAGE ||
+    coveredAmount !== paidItemSubtotal
+  ) {
+    throw new Error(
+      "Paid Buyer Protection coverage did not match the Stripe-paid item subtotal.",
+    );
   }
   if (policyVersion !== BUYER_PROTECTION_POLICY_VERSION) {
     throw new Error("Paid Buyer Protection used a stale policy version.");
@@ -88,6 +112,8 @@ export async function persistBuyerProtectionForOrder(params: {
           null,
         metadata: {
           stripe_checkout_metadata_verified: true,
+          stripe_paid_fee_verified: true,
+          stripe_paid_item_subtotal: paidItemSubtotal,
           is_test: params.isTest === true,
           non_reimbursable: ["shipping", "buyer_protection_fee"],
           claim_minimum_days_after_shipment: 7,
