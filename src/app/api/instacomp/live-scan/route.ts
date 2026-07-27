@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { POST as runIdentityScan } from "../scan/route";
-import {
-  getExactEbayMarketProviders,
-  type EbaySerpItem,
-} from "../../../../lib/instacomp-exact-market-provider";
+import { getExactEbayMarketProviders } from "../../../../lib/instacomp-exact-market-provider";
 import { getOpenAiExactEbayMarketProviders } from "../../../../lib/instacomp-openai-web-market-provider";
 import type {
   InstaCompAiResult,
@@ -17,6 +14,14 @@ import {
   providerCoverage,
   type InstaCompExactMarketSource,
 } from "../../../../lib/instacomp-live-pipeline";
+import {
+  instaCompJobErrorResponse,
+  requireInstaCompJobActor,
+} from "../../../../lib/instacomp-job-server";
+import {
+  checkPublicEndpointRateLimit,
+  publicEndpointRateLimitResponse,
+} from "../../../../lib/public-endpoint-rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,7 +46,6 @@ type LegacyScanResponse = {
     [key: string]: unknown;
   };
   providers?: InstaCompProviderResult[];
-  sourceCoverage?: unknown[];
   [key: string]: unknown;
 };
 
@@ -53,9 +57,7 @@ type PersistenceResult = {
 function json(payload: unknown, status = 200) {
   return NextResponse.json(payload, {
     status,
-    headers: {
-      "Cache-Control": "no-store, max-age=0",
-    },
+    headers: { "Cache-Control": "no-store, max-age=0" },
   });
 }
 
@@ -156,10 +158,38 @@ function runtimeConfiguration() {
   };
 }
 
+async function authorizeLiveScan(request: NextRequest) {
+  const actor = await requireInstaCompJobActor(request);
+  const rateLimit = await checkPublicEndpointRateLimit({
+    request,
+    endpointKey: "instacomp_live_scan",
+    subjectKey:
+      actor.type === "seller"
+        ? `seller:${actor.sellerAccountId}`
+        : `admin:${actor.storeId}`,
+    maxAttempts: 600,
+    windowSeconds: 24 * 60 * 60,
+  });
+
+  if (!rateLimit.allowed) {
+    const blocked = publicEndpointRateLimitResponse(rateLimit);
+    return NextResponse.json(blocked.body, { status: blocked.status });
+  }
+
+  return null;
+}
+
 export async function POST(request: NextRequest) {
   const startedAt = Date.now();
   let frontReceived = false;
   let backReceived = false;
+
+  try {
+    const blocked = await authorizeLiveScan(request);
+    if (blocked) return blocked;
+  } catch (error) {
+    return instaCompJobErrorResponse(error);
+  }
 
   try {
     const inspection = await request.clone().formData();
@@ -182,11 +212,11 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (!frontReceived) {
+  if (!frontReceived || !backReceived) {
     return json(
       {
         ok: false,
-        error: "Upload the front image before running InstaComp.",
+        error: "Upload both the front and back before running exact-card InstaComp.",
         pipelineDiagnostics: {
           mode: "live",
           simulated: false,
@@ -316,16 +346,11 @@ export async function POST(request: NextRequest) {
       fallbackQuery: base.searchQuery || exactTitle,
       ai,
     }),
-    getOpenAiExactEbayMarketProviders({
-      exactTitle,
-      ai,
-    }),
+    getOpenAiExactEbayMarketProviders({ exactTitle, ai }),
   ]);
 
-  const serp =
-    serpSettled.status === "fulfilled" ? serpSettled.value : null;
-  const openAi =
-    openAiSettled.status === "fulfilled" ? openAiSettled.value : null;
+  const serp = serpSettled.status === "fulfilled" ? serpSettled.value : null;
+  const openAi = openAiSettled.status === "fulfilled" ? openAiSettled.value : null;
 
   const serpSource: InstaCompExactMarketSource = serp
     ? { sold: serp.sold, active: serp.active }
