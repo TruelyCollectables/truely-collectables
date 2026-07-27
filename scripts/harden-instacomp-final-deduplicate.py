@@ -11,7 +11,27 @@ def function_spans(text: str, name: str) -> list[tuple[int, int]]:
     spans: list[tuple[int, int]] = []
     for match in pattern.finditer(text):
         start = match.start() + (1 if text[match.start():].startswith("\n") else 0)
-        opening = text.find("{", match.end())
+        opening_paren = text.find("(", match.start(), match.end())
+        if opening_paren < 0:
+            raise SystemExit(f"Could not find opening parenthesis for {name}")
+
+        paren_depth = 0
+        params_end = -1
+        index = opening_paren
+        while index < len(text):
+            character = text[index]
+            if character == "(":
+                paren_depth += 1
+            elif character == ")":
+                paren_depth -= 1
+                if paren_depth == 0:
+                    params_end = index + 1
+                    break
+            index += 1
+        if params_end < 0:
+            raise SystemExit(f"Could not find closing parenthesis for {name}")
+
+        opening = text.find("{", params_end)
         if opening < 0:
             raise SystemExit(f"Could not find opening brace for {name}")
         depth = 0
@@ -47,13 +67,17 @@ def keep_first_function(path: Path, name: str) -> None:
 
 
 def main() -> None:
-    keep_first_function(
-        Path("src/app/api/instacomp/benchmark/ebay-25/route.ts"),
-        "titleHasExactCardNumber",
-    )
+    benchmark_path = Path("src/app/api/instacomp/benchmark/ebay-25/route.ts")
+    keep_first_function(benchmark_path, "titleHasExactCardNumber")
+
     live_path = Path("src/app/api/instacomp/live-scan/route.ts")
     keep_first_function(live_path, "forceVisualProof")
     keep_first_function(live_path, "providerAfterVisualReview")
+
+    catalog_path = Path("src/lib/instacomp-curated-checklist.ts")
+    keep_first_function(catalog_path, "catalogTokens")
+    keep_first_function(catalog_path, "normalizedPlayerKey")
+    keep_first_function(catalog_path, "catalogYearStart")
 
     regression_path = Path("scripts/run-instacomp-exact-market-proof-regressions.ts")
     regression = regression_path.read_text().replace(
