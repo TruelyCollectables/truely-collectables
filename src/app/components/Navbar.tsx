@@ -3,6 +3,7 @@ import { STORE_BRAND_NAME } from "../../lib/legal";
 
 const navigationLinks = [
   { href: "/shop", label: "Shop" },
+  { href: "/shop?sport=WNBA", label: "WNBA" },
   { href: "/shop?q=rookie", label: "Rookies" },
   { href: "/shop?q=autograph", label: "Autos" },
   { href: "/shop?q=PSA", label: "Graded" },
