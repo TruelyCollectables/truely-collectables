@@ -1,0 +1,51 @@
+name: Production Deployment One-Shot Probe
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/production-deployment-one-shot-probe.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe-production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe production URLs once
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p production-probe
+          marker='LIVE BATCH MODE'
+          success=0
+          for slug in vercel custom; do
+            if [ "$slug" = vercel ]; then
+              url='https://truely-collectables.vercel.app/instacomp-test'
+            else
+              url='https://truelycollectables.com/instacomp-test'
+            fi
+            http_code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 45 --dump-header "production-probe/${slug}-headers.txt" --output "production-probe/${slug}-body.html" --write-out '%{http_code}' "$url" || true)"
+            marker_present=false
+            if grep -Fq "$marker" "production-probe/${slug}-body.html" 2>/dev/null; then
+              marker_present=true
+            fi
+            printf '%s HTTP=%s marker=%s\n' "$url" "$http_code" "$marker_present" | tee -a production-probe/summary.txt
+            if [ "$http_code" = 200 ] && [ "$marker_present" = true ]; then
+              success=1
+            fi
+          done
+          test "$success" = 1
+
+      - name: Upload probe evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-deployment-one-shot-probe-${{ github.run_number }}
+          path: production-probe
+          if-no-files-found: error
+          retention-days: 7
