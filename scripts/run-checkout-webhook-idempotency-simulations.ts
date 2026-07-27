@@ -60,13 +60,36 @@ assert.ok(
   "Accepted offers and other non-reserved checkouts must use the exactly-once order journal.",
 );
 assert.ok(
-  finalizer.includes("existingProductIds"),
-  "Order item retries must identify rows already inserted.",
+  finalizer.includes("loadStripePaidCheckoutAmounts"),
+  "Order finalization must rebuild paid prices and totals from Stripe line items.",
+);
+assert.ok(
+  finalizer.includes('onConflict: "store_id,order_id,product_id"'),
+  "Order item retries must upsert one row per paid product.",
 );
 assert.ok(
   finalizer.indexOf("consumeCheckoutReservationAfterSale") <
-    finalizer.indexOf('.from("order_items").insert'),
-  "Inventory consumption must occur before order-item insertion so an insert retry cannot double-decrement.",
+    finalizer.indexOf('.from("order_items").upsert'),
+  "Inventory consumption must occur before order-item upsert so an upsert retry cannot double-decrement.",
+);
+assert.ok(
+  finalizer.includes("paidUnitPrice"),
+  "Order items must store the Stripe-paid unit price rather than the mutable listing price.",
+);
+assert.doesNotMatch(
+  finalizer,
+  /price:\s*Number\(product\.price\)/,
+  "Order finalization must never write the current listing price as the paid price.",
+);
+assert.ok(
+  finalizer.includes("stableOrderPayload") &&
+    finalizer.includes("paymentReviewRequired && mayApplySafetyReview"),
+  "Webhook retries must update stable payment facts without resetting progressed order status.",
+);
+assert.doesNotMatch(
+  finalizer,
+  /\.update\(orderPayload\)/,
+  "Webhook retries must not overwrite the full initial order payload.",
 );
 
 for (const contract of [
