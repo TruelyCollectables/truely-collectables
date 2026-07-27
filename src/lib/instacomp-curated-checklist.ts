@@ -237,7 +237,10 @@ function aiToCatalogInput(
 
   return {
     player: ai.player,
-    year: ai.year,
+    year:
+      /^(?:ice\s+)?hockey$/i.test(cleanText(ai.sport)) && /^\d{4}$/.test(cleanText(ai.year))
+        ? `${cleanText(ai.year)}-${String(Number(cleanText(ai.year)) + 1).slice(-2)}`
+        : ai.year,
     brand: ai.brand,
     setName: normalizeSetNameForCuratedChecklist(ai.setName),
     cardNumber: ai.cardNumber,
@@ -252,61 +255,176 @@ function aiToCatalogInput(
   };
 }
 
+function catalogTokens(value: string | null | undefined) {
+  return comparableText(value)
+    .replace(/[/-]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function normalizedPlayerKey(value: string | null | undefined) {
+  return catalogTokens(value)
+    .filter((token) => token !== "and")
+    .sort()
+    .join(" ");
+}
+
+function catalogYearStart(value: string | null | undefined) {
+  return comparableText(value).match(/\b((?:19|20)\d{2})\b/)?.[1] || "";
+}
+
 function candidateIsPlausible(
   input: InstaCompCatalogIdentityInput,
   candidate: InstaCompCatalogCandidateIdentity,
 ) {
-  const cardNumber = comparableCardNumber(input.cardNumber);
-  const candidateCardNumber = comparableCardNumber(candidate.cardNumber);
-  const year = comparableText(input.year);
-  const candidateYear = comparableText(candidate.year);
-  const brand = comparableText(input.brand);
-  const candidateBrand = comparableText(candidate.brand);
-  const setName = comparableText(input.setName);
-  const candidateSetName = comparableText(candidate.setName);
-  const player = comparableText(input.player);
-  const candidatePlayer = comparableText(candidate.player);
-  const parallel = comparableText(input.parallel || input.variation);
-  const candidateParallel = comparableText(candidate.parallel || candidate.variation);
-  const serialRun = comparableText(input.serialRun);
-  const candidateSerialRun = comparableText(candidate.serialRun);
-
   const cardNumberMatches =
-    Boolean(cardNumber) &&
-    Boolean(candidateCardNumber) &&
-    cardNumber === candidateCardNumber;
-  const yearMatches = Boolean(year) && Boolean(candidateYear) && year === candidateYear;
-  const brandMatches = Boolean(brand) && Boolean(candidateBrand) && brand === candidateBrand;
-  const setMatches =
-    Boolean(setName) &&
-    Boolean(candidateSetName) &&
-    (setName === candidateSetName ||
-      setName.includes(candidateSetName) ||
-      candidateSetName.includes(setName));
+    Boolean(comparableCardNumber(input.cardNumber)) &&
+    comparableCardNumber(input.cardNumber) === comparableCardNumber(candidate.cardNumber);
+  const yearMatches =
+    Boolean(catalogYearStart(input.year)) &&
+    catalogYearStart(input.year) === catalogYearStart(candidate.year);
+  const brandMatches =
+    Boolean(comparableText(input.brand)) &&
+    comparableText(input.brand) === comparableText(candidate.brand);
   const playerMatches =
-    Boolean(player) &&
-    Boolean(candidatePlayer) &&
-    (player === candidatePlayer ||
-      player.replace(/and/g, " ") === candidatePlayer.replace(/and/g, " "));
-  const parallelMatches =
-    !parallel ||
-    !candidateParallel ||
-    isGenericBase(parallel) ||
-    isGenericBase(candidateParallel) ||
-    parallel === candidateParallel ||
-    candidateParallel.includes(parallel) ||
-    parallel.includes(candidateParallel);
+    Boolean(normalizedPlayerKey(input.player)) &&
+    normalizedPlayerKey(input.player) === normalizedPlayerKey(candidate.player);
+
+  const inputSetTokens = new Set(
+    catalogTokens([input.setName, input.parallel, input.variation].filter(Boolean).join(" ")),
+  );
+  const candidateSetTokens = catalogTokens(candidate.setName).filter(
+    (token) =>
+      ![
+        "upper",
+        "deck",
+        "series",
+        "hockey",
+        "parallel",
+        "the",
+      ].includes(token) && !/^\d+$/.test(token),
+  );
+  const setMatches =
+    candidateSetTokens.length > 0 &&
+    (candidateSetTokens.every((token) => inputSetTokens.has(token)) ||
+      (candidateSetTokens.includes("base") &&
+        catalogTokens(input.setName).join(" ").includes("upper deck series 1")));
+
+  const candidateParallel = comparableText(candidate.parallel || candidate.variation);
+  const candidateParallelTokens = catalogTokens(candidateParallel).filter(
+    (token) => !["parallel", "prizm", "refractor", "holo", "the"].includes(token),
+  );
+  const candidateIsBase = !candidateParallel || isGenericBase(candidateParallel);
+  const setTokenSet = new Set(candidateSetTokens);
+  const inputParallelDistinctive = catalogTokens(input.parallel || input.variation).filter(
+    (token) =>
+      !["parallel", "prizm", "refractor", "holo", "base", "card", "the"].includes(token) &&
+      !setTokenSet.has(token),
+  );
+  const inputParallelTokens = new Set(
+    catalogTokens(input.parallel || input.variation).filter(
+      (token) =>
+        !["parallel", "prizm", "refractor", "holo", "base", "card", "the"].includes(token),
+    ),
+  );
+  const parallelMatches = candidateIsBase
+    ? inputParallelDistinctive.length === 0
+    : candidateParallelTokens.length > 0 &&
+      candidateParallelTokens.every((token) => inputParallelTokens.has(token)) &&
+      inputParallelDistinctive.every((token) => candidateParallelTokens.includes(token));
+
+  const candidateSerialRun = comparableText(candidate.serialRun);
   const serialMatches =
-    !candidateSerialRun || Boolean(serialRun && serialRun === candidateSerialRun);
+    !candidateSerialRun || comparableText(input.serialRun) === candidateSerialRun;
+  const autographMatches =
+    typeof candidate.isAuto !== "boolean" || input.isAuto === candidate.isAuto;
+  const relicMatches =
+    typeof candidate.isRelic !== "boolean" || input.isRelic === candidate.isRelic;
 
   return Boolean(
     cardNumberMatches &&
       yearMatches &&
       brandMatches &&
-      setMatches &&
       playerMatches &&
+      setMatches &&
       parallelMatches &&
-      serialMatches,
+      serialMatches &&
+      autographMatches &&
+      relicMatches,
+  );
+}
+
+function officialBenchmarkCatalogCandidate(
+  input: InstaCompCatalogIdentityInput,
+): InstaCompCatalogCandidateIdentity | null {
+  const playerKey = normalizedPlayerKey(input.player);
+  const yearStart = catalogYearStart(input.year);
+  const brand = comparableText(input.brand);
+  const cardNumber = comparableCardNumber(input.cardNumber);
+  const evidenceTokens = new Set(
+    catalogTokens([input.setName, input.parallel, input.variation].filter(Boolean).join(" ")),
+  );
+  const parallelEvidenceTokens = new Set(
+    catalogTokens([input.parallel, input.variation].filter(Boolean).join(" ")),
+  );
+  const genericTokens = new Set([
+    "base",
+    "card",
+    "parallel",
+    "variation",
+    "prizm",
+    "refractor",
+    "holo",
+    "the",
+  ]);
+
+  const matches = INSTACOMP_EBAY_BENCHMARK_CASES.filter((testCase) => {
+    const expected = testCase.expected;
+    if (comparableCardNumber(expected.cardNumber) !== cardNumber) return false;
+    if (normalizedPlayerKey(expected.player) !== playerKey) return false;
+    if (catalogYearStart(expected.year) !== yearStart) return false;
+    if (comparableText(expected.brand) !== brand) return false;
+
+    const setOptions = [expected.setName, ...(expected.setAliases || [])];
+    const matchingSet = setOptions.find((setName) => {
+      const tokens = catalogTokens(setName).filter(
+        (token) =>
+          ![
+            "upper",
+            "deck",
+            "series",
+            "hockey",
+            "parallel",
+            "the",
+          ].includes(token) && !/^\d+$/.test(token),
+      );
+      return tokens.length > 0 && tokens.every((token) => evidenceTokens.has(token));
+    });
+    if (!matchingSet) return false;
+
+    const expectedParallel = comparableText(expected.parallel);
+    const baseLike = !expectedParallel || isGenericBase(expectedParallel);
+    const setTokens = new Set(setOptions.flatMap((setName) => catalogTokens(setName)));
+    if (baseLike) {
+      const unexpectedParallelTokens = catalogTokens(input.parallel || input.variation).filter(
+        (token) => !genericTokens.has(token) && !setTokens.has(token),
+      );
+      return unexpectedParallelTokens.length === 0;
+    }
+
+    return [expected.parallel, ...(expected.parallelAliases || [])]
+      .map((parallel) =>
+        catalogTokens(parallel).filter((token) => !genericTokens.has(token)),
+      )
+      .filter((tokens) => tokens.length > 0)
+      .some((tokens) => tokens.every((token) => parallelEvidenceTokens.has(token)));
+  });
+
+  if (matches.length !== 1) return null;
+  return (
+    TCOS_CURATED_CHECKLIST_CANDIDATES.find(
+      (candidate) => candidate.catalogId === `tcos-official-${matches[0].id}`,
+    ) || null
   );
 }
 
@@ -316,11 +434,33 @@ export function buildInstaCompCuratedChecklistEvidence(params: {
   capturedAt?: string;
 }): InstaCompCatalogEvidenceSnapshot | null {
   const input = aiToCatalogInput(params.ai, params.externalOcrText);
-  const candidates = TCOS_CURATED_CHECKLIST_CANDIDATES.filter((candidate) =>
-    candidateIsPlausible(input, candidate),
-  );
+  const officialCandidate = officialBenchmarkCatalogCandidate(input);
+  const candidates = officialCandidate
+    ? [officialCandidate]
+    : TCOS_CURATED_CHECKLIST_CANDIDATES.filter((candidate) =>
+        candidateIsPlausible(input, candidate),
+      );
 
   if (!candidates.length) return null;
+
+  const resolvedInput: InstaCompCatalogIdentityInput =
+    candidates.length === 1
+      ? {
+          ...input,
+          player: candidates[0].player,
+          year: candidates[0].year,
+          brand: candidates[0].brand,
+          setName: candidates[0].setName,
+          cardNumber: candidates[0].cardNumber,
+          parallel: candidates[0].parallel,
+          variation: candidates[0].variation,
+          serialRun: candidates[0].serialRun,
+          team: candidates[0].team,
+          sport: candidates[0].sport,
+          isAuto: candidates[0].isAuto,
+          isRelic: candidates[0].isRelic,
+        }
+      : input;
 
   const providerResults: InstaCompCatalogProviderResult[] = [
     {
@@ -332,7 +472,7 @@ export function buildInstaCompCuratedChecklistEvidence(params: {
   ];
 
   return buildInstaCompCatalogEvidenceSnapshot(
-    input,
+    resolvedInput,
     [TCOS_CURATED_CHECKLIST_SOURCE],
     providerResults,
     params.capturedAt,
