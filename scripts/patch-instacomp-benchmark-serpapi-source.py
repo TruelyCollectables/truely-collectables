@@ -26,7 +26,7 @@ def main() -> None:
     cache: "no-store",
     signal: AbortSignal.timeout(60_000),
   });
-  const searchPayload = await searchResponse.json().catch(() => ({}));
+  const searchPayload: any = await searchResponse.json().catch(() => ({}));
   if (!searchResponse.ok || searchPayload?.error) {
     throw new Error(
       sanitizeInstaCompProviderError(
@@ -35,7 +35,7 @@ def main() -> None:
     );
   }
 
-  const rows = Array.isArray(searchPayload?.organic_results)
+  const rows: any[] = Array.isArray(searchPayload?.organic_results)
     ? searchPayload.organic_results
     : [];
   const ranked = rows
@@ -70,31 +70,39 @@ def main() -> None:
       cache: "no-store",
       signal: AbortSignal.timeout(60_000),
     });
-    const productPayload = await productResponse.json().catch(() => ({}));
-    const product =
+    const productPayload: any = await productResponse.json().catch(() => ({}));
+    const product: any =
       productPayload?.product_results && typeof productPayload.product_results === "object"
         ? productPayload.product_results
         : {};
     const hydratedTitle = clean(product?.title || candidate.title);
-    const media = Array.isArray(product?.media) ? product.media : [];
-    const urls = Array.from(
-      new Set(
-        media
-          .filter((entry: any) => clean(entry?.type).toLowerCase() === "image")
-          .flatMap((entry: any) => (Array.isArray(entry?.image) ? entry.image : []))
-          .map((image: any) => ({
-            url: fullResolutionEbayImageUrl(image?.link),
-            width: Number(image?.size?.width) || 0,
-            height: Number(image?.size?.height) || 0,
-          }))
-          .filter((image: any) => image.url)
-          .sort(
-            (left: any, right: any) =>
-              right.width * right.height - left.width * left.height,
-          )
-          .map((image: any) => image.url),
-      ),
-    );
+    const media: any[] = Array.isArray(product?.media) ? product.media : [];
+    const images = media
+      .filter((entry: any) => clean(entry?.type).toLowerCase() === "image")
+      .flatMap((entry: any) => (Array.isArray(entry?.image) ? entry.image : []))
+      .map((image: any) => ({
+        url: fullResolutionEbayImageUrl(image?.link),
+        width: Number(image?.size?.width) || 0,
+        height: Number(image?.size?.height) || 0,
+      }))
+      .filter((image: { url: string; width: number; height: number }) => Boolean(image.url));
+    const bestByPictureId = new Map<
+      string,
+      { url: string; width: number; height: number }
+    >();
+    for (const image of images) {
+      const pictureId = image.url.match(/\/images\/g\/([^/]+)\//)?.[1] || image.url;
+      const current = bestByPictureId.get(pictureId);
+      if (!current || image.width * image.height > current.width * current.height) {
+        bestByPictureId.set(pictureId, image);
+      }
+    }
+    const urls: string[] = Array.from(bestByPictureId.values())
+      .sort(
+        (left, right) =>
+          right.width * right.height - left.width * left.height,
+      )
+      .map((image) => image.url);
 
     attempts.push({
       itemId: candidate.productId,
