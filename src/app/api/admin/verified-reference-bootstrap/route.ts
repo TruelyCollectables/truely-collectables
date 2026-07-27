@@ -130,7 +130,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const sessionValue = await createAdminSessionValue();
+  const sessionValue = await createAdminSessionValue("cookie");
   const importFormData = new FormData();
   importFormData.set(
     "verifiedReferenceFile",
