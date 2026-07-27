@@ -1,0 +1,162 @@
+name: InstaComp Isolated eBay Product Media Probe
+
+on:
+  push:
+    branches:
+      - agent/instacomp-live-torture-isolated-20260727
+    paths:
+      - ".github/workflows/instacomp-isolated-ebay-product-media-probe.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: instacomp-isolated-ebay-product-media-probe-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+
+    steps:
+      - name: Open run tracking issue
+        id: tracking
+        run: |
+          ISSUE_NUMBER="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/issues" \
+            -f title="InstaComp eBay product-media probe ${GITHUB_RUN_ID}" \
+            -f body="Pinned to commit \`${GITHUB_SHA}\`. Probing the official SerpApi eBay Product endpoint for distinct listing images." \
+            --jq .number)"
+          echo "issue_number=$ISSUE_NUMBER" >> "$GITHUB_OUTPUT"
+
+      - name: Check out pinned commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Probe one eBay product media gallery
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require("node:fs");
+
+          function collectUrls(value, path = "root", depth = 0, out = []) {
+            if (depth > 8 || value == null) return out;
+            if (typeof value === "string") {
+              if (/^https?:\/\//i.test(value) && /ebayimg|image/i.test(value)) {
+                out.push({ path, url: value });
+              }
+              return out;
+            }
+            if (Array.isArray(value)) {
+              value.forEach((item, index) => collectUrls(item, `${path}[${index}]`, depth + 1, out));
+              return out;
+            }
+            if (typeof value === "object") {
+              Object.entries(value).forEach(([key, item]) => collectUrls(item, `${path}.${key}`, depth + 1, out));
+            }
+            return out;
+          }
+
+          function pictureId(url) {
+            return String(url || "").match(/\/images\/g\/([^/]+)\//)?.[1] || null;
+          }
+
+          function imageSize(url) {
+            const match = String(url || "").match(/s-l(\d+)/i);
+            return match ? Number(match[1]) : 0;
+          }
+
+          async function main() {
+            const productId = "227449228070";
+            const url = new URL("https://serpapi.com/search.json");
+            url.searchParams.set("engine", "ebay_product");
+            url.searchParams.set("product_id", productId);
+            url.searchParams.set("api_key", process.env.SERPAPI_API_KEY);
+
+            const response = await fetch(url, { signal: AbortSignal.timeout(60000) });
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok || payload?.error) {
+              throw new Error(String(payload?.error || response.statusText || `HTTP ${response.status}`));
+            }
+
+            const productResults = payload?.product_results && typeof payload.product_results === "object"
+              ? payload.product_results
+              : {};
+            const media = Array.isArray(productResults.media) ? productResults.media : [];
+            const allUrls = collectUrls(productResults);
+            const grouped = new Map();
+            for (const entry of allUrls) {
+              const id = pictureId(entry.url) || `unknown-${entry.url}`;
+              const current = grouped.get(id);
+              if (!current || imageSize(entry.url) > imageSize(current.url)) {
+                grouped.set(id, entry);
+              }
+            }
+            const uniqueImages = Array.from(grouped.entries()).map(([id, entry]) => ({
+              pictureId: id.startsWith("unknown-") ? null : id,
+              path: entry.path,
+              url: entry.url,
+              sizeHint: imageSize(entry.url),
+            })).sort((left, right) => right.sizeHint - left.sizeHint);
+
+            const report = {
+              schema: "tcos.instacompEbayProductMediaProbe.v1",
+              generatedAt: new Date().toISOString(),
+              productId,
+              httpStatus: response.status,
+              rootKeys: Object.keys(payload),
+              productResultKeys: Object.keys(productResults),
+              title: productResults.title || null,
+              mediaCount: media.length,
+              mediaTypes: media.map((item) => item?.type || null),
+              allImageUrlCount: allUrls.length,
+              uniqueImageCount: uniqueImages.length,
+              uniqueImages,
+              media,
+            };
+            fs.writeFileSync("instacomp-ebay-product-media-probe.json", `${JSON.stringify(report, null, 2)}\n`);
+            console.log(JSON.stringify({
+              productId,
+              title: report.title,
+              productResultKeys: report.productResultKeys,
+              mediaCount: report.mediaCount,
+              uniqueImageCount: report.uniqueImageCount,
+              uniqueImages: uniqueImages.slice(0, 10),
+            }, null, 2));
+            if (uniqueImages.length < 2) process.exitCode = 2;
+          }
+
+          main().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+
+      - name: Upload media probe
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-ebay-product-media-probe-${{ github.run_number }}
+          path: instacomp-ebay-product-media-probe.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Close tracking issue with result
+        if: always()
+        run: |
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${{ steps.tracking.outputs.issue_number }}/comments" \
+            -f body="Product-media probe finished with status **${{ job.status }}**. Actions run: ${GITHUB_RUN_ID}."
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/issues/${{ steps.tracking.outputs.issue_number }}" \
+            -f state=closed
