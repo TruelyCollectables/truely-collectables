@@ -120,6 +120,9 @@ jobs:
       - name: Run live storefront money integrity simulations
         run: node --import tsx scripts/run-live-storefront-money-integrity-simulations.ts
 
+      - name: Run storefront taxonomy and gallery simulations
+        run: node --import tsx scripts/run-storefront-taxonomy-gallery-simulations.ts
+
       - name: Run Buyer Protection and post-purchase simulations
         run: |
           node --import tsx scripts/run-buyer-protection-simulations.ts
