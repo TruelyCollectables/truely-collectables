@@ -1,5 +1,6 @@
 name: Temporary InstaComp Key Verification Status
 
+# Registered workflow retrigger after secret installation.
 on:
   push:
     branches:
