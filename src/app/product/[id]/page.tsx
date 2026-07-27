@@ -1,20 +1,16 @@
 import Link from "next/link";
-import Image from "next/image";
 import type { Metadata } from "next";
 import { cache } from "react";
 import OfferForm from "./OfferForm";
 import ProductActions from "./ProductActions";
+import ProductGallery from "./ProductGallery";
 import {
   authenticityStatusLabel,
   buildAuthenticityBadges,
   getAuthenticityCallout,
   hasAuthenticityDetails,
 } from "../../../lib/authenticity";
-import {
-  listingImageAltText,
-  listingImageLabel,
-  normalizeListingImageUrls,
-} from "../../../lib/listing-image-utils";
+import { normalizeListingImageUrls } from "../../../lib/listing-image-utils";
 import { storefrontCategoryForItem } from "../../../lib/storefront-taxonomy";
 import { createSupabaseServerClient } from "../../../lib/supabase-server";
 import { configuredSiteOrigin } from "../../../lib/site-origin";
@@ -223,42 +219,7 @@ export default async function ProductPage({
       </Link>
 
       <section className="mt-6 grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_420px] lg:items-start">
-        <section aria-label={`${product.title} photos`}>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {galleryImages.map((image, index) => (
-              <figure
-                key={`${image}-${index}`}
-                className="overflow-hidden rounded border bg-white"
-              >
-                <a
-                  href={image}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="block"
-                  aria-label={`Open ${listingImageAltText(product.title, index)} full size`}
-                >
-                  <div className="relative aspect-[3/4] bg-white">
-                    <Image
-                      src={image}
-                      alt={listingImageAltText(product.title, index)}
-                      fill
-                      priority={index === 0}
-                      unoptimized
-                      sizes="(min-width: 1024px) 35vw, (min-width: 640px) 50vw, 100vw"
-                      className="object-contain p-3"
-                    />
-                  </div>
-                </a>
-                <figcaption className="border-t px-3 py-2 text-center text-xs font-bold uppercase tracking-wide text-neutral-600">
-                  {listingImageLabel(index)}
-                </figcaption>
-              </figure>
-            ))}
-          </div>
-          <p className="mt-3 text-sm text-neutral-500">
-            {galleryImages.length} listing photo{galleryImages.length === 1 ? "" : "s"}. Select any photo to open the full-size image.
-          </p>
-        </section>
+        <ProductGallery title={product.title} images={galleryImages} />
 
         <div className="space-y-5 lg:sticky lg:top-6">
           <section>
