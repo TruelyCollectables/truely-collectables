@@ -55,7 +55,7 @@ jobs:
       - name: Apply deterministic deep-audit fixes
         run: |
           set -euo pipefail
-          echo "Applying audited source patch set v5"
+          echo "Applying audited source patch set v6"
           python -m py_compile scripts/apply-instacomp-deep-audit-fixes.py
           python scripts/apply-instacomp-deep-audit-fixes.py 2>&1 | tee deep-audit-patch.log
           python scripts/check-instacomp-control-characters.py
@@ -97,6 +97,28 @@ jobs:
           set -o pipefail
           npm run build 2>&1 | tee deep-audit-build.log
 
+      - name: Commit hardened runtime source
+        run: |
+          set -o pipefail
+          {
+            set -euo pipefail
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add \
+              scripts/run-instacomp-final-materialization.py \
+              src/app/api/instacomp/benchmark/ebay-25/route.ts \
+              src/app/api/instacomp/live-scan/route.ts \
+              src/app/api/account/seller/inventory/instacomp/route.ts \
+              src/lib/instacomp-exact-market-provider.ts \
+              src/lib/instacomp-openai-web-market-provider.ts \
+              src/lib/instacomp-comp-visual-verification.ts \
+              src/lib/instacomp-image-orientation.ts
+            git diff --cached --check
+            git diff --cached --quiet && { echo "Deep-audit runtime source already materialized"; exit 0; }
+            git commit -m "Apply InstaComp deep-audit runtime hardening"
+            git push origin HEAD:agent/instacomp-exact-market-final-20260726
+          } 2>&1 | tee deep-audit-commit.log
+
       - name: Upload deep-audit diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -107,27 +129,6 @@ jobs:
             deep-audit-regressions.log
             deep-audit-lint.log
             deep-audit-build.log
+            deep-audit-commit.log
           if-no-files-found: warn
           retention-days: 7
-
-      - name: Commit hardened source
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            .github/workflows/instacomp-ebay-25-benchmark.yml \
-            .github/workflows/instacomp-live-pipeline.yml \
-            .github/workflows/temporary-instacomp-exact-market-proof-main.yml \
-            scripts/run-instacomp-final-materialization.py \
-            src/app/api/instacomp/benchmark/ebay-25/route.ts \
-            src/app/api/instacomp/live-scan/route.ts \
-            src/app/api/account/seller/inventory/instacomp/route.ts \
-            src/lib/instacomp-exact-market-provider.ts \
-            src/lib/instacomp-openai-web-market-provider.ts \
-            src/lib/instacomp-comp-visual-verification.ts \
-            src/lib/instacomp-image-orientation.ts
-          git diff --cached --check
-          git diff --cached --quiet && { echo "Deep-audit source already materialized"; exit 0; }
-          git commit -m "Apply InstaComp deep-audit runtime hardening"
-          git push origin HEAD:agent/instacomp-exact-market-final-20260726
