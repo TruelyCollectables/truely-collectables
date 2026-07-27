@@ -97,6 +97,7 @@ jobs:
             node --import tsx scripts/run-instacomp-final-audit-regressions.ts
             node --import tsx scripts/run-instacomp-final-audit-regressions.ts
             node --import tsx scripts/run-instacomp-live-pipeline-regressions.ts
+            node --import tsx scripts/run-instacomp-provider-safety-regressions.ts
             node --import tsx scripts/run-instacomp-batch-drop-regressions.ts
           } 2>&1 | tee instacomp-final-regressions.log
 
@@ -120,6 +121,8 @@ jobs:
             src/lib/instacomp-curated-checklist.ts \
             src/lib/instacomp-image-safety.ts \
             src/lib/instacomp-image-orientation.ts \
+            src/lib/instacomp-provider-safety.ts \
+            scripts/run-instacomp-provider-safety-regressions.ts \
             scripts/run-instacomp-exact-market-proof-regressions.ts \
             scripts/run-instacomp-final-audit-regressions.ts \
             scripts/run-instacomp-ebay-25-benchmark.mjs \
@@ -176,6 +179,8 @@ jobs:
             src/lib/instacomp-curated-checklist.ts
             src/lib/instacomp-image-safety.ts
             src/lib/instacomp-image-orientation.ts
+            src/lib/instacomp-provider-safety.ts
+            scripts/run-instacomp-provider-safety-regressions.ts
             scripts/run-instacomp-exact-market-proof-regressions.ts
             scripts/run-instacomp-final-audit-regressions.ts
           if-no-files-found: warn
