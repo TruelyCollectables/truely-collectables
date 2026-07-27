@@ -478,6 +478,7 @@ export async function POST(request: Request) {
       storeId,
       checkoutAttemptId,
       stripeSessionId: session.id,
+      expectedCount: reservation.rows.length,
     });
 
     await completeCheckoutAttempt({
