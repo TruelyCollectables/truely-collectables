@@ -1,4 +1,4 @@
-name: Temporary InstaComp Live Double Torture Cancellation
+name: Temporary Production Runtime Read-Only Audit
 
 on:
   pull_request:
@@ -6,19 +6,342 @@ on:
       - main
     paths:
       - ".github/workflows/temporary-instacomp-live-double-torture.yml"
+      - "scripts/audit-vercel-production-environment.mjs"
+      - "scripts/status-live-money.ts"
+      - "src/lib/live-shipping-launch.ts"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: instacomp-live-double-torture-visible
-  cancel-in-progress: true
+  group: production-runtime-read-only-audit-${{ github.run_id }}
+  cancel-in-progress: false
 
 jobs:
-  cancel-preview-deploy-audit:
+  audit-production-runtime:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'agent/instacomp-exact-market-final-20260726')
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 45
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+
     steps:
-      - name: Confirm no deployment action
-        run: echo "Cancelled superseded preview-deploy torture audit; no deployment command is present in this workflow."
+      - name: Check out immutable audit revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Link the existing Vercel project without deploying
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p .vercel .codex-run
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          fi
+
+      - name: Audit actual Production variable names
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/audit-vercel-production-environment.mjs --self-test
+          npx vercel@56.2.0 env ls production \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" \
+            --no-color > .codex-run/vercel-production-env-names.txt
+          node <<'NODE'
+          const fs = require("node:fs");
+          const required = [
+            "NEXT_PUBLIC_SUPABASE_URL",
+            "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+            "SUPABASE_SERVICE_ROLE_KEY",
+            "NEXT_PUBLIC_SITE_URL",
+            "ADMIN_PASSWORD",
+            "ADMIN_SESSION_SECRET",
+            "STRIPE_LIVE_SECRET_KEY",
+            "NEXT_PUBLIC_STRIPE_LIVE_PUBLISHABLE_KEY",
+            "STRIPE_LIVE_WEBHOOK_SECRET",
+            "STRIPE_LIVE_FINANCIAL_EVENTS_VERIFIED",
+            "TCOS_LIVE_PAYMENTS_ENABLED",
+            "OPENAI_API_KEY",
+            "SERPAPI_API_KEY",
+            "EBAY_CLIENT_ID",
+            "EBAY_CLIENT_SECRET",
+            "EBAY_ENVIRONMENT",
+            "RESEND_API_KEY",
+            "TCOS_SHIPPING_PURCHASE_MODE",
+            "TCOS_LIVE_SHIPPING_ENABLED",
+          ];
+          const output = fs.readFileSync(".codex-run/vercel-production-env-names.txt", "utf8");
+          const hasName = (name) => {
+            const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            return new RegExp(`(^|[^A-Z0-9_])${escaped}([^A-Z0-9_]|$)`, "m").test(output);
+          };
+          const configured = required.filter(hasName);
+          const missing = required.filter((name) => !configured.includes(name));
+          const report = {
+            schema: "tcos.productionRuntimeNameAudit.v1",
+            generatedAt: new Date().toISOString(),
+            environment: "production",
+            requiredCount: required.length,
+            configuredCount: configured.length,
+            missingCount: missing.length,
+            configured,
+            missing,
+            ready: missing.length === 0,
+            valuesPrinted: false,
+            deploymentStarted: false,
+          };
+          fs.writeFileSync(".codex-run/production-env-name-audit.json", JSON.stringify(report, null, 2) + "\n");
+          console.log(`Production variable names: ${configured.length}/${required.length}; missing=${missing.join(",") || "none"}`);
+          if (missing.length) process.exit(1);
+          NODE
+
+      - name: Pull Production values into an ephemeral audit file
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 env pull .env.production.audit \
+            --yes \
+            --environment=production \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" >/dev/null
+          test -s .env.production.audit
+          chmod 600 .env.production.audit
+
+      - name: Validate Production providers and safe value properties
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --env-file=.env.production.audit <<'NODE'
+          const fs = require("node:fs");
+          const checks = [];
+          const check = (key, ok, detail) => checks.push({ key, ok: Boolean(ok), detail });
+          const value = (key) => String(process.env[key] || "").trim();
+          const bool = (key) => value(key) === "true";
+
+          const site = value("NEXT_PUBLIC_SITE_URL");
+          let siteHost = null;
+          try { siteHost = new URL(site).host; } catch {}
+          check("site_url", siteHost === "truelycollectables.com", siteHost || "invalid");
+          check("supabase_url", /^https:\/\/[^\s]+\.supabase\.co$/i.test(value("NEXT_PUBLIC_SUPABASE_URL")), "https Supabase project URL");
+          check("supabase_anon_key", value("NEXT_PUBLIC_SUPABASE_ANON_KEY").length >= 40, "configured");
+          check("supabase_service_role", value("SUPABASE_SERVICE_ROLE_KEY").length >= 40, "configured");
+          check("admin_password", value("ADMIN_PASSWORD").length >= 12, "minimum length satisfied");
+          check("admin_session_secret", value("ADMIN_SESSION_SECRET").length >= 32, "minimum length satisfied");
+          check("stripe_secret_shape", value("STRIPE_LIVE_SECRET_KEY").startsWith("sk_live_"), "live-shaped");
+          check("stripe_publishable_shape", value("NEXT_PUBLIC_STRIPE_LIVE_PUBLISHABLE_KEY").startsWith("pk_live_"), "live-shaped");
+          check("stripe_webhook_shape", value("STRIPE_LIVE_WEBHOOK_SECRET").startsWith("whsec_"), "webhook-shaped");
+          check("stripe_financial_events_verified", bool("STRIPE_LIVE_FINANCIAL_EVENTS_VERIFIED"), String(bool("STRIPE_LIVE_FINANCIAL_EVENTS_VERIFIED")));
+          check("ebay_environment", value("EBAY_ENVIRONMENT") === "production", value("EBAY_ENVIRONMENT") || "missing");
+          check("resend_key_shape", value("RESEND_API_KEY").startsWith("re_"), "API-key-shaped");
+          check("shipping_purchase_mode", ["dry_run", "live"].includes(value("TCOS_SHIPPING_PURCHASE_MODE")), value("TCOS_SHIPPING_PURCHASE_MODE") || "missing");
+          check("live_shipping_switch_shape", ["true", "false"].includes(value("TCOS_LIVE_SHIPPING_ENABLED")), value("TCOS_LIVE_SHIPPING_ENABLED") || "missing");
+          check("live_payment_switch_shape", ["true", "false"].includes(value("TCOS_LIVE_PAYMENTS_ENABLED")), value("TCOS_LIVE_PAYMENTS_ENABLED") || "missing");
+
+          async function httpCheck(key, request, validate = (response, payload) => response.ok && !payload?.error) {
+            try {
+              const response = await fetch(request.url, request.options);
+              const payload = await response.json().catch(() => ({}));
+              check(key, validate(response, payload), `HTTP ${response.status}`);
+            } catch (error) {
+              check(key, false, error instanceof Error ? error.name : "request failed");
+            }
+          }
+
+          await httpCheck("openai_auth", {
+            url: "https://api.openai.com/v1/models",
+            options: {
+              headers: { Authorization: `Bearer ${value("OPENAI_API_KEY")}` },
+              signal: AbortSignal.timeout(30000),
+            },
+          });
+
+          const serpUrl = new URL("https://serpapi.com/search.json");
+          serpUrl.searchParams.set("engine", "ebay");
+          serpUrl.searchParams.set("ebay_domain", "ebay.com");
+          serpUrl.searchParams.set("_nkw", "sports card");
+          serpUrl.searchParams.set("_ipg", "1");
+          serpUrl.searchParams.set("api_key", value("SERPAPI_API_KEY"));
+          await httpCheck("serpapi_auth", {
+            url: serpUrl,
+            options: { signal: AbortSignal.timeout(45000) },
+          });
+
+          await httpCheck("stripe_auth", {
+            url: "https://api.stripe.com/v1/balance",
+            options: {
+              headers: { Authorization: `Basic ${Buffer.from(`${value("STRIPE_LIVE_SECRET_KEY")}:`).toString("base64")}` },
+              signal: AbortSignal.timeout(30000),
+            },
+          });
+
+          await httpCheck("ebay_auth", {
+            url: "https://api.ebay.com/identity/v1/oauth2/token",
+            options: {
+              method: "POST",
+              headers: {
+                Authorization: `Basic ${Buffer.from(`${value("EBAY_CLIENT_ID")}:${value("EBAY_CLIENT_SECRET")}`).toString("base64")}`,
+                "Content-Type": "application/x-www-form-urlencoded",
+              },
+              body: new URLSearchParams({
+                grant_type: "client_credentials",
+                scope: "https://api.ebay.com/oauth/api_scope",
+              }),
+              signal: AbortSignal.timeout(30000),
+            },
+          }, (response, payload) => response.ok && Boolean(payload?.access_token));
+
+          await httpCheck("resend_auth", {
+            url: "https://api.resend.com/domains",
+            options: {
+              headers: { Authorization: `Bearer ${value("RESEND_API_KEY")}` },
+              signal: AbortSignal.timeout(30000),
+            },
+          });
+
+          const failed = checks.filter((item) => !item.ok);
+          const report = {
+            schema: "tcos.productionRuntimeProviderAudit.v1",
+            generatedAt: new Date().toISOString(),
+            ready: failed.length === 0,
+            checks,
+            failed: failed.map((item) => item.key),
+            runtimeSwitches: {
+              livePaymentsEnabled: bool("TCOS_LIVE_PAYMENTS_ENABLED"),
+              shippingPurchaseMode: value("TCOS_SHIPPING_PURCHASE_MODE"),
+              liveShippingEnabled: bool("TCOS_LIVE_SHIPPING_ENABLED"),
+            },
+            secretValuesPrinted: false,
+            deploymentStarted: false,
+          };
+          fs.writeFileSync(".codex-run/production-runtime-provider-audit.json", JSON.stringify(report, null, 2) + "\n");
+          for (const item of checks) console.log(`${item.key}=${item.ok ? "pass" : "fail"} (${item.detail})`);
+          if (failed.length) process.exit(1);
+          NODE
+
+      - name: Evaluate actual live-payment database approval
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --env-file=.env.production.audit --import tsx scripts/status-live-money.ts --allow-blocked --json > .codex-run/live-money-status.json
+          node <<'NODE'
+          const fs = require("node:fs");
+          const report = JSON.parse(fs.readFileSync(".codex-run/live-money-status.json", "utf8"));
+          console.log(`live_money_state=${report.state}`);
+          console.log(`database_approved=${report.databaseApproved}`);
+          console.log(`ready_for_runtime_switch=${report.readyForRuntimeSwitch}`);
+          console.log(`live_checkout=${report.liveCheckout}`);
+          NODE
+
+      - name: Evaluate actual shipping launch posture
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --env-file=.env.production.audit --import tsx <<'NODE'
+          const fs = await import("node:fs");
+          const { evaluateLiveShippingLaunch } = await import("./src/lib/live-shipping-launch.ts");
+          const report = await evaluateLiveShippingLaunch();
+          const blocked = report.checks.filter((item) => item.status === "blocked");
+          const warnings = report.checks.filter((item) => item.status === "warning");
+          const safe = {
+            schema: "tcos.productionLiveShippingAudit.v1",
+            generatedAt: report.generatedAt,
+            purchaseMode: report.purchaseMode,
+            approvalDatabaseReady: report.approvalDatabaseReady,
+            approvalReady: report.approvalReady,
+            liveShippingEnabled: report.liveShippingEnabled,
+            standardEnvelopeEvidenceContractReady: report.standardEnvelopeEvidenceContractReady,
+            blockedCount: blocked.length,
+            warningCount: warnings.length,
+            blockers: blocked.map((item) => ({ key: item.key, label: item.label, detail: item.detail })),
+            warnings: warnings.map((item) => ({ key: item.key, label: item.label, detail: item.detail })),
+            manualFulfillmentAllowed: report.purchaseMode === "dry_run",
+            deploymentStarted: false,
+          };
+          fs.writeFileSync(".codex-run/live-shipping-status.json", JSON.stringify(safe, null, 2) + "\n");
+          console.log(`shipping_purchase_mode=${safe.purchaseMode}`);
+          console.log(`shipping_approval_ready=${safe.approvalReady}`);
+          console.log(`live_shipping_enabled=${safe.liveShippingEnabled}`);
+          console.log(`manual_fulfillment_allowed=${safe.manualFulfillmentAllowed}`);
+          NODE
+
+      - name: Write and enforce predeployment readiness verdict
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require("node:fs");
+          const names = JSON.parse(fs.readFileSync(".codex-run/production-env-name-audit.json", "utf8"));
+          const providers = JSON.parse(fs.readFileSync(".codex-run/production-runtime-provider-audit.json", "utf8"));
+          const money = JSON.parse(fs.readFileSync(".codex-run/live-money-status.json", "utf8"));
+          const shipping = JSON.parse(fs.readFileSync(".codex-run/live-shipping-status.json", "utf8"));
+          const paymentReady = ["READY_FOR_RUNTIME_SWITCH", "LIVE_MONEY_OPEN"].includes(money.state);
+          const shippingReady =
+            shipping.purchaseMode === "dry_run" ||
+            (shipping.purchaseMode === "live" && shipping.approvalReady && shipping.liveShippingEnabled);
+          const blockers = [];
+          if (!names.ready) blockers.push(`missing Production names: ${names.missing.join(", ")}`);
+          if (!providers.ready) blockers.push(`provider/value checks failed: ${providers.failed.join(", ")}`);
+          if (!paymentReady) blockers.push(`live-payment state is ${money.state}`);
+          if (!shippingReady) blockers.push("shipping is neither safe dry-run/manual fulfillment nor approved live purchase mode");
+          const verdict = {
+            schema: "tcos.predeploymentRuntimeReadiness.v1",
+            generatedAt: new Date().toISOString(),
+            readyForOneControlledDeployment: blockers.length === 0,
+            blockers,
+            payment: {
+              state: money.state,
+              databaseApproved: money.databaseApproved,
+              readyForRuntimeSwitch: money.readyForRuntimeSwitch,
+              liveCheckout: money.liveCheckout,
+            },
+            shipping: {
+              purchaseMode: shipping.purchaseMode,
+              liveShippingEnabled: shipping.liveShippingEnabled,
+              approvalReady: shipping.approvalReady,
+              manualFulfillmentRequired: shipping.purchaseMode === "dry_run",
+            },
+            requiredPostDeployAction: "Run npm run smoke:production against https://truelycollectables.com and ship only if it passes.",
+            deploymentStarted: false,
+          };
+          fs.writeFileSync(".codex-run/predeployment-runtime-readiness.json", JSON.stringify(verdict, null, 2) + "\n");
+          console.log(`ready_for_one_controlled_deployment=${verdict.readyForOneControlledDeployment}`);
+          console.log(`blockers=${blockers.join(" | ") || "none"}`);
+          if (blockers.length) process.exit(1);
+          NODE
+
+      - name: Remove ephemeral Production values
+        if: always()
+        run: rm -rf .env.production.audit .vercel .codex-run/vercel-production-env-names.txt
+
+      - name: Upload read-only runtime audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-runtime-read-only-audit-${{ github.run_number }}
+          path: |
+            .codex-run/production-env-name-audit.json
+            .codex-run/production-runtime-provider-audit.json
+            .codex-run/live-money-status.json
+            .codex-run/live-shipping-status.json
+            .codex-run/predeployment-runtime-readiness.json
+          if-no-files-found: warn
+          retention-days: 30
