@@ -4,22 +4,16 @@ on:
   push:
     branches:
       - fix/instacomp-ebay-25-live-benchmark-20260727
-    paths:
-      - ".github/workflows/instacomp-ebay-25-live-benchmark.yml"
-      - "src/app/api/instacomp/benchmark/ebay-25/route.ts"
-      - "src/app/api/instacomp/live-scan/route.ts"
-      - "src/app/api/instacomp/scan/route.ts"
-      - "src/lib/instacomp-ebay-benchmark-cases.ts"
-      - "src/lib/instacomp*.ts"
-      - "scripts/run-instacomp-ebay-25-benchmark.mjs"
-      - "scripts/run-instacomp-ebay-25-through-vercel-curl.mjs"
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: instacomp-ebay-25-live-benchmark
+  group: instacomp-ebay-25-live-benchmark-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -32,10 +26,9 @@ jobs:
       INSTACOMP_BENCHMARK_TARGET: "25"
       INSTACOMP_BENCHMARK_CONCURRENCY: "2"
     steps:
-      - name: Check out repaired benchmark branch
+      - name: Check out benchmark revision
         uses: actions/checkout@v4
         with:
-          ref: fix/instacomp-ebay-25-live-benchmark-20260727
           fetch-depth: 1
 
       - name: Set up Node.js
@@ -108,17 +101,15 @@ jobs:
           test -n "$PREVIEW_URL"
           echo "preview_url=$PREVIEW_URL" >> "$GITHUB_OUTPUT"
           echo "INSTACOMP_PREVIEW_DEPLOYMENT_URL=$PREVIEW_URL" >> "$GITHUB_ENV"
-          echo "Preview benchmark deployment: $PREVIEW_URL"
 
       - name: Verify protected preview transport
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
-          # Do not pass --scope or --token after the curl subcommand. Vercel CLI
-          # 57 forwards those flags to the underlying system curl and fails with
-          # "curl: option --scope is unknown". The linked project and
-          # VERCEL_TOKEN environment variable provide authentication instead.
+          # Vercel CLI 57 forwards --scope/--token placed after the curl
+          # subcommand to system curl. Keep project authentication in the
+          # linked .vercel directory and VERCEL_TOKEN environment instead.
           npx vercel@latest curl \
             /api/instacomp/benchmark/ebay-25 \
             --deployment "$INSTACOMP_PREVIEW_DEPLOYMENT_URL" \
@@ -133,7 +124,7 @@ jobs:
           if (!payload.ok || !Array.isArray(payload.cases) || payload.cases.length < 25) {
             throw new Error(`Benchmark manifest was not ready: ${raw.slice(0, 1200)}`);
           }
-          console.log(`Protected-preview transport verified with ${payload.cases.length} benchmark cases.`);
+          console.log(`Protected-preview transport verified with ${payload.cases.length} cases.`);
           NODE
 
       - name: Run 25 real eBay cards through InstaComp
@@ -152,7 +143,7 @@ jobs:
           const fs = require("fs");
           const report = JSON.parse(fs.readFileSync("reports/instacomp-ebay-25-report.json", "utf8"));
           const summary = report.summary || {};
-          const lines = [
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, [
             "# InstaComp eBay 25-Card Live Benchmark",
             "",
             `Completed: ${summary.completedCards || 0}/${report.requestedTarget || 25}`,
@@ -163,8 +154,8 @@ jobs:
             `Exact sold supported: ${summary.exactSoldSupportedCards || 0}/${summary.completedCards || 0}`,
             `Trusted prices: ${summary.trustedPriceCards || 0}/${summary.completedCards || 0}`,
             `Weird errors: ${summary.totalWeirdErrors || 0} (${summary.criticalErrors || 0} critical, ${summary.majorErrors || 0} major, ${summary.minorErrors || 0} minor)`,
-          ];
-          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join("\n")}\n`);
+            "",
+          ].join("\n"));
           NODE
           else
             echo "# InstaComp eBay 25-Card Live Benchmark" >> "$GITHUB_STEP_SUMMARY"
