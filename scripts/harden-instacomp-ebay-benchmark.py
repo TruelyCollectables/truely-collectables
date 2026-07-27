@@ -5,9 +5,9 @@ ROUTE_PATH = Path("src/app/api/instacomp/benchmark/ebay-25/route.ts")
 
 
 def replace_once(text: str, old: str, new: str, label: str) -> str:
+    if new in text:
+        return text
     if old not in text:
-        if new in text:
-            return text
         raise SystemExit(f"Could not find expected {label} block.")
     return text.replace(old, new, 1)
 
