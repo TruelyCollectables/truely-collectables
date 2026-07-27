@@ -1,4 +1,8 @@
 import type { InstaCompAiResult } from "./instacomp";
+import {
+  assertSafeInstaCompRemoteImageUrl,
+  sanitizeInstaCompProviderError,
+} from "./instacomp-provider-safety";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const VISUAL_MODEL =
@@ -6,7 +10,8 @@ const VISUAL_MODEL =
   process.env.INSTACOMP_OPENAI_FALLBACK_MODEL ||
   "gpt-4.1-mini";
 const MAX_REMOTE_IMAGE_BYTES = 5 * 1024 * 1024;
-const MAX_VISUAL_CANDIDATES = 8;
+const MAX_VISUAL_CANDIDATES = 6;
+const VISUAL_REVIEW_CONCURRENCY = 2;
 
 type CandidateCategory = string;
 
@@ -85,11 +90,17 @@ async function fileToDataUrl(file: File) {
 }
 
 async function remoteImageToDataUrl(url: string) {
-  const response = await fetch(url, {
+  const safeUrl = assertSafeInstaCompRemoteImageUrl(url, { ebayOnly: true });
+  const response = await fetch(safeUrl, {
+    redirect: "error",
     signal: AbortSignal.timeout(15_000),
     headers: { "User-Agent": "TCOS-InstaComp-VisualVerifier/1.0" },
   });
   if (!response.ok) throw new Error(`Candidate image returned HTTP ${response.status}.`);
+  const declaredBytes = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredBytes) && declaredBytes > MAX_REMOTE_IMAGE_BYTES) {
+    throw new Error("Candidate image was larger than 5MB.");
+  }
   const bytes = await response.arrayBuffer();
   if (!bytes.byteLength || bytes.byteLength > MAX_REMOTE_IMAGE_BYTES) {
     throw new Error("Candidate image was empty or larger than 5MB.");
@@ -132,7 +143,9 @@ function rejectedFlags(candidate: InstaCompVisualCandidate, verdict: VisualVerdi
     );
   } else {
     flags.push(
-      `visual verification unavailable: ${error instanceof Error ? error.message : "unknown error"}`,
+      `visual verification unavailable: ${sanitizeInstaCompProviderError(
+        error instanceof Error ? error.message : "unknown error",
+      )}`,
     );
   }
   return Array.from(new Set(flags.map((flag) => flag.slice(0, 120)))).slice(0, 20);
@@ -210,7 +223,11 @@ async function verifyOneCandidate(params: {
   });
 
   const responseText = await response.text();
-  if (!response.ok) throw new Error(`Visual verifier returned HTTP ${response.status}: ${responseText.slice(0, 300)}`);
+  if (!response.ok) {
+    throw new Error(
+      sanitizeInstaCompProviderError(`Visual verifier returned HTTP ${response.status}: ${responseText}`),
+    );
+  }
   const payload = JSON.parse(responseText);
   const parsed = parseJsonText(String(payload?.choices?.[0]?.message?.content || ""));
   const confidence = Number(parsed?.confidence);
@@ -236,61 +253,91 @@ export async function verifyInstaCompCompetitionImages(params: {
   targetAi: InstaCompAiResult;
   candidates: InstaCompVisualCandidate[];
 }) {
-  const accepted: InstaCompVisualCandidate[] = [];
-  const rejected: InstaCompVisualCandidate[] = [];
+  const indexedAccepted: Array<{ index: number; row: InstaCompVisualCandidate }> = [];
+  const indexedRejected: Array<{ index: number; row: InstaCompVisualCandidate }> = [];
   const targetDataUrl = await fileToDataUrl(params.targetFrontImage);
+  let nextIndex = 0;
   let reviewedCount = 0;
   let titleOverrides = 0;
 
-  for (const candidate of params.candidates) {
-    if (!requiresVisualVerification(candidate)) {
-      accepted.push(candidate);
-      continue;
-    }
+  async function worker() {
+    while (true) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= params.candidates.length) return;
+      const candidate = params.candidates[index];
 
-    if (reviewedCount >= MAX_VISUAL_CANDIDATES) {
-      rejected.push({
-        ...candidate,
-        flags: [...candidate.flags, "visual review cap reached"].slice(0, 20),
-      });
-      continue;
-    }
+      if (!requiresVisualVerification(candidate)) {
+        indexedAccepted.push({ index, row: candidate });
+        continue;
+      }
 
-    reviewedCount += 1;
-    try {
-      const verdict = await verifyOneCandidate({
-        targetDataUrl,
-        targetAi: params.targetAi,
-        candidate,
-      });
-      if (verdict.verdict === "exact_visual_match" && verdict.confidence >= 0.85) {
-        if (verdict.titleImageConflict) titleOverrides += 1;
-        accepted.push({
-          ...candidate,
-          sourceCategory: inferredExactCategory(candidate),
-          matchScore:
-            candidate.matchScore === null
-              ? 25
-              : Math.max(0, candidate.matchScore + 150) + 25,
-          flags: cleanedExactFlags(candidate, verdict),
+      if (reviewedCount >= MAX_VISUAL_CANDIDATES) {
+        indexedRejected.push({
+          index,
+          row: {
+            ...candidate,
+            flags: [...candidate.flags, "visual review cap reached"].slice(0, 20),
+          },
         });
-      } else {
-        rejected.push({
-          ...candidate,
-          flags: rejectedFlags(candidate, verdict),
+        continue;
+      }
+
+      reviewedCount += 1;
+      try {
+        const verdict = await verifyOneCandidate({
+          targetDataUrl,
+          targetAi: params.targetAi,
+          candidate,
+        });
+        if (verdict.verdict === "exact_visual_match" && verdict.confidence >= 0.85) {
+          if (verdict.titleImageConflict) titleOverrides += 1;
+          indexedAccepted.push({
+            index,
+            row: {
+              ...candidate,
+              sourceCategory: inferredExactCategory(candidate),
+              matchScore:
+                candidate.matchScore === null
+                  ? 25
+                  : Math.max(0, candidate.matchScore + 150) + 25,
+              flags: cleanedExactFlags(candidate, verdict),
+            },
+          });
+        } else {
+          indexedRejected.push({
+            index,
+            row: { ...candidate, flags: rejectedFlags(candidate, verdict) },
+          });
+        }
+      } catch (error) {
+        indexedRejected.push({
+          index,
+          row: { ...candidate, flags: rejectedFlags(candidate, null, error) },
         });
       }
-    } catch (error) {
-      rejected.push({
-        ...candidate,
-        flags: rejectedFlags(candidate, null, error),
-      });
     }
   }
 
+  await Promise.all(
+    Array.from(
+      {
+        length: Math.min(
+          VISUAL_REVIEW_CONCURRENCY,
+          Math.max(1, params.candidates.length),
+        ),
+      },
+      () => worker(),
+    ),
+  );
+
   return {
-    accepted,
-    rejected,
+    accepted: indexedAccepted
+      .sort((left, right) => left.index - right.index)
+      .map((entry) => entry.row),
+    rejected: indexedRejected
+      .sort((left, right) => left.index - right.index)
+      .map((entry) => entry.row),
     reviewedCount,
     titleOverrides,
     configured: Boolean(OPENAI_API_KEY),

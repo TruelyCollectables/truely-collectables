@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
+import { sanitizeInstaCompProviderError } from "./instacomp-provider-safety";
 import type {
   InstaCompAiResult,
   InstaCompComp,
@@ -164,13 +165,14 @@ function providerResult(params: {
 }
 
 function errorResult(message: string): OpenAiWebMarketProviderResult {
+  const safeMessage = sanitizeInstaCompProviderError(message);
   return {
     model: null,
     responseId: null,
     citedItemIds: [],
-    notes: message,
-    sold: providerResult({ lane: "sold", results: [], message, status: OPENAI_API_KEY ? "error" : "not_configured" }),
-    active: providerResult({ lane: "active", results: [], message, status: OPENAI_API_KEY ? "error" : "not_configured" }),
+    notes: safeMessage,
+    sold: providerResult({ lane: "sold", results: [], message: safeMessage, status: OPENAI_API_KEY ? "error" : "not_configured" }),
+    active: providerResult({ lane: "active", results: [], message: safeMessage, status: OPENAI_API_KEY ? "error" : "not_configured" }),
     cached: false,
   };
 }
@@ -328,7 +330,9 @@ export async function getOpenAiExactEbayMarketProviders(params: {
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       return errorResult(
-        `OpenAI exact web market search failed (${response.status}): ${clean(payload?.error?.message) || response.statusText}`,
+        sanitizeInstaCompProviderError(
+          `OpenAI exact web market search failed (${response.status}): ${clean(payload?.error?.message) || response.statusText}`,
+        ),
       );
     }
     const text = outputText(payload);
@@ -388,7 +392,9 @@ export async function getOpenAiExactEbayMarketProviders(params: {
     return result;
   } catch (error) {
     return errorResult(
-      `OpenAI exact web market search failed: ${error instanceof Error ? error.message : "unknown error"}`,
+      sanitizeInstaCompProviderError(
+        `OpenAI exact web market search failed: ${error instanceof Error ? error.message : "unknown error"}`,
+      ),
     );
   }
 }

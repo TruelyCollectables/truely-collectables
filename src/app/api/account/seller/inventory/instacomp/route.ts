@@ -11,6 +11,10 @@ import { verifyInstaCompCompetitionImages } from "../../../../../../lib/instacom
 import { getExactEbayMarketProviders } from "../../../../../../lib/instacomp-exact-market-provider";
 import { getOpenAiExactEbayMarketProviders } from "../../../../../../lib/instacomp-openai-web-market-provider";
 import { calculateInstaCompSweetSpot } from "../../../../../../lib/instacomp-sweet-spot";
+import {
+  assertSafeInstaCompRemoteImageUrl,
+  sanitizeInstaCompProviderError,
+} from "../../../../../../lib/instacomp-provider-safety";
 import { normalizeListingImageUrls } from "../../../../../../lib/listing-image-utils";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
@@ -99,11 +103,17 @@ function imageExtension(type: string) {
 }
 
 async function downloadImage(url: string, index: number) {
-  const response = await fetch(url, {
+  const safeUrl = assertSafeInstaCompRemoteImageUrl(url);
+  const response = await fetch(safeUrl, {
+    redirect: "error",
     signal: AbortSignal.timeout(25_000),
     headers: { "User-Agent": "TCOS-InstaComp-ExactMarket/1.0" },
   });
   if (!response.ok) throw new Error(`Image ${index + 1} returned HTTP ${response.status}.`);
+  const declaredBytes = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredBytes) && declaredBytes > MAX_SOURCE_IMAGE_BYTES) {
+    throw new Error(`Image ${index + 1} is larger than 12MB.`);
+  }
   const bytes = await response.arrayBuffer();
   if (bytes.byteLength <= 0 || bytes.byteLength > MAX_SOURCE_IMAGE_BYTES) {
     throw new Error(`Image ${index + 1} is empty or larger than 12MB.`);
@@ -175,6 +185,17 @@ function isExcludedEvidence(row: Evidence) {
 }
 
 function isPricingEligibleEvidence(row: Evidence, lane: "sold" | "active") {
+  if (
+    row.sourceCategory === "reference" ||
+    row.source.toLowerCase().startsWith("openai_web_") ||
+    row.flags.some((flag) =>
+      /not independently verified for pricing|discovery(?: only| candidate)?|not used for pricing/i.test(
+        flag,
+      ),
+    )
+  ) {
+    return false;
+  }
   if (!row.priceIncludesShipping) return false;
   if (!Number.isFinite(row.itemPrice) || Number(row.itemPrice) <= 0) return false;
   if (!Number.isFinite(row.shippingPrice) || Number(row.shippingPrice) < 0) return false;
@@ -567,7 +588,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json(
       {
-        error: error?.message || "Seller inventory InstaComp exact-market scan failed.",
+        error: sanitizeInstaCompProviderError(error?.message || "Seller inventory InstaComp exact-market scan failed."),
         code: error?.code || null,
       },
       { status: 500 },

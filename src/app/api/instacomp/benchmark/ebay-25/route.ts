@@ -1,6 +1,10 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
+import {
+  assertSafeInstaCompRemoteImageUrl,
+  sanitizeInstaCompProviderError,
+} from "../../../../../lib/instacomp-provider-safety";
 import { POST as runLiveScan } from "../../live-scan/route";
 import {
   ADMIN_SESSION_COOKIE_NAME,
@@ -177,7 +181,9 @@ async function getEbayApplicationToken() {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || !payload?.access_token) {
     throw new Error(
-      `eBay application-token request failed (${response.status}): ${clean(payload?.error_description || payload?.error || response.statusText)}`,
+      sanitizeInstaCompProviderError(
+        `eBay application-token request failed (${response.status}): ${clean(payload?.error_description || payload?.error || response.statusText)}`,
+      ),
     );
   }
 
@@ -437,8 +443,10 @@ function imageTypeFromMagic(bytes: Uint8Array) {
 }
 
 async function downloadImage(url: string, fileName: string) {
-  const response = await fetch(url, {
+  const safeUrl = assertSafeInstaCompRemoteImageUrl(url, { ebayOnly: true });
+  const response = await fetch(safeUrl, {
     cache: "no-store",
+    redirect: "error",
     headers: { "User-Agent": "TCOS-InstaComp-Benchmark/1.0" },
     signal: AbortSignal.timeout(60_000),
   });

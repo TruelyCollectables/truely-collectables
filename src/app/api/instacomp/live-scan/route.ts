@@ -4,6 +4,7 @@ import { POST as runIdentityScan } from "../scan/route";
 import { getExactEbayMarketProviders } from "../../../../lib/instacomp-exact-market-provider";
 import { getOpenAiExactEbayMarketProviders } from "../../../../lib/instacomp-openai-web-market-provider";
 import { verifyInstaCompCompetitionImages } from "../../../../lib/instacomp-comp-visual-verification";
+import { sanitizeInstaCompProviderError } from "../../../../lib/instacomp-provider-safety";
 import type {
   InstaCompAiResult,
   InstaCompProviderResult,
@@ -108,6 +109,7 @@ function providerAfterVisualReview(params: {
   accepted: Awaited<ReturnType<typeof verifyInstaCompCompetitionImages>>["accepted"];
   rejectedCount: number;
 }) {
+  if (!params.provider.results.length) return params.provider;
   return {
     ...params.provider,
     status: params.accepted.length ? "live" : "no_matches",
@@ -126,9 +128,11 @@ function providerAfterVisualReview(params: {
 
 function settledMessage(value: PromiseSettledResult<unknown>) {
   if (value.status === "fulfilled") return null;
-  return value.reason instanceof Error
-    ? value.reason.message
-    : String(value.reason || "Provider request failed.");
+  return sanitizeInstaCompProviderError(
+    value.reason instanceof Error
+      ? value.reason.message
+      : String(value.reason || "Provider request failed."),
+  );
 }
 
 function soldStats(summary: ReturnType<typeof mergeExactMarketSources>) {

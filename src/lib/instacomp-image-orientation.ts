@@ -5,6 +5,17 @@ import {
   readValidatedInstaCompImage,
   type InstaCompImageMime,
 } from "./instacomp-image-safety";
+import { sanitizeInstaCompProviderError } from "./instacomp-provider-safety";
+
+const requestedMinimumOrientationConfidence = Number(
+  process.env.INSTACOMP_ORIENTATION_MIN_CONFIDENCE || 0.75,
+);
+const MINIMUM_ORIENTATION_CONFIDENCE = Number.isFinite(
+  requestedMinimumOrientationConfidence,
+)
+  ? Math.max(0.5, Math.min(0.99, requestedMinimumOrientationConfidence))
+  : 0.75;
+const MAX_ORIENTATION_INPUT_PIXELS = 40_000_000;
 
 export type InstaCompRotation = 0 | 90 | 180 | 270;
 
@@ -133,17 +144,40 @@ export async function detectInstaCompSideOrientations(params: {
     }
     const payload = JSON.parse(body);
     const parsed = parseJsonObject(String(payload?.choices?.[0]?.message?.content || ""));
+    const frontConfidence = normalizedConfidence(parsed.frontConfidence);
+    const backConfidence = params.backDataUrl
+      ? normalizedConfidence(parsed.backConfidence)
+      : 0;
+    const recommendedFrontRotation = normalizeInstaCompRotation(parsed.frontRotation);
+    const recommendedBackRotation = params.backDataUrl
+      ? normalizeInstaCompRotation(parsed.backRotation)
+      : 0;
+    const frontRotation =
+      frontConfidence >= MINIMUM_ORIENTATION_CONFIDENCE
+        ? recommendedFrontRotation
+        : 0;
+    const backRotation =
+      backConfidence >= MINIMUM_ORIENTATION_CONFIDENCE
+        ? recommendedBackRotation
+        : 0;
+    const lowConfidenceSides = [
+      frontRotation !== recommendedFrontRotation ? "front" : "",
+      params.backDataUrl && backRotation !== recommendedBackRotation ? "back" : "",
+    ].filter(Boolean);
+    const baseReason =
+      typeof parsed.reason === "string" && parsed.reason.trim()
+        ? sanitizeInstaCompProviderError(parsed.reason)
+        : "No orientation reason returned.";
     return {
       status: "completed",
       model,
-      frontRotation: normalizeInstaCompRotation(parsed.frontRotation),
-      backRotation: params.backDataUrl ? normalizeInstaCompRotation(parsed.backRotation) : 0,
-      frontConfidence: normalizedConfidence(parsed.frontConfidence),
-      backConfidence: params.backDataUrl ? normalizedConfidence(parsed.backConfidence) : 0,
-      reason:
-        typeof parsed.reason === "string" && parsed.reason.trim()
-          ? parsed.reason.trim().slice(0, 500)
-          : "No orientation reason returned.",
+      frontRotation,
+      backRotation,
+      frontConfidence,
+      backConfidence,
+      reason: lowConfidenceSides.length
+        ? `${baseReason} Model rotation was not applied to low-confidence side(s): ${lowConfidenceSides.join(", ")}.`
+        : baseReason,
     };
   } catch (error) {
     return {
@@ -153,7 +187,7 @@ export async function detectInstaCompSideOrientations(params: {
       backRotation: 0,
       frontConfidence: 0,
       backConfidence: 0,
-      reason: error instanceof Error ? error.message : "Orientation detection failed.",
+      reason: sanitizeInstaCompProviderError(error instanceof Error ? error.message : "Orientation detection failed."),
     };
   }
 }
@@ -163,7 +197,7 @@ export async function rotateInstaCompImageBytes(params: {
   mime: InstaCompImageMime;
   rotation: InstaCompRotation;
 }) {
-  let pipeline = sharp(Buffer.from(params.bytes), { failOn: "warning" })
+  let pipeline = sharp(Buffer.from(params.bytes), { failOn: "warning", limitInputPixels: MAX_ORIENTATION_INPUT_PIXELS })
     .autoOrient()
     .rotate(params.rotation);
   if (params.mime === "image/png") pipeline = pipeline.png();

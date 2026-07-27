@@ -1,5 +1,6 @@
 import { createHash } from "crypto";
 import { createClient } from "@supabase/supabase-js";
+import { sanitizeInstaCompProviderError } from "./instacomp-provider-safety";
 import {
   filterAndRankExactMatches,
   type InstaCompAiResult,
@@ -223,7 +224,7 @@ async function fetchLane(query: string, lane: EbayLane) {
         ok: false as const,
         items: [] as EbaySerpItem[],
         cached: false,
-        message: `SerpApi eBay ${lane} search failed: ${String(payload?.error || response.statusText)}`,
+        message: sanitizeInstaCompProviderError(`SerpApi eBay ${lane} search failed: ${String(payload?.error || response.statusText)}`),
       };
     }
     const items = normalizeEbaySerpItems(payload);
@@ -234,7 +235,7 @@ async function fetchLane(query: string, lane: EbayLane) {
       ok: false as const,
       items: [] as EbaySerpItem[],
       cached: false,
-      message: `SerpApi eBay ${lane} search failed: ${error instanceof Error ? error.message : "request error"}`,
+      message: sanitizeInstaCompProviderError(`SerpApi eBay ${lane} search failed: ${error instanceof Error ? error.message : "request error"}`),
     };
   }
 }
