@@ -13,6 +13,16 @@ def main() -> None:
     path = Path("src/lib/instacomp-curated-checklist.ts")
     text = path.read_text()
 
+    final_markers = (
+        "function officialBenchmarkCatalogFamily(",
+        "function officialBenchmarkCatalogCandidate(",
+        "if (officialBenchmarkCatalogFamily(input) && !officialCandidate) return null;",
+        "inputParallelDistinctive.every((token) => candidateParallelTokens.includes(token))",
+    )
+    if all(marker in text for marker in final_markers):
+        path.write_text(text)
+        return
+
     text = replace_once(
         text,
         '''  const parallelMatches = candidateIsBase
