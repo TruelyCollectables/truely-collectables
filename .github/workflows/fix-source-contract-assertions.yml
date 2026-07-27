@@ -1,0 +1,51 @@
+name: Fix Source Contract Assertions
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/fix-source-contract-assertions.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  fix-contracts:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out audit branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/emergency-post-launch-audit-fixes-20260726
+          fetch-depth: 0
+
+      - name: Update source-aware assertions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          replacements = {
+              "scripts/run-titanic-release-stress-simulations.ts": (
+                  "finalizer.includes('.from(\"order_items\").insert')",
+                  'finalizer.includes("const { data: insertedOrderItem")',
+              ),
+              "scripts/run-sunday-launch-one-build.ts": (
+                  "'.from(\"order_items\").insert'",
+                  '"const { data: insertedOrderItem"',
+              ),
+          }
+          for filename, (old, new) in replacements.items():
+              path = Path(filename)
+              content = path.read_text()
+              if old not in content:
+                  raise SystemExit(f"Missing expected source contract in {filename}")
+              path.write_text(content.replace(old, new))
+          PY
+          git config user.name "Truely Collectables Audit"
+          git config user.email "sales@truelycollectables.com"
+          git add scripts/run-titanic-release-stress-simulations.ts scripts/run-sunday-launch-one-build.ts
+          git commit -m "Fix multiline source contract assertions"
+          git push origin HEAD:agent/emergency-post-launch-audit-fixes-20260726
