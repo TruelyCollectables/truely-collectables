@@ -5,9 +5,10 @@ from pathlib import Path
 
 
 ROUTE = Path("src/app/api/instacomp/benchmark/ebay-25/route.ts")
+JOB_SERVER = Path("src/lib/instacomp-job-server.ts")
 
 
-def main() -> None:
+def patch_benchmark_source() -> None:
     text = ROUTE.read_text()
     replacement = r'''async function searchEbay(testCase: InstaCompEbayBenchmarkCase) {
   const apiKey = clean(process.env.SERPAPI_API_KEY);
@@ -153,6 +154,66 @@ def main() -> None:
     if count != 1:
         raise SystemExit("Could not replace the benchmark eBay source function exactly once.")
     ROUTE.write_text(updated)
+
+
+def patch_ephemeral_admin_auth() -> None:
+    text = JOB_SERVER.read_text()
+    old_start = '''  // Fail closed before authentication. These routes must never silently fall
+  // back to the anon key when they read or mutate the private job queue.
+  const supabase = requireInstaCompJobSupabase();
+
+  const storeId = getActiveStoreId();
+  const token = bearerToken(request);
+'''
+    new_start = '''  const storeId = getActiveStoreId();
+
+  // A cryptographically signed TCOS admin session can authorize a direct,
+  // ephemeral scan without touching the persistent Supabase job queue.
+  for (const cookieName of ADMIN_SESSION_COOKIE_NAMES) {
+    const adminSession = cookieValue(request, cookieName);
+
+    if (await isValidAdminSessionValue(adminSession)) {
+      return {
+        type: "admin",
+        storeId,
+        sellerAccountId: null,
+      };
+    }
+  }
+
+  // Seller bearer-token authentication and every persistent job operation
+  // still fail closed unless the service-role client is configured.
+  const supabase = requireInstaCompJobSupabase();
+  const token = bearerToken(request);
+'''
+    if new_start not in text:
+        if old_start not in text:
+            raise SystemExit("Could not locate the InstaComp actor authentication prelude.")
+        text = text.replace(old_start, new_start, 1)
+
+    old_admin = '''  for (const cookieName of ADMIN_SESSION_COOKIE_NAMES) {
+    const adminSession = cookieValue(request, cookieName);
+
+    if (await isValidAdminSessionValue(adminSession)) {
+      return {
+        type: "admin",
+        storeId,
+        sellerAccountId: null,
+      };
+    }
+  }
+
+'''
+    first = text.find(old_admin)
+    second = text.find(old_admin, first + len(old_admin)) if first >= 0 else -1
+    if second >= 0:
+        text = text[:second] + text[second + len(old_admin):]
+    JOB_SERVER.write_text(text)
+
+
+def main() -> None:
+    patch_benchmark_source()
+    patch_ephemeral_admin_auth()
 
 
 if __name__ == "__main__":
