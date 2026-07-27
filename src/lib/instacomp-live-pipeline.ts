@@ -44,14 +44,36 @@ function compKey(comp: InstaCompComp) {
   return `${normalizedTitle(comp.title)}|${Number(comp.price).toFixed(2)}`;
 }
 
+function hasTrustedDeliveredPrice(comp: InstaCompComp) {
+  if (!Number.isFinite(Number(comp.price)) || Number(comp.price) <= 0) return false;
+
+  // Exact-market providers must normalize item price plus shipping. When a
+  // provider explicitly says shipping was not captured, the row is evidence
+  // of identity/competition only and cannot enter the trusted price model.
+  if (comp.priceIncludesShipping === false) return false;
+
+  if (comp.itemPrice !== undefined && comp.itemPrice !== null) {
+    const itemPrice = Number(comp.itemPrice);
+    if (!Number.isFinite(itemPrice) || itemPrice <= 0) return false;
+  }
+
+  if (comp.shippingPrice !== undefined && comp.shippingPrice !== null) {
+    const shippingPrice = Number(comp.shippingPrice);
+    if (!Number.isFinite(shippingPrice) || shippingPrice < 0) return false;
+  }
+
+  return true;
+}
+
 export function dedupeExactMarketComps(values: InstaCompComp[], limit = 50) {
   const seen = new Set<string>();
   return values
     .filter((comp) => {
+      if (!hasTrustedDeliveredPrice(comp)) return false;
       const key = compKey(comp);
       if (!key || seen.has(key)) return false;
       seen.add(key);
-      return Number.isFinite(Number(comp.price)) && Number(comp.price) > 0;
+      return true;
     })
     .sort((left, right) => {
       if (right.matchScore !== left.matchScore) {
