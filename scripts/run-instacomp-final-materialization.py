@@ -16,13 +16,23 @@ source = source.replace(
     '        raise SystemExit(f"Could not locate {label} pattern")',
     '        print(f"Final hardening notice: {label} pattern was already changed or moved")\n        return text',
 )
-exec(compile(source, str(final_audit_path), "exec"), {"__name__": "__main__"})
+source = source.replace(
+    "    patch_benchmark_source()\n",
+    '''    benchmark_source = Path("src/app/api/instacomp/benchmark/ebay-25/route.ts").read_text()
+    if 'from "../../../../../lib/instacomp-benchmark-title";' in benchmark_source:
+        print("Final hardening notice: benchmark title library already extracted; skipping route helper insertion")
+    else:
+        patch_benchmark_source()
+''',
+)
+exec(compile(source, str(final_audit_path), "exec"), {"__name__": "__main__", "Path": Path})
 
 stages = [
     "scripts/harden-instacomp-final-orientation-call.py",
     "scripts/harden-instacomp-final-audit-2.py",
     "scripts/harden-instacomp-final-deduplicate.py",
     "scripts/harden-instacomp-final-async-regressions.py",
+    "scripts/harden-instacomp-final-library-extraction.py",
     "scripts/assert-instacomp-final-source.py",
 ]
 
