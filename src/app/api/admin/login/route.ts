@@ -326,7 +326,7 @@ export async function POST(req: Request) {
         success: false,
         code: "admin_session_not_created",
         error:
-          "Admin password was accepted, but the server could not create an admin session. Set ADMIN_SESSION_SECRET or ADMIN_PASSWORD and restart the server.",
+          "Admin password was accepted, but the server could not create an admin session. Set ADMIN_SESSION_SECRET and restart the server.",
       },
       { status: 500 },
     );
