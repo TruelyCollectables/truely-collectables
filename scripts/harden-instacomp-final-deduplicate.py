@@ -91,6 +91,8 @@ def main() -> None:
     keep_first_function(catalog_path, "catalogTokens")
     keep_first_function(catalog_path, "normalizedPlayerKey")
     keep_first_function(catalog_path, "catalogYearStart")
+    keep_first_function(catalog_path, "officialBenchmarkCatalogFamily")
+    keep_first_function(catalog_path, "officialBenchmarkCatalogCandidate")
 
     regression_path = Path("scripts/run-instacomp-exact-market-proof-regressions.ts")
     regression = regression_path.read_text().replace(
