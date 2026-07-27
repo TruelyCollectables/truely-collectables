@@ -89,10 +89,10 @@ assert.ok(
   "Pending post-sale eBay writes must prevent inbound inventory resurrection.",
 );
 assert.ok(
-  notificationSource.includes("next_attempt_at") &&
-    notificationSource.includes("attempt_count") &&
+  notificationSource.includes('.in("status", ["pending", "failed", "sending"])') &&
+    notificationSource.includes('.lt("attempt_count", 10)') &&
     notificationSource.includes("retryOrderNotifications"),
-  "Customer notification failures must be durably retryable.",
+  "Customer notification failures must be durably retryable with a bounded attempt count.",
 );
 
 type Reservation = {
