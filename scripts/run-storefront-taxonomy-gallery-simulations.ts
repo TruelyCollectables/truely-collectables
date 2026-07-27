@@ -134,7 +134,7 @@ for (const token of [
   "normalizeListingImageUrls",
   "galleryImages.map",
   "listingImageLabel",
-  "Shoot Me an Offer",
+  "<OfferForm",
 ]) {
   assert.ok(productPage.includes(token), `Product page is missing ${token}.`);
 }
@@ -146,6 +146,9 @@ assert.ok(
   productPage.indexOf("<OfferForm") < productPage.lastIndexOf("</main>"),
   "Shoot Me an Offer must remain on the simplified product page.",
 );
+
+const offerForm = fs.readFileSync("src/app/product/[id]/OfferForm.tsx", "utf8");
+assert.ok(offerForm.includes("Shoot Me an Offer"));
 
 console.log(
   "Storefront taxonomy and gallery simulations passed: one Basketball category, searchable WNBA, shared homepage/shop taxonomy, every saved image source rendered, and no product-page intelligence tail.",
