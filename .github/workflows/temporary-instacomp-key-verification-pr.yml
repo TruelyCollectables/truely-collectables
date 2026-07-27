@@ -1,38 +1,75 @@
 name: Temporary InstaComp Key Verification PR
 
-# Fast provider-proof rerun with discovery-only OpenAI calls and cache I/O disabled.
 on:
   pull_request:
     branches:
       - main
     paths:
       - ".github/workflows/temporary-instacomp-key-verification-pr.yml"
+      - "scripts/apply-instacomp-provider-status-fix.py"
+      - "scripts/run-instacomp-exact-provider-regressions.ts"
       - "scripts/run-instacomp-batch-001-live-market-proof.ts"
+      - "src/lib/instacomp-exact-market-provider.ts"
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: instacomp-visible-key-proof-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  verify-keys-and-six-card-proof:
+  verify-keys-and-provider-proof:
     if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'agent/instacomp-exact-market-final-20260726')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      ADMIN_PASSWORD: build-only-placeholder-password
+      ADMIN_SESSION_SECRET: build-only-placeholder-session-secret
+      STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build-only-placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+      EBAY_CLIENT_ID: build-only-placeholder-client-id
+      EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+      EBAY_ENVIRONMENT: production
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
 
     steps:
-      - name: Confirm secrets are present
-        run: |
-          test -n "${OPENAI_API_KEY:-}"
-          test -n "${SERPAPI_API_KEY:-}"
+      - name: Check out audit branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/instacomp-exact-market-final-20260726
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Apply provider-status source fix
+        run: python scripts/apply-instacomp-provider-status-fix.py
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run exact-provider regressions
+        id: provider_regressions
+        continue-on-error: true
+        run: node --import tsx scripts/run-instacomp-exact-provider-regressions.ts
 
       - name: Validate OpenAI key
+        id: openai_auth
+        continue-on-error: true
         run: |
           node <<'NODE'
           const response = await fetch("https://api.openai.com/v1/models", {
@@ -44,6 +81,8 @@ jobs:
           NODE
 
       - name: Validate SerpApi key
+        id: serpapi_auth
+        continue-on-error: true
         run: |
           node <<'NODE'
           const url = new URL("https://serpapi.com/search.json");
@@ -58,21 +97,7 @@ jobs:
           if (!response.ok || payload?.error) process.exit(1);
           NODE
 
-      - name: Check out current PR revision
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run six-card exact-market proof
+      - name: Run live provider and rare-card safety proof
         id: live_proof
         continue-on-error: true
         shell: bash
@@ -81,7 +106,40 @@ jobs:
           mkdir -p docs .codex-run
           node --import tsx scripts/run-instacomp-batch-001-live-market-proof.ts 2>&1 | tee .codex-run/instacomp-six-card-proof.log
 
-      - name: Upload six-card proof diagnostics
+      - name: Lint provider proof paths
+        id: lint
+        continue-on-error: true
+        run: >-
+          npx eslint
+          src/lib/instacomp-exact-market-provider.ts
+          scripts/run-instacomp-exact-provider-regressions.ts
+          scripts/run-instacomp-batch-001-live-market-proof.ts
+
+      - name: Build production application
+        id: build
+        continue-on-error: true
+        run: npm run build
+
+      - name: Commit verified provider-status source
+        id: commit_source
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ steps.provider_regressions.outcome }}" = success
+          test "${{ steps.lint.outcome }}" = success
+          test "${{ steps.build.outcome }}" = success
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/instacomp-exact-market-provider.ts
+          if git diff --cached --quiet; then
+            echo "Provider status source already current."
+            exit 0
+          fi
+          git commit -m "Handle empty SerpApi exact searches without provider errors"
+          git push origin HEAD:agent/instacomp-exact-market-final-20260726
+
+      - name: Upload provider proof diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -92,6 +150,13 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Enforce six-card proof
+      - name: Enforce provider certification
         if: always()
-        run: test "${{ steps.live_proof.outcome }}" = "success"
+        run: |
+          test "${{ steps.provider_regressions.outcome }}" = success
+          test "${{ steps.openai_auth.outcome }}" = success
+          test "${{ steps.serpapi_auth.outcome }}" = success
+          test "${{ steps.live_proof.outcome }}" = success
+          test "${{ steps.lint.outcome }}" = success
+          test "${{ steps.build.outcome }}" = success
+          test "${{ steps.commit_source.outcome }}" = success
