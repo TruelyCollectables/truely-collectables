@@ -134,6 +134,12 @@ assert.ok(
   "The storefront must preserve all 24 photos allowed by an eBay listing.",
 );
 
+const imageSync = fs.readFileSync("src/lib/ebay-all-image-sync.ts", "utf8");
+assert.ok(
+  imageSync.includes("maxImagesPerListing: 24"),
+  "The eBay synchronization report must use the same 24-photo contract.",
+);
+
 const productPage = fs.readFileSync("src/app/product/[id]/page.tsx", "utf8");
 for (const token of [
   '.from("inventory_images")',
@@ -141,8 +147,7 @@ for (const token of [
   "metadata.image_urls",
   "metadata.source_image_urls",
   "normalizeListingImageUrls",
-  "galleryImages.map",
-  "listingImageLabel",
+  "<ProductGallery",
   "<OfferForm",
 ]) {
   assert.ok(productPage.includes(token), `Product page is missing ${token}.`);
@@ -154,6 +159,29 @@ assert.doesNotMatch(productPage, /group-hover:scale|animate-|blur-3xl/);
 assert.ok(
   productPage.indexOf("<OfferForm") < productPage.lastIndexOf("</main>"),
   "Shoot Me an Offer must remain on the simplified product page.",
+);
+
+const gallery = fs.readFileSync(
+  "src/app/product/[id]/ProductGallery.tsx",
+  "utf8",
+);
+for (const token of [
+  '"use client"',
+  "useState",
+  "selectedImage",
+  "images.map",
+  "listingImageLabel",
+  "aria-pressed",
+  "Choose listing photo",
+  "full size",
+]) {
+  assert.ok(gallery.includes(token), `Product gallery is missing ${token}.`);
+}
+assert.doesNotMatch(gallery, /animate-|group-hover|blur-|duration-|transition/);
+assert.match(
+  gallery,
+  /images\.map\([\s\S]*setSelectedIndex/,
+  "Every listing photo must be represented by a selectable thumbnail.",
 );
 
 const productActions = fs.readFileSync(
@@ -168,5 +196,5 @@ const offerForm = fs.readFileSync("src/app/product/[id]/OfferForm.tsx", "utf8");
 assert.ok(offerForm.includes("Shoot Me an Offer"));
 
 console.log(
-  "Storefront taxonomy and gallery simulations passed: one Basketball category, searchable WNBA, shared homepage/shop taxonomy, every saved image source rendered up to 24 photos, one clean gallery, and no product-page intelligence tail.",
+  "Storefront taxonomy and gallery simulations passed: one Basketball category, searchable WNBA, shared homepage/shop taxonomy, every saved image preserved up to 24 photos, one stable selectable gallery, and no product-page intelligence tail.",
 );
