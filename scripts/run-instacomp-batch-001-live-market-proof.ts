@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import type { InstaCompAiResult } from "../src/lib/instacomp";
+import type { InstaCompAiResult, InstaCompComp } from "../src/lib/instacomp";
 import { getExactEbayMarketProviders } from "../src/lib/instacomp-exact-market-provider";
+import { getOpenAiExactEbayMarketProviders } from "../src/lib/instacomp-openai-web-market-provider";
 import { calculateInstaCompSweetSpot } from "../src/lib/instacomp-sweet-spot";
 
 type FixtureCard = {
@@ -10,10 +11,14 @@ type FixtureCard = {
   ai: InstaCompAiResult;
 };
 
+function dedupe(values: InstaCompComp[], limit: number) {
+  return Array.from(new Map(values.map((row) => [row.url, row])).values()).slice(0, limit);
+}
+
 async function main() {
   assert.ok(
-    process.env.SERPAPI_API_KEY,
-    "SERPAPI_API_KEY is required for the live six-card exact-market proof",
+    process.env.SERPAPI_API_KEY || process.env.OPENAI_API_KEY,
+    "SERPAPI_API_KEY or OPENAI_API_KEY is required for the live six-card exact-market proof",
   );
   const fixture = JSON.parse(
     fs.readFileSync("scripts/fixtures/instacomp-batch-001-exact-market.json", "utf8"),
@@ -22,24 +27,38 @@ async function main() {
   const startedAt = new Date().toISOString();
   const cards: Array<Record<string, unknown>> = [];
   for (const card of fixture.cards) {
-    const market = await getExactEbayMarketProviders({
+    const serp = await getExactEbayMarketProviders({
       exactTitle: card.exactTitle,
       fallbackQuery: card.exactTitle,
       ai: card.ai,
     });
-    const sold = market.sold.results;
-    const active = market.active.results;
+    const openAi =
+      serp.sold.results.length === 0 || serp.active.results.length === 0
+        ? await getOpenAiExactEbayMarketProviders({
+            exactTitle: card.exactTitle,
+            ai: card.ai,
+            bypassCache: true,
+          })
+        : null;
+    const sold = dedupe(
+      [...serp.sold.results, ...(openAi?.sold.results || [])],
+      20,
+    );
+    const active = dedupe(
+      [...serp.active.results, ...(openAi?.active.results || [])],
+      20,
+    );
     const pricing = calculateInstaCompSweetSpot({ sold, active });
     const suggestedPrice = sold.length > 0 ? pricing.suggestedPrice : 0;
 
     cards.push({
       id: card.id,
       identity: card.exactTitle,
-      queries: market.queries,
-      soldProviderStatus: market.sold.status,
-      activeProviderStatus: market.active.status,
-      soldMessage: market.sold.message,
-      activeMessage: market.active.message,
+      queries: serp.queries,
+      soldProviderStatus: sold.length ? "live" : openAi?.sold.status || serp.sold.status,
+      activeProviderStatus: active.length ? "live" : openAi?.active.status || serp.active.status,
+      soldMessages: [serp.sold.message, openAi?.sold.message].filter(Boolean),
+      activeMessages: [serp.active.message, openAi?.active.message].filter(Boolean),
       soldCount: sold.length,
       activeCount: active.length,
       suggestedPrice,
@@ -63,9 +82,18 @@ async function main() {
         flags: comp.flags,
       })),
       providerAttempts: {
-        sold: market.sold.attempts,
-        active: market.active.attempts,
+        sold: serp.sold.attempts,
+        active: serp.active.attempts,
       },
+      openAiWeb: openAi
+        ? {
+            model: openAi.model,
+            responseId: openAi.responseId,
+            citedItemIds: openAi.citedItemIds,
+            notes: openAi.notes,
+            cached: openAi.cached,
+          }
+        : null,
     });
   }
 
@@ -77,9 +105,8 @@ async function main() {
       Number(card.activeCount || 0) < 1 ||
       Number(card.suggestedPrice || 0) <= 0,
   );
-
   const proof = {
-    schema: "tcos.instacompBatch001LiveMarketProof.v1",
+    schema: "tcos.instacompBatch001LiveMarketProof.v2",
     startedAt,
     completedAt: new Date().toISOString(),
     success: failures.length === 0,

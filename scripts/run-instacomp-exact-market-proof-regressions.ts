@@ -174,11 +174,28 @@ assert.ok(proofSource.includes("targetExactCount"));
 assert.ok(proofSource.includes("strictNumberingGate"));
 assert.ok(proofSource.includes("filterStrictExactMarketMatches"));
 
+const openAiWebSource = fs.readFileSync(
+  "src/lib/instacomp-openai-web-market-provider.ts",
+  "utf8",
+);
+assert.ok(openAiWebSource.includes('type: "web_search"'));
+assert.ok(openAiWebSource.includes('allowed_domains: ["ebay.com"]'));
+assert.ok(openAiWebSource.includes("sourceItemIds"));
+assert.ok(openAiWebSource.includes("citedIds.has(itemId)"));
+assert.ok(openAiWebSource.includes('params.lane === "sold" && !soldAt'));
+assert.ok(openAiWebSource.includes("shippingPrice === null"));
+assert.ok(openAiWebSource.includes("!title || !imageUrl"));
+assert.ok(openAiWebSource.includes("filterStrictExactMarketMatches"));
+
 const sellerRoute = fs.readFileSync(
   "src/app/api/account/seller/inventory/instacomp/route.ts",
   "utf8",
 );
 assert.ok(sellerRoute.includes("getExactEbayMarketProviders"));
+assert.ok(sellerRoute.includes("getOpenAiExactEbayMarketProviders"));
+assert.ok(sellerRoute.includes("shouldSearchOpenAiWeb"));
+assert.ok(sellerRoute.includes("mergedSoldCandidates"));
+assert.ok(sellerRoute.includes("mergedActiveCandidates"));
 assert.match(
   sellerRoute,
   /const suggestedPrice\s*=\s*hasReliableSoldComps\s*\?\s*(?:raw)?PricingAnalysis\.suggestedPrice\s*:\s*0\s*;/,

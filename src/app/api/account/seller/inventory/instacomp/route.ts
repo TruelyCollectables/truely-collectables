@@ -9,6 +9,7 @@ import {
 } from "../../../../../../lib/instacomp";
 import { verifyInstaCompCompetitionImages } from "../../../../../../lib/instacomp-comp-visual-verification";
 import { getExactEbayMarketProviders } from "../../../../../../lib/instacomp-exact-market-provider";
+import { getOpenAiExactEbayMarketProviders } from "../../../../../../lib/instacomp-openai-web-market-provider";
 import { calculateInstaCompSweetSpot } from "../../../../../../lib/instacomp-sweet-spot";
 import { normalizeListingImageUrls } from "../../../../../../lib/listing-image-utils";
 import { getActiveStoreId } from "../../../../../../lib/stores";
@@ -26,6 +27,9 @@ const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 type Evidence = {
   title: string;
   price: number;
+  itemPrice: number | null;
+  shippingPrice: number | null;
+  priceIncludesShipping: boolean;
   currency: string;
   url: string;
   imageUrl: string | null;
@@ -97,6 +101,15 @@ function normalizedEvidence(value: unknown): Evidence | null {
   return {
     title: typeof row.title === "string" ? row.title : "Untitled listing",
     price: Math.round(price * 100) / 100,
+    itemPrice:
+      Number.isFinite(Number(row.itemPrice)) && Number(row.itemPrice) > 0
+        ? Math.round(Number(row.itemPrice) * 100) / 100
+        : null,
+    shippingPrice:
+      Number.isFinite(Number(row.shippingPrice)) && Number(row.shippingPrice) >= 0
+        ? Math.round(Number(row.shippingPrice) * 100) / 100
+        : null,
+    priceIncludesShipping: row.priceIncludesShipping === true,
     currency: typeof row.currency === "string" ? row.currency : "USD",
     url,
     imageUrl: typeof row.imageUrl === "string" ? row.imageUrl : null,
@@ -311,13 +324,35 @@ export async function POST(request: NextRequest) {
     }
 
     const fallbackQuery = buildInstaCompQueries(ai).primary;
-    const market = await getExactEbayMarketProviders({
+    const serpMarket = await getExactEbayMarketProviders({
       exactTitle: item.title,
       fallbackQuery,
       ai,
     });
-    const soldCandidates = forceImageVerification(evidenceList(market.sold.results, 50));
-    const activeCandidates = forceImageVerification(evidenceList(market.active.results, 30));
+    const shouldSearchOpenAiWeb =
+      serpMarket.sold.results.length === 0 || serpMarket.active.results.length === 0;
+    const openAiMarket = shouldSearchOpenAiWeb
+      ? await getOpenAiExactEbayMarketProviders({
+          exactTitle: item.title,
+          ai,
+        })
+      : null;
+    const mergedSoldCandidates = dedupeEvidence(
+      [
+        ...evidenceList(serpMarket.sold.results, 50),
+        ...evidenceList(openAiMarket?.sold.results, 20),
+      ],
+      50,
+    );
+    const mergedActiveCandidates = dedupeEvidence(
+      [
+        ...evidenceList(serpMarket.active.results, 30),
+        ...evidenceList(openAiMarket?.active.results, 20),
+      ],
+      30,
+    );
+    const soldCandidates = forceImageVerification(mergedSoldCandidates);
+    const activeCandidates = forceImageVerification(mergedActiveCandidates);
     const [soldReview, activeReview] = await Promise.all([
       verifyInstaCompCompetitionImages({
         targetFrontImage: files[0],
@@ -365,11 +400,17 @@ export async function POST(request: NextRequest) {
       ? pricingAnalysis.explanation
       : `${pricingAnalysis.explanation} InstaComp will not issue a suggested price without at least one image-verified exact sold listing.`;
     const checkedAt = new Date().toISOString();
-    const providerCoverage = [providerCoverageRow(market.sold), providerCoverageRow(market.active)];
+    const providerCoverage = [
+      providerCoverageRow(serpMarket.sold),
+      providerCoverageRow(serpMarket.active),
+      ...(openAiMarket
+        ? [providerCoverageRow(openAiMarket.sold), providerCoverageRow(openAiMarket.active)]
+        : []),
+    ];
     const sourceLinks = {
       ...recordValue(currentInstaComp.sourceLinks),
-      ebaySoldUrl: market.sold.searchUrl || null,
-      ebayActiveUrl: market.active.searchUrl || null,
+      ebaySoldUrl: serpMarket.sold.searchUrl || null,
+      ebayActiveUrl: serpMarket.active.searchUrl || null,
     };
 
     const nextMetadata = {
@@ -385,8 +426,17 @@ export async function POST(request: NextRequest) {
         hasBackImage: files.length >= 2 || currentInstaComp.hasBackImage === true,
         ai,
         review,
-        exactStoredTitleQuery: market.query,
-        exactMarketQueries: market.queries,
+        exactStoredTitleQuery: serpMarket.query,
+        exactMarketQueries: serpMarket.queries,
+        openAiWebMarket: openAiMarket
+          ? {
+              model: openAiMarket.model,
+              responseId: openAiMarket.responseId,
+              citedItemIds: openAiMarket.citedItemIds,
+              notes: openAiMarket.notes,
+              cached: openAiMarket.cached,
+            }
+          : null,
         marketPrice: suggestedPrice,
         suggestedPrice,
         pricingStatus,
@@ -446,7 +496,16 @@ export async function POST(request: NextRequest) {
       providerProblems: providerCoverage.filter(
         (row) => row.status === "error" || row.status === "not_configured",
       ),
-      exactMarketQueries: market.queries,
+      exactMarketQueries: serpMarket.queries,
+      openAiWebMarket: openAiMarket
+        ? {
+            model: openAiMarket.model,
+            responseId: openAiMarket.responseId,
+            citedItemIds: openAiMarket.citedItemIds,
+            notes: openAiMarket.notes,
+            cached: openAiMarket.cached,
+          }
+        : null,
       exactMarketVisualReview: {
         soldReviewed: soldReview.reviewedCount,
         activeReviewed: activeReview.reviewedCount,
