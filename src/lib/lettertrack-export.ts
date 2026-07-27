@@ -205,7 +205,7 @@ export function buildLetterTrackExport(params: {
       coverageInstruction:
         "Truely Collectables under-$20 seller protection is internal and item-only when applicable; LetterTrack provides limited delivery evidence, not external insurance.",
       sellerProtectionProgram: "Truely Collectables Under-$20 Seller Protection",
-      sellerProtectionOptInRequired: "store program rules apply",
+      sellerProtectionOptInRequired: "Seller must opt in per shipment.",
       sellerProtectionReserveRate: "2%",
       sellerProtectionMaxCoverage: "$20.00 item sale amount",
       sellerProtectionCoverageBasis: "item_sale_amount_excluding_shipping",
