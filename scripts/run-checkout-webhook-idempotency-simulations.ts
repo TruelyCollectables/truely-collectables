@@ -89,11 +89,11 @@ assert.ok(finalizer.includes("consumeCheckoutReservationAfterSale"));
 assert.ok(finalizer.includes("decrementOrderInventoryOnce"));
 assert.ok(finalizer.includes("loadStripePaidCheckoutAmounts"));
 assert.ok(finalizer.includes("existingOrderItemsByProductId"));
-assert.ok(finalizer.includes('.from("order_items").insert'));
+assert.ok(finalizer.includes("const { data: insertedOrderItem"));
 assert.doesNotMatch(finalizer, /\.from\("order_items"\)\.upsert/);
 assert.ok(
   finalizer.indexOf("consumeCheckoutReservationAfterSale") <
-    finalizer.indexOf('.from("order_items").insert'),
+    finalizer.indexOf("const { data: insertedOrderItem"),
 );
 assert.ok(
   finalizer.includes("recoverableReviewStatuses") &&
