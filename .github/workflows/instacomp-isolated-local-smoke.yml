@@ -1,0 +1,182 @@
+name: InstaComp Isolated Local One Card Smoke
+
+on:
+  push:
+    branches:
+      - agent/instacomp-live-torture-isolated-20260727
+    paths:
+      - ".github/workflows/instacomp-isolated-local-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: instacomp-isolated-local-smoke-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+      INSTACOMP_BYPASS_CACHE: "1"
+      INSTACOMP_PROOF_INCLUDE_OPENAI_DISCOVERY: "1"
+
+    steps:
+      - name: Open run tracking issue
+        id: tracking
+        run: |
+          ISSUE_NUMBER="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/issues" \
+            -f title="InstaComp isolated local smoke ${GITHUB_RUN_ID}" \
+            -f body="Pinned to commit \`${GITHUB_SHA}\`. Running one official eBay front/back card through the actual local protected InstaComp runtime." \
+            --jq .number)"
+          echo "issue_number=$ISSUE_NUMBER" >> "$GITHUB_OUTPUT"
+
+      - name: Check out pinned commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Apply isolated SerpApi benchmark source
+        run: |
+          set -euo pipefail
+          python scripts/patch-instacomp-benchmark-serpapi-source.py
+          git diff --check
+          npx eslint src/app/api/instacomp/benchmark/ebay-25/route.ts
+
+      - name: Build local protected runtime
+        env:
+          NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+          ADMIN_PASSWORD: build-only-admin-password
+          ADMIN_SESSION_SECRET: build-only-admin-session-secret-at-least-32-characters
+          STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build-only-placeholder
+          STRIPE_WEBHOOK_SECRET: whsec_build-only-placeholder
+          EBAY_CLIENT_ID: build-only-placeholder-client-id
+          EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+          EBAY_ENVIRONMENT: production
+          TCOS_LIVE_PAYMENTS_ENABLED: "false"
+          TCOS_SHIPPING_PURCHASE_MODE: dry_run
+          TCOS_LIVE_SHIPPING_ENABLED: "false"
+        run: npm run build
+
+      - name: Start local preview and scan one official card
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .codex-run
+          export VERCEL_ENV=preview
+          export NEXT_PUBLIC_SITE_URL=http://127.0.0.1:3000
+          export ADMIN_PASSWORD="$(openssl rand -hex 24)"
+          export ADMIN_SESSION_SECRET="$(openssl rand -hex 32)"
+          export INSTACOMP_BENCHMARK_TOKEN="$(openssl rand -hex 32)"
+          export OPENAI_API_KEY
+          export SERPAPI_API_KEY
+          export INSTACOMP_BYPASS_CACHE=1
+          export INSTACOMP_PROOF_INCLUDE_OPENAI_DISCOVERY=1
+          export TCOS_LIVE_PAYMENTS_ENABLED=false
+          export TCOS_SHIPPING_PURCHASE_MODE=dry_run
+          export TCOS_LIVE_SHIPPING_ENABLED=false
+          unset NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY
+          unset EBAY_CLIENT_ID EBAY_CLIENT_SECRET
+
+          npm start -- -H 127.0.0.1 -p 3000 > .codex-run/instacomp-local-server.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+
+          node <<'NODE'
+          async function main() {
+            const token = process.env.INSTACOMP_BENCHMARK_TOKEN;
+            const manifestUrl = "http://127.0.0.1:3000/api/instacomp/benchmark/ebay-25";
+            let ready = false;
+            let last = "";
+            for (let attempt = 0; attempt < 120; attempt += 1) {
+              try {
+                const response = await fetch(manifestUrl, {
+                  headers: { Authorization: `Bearer ${token}` },
+                  signal: AbortSignal.timeout(5000),
+                });
+                last = `${response.status} ${await response.text()}`;
+                if (response.ok) {
+                  ready = true;
+                  break;
+                }
+              } catch (error) {
+                last = error instanceof Error ? error.message : String(error);
+              }
+              await new Promise((resolve) => setTimeout(resolve, 1000));
+            }
+            if (!ready) throw new Error(`Local benchmark never became ready: ${last.slice(0, 500)}`);
+
+            const response = await fetch(manifestUrl, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ caseId: "ud-s1-lane-hutson-young-guns-229" }),
+              signal: AbortSignal.timeout(300000),
+            });
+            const text = await response.text();
+            require("node:fs").writeFileSync(".codex-run/instacomp-one-card-smoke-response.json", `${text}\n`);
+            let data;
+            try {
+              data = JSON.parse(text);
+            } catch {
+              throw new Error(`Smoke response was not JSON: HTTP ${response.status}: ${text.slice(0, 500)}`);
+            }
+            console.log(JSON.stringify({
+              httpStatus: response.status,
+              ok: data?.ok,
+              status: data?.status,
+              caseId: data?.caseId,
+              sellerTitle: data?.eBay?.title,
+              frontImageUrl: data?.eBay?.frontImageUrl,
+              backImageUrl: data?.eBay?.backImageUrl,
+              ai: data?.scan?.ai,
+              exactMarket: data?.scan?.exactMarket,
+              grade: data?.grade,
+              error: data?.error,
+            }, null, 2));
+            if (!response.ok || data?.ok !== true || data?.status !== "completed") process.exit(1);
+          }
+          main().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+
+      - name: Upload smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-isolated-local-smoke-${{ github.run_number }}
+          path: |
+            .codex-run/instacomp-one-card-smoke-response.json
+            .codex-run/instacomp-local-server.log
+            src/app/api/instacomp/benchmark/ebay-25/route.ts
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Close tracking issue with result
+        if: always()
+        run: |
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${{ steps.tracking.outputs.issue_number }}/comments" \
+            -f body="One-card local smoke finished with status **${{ job.status }}**. Actions run: ${GITHUB_RUN_ID}."
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/issues/${{ steps.tracking.outputs.issue_number }}" \
+            -f state=closed
