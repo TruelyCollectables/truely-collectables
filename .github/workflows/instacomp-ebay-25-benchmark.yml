@@ -78,7 +78,7 @@ jobs:
           ADMIN_SESSION_SECRET: build-only-placeholder-admin-session-secret
           NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
           STRIPE_SECRET_KEY: sk_test_build_only_placeholder
-          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only-placeholder
           STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
           EBAY_CLIENT_ID: build-only-placeholder-client-id
           EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
@@ -98,10 +98,12 @@ jobs:
           --scope "$VERCEL_SCOPE"
           --token "$VERCEL_TOKEN"
 
-      - name: Generate benchmark authorization token
+      - name: Generate isolated benchmark secrets
         run: |
           BENCHMARK_TOKEN="$(openssl rand -hex 32)"
+          BENCHMARK_ADMIN_SECRET="$(openssl rand -hex 48)"
           echo "INSTACOMP_BENCHMARK_TOKEN=$BENCHMARK_TOKEN" >> "$GITHUB_ENV"
+          echo "INSTACOMP_BENCHMARK_ADMIN_SECRET=$BENCHMARK_ADMIN_SECRET" >> "$GITHUB_ENV"
 
       - name: Deploy isolated preview benchmark
         id: deploy
@@ -114,6 +116,7 @@ jobs:
             --scope "$VERCEL_SCOPE" \
             --token "$VERCEL_TOKEN" \
             --env "INSTACOMP_BENCHMARK_TOKEN=$INSTACOMP_BENCHMARK_TOKEN" \
+            --env "ADMIN_SESSION_SECRET=$INSTACOMP_BENCHMARK_ADMIN_SECRET" \
             > deployment-url.txt
           PREVIEW_URL="$(tail -n 1 deployment-url.txt | tr -d '\r\n')"
           test -n "$PREVIEW_URL"
