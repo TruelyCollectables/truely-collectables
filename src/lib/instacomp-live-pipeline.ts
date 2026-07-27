@@ -50,7 +50,14 @@ function hasTrustedDeliveredPrice(comp: InstaCompComp) {
   // Exact-market providers must normalize item price plus shipping. When a
   // provider explicitly says shipping was not captured, the row is evidence
   // of identity/competition only and cannot enter the trusted price model.
-  if (comp.priceIncludesShipping === false) return false;
+  const flags = (comp.flags || []).map((flag) => normalizedTitle(flag));
+  if (
+    comp.priceIncludesShipping === false ||
+    flags.includes("shipping not reported") ||
+    flags.includes("shipping unknown")
+  ) {
+    return false;
+  }
 
   if (comp.itemPrice !== undefined && comp.itemPrice !== null) {
     const itemPrice = Number(comp.itemPrice);
