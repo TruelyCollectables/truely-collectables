@@ -9,7 +9,6 @@ const deploymentUrl = String(process.env.INSTACOMP_PREVIEW_DEPLOYMENT_URL || "")
   .trim()
   .replace(/\/$/, "");
 const vercelToken = String(process.env.VERCEL_TOKEN || "").trim();
-const vercelScope = String(process.env.VERCEL_SCOPE || "").trim();
 
 if (!deploymentUrl) throw new Error("INSTACOMP_PREVIEW_DEPLOYMENT_URL is required.");
 if (!vercelToken) throw new Error("VERCEL_TOKEN is required.");
@@ -25,14 +24,8 @@ function requestBody(request) {
 
 async function vercelCurl(request) {
   const body = await requestBody(request);
-  const args = ["vercel@latest"];
-
-  // Vercel global options must appear before the curl subcommand or the
-  // underlying system curl receives them and fails with "unknown option".
-  if (vercelScope) args.push("--scope", vercelScope);
-  args.push(
-    "--token",
-    vercelToken,
+  const args = [
+    "vercel@latest",
     "curl",
     request.url || "/",
     "--deployment",
@@ -45,7 +38,7 @@ async function vercelCurl(request) {
     `Authorization: ${request.headers.authorization || ""}`,
     "--header",
     "Accept: application/json",
-  );
+  ];
 
   if (body) {
     args.push(
@@ -56,6 +49,9 @@ async function vercelCurl(request) {
     );
   }
 
+  // The repository was linked by the workflow. Vercel CLI reads VERCEL_TOKEN
+  // from the process environment; passing --scope/--token to the curl command
+  // leaks those flags into the underlying system curl in CLI 57.
   const { stdout, stderr } = await execFileAsync("npx", args, {
     timeout: 345_000,
     maxBuffer: 50 * 1024 * 1024,
