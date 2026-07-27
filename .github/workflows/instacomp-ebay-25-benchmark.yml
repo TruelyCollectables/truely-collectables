@@ -1,0 +1,179 @@
+name: InstaComp eBay 25-Card Benchmark
+
+on:
+  push:
+    branches:
+      - agent/instacomp-exact-market-final-20260726
+    paths:
+      - "src/app/api/instacomp/benchmark/ebay-25/route.ts"
+      - "src/app/api/instacomp/live-scan/route.ts"
+      - "src/app/api/instacomp/scan/route.ts"
+      - "src/lib/instacomp-ebay-benchmark-cases.ts"
+      - "src/lib/instacomp-curated-checklist.ts"
+      - "src/lib/instacomp*.ts"
+      - "scripts/run-instacomp-ebay-25-benchmark.mjs"
+      - ".github/workflows/instacomp-ebay-25-benchmark.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instacomp-ebay-25-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ebay-25-real-cards:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      VERCEL_SCOPE: truelycollectables-projects
+      VERCEL_PROJECT: truely-collectables
+      INSTACOMP_BENCHMARK_TARGET: "25"
+      INSTACOMP_BENCHMARK_CONCURRENCY: "2"
+    steps:
+      - name: Check out benchmark branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/instacomp-exact-market-final-20260726
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate benchmark code
+        run: >-
+          npx eslint
+          src/app/api/instacomp/benchmark/ebay-25/route.ts
+          src/lib/instacomp-ebay-benchmark-cases.ts
+          scripts/run-instacomp-ebay-25-benchmark.mjs
+
+      - name: Build production application
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+          ADMIN_PASSWORD: build-only-placeholder-password
+          ADMIN_SESSION_SECRET: build-only-placeholder-admin-session-secret
+          NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+          STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+          STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+          EBAY_CLIENT_ID: build-only-placeholder-client-id
+          EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+          EBAY_ENVIRONMENT: production
+          TCOS_LIVE_PAYMENTS_ENABLED: "false"
+          TCOS_SHIPPING_PURCHASE_MODE: dry_run
+          TCOS_LIVE_SHIPPING_ENABLED: "false"
+        run: npm run build
+
+      - name: Link Vercel project
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: >-
+          npx vercel@latest link
+          --yes
+          --project "$VERCEL_PROJECT"
+          --scope "$VERCEL_SCOPE"
+          --token "$VERCEL_TOKEN"
+
+      - name: Generate benchmark authorization token
+        run: |
+          BENCHMARK_TOKEN="$(openssl rand -hex 32)"
+          echo "INSTACOMP_BENCHMARK_TOKEN=$BENCHMARK_TOKEN" >> "$GITHUB_ENV"
+
+      - name: Deploy isolated preview benchmark
+        id: deploy
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          npx vercel@latest deploy \
+            --yes \
+            --force \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" \
+            --env "INSTACOMP_BENCHMARK_TOKEN=$INSTACOMP_BENCHMARK_TOKEN" \
+            > deployment-url.txt
+          PREVIEW_URL="$(tail -n 1 deployment-url.txt | tr -d '\r\n')"
+          test -n "$PREVIEW_URL"
+          echo "INSTACOMP_BENCHMARK_URL=$PREVIEW_URL" >> "$GITHUB_ENV"
+          echo "preview_url=$PREVIEW_URL" >> "$GITHUB_OUTPUT"
+          echo "Preview benchmark deployment: $PREVIEW_URL"
+
+      - name: Verify preview benchmark endpoint through Vercel protection
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          npx vercel@latest curl \
+            "$INSTACOMP_BENCHMARK_URL/api/instacomp/benchmark/ebay-25" \
+            --silent \
+            --show-error \
+            --fail-with-body \
+            --header "Authorization: Bearer $INSTACOMP_BENCHMARK_TOKEN" \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" \
+            > benchmark-manifest.json
+          node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("benchmark-manifest.json","utf8"));if(!p.ok||!Array.isArray(p.cases)||p.cases.length<25)throw new Error("Benchmark manifest is not ready");console.log(`Manifest ready: ${p.cases.length} official checklist cases`);'
+
+      - name: Run 25 real eBay cards through InstaComp
+        id: benchmark
+        continue-on-error: true
+        run: node scripts/run-instacomp-ebay-25-benchmark.mjs
+
+      - name: Summarize benchmark result
+        if: always()
+        run: |
+          if [ -f reports/instacomp-ebay-25-report.json ]; then
+            node - <<'NODE'
+          const fs = require("fs");
+          const report = JSON.parse(fs.readFileSync("reports/instacomp-ebay-25-report.json", "utf8"));
+          const summary = report.summary || {};
+          const lines = [
+            "# InstaComp eBay 25-Card Benchmark",
+            "",
+            `Preview: ${report.previewUrl || "unknown"}`,
+            `Completed: ${summary.completedCards || 0}/${report.requestedTarget || 25}`,
+            `Target met: ${Boolean(summary.targetMet)}`,
+            `Average score: ${summary.averageScore ?? "n/a"}`,
+            `Catalog confirmed: ${summary.catalogIdentityConfirmed || 0}/${summary.completedCards || 0}`,
+            `Exact sold supported: ${summary.exactSoldSupportedCards || 0}/${summary.completedCards || 0}`,
+            `Weird errors: ${summary.totalWeirdErrors || 0} (${summary.criticalErrors || 0} critical, ${summary.majorErrors || 0} major, ${summary.minorErrors || 0} minor)`,
+          ];
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join("\n")}\n`);
+          NODE
+          else
+            echo "# InstaComp eBay 25-Card Benchmark" >> "$GITHUB_STEP_SUMMARY"
+            echo "No report file was produced." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload benchmark report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-ebay-25-report-${{ github.run_number }}
+          path: |
+            reports/instacomp-ebay-25-report.json
+            reports/instacomp-ebay-25-report.md
+            benchmark-manifest.json
+            deployment-url.txt
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Enforce 25 completed cards
+        if: always()
+        run: |
+          test -f reports/instacomp-ebay-25-report.json
+          node - <<'NODE'
+          const fs = require("fs");
+          const report = JSON.parse(fs.readFileSync("reports/instacomp-ebay-25-report.json", "utf8"));
+          if (!report?.summary?.targetMet || Number(report?.summary?.completedCards || 0) < 25) {
+            throw new Error(`Benchmark incomplete: ${report?.summary?.completedCards || 0}/25 real cards completed.`);
+          }
+          console.log(`Benchmark complete: ${report.summary.completedCards}/25 real eBay cards.`);
+          NODE
