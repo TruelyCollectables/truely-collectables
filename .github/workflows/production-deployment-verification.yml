@@ -1,0 +1,92 @@
+name: Production Deployment Verification
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/production-deployment-verification.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: production-deployment-verification
+  cancel-in-progress: true
+
+jobs:
+  verify-production-deployment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out deployed main revision
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Poll production for the hardened InstaComp scanner
+        id: verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .deployment-verification
+          marker='LIVE BATCH MODE'
+          urls=(
+            'https://truely-collectables.vercel.app/instacomp-test'
+            'https://truelycollectables.com/instacomp-test'
+          )
+
+          success_url=''
+          for attempt in $(seq 1 30); do
+            echo "Production verification attempt ${attempt}/30"
+            for url in "${urls[@]}"; do
+              body_file=".deployment-verification/body-${attempt}.html"
+              headers_file=".deployment-verification/headers-${attempt}.txt"
+              http_code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 45 --dump-header "$headers_file" --output "$body_file" --write-out '%{http_code}' "$url" || true)"
+              echo "${url} returned HTTP ${http_code}"
+              if [ "$http_code" = '200' ] && grep -Fq "$marker" "$body_file"; then
+                success_url="$url"
+                cp "$headers_file" .deployment-verification/success-headers.txt
+                printf '%s\n' "$url" > .deployment-verification/success-url.txt
+                break 2
+              fi
+            done
+            sleep 20
+          done
+
+          if [ -z "$success_url" ]; then
+            echo 'Production did not expose the hardened InstaComp marker within the verification window.' >&2
+            exit 1
+          fi
+
+          echo "success_url=$success_url" >> "$GITHUB_OUTPUT"
+          echo "Verified hardened production scanner at $success_url"
+
+      - name: Report successful deployment
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SUCCESS_URL: ${{ steps.verify.outputs.success_url }}
+        run: |
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/143/comments" \
+            -f body="Production deployment verified successfully for main commit \`${GITHUB_SHA}\`. The hardened InstaComp live batch scanner is serving HTTP 200 at ${SUCCESS_URL}. No post-deployment re-audit was run in this workflow."
+
+      - name: Report failed deployment verification
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/143/comments" \
+            -f body="Production deployment verification failed for main commit \`${GITHUB_SHA}\`. The hardened InstaComp marker was not confirmed on the production domain during the verification window."
+
+      - name: Upload deployment verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-deployment-verification-${{ github.run_number }}
+          path: .deployment-verification
+          if-no-files-found: warn
+          retention-days: 30
