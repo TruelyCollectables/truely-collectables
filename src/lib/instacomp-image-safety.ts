@@ -1,3 +1,4 @@
+// Certified source checkpoint: exercise committed image and exact-market workflows.
 export type InstaCompImageMime = "image/jpeg" | "image/png" | "image/webp";
 
 function byteView(value: ArrayBuffer | Uint8Array) {
