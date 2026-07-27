@@ -82,11 +82,14 @@ jobs:
           PASS3=$?
           node --import tsx scripts/run-instacomp-live-pipeline-regressions.ts >> .codex-run/instacomp-exact-market-proof.log 2>&1
           LIVE_REGRESSIONS=$?
+          node --import tsx scripts/run-instacomp-provider-safety-regressions.ts >> .codex-run/instacomp-exact-market-proof.log 2>&1
+          SAFETY_REGRESSIONS=$?
           echo "pass1=$PASS1" >> "$GITHUB_OUTPUT"
           echo "pass2=$PASS2" >> "$GITHUB_OUTPUT"
           echo "pass3=$PASS3" >> "$GITHUB_OUTPUT"
           echo "live_regressions=$LIVE_REGRESSIONS" >> "$GITHUB_OUTPUT"
-          test "$PASS1" -eq 0 && test "$PASS2" -eq 0 && test "$PASS3" -eq 0 && test "$LIVE_REGRESSIONS" -eq 0
+          echo "safety_regressions=$SAFETY_REGRESSIONS" >> "$GITHUB_OUTPUT"
+          test "$PASS1" -eq 0 && test "$PASS2" -eq 0 && test "$PASS3" -eq 0 && test "$LIVE_REGRESSIONS" -eq 0 && test "$SAFETY_REGRESSIONS" -eq 0
 
       - name: Resolve production provider credentials
         id: provider_env
@@ -198,6 +201,7 @@ jobs:
             echo "regression_pass_2=${{ steps.regressions.outputs.pass2 }}"
             echo "regression_pass_3=${{ steps.regressions.outputs.pass3 }}"
             echo "live_pipeline_regressions=${{ steps.regressions.outputs.live_regressions }}"
+            echo "provider_safety_regressions=${{ steps.regressions.outputs.safety_regressions }}"
             echo "provider_env=${{ steps.provider_env.outcome }}"
             echo "openai_credential=${{ steps.openai_auth.outcome }}"
             echo "live_six_card_market_provider_proof=${{ steps.live_proof.outcome }}"
