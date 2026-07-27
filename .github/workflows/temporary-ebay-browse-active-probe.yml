@@ -1,0 +1,59 @@
+name: Temporary eBay Browse Active Probe
+
+on:
+  push:
+    branches:
+      - agent/instacomp-exact-market-proof-20260726
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/instacomp-exact-market-proof-20260726
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Pull production environment
+        shell: bash
+        run: |
+          test -n "$VERCEL_TOKEN"
+          mkdir -p .vercel
+          if [ -n "$VERCEL_ORG_ID" ] && [ -n "$VERCEL_PROJECT_ID" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel link --yes --project truely-collectables --scope truelycollectables-projects --token "$VERCEL_TOKEN"
+          fi
+          npx vercel env pull .env.production.local --yes --environment=production --token "$VERCEL_TOKEN"
+      - name: Probe eBay Browse exact active listings
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          node --env-file=.env.production.local --import tsx scripts/probe-ebay-browse-active.ts > docs/instacomp-ebay-browse-active-probe.log 2>&1
+          STATUS=$?
+          echo "probe_status=$STATUS" >> docs/instacomp-ebay-browse-active-probe.log
+          exit 0
+      - name: Upload eBay Browse proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-ebay-browse-active-probe
+          path: |
+            docs/instacomp-ebay-browse-active-probe.json
+            docs/instacomp-ebay-browse-active-probe.log
+          if-no-files-found: error
