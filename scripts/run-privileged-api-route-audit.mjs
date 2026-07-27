@@ -204,7 +204,9 @@ for (const [name, pattern] of [
   ["orders namespace", /pathname\.startsWith\("\/api\/orders"\)/],
   ["offer accept decisions", /pathname === "\/api\/offers\/update-status"/],
   ["offer counter decisions", /pathname === "\/api\/offers\/counter"/],
-  ["signed admin handoff validation", /isValidAdminSessionValue\(adminHandoff\)/],
+  ["legacy admin handoff stripping", /stripLegacyAdminHandoff\(req\)/],
+  ["legacy handoff URL rejection", /Administrator session tokens are not accepted in URLs\./],
+  ["accepted admin cookie enumeration", /ADMIN_SESSION_COOKIE_NAMES\.flatMap/],
   ["admin cookie validation", /isValidAdminSessionValue\(adminCookie\)/],
 ]) {
   assert.match(proxySource, pattern, `Proxy protection is missing for ${name}.`);
