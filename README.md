@@ -22,7 +22,7 @@ When the mobile app is built, maintain its operator manual and downloadable PDF 
 
 The deployment helper command-pins Vercel CLI `56.2.0` and runs it through isolated `npm exec --package=vercel@56.2.0` without a machine-global `vercel` command. Its temporary cache stays outside application `node_modules` and the lockfile. Every Vercel call receives `--cwd` with the repository root.
 
-`VERCEL_SCOPE` must be a simple Vercel team slug using only lowercase letters, numbers, and hyphens. Flag-like, URL-like, whitespace, dotted, slashed, at-sign, uppercase, or secret-shaped values fail before quota status, preflight, Git fetch, or Vercel CLI work.
+`VERCEL_SCOPE` must be a simple Vercel team slug using only lowercase letters, numbers, and hyphens. flag-like, URL-like, whitespace, dotted, slashed, at-sign, uppercase, or secret-shaped values fail before quota status, preflight, Git fetch, or Vercel CLI work.
 
 Production deploy and smoke target overrides accept only valid DNS hostnames or root HTTP(S) URLs. Smoke therefore cannot silently discard an unsafe suffix. Smoke request timeout overrides must be integer milliseconds from `1000` through `120000`; malformed, infinite, fractional, zero, negative, or too-large values fail before admin auth, Git fetch, or network requests.
 
