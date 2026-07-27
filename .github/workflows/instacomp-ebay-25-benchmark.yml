@@ -53,7 +53,7 @@ jobs:
         id: materialize
         continue-on-error: true
         run: |
-          set -o pipefail
+          set -euo pipefail
           python -m py_compile scripts/harden-instacomp-*.py scripts/run-instacomp-certification-safe.py scripts/run-instacomp-certification-round2-safe.py
           python scripts/harden-instacomp-ebay-benchmark.py
           python scripts/harden-instacomp-benchmark-source.py
@@ -64,16 +64,23 @@ jobs:
           python scripts/harden-instacomp-benchmark-report.py
           python scripts/harden-instacomp-final-audit.py
           python scripts/harden-instacomp-final-audit-2.py
-          npm install sharp --save
+          npm install sharp@0.34.5 --save --package-lock-only
           git diff --check
           python scripts/check-instacomp-control-characters.py
           git status --short | tee instacomp-materialization-status.log
+
+      - name: Install exact materialized dependencies
+        id: dependencies
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          npm ci 2>&1 | tee instacomp-final-dependencies.log
 
       - name: Run exactness and adversarial regressions
         id: regressions
         continue-on-error: true
         run: |
-          set -o pipefail
+          set -euo pipefail
           {
             node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
             node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
@@ -89,7 +96,7 @@ jobs:
         id: lint
         continue-on-error: true
         run: |
-          set -o pipefail
+          set -euo pipefail
           npx eslint \
             src/app/api/instacomp/benchmark/ebay-25/route.ts \
             src/app/api/instacomp/live-scan/route.ts \
@@ -130,7 +137,7 @@ jobs:
           TCOS_SHIPPING_PURCHASE_MODE: dry_run
           TCOS_LIVE_SHIPPING_ENABLED: "false"
         run: |
-          set -o pipefail
+          set -euo pipefail
           npm run build 2>&1 | tee instacomp-final-build.log
 
       - name: Upload materialized source and diagnostics
@@ -140,6 +147,7 @@ jobs:
           name: instacomp-final-materialization-${{ github.run_number }}
           path: |
             instacomp-materialization-status.log
+            instacomp-final-dependencies.log
             instacomp-final-regressions.log
             instacomp-final-lint.log
             instacomp-final-build.log
@@ -166,6 +174,7 @@ jobs:
         if: always()
         run: |
           test "${{ steps.materialize.outcome }}" = "success"
+          test "${{ steps.dependencies.outcome }}" = "success"
           test "${{ steps.regressions.outcome }}" = "success"
           test "${{ steps.lint.outcome }}" = "success"
           test "${{ steps.build.outcome }}" = "success"
