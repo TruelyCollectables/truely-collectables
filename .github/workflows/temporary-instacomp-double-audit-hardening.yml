@@ -1,10 +1,15 @@
 name: Temporary InstaComp Double Audit Hardening
-# retrigger: 2026-07-27
+# retrigger: 2026-07-27-pr
 
 on:
   push:
     branches:
       - agent/instacomp-exact-market-final-20260726
+    paths:
+      - ".github/workflows/temporary-instacomp-double-audit-hardening.yml"
+  pull_request:
+    branches:
+      - main
     paths:
       - ".github/workflows/temporary-instacomp-double-audit-hardening.yml"
 
