@@ -10,48 +10,13 @@ on:
       - "supabase/migrations/**"
       - "package.json"
       - ".github/workflows/emergency-post-launch-audit.yml"
-  push:
-    branches:
-      - agent/emergency-post-launch-audit-fixes-20260726
-    paths:
-      - ".audit/titanic-hardening.patch"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  apply-titanic-patch:
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Check out emergency audit branch
-        uses: actions/checkout@v4
-        with:
-          ref: agent/emergency-post-launch-audit-fixes-20260726
-          fetch-depth: 0
-
-      - name: Apply audited hardening patch exactly once
-        shell: bash
-        run: |
-          if [ ! -f .audit/titanic-hardening.patch ]; then
-            echo "No Titanic patch remains to apply."
-            exit 0
-          fi
-          git apply --check .audit/titanic-hardening.patch
-          git apply .audit/titanic-hardening.patch
-          rm .audit/titanic-hardening.patch
-          rmdir .audit 2>/dev/null || true
-          git config user.name "Truely Collectables Audit"
-          git config user.email "sales@truelycollectables.com"
-          git add -A
-          git commit -m "Apply audited shipping and fulfillment hardening"
-          git push origin HEAD:agent/emergency-post-launch-audit-fixes-20260726
-
   post-launch-safety:
-    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -196,12 +161,17 @@ jobs:
       - name: Validate Sunday launch contract
         run: node --import tsx scripts/run-sunday-launch-one-build.ts
 
-      - name: Run migration and production guardrail audits
-        run: |
-          node scripts/run-launch-database-migration-coverage.mjs
-          node scripts/run-launch-database-schema-definition-simulations.mjs
-          node scripts/run-hardened-checkout-function-migration-simulations.mjs
-          node scripts/check-production-guardrails.mjs
+      - name: Validate launch database migration coverage
+        run: node scripts/run-launch-database-migration-coverage.mjs
+
+      - name: Validate launch database schema definitions
+        run: node scripts/run-launch-database-schema-definition-simulations.mjs
+
+      - name: Validate hardened checkout function migrations
+        run: node scripts/run-hardened-checkout-function-migration-simulations.mjs
+
+      - name: Validate production guardrails
+        run: node scripts/check-production-guardrails.mjs
 
       - name: Run lint
         run: npm run lint
