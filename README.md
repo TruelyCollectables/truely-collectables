@@ -36,6 +36,8 @@ The report shows exact UTC blocked/retry timestamps, local operator blocked/retr
 
 Quota markers are success-cleared, not attempt-cleared. Nonzero `vercel --prod` results are rejected before URL parsing, alias changes, marker clearing, or smoke handoff.
 
+Guardrail contract: `npm run status:production` and `npm --silent run status:production:json` are the read-only quota check commands for `tcos.productionQuotaStatus.v1`; evidence must retain `vercelUploadStarted: false`, `deployTimeoutMs`, `deployTimeout`, `deployTimeoutEnv`, the read-only guarantee, exact UTC blocked/retry timestamps, local operator blocked/retry timestamps, the configured Vercel deploy timeout, and `Vercel upload started: no`. A malformed or unreadable marker fails closed; a zero, negative, or nonnumeric cooldown value also fails closed. Quota markers are success-cleared, not attempt-cleared. Nonzero `vercel --prod` results are rejected before URL parsing.
+
 ## Nightly emergency backups
 
 Run a manual backup with `npm run backup:nightly`, or install the nightly macOS LaunchAgent with `npm run backup:nightly:install`.
