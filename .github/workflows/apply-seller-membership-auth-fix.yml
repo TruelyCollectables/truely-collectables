@@ -1,9 +1,9 @@
 name: Apply Seller Membership Authorization Fix
 
 on:
-  pull_request:
+  push:
     branches:
-      - main
+      - agent/emergency-post-launch-audit-fixes-20260726
     paths:
       - ".github/workflows/apply-seller-membership-auth-fix.yml"
       - "scripts/apply-seller-membership-auth-fix.py"
@@ -13,7 +13,6 @@ permissions:
 
 jobs:
   apply-seller-auth-fix:
-    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - name: Check out audit branch
