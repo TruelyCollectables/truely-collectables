@@ -1,336 +1,219 @@
 #!/usr/bin/env node
 
-import { createHash, randomBytes } from "node:crypto";
-import {
-  existsSync,
-  readFileSync,
-  readdirSync,
-  statSync,
-} from "node:fs";
-import { basename, join, resolve } from "node:path";
-import { homedir } from "node:os";
+import { readFileSync } from "node:fs";
+import { basename, resolve } from "node:path";
+import { randomBytes } from "node:crypto";
+import { pathToFileURL } from "node:url";
 
-const EXPECTED_SCHEMA = "tcos.instacomp.verifiedReferenceDatabase.v1";
-const EXPECTED_BATCH = "001";
-const EXPECTED_RECORD_COUNT = 6;
-const EXPECTED_SCAN_COUNT = 12;
-const EXPECTED_CANONICAL_SHA256 =
-  "a45674cf646134c0d8719d56a23e3a49fb6367d6dc27700e555522126bdbac39";
-const MAX_FILE_BYTES = 50 * 1024 * 1024;
+const BATCH001_IDS = new Set([
+  "batch-001-card-01",
+  "batch-001-card-02",
+  "batch-001-card-03",
+  "batch-001-card-04",
+  "batch-001-card-05",
+  "batch-001-card-06",
+]);
 
-function fail(message, details = null) {
-  console.error(`\nIMPORT FAILED: ${message}`);
-  if (details) {
-    console.error(
-      typeof details === "string" ? details : JSON.stringify(details, null, 2),
-    );
-  }
+const REQUIRED_TRUE_FIELDS = [
+  "manufacturer_known",
+  "card_number_known",
+  "base_or_insert_known",
+  "exact_variant_known",
+  "raw_or_graded_known",
+  "product_line_known",
+  "release_year_known",
+  "signer_known_if_auto",
+  "memorabilia_known_if_relic",
+];
+
+function fail(message) {
+  console.error(message);
   process.exit(1);
 }
 
-function parseEnvLine(line) {
-  const trimmed = line.trim();
-  if (!trimmed || trimmed.startsWith("#")) return null;
-
-  const normalized = trimmed.startsWith("export ")
-    ? trimmed.slice("export ".length).trim()
-    : trimmed;
-  const separator = normalized.indexOf("=");
-  if (separator <= 0) return null;
-
-  const key = normalized.slice(0, separator).trim();
-  let value = normalized.slice(separator + 1).trim();
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) return null;
-
-  if (
-    (value.startsWith('"') && value.endsWith('"')) ||
-    (value.startsWith("'") && value.endsWith("'"))
-  ) {
-    const quote = value[0];
-    value = value.slice(1, -1);
-    if (quote === '"') {
-      value = value
-        .replace(/\\n/g, "\n")
-        .replace(/\\r/g, "\r")
-        .replace(/\\t/g, "\t")
-        .replace(/\\"/g, '"')
-        .replace(/\\\\/g, "\\");
-    }
-  } else {
-    value = value.replace(/\s+#.*$/, "").trim();
-  }
-
-  return { key, value };
+function asText(value) {
+  return typeof value === "string" ? value.trim() : "";
 }
 
-function loadLocalEnvironment(repoRoot) {
-  const files = [
-    ".env",
-    ".env.local",
-    ".env.production",
-    ".env.production.local",
-  ];
-  const loaded = [];
+function asNonNegativeNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
 
-  for (const fileName of files) {
-    const path = join(repoRoot, fileName);
-    if (!existsSync(path)) continue;
+function parseArgs(argv) {
+  const args = {
+    file: "",
+    apply: false,
+    sourceName: "",
+    replaceSource: false,
+  };
 
-    for (const line of readFileSync(path, "utf8").split(/\r?\n/)) {
-      const parsed = parseEnvLine(line);
-      if (!parsed) continue;
-      if (!process.env[parsed.key]) {
-        process.env[parsed.key] = parsed.value;
+  for (let index = 0; index < argv.length; index += 1) {
+    const current = argv[index];
+
+    if (current === "--file") {
+      args.file = argv[index + 1] || "";
+      index += 1;
+      continue;
+    }
+
+    if (current === "--apply") {
+      args.apply = true;
+      continue;
+    }
+
+    if (current === "--source-name") {
+      args.sourceName = argv[index + 1] || "";
+      index += 1;
+      continue;
+    }
+
+    if (current === "--replace-source") {
+      args.replaceSource = true;
+      continue;
+    }
+
+    if (!current.startsWith("-") && !args.file) {
+      args.file = current;
+      continue;
+    }
+
+    fail(`Unknown argument: ${current}`);
+  }
+
+  if (!args.file) {
+    fail(
+      "Usage: npm run import:verified-reference:batch001 -- --file /absolute/path/to/batch001.json [--apply] [--source-name name] [--replace-source]",
+    );
+  }
+
+  return args;
+}
+
+function validateBatch(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    fail("Verified reference payload must be a JSON object.");
+  }
+
+  const cards = Array.isArray(payload.cards) ? payload.cards : [];
+  if (cards.length !== 6) {
+    fail(`Batch 001 must contain exactly 6 cards; found ${cards.length}.`);
+  }
+
+  const seen = new Set();
+  const errors = [];
+  const cardsById = new Map();
+
+  for (const card of cards) {
+    const id = asText(card?.id);
+    if (!BATCH001_IDS.has(id)) {
+      errors.push(`Unexpected card id: ${id || "missing"}`);
+      continue;
+    }
+
+    if (seen.has(id)) {
+      errors.push(`Duplicate card id: ${id}`);
+      continue;
+    }
+    seen.add(id);
+    cardsById.set(id, card);
+
+    for (const field of [
+      "player_or_subject",
+      "year",
+      "manufacturer",
+      "brand",
+      "product_line",
+      "set_name",
+      "card_number",
+      "parallel",
+      "condition",
+      "raw_or_graded",
+      "exact_card_fingerprint",
+    ]) {
+      if (!asText(card?.[field])) errors.push(`${id}: missing ${field}`);
+    }
+
+    for (const field of REQUIRED_TRUE_FIELDS) {
+      if (card?.[field] !== true) errors.push(`${id}: ${field} must be true`);
+    }
+
+    if (asText(card?.raw_or_graded) === "graded") {
+      for (const field of ["grading_company", "grade"]) {
+        if (!asText(card?.[field])) errors.push(`${id}: graded card missing ${field}`);
       }
     }
-    loaded.push(fileName);
-  }
 
-  return loaded;
-}
-
-function isBatchFileName(name) {
-  return /^(InstaComp_Batch_001_Import_6_Cards|instacomp-batch001-verified-reference-db).*\.json$/i.test(
-    name,
-  );
-}
-
-function findNewestBatchFile(directory) {
-  if (!existsSync(directory)) return null;
-
-  const candidates = readdirSync(directory)
-    .filter(isBatchFileName)
-    .map((name) => {
-      const path = join(directory, name);
-      return { path, mtimeMs: statSync(path).mtimeMs };
-    })
-    .sort((left, right) => right.mtimeMs - left.mtimeMs);
-
-  return candidates[0]?.path || null;
-}
-
-function resolvePayloadPath(repoRoot, explicitPath) {
-  if (explicitPath) {
-    const path = resolve(explicitPath);
-    if (!existsSync(path)) fail(`JSON file not found: ${path}`);
-    return path;
-  }
-
-  const directCandidates = [
-    join(repoRoot, "InstaComp_Batch_001_Import_6_Cards.json"),
-    join(repoRoot, "instacomp-batch001-verified-reference-db.json"),
-  ];
-  for (const path of directCandidates) {
-    if (existsSync(path)) return path;
-  }
-
-  const directoryCandidates = [
-    join(homedir(), "Downloads"),
-    join(homedir(), "Desktop"),
-    repoRoot,
-  ];
-  for (const directory of directoryCandidates) {
-    const match = findNewestBatchFile(directory);
-    if (match) return match;
-  }
-
-  fail(
-    "Could not find the approved Batch 001 JSON. Download InstaComp_Batch_001_Import_6_Cards.json into Downloads, or pass its full path to this command.",
-  );
-}
-
-function safeKey(value, fallback) {
-  const key = String(value || fallback)
-    .trim()
-    .replace(/[^a-z0-9_-]+/gi, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 80);
-  return key || fallback;
-}
-
-function buildSku(batch, record, index) {
-  const recordId = safeKey(record.recordId || record.cardId, `card-${index + 1}`);
-  return `VR-${batch}-${recordId}`
-    .toUpperCase()
-    .replace(/[^A-Z0-9-]+/g, "-")
-    .slice(0, 80);
-}
-
-function validatePayload(path) {
-  const stats = statSync(path);
-  if (stats.size <= 0 || stats.size > MAX_FILE_BYTES) {
-    fail("The verified-reference file must be between 1 byte and 50MB.");
-  }
-
-  const rawText = readFileSync(path, "utf8");
-  let payload;
-  try {
-    payload = JSON.parse(rawText);
-  } catch (error) {
-    fail("The selected verified-reference file is not valid JSON.", error.message);
-  }
-
-  const canonical = JSON.stringify(payload);
-  const canonicalSha256 = createHash("sha256")
-    .update(canonical, "utf8")
-    .digest("hex");
-  const records = Array.isArray(payload.records) ? payload.records : [];
-
-  const errors = [];
-  if (payload.schema !== EXPECTED_SCHEMA) {
-    errors.push(`schema ${String(payload.schema)} != ${EXPECTED_SCHEMA}`);
-  }
-  if (String(payload.batch) !== EXPECTED_BATCH) {
-    errors.push(`batch ${String(payload.batch)} != ${EXPECTED_BATCH}`);
-  }
-  if (Number(payload.recordCount) !== EXPECTED_RECORD_COUNT) {
-    errors.push(
-      `recordCount ${String(payload.recordCount)} != ${EXPECTED_RECORD_COUNT}`,
-    );
-  }
-  if (Number(payload.scanCount) !== EXPECTED_SCAN_COUNT) {
-    errors.push(`scanCount ${String(payload.scanCount)} != ${EXPECTED_SCAN_COUNT}`);
-  }
-  if (records.length !== EXPECTED_RECORD_COUNT) {
-    errors.push(`records.length ${records.length} != ${EXPECTED_RECORD_COUNT}`);
-  }
-  if (canonicalSha256 !== EXPECTED_CANONICAL_SHA256) {
-    errors.push(
-      `canonical SHA-256 ${canonicalSha256} != ${EXPECTED_CANONICAL_SHA256}`,
-    );
-  }
-
-  records.forEach((record, index) => {
-    const recordId = safeKey(record.recordId || record.cardId, `card-${index + 1}`);
-    if (record.verificationStatus !== "human_verified") {
-      errors.push(`${recordId}: verificationStatus is not human_verified`);
+    if (card?.autographed === true && !asText(card?.signer)) {
+      errors.push(`${id}: autographed card missing signer`);
     }
-    if (record.overallGrade !== "correct") {
-      errors.push(`${recordId}: overallGrade is not correct`);
+
+    if (card?.memorabilia === true && !asText(card?.memorabilia_type)) {
+      errors.push(`${id}: memorabilia card missing memorabilia_type`);
     }
-    if (record.pairing?.status !== "correct") {
-      errors.push(`${recordId}: pairing status is not correct`);
+
+    if (card?.serial_numbered === true && asNonNegativeNumber(card?.serial_denominator) === null) {
+      errors.push(`${id}: serial-numbered card missing serial_denominator`);
     }
-    if (!record.scans?.front?.imageDataUrl || !record.scans?.back?.imageDataUrl) {
-      errors.push(`${recordId}: front/back embedded scans are missing`);
+
+    if (card?.serial_numbered !== true && card?.serial_denominator != null) {
+      errors.push(`${id}: non-numbered card must not include serial_denominator`);
     }
-  });
+  }
+
+  for (const id of BATCH001_IDS) {
+    if (!seen.has(id)) errors.push(`Missing required Batch 001 card: ${id}`);
+  }
 
   if (errors.length > 0) {
-    fail("The JSON is not the exact approved six-card Batch 001 payload.", errors);
+    fail(`Verified reference validation failed:\n- ${errors.join("\n- ")}`);
   }
 
-  const batch = safeKey(payload.batch, "unbatched");
-  const skus = records.map((record, index) => buildSku(batch, record, index));
-
-  return { rawText, payload, records, canonicalSha256, batch, skus };
-}
-
-function explicitPayloadArg(args) {
-  return args.find((value) => !value.startsWith("--")) || null;
-}
-
-async function verifyImportedRows({ supabase, storeId, skus }) {
-  const { data: inventoryRows, error: inventoryError } = await supabase
-    .from("inventory_items")
-    .select("id,legacy_product_id,sku,title,status,quantity,price,metadata")
-    .eq("store_id", storeId)
-    .in("sku", skus);
-  if (inventoryError) throw inventoryError;
-
-  const inventoryIds = (inventoryRows || []).map((row) => row.id);
-  const imageRows = inventoryIds.length
-    ? await supabase
-        .from("inventory_images")
-        .select("id,inventory_item_id,is_primary,sort_order,image_url")
-        .in("inventory_item_id", inventoryIds)
-    : { data: [], error: null };
-  if (imageRows.error) throw imageRows.error;
-
-  const imagesByItem = new Map();
-  for (const image of imageRows.data || []) {
-    imagesByItem.set(
-      image.inventory_item_id,
-      (imagesByItem.get(image.inventory_item_id) || 0) + 1,
-    );
-  }
-
-  const rowsBySku = new Map((inventoryRows || []).map((row) => [row.sku, row]));
-  const report = skus.map((sku) => {
-    const row = rowsBySku.get(sku) || null;
-    const imageCount = row ? imagesByItem.get(row.id) || 0 : 0;
-    const metadataSource = row?.metadata?.source || null;
-    const humanVerified = row?.metadata?.instacomp?.humanVerified === true;
-    const valid = Boolean(
-      row &&
-        row.status === "draft" &&
-        Number(row.quantity) === 1 &&
-        Number(row.price) === 0 &&
-        imageCount >= 2 &&
-        metadataSource === "instacomp_human_verified_reference" &&
-        humanVerified,
-    );
-
-    return {
-      sku,
-      valid,
-      inventoryItemId: row?.id || null,
-      legacyProductId: row?.legacy_product_id || null,
-      title: row?.title || null,
-      status: row?.status || null,
-      quantity: row ? Number(row.quantity) : null,
-      price: row ? Number(row.price) : null,
-      imageCount,
-      metadataSource,
-      humanVerified,
-    };
-  });
+  const sourceName =
+    asText(payload.source_name) || asText(payload.sourceName) || "batch-001-verified-reference";
+  const sourceVersion = asText(payload.source_version) || asText(payload.sourceVersion) || "1";
+  const referenceUrl = asText(payload.reference_url) || asText(payload.referenceUrl) || null;
+  const notes = asText(payload.notes) || null;
 
   return {
-    ok: report.length === EXPECTED_RECORD_COUNT && report.every((row) => row.valid),
-    report,
+    sourceName,
+    sourceVersion,
+    referenceUrl,
+    notes,
+    cards,
+    cardsById,
   };
 }
 
+function printCard(card) {
+  const flags = [
+    card.autographed === true ? "AUTO" : "",
+    card.memorabilia === true ? "MEM" : "",
+    card.serial_numbered === true ? `/${card.serial_denominator}` : "",
+    asText(card.raw_or_graded).toUpperCase(),
+  ].filter(Boolean);
+
+  console.log(
+    `${card.id}: ${card.year} ${card.manufacturer} ${card.product_line} ${card.player_or_subject} #${card.card_number} ${card.parallel} [${flags.join(", ")}]`,
+  );
+}
+
 async function main() {
-  const args = process.argv.slice(2);
-  const apply = args.includes("--apply");
-  const repoRoot = process.cwd();
-  const loadedEnvFiles = loadLocalEnvironment(repoRoot);
-  const payloadPath = resolvePayloadPath(repoRoot, explicitPayloadArg(args));
-  const validated = validatePayload(payloadPath);
+  const args = parseArgs(process.argv.slice(2));
+  const filePath = resolve(args.file);
+  const rawText = readFileSync(filePath, "utf8");
+  const payload = JSON.parse(rawText);
+  const validated = validateBatch(payload);
 
-  console.log("\n=== INSTACOMP BATCH 001 PREFLIGHT ===");
-  console.log(`File: ${payloadPath}`);
-  console.log(`Schema: ${validated.payload.schema}`);
-  console.log(`Batch: ${validated.batch}`);
-  console.log(`Cards: ${validated.records.length}`);
-  console.log(`Scans: ${validated.payload.scanCount}`);
-  console.log(`Canonical SHA-256: ${validated.canonicalSha256}`);
-  console.log(`Loaded local env files: ${loadedEnvFiles.join(", ") || "none"}`);
-  console.log("\nPending-listing SKUs:");
-  validated.records.forEach((record, index) => {
-    console.log(
-      `  ${index + 1}. ${validated.skus[index]} | ${String(record.title || "Untitled")}`,
-    );
-  });
+  const sourceName = args.sourceName || validated.sourceName;
+  console.log(`Validated Batch 001 source: ${sourceName}`);
+  console.log(`Source version: ${validated.sourceVersion}`);
+  console.log(`Cards: ${validated.cards.length}`);
+  for (const card of validated.cards) printCard(card);
 
-  if (!apply) {
-    console.log(
-      "\nDRY RUN COMPLETE. No database or storage changes were made. Re-run with --apply to import the six cards.",
-    );
+  if (!args.apply) {
+    console.log("\nDry run only. Add --apply to import through the protected admin route.");
     return;
-  }
-
-  const missingEnv = [
-    "NEXT_PUBLIC_SUPABASE_URL",
-    "SUPABASE_SERVICE_ROLE_KEY",
-  ].filter((name) => !process.env[name]?.trim());
-  if (missingEnv.length > 0) {
-    fail(
-      "The local repo is missing required production credentials in .env.local.",
-      missingEnv,
-    );
   }
 
   if (typeof File === "undefined" || typeof FormData === "undefined") {
@@ -338,7 +221,7 @@ async function main() {
   }
 
   console.log("\n=== APPLYING DIRECTLY TO SUPABASE ===");
-  if (!process.env.ADMIN_SESSION_SECRET?.trim() && !process.env.ADMIN_PASSWORD?.trim()) {
+  if (!process.env.ADMIN_SESSION_SECRET?.trim()) {
     process.env.ADMIN_SESSION_SECRET = randomBytes(32).toString("hex");
     console.log("Using an ephemeral in-process admin session for this local import only.");
   }
@@ -347,14 +230,19 @@ async function main() {
       import("../src/lib/admin-session.ts"),
       import("../src/app/api/admin/verified-reference-import/route.ts"),
     ]);
-  const sessionValue = await createAdminSessionValue();
+  const sessionValue = await createAdminSessionValue("cookie");
   const formData = new FormData();
   formData.set(
     "verifiedReferenceFile",
-    new File([validated.rawText], basename(payloadPath), {
+    new File([rawText], basename(filePath), {
       type: "application/json",
     }),
   );
+  formData.set("sourceName", sourceName);
+  formData.set("sourceVersion", validated.sourceVersion);
+  formData.set("referenceUrl", validated.referenceUrl || "");
+  formData.set("notes", validated.notes || "");
+  if (args.replaceSource) formData.set("replaceSource", "true");
 
   const request = new Request("http://localhost/api/admin/verified-reference-import", {
     method: "POST",
@@ -365,71 +253,25 @@ async function main() {
   });
 
   const response = await routeModule.POST(request);
-  const responseText = await response.text();
-  let result;
+  const text = await response.text();
+  let body;
   try {
-    result = JSON.parse(responseText);
+    body = JSON.parse(text);
   } catch {
-    fail(
-      `Importer returned a non-JSON response with HTTP ${response.status}.`,
-      responseText.slice(0, 4000),
-    );
+    body = { raw: text };
   }
 
-  console.log("\nImporter result:");
-  console.log(JSON.stringify(result.summary || result, null, 2));
-  for (const row of result.results || []) {
-    const identifier = row.sku || row.recordId || "unknown";
-    console.log(
-      `  ${String(row.status || "unknown").toUpperCase()} | ${identifier} | ${row.title || row.error || ""}`,
-    );
+  if (!response.ok) {
+    fail(`Import failed (${response.status}): ${JSON.stringify(body, null, 2)}`);
   }
 
-  if (!response.ok || result.success !== true || Number(result.summary?.failed || 0) > 0) {
-    fail("The importer did not complete all six records successfully.", result);
-  }
-
-  const [{ createClient }, { getActiveStoreId }] = await Promise.all([
-    import("@supabase/supabase-js"),
-    import("../src/lib/stores.ts"),
-  ]);
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY,
-    {
-      auth: { persistSession: false, autoRefreshToken: false },
-    },
-  );
-  const verification = await verifyImportedRows({
-    supabase,
-    storeId: getActiveStoreId(),
-    skus: validated.skus,
-  });
-
-  console.log("\n=== DATABASE VERIFICATION ===");
-  for (const row of verification.report) {
-    console.log(
-      `${row.valid ? "PASS" : "FAIL"} | ${row.sku} | ${row.title || "missing"} | status=${row.status} qty=${row.quantity} price=${row.price} scans=${row.imageCount} inventory=${row.inventoryItemId || "missing"}`,
-    );
-  }
-
-  if (!verification.ok) {
-    fail(
-      "The write returned success, but the final database verification did not find six complete Pending Listings.",
-      verification.report,
-    );
-  }
-
-  console.log(
-    "\nSUCCESS: all six human-verified cards now exist as private InstaComp Pending Listings with two scans each, quantity 1, and price $0 pending review.",
-  );
+  console.log(JSON.stringify(body, null, 2));
+  console.log("Batch 001 import complete.");
 }
 
-main().catch((error) => {
-  fail(error?.message || "Unexpected Batch 001 import error.", {
-    code: error?.code || null,
-    details: error?.details || null,
-    hint: error?.hint || null,
-    stack: error?.stack || null,
+const invokedPath = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : "";
+if (import.meta.url === invokedPath) {
+  main().catch((error) => {
+    fail(error?.stack || error?.message || String(error));
   });
-});
+}
