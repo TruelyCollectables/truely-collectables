@@ -1,0 +1,446 @@
+diff --git a/.github/workflows/emergency-post-launch-audit.yml b/.github/workflows/emergency-post-launch-audit.yml
+index 2410c7b..e216284 100644
+--- a/.github/workflows/emergency-post-launch-audit.yml
++++ b/.github/workflows/emergency-post-launch-audit.yml
+@@ -10,48 +10,13 @@ on:
+       - "supabase/migrations/**"
+       - "package.json"
+       - ".github/workflows/emergency-post-launch-audit.yml"
+-  push:
+-    branches:
+-      - agent/emergency-post-launch-audit-fixes-20260726
+-    paths:
+-      - ".audit/titanic-hardening.patch"
+   workflow_dispatch:
+ 
+ permissions:
+   contents: read
+ 
+ jobs:
+-  apply-titanic-patch:
+-    if: github.event_name == 'push'
+-    runs-on: ubuntu-latest
+-    permissions:
+-      contents: write
+-    steps:
+-      - name: Check out emergency audit branch
+-        uses: actions/checkout@v4
+-        with:
+-          ref: agent/emergency-post-launch-audit-fixes-20260726
+-          fetch-depth: 0
+-
+-      - name: Apply audited hardening patch exactly once
+-        shell: bash
+-        run: |
+-          if [ ! -f .audit/titanic-hardening.patch ]; then
+-            echo "No Titanic patch remains to apply."
+-            exit 0
+-          fi
+-          git apply --check .audit/titanic-hardening.patch
+-          git apply .audit/titanic-hardening.patch
+-          rm .audit/titanic-hardening.patch
+-          rmdir .audit 2>/dev/null || true
+-          git config user.name "Truely Collectables Audit"
+-          git config user.email "sales@truelycollectables.com"
+-          git add -A
+-          git commit -m "Apply audited shipping and fulfillment hardening"
+-          git push origin HEAD:agent/emergency-post-launch-audit-fixes-20260726
+-
+   post-launch-safety:
+-    if: github.event_name != 'push'
+     runs-on: ubuntu-latest
+     timeout-minutes: 45
+     env:
+diff --git a/scripts/run-checkout-webhook-idempotency-simulations.ts b/scripts/run-checkout-webhook-idempotency-simulations.ts
+index b98f1ec..0330b4b 100644
+--- a/scripts/run-checkout-webhook-idempotency-simulations.ts
++++ b/scripts/run-checkout-webhook-idempotency-simulations.ts
+@@ -88,10 +88,18 @@ assert.ok(
+ assert.ok(finalizer.includes("consumeCheckoutReservationAfterSale"));
+ assert.ok(finalizer.includes("decrementOrderInventoryOnce"));
+ assert.ok(finalizer.includes("loadStripePaidCheckoutAmounts"));
+-assert.ok(finalizer.includes('onConflict: "store_id,order_id,product_id"'));
++assert.ok(finalizer.includes("existingOrderItemsByProductId"));
++assert.ok(finalizer.includes('.from("order_items").insert'));
++assert.doesNotMatch(finalizer, /\.from\("order_items"\)\.upsert/);
+ assert.ok(
+   finalizer.indexOf("consumeCheckoutReservationAfterSale") <
+-    finalizer.indexOf('.from("order_items").upsert'),
++    finalizer.indexOf('.from("order_items").insert'),
++);
++assert.ok(
++  finalizer.includes("recoverableReviewStatuses") &&
++    finalizer.includes('"paid_financial_review"') &&
++    finalizer.includes('"paid_offer_review"'),
++  "A successful webhook retry must clear transient inventory, financial, offer, and payment review states.",
+ );
+ assert.ok(finalizer.includes("paidUnitPrice"));
+ assert.doesNotMatch(finalizer, /price:\s*Number\(product\.price\)/);
+diff --git a/scripts/run-live-storefront-money-integrity-simulations.ts b/scripts/run-live-storefront-money-integrity-simulations.ts
+index d84ec6d..efa0784 100644
+--- a/scripts/run-live-storefront-money-integrity-simulations.ts
++++ b/scripts/run-live-storefront-money-integrity-simulations.ts
+@@ -25,7 +25,10 @@ for (const token of [
+   "metadata.store_id !== storeId",
+   "loadStripePaidCheckoutAmounts",
+   "paidAmounts.unitPrices",
+-  'onConflict: "store_id,order_id,product_id"',
++  "existingOrderItemsByProductId",
++  '.from("order_items").insert',
++  "recoverableReviewStatuses",
++  "ledgerOrderItems.reduce",
+   "stableOrderPayload",
+   "paymentReviewRequired && mayApplySafetyReview",
+ ]) {
+@@ -41,6 +44,27 @@ assert.doesNotMatch(
+   /\.update\(orderPayload\)/,
+   "A webhook retry must not reset the complete initial order payload.",
+ );
++assert.doesNotMatch(
++  finalizer,
++  /\.from\("order_items"\)\.upsert/,
++  "Webhook retries must not overwrite historical seller ownership or titles.",
++);
++assert.doesNotMatch(
++  finalizer,
++  /if \(product\.sellerAccountId\)/,
++  "Seller/store item counts must come from persisted order items, not mutable inventory ownership.",
++);
++for (const recoverable of [
++  "paid_inventory_review",
++  "paid_financial_review",
++  "paid_offer_review",
++  "paid_payment_review",
++]) {
++  assert.ok(
++    finalizer.includes(recoverable),
++    `Webhook recovery must include ${recoverable}.`,
++  );
++}
+ 
+ for (const token of [
+   "starting_after",
+diff --git a/scripts/run-post-sale-ebay-sync-simulations.ts b/scripts/run-post-sale-ebay-sync-simulations.ts
+index 34133d8..7a5e502 100644
+--- a/scripts/run-post-sale-ebay-sync-simulations.ts
++++ b/scripts/run-post-sale-ebay-sync-simulations.ts
+@@ -75,6 +75,36 @@ assert.equal(
+   clientIdentityTestHelpers.isPrivateOrReservedIp("2606:4700:4700::1111"),
+   false,
+ );
++assert.equal(
++  clientIdentityTestHelpers.isIpv6("::::"),
++  false,
++  "Malformed colon strings must never be accepted as IPv6 addresses",
++);
++assert.equal(
++  clientIdentityTestHelpers.isIpv6("1:2:3:4:5:6:7:8:9"),
++  false,
++  "Overlong IPv6 addresses must fail closed",
++);
++assert.equal(
++  clientIdentityTestHelpers.isPrivateOrReservedIp("febf::1"),
++  true,
++  "The complete IPv6 link-local fe80::/10 range must be reserved",
++);
++assert.equal(
++  clientIdentityTestHelpers.isPrivateOrReservedIp("ff02::1"),
++  true,
++  "IPv6 multicast addresses must be reserved",
++);
++const trustedProxyHeaders = new Headers({
++  "x-vercel-forwarded-for": "198.51.100.20",
++  "x-forwarded-for": "203.0.113.99",
++  "cf-connecting-ip": "192.0.2.44",
++});
++assert.equal(
++  clientIdentityTestHelpers.getClientIp(trustedProxyHeaders),
++  "198.51.100.20",
++  "Vercel's forwarding header must win over less authoritative forwarded headers",
++);
+ 
+ const offerAttemptA = offerCheckoutAttemptId({
+   storeId: "00000000-0000-0000-0000-000000000001",
+diff --git a/scripts/run-sunday-launch-one-build.ts b/scripts/run-sunday-launch-one-build.ts
+index cb295be..d45df78 100644
+--- a/scripts/run-sunday-launch-one-build.ts
++++ b/scripts/run-sunday-launch-one-build.ts
+@@ -231,7 +231,9 @@ function paymentAndInventoryChecks() {
+     "consumeCheckoutReservationAfterSale",
+     "decrementOrderInventoryOnce",
+     "loadStripePaidCheckoutAmounts",
+-    'onConflict: "store_id,order_id,product_id"',
++    "existingOrderItemsByProductId",
++    '.from("order_items").insert',
++    "recoverableReviewStatuses",
+     "paidUnitPrice",
+     "stableOrderPayload",
+     "paymentReviewRequired",
+diff --git a/scripts/run-titanic-release-stress-simulations.ts b/scripts/run-titanic-release-stress-simulations.ts
+index 3cdb87a..97b9019 100644
+--- a/scripts/run-titanic-release-stress-simulations.ts
++++ b/scripts/run-titanic-release-stress-simulations.ts
+@@ -78,9 +78,12 @@ assert.ok(
+ );
+ assert.ok(
+   finalizer.includes("loadStripePaidCheckoutAmounts") &&
+-    finalizer.includes('onConflict: "store_id,order_id,product_id"') &&
+-    finalizer.includes("paidUnitPrice"),
+-  "Order finalization must use Stripe-paid amounts and idempotent item upserts.",
++    finalizer.includes("existingOrderItemsByProductId") &&
++    finalizer.includes('.from("order_items").insert') &&
++    !finalizer.includes('.from("order_items").upsert') &&
++    finalizer.includes("paidUnitPrice") &&
++    finalizer.includes("ledgerOrderItems.reduce"),
++  "Order finalization must use Stripe-paid amounts and persisted seller ownership on retries.",
+ );
+ assert.ok(
+   outboxMigration.includes("before update of quantity on public.products") &&
+diff --git a/src/lib/checkout-order-finalization.ts b/src/lib/checkout-order-finalization.ts
+index 217959e..6822d0b 100644
+--- a/src/lib/checkout-order-finalization.ts
++++ b/src/lib/checkout-order-finalization.ts
+@@ -238,11 +238,11 @@ export async function finalizeCheckoutOrder(params: {
+     tos_ip_block_reason: metadata.tos_ip_block_reason || null,
+   };
+ 
++  const existingStatus = String(existingOrder?.status || "");
++  const existingFulfillment = String(existingOrder?.fulfillment_status || "");
+   let orderId: number;
+   if (existingOrder) {
+     orderId = Number(existingOrder.id);
+-    const existingStatus = String(existingOrder.status || "");
+-    const existingFulfillment = String(existingOrder.fulfillment_status || "");
+     const mayApplySafetyReview = ![
+       "shipped",
+       "delivered",
+@@ -315,13 +315,18 @@ export async function finalizeCheckoutOrder(params: {
+     throw protectionError;
+   }
+ 
+-  let sellerItemCount = 0;
+-  let storeItemCount = 0;
++  const { data: existingOrderItems, error: existingOrderItemsError } = await supabase
++    .from("order_items")
++    .select("id,product_id,seller_account_id,title,price,quantity")
++    .eq("order_id", orderId)
++    .eq("store_id", storeId);
++  if (existingOrderItemsError) throw existingOrderItemsError;
++  const existingOrderItemsByProductId = new Map(
++    (existingOrderItems || []).map((item) => [Number(item.product_id), item]),
++  );
+ 
+   for (const cartItem of cart) {
+     const product = productById.get(cartItem.id)!;
+-    if (product.sellerAccountId) sellerItemCount += cartItem.quantity;
+-    else storeItemCount += cartItem.quantity;
+ 
+     let mutation;
+     try {
+@@ -367,21 +372,59 @@ export async function finalizeCheckoutOrder(params: {
+       );
+     }
+ 
+-    const { error: itemError } = await supabase.from("order_items").upsert(
+-      {
+-        store_id: storeId,
+-        order_id: orderId,
+-        product_id: product.legacyProductId,
+-        seller_account_id: product.sellerAccountId,
+-        title: product.title,
+-        price: paidUnitPrice,
+-        quantity: cartItem.quantity,
+-        is_test: isE2ETest,
+-        test_run_id: testRunId,
+-      },
+-      { onConflict: "store_id,order_id,product_id" },
++    const existingOrderItem = existingOrderItemsByProductId.get(
++      product.legacyProductId,
+     );
+-    if (itemError) throw itemError;
++    if (existingOrderItem) {
++      if (Number(existingOrderItem.quantity) !== cartItem.quantity) {
++        await markOrderReview({
++          supabase,
++          storeId,
++          orderId,
++          status: "paid_payment_review",
++          fulfillmentStatus: "payment_review",
++        });
++        throw new Error(
++          `The persisted order quantity for product ${product.legacyProductId} does not match Stripe.`,
++        );
++      }
++
++      const { error: itemUpdateError } = await supabase
++        .from("order_items")
++        .update({
++          price: paidUnitPrice,
++          quantity: cartItem.quantity,
++          is_test: isE2ETest,
++          test_run_id: testRunId,
++        })
++        .eq("id", existingOrderItem.id)
++        .eq("store_id", storeId)
++        .eq("order_id", orderId);
++      if (itemUpdateError) throw itemUpdateError;
++    } else {
++      const { data: insertedOrderItem, error: itemInsertError } = await supabase
++        .from("order_items")
++        .insert({
++          store_id: storeId,
++          order_id: orderId,
++          product_id: product.legacyProductId,
++          seller_account_id: product.sellerAccountId,
++          title: product.title,
++          price: paidUnitPrice,
++          quantity: cartItem.quantity,
++          is_test: isE2ETest,
++          test_run_id: testRunId,
++        })
++        .select("id,product_id,seller_account_id,title,price,quantity")
++        .single();
++      if (itemInsertError || !insertedOrderItem) {
++        throw itemInsertError || new Error("Order item insert failed");
++      }
++      existingOrderItemsByProductId.set(
++        product.legacyProductId,
++        insertedOrderItem,
++      );
++    }
+ 
+     try {
+       const immediateSync = await syncEbayQuantityAfterSale({
+@@ -403,17 +446,6 @@ export async function finalizeCheckoutOrder(params: {
+     }
+   }
+ 
+-  const { error: countUpdateError } = await supabase
+-    .from("orders")
+-    .update({
+-      contains_seller_items: sellerItemCount > 0,
+-      seller_item_count: sellerItemCount,
+-      store_item_count: storeItemCount,
+-    })
+-    .eq("id", orderId)
+-    .eq("store_id", storeId);
+-  if (countUpdateError) throw countUpdateError;
+-
+   const { data: ledgerOrderItems, error: ledgerItemsError } = await supabase
+     .from("order_items")
+     .select("id,product_id,seller_account_id,title,price,quantity")
+@@ -431,6 +463,25 @@ export async function finalizeCheckoutOrder(params: {
+     throw new Error("The paid order item ledger does not cover every cart line.");
+   }
+ 
++  const sellerItemCount = ledgerOrderItems.reduce(
++    (sum, item) => sum + (item.seller_account_id ? Number(item.quantity || 0) : 0),
++    0,
++  );
++  const storeItemCount = ledgerOrderItems.reduce(
++    (sum, item) => sum + (!item.seller_account_id ? Number(item.quantity || 0) : 0),
++    0,
++  );
++  const { error: countUpdateError } = await supabase
++    .from("orders")
++    .update({
++      contains_seller_items: sellerItemCount > 0,
++      seller_item_count: sellerItemCount,
++      store_item_count: storeItemCount,
++    })
++    .eq("id", orderId)
++    .eq("store_id", storeId);
++  if (countUpdateError) throw countUpdateError;
++
+   try {
+     const storeSettings = await getStoreSettings(supabase, storeId);
+     const productIds = Array.from(
+@@ -560,9 +611,15 @@ export async function finalizeCheckoutOrder(params: {
+     }
+   }
+ 
++  const recoverableReviewStatuses = new Set([
++    "paid_inventory_review",
++    "paid_financial_review",
++    "paid_offer_review",
++    "paid_payment_review",
++  ]);
+   if (
+     existingOrder &&
+-    String(existingOrder.status || "") === "paid_inventory_review" &&
++    recoverableReviewStatuses.has(existingStatus) &&
+     !paymentReviewRequired
+   ) {
+     await markOrderReview({
+diff --git a/src/lib/client-identity.ts b/src/lib/client-identity.ts
+index 3bb43f3..3e1f9cb 100644
+--- a/src/lib/client-identity.ts
++++ b/src/lib/client-identity.ts
+@@ -10,11 +10,11 @@ export type ClientIdentity = {
+ };
+ 
+ const IP_HEADER_NAMES = [
++  "x-vercel-forwarded-for",
++  "x-forwarded-for",
+   "cf-connecting-ip",
+   "true-client-ip",
+   "x-real-ip",
+-  "x-forwarded-for",
+-  "x-vercel-forwarded-for",
+   "forwarded",
+ ] as const;
+ 
+@@ -52,8 +52,22 @@ function isIpv4(value: string): boolean {
+   });
+ }
+ 
++function normalizedIpv6(value: string): string | null {
++  if (!value.includes(":") || value.includes("%")) return null;
++
++  try {
++    const parsed = new URL(`http://[${value}]/`);
++    const hostname = parsed.hostname;
++    return hostname.startsWith("[") && hostname.endsWith("]")
++      ? hostname.slice(1, -1).toLowerCase()
++      : null;
++  } catch {
++    return null;
++  }
++}
++
+ function isIpv6(value: string): boolean {
+-  return value.includes(":") && /^[0-9a-f:.]+$/i.test(value);
++  return normalizedIpv6(value) !== null;
+ }
+ 
+ function isRecognizedIp(value: string): boolean {
+@@ -83,15 +97,20 @@ function isPrivateOrReservedIpv4(value: string): boolean {
+ }
+ 
+ function isPrivateOrReservedIpv6(value: string): boolean {
+-  const normalized = value.toLowerCase();
++  const normalized = normalizedIpv6(value);
++  if (!normalized) return true;
++
++  const firstHextet = Number.parseInt(normalized.split(":", 1)[0] || "0", 16);
+ 
+   return (
+     normalized === "::" ||
+     normalized === "::1" ||
++    normalized.startsWith("::ffff:") ||
+     normalized.startsWith("fc") ||
+     normalized.startsWith("fd") ||
+-    normalized.startsWith("fe80:") ||
+-    normalized.startsWith("2001:db8:")
++    (Number.isFinite(firstHextet) && (firstHextet & 0xffc0) === 0xfe80) ||
++    normalized.startsWith("2001:db8:") ||
++    normalized.startsWith("ff")
+   );
+ }
+ 
+@@ -309,4 +328,5 @@ export const clientIdentityTestHelpers = {
+   isIpv6,
+   isRecognizedIp,
+   isPrivateOrReservedIp,
++  getClientIp,
+ };
