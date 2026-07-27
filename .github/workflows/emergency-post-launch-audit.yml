@@ -115,12 +115,17 @@ jobs:
       - name: Run Titanic randomized stress simulations
         run: node --import tsx scripts/run-titanic-release-stress-simulations.ts
 
-      - name: Run checkout, webhook, offer, and post-sale race simulations
-        run: |
-          node --import tsx scripts/run-checkout-webhook-idempotency-simulations.ts
-          node --import tsx scripts/run-offer-checkout-idempotency-simulations.ts
-          node --import tsx scripts/run-post-sale-ebay-sync-simulations.ts
-          node --import tsx scripts/run-live-storefront-money-integrity-simulations.ts
+      - name: Validate checkout and webhook idempotency
+        run: node --import tsx scripts/run-checkout-webhook-idempotency-simulations.ts
+
+      - name: Validate accepted-offer checkout idempotency
+        run: node --import tsx scripts/run-offer-checkout-idempotency-simulations.ts
+
+      - name: Validate post-sale eBay synchronization races
+        run: node --import tsx scripts/run-post-sale-ebay-sync-simulations.ts
+
+      - name: Validate live storefront money integrity
+        run: node --import tsx scripts/run-live-storefront-money-integrity-simulations.ts
 
       - name: Validate Buyer Protection
         run: node --import tsx scripts/run-buyer-protection-simulations.ts
