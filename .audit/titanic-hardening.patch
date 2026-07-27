@@ -10,3 +10,99 @@ index c3fc1f5..e1f2e3d 100644
          existingSession.url &&
          existingSession.status === "open" &&
          claim.requestStatus === "session_created"
+diff --git a/src/lib/admin-session.ts b/src/lib/admin-session.ts
+index 7318a1f..f8f6521 100644
+--- a/src/lib/admin-session.ts
++++ b/src/lib/admin-session.ts
+@@ -195,7 +195,13 @@ export async function verifyAdminPassword(password: string): Promise<boolean> {
+   return safeBytesEqual(providedHash, expectedHash);
+ }
+ 
+-export async function createAdminSessionValue(): Promise<string> {
++export async function createAdminSessionValue(
++  purpose: "cookie" | "internal" = "internal",
++): Promise<string> {
++  if (purpose !== "cookie") {
++    return "";
++  }
++
+   const secret = getSessionSecret();
+ 
+   if (!secret) {
+diff --git a/src/app/api/admin/login/route.ts b/src/app/api/admin/login/route.ts
+index be1c90b..e8ea04d 100644
+--- a/src/app/api/admin/login/route.ts
++++ b/src/app/api/admin/login/route.ts
+@@ -305,7 +305,7 @@ export async function POST(req: Request) {
+   let sessionValue: string;
+ 
+   try {
+-    sessionValue = await createAdminSessionValue();
++    sessionValue = await createAdminSessionValue("cookie");
+   } catch (error) {
+     console.error("Admin session creation failed after password verification:", error);
+diff --git a/src/app/api/admin/verified-reference-bootstrap/route.ts b/src/app/api/admin/verified-reference-bootstrap/route.ts
+index 1ddcb92..98c4972 100644
+--- a/src/app/api/admin/verified-reference-bootstrap/route.ts
++++ b/src/app/api/admin/verified-reference-bootstrap/route.ts
+@@ -132,7 +132,7 @@ export async function POST(request: Request) {
+     );
+   }
+ 
+-  const sessionValue = await createAdminSessionValue();
++  const sessionValue = await createAdminSessionValue("cookie");
+   const importFormData = new FormData();
+   importFormData.set(
+diff --git a/src/proxy.ts b/src/proxy.ts
+index 36b9234..4e94aed 100644
+--- a/src/proxy.ts
++++ b/src/proxy.ts
+@@ -3,7 +3,6 @@ import type { NextRequest } from "next/server";
+ import { getClientIdentity } from "./lib/client-identity";
+ import {
+   ADMIN_SESSION_COOKIE_NAMES,
+-  appendAdminSessionCookies,
+   isValidAdminSessionValue,
+ } from "./lib/admin-session";
+ 
+@@ -201,6 +200,12 @@ export async function proxy(req: NextRequest) {
+     return applySecurityHeaders(canonicalRedirect, req);
+   }
+ 
++  if (req.nextUrl.searchParams.has("admin_handoff")) {
++    const url = req.nextUrl.clone();
++    url.searchParams.delete("admin_handoff");
++    return applySecurityHeaders(NextResponse.redirect(url, 303), req);
++  }
++
+   if (!isIdentityCheckExempt(pathname) && !isLocalhostRequest(req)) {
+     const clientIdentity = await getClientIdentity(req);
+ 
+@@ -213,27 +218,6 @@ export async function proxy(req: NextRequest) {
+   }
+ 
+   if (isProtectedPath(pathname)) {
+-    const adminHandoff = req.nextUrl.searchParams.get("admin_handoff");
+-    const isSafeRedirectMethod = req.method === "GET" || req.method === "HEAD";
+-
+-    if (
+-      isSafeRedirectMethod &&
+-      adminHandoff &&
+-      (await isValidAdminSessionValue(adminHandoff))
+-    ) {
+-      const url = req.nextUrl.clone();
+-      url.searchParams.delete("admin_handoff");
+-      const response = NextResponse.redirect(url, 303);
+-
+-      appendAdminSessionCookies(
+-        response.headers,
+-        req.nextUrl.hostname,
+-        adminHandoff,
+-      );
+-
+-      return applySecurityHeaders(response, req);
+-    }
+-
+     const adminCookies = ADMIN_SESSION_COOKIE_NAMES.flatMap((cookieName) =>
+       req.cookies.getAll(cookieName).map((cookie) => cookie.value),
+     );
