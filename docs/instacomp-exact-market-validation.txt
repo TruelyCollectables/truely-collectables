@@ -1,12 +1,12 @@
 install=0
 patch=1
-regression_pass_1=0
-regression_pass_2=0
-regression_pass_3=0
+regression_pass_1=1
+regression_pass_2=1
+regression_pass_3=1
 live_six_card_market_proof=1
 lint=0
 build=0
-validated_source_commit=c090e5dc37b8ab8e93655dc593d8cd4531a56115
+validated_source_commit=d1f9fed5ebe4f3391a849c4106a047fc7a50c715
 --- provider configuration (presence only) ---
 provider_env_presence={"SERPAPI_API_KEY":false,"EBAY_CLIENT_ID":true,"EBAY_CLIENT_SECRET":true,"GOOGLE_CSE_API_KEY":false,"GOOGLE_CUSTOM_SEARCH_API_KEY":false,"GOOGLE_CSE_CX":false,"GOOGLE_CUSTOM_SEARCH_CX":false,"PRICECHARTING_API_TOKEN":false,"SPORTSCARDSPRO_API_TOKEN":false,"SPORTSCARDS_PRO_API_TOKEN":false}
 --- assertions and errors with context ---
@@ -23,76 +23,143 @@ provider_env_presence={"SERPAPI_API_KEY":false,"EBAY_CLIENT_ID":true,"EBAY_CLIEN
 25-    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
 26-
 27-Node.js v22.23.1
-28-InstaComp Batch 001 exact-market regression passed: six exact identities, strict player/year/card/parallel/grade/condition/print-run gates, three-dimensional sold+active evidence, delivered-price normalization, and sold-only suggested-price trust.
-29-InstaComp Batch 001 exact-market regression passed: six exact identities, strict player/year/card/parallel/grade/condition/print-run gates, three-dimensional sold+active evidence, delivered-price normalization, and sold-only suggested-price trust.
-30-InstaComp Batch 001 exact-market regression passed: six exact identities, strict player/year/card/parallel/grade/condition/print-run gates, three-dimensional sold+active evidence, delivered-price normalization, and sold-only suggested-price trust.
-31-npm warn exec The following package was not found and will be installed: vercel@57.0.0
-32-npm warn deprecated stream-to-promise@2.2.0: Deprecated. Use node:stream/promises and node:stream/consumers instead.
-33-npm warn deprecated tar@7.5.7: Old versions of tar are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
-34:Vercel CLI 57.0.0 (Node.js 22.23.1)
-35:> NOTE: The Vercel CLI now collects telemetry regarding usage of the CLI.
-36-> This information is used to shape the CLI roadmap and prioritize features.
-37-> You can learn more, including how to opt-out if you'd not like to participate in this program, by visiting the following URL:
-38-> https://vercel.com/docs/cli/about-telemetry
-39-
-40-  Directory       ~/work/truely-collectables/truely-collectables
-41-
-42-Searching for existing projects…
-43-
-44-✓ Linked          truelycollectables-projects/truely-collectables
-45-
-46-Retrieving project…
-47-> Downloading a fresh `VERCEL_OIDC_TOKEN` for truelycollectables-projects/truely-collectables
-48-Downloading
-49-
-50-✓ Created         .env.local file
-51:Vercel CLI 57.0.0 (Node.js 22.23.1)
-52-Retrieving project…
-53-> Downloading `production` environment variables for truelycollectables-projects/truely-collectables
-54-Downloading
-55-
-56-✓ Created         .env.production.local file
-57-provider_env_presence={"SERPAPI_API_KEY":false,"EBAY_CLIENT_ID":true,"EBAY_CLIENT_SECRET":true,"GOOGLE_CSE_API_KEY":false,"GOOGLE_CUSTOM_SEARCH_API_KEY":false,"GOOGLE_CSE_CX":false,"GOOGLE_CUSTOM_SEARCH_CX":false,"PRICECHARTING_API_TOKEN":false,"SPORTSCARDSPRO_API_TOKEN":false,"SPORTSCARDS_PRO_API_TOKEN":false}
-58:Error: SERPAPI_API_KEY is required for the live six-card market proof.
-59-    at main (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-batch-001-live-market-proof.ts:28:11)
-60-    at assert (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-batch-001-live-market-proof.ts:115:1)
-61-    at Object.<anonymous> (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-batch-001-live-market-proof.ts:118:2)
-62-    at Module._compile (node:internal/modules/cjs/loader:1781:14)
-63-    at Object.transformer (/home/runner/work/truely-collectables/truely-collectables/node_modules/tsx/dist/register-BoI6-WNn.cjs:9:3252)
-64-    at Module.load (node:internal/modules/cjs/loader:1505:32)
-65-    at Function._load (node:internal/modules/cjs/loader:1309:12)
-66-    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
-67-    at loadCJSModuleWithModuleLoad (node:internal/modules/esm/translators:335:3)
-68-    at ModuleWrap.<anonymous> (node:internal/modules/esm/translators:235:7)
-69-
-70-> truely-collectables@0.1.0 lint
-71-> eslint
-72-
-73-[BABEL] Note: The code generator has deoptimised the styling of /home/runner/work/truely-collectables/truely-collectables/src/app/admin/instacomp/InstaCompScanner.tsx as it exceeds the max of 500KB.
-74-
+28-node:internal/modules/run_main:123
+29-    triggerUncaughtException(
+30-    ^
+31-
+32:AssertionError [ERR_ASSERTION]: Seller pricing must remain $0 without strict exact sold evidence
+33-    at assert (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:182:8)
+34-    at Object.<anonymous> (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:193:1)
+35-    at Module._compile (node:internal/modules/cjs/loader:1781:14)
+36-    at Object.transformer (/home/runner/work/truely-collectables/truely-collectables/node_modules/tsx/dist/register-BoI6-WNn.cjs:9:3252)
+37-    at Module.load (node:internal/modules/cjs/loader:1505:32)
+38-    at Function._load (node:internal/modules/cjs/loader:1309:12)
+39-    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+40-    at loadCJSModuleWithModuleLoad (node:internal/modules/esm/translators:335:3)
+41-    at ModuleWrap.<anonymous> (node:internal/modules/esm/translators:235:7)
+42-    at ModuleJob.run (node:internal/modules/esm/module_job:343:25) {
+43-  generatedMessage: false,
+44-  code: 'ERR_ASSERTION',
+45-  actual: false,
+46-  expected: true,
+47-  operator: '==',
+48-  diff: 'simple'
 --
-105-  454:23  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
-106-
-107-/home/runner/work/truely-collectables/truely-collectables/src/lib/instacomp-ebay-serp-provider.ts
-108-  519:10  warning  'hasExactResult' is defined but never used  @typescript-eslint/no-unused-vars
-109-
-110:✖ 17 problems (0 errors, 17 warnings)
-111-
+51-Node.js v22.23.1
+52-node:internal/modules/run_main:123
+53-    triggerUncaughtException(
+54-    ^
+55-
+56:AssertionError [ERR_ASSERTION]: Seller pricing must remain $0 without strict exact sold evidence
+57-    at assert (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:182:8)
+58-    at Object.<anonymous> (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:193:1)
+59-    at Module._compile (node:internal/modules/cjs/loader:1781:14)
+60-    at Object.transformer (/home/runner/work/truely-collectables/truely-collectables/node_modules/tsx/dist/register-BoI6-WNn.cjs:9:3252)
+61-    at Module.load (node:internal/modules/cjs/loader:1505:32)
+62-    at Function._load (node:internal/modules/cjs/loader:1309:12)
+63-    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+64-    at loadCJSModuleWithModuleLoad (node:internal/modules/esm/translators:335:3)
+65-    at ModuleWrap.<anonymous> (node:internal/modules/esm/translators:235:7)
+66-    at ModuleJob.run (node:internal/modules/esm/module_job:343:25) {
+67-  generatedMessage: false,
+68-  code: 'ERR_ASSERTION',
+69-  actual: false,
+70-  expected: true,
+71-  operator: '==',
+72-  diff: 'simple'
+--
+75-Node.js v22.23.1
+76-node:internal/modules/run_main:123
+77-    triggerUncaughtException(
+78-    ^
+79-
+80:AssertionError [ERR_ASSERTION]: Seller pricing must remain $0 without strict exact sold evidence
+81-    at assert (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:182:8)
+82-    at Object.<anonymous> (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:193:1)
+83-    at Module._compile (node:internal/modules/cjs/loader:1781:14)
+84-    at Object.transformer (/home/runner/work/truely-collectables/truely-collectables/node_modules/tsx/dist/register-BoI6-WNn.cjs:9:3252)
+85-    at Module.load (node:internal/modules/cjs/loader:1505:32)
+86-    at Function._load (node:internal/modules/cjs/loader:1309:12)
+87-    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+88-    at loadCJSModuleWithModuleLoad (node:internal/modules/esm/translators:335:3)
+89-    at ModuleWrap.<anonymous> (node:internal/modules/esm/translators:235:7)
+90-    at ModuleJob.run (node:internal/modules/esm/module_job:343:25) {
+91-  generatedMessage: false,
+92-  code: 'ERR_ASSERTION',
+93-  actual: false,
+94-  expected: true,
+95-  operator: '==',
+96-  diff: 'simple'
+--
+98-
+99-Node.js v22.23.1
+100-npm warn exec The following package was not found and will be installed: vercel@57.0.0
+101-npm warn deprecated stream-to-promise@2.2.0: Deprecated. Use node:stream/promises and node:stream/consumers instead.
+102-npm warn deprecated tar@7.5.7: Old versions of tar are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+103:Vercel CLI 57.0.0 (Node.js 22.23.1)
+104:> NOTE: The Vercel CLI now collects telemetry regarding usage of the CLI.
+105-> This information is used to shape the CLI roadmap and prioritize features.
+106-> You can learn more, including how to opt-out if you'd not like to participate in this program, by visiting the following URL:
+107-> https://vercel.com/docs/cli/about-telemetry
+108-
+109-  Directory       ~/work/truely-collectables/truely-collectables
+110-
+111-Searching for existing projects…
 112-
-113-> truely-collectables@0.1.0 build
-114-> next build --webpack
-115-
-116-⚠ No build cache found. Please configure build caching for faster rebuilds. Read more: https://nextjs.org/docs/messages/no-cache
-117-Attention: Next.js now collects completely anonymous telemetry regarding usage.
-118-This information is used to shape Next.js' roadmap and prioritize features.
-119-You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
-120-https://nextjs.org/telemetry
-121-
-122-▲ Next.js 16.2.10 (webpack)
-123-- Environments: .env.production.local, .env.local
+113-✓ Linked          truelycollectables-projects/truely-collectables
+114-
+115-Retrieving project…
+116-> Downloading a fresh `VERCEL_OIDC_TOKEN` for truelycollectables-projects/truely-collectables
+117-Downloading
+118-
+119-✓ Created         .env.local file
+120:Vercel CLI 57.0.0 (Node.js 22.23.1)
+121-Retrieving project…
+122-> Downloading `production` environment variables for truelycollectables-projects/truely-collectables
+123-Downloading
 124-
-125-  Creating an optimized production build ...
-126-✓ Compiled successfully in 30.2s
+125-✓ Created         .env.production.local file
+126-provider_env_presence={"SERPAPI_API_KEY":false,"EBAY_CLIENT_ID":true,"EBAY_CLIENT_SECRET":true,"GOOGLE_CSE_API_KEY":false,"GOOGLE_CUSTOM_SEARCH_API_KEY":false,"GOOGLE_CSE_CX":false,"GOOGLE_CUSTOM_SEARCH_CX":false,"PRICECHARTING_API_TOKEN":false,"SPORTSCARDSPRO_API_TOKEN":false,"SPORTSCARDS_PRO_API_TOKEN":false}
+127:AssertionError [ERR_ASSERTION]: SERPAPI_API_KEY is required for the live six-card exact-market proof
+128-    at main (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-batch-001-live-market-proof.ts:14:10)
+129-    at assert (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-batch-001-live-market-proof.ts:106:1)
+130-    at Object.<anonymous> (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-batch-001-live-market-proof.ts:109:2)
+131-    at Module._compile (node:internal/modules/cjs/loader:1781:14)
+132-    at Object.transformer (/home/runner/work/truely-collectables/truely-collectables/node_modules/tsx/dist/register-BoI6-WNn.cjs:9:3252)
+133-    at Module.load (node:internal/modules/cjs/loader:1505:32)
+134-    at Function._load (node:internal/modules/cjs/loader:1309:12)
+135-    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+136-    at loadCJSModuleWithModuleLoad (node:internal/modules/esm/translators:335:3)
+137-    at ModuleWrap.<anonymous> (node:internal/modules/esm/translators:235:7) {
+138-  generatedMessage: false,
+139-  code: 'ERR_ASSERTION',
+140-  actual: undefined,
+141-  expected: true,
+142-  operator: '==',
+143-  diff: 'simple'
+--
+181-  454:23  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+182-
+183-/home/runner/work/truely-collectables/truely-collectables/src/lib/instacomp-ebay-serp-provider.ts
+184-  519:10  warning  'hasExactResult' is defined but never used  @typescript-eslint/no-unused-vars
+185-
+186:✖ 17 problems (0 errors, 17 warnings)
+187-
+188-
+189-> truely-collectables@0.1.0 build
+190-> next build --webpack
+191-
+192-⚠ No build cache found. Please configure build caching for faster rebuilds. Read more: https://nextjs.org/docs/messages/no-cache
+193-Attention: Next.js now collects completely anonymous telemetry regarding usage.
+194-This information is used to shape Next.js' roadmap and prioritize features.
+195-You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
+196-https://nextjs.org/telemetry
+197-
+198-▲ Next.js 16.2.10 (webpack)
+199-- Environments: .env.production.local, .env.local
+200-
+201-  Creating an optimized production build ...
+202-✓ Compiled successfully in 28.3s
 --- log head ---
 
 added 377 packages, and audited 378 packages in 12s
@@ -121,9 +188,78 @@ Error: src/lib/instacomp.ts: required repair marker not found: if (containsAny(t
     at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
 
 Node.js v22.23.1
-InstaComp Batch 001 exact-market regression passed: six exact identities, strict player/year/card/parallel/grade/condition/print-run gates, three-dimensional sold+active evidence, delivered-price normalization, and sold-only suggested-price trust.
-InstaComp Batch 001 exact-market regression passed: six exact identities, strict player/year/card/parallel/grade/condition/print-run gates, three-dimensional sold+active evidence, delivered-price normalization, and sold-only suggested-price trust.
-InstaComp Batch 001 exact-market regression passed: six exact identities, strict player/year/card/parallel/grade/condition/print-run gates, three-dimensional sold+active evidence, delivered-price normalization, and sold-only suggested-price trust.
+node:internal/modules/run_main:123
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: Seller pricing must remain $0 without strict exact sold evidence
+    at assert (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:182:8)
+    at Object.<anonymous> (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:193:1)
+    at Module._compile (node:internal/modules/cjs/loader:1781:14)
+    at Object.transformer (/home/runner/work/truely-collectables/truely-collectables/node_modules/tsx/dist/register-BoI6-WNn.cjs:9:3252)
+    at Module.load (node:internal/modules/cjs/loader:1505:32)
+    at Function._load (node:internal/modules/cjs/loader:1309:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+    at loadCJSModuleWithModuleLoad (node:internal/modules/esm/translators:335:3)
+    at ModuleWrap.<anonymous> (node:internal/modules/esm/translators:235:7)
+    at ModuleJob.run (node:internal/modules/esm/module_job:343:25) {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: false,
+  expected: true,
+  operator: '==',
+  diff: 'simple'
+}
+
+Node.js v22.23.1
+node:internal/modules/run_main:123
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: Seller pricing must remain $0 without strict exact sold evidence
+    at assert (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:182:8)
+    at Object.<anonymous> (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:193:1)
+    at Module._compile (node:internal/modules/cjs/loader:1781:14)
+    at Object.transformer (/home/runner/work/truely-collectables/truely-collectables/node_modules/tsx/dist/register-BoI6-WNn.cjs:9:3252)
+    at Module.load (node:internal/modules/cjs/loader:1505:32)
+    at Function._load (node:internal/modules/cjs/loader:1309:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+    at loadCJSModuleWithModuleLoad (node:internal/modules/esm/translators:335:3)
+    at ModuleWrap.<anonymous> (node:internal/modules/esm/translators:235:7)
+    at ModuleJob.run (node:internal/modules/esm/module_job:343:25) {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: false,
+  expected: true,
+  operator: '==',
+  diff: 'simple'
+}
+
+Node.js v22.23.1
+node:internal/modules/run_main:123
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: Seller pricing must remain $0 without strict exact sold evidence
+    at assert (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:182:8)
+    at Object.<anonymous> (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:193:1)
+    at Module._compile (node:internal/modules/cjs/loader:1781:14)
+    at Object.transformer (/home/runner/work/truely-collectables/truely-collectables/node_modules/tsx/dist/register-BoI6-WNn.cjs:9:3252)
+    at Module.load (node:internal/modules/cjs/loader:1505:32)
+    at Function._load (node:internal/modules/cjs/loader:1309:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+    at loadCJSModuleWithModuleLoad (node:internal/modules/esm/translators:335:3)
+    at ModuleWrap.<anonymous> (node:internal/modules/esm/translators:235:7)
+    at ModuleJob.run (node:internal/modules/esm/module_job:343:25) {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: false,
+  expected: true,
+  operator: '==',
+  diff: 'simple'
+}
+
+Node.js v22.23.1
 npm warn exec The following package was not found and will be installed: vercel@57.0.0
 npm warn deprecated stream-to-promise@2.2.0: Deprecated. Use node:stream/promises and node:stream/consumers instead.
 npm warn deprecated tar@7.5.7: Old versions of tar are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
@@ -151,17 +287,24 @@ Downloading
 
 ✓ Created         .env.production.local file
 provider_env_presence={"SERPAPI_API_KEY":false,"EBAY_CLIENT_ID":true,"EBAY_CLIENT_SECRET":true,"GOOGLE_CSE_API_KEY":false,"GOOGLE_CUSTOM_SEARCH_API_KEY":false,"GOOGLE_CSE_CX":false,"GOOGLE_CUSTOM_SEARCH_CX":false,"PRICECHARTING_API_TOKEN":false,"SPORTSCARDSPRO_API_TOKEN":false,"SPORTSCARDS_PRO_API_TOKEN":false}
-Error: SERPAPI_API_KEY is required for the live six-card market proof.
-    at main (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-batch-001-live-market-proof.ts:28:11)
-    at assert (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-batch-001-live-market-proof.ts:115:1)
-    at Object.<anonymous> (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-batch-001-live-market-proof.ts:118:2)
+AssertionError [ERR_ASSERTION]: SERPAPI_API_KEY is required for the live six-card exact-market proof
+    at main (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-batch-001-live-market-proof.ts:14:10)
+    at assert (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-batch-001-live-market-proof.ts:106:1)
+    at Object.<anonymous> (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-batch-001-live-market-proof.ts:109:2)
     at Module._compile (node:internal/modules/cjs/loader:1781:14)
     at Object.transformer (/home/runner/work/truely-collectables/truely-collectables/node_modules/tsx/dist/register-BoI6-WNn.cjs:9:3252)
     at Module.load (node:internal/modules/cjs/loader:1505:32)
     at Function._load (node:internal/modules/cjs/loader:1309:12)
     at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
     at loadCJSModuleWithModuleLoad (node:internal/modules/esm/translators:335:3)
-    at ModuleWrap.<anonymous> (node:internal/modules/esm/translators:235:7)
+    at ModuleWrap.<anonymous> (node:internal/modules/esm/translators:235:7) {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: undefined,
+  expected: true,
+  operator: '==',
+  diff: 'simple'
+}
 
 > truely-collectables@0.1.0 lint
 > eslint
@@ -198,82 +341,6 @@ Error: SERPAPI_API_KEY is required for the live six-card market proof.
 
 /home/runner/work/truely-collectables/truely-collectables/src/app/seller/inventory/SellerInventoryVisualTracker.tsx
   118:10  warning  'titleCase' is defined but never used                                                                                                                                                                                                                                                    @typescript-eslint/no-unused-vars
-  454:23  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
-
-/home/runner/work/truely-collectables/truely-collectables/src/lib/instacomp-ebay-serp-provider.ts
-  519:10  warning  'hasExactResult' is defined but never used  @typescript-eslint/no-unused-vars
-
-✖ 17 problems (0 errors, 17 warnings)
-
-
-> truely-collectables@0.1.0 build
-> next build --webpack
-
-⚠ No build cache found. Please configure build caching for faster rebuilds. Read more: https://nextjs.org/docs/messages/no-cache
-Attention: Next.js now collects completely anonymous telemetry regarding usage.
-This information is used to shape Next.js' roadmap and prioritize features.
-You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
-https://nextjs.org/telemetry
-
-▲ Next.js 16.2.10 (webpack)
-- Environments: .env.production.local, .env.local
-
-  Creating an optimized production build ...
-✓ Compiled successfully in 30.2s
-  Running TypeScript ...
-  Finished TypeScript in 45s ...
-  Collecting page data using 3 workers ...
-  Generating static pages using 3 workers (0/51) ...
-  Generating static pages using 3 workers (12/51) 
-  Generating static pages using 3 workers (25/51) 
-  Generating static pages using 3 workers (38/51) 
-✓ Generating static pages using 3 workers (51/51) in 1004ms
-  Finalizing page optimization ...
-  Collecting build traces ...
-
-Route (app)
-┌ ƒ /
-├ ○ /_not-found
-├ ○ /account
-├ ○ /account/buyer-protection
-├ ○ /account/login
-├ ○ /account/orders
-├ ○ /account/signup
-├ ƒ /admin
-├ ƒ /admin/accounts
-├ ƒ /admin/buyer-protection
-├ ƒ /admin/ebay
-├ ƒ /admin/ebay/duplicates
-├ ƒ /admin/ebay/full-store-sync
-├ ƒ /admin/ebay/import-runner
-├ ƒ /admin/ebay/inventory-intake
-├ ƒ /admin/ebay/launch-ready-sync
-├ ƒ /admin/ebay/publish
-├ ƒ /admin/ebay/sync-control
-├ ƒ /admin/files
-├ ƒ /admin/financial-reconciliation
-├ ƒ /admin/instacomp
-├ ƒ /admin/instacomp-direct
-├ ƒ /admin/inventory
-├ ƒ /admin/inventory/category-review
-├ ƒ /admin/launch-gate-drill
-├ ƒ /admin/launch-readiness
-├ ƒ /admin/live-payment-launch
-├ ƒ /admin/live-shipping-launch
-├ ƒ /admin/login
-├ ƒ /admin/logout
-├ ƒ /admin/market-intel
-├ ƒ /admin/market-intel/buy
-├ ƒ /admin/market-intel/comps
-├ ƒ /admin/market-intel/comps/[id]
-├ ƒ /admin/market-intel/deals
-├ ƒ /admin/market-intel/delivery
-├ ƒ /admin/market-intel/delivery/test
-├ ƒ /admin/market-intel/discovery
-├ ƒ /admin/market-intel/ebay
-├ ƒ /admin/market-intel/growth-specs
-├ ƒ /admin/market-intel/growth-specs/prospects
-├ ƒ /admin/market-intel/ingestion
 --- log tail ---
 ├ ○ /account/signup
 ├ ƒ /admin
