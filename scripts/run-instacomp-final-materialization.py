@@ -40,11 +40,39 @@ stages = [
     "scripts/assert-instacomp-final-source.py",
 ]
 
-for stage in stages:
+
+def run_stage(stage: str) -> None:
     path = Path(stage)
     if not path.is_file():
         raise SystemExit(f"Missing final InstaComp materialization stage: {stage}")
     print(f"Running final InstaComp materialization stage: {stage}")
-    runpy.run_path(stage, run_name="__main__")
+
+    if stage != "scripts/apply-instacomp-deep-audit-fixes.py":
+        runpy.run_path(stage, run_name="__main__")
+        return
+
+    deep_audit_source = path.read_text()
+    read_block = "    file_path = Path(path)\n    text = file_path.read_text()\n"
+    replacement = (
+        "    file_path = Path(path)\n"
+        "    if not file_path.exists():\n"
+        "        print(f\"Deep-audit compatibility notice: removed audit file {path}; skipping\")\n"
+        "        return\n"
+        "    text = file_path.read_text()\n"
+    )
+    occurrence_count = deep_audit_source.count(read_block)
+    if occurrence_count < 2:
+        raise SystemExit(
+            "Could not safely adapt legacy deep-audit file reads for removed audit workflows."
+        )
+    deep_audit_source = deep_audit_source.replace(read_block, replacement)
+    exec(
+        compile(deep_audit_source, str(path), "exec"),
+        {"__name__": "__main__", "Path": Path},
+    )
+
+
+for stage in stages:
+    run_stage(stage)
 
 print("Final InstaComp materialization stages completed.")
