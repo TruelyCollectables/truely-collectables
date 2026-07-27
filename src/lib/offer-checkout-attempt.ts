@@ -3,9 +3,14 @@ import { createHash } from "node:crypto";
 export function offerCheckoutAttemptId(params: {
   storeId: string;
   offerId: number;
+  previousStripeSessionId?: string | null;
 }) {
+  const generation = String(params.previousStripeSessionId || "initial").trim();
   const digest = createHash("sha256")
-    .update(`truely-offer-checkout\n${params.storeId}\n${params.offerId}`, "utf8")
+    .update(
+      `truely-offer-checkout\n${params.storeId}\n${params.offerId}\n${generation}`,
+      "utf8",
+    )
     .digest("hex")
     .slice(0, 32)
     .split("");
