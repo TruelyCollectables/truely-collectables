@@ -20,15 +20,15 @@ def main() -> None:
     new Set(
       [item.image?.imageUrl, ...(item.additionalImages || []).map((image) => image?.imageUrl)]
         .map(clean)
-        .filter((url) => /^https?:\\/\\//i.test(url)),
+        .filter((url) => /^https?:\/\//i.test(url)),
     ),
   );
 }
 ''',
         '''function fullResolutionEbayImageUrl(value: unknown) {
   const url = clean(value);
-  if (!/^https?:\\/\\/i.test(url)) return "";
-  return url.replace(/\\/s-l\\d+(?=\\.(?:jpe?g|png|webp)(?:\\?|$))/i, "/s-l1600");
+  if (!/^https?:\/\//i.test(url)) return "";
+  return url.replace(/\/s-l\d+(?=\.(?:jpe?g|png|webp)(?:\?|$))/i, "/s-l1600");
 }
 
 function imageUrls(item: EbayItemSummary) {
