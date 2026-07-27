@@ -83,6 +83,7 @@ require(
     seller,
     [
         'function isPricingEligibleEvidence(row: Evidence, lane: "sold" | "active")',
+        'row.source.toLowerCase().startsWith("openai_web_")',
         'if (lane === "sold" && !row.soldAt) return false;',
         'const soldCompEvidence = acceptedSoldEvidence.filter',
         'const activePricingEvidence = activeCompetition.filter',
@@ -91,7 +92,14 @@ require(
 )
 
 market = Path("src/lib/instacomp-live-pipeline.ts")
-require(market, ['if (comp.sourceCategory === "sold" && !clean(comp.soldAt)) return false;'])
+require(
+    market,
+    [
+        'if (comp.sourceCategory === "sold" && !clean(comp.soldAt)) return false;',
+        '.filter(isInstaCompPricingEligibleComp);',
+    ],
+)
+reject(market, ["hasTrustedDeliveredPrice"])
 
 matcher = Path("src/lib/instacomp.ts")
 require(
@@ -135,6 +143,7 @@ for path in [
     benchmark_library,
     Path("src/app/api/instacomp/live-scan/route.ts"),
     scan,
+    seller,
     matcher,
     catalog,
 ]:
