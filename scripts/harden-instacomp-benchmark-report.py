@@ -77,6 +77,7 @@ def main() -> None:
     )
 
     path.write_text(text)
+    runpy.run_path("scripts/harden-instacomp-live-pipeline-structure.py", run_name="__main__")
     runpy.run_path("scripts/harden-instacomp-year-evidence.py", run_name="__main__")
 
 
