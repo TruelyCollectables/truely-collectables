@@ -179,10 +179,9 @@ const sellerRoute = fs.readFileSync(
   "utf8",
 );
 assert.ok(sellerRoute.includes("getExactEbayMarketProviders"));
-assert.ok(
-  sellerRoute.includes(
-    "const suggestedPrice = hasReliableSoldComps ? pricingAnalysis.suggestedPrice : 0",
-  ),
+assert.match(
+  sellerRoute,
+  /const suggestedPrice\s*=\s*hasReliableSoldComps\s*\?\s*(?:raw)?PricingAnalysis\.suggestedPrice\s*:\s*0\s*;/,
   "Seller pricing must remain $0 without strict exact sold evidence",
 );
 assert.ok(sellerRoute.includes("soldCompEvidence"));
