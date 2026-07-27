@@ -45,17 +45,50 @@ jobs:
       - name: Install exact dependencies
         run: npm ci
 
-      - name: Link the existing Vercel project without deploying
+      - name: Resolve the existing Vercel project without deploying
         shell: bash
         run: |
           set -euo pipefail
           test -n "${VERCEL_TOKEN:-}"
           mkdir -p .vercel .codex-run
-          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
-            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
-          else
-            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+          RESOLVED_ORG_ID="${VERCEL_ORG_ID:-}"
+          RESOLVED_PROJECT_ID="${VERCEL_PROJECT_ID:-}"
+
+          if [ -z "$RESOLVED_ORG_ID" ]; then
+            curl --fail-with-body --silent --show-error \
+              -H "Authorization: Bearer $VERCEL_TOKEN" \
+              "https://api.vercel.com/v2/teams?limit=100" \
+              > .codex-run/vercel-teams.json
+            RESOLVED_ORG_ID="$(node - <<'NODE'
+            const fs = require("node:fs");
+            const payload = JSON.parse(fs.readFileSync(".codex-run/vercel-teams.json", "utf8"));
+            const team = (payload.teams || []).find((row) => row.slug === process.env.VERCEL_SCOPE);
+            if (!team?.id) process.exit(1);
+            process.stdout.write(team.id);
+            NODE
+            )"
           fi
+
+          if [ -z "$RESOLVED_PROJECT_ID" ]; then
+            curl --fail-with-body --silent --show-error \
+              -H "Authorization: Bearer $VERCEL_TOKEN" \
+              "https://api.vercel.com/v9/projects/truely-collectables?teamId=$RESOLVED_ORG_ID" \
+              > .codex-run/vercel-project.json
+            RESOLVED_PROJECT_ID="$(node - <<'NODE'
+            const fs = require("node:fs");
+            const payload = JSON.parse(fs.readFileSync(".codex-run/vercel-project.json", "utf8"));
+            if (!payload?.id) process.exit(1);
+            process.stdout.write(payload.id);
+            NODE
+            )"
+          fi
+
+          test -n "$RESOLVED_ORG_ID"
+          test -n "$RESOLVED_PROJECT_ID"
+          printf '{"orgId":"%s","projectId":"%s"}\n' "$RESOLVED_ORG_ID" "$RESOLVED_PROJECT_ID" > .vercel/project.json
+          rm -f .codex-run/vercel-teams.json .codex-run/vercel-project.json
+          echo "Resolved the existing Vercel team and project IDs through read-only API requests."
 
       - name: Audit actual Production variable names
         shell: bash
