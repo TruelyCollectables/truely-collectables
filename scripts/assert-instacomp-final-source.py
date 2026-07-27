@@ -141,7 +141,8 @@ for path in [
     assert_unique_functions(path)
 
 regression = Path("scripts/run-instacomp-exact-market-proof-regressions.ts")
-require(regression, ['benchmarkSource.includes("benchmarkTitleHasExpectedSerialRun")'])
+require(regression, ['benchmarkTitleSource.includes("benchmarkTitleHasExpectedSerialRun")'])
+reject(regression, ['benchmarkSource.includes("benchmarkTitleHasExpectedSerialRun")'])
 reject(regression, ['benchmarkSource.includes("titleHasExpectedSerialRun")'])
 
 final_regression = Path("scripts/run-instacomp-final-audit-regressions.ts")
