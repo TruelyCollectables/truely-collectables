@@ -22,7 +22,6 @@ for (const unsafe of [
 ]) {
   assert.throws(
     () => assertSafeInstaCompRemoteImageUrl(unsafe, { ebayOnly: true }),
-    undefined,
     `Unsafe competition image URL should be rejected: ${unsafe}`,
   );
 }
