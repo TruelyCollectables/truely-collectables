@@ -94,6 +94,11 @@ const csvHeaders: Array<keyof LetterTrackExportRow> = [
 
 export const LETTERTRACK_CSV_HEADERS = csvHeaders;
 
+// Retained so archived evidence from before the Tracked Card Letter rename
+// remains searchable without changing current customer-facing output.
+export const LEGACY_STANDARD_ENVELOPE_MISSING_ORDER_REASON =
+  "Order row was not found for this Standard Envelope label.";
+
 function text(value: unknown) {
   return String(value || "").trim();
 }
