@@ -5,20 +5,10 @@ on:
     branches:
       - main
     paths:
-      - "src/lib/ebay-quantity-sync-outbox.ts"
-      - "src/lib/ebay-quantity-sync-safety.ts"
-      - "src/lib/client-identity.ts"
-      - "src/lib/offer-checkout-attempt.ts"
-      - "src/lib/reserved-offer-checkout.ts"
-      - "src/lib/stripe-paid-item-prices.ts"
-      - "src/app/api/cron/ebay-store-fixed-price-sync/route.ts"
-      - "src/app/api/offers/create/route.ts"
-      - "src/app/api/offers/buyer-checkout/route.ts"
-      - "src/app/components/CheckoutButton.tsx"
-      - "src/components/ClearCartOnSuccess.tsx"
-      - "supabase/migrations/20260726233000_post_sale_ebay_quantity_sync_outbox.sql"
-      - "supabase/migrations/20260726234000_consume_attached_offer_checkout_reservations.sql"
-      - "scripts/run-post-sale-ebay-sync-simulations.ts"
+      - "src/**"
+      - "scripts/**"
+      - "supabase/migrations/**"
+      - "package.json"
       - ".github/workflows/emergency-post-launch-audit.yml"
   workflow_dispatch:
 
@@ -52,6 +42,32 @@ jobs:
       - name: Check out emergency audit branch
         uses: actions/checkout@v4
 
+      - name: Capture reviewable source snapshot
+        shell: bash
+        run: |
+          tar \
+            --exclude=.git \
+            --exclude=node_modules \
+            --exclude=.next \
+            --exclude=.codex-run \
+            -czf emergency-audit-source.tgz \
+            .github src scripts supabase package.json package-lock.json tsconfig.json next.config.* 2>/dev/null || \
+          tar \
+            --exclude=.git \
+            --exclude=node_modules \
+            --exclude=.next \
+            --exclude=.codex-run \
+            -czf emergency-audit-source.tgz \
+            .github src scripts supabase package.json package-lock.json tsconfig.json
+
+      - name: Upload reviewable source snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: emergency-audit-source
+          path: emergency-audit-source.tgz
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -63,6 +79,11 @@ jobs:
 
       - name: Run post-sale safety simulations
         run: node --import tsx scripts/run-post-sale-ebay-sync-simulations.ts
+
+      - name: Run checkout and offer idempotency simulations
+        run: |
+          node --import tsx scripts/run-checkout-webhook-idempotency-simulations.ts
+          node --import tsx scripts/run-offer-checkout-idempotency-simulations.ts
 
       - name: Run lint
         run: npm run lint
