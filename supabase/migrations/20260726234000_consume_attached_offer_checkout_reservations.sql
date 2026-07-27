@@ -31,7 +31,7 @@ begin
 
   perform pg_advisory_xact_lock(
     hashtextextended(
-      p_store_id::text || ':' || p_order_id::text || ':' || p_legacy_product_id::text,
+      p_store_id::text || ':' || p_legacy_product_id::text,
       0
     )
   );
@@ -82,8 +82,7 @@ begin
      where reservation.store_id = p_store_id
        and reservation.legacy_product_id = p_legacy_product_id
        and reservation.stripe_session_id = v_order_stripe_session_id
-       and reservation.status = 'active'
-       and reservation.expires_at > now()
+       and reservation.status in ('active', 'expired')
      order by reservation.created_at asc
      limit 1
      for update;
@@ -154,7 +153,7 @@ begin
    where reservation.store_id = p_store_id
      and reservation.legacy_product_id = p_legacy_product_id
      and reservation.status = 'active'
-     and reservation.expires_at > now();
+     and (reservation.expires_at > now() or reservation.stripe_session_id is not null);
 
   v_previous := coalesce(v_inventory.quantity, 0);
 

@@ -248,3 +248,25 @@ export async function releaseCheckoutReservation(params: {
 
   if (error) throw error;
 }
+
+export async function releaseCheckoutReservationForExpiredSession(params: {
+  supabase: SupabaseClient;
+  storeId: string;
+  stripeSessionId: string;
+}) {
+  const now = new Date().toISOString();
+  const { data, error } = await params.supabase
+    .from("checkout_inventory_reservations")
+    .update({
+      status: "released",
+      released_at: now,
+      updated_at: now,
+    })
+    .eq("store_id", params.storeId)
+    .eq("stripe_session_id", params.stripeSessionId)
+    .eq("status", "active")
+    .select("id");
+
+  if (error) throw error;
+  return { releasedCount: data?.length || 0 };
+}
