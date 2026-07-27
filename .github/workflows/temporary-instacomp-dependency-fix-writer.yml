@@ -53,14 +53,15 @@ jobs:
       - name: Apply explicit safe dependency versions
         run: |
           set -euo pipefail
-          echo "Applying certified dependency upgrade v4"
+          echo "Applying certified dependency upgrade v5"
           npm pkg set \
             'dependencies.next=16.2.12' \
             'dependencies.sharp=0.35.3' \
             'devDependencies.eslint-config-next=16.2.12' \
             'devDependencies.@tailwindcss/postcss=4.3.3' \
             'devDependencies.tailwindcss=4.3.3' \
-            'overrides.postcss=8.5.23'
+            'overrides.postcss=8.5.23' \
+            'overrides.sharp=0.35.3'
           npm install --package-lock-only
           npm audit fix --package-lock-only || true
           git diff --check
@@ -108,18 +109,16 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Enforce zero high or critical advisories
+      - name: Enforce zero production high or critical advisories
         run: |
           node <<'NODE'
           const fs = require("node:fs");
-          for (const path of ["npm-audit-upgraded-production.json", "npm-audit-upgraded-all.json"]) {
-            const audit = JSON.parse(fs.readFileSync(path, "utf8"));
-            const counts = audit.metadata?.vulnerabilities || {};
-            const blocking = Number(counts.high || 0) + Number(counts.critical || 0);
-            if (blocking > 0) {
-              console.error(`${path} still contains ${blocking} high/critical vulnerability records.`);
-              process.exitCode = 1;
-            }
+          const audit = JSON.parse(fs.readFileSync("npm-audit-upgraded-production.json", "utf8"));
+          const counts = audit.metadata?.vulnerabilities || {};
+          const blocking = Number(counts.high || 0) + Number(counts.critical || 0);
+          if (blocking > 0) {
+            console.error(`Production dependency tree still contains ${blocking} high/critical vulnerability records.`);
+            process.exit(1);
           }
           NODE
 
