@@ -49,14 +49,32 @@ benchmark = Path("src/app/api/instacomp/benchmark/ebay-25/route.ts")
 require(
     benchmark,
     [
+        'from "../../../../../lib/instacomp-benchmark-title";',
+        "benchmarkTitleEligible(title, testCase)",
+        "x-instacomp-benchmark-ephemeral",
+    ],
+)
+reject(
+    benchmark,
+    [
+        "export function benchmarkTitleEligible",
+        "export function benchmarkTitleHasExpectedYear",
+        "export function benchmarkTitleHasExpectedParallel",
+        "export function benchmarkTitleHasExpectedSerialRun",
+    ],
+)
+
+benchmark_library = Path("src/lib/instacomp-benchmark-title.ts")
+require(
+    benchmark_library,
+    [
+        "export function benchmarkTitleHasExpectedYear",
+        "export function benchmarkTitleHasExpectedParallel",
+        "export function benchmarkTitleHasExpectedSerialRun",
+        "export function benchmarkTitleEligible",
         "benchmarkTitleHasExpectedPlayer",
         "benchmarkTitleHasExpectedBrand",
         "benchmarkTitleHasExpectedSet",
-        "benchmarkTitleHasExpectedYear",
-        "benchmarkTitleHasExpectedParallel",
-        "benchmarkTitleHasExpectedSerialRun",
-        "benchmarkTitleEligible",
-        "x-instacomp-benchmark-ephemeral",
     ],
 )
 
@@ -83,6 +101,7 @@ require(
         '" signature",',
         '" rpa ",',
         'if (ai && !ai.isRookie)',
+        "gem|near|nm|mint|pristine|mt|ex",
     ],
 )
 
@@ -113,6 +132,7 @@ require(visual, ["awaiting image proof"])
 
 for path in [
     benchmark,
+    benchmark_library,
     Path("src/app/api/instacomp/live-scan/route.ts"),
     scan,
     matcher,
@@ -123,5 +143,9 @@ for path in [
 regression = Path("scripts/run-instacomp-exact-market-proof-regressions.ts")
 require(regression, ['benchmarkSource.includes("benchmarkTitleHasExpectedSerialRun")'])
 reject(regression, ['benchmarkSource.includes("titleHasExpectedSerialRun")'])
+
+final_regression = Path("scripts/run-instacomp-final-audit-regressions.ts")
+require(final_regression, ['from "../src/lib/instacomp-benchmark-title";'])
+reject(final_regression, ['from "../src/app/api/instacomp/benchmark/ebay-25/route";'])
 
 print("Final InstaComp materialized source invariants passed.")
