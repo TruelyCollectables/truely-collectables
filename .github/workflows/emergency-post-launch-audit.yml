@@ -51,14 +51,14 @@ jobs:
             --exclude=.next \
             --exclude=.codex-run \
             -czf emergency-audit-source.tgz \
-            .github src scripts supabase package.json package-lock.json tsconfig.json next.config.* 2>/dev/null || \
+            .github src scripts supabase docs README.md CHAT_HANDOFF.md package.json package-lock.json tsconfig.json next.config.* 2>/dev/null || \
           tar \
             --exclude=.git \
             --exclude=node_modules \
             --exclude=.next \
             --exclude=.codex-run \
             -czf emergency-audit-source.tgz \
-            .github src scripts supabase package.json package-lock.json tsconfig.json
+            .github src scripts supabase docs README.md CHAT_HANDOFF.md package.json package-lock.json tsconfig.json
 
       - name: Upload reviewable source snapshot
         uses: actions/upload-artifact@v4
@@ -169,6 +169,9 @@ jobs:
 
       - name: Validate hardened checkout function migrations
         run: node scripts/run-hardened-checkout-function-migration-simulations.mjs
+
+      - name: Validate reserved product identity and migration order
+        run: node --import tsx scripts/run-reserved-product-identity-migration-simulations.ts
 
       - name: Validate production guardrails
         id: production_guardrails
