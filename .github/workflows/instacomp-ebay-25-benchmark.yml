@@ -94,10 +94,33 @@ jobs:
         run: npm ci
 
       - name: Run exactness regressions three times
+        id: regressions
+        continue-on-error: true
         run: |
-          node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
-          node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
-          node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
+          set -o pipefail
+          {
+            echo "=== InstaComp exactness regression pass 1 ==="
+            node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
+            echo "=== InstaComp exactness regression pass 2 ==="
+            node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
+            echo "=== InstaComp exactness regression pass 3 ==="
+            node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
+          } 2>&1 | tee instacomp-regression-diagnostics.log
+
+      - name: Upload exactness regression diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-regression-diagnostics-${{ github.run_number }}
+          path: instacomp-regression-diagnostics.log
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Stop certification on regression failure
+        if: steps.regressions.outcome != 'success'
+        run: |
+          cat instacomp-regression-diagnostics.log
+          exit 1
 
       - name: Lint hardened InstaComp paths
         run: |
@@ -154,6 +177,7 @@ jobs:
             src/lib/instacomp-exact-market-provider.ts \
             src/lib/instacomp-openai-web-market-provider.ts \
             src/lib/instacomp-comp-visual-verification.ts \
+            src/lib/instacomp-curated-checklist.ts \
             scripts/harden-instacomp-certification.py \
             scripts/run-instacomp-exact-market-proof-regressions.ts \
             scripts/run-instacomp-ebay-25-benchmark.mjs
