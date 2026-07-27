@@ -26,12 +26,17 @@ const getProduct = cache(async (id: string) => {
   return createServerInventoryEngine().getByLegacyProductId(numericId);
 });
 
+type PublicProduct = NonNullable<Awaited<ReturnType<typeof getProduct>>> & {
+  inventoryItemId: string;
+};
+
 function isPublicProduct(
   product: Awaited<ReturnType<typeof getProduct>>,
-): product is NonNullable<Awaited<ReturnType<typeof getProduct>>> {
+): product is PublicProduct {
   return Boolean(
     product &&
-      product.inventoryItemId &&
+      typeof product.inventoryItemId === "string" &&
+      product.inventoryItemId.length > 0 &&
       product.quantity > 0 &&
       product.status === "active",
   );
