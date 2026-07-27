@@ -1,1 +1,1 @@
-# Trigger marker for the deduplicated fail-closed final InstaComp materialization workflow.
+# Trigger marker for the bound, logged, fail-closed final InstaComp materialization workflow.
