@@ -83,7 +83,7 @@ function cleanText(value: string | null | undefined) {
 
   return Boolean(cardNumberMatches && yearMatches && (playerMatches || printedCueMatches));
 '''
-    new = '''  const cardNumber = comparableCardNumber(input.cardNumber);
+    new = r'''  const cardNumber = comparableCardNumber(input.cardNumber);
   const candidateCardNumber = comparableCardNumber(candidate.cardNumber);
   const year = comparableText(input.year);
   const candidateYear = comparableText(candidate.year);
