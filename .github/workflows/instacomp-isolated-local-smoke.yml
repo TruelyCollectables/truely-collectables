@@ -63,6 +63,9 @@ jobs:
       - name: Build local protected runtime
         env:
           NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
           ADMIN_PASSWORD: build-only-admin-password
           ADMIN_SESSION_SECRET: build-only-admin-session-secret-at-least-32-characters
           STRIPE_SECRET_KEY: sk_test_build_only_placeholder
