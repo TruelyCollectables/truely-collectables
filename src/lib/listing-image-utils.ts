@@ -1,4 +1,4 @@
-export const MAX_LISTING_IMAGES = 20;
+export const MAX_LISTING_IMAGES = 24;
 
 function cleanImageUrl(value: unknown) {
   return String(value || "").trim();
