@@ -13,12 +13,19 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
 
 def main() -> None:
     path = Path("src/lib/instacomp-curated-checklist.ts")
-    text = path.read_text()
+    text = path.read_text().replace("\x08", r"\b")
 
-    # Older hardening runs interpreted JavaScript regex word boundaries as
-    # Python backspace escapes. Normalize that legacy output before checking
-    # whether the correct generated block is already present.
-    text = text.replace("\x08", r"\b")
+    # The final audited resolver supersedes this legacy migration. Do not try
+    # to replace its earlier intermediate matcher shape after it is committed.
+    final_markers = (
+        "function officialBenchmarkCatalogCandidate(",
+        "const parallelEvidenceTokens = new Set(",
+        "inputParallelDistinctive.every((token) => candidateParallelTokens.includes(token))",
+        "catalogId: `tcos-official-${testCase.id}`",
+    )
+    if all(marker in text for marker in final_markers):
+        path.write_text(text)
+        return
 
     text = replace_once(
         text,
