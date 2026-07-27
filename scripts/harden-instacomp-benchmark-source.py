@@ -13,6 +13,15 @@ def main() -> None:
     path = Path("src/app/api/instacomp/benchmark/ebay-25/route.ts")
     text = path.read_text()
 
+    final_markers = (
+        'from "../../../../../lib/instacomp-benchmark-title";',
+        "benchmarkTitleEligible(title, testCase)",
+        "function fullResolutionEbayImageUrl(",
+    )
+    if all(marker in text for marker in final_markers):
+        path.write_text(text)
+        return
+
     text = replace_once(
         text,
         r'''function imageUrls(item: EbayItemSummary) {
