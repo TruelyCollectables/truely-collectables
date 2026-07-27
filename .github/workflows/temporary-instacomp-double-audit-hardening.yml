@@ -1,4 +1,4 @@
-name: Temporary InstaComp Catalog Commit
+name: Commit Certified InstaComp Source
 
 on:
   push:
@@ -11,9 +11,9 @@ permissions:
   contents: write
 
 jobs:
-  commit-catalog-resolver:
+  materialize-test-commit:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 120
     steps:
       - name: Check out audit branch
         uses: actions/checkout@v4
@@ -27,43 +27,66 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Generate audited catalog resolver
+      - name: Materialize final audited source
         run: |
-          python -m py_compile scripts/harden-instacomp-catalog-registry.py scripts/harden-instacomp-official-catalog-resolution.py
-          python scripts/harden-instacomp-catalog-registry.py
-          python scripts/harden-instacomp-official-catalog-resolution.py
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path("src/lib/instacomp-curated-checklist.ts")
-          text = path.read_text()
-          if "\x08" in text:
-              raise SystemExit("The committed curated checklist still contains a hidden backspace byte")
-          required = (
-              "officialBenchmarkCatalogCandidate",
-              "parallelEvidenceTokens",
-              "inputParallelDistinctive.every",
-              "tcos-official-${testCase.id}",
-          )
-          missing = [marker for marker in required if marker not in text]
-          if missing:
-              raise SystemExit(f"Missing audited catalog markers: {missing}")
-          PY
+          set -euo pipefail
+          python -m py_compile scripts/harden-instacomp-*.py scripts/run-instacomp-*.py
+          python scripts/harden-instacomp-ebay-benchmark.py
+          python scripts/harden-instacomp-benchmark-source.py
+          python scripts/harden-instacomp-benchmark-cleanup.py
+          python scripts/run-instacomp-certification-safe.py
+          python scripts/harden-instacomp-visual-proof.py
+          python scripts/harden-instacomp-visual-review-types.py
+          python scripts/harden-instacomp-benchmark-report.py
+          python scripts/run-instacomp-final-materialization.py
+          npm pkg set 'dependencies.sharp=^0.34.5'
+          npm install --package-lock-only
+          find scripts -type d -name __pycache__ -prune -exec rm -rf {} +
+          python scripts/check-instacomp-control-characters.py
           git diff --check
 
-      - name: Verify exact-market regression and build
+      - name: Install exact materialized dependencies
+        run: npm ci
+
+      - name: Verify certified source
         run: |
+          set -euo pipefail
           node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
+          node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
+          node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
+          node --import tsx scripts/run-instacomp-final-audit-regressions.ts
+          node --import tsx scripts/run-instacomp-final-audit-regressions.ts
+          node --import tsx scripts/run-instacomp-final-audit-regressions.ts
+          node --import tsx scripts/run-instacomp-live-pipeline-regressions.ts
+          node --import tsx scripts/run-instacomp-batch-drop-regressions.ts
+          npx eslint \
+            src/app/api/instacomp/benchmark/ebay-25/route.ts \
+            src/app/api/instacomp/live-scan/route.ts \
+            src/app/api/instacomp/scan/route.ts \
+            src/app/api/account/seller/inventory/instacomp/route.ts \
+            src/app/instacomp-test/InstaCompBatchLiveScanner.tsx \
+            src/lib/instacomp.ts \
+            src/lib/instacomp-benchmark-title.ts \
+            src/lib/instacomp-live-pipeline.ts \
+            src/lib/instacomp-exact-market-provider.ts \
+            src/lib/instacomp-openai-web-market-provider.ts \
+            src/lib/instacomp-comp-visual-verification.ts \
+            src/lib/instacomp-curated-checklist.ts \
+            src/lib/instacomp-image-safety.ts \
+            src/lib/instacomp-image-orientation.ts \
+            scripts/run-instacomp-exact-market-proof-regressions.ts \
+            scripts/run-instacomp-final-audit-regressions.ts
           npm run build
 
-      - name: Commit generated catalog source
+      - name: Commit certified source
         run: |
+          set -euo pipefail
+          find scripts -type d -name __pycache__ -prune -exec rm -rf {} +
+          rm -f instacomp-final-materialization.log instacomp-materialization-status.log
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/lib/instacomp-curated-checklist.ts
-          git diff --cached --quiet && { echo "No catalog source changes were produced"; exit 1; }
-          git commit -m "Commit audited InstaComp catalog resolver"
+          git add package.json package-lock.json scripts src
+          git diff --cached --check
+          git diff --cached --quiet && { echo "No certified source changes were produced"; exit 1; }
+          git commit -m "Commit certified InstaComp hardened source"
           git push origin HEAD:agent/instacomp-exact-market-final-20260726
