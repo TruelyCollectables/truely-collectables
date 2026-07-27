@@ -7,6 +7,7 @@ on:
       - "src/app/api/account/seller/inventory/instacomp/**"
       - "src/app/instacomp-test/**"
       - "src/lib/instacomp*.ts"
+      - "scripts/run-instacomp-exact-provider-regressions.ts"
       - "scripts/run-instacomp-live-pipeline-regressions.ts"
       - "scripts/run-instacomp-provider-safety-regressions.ts"
       - "scripts/run-instacomp-batch-drop-regressions.ts"
@@ -39,6 +40,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Run exact-provider regressions
+        run: node --import tsx scripts/run-instacomp-exact-provider-regressions.ts
+
       - name: Run live-pipeline regressions
         run: node --import tsx scripts/run-instacomp-live-pipeline-regressions.ts
 
@@ -57,8 +61,10 @@ jobs:
           src/app/instacomp-test/InstaCompLiveScanner.tsx
           src/app/instacomp-test/page.tsx
           src/lib/instacomp-batch-drop.ts
+          src/lib/instacomp-exact-market-provider.ts
           src/lib/instacomp-live-pipeline.ts
           src/lib/instacomp-provider-safety.ts
+          scripts/run-instacomp-exact-provider-regressions.ts
           scripts/run-instacomp-provider-safety-regressions.ts
           scripts/run-instacomp-batch-drop-regressions.ts
           scripts/run-instacomp-live-pipeline-regressions.ts
