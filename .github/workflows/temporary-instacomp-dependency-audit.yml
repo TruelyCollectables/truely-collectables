@@ -1,0 +1,102 @@
+name: Temporary InstaComp Dependency Audit
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/temporary-instacomp-dependency-audit.yml"
+      - "package.json"
+      - "package-lock.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  production-dependency-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Capture complete audit
+        id: complete_audit
+        continue-on-error: true
+        run: npm audit --json > npm-audit-all.json
+
+      - name: Capture production-only audit
+        id: production_audit
+        continue-on-error: true
+        run: npm audit --omit=dev --json > npm-audit-production.json
+
+      - name: Write audit summary
+        if: always()
+        run: |
+          node <<'NODE'
+          const fs = require("node:fs");
+          const read = (path) => {
+            try { return JSON.parse(fs.readFileSync(path, "utf8")); }
+            catch { return {}; }
+          };
+          const all = read("npm-audit-all.json");
+          const production = read("npm-audit-production.json");
+          const summary = {
+            all: all.metadata?.vulnerabilities || null,
+            production: production.metadata?.vulnerabilities || null,
+            allAdvisories: Object.entries(all.vulnerabilities || {}).map(([name, row]) => ({
+              name,
+              severity: row.severity,
+              direct: row.isDirect,
+              via: (row.via || []).map((item) => typeof item === "string" ? item : item.title),
+              range: row.range,
+              fixAvailable: row.fixAvailable,
+            })),
+            productionAdvisories: Object.entries(production.vulnerabilities || {}).map(([name, row]) => ({
+              name,
+              severity: row.severity,
+              direct: row.isDirect,
+              via: (row.via || []).map((item) => typeof item === "string" ? item : item.title),
+              range: row.range,
+              fixAvailable: row.fixAvailable,
+            })),
+          };
+          fs.writeFileSync("npm-audit-summary.json", JSON.stringify(summary, null, 2) + "\n");
+          console.log(JSON.stringify(summary, null, 2));
+          NODE
+
+      - name: Upload dependency audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-dependency-audit-${{ github.run_number }}
+          path: |
+            npm-audit-all.json
+            npm-audit-production.json
+            npm-audit-summary.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Enforce production dependency safety
+        if: always()
+        run: |
+          node <<'NODE'
+          const fs = require("node:fs");
+          const audit = JSON.parse(fs.readFileSync("npm-audit-production.json", "utf8"));
+          const counts = audit.metadata?.vulnerabilities || {};
+          const blocking = Number(counts.high || 0) + Number(counts.critical || 0);
+          if (blocking > 0) {
+            console.error(`Production dependency audit found ${blocking} high/critical vulnerability records.`);
+            process.exit(1);
+          }
+          NODE
