@@ -7,6 +7,7 @@ on:
     paths:
       - ".github/workflows/temporary-instacomp-deep-audit-writer.yml"
       - "scripts/apply-instacomp-deep-audit-fixes.py"
+      - "scripts/run-instacomp-provider-safety-regressions.ts"
   workflow_dispatch:
 
 permissions:
@@ -54,7 +55,7 @@ jobs:
       - name: Apply deterministic deep-audit fixes
         run: |
           set -euo pipefail
-          echo "Applying audited source patch set v4"
+          echo "Applying audited source patch set v5"
           python -m py_compile scripts/apply-instacomp-deep-audit-fixes.py
           python scripts/apply-instacomp-deep-audit-fixes.py 2>&1 | tee deep-audit-patch.log
           python scripts/check-instacomp-control-characters.py
