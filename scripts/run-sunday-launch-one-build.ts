@@ -230,9 +230,11 @@ function paymentAndInventoryChecks() {
     "getByLegacyProductIds",
     "consumeCheckoutReservationAfterSale",
     "decrementOrderInventoryOnce",
-    "syncEbayQuantityAfterSale",
-    'status: "paid_inventory_review"',
-    "existingProductIds",
+    "loadStripePaidCheckoutAmounts",
+    'onConflict: "store_id,order_id,product_id"',
+    "paidUnitPrice",
+    "stableOrderPayload",
+    "paymentReviewRequired",
     "createTransactionEvidenceReport",
   ]);
 
