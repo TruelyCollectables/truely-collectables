@@ -20,19 +20,6 @@ index 6d8f20d..405776a 100644
    const formData = new FormData();
    formData.set(
      "verifiedReferenceFile",
-diff --git a/scripts/run-admin-login-simulations.mjs b/scripts/run-admin-login-simulations.mjs
-index 71ba0fb..89bdddf 100644
---- a/scripts/run-admin-login-simulations.mjs
-+++ b/scripts/run-admin-login-simulations.mjs
-@@ -165,7 +165,7 @@ scenario("admin login shows operator-readable failure guidance", () => {
- scenario("admin login fails cleanly when session creation fails", () => {
-   for (const fragment of [
-     "let sessionValue: string;",
--    "createAdminSessionValue()",
-+    'createAdminSessionValue("cookie")',
-     "loginPayload.nextPath",
-     "loginRedirect(\n        req,\n        \"session_error\",\n        loginPayload.nextPath,\n      )",
-     "admin_session_not_created",
 diff --git a/scripts/run-admin-session-secret-fail-closed-simulations.mjs b/scripts/run-admin-session-secret-fail-closed-simulations.mjs
 index 75c875a..25554d0 100644
 --- a/scripts/run-admin-session-secret-fail-closed-simulations.mjs
@@ -46,3 +33,90 @@ index 75c875a..25554d0 100644
    '"session_error"',
    "appendExpiredAdminSessionCookies",
  ]) {
+diff --git a/scripts/run-privileged-api-route-audit.mjs b/scripts/run-privileged-api-route-audit.mjs
+index e6fc24f..1bf0929 100644
+--- a/scripts/run-privileged-api-route-audit.mjs
++++ b/scripts/run-privileged-api-route-audit.mjs
+@@ -6,6 +6,8 @@ const repositoryRoot = process.cwd();
+ const apiRoot = path.join(repositoryRoot, "src/app/api");
+ const proxyPath = path.join(repositoryRoot, "src/proxy.ts");
+ const instaCompActorPath = path.join(repositoryRoot, "src/lib/instacomp-job-server.ts");
++const accountAuthPath = path.join(repositoryRoot, "src/lib/account-auth.ts");
++const sellerApiRoot = path.join(repositoryRoot, "src/app/api/account/seller");
+ const marketplaceTokenCryptoPath = path.join(
+   repositoryRoot,
+   "src/lib/marketplace-token-crypto.ts",
+@@ -150,7 +152,9 @@ function explicitProtection(route, content, methods) {
+     return "verified InstaComp seller-or-admin actor validation";
+   }
+ 
+-  const accountAuth = called(content, "getAuthenticatedAccountFromRequest");
++  const accountAuth =
++    called(content, "getAuthenticatedAccountFromRequest") ||
++    called(content, "getAuthenticatedSellerAccountFromRequest");
+   const publicRateLimit = called(content, "checkPublicEndpointRateLimit");
+   const adminSession =
+     called(content, "isValidAdminSessionValue") ||
+@@ -184,6 +188,8 @@ for (const requiredPath of [
+   apiRoot,
+   proxyPath,
+   instaCompActorPath,
++  accountAuthPath,
++  sellerApiRoot,
+   marketplaceTokenCryptoPath,
+   adminEbayAuthPath,
+   ebayCallbackPath,
+@@ -219,6 +225,53 @@ for (const [name, pattern] of [
+   );
+ }
+ 
++const accountAuthSource = source(accountAuthPath);
++for (const [name, pattern] of [
++  [
++    "active seller role helper",
++    /getAuthenticatedSellerAccountFromRequest[\s\S]*role:\s*"seller"[\s\S]*status:\s*"active"/,
++  ],
++  [
++    "membership lookup without role mutation",
++    /getAuthenticatedAccountWithStoreRoleFromRequest[\s\S]*\.from\("account_store_memberships"\)[\s\S]*\.select\("status"\)/,
++  ],
++]) {
++  assert.match(accountAuthSource, pattern, `Account authorization is missing ${name}.`);
++}
++
++const sellerRoleHelper = accountAuthSource.slice(
++  accountAuthSource.indexOf(
++    "export async function getAuthenticatedAccountWithStoreRoleFromRequest",
++  ),
++  accountAuthSource.indexOf(
++    "export async function getAuthenticatedSellerAccountFromRequest",
++  ),
++);
++assert.doesNotMatch(
++  sellerRoleHelper,
++  /\.upsert\(|\.insert\(|\.update\(/,
++  "Seller authorization must verify membership without granting it.",
++);
++
++for (const file of walk(sellerApiRoot).filter((entry) => entry.endsWith(".ts"))) {
++  const content = source(file);
++  const normalized = file.split(path.sep).join("/");
++  if (normalized.endsWith("/seller/payout-onboarding/route.ts")) {
++    assert.match(
++      content,
++      /getAuthenticatedAccountFromRequest/,
++      "Explicit seller payout onboarding must remain available to authenticated buyers.",
++    );
++    continue;
++  }
++
++  assert.doesNotMatch(
++    content,
++    /getAuthenticatedAccountFromRequest/,
++    `${normalized} must require an existing active seller membership.`,
++  );
++}
++
+ const marketplaceTokenCryptoSource = source(marketplaceTokenCryptoPath);
+ for (const [name, pattern] of [
+   ["HMAC state signature", /createHmac\("sha256", signingSecret\(\)\)/],
