@@ -26,7 +26,7 @@ for (const token of [
   "loadStripePaidCheckoutAmounts",
   "paidAmounts.unitPrices",
   "existingOrderItemsByProductId",
-  '.from("order_items").insert',
+  "const { data: insertedOrderItem",
   "recoverableReviewStatuses",
   "ledgerOrderItems.reduce",
   "stableOrderPayload",
