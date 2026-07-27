@@ -54,20 +54,22 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Apply current InstaComp hardening
-        id: hardening
-        continue-on-error: true
+      - name: Validate hardening sources without mutation
+        id: source_integrity
         run: |
-          set -o pipefail
           python -m py_compile scripts/harden-instacomp-*.py scripts/run-instacomp-certification-safe.py scripts/run-instacomp-certification-round2-safe.py
-          python scripts/harden-instacomp-ebay-benchmark.py
-          python scripts/harden-instacomp-benchmark-source.py
-          python scripts/harden-instacomp-benchmark-cleanup.py
-          python scripts/run-instacomp-certification-safe.py
-          python scripts/harden-instacomp-visual-proof.py
-          python scripts/harden-instacomp-visual-review-types.py
-          python scripts/harden-instacomp-benchmark-report.py
+          python - <<'PY'
+          from pathlib import Path
+
+          for path in (
+              Path("src/lib/instacomp-curated-checklist.ts"),
+              Path("src/app/api/instacomp/benchmark/ebay-25/route.ts"),
+          ):
+              if "\x08" in path.read_text():
+                  raise SystemExit(f"InstaComp source contains a hidden backspace control character: {path}")
+          PY
           git diff --check
+          test -z "$(git status --porcelain)"
 
       - name: Run three deterministic proof passes
         id: regressions
@@ -77,14 +79,12 @@ jobs:
           set +e
           mkdir -p docs .codex-run
           : > .codex-run/instacomp-exact-market-proof.log
-
           node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts >> .codex-run/instacomp-exact-market-proof.log 2>&1
           PASS1=$?
           node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts >> .codex-run/instacomp-exact-market-proof.log 2>&1
           PASS2=$?
           node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts >> .codex-run/instacomp-exact-market-proof.log 2>&1
           PASS3=$?
-
           echo "pass1=$PASS1" >> "$GITHUB_OUTPUT"
           echo "pass2=$PASS2" >> "$GITHUB_OUTPUT"
           echo "pass3=$PASS3" >> "$GITHUB_OUTPUT"
@@ -96,12 +96,10 @@ jobs:
         shell: bash
         run: |
           set +e
-          mkdir -p .codex-run
+          mkdir -p .codex-run .vercel
           : > .codex-run/instacomp-provider-env.log
           LIVE_ENV_FILE=""
-
           if [ -n "${VERCEL_TOKEN:-}" ]; then
-            mkdir -p .vercel
             if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
               printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
               VERCEL_LINK=0
@@ -117,7 +115,6 @@ jobs:
               fi
             fi
           fi
-
           echo "env_file=$LIVE_ENV_FILE" >> "$GITHUB_OUTPUT"
           test -n "$LIVE_ENV_FILE"
 
@@ -132,29 +129,14 @@ jobs:
           if [ -n "$LIVE_ENV_FILE" ] && [ -f "$LIVE_ENV_FILE" ]; then
             LIVE_ENV_ARGS=(--env-file="$LIVE_ENV_FILE")
           fi
-
           unset SERPAPI_API_KEY OPENAI_API_KEY
           unset EBAY_CLIENT_ID EBAY_CLIENT_SECRET
           unset GOOGLE_CSE_API_KEY GOOGLE_CUSTOM_SEARCH_API_KEY GOOGLE_CSE_CX GOOGLE_CUSTOM_SEARCH_CX
           unset PRICECHARTING_API_TOKEN SPORTSCARDSPRO_API_TOKEN SPORTSCARDS_PRO_API_TOKEN
-
           node "${LIVE_ENV_ARGS[@]}" -e '
-            const names = [
-              "SERPAPI_API_KEY",
-              "OPENAI_API_KEY",
-              "EBAY_CLIENT_ID",
-              "EBAY_CLIENT_SECRET",
-              "GOOGLE_CSE_API_KEY",
-              "GOOGLE_CUSTOM_SEARCH_API_KEY",
-              "GOOGLE_CSE_CX",
-              "GOOGLE_CUSTOM_SEARCH_CX",
-              "PRICECHARTING_API_TOKEN",
-              "SPORTSCARDSPRO_API_TOKEN",
-              "SPORTSCARDS_PRO_API_TOKEN"
-            ];
+            const names = ["SERPAPI_API_KEY", "OPENAI_API_KEY", "EBAY_CLIENT_ID", "EBAY_CLIENT_SECRET"];
             console.log("provider_env_presence=" + JSON.stringify(Object.fromEntries(names.map((name) => [name, Boolean(process.env[name])]))));
           ' >> .codex-run/instacomp-exact-market-proof.log 2>&1
-
           node "${LIVE_ENV_ARGS[@]}" --import tsx scripts/run-instacomp-batch-001-live-market-proof.ts >> .codex-run/instacomp-exact-market-proof.log 2>&1
 
       - name: Lint repository
@@ -174,7 +156,7 @@ jobs:
           mkdir -p docs .codex-run
           {
             echo "validated_source_commit=$(git rev-parse HEAD)"
-            echo "hardening=${{ steps.hardening.outcome }}"
+            echo "source_integrity=${{ steps.source_integrity.outcome }}"
             echo "regression_pass_1=${{ steps.regressions.outputs.pass1 }}"
             echo "regression_pass_2=${{ steps.regressions.outputs.pass2 }}"
             echo "regression_pass_3=${{ steps.regressions.outputs.pass3 }}"
@@ -185,7 +167,7 @@ jobs:
             echo "--- provider configuration (presence only) ---"
             grep "provider_env_presence=" .codex-run/instacomp-exact-market-proof.log || true
             echo "--- assertions and errors with context ---"
-            grep -nE -B 5 -A 16 "AssertionError|Error:|Transform failed|release remains blocked|Live exact-market proof is blocked|Failed to|error TS|✖|Vercel" .codex-run/instacomp-exact-market-proof.log | tail -n 360 || true
+            grep -nE -B 5 -A 16 "AssertionError|Error:|Transform failed|Live exact-market proof is blocked|Failed to|error TS|✖|Vercel" .codex-run/instacomp-exact-market-proof.log | tail -n 360 || true
             echo "--- log head ---"
             head -n 180 .codex-run/instacomp-exact-market-proof.log || true
             echo "--- log tail ---"
@@ -208,7 +190,7 @@ jobs:
       - name: Enforce proof result
         if: always()
         run: |
-          test "${{ steps.hardening.outcome }}" = "success"
+          test "${{ steps.source_integrity.outcome }}" = "success"
           test "${{ steps.regressions.outcome }}" = "success"
           test "${{ steps.provider_env.outcome }}" = "success"
           test "${{ steps.live_proof.outcome }}" = "success"
