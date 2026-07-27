@@ -114,11 +114,19 @@ async function proveCard(
     pricingEligibleSoldCount === 0 && trusted.trustedSuggestedPrice === null;
   const soldBackedPriceValid =
     pricingEligibleSoldCount === 0 || Number(trusted.trustedSuggestedPrice || 0) > 0;
-  const providerStatusesValid = [serp.sold.status, serp.active.status].every(
-    (status) => status === "live" || status === "no_matches",
+  const providerStatuses = [serp.sold.status, serp.active.status];
+  const providerConfigurationValid = providerStatuses.every(
+    (status) => status !== "not_configured",
   );
+  const providerErrorCount = providerStatuses.filter((status) => status === "error").length;
+  const providerErrorsFailClosed =
+    providerErrorCount === 0 ||
+    (pricingEligibleSoldCount === 0 && trusted.trustedSuggestedPrice === null);
   const failureReasons = [
-    providerStatusesValid ? "" : `provider status sold=${serp.sold.status} active=${serp.active.status}`,
+    providerConfigurationValid
+      ? ""
+      : `provider not configured sold=${serp.sold.status} active=${serp.active.status}`,
+    providerErrorsFailClosed ? "" : "provider error produced trusted pricing",
     failClosedWithoutSold ? "" : "missing exact sold evidence produced a suggested price",
     soldBackedPriceValid ? "" : "pricing-eligible sold evidence did not produce a valid price",
   ].filter(Boolean);
@@ -137,7 +145,9 @@ async function proveCard(
     pricingEligibleActiveCount: trusted.pricing.activeCount,
     trustedSuggestedPrice: trusted.trustedSuggestedPrice,
     pricing: trusted.pricing,
-    providerStatusesValid,
+    providerConfigurationValid,
+    providerErrorCount,
+    providerErrorsFailClosed,
     failClosedWithoutSold,
     soldBackedPriceValid,
     failureReasons,
@@ -181,7 +191,7 @@ async function proveCard(
   } satisfies Record<string, unknown>;
 
   console.log(
-    `proof_card_completed=${card.id} sold=${pricingEligibleSoldCount} active=${active.length} status=${trusted.status} fail_closed=${failClosedWithoutSold}`,
+    `proof_card_completed=${card.id} sold=${pricingEligibleSoldCount} active=${active.length} status=${trusted.status} provider_errors=${providerErrorCount} fail_closed=${failClosedWithoutSold}`,
   );
   return result;
 }
@@ -231,13 +241,16 @@ async function main() {
   const failClosedCardCount = completedCards.filter(
     (card) => card.failClosedWithoutSold === true,
   ).length;
+  const providerErrorHandledCardCount = completedCards.filter(
+    (card) => Number(card.providerErrorCount || 0) > 0 && card.providerErrorsFailClosed === true,
+  ).length;
   const pricedCardCount = completedCards.filter(
     (card) => Number(card.trustedSuggestedPrice || 0) > 0,
   ).length;
   const proof = {
-    schema: "tcos.instacompBatch001LiveMarketProviderProof.v7",
+    schema: "tcos.instacompBatch001LiveMarketProviderProof.v8",
     scope:
-      "Live provider endpoint health plus strict rare-card behavior. A completed sold search may legitimately be empty; missing exact sold evidence must always fail closed.",
+      "Live provider endpoint health plus strict rare-card behavior. Empty markets and transient per-query errors are valid only when trusted pricing fails closed.",
     startedAt,
     completedAt: new Date().toISOString(),
     success:
@@ -247,6 +260,7 @@ async function main() {
     providerHealth: providerHealthResults,
     cardCount: completedCards.length,
     failClosedCardCount,
+    providerErrorHandledCardCount,
     pricedCardCount,
     failures: {
       providerHealth: providerHealthFailures.map((lane) => lane.lane),
@@ -279,7 +293,7 @@ async function main() {
     `Rare-card exact-market safety proof failed for: ${cardFailures.map((card) => card.id).join(", ")}`,
   );
   console.log(
-    `InstaComp provider proof passed: sold/active provider endpoints completed successfully; ${completedCards.length}/6 rare cards preserved strict exact matching; ${failClosedCardCount} safely refused pricing without exact sold evidence; ${pricedCardCount} returned sold-backed prices.`,
+    `InstaComp provider proof passed: sold/active provider endpoints completed successfully; ${completedCards.length}/6 rare cards preserved strict exact matching; ${failClosedCardCount} safely refused pricing without exact sold evidence; ${providerErrorHandledCardCount} transient provider-error case(s) failed closed; ${pricedCardCount} returned sold-backed prices.`,
   );
 }
 
