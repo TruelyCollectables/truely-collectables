@@ -9,6 +9,18 @@ on:
       - "scripts/run-instacomp-certification-safe.py"
       - "scripts/run-instacomp-certification-round2-safe.py"
       - "scripts/run-instacomp-*-regressions.ts"
+      - "scripts/check-instacomp-control-characters.py"
+      - "src/lib/instacomp-image-*.ts"
+      - ".github/workflows/instacomp-ebay-25-benchmark.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "scripts/harden-instacomp-*.py"
+      - "scripts/run-instacomp-certification-safe.py"
+      - "scripts/run-instacomp-certification-round2-safe.py"
+      - "scripts/run-instacomp-*-regressions.ts"
+      - "scripts/check-instacomp-control-characters.py"
       - "src/lib/instacomp-image-*.ts"
       - ".github/workflows/instacomp-ebay-25-benchmark.yml"
   workflow_dispatch:
@@ -17,7 +29,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: instacomp-final-materialization-${{ github.ref }}
+  group: instacomp-final-materialization-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
@@ -42,35 +54,19 @@ jobs:
         continue-on-error: true
         run: |
           set -o pipefail
-          {
-            set -x
-            python -m py_compile scripts/harden-instacomp-*.py scripts/run-instacomp-certification-safe.py scripts/run-instacomp-certification-round2-safe.py
-            python scripts/harden-instacomp-ebay-benchmark.py
-            python scripts/harden-instacomp-benchmark-source.py
-            python scripts/harden-instacomp-benchmark-cleanup.py
-            python scripts/run-instacomp-certification-safe.py
-            python scripts/harden-instacomp-visual-proof.py
-            python scripts/harden-instacomp-visual-review-types.py
-            python scripts/harden-instacomp-benchmark-report.py
-            python scripts/harden-instacomp-final-audit.py
-            npm install sharp --save
-            git diff --check
-            python - <<'PY'
-          from pathlib import Path
-          bad = []
-          for root in (Path("src"), Path("scripts")):
-              for path in root.rglob("*"):
-                  if not path.is_file() or path.suffix not in {".ts", ".tsx", ".js", ".mjs", ".py", ".json"}:
-                      continue
-                  data = path.read_bytes()
-                  controls = sorted({byte for byte in data if byte < 32 and byte not in {9, 10, 13}})
-                  if controls:
-                      bad.append((str(path), controls))
-          if bad:
-              raise SystemExit(f"Control characters found: {bad}")
-          PY
-            git status --short
-          } 2>&1 | tee instacomp-materialization.log
+          python -m py_compile scripts/harden-instacomp-*.py scripts/run-instacomp-certification-safe.py scripts/run-instacomp-certification-round2-safe.py
+          python scripts/harden-instacomp-ebay-benchmark.py
+          python scripts/harden-instacomp-benchmark-source.py
+          python scripts/harden-instacomp-benchmark-cleanup.py
+          python scripts/run-instacomp-certification-safe.py
+          python scripts/harden-instacomp-visual-proof.py
+          python scripts/harden-instacomp-visual-review-types.py
+          python scripts/harden-instacomp-benchmark-report.py
+          python scripts/harden-instacomp-final-audit.py
+          npm install sharp --save
+          git diff --check
+          python scripts/check-instacomp-control-characters.py
+          git status --short | tee instacomp-materialization-status.log
 
       - name: Run exactness and adversarial regressions
         id: regressions
@@ -145,7 +141,7 @@ jobs:
         with:
           name: instacomp-final-materialization-${{ github.run_number }}
           path: |
-            instacomp-materialization.log
+            instacomp-materialization-status.log
             instacomp-final-regressions.log
             instacomp-final-lint.log
             instacomp-final-build.log
