@@ -1,5 +1,7 @@
 import { execFile } from "node:child_process";
+import fs from "node:fs";
 import http from "node:http";
+import path from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -23,8 +25,14 @@ function requestBody(request) {
 
 async function vercelCurl(request) {
   const body = await requestBody(request);
-  const args = [
-    "vercel@latest",
+  const args = ["vercel@latest"];
+
+  // Vercel global options must appear before the curl subcommand or the
+  // underlying system curl receives them and fails with "unknown option".
+  if (vercelScope) args.push("--scope", vercelScope);
+  args.push(
+    "--token",
+    vercelToken,
     "curl",
     request.url || "/",
     "--deployment",
@@ -37,7 +45,7 @@ async function vercelCurl(request) {
     `Authorization: ${request.headers.authorization || ""}`,
     "--header",
     "Accept: application/json",
-  ];
+  );
 
   if (body) {
     args.push(
@@ -47,8 +55,6 @@ async function vercelCurl(request) {
       body,
     );
   }
-  if (vercelScope) args.push("--scope", vercelScope);
-  args.push("--token", vercelToken);
 
   const { stdout, stderr } = await execFileAsync("npx", args, {
     timeout: 345_000,
@@ -70,9 +76,10 @@ const server = http.createServer(async (request, response) => {
     response.end(output);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Vercel protected-preview proxy failed.";
-    const stderr = error && typeof error === "object" && "stderr" in error
-      ? String(error.stderr || "").trim()
-      : "";
+    const stderr =
+      error && typeof error === "object" && "stderr" in error
+        ? String(error.stderr || "").trim()
+        : "";
     response.statusCode = 502;
     response.setHeader("Content-Type", "application/json; charset=utf-8");
     response.end(
@@ -96,11 +103,28 @@ if (!address || typeof address === "string") {
   throw new Error("Could not start the local Vercel-protection proxy.");
 }
 
-process.env.INSTACOMP_BENCHMARK_URL = `http://127.0.0.1:${address.port}`;
-console.log(`Protected-preview proxy: ${process.env.INSTACOMP_BENCHMARK_URL} -> ${deploymentUrl}`);
+const proxyUrl = `http://127.0.0.1:${address.port}`;
+process.env.INSTACOMP_BENCHMARK_URL = proxyUrl;
+console.log(`Protected-preview proxy: ${proxyUrl} -> ${deploymentUrl}`);
 
 try {
   await import("./run-instacomp-ebay-25-benchmark.mjs");
+
+  const reportDirectory = path.resolve(
+    process.env.INSTACOMP_BENCHMARK_REPORT_DIR || "reports",
+  );
+  const jsonPath = path.join(reportDirectory, "instacomp-ebay-25-report.json");
+  const markdownPath = path.join(reportDirectory, "instacomp-ebay-25-report.md");
+
+  if (fs.existsSync(jsonPath)) {
+    const report = JSON.parse(fs.readFileSync(jsonPath, "utf8"));
+    report.previewUrl = deploymentUrl;
+    fs.writeFileSync(jsonPath, `${JSON.stringify(report, null, 2)}\n`);
+  }
+  if (fs.existsSync(markdownPath)) {
+    const markdown = fs.readFileSync(markdownPath, "utf8").replaceAll(proxyUrl, deploymentUrl);
+    fs.writeFileSync(markdownPath, markdown);
+  }
 } finally {
   await new Promise((resolve) => server.close(resolve));
 }
