@@ -81,6 +81,7 @@ def main() -> None:
     runpy.run_path("scripts/harden-instacomp-year-evidence.py", run_name="__main__")
     runpy.run_path("scripts/fix-round2-catalog-regression.py", run_name="__main__")
     runpy.run_path("scripts/run-instacomp-certification-round2-safe.py", run_name="__main__")
+    runpy.run_path("scripts/harden-instacomp-official-catalog-resolution.py", run_name="__main__")
 
 
 if __name__ == "__main__":
