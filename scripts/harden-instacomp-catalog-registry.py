@@ -1,5 +1,7 @@
 from pathlib import Path
 
+# This file is also the stable trigger for certification diagnostics.
+
 
 def replace_once(text: str, old: str, new: str, label: str) -> str:
     if new in text:
