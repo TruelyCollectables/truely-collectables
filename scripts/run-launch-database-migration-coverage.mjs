@@ -56,6 +56,16 @@ const requirements = [
     "atomic checkout inventory reservation",
   ),
   requirement(
+    "checkout",
+    "reservation.stripe_session_id is null",
+    "only unattached abandoned reservations may expire by timestamp",
+  ),
+  requirement(
+    "checkout",
+    "reservation.status in ('active', 'expired')",
+    "a delayed paid accepted-offer webhook may consume its attached reservation",
+  ),
+  requirement(
     "orders",
     "orders_store_stripe_session_uidx",
     "one canonical order per store and Stripe Checkout Session",
@@ -109,6 +119,41 @@ const requirements = [
     "orders",
     "order_inventory_consumptions_product_store_fkey",
     "store-scoped consumption to product foreign key",
+  ),
+  requirement(
+    "ebay",
+    "ebay_quantity_sync_outbox",
+    "durable post-sale eBay quantity correction journal",
+  ),
+  requirement(
+    "ebay",
+    "truely_enqueue_ebay_quantity_sync_from_reservation",
+    "reservation consumption automatically journals the lower eBay quantity",
+  ),
+  requirement(
+    "ebay",
+    "truely_enqueue_ebay_quantity_sync_from_order_consumption",
+    "legacy order consumption automatically journals the lower eBay quantity",
+  ),
+  requirement(
+    "ebay",
+    "truely_protect_pending_ebay_product_quantity",
+    "inbound eBay sync cannot raise a product while a lower outbound correction is pending",
+  ),
+  requirement(
+    "ebay",
+    "truely_protect_pending_ebay_inventory_quantity",
+    "inbound eBay sync cannot raise canonical inventory while a lower outbound correction is pending",
+  ),
+  requirement(
+    "ebay",
+    "ebay_quantity_sync_outbox_inventory_item_id_fkey",
+    "post-sale correction journal survives local inventory deletion with ON DELETE SET NULL",
+  ),
+  requirement(
+    "security",
+    "alter function public.tcos_decrement_order_inventory_once",
+    "order inventory SECURITY DEFINER function receives an explicitly pinned search path",
   ),
   requirement(
     "payouts",
