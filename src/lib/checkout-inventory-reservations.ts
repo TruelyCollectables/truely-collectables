@@ -120,6 +120,28 @@ export async function reserveCheckoutInventory(params: {
     throw new Error("Checkout reservation did not cover every cart line.");
   }
 
+  const expectedByProduct = new Map(
+    params.cart.map((item) => [Number(item.id), Number(item.quantity)]),
+  );
+  const returnedProducts = new Set<number>();
+  for (const row of rows) {
+    const productId = Number(row.legacy_product_id);
+    const expectedQuantity = expectedByProduct.get(productId);
+    if (
+      !expectedQuantity ||
+      returnedProducts.has(productId) ||
+      Number(row.reserved_quantity) !== expectedQuantity ||
+      !row.reservation_id ||
+      !row.inventory_item_id
+    ) {
+      throw new Error("Checkout reservation returned an invalid cart line.");
+    }
+    returnedProducts.add(productId);
+  }
+  if (returnedProducts.size !== expectedByProduct.size) {
+    throw new Error("Checkout reservation returned the wrong products.");
+  }
+
   const expiresAt = rows
     .map((row) => new Date(row.expires_at).getTime())
     .filter(Number.isFinite)
@@ -141,8 +163,9 @@ export async function attachStripeSessionToCheckoutReservation(params: {
   storeId: string;
   checkoutAttemptId: string;
   stripeSessionId: string;
+  expectedCount?: number;
 }) {
-  const { error } = await params.supabase
+  const { data, error } = await params.supabase
     .from("checkout_inventory_reservations")
     .update({
       stripe_session_id: params.stripeSessionId,
@@ -150,9 +173,16 @@ export async function attachStripeSessionToCheckoutReservation(params: {
     })
     .eq("store_id", params.storeId)
     .eq("checkout_attempt_id", params.checkoutAttemptId)
-    .eq("status", "active");
+    .eq("status", "active")
+    .select("id");
 
   if (error) throw error;
+  const expectedCount = Math.max(1, Math.floor(params.expectedCount || 1));
+  if (!data || data.length !== expectedCount) {
+    throw new Error(
+      `Stripe Session attachment covered ${data?.length || 0}/${expectedCount} inventory reservations.`,
+    );
+  }
 }
 
 export async function consumeCheckoutReservationAfterSale(params: {
