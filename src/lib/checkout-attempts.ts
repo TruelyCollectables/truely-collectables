@@ -143,6 +143,7 @@ export async function failCheckoutAttempt(params: {
   supabase: SupabaseClient;
   rowId: string;
   error: unknown;
+  stripeSessionId?: string | null;
 }) {
   const message =
     params.error instanceof Error
@@ -152,6 +153,7 @@ export async function failCheckoutAttempt(params: {
     .from("checkout_attempts")
     .update({
       request_status: "failed",
+      stripe_session_id: params.stripeSessionId || null,
       lease_expires_at: null,
       last_error: message.slice(0, 1000),
       updated_at: new Date().toISOString(),
