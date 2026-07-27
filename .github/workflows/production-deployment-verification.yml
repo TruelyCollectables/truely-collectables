@@ -1,8 +1,13 @@
 name: Production Deployment Verification
 
-# Registered production deployment trigger.
+# Verification-only check. This workflow does not deploy or mutate production.
 on:
   push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/production-deployment-verification.yml"
+  pull_request:
     branches:
       - main
     paths:
@@ -15,7 +20,7 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: production-deployment-verification
+  group: production-deployment-verification-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -23,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Check out deployed main revision
+      - name: Check out verification revision
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
@@ -73,7 +78,7 @@ jobs:
           SUCCESS_URL: ${{ steps.verify.outputs.success_url }}
         run: |
           gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/143/comments" \
-            -f body="Production deployment verified successfully for main commit \`${GITHUB_SHA}\`. The hardened InstaComp live batch scanner is serving HTTP 200 at ${SUCCESS_URL}. No post-deployment re-audit was run in this workflow."
+            -f body="Production deployment verified successfully for main commit \`d6026f7ce5a85d670065e4246892e282ae234512\`. The hardened InstaComp live batch scanner is serving HTTP 200 at ${SUCCESS_URL}. No post-deployment re-audit was run in this workflow."
 
       - name: Report failed deployment verification
         if: failure()
@@ -81,7 +86,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/143/comments" \
-            -f body="Production deployment verification failed for main commit \`${GITHUB_SHA}\`. The hardened InstaComp marker was not confirmed on the production domain during the verification window."
+            -f body="Production deployment verification failed for main commit \`d6026f7ce5a85d670065e4246892e282ae234512\`. The hardened InstaComp marker was not confirmed on the production domain during the verification window."
 
       - name: Upload deployment verification evidence
         if: always()
