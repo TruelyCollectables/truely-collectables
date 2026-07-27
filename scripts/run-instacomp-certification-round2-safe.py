@@ -42,6 +42,18 @@ source = source.replace(
 ''',
 )
 
+# The committed exact-market regression already contains the round-two catalog
+# cases. Do not append the same declarations on every compatibility pass.
+source = source.replace(
+    "    patch_regressions()\n",
+    '''    regression_source = Path("scripts/run-instacomp-exact-market-proof-regressions.ts").read_text()
+    if "const officialCatalogMatch =" in regression_source:
+        print("Round-two hardening notice: catalog regressions already exist; skipping reinsertion")
+    else:
+        patch_regressions()
+''',
+)
+
 exec(compile(source, str(source_path), "exec"), {"__name__": "__main__", "Path": Path})
 
 for generated_path in (
