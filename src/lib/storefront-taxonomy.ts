@@ -125,7 +125,7 @@ export function canonicalStorefrontCategory(value: unknown) {
 }
 
 export function sortStorefrontCategories(values: Iterable<string>) {
-  const unique = Array.from(new Set(values.filter(Boolean)));
+  const unique = Array.from(new Set(Array.from(values).filter(Boolean)));
   return unique.sort((left, right) => {
     const leftIndex = CATEGORY_ORDER.indexOf(left as (typeof CATEGORY_ORDER)[number]);
     const rightIndex = CATEGORY_ORDER.indexOf(right as (typeof CATEGORY_ORDER)[number]);
