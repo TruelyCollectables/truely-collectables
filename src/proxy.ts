@@ -3,7 +3,6 @@ import type { NextRequest } from "next/server";
 import { getClientIdentity } from "./lib/client-identity";
 import {
   ADMIN_SESSION_COOKIE_NAMES,
-  appendAdminSessionCookies,
   isValidAdminSessionValue,
 } from "./lib/admin-session";
 
@@ -193,8 +192,34 @@ function canonicalDomainRedirect(req: NextRequest) {
   return NextResponse.redirect(url, 308);
 }
 
+function stripLegacyAdminHandoff(req: NextRequest) {
+  if (!req.nextUrl.searchParams.has("admin_handoff")) return null;
+
+  const url = req.nextUrl.clone();
+  url.searchParams.delete("admin_handoff");
+
+  if (req.method === "GET" || req.method === "HEAD") {
+    return NextResponse.redirect(url, 303);
+  }
+
+  if (req.nextUrl.pathname.startsWith("/api")) {
+    return NextResponse.json(
+      { error: "Administrator session tokens are not accepted in URLs." },
+      { status: 400 },
+    );
+  }
+
+  return NextResponse.redirect(url, 303);
+}
+
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
+  const legacyHandoffResponse = stripLegacyAdminHandoff(req);
+
+  if (legacyHandoffResponse) {
+    return applySecurityHeaders(legacyHandoffResponse, req);
+  }
+
   const canonicalRedirect = canonicalDomainRedirect(req);
 
   if (canonicalRedirect) {
@@ -213,27 +238,6 @@ export async function proxy(req: NextRequest) {
   }
 
   if (isProtectedPath(pathname)) {
-    const adminHandoff = req.nextUrl.searchParams.get("admin_handoff");
-    const isSafeRedirectMethod = req.method === "GET" || req.method === "HEAD";
-
-    if (
-      isSafeRedirectMethod &&
-      adminHandoff &&
-      (await isValidAdminSessionValue(adminHandoff))
-    ) {
-      const url = req.nextUrl.clone();
-      url.searchParams.delete("admin_handoff");
-      const response = NextResponse.redirect(url, 303);
-
-      appendAdminSessionCookies(
-        response.headers,
-        req.nextUrl.hostname,
-        adminHandoff,
-      );
-
-      return applySecurityHeaders(response, req);
-    }
-
     const adminCookies = ADMIN_SESSION_COOKIE_NAMES.flatMap((cookieName) =>
       req.cookies.getAll(cookieName).map((cookie) => cookie.value),
     );
