@@ -1,4 +1,5 @@
 from pathlib import Path
+import runpy
 
 
 def replace_once(text: str, old: str, new: str, label: str) -> str:
@@ -76,6 +77,7 @@ def main() -> None:
     )
 
     path.write_text(text)
+    runpy.run_path("scripts/harden-instacomp-year-evidence.py", run_name="__main__")
 
 
 if __name__ == "__main__":
