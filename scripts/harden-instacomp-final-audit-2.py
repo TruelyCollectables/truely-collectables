@@ -102,6 +102,40 @@ assert.equal(
         if marker not in text:
             raise SystemExit("Could not locate final benchmark regression marker")
         text = text.replace(marker, marker + additions, 1)
+
+    text = text.replace(
+        'setName: "2024-25 Upper Deck Series 1 UD Canvas Black and White Young Guns",',
+        'setName: "2024-25 Upper Deck Series 1 UD Canvas Sepia Young Guns",',
+    )
+    text = text.replace(
+        '      parallel: "Black and White",\n',
+        '      parallel: "Sepia",\n',
+        1,
+    )
+    text = text.replace(
+        '"an unlisted Black & White variation must not fall back to Canvas Young Guns",',
+        '"an unlisted Sepia variation must not fall back to Canvas Young Guns",',
+    )
+
+    start_marker = "function marketRow("
+    completion = 'console.log("InstaComp final adversarial audit regressions passed.");'
+    if "async function main()" not in text:
+        if start_marker not in text or completion not in text:
+            raise SystemExit("Could not locate final audit async wrapper markers")
+        text = text.replace(start_marker, "async function main() {\n" + start_marker, 1)
+        text = text.replace(
+            completion,
+            completion
+            + '''
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});''',
+            1,
+        )
+
     path.write_text(text)
 
 
