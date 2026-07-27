@@ -21,6 +21,7 @@ exec(compile(source, str(final_audit_path), "exec"), {"__name__": "__main__"})
 stages = [
     "scripts/harden-instacomp-final-orientation-call.py",
     "scripts/harden-instacomp-final-audit-2.py",
+    "scripts/harden-instacomp-final-library-extraction.py",
     "scripts/harden-instacomp-final-deduplicate.py",
     "scripts/harden-instacomp-final-async-regressions.py",
     "scripts/assert-instacomp-final-source.py",
