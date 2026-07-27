@@ -1,6 +1,11 @@
 import Image from "next/image";
 import Link from "next/link";
+import { preferHighResolutionListingImage } from "../lib/listing-image-utils";
 import { createServerInventoryEngine } from "../lib/server-inventory-engine";
+import {
+  sortStorefrontCategories,
+  storefrontCategoryForItem,
+} from "../lib/storefront-taxonomy";
 import { createSupabaseServerClient } from "../lib/supabase-server";
 import { getStoreSettings } from "../lib/store-settings";
 import type { UniversalInventoryItem } from "../modules/inventory";
@@ -13,14 +18,16 @@ function sportHref(sport: string) {
 }
 
 function CardImage({ card, sizes }: { card: UniversalInventoryItem; sizes: string }) {
+  const image = preferHighResolutionListingImage(card.imageUrl) || "/placeholder.png";
+
   return (
     <Image
-      src={card.imageUrl || "/placeholder.png"}
+      src={image}
       alt={card.title}
       fill
-      unoptimized
+      quality={90}
       sizes={sizes}
-      className="object-contain p-3 transition duration-300 group-hover:scale-[1.025]"
+      className="object-contain p-3"
     />
   );
 }
@@ -38,13 +45,13 @@ export default async function Home() {
 
   const featured = products.slice(0, 8);
   const heroCards = featured.slice(0, 4);
-  const sportCounts = Array.from(
-    products.reduce((counts, product) => {
-      const sport = product.sport?.trim();
-      if (sport) counts.set(sport, (counts.get(sport) || 0) + 1);
-      return counts;
-    }, new Map<string, number>()),
-  )
+  const categoryCountsMap = products.reduce((counts, product) => {
+    const category = storefrontCategoryForItem(product);
+    counts.set(category, (counts.get(category) || 0) + 1);
+    return counts;
+  }, new Map<string, number>());
+  const sportCounts = sortStorefrontCategories(categoryCountsMap.keys())
+    .map((category) => [category, categoryCountsMap.get(category) || 0] as const)
     .sort((left, right) => right[1] - left[1])
     .slice(0, 6);
 
@@ -78,7 +85,7 @@ export default async function Home() {
                 id="home-card-search"
                 name="q"
                 type="search"
-                placeholder="Search player, set, team, card number..."
+                placeholder="Search player, WNBA, team, set, card number..."
                 className="min-w-0 flex-1 border-2 border-neutral-950 bg-white px-5 py-4 text-base font-bold text-neutral-950 outline-none placeholder:font-semibold placeholder:text-neutral-500 focus:ring-4 focus:ring-yellow-300"
               />
               <button
@@ -92,6 +99,7 @@ export default async function Home() {
             <div className="mt-5 flex flex-wrap gap-2">
               {[
                 ["Shop All", "/shop"],
+                ["WNBA", "/shop?sport=WNBA"],
                 ["Rookie Cards", "/shop?q=rookie"],
                 ["Autographs", "/shop?q=autograph"],
                 ["Numbered", "/shop?q=%2F"],
@@ -109,16 +117,15 @@ export default async function Home() {
           </div>
 
           <div className="relative hidden min-h-[500px] lg:block">
-            <div className="absolute inset-8 bg-yellow-300/35 blur-3xl" />
             {heroCards.length ? (
               <div className="relative h-[500px]">
                 {heroCards.map((card, index) => (
                   <Link
                     key={card.legacyProductId}
                     href={`/product/${card.legacyProductId}`}
-                    className={`group absolute block w-[38%] max-w-[220px] border-4 border-neutral-950 bg-white p-2 shadow-[10px_10px_0_rgba(17,19,24,0.16)] transition hover:z-40 hover:-translate-y-3 ${heroPositions[index]}`}
+                    className={`group absolute block w-[38%] max-w-[220px] border-4 border-neutral-950 bg-white p-2 shadow-[10px_10px_0_rgba(17,19,24,0.16)] ${heroPositions[index]}`}
                   >
-                    <div className="relative aspect-[3/4] border-2 border-neutral-950 bg-[#efede7]">
+                    <div className="relative aspect-[3/4] border-2 border-neutral-950 bg-white">
                       <CardImage card={card} sizes="220px" />
                     </div>
                     <div className="px-1 pb-1 pt-3">
@@ -178,14 +185,14 @@ export default async function Home() {
         {featured.length ? (
           <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
             {featured.map((card) => (
-              <article key={card.legacyProductId} className="group border-2 border-neutral-950 bg-white p-2 shadow-[5px_5px_0_rgba(17,19,24,0.12)] transition hover:-translate-y-1 hover:shadow-[7px_7px_0_#ffd633]">
+              <article key={card.legacyProductId} className="group border-2 border-neutral-950 bg-white p-2 shadow-[5px_5px_0_rgba(17,19,24,0.12)]">
                 <Link href={`/product/${card.legacyProductId}`} className="block">
-                  <div className="relative aspect-[4/5] border-2 border-neutral-950 bg-[#efede7]">
+                  <div className="relative aspect-[4/5] border-2 border-neutral-950 bg-white">
                     <CardImage card={card} sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw" />
                   </div>
                   <div className="p-3">
                     <p className="text-[11px] font-black uppercase tracking-[0.14em] text-blue-700">
-                      {card.sport || "Sports Card"}
+                      {storefrontCategoryForItem(card)}
                     </p>
                     <h3 className="mt-2 line-clamp-2 min-h-12 font-black leading-6">{card.title}</h3>
                     <div className="mt-4 flex items-center justify-between gap-3 border-t-2 border-neutral-950 pt-3">
@@ -211,9 +218,9 @@ export default async function Home() {
             <div className="flex flex-wrap items-end justify-between gap-4">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-700">Browse the wall</p>
-                <h2 className="mt-2 text-4xl font-black tracking-tight">Shop by sport</h2>
+                <h2 className="mt-2 text-4xl font-black tracking-tight">Shop by category</h2>
               </div>
-              <p className="max-w-xl text-sm font-bold leading-6 text-neutral-600">Jump straight into the largest sections of the live inventory.</p>
+              <p className="max-w-xl text-sm font-bold leading-6 text-neutral-600">Every card uses the same clean category system across the homepage and shop.</p>
             </div>
             <div className="mt-7 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {sportCounts.map(([sport, count]) => (
