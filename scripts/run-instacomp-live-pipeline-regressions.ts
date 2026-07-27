@@ -37,10 +37,15 @@ function comp(params: {
   price: number;
   url: string;
   lane: "sold" | "active";
+  delivered?: boolean;
 }): InstaCompComp {
+  const delivered = params.delivered !== false;
   return {
     title: params.title,
     price: params.price,
+    itemPrice: params.price,
+    shippingPrice: delivered ? 0 : null,
+    priceIncludesShipping: delivered,
     currency: "USD",
     url: params.url,
     imageUrl: "https://example.com/card.jpg",
@@ -78,19 +83,32 @@ assert.deepEqual(
 
 const duplicateSold = [
   comp({
-    title: title,
+    title,
     price: 20,
     url: "https://www.ebay.com/itm/123?foo=1",
     lane: "sold",
   }),
   comp({
-    title: title,
+    title,
     price: 20,
     url: "https://www.ebay.com/itm/123?bar=2",
     lane: "sold",
   }),
 ];
 assert.equal(dedupeExactMarketComps(duplicateSold).length, 1);
+
+const shippingUnknown = comp({
+  title,
+  price: 20,
+  url: "https://www.ebay.com/itm/shipping-unknown",
+  lane: "sold",
+  delivered: false,
+});
+assert.equal(
+  dedupeExactMarketComps([shippingUnknown]).length,
+  0,
+  "A provider row with unverified shipping must not enter trusted pricing.",
+);
 
 const sold = [
   comp({ title, price: 20, url: "https://www.ebay.com/itm/1", lane: "sold" }),
@@ -126,5 +144,5 @@ assert.equal(providerFailure.status, "provider_error");
 assert.equal(providerFailure.trustedSuggestedPrice, null);
 
 console.log(
-  "InstaComp live-pipeline regressions passed: identity gating, exact comp dedupe, sold-backed pricing, active-only refusal, and provider failure handling.",
+  "InstaComp live-pipeline regressions passed: identity gating, exact comp dedupe, delivered-price enforcement, sold-backed pricing, active-only refusal, and provider failure handling.",
 );
