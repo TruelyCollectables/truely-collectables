@@ -122,7 +122,7 @@ async function loadLocalProductState(params: {
   };
 }
 
-function safeTarget(params: {
+function localTarget(params: {
   rows: EbayQuantitySyncOutboxRow[];
   product: ProductRow;
   inventory: InventoryRow | null;
@@ -132,6 +132,24 @@ function safeTarget(params: {
     params.product.quantity,
     params.inventory?.quantity,
   ]);
+}
+
+function durableJournalTarget(rows: EbayQuantitySyncOutboxRow[]) {
+  return selectLowestSafeEbayQuantity(rows.map((row) => row.desired_quantity));
+}
+
+function identifiers(params: {
+  rows: EbayQuantitySyncOutboxRow[];
+  product: ProductRow | null;
+}) {
+  return {
+    sku:
+      params.product?.sku || params.rows.find((row) => row.sku)?.sku || null,
+    ebayItemId:
+      params.product?.ebay_item_id ||
+      params.rows.find((row) => row.ebay_item_id)?.ebay_item_id ||
+      null,
+  };
 }
 
 export async function retryPendingEbayQuantitySyncs(params: {
@@ -167,7 +185,11 @@ export async function retryPendingEbayQuantitySyncs(params: {
     let productSynced = false;
     let productSkipped = false;
 
-    for (let correction = 0; correction < MAX_MONOTONIC_CORRECTIONS; correction += 1) {
+    for (
+      let correction = 0;
+      correction < MAX_MONOTONIC_CORRECTIONS;
+      correction += 1
+    ) {
       let pendingRows: EbayQuantitySyncOutboxRow[] = [];
       try {
         pendingRows = await loadPendingProductRows({
@@ -175,13 +197,22 @@ export async function retryPendingEbayQuantitySyncs(params: {
           storeId: params.storeId,
           legacyProductId,
         });
+        if (pendingRows.length === 0) {
+          productSynced = true;
+          break;
+        }
+
         const { product, inventory } = await loadLocalProductState({
           supabase: params.supabase,
           storeId: params.storeId,
           legacyProductId,
         });
+        const targetQuantity = product
+          ? localTarget({ rows: pendingRows, product, inventory })
+          : durableJournalTarget(pendingRows);
+        const linked = identifiers({ rows: pendingRows, product });
 
-        if (!product) {
+        if (!linked.sku && !linked.ebayItemId) {
           await markRows({
             supabase: params.supabase,
             storeId: params.storeId,
@@ -189,29 +220,9 @@ export async function retryPendingEbayQuantitySyncs(params: {
             values: {
               status: "skipped",
               last_attempt_at: now,
-              last_error: "Local product no longer exists.",
-            },
-          });
-          productSkipped = true;
-          break;
-        }
-
-        const targetQuantity = safeTarget({ rows: pendingRows, product, inventory });
-        const sku = product.sku || pendingRows.find((row) => row.sku)?.sku || null;
-        const ebayItemId =
-          product.ebay_item_id ||
-          pendingRows.find((row) => row.ebay_item_id)?.ebay_item_id ||
-          null;
-
-        if (!sku && !ebayItemId) {
-          await markRows({
-            supabase: params.supabase,
-            storeId: params.storeId,
-            ids: pendingRows.map((row) => row.id),
-            values: {
-              status: "skipped",
-              last_attempt_at: now,
-              last_error: "No eBay SKU or listing ID is linked to this product.",
+              last_error: product
+                ? "No eBay SKU or listing ID is linked to this product."
+                : "Local product was removed and the durable journal has no eBay identifier.",
             },
           });
           productSkipped = true;
@@ -220,8 +231,8 @@ export async function retryPendingEbayQuantitySyncs(params: {
 
         if (lastPushedQuantity === null || targetQuantity < lastPushedQuantity) {
           const syncResult = await syncEbayQuantityAfterSale({
-            sku,
-            ebayItemId,
+            sku: linked.sku,
+            ebayItemId: linked.ebayItemId,
             newQuantity: targetQuantity,
           });
           if (!syncResult.success) {
@@ -248,28 +259,31 @@ export async function retryPendingEbayQuantitySyncs(params: {
           },
         });
 
-        // Re-read after the remote write. If a website sale committed while the
-        // eBay request was in flight, its new lower outbox row or local quantity
-        // must win immediately instead of waiting for the next 15-minute cron.
+        // Re-read after the remote write. A sale or administrative removal may
+        // commit while the eBay request is in flight. Newly journaled lower
+        // quantity must win immediately instead of waiting for the next cron.
         const nextRows = await loadPendingProductRows({
           supabase: params.supabase,
           storeId: params.storeId,
           legacyProductId,
         });
+        if (nextRows.length === 0) {
+          productSynced = true;
+          break;
+        }
+
         const nextState = await loadLocalProductState({
           supabase: params.supabase,
           storeId: params.storeId,
           legacyProductId,
         });
-        if (!nextState.product) {
-          productSynced = true;
-          break;
-        }
-        const nextTarget = safeTarget({
-          rows: nextRows,
-          product: nextState.product,
-          inventory: nextState.inventory,
-        });
+        const nextTarget = nextState.product
+          ? localTarget({
+              rows: nextRows,
+              product: nextState.product,
+              inventory: nextState.inventory,
+            })
+          : durableJournalTarget(nextRows);
         if (lastPushedQuantity !== null && nextTarget < lastPushedQuantity) {
           continue;
         }
@@ -316,7 +330,9 @@ export async function retryPendingEbayQuantitySyncs(params: {
       result.skippedProducts += 1;
     } else if (productSynced) {
       result.syncedProducts += 1;
-    } else if (!result.errors.some((item) => item.legacyProductId === legacyProductId)) {
+    } else if (
+      !result.errors.some((item) => item.legacyProductId === legacyProductId)
+    ) {
       result.errors.push({
         legacyProductId,
         error:
