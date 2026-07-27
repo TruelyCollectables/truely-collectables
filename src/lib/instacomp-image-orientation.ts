@@ -164,7 +164,7 @@ export async function rotateInstaCompImageBytes(params: {
   rotation: InstaCompRotation;
 }) {
   let pipeline = sharp(Buffer.from(params.bytes), { failOn: "warning" })
-    .rotate()
+    .autoOrient()
     .rotate(params.rotation);
   if (params.mime === "image/png") pipeline = pipeline.png();
   else if (params.mime === "image/webp") pipeline = pipeline.webp({ quality: 95 });
