@@ -12,6 +12,7 @@ on:
       - "src/lib/instacomp-curated-checklist.ts"
       - "src/lib/instacomp*.ts"
       - "scripts/run-instacomp-ebay-25-benchmark.mjs"
+      - "scripts/run-instacomp-ebay-25-through-vercel-curl.mjs"
       - ".github/workflows/instacomp-ebay-25-benchmark.yml"
   pull_request:
     branches:
@@ -24,6 +25,7 @@ on:
       - "src/lib/instacomp-curated-checklist.ts"
       - "src/lib/instacomp*.ts"
       - "scripts/run-instacomp-ebay-25-benchmark.mjs"
+      - "scripts/run-instacomp-ebay-25-through-vercel-curl.mjs"
       - ".github/workflows/instacomp-ebay-25-benchmark.yml"
   workflow_dispatch:
 
@@ -65,6 +67,7 @@ jobs:
           src/app/api/instacomp/benchmark/ebay-25/route.ts
           src/lib/instacomp-ebay-benchmark-cases.ts
           scripts/run-instacomp-ebay-25-benchmark.mjs
+          scripts/run-instacomp-ebay-25-through-vercel-curl.mjs
 
       - name: Build production application
         env:
@@ -122,21 +125,29 @@ jobs:
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
+          set +e
           npx vercel@latest curl \
-            "$INSTACOMP_BENCHMARK_URL/api/instacomp/benchmark/ebay-25" \
-            --silent \
-            --show-error \
-            --fail-with-body \
+            /api/instacomp/benchmark/ebay-25 \
+            --deployment "$INSTACOMP_BENCHMARK_URL" \
             --header "Authorization: Bearer $INSTACOMP_BENCHMARK_TOKEN" \
             --scope "$VERCEL_SCOPE" \
             --token "$VERCEL_TOKEN" \
-            > benchmark-manifest.json
-          node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("benchmark-manifest.json","utf8"));if(!p.ok||!Array.isArray(p.cases)||p.cases.length<25)throw new Error("Benchmark manifest is not ready");console.log(`Manifest ready: ${p.cases.length} official checklist cases`);'
+            > benchmark-manifest.json 2> benchmark-manifest-error.txt
+          CURL_STATUS=$?
+          set -e
+          if [ "$CURL_STATUS" -ne 0 ]; then
+            cat benchmark-manifest-error.txt >&2
+            exit "$CURL_STATUS"
+          fi
+          node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("benchmark-manifest.json","utf8"));if(!p.ok||!Array.isArray(p.cases)||p.cases.length<25)throw new Error(`Benchmark manifest is not ready: ${JSON.stringify(p).slice(0,1000)}`);console.log(`Manifest ready: ${p.cases.length} official checklist cases`);'
 
       - name: Run 25 real eBay cards through InstaComp
         id: benchmark
         continue-on-error: true
-        run: node scripts/run-instacomp-ebay-25-benchmark.mjs
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          INSTACOMP_PREVIEW_DEPLOYMENT_URL: ${{ steps.deploy.outputs.preview_url }}
+        run: node scripts/run-instacomp-ebay-25-through-vercel-curl.mjs
 
       - name: Summarize benchmark result
         if: always()
@@ -173,6 +184,7 @@ jobs:
             reports/instacomp-ebay-25-report.json
             reports/instacomp-ebay-25-report.md
             benchmark-manifest.json
+            benchmark-manifest-error.txt
             deployment-url.txt
           if-no-files-found: warn
           retention-days: 30
