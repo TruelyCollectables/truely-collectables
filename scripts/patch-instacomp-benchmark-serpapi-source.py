@@ -6,6 +6,8 @@ from pathlib import Path
 
 ROUTE = Path("src/app/api/instacomp/benchmark/ebay-25/route.ts")
 JOB_SERVER = Path("src/lib/instacomp-job-server.ts")
+SCAN_ROUTE = Path("src/app/api/instacomp/scan/route.ts")
+LIVE_ROUTE = Path("src/app/api/instacomp/live-scan/route.ts")
 
 
 def patch_benchmark_source() -> None:
@@ -211,9 +213,126 @@ def patch_ephemeral_admin_auth() -> None:
     JOB_SERVER.write_text(text)
 
 
+def patch_identity_rate_limit() -> None:
+    text = SCAN_ROUTE.read_text()
+    old = '''    const rateLimit = await checkPublicEndpointRateLimit({
+      request: req,
+      endpointKey: "instacomp_scan",
+      subjectKey:
+        actor.type === "seller"
+          ? `seller:${actor.sellerAccountId}`
+          : `admin:${actor.storeId}`,
+      maxAttempts: 1200,
+      windowSeconds: 24 * 60 * 60,
+    });
+
+    if (!rateLimit.allowed) {
+      const blocked = publicEndpointRateLimitResponse(rateLimit);
+      return NextResponse.json(blocked.body, { status: blocked.status });
+    }
+'''
+    new = '''    if (!ephemeralBenchmark) {
+      const rateLimit = await checkPublicEndpointRateLimit({
+        request: req,
+        endpointKey: "instacomp_scan",
+        subjectKey:
+          actor.type === "seller"
+            ? `seller:${actor.sellerAccountId}`
+            : `admin:${actor.storeId}`,
+        maxAttempts: 1200,
+        windowSeconds: 24 * 60 * 60,
+      });
+
+      if (!rateLimit.allowed) {
+        const blocked = publicEndpointRateLimitResponse(rateLimit);
+        return NextResponse.json(blocked.body, { status: blocked.status });
+      }
+    }
+'''
+    if new not in text:
+        if old not in text:
+            raise SystemExit("Could not locate the identity-scan rate-limit block.")
+        text = text.replace(old, new, 1)
+    SCAN_ROUTE.write_text(text)
+
+
+def patch_live_rate_limit() -> None:
+    text = LIVE_ROUTE.read_text()
+    helper = '''function authorizedEphemeralBenchmark(request: NextRequest) {
+  if (String(process.env.VERCEL_ENV || "").trim() !== "preview") return false;
+  const expected = String(process.env.INSTACOMP_BENCHMARK_TOKEN || "").trim();
+  const supplied = String(request.headers.get("x-instacomp-benchmark-ephemeral") || "").trim();
+  if (expected.length < 32 || supplied.length !== expected.length) return false;
+  let mismatch = 0;
+  for (let index = 0; index < expected.length; index += 1) {
+    mismatch |= expected.charCodeAt(index) ^ supplied.charCodeAt(index);
+  }
+  return mismatch === 0;
+}
+
+'''
+    marker = 'async function authorizeLiveScan(request: NextRequest) {'
+    if helper not in text:
+        if marker not in text:
+            raise SystemExit("Could not locate live-scan authorization helper.")
+        text = text.replace(marker, helper + marker, 1)
+
+    old = '''async function authorizeLiveScan(request: NextRequest) {
+  const actor = await requireInstaCompJobActor(request);
+  const rateLimit = await checkPublicEndpointRateLimit({
+    request,
+    endpointKey: "instacomp_live_scan",
+    subjectKey:
+      actor.type === "seller"
+        ? `seller:${actor.sellerAccountId}`
+        : `admin:${actor.storeId}`,
+    maxAttempts: 600,
+    windowSeconds: 24 * 60 * 60,
+  });
+
+  if (!rateLimit.allowed) {
+    const blocked = publicEndpointRateLimitResponse(rateLimit);
+    return NextResponse.json(blocked.body, { status: blocked.status });
+  }
+
+  return null;
+}
+'''
+    new = '''async function authorizeLiveScan(request: NextRequest) {
+  const actor = await requireInstaCompJobActor(request);
+  if (authorizedEphemeralBenchmark(request)) return null;
+
+  const rateLimit = await checkPublicEndpointRateLimit({
+    request,
+    endpointKey: "instacomp_live_scan",
+    subjectKey:
+      actor.type === "seller"
+        ? `seller:${actor.sellerAccountId}`
+        : `admin:${actor.storeId}`,
+    maxAttempts: 600,
+    windowSeconds: 24 * 60 * 60,
+  });
+
+  if (!rateLimit.allowed) {
+    const blocked = publicEndpointRateLimitResponse(rateLimit);
+    return NextResponse.json(blocked.body, { status: blocked.status });
+  }
+
+  return null;
+}
+'''
+    if new not in text:
+        if old not in text:
+            raise SystemExit("Could not locate the live-scan rate-limit block.")
+        text = text.replace(old, new, 1)
+    LIVE_ROUTE.write_text(text)
+
+
 def main() -> None:
     patch_benchmark_source()
     patch_ephemeral_admin_auth()
+    patch_identity_rate_limit()
+    patch_live_rate_limit()
 
 
 if __name__ == "__main__":
