@@ -1,0 +1,294 @@
+name: InstaComp Live Certification Pinned V2 20260727
+
+on:
+  push:
+    branches:
+      - agent/instacomp-exact-market-final-20260726
+    paths:
+      - ".github/workflows/instacomp-live-certification-pinned-v2-20260727.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: instacomp-live-certification-v2-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  certify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      INSTACOMP_BYPASS_CACHE: "1"
+      INSTACOMP_PROOF_INCLUDE_OPENAI_DISCOVERY: "1"
+
+    steps:
+      - name: Announce pinned certification
+        run: |
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/143/comments" \
+            -f body="InstaComp pinned V2 certification started on commit \`${GITHUB_SHA}\` (Actions run ${GITHUB_RUN_ID}). Every gate is separated and the preview benchmark token is generated per run."
+
+      - name: Check out pinned commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Exact-provider regressions
+        run: node --import tsx scripts/run-instacomp-exact-provider-regressions.ts
+
+      - name: Exact-market regressions pass one
+        run: node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
+
+      - name: Exact-market regressions pass two
+        run: node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
+
+      - name: Exact-market regressions pass three
+        run: node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
+
+      - name: Adversarial audit regressions pass one
+        run: node --import tsx scripts/run-instacomp-final-audit-regressions.ts
+
+      - name: Adversarial audit regressions pass two
+        run: node --import tsx scripts/run-instacomp-final-audit-regressions.ts
+
+      - name: Adversarial audit regressions pass three
+        run: node --import tsx scripts/run-instacomp-final-audit-regressions.ts
+
+      - name: Live-pipeline regressions
+        run: node --import tsx scripts/run-instacomp-live-pipeline-regressions.ts
+
+      - name: Provider-safety regressions
+        run: node --import tsx scripts/run-instacomp-provider-safety-regressions.ts
+
+      - name: Batch-pairing regressions
+        run: node --import tsx scripts/run-instacomp-batch-drop-regressions.ts
+
+      - name: Source invariants
+        run: |
+          python scripts/check-instacomp-control-characters.py
+          python scripts/assert-instacomp-final-source.py
+          git diff --check
+
+      - name: Lint hardened InstaComp paths
+        run: >-
+          npx eslint
+          src/app/api/instacomp/benchmark/ebay-25/route.ts
+          src/app/api/instacomp/live-scan/route.ts
+          src/app/api/instacomp/scan/route.ts
+          src/app/api/account/seller/inventory/instacomp/route.ts
+          src/app/instacomp-test/InstaCompBatchLiveScanner.tsx
+          src/lib/instacomp.ts
+          src/lib/instacomp-benchmark-title.ts
+          src/lib/instacomp-live-pipeline.ts
+          src/lib/instacomp-exact-market-provider.ts
+          src/lib/instacomp-openai-web-market-provider.ts
+          src/lib/instacomp-comp-visual-verification.ts
+          src/lib/instacomp-curated-checklist.ts
+          src/lib/instacomp-image-safety.ts
+          src/lib/instacomp-image-orientation.ts
+          src/lib/instacomp-provider-safety.ts
+          scripts/run-instacomp-exact-provider-regressions.ts
+          scripts/run-instacomp-provider-safety-regressions.ts
+          scripts/run-instacomp-exact-market-proof-regressions.ts
+          scripts/run-instacomp-final-audit-regressions.ts
+          scripts/run-instacomp-ebay-25-benchmark.mjs
+          scripts/run-instacomp-ebay-25-through-vercel-curl.mjs
+
+      - name: Build production application
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+          NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+          ADMIN_PASSWORD: build-only-placeholder-password
+          ADMIN_SESSION_SECRET: build-only-placeholder-session-secret
+          STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build-only-placeholder
+          STRIPE_WEBHOOK_SECRET: whsec_build-only-placeholder
+          EBAY_CLIENT_ID: build-only-placeholder-client-id
+          EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+          EBAY_ENVIRONMENT: production
+          TCOS_LIVE_PAYMENTS_ENABLED: "false"
+          TCOS_SHIPPING_PURCHASE_MODE: dry_run
+          TCOS_LIVE_SHIPPING_ENABLED: "false"
+        run: npm run build
+
+      - name: Announce deterministic gates passed
+        run: |
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/143/comments" \
+            -f body="Pinned InstaComp V2 certification ${GITHUB_RUN_ID}: all repeated exactness/adversarial tests, source invariants, targeted lint, and production build passed on \`${GITHUB_SHA}\`."
+
+      - name: Link Vercel project and generate preview environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p .vercel .codex-run reports/pass-1 reports/pass-2 docs
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@latest link --yes --project truely-collectables --scope truelycollectables-projects --token "$VERCEL_TOKEN"
+          fi
+          npx vercel@latest pull --yes --environment=preview --token "$VERCEL_TOKEN" > .codex-run/vercel-pull.log 2>&1
+          if [ -f .vercel/.env.preview.local ]; then
+            set -a
+            . .vercel/.env.preview.local
+            set +a
+          fi
+          test -n "${OPENAI_API_KEY:-}"
+          test -n "${SERPAPI_API_KEY:-}"
+          BENCHMARK_TOKEN="$(openssl rand -hex 32)"
+          echo "::add-mask::$BENCHMARK_TOKEN"
+          printf 'INSTACOMP_BENCHMARK_TOKEN=%s\n' "$BENCHMARK_TOKEN" >> "$GITHUB_ENV"
+
+      - name: Validate repaired provider keys
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const openAi = await fetch("https://api.openai.com/v1/models", {
+            headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+            signal: AbortSignal.timeout(30000),
+          });
+          console.log(`OpenAI credential HTTP status: ${openAi.status}`);
+          if (!openAi.ok) process.exit(1);
+          const serpUrl = new URL("https://serpapi.com/search.json");
+          serpUrl.searchParams.set("engine", "ebay");
+          serpUrl.searchParams.set("ebay_domain", "ebay.com");
+          serpUrl.searchParams.set("_nkw", "Topps rookie card");
+          serpUrl.searchParams.set("_ipg", "1");
+          serpUrl.searchParams.set("api_key", process.env.SERPAPI_API_KEY);
+          const serp = await fetch(serpUrl, { signal: AbortSignal.timeout(45000) });
+          const payload = await serp.json().catch(() => ({}));
+          console.log(`SerpApi credential HTTP status: ${serp.status}`);
+          if (!serp.ok || payload?.error) process.exit(1);
+          NODE
+
+      - name: Run live six-card provider proof
+        run: node --import tsx scripts/run-instacomp-batch-001-live-market-proof.ts 2>&1 | tee .codex-run/instacomp-six-card-live-proof.log
+
+      - name: Announce six-card proof passed
+        run: |
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/143/comments" \
+            -f body="Pinned InstaComp V2 certification ${GITHUB_RUN_ID}: OpenAI and SerpAPI validated, and the six-card live provider proof passed. Deploying isolated preview for the double 25-card torture test."
+
+      - name: Deploy isolated protected preview
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@latest deploy \
+            --yes \
+            --force \
+            --token "$VERCEL_TOKEN" \
+            --env "OPENAI_API_KEY=$OPENAI_API_KEY" \
+            --env "SERPAPI_API_KEY=$SERPAPI_API_KEY" \
+            --env "INSTACOMP_BENCHMARK_TOKEN=$INSTACOMP_BENCHMARK_TOKEN" \
+            --env "INSTACOMP_BYPASS_CACHE=1" \
+            > .codex-run/vercel-deploy.log 2>&1
+          cat .codex-run/vercel-deploy.log
+          DEPLOYMENT_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' .codex-run/vercel-deploy.log | tail -n 1)"
+          test -n "$DEPLOYMENT_URL"
+          echo "deployment_url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+          echo "$DEPLOYMENT_URL" > .codex-run/instacomp-preview-url.txt
+
+      - name: Live 25-card torture pass one
+        env:
+          INSTACOMP_PREVIEW_DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
+          INSTACOMP_BENCHMARK_TARGET: "25"
+          INSTACOMP_BENCHMARK_CONCURRENCY: "2"
+          INSTACOMP_BENCHMARK_REPORT_DIR: reports/pass-1
+        run: node scripts/run-instacomp-ebay-25-through-vercel-curl.mjs 2>&1 | tee .codex-run/instacomp-25-pass-1.log
+
+      - name: Announce pass one completed
+        run: |
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/143/comments" \
+            -f body="Pinned InstaComp V2 certification ${GITHUB_RUN_ID}: live 25-card pass one completed. Pass two is starting against the same pinned preview."
+
+      - name: Live 25-card torture pass two
+        env:
+          INSTACOMP_PREVIEW_DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
+          INSTACOMP_BENCHMARK_TARGET: "25"
+          INSTACOMP_BENCHMARK_CONCURRENCY: "2"
+          INSTACOMP_BENCHMARK_REPORT_DIR: reports/pass-2
+        run: node scripts/run-instacomp-ebay-25-through-vercel-curl.mjs 2>&1 | tee .codex-run/instacomp-25-pass-2.log
+
+      - name: Compare and enforce both reports
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require("node:fs");
+          const pass1 = JSON.parse(fs.readFileSync("reports/pass-1/instacomp-ebay-25-report.json", "utf8"));
+          const pass2 = JSON.parse(fs.readFileSync("reports/pass-2/instacomp-ebay-25-report.json", "utf8"));
+          function assertReport(report, label) {
+            const s = report.summary || {};
+            const failures = [];
+            if (s.completedCards !== 25) failures.push(`completed ${s.completedCards}/25`);
+            if (s.targetMet !== true) failures.push("target not met");
+            if (s.incompleteCases !== 0) failures.push(`${s.incompleteCases} incomplete cases`);
+            if (s.passedCards !== 25) failures.push(`${s.passedCards}/25 cards passed`);
+            if (s.cardsWithCriticalErrors !== 0) failures.push(`${s.cardsWithCriticalErrors} critical cards`);
+            if (s.criticalErrors !== 0) failures.push(`${s.criticalErrors} critical errors`);
+            if (s.providerErrorCards !== 0) failures.push(`${s.providerErrorCards} provider-error cards`);
+            if (s.cleanupFailures !== 0) failures.push(`${s.cleanupFailures} cleanup failures`);
+            if (s.catalogIdentityConfirmed !== 25) failures.push(`${s.catalogIdentityConfirmed}/25 catalog confirmations`);
+            const unsupported = (report.completed || []).filter((row) =>
+              (row.grade?.weirdErrors || []).some((error) => error.code === "UNSUPPORTED_PRICE_CREATED")
+            );
+            if (unsupported.length) failures.push(`${unsupported.length} unsupported prices`);
+            if (failures.length) throw new Error(`${label} failed: ${failures.join("; ")}`);
+          }
+          assertReport(pass1, "pass one");
+          assertReport(pass2, "pass two");
+          const ids1 = (pass1.completed || []).map((row) => row.caseId).sort();
+          const ids2 = (pass2.completed || []).map((row) => row.caseId).sort();
+          if (JSON.stringify(ids1) !== JSON.stringify(ids2)) throw new Error("The two passes did not grade the same 25 cases.");
+          fs.writeFileSync("reports/instacomp-live-double-torture-comparison.json", `${JSON.stringify({ schema: "tcos.instacompLiveDoubleTortureComparison.v2", generatedAt: new Date().toISOString(), success: true, passOne: pass1.summary, passTwo: pass2.summary, stableCaseIds: ids1 }, null, 2)}\n`);
+          NODE
+
+      - name: Upload complete evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-live-certification-v2-${{ github.run_number }}
+          path: |
+            docs/instacomp-batch-001-live-market-proof.json
+            reports/pass-1/instacomp-ebay-25-report.json
+            reports/pass-1/instacomp-ebay-25-report.md
+            reports/pass-2/instacomp-ebay-25-report.json
+            reports/pass-2/instacomp-ebay-25-report.md
+            reports/instacomp-live-double-torture-comparison.json
+            .codex-run/instacomp-six-card-live-proof.log
+            .codex-run/instacomp-25-pass-1.log
+            .codex-run/instacomp-25-pass-2.log
+            .codex-run/vercel-pull.log
+            .codex-run/vercel-deploy.log
+            .codex-run/instacomp-preview-url.txt
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Post final status
+        if: always()
+        run: |
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/143/comments" \
+            -f body="Pinned InstaComp V2 certification ${GITHUB_RUN_ID} finished with job status **${{ job.status }}** on commit \`${GITHUB_SHA}\`."
