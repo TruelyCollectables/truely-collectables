@@ -6,20 +6,28 @@ on:
       - agent/instacomp-exact-market-final-20260726
     paths:
       - "scripts/harden-instacomp-*.py"
-      - "scripts/run-instacomp-*.py"
-      - "scripts/run-instacomp-*-regressions.ts"
+      - "scripts/run-instacomp-*"
       - "scripts/check-instacomp-control-characters.py"
-      - "src/lib/instacomp-image-*.ts"
+      - "src/app/api/instacomp/**"
+      - "src/app/api/account/seller/inventory/instacomp/**"
+      - "src/app/instacomp-test/**"
+      - "src/lib/instacomp*.ts"
+      - "package.json"
+      - "package-lock.json"
       - ".github/workflows/instacomp-ebay-25-benchmark.yml"
   pull_request:
     branches:
       - main
     paths:
       - "scripts/harden-instacomp-*.py"
-      - "scripts/run-instacomp-*.py"
-      - "scripts/run-instacomp-*-regressions.ts"
+      - "scripts/run-instacomp-*"
       - "scripts/check-instacomp-control-characters.py"
-      - "src/lib/instacomp-image-*.ts"
+      - "src/app/api/instacomp/**"
+      - "src/app/api/account/seller/inventory/instacomp/**"
+      - "src/app/instacomp-test/**"
+      - "src/lib/instacomp*.ts"
+      - "package.json"
+      - "package-lock.json"
       - ".github/workflows/instacomp-ebay-25-benchmark.yml"
   workflow_dispatch:
 
@@ -27,7 +35,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: instacomp-final-materialization-${{ github.event_name }}
+  group: instacomp-final-materialization-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -35,10 +43,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - name: Check out certification branch
+      - name: Check out current event revision
         uses: actions/checkout@v4
         with:
-          ref: agent/instacomp-exact-market-final-20260726
           fetch-depth: 1
 
       - name: Set up Node.js
@@ -66,6 +73,7 @@ jobs:
             npm install --package-lock-only
             git diff --check
             python scripts/check-instacomp-control-characters.py
+            python scripts/assert-instacomp-final-source.py
             git status --short | tee instacomp-materialization-status.log
           } 2>&1 | tee instacomp-final-materialization.log
 
