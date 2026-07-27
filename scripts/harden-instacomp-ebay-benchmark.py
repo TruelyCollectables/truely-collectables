@@ -17,11 +17,11 @@ def main() -> None:
 
     text = replace_once(
         text,
-        '''function compactCardNumber(value: unknown) {
+        r'''function compactCardNumber(value: unknown) {
   return normalized(value).replace(/[^a-z0-9]/g, "");
 }
 ''',
-        '''function compactCardNumber(value: unknown) {
+        r'''function compactCardNumber(value: unknown) {
   return normalized(value).replace(/[^a-z0-9]/g, "");
 }
 
@@ -63,13 +63,13 @@ function titleHasExactCardNumber(title: string, cardNumber: string) {
 
     text = replace_once(
         text,
-        '''function rejectedTitle(title: string) {
+        r'''function rejectedTitle(title: string) {
   return /\b(?:lot|team set|complete set|reprint|custom|digital|nft|break|you pick|choose your card|psa|bgs|sgc|cgc|graded|gem mint)\b/i.test(
     title,
   );
 }
 ''',
-        '''function rejectedTitle(title: string) {
+        r'''function rejectedTitle(title: string) {
   return /\b(?:lot|team set|complete set|reprint|custom|digital|nft|break|you pick|choose your card|psa|bgs|sgc|cgc|graded|gem mint|oversized|oversize|jumbo|mini|box topper|5x7|8x10|promo)\b/i.test(
     title,
   );
@@ -80,16 +80,16 @@ function titleHasExactCardNumber(title: string, cardNumber: string) {
 
     text = replace_once(
         text,
-        '''  const numberPass = text.replace(/[^a-z0-9]/g, "").includes(compactCardNumber(expected.cardNumber));
+        r'''  const numberPass = text.replace(/[^a-z0-9]/g, "").includes(compactCardNumber(expected.cardNumber));
 ''',
-        '''  const numberPass = titleHasExactCardNumber(title, expected.cardNumber);
+        r'''  const numberPass = titleHasExactCardNumber(title, expected.cardNumber);
 ''',
         "title card-number match",
     )
 
     text = replace_once(
         text,
-        '''async function downloadImage(url: string, fileName: string) {
+        r'''async function downloadImage(url: string, fileName: string) {
   const response = await fetch(url, {
     cache: "no-store",
     headers: { "User-Agent": "TCOS-InstaComp-Benchmark/1.0" },
@@ -112,7 +112,7 @@ function titleHasExactCardNumber(title: string, cardNumber: string) {
   return new File([bytes], fileName, { type });
 }
 ''',
-        '''function imageTypeFromMagic(bytes: Uint8Array) {
+        r'''function imageTypeFromMagic(bytes: Uint8Array) {
   if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
     return "image/jpeg";
   }
