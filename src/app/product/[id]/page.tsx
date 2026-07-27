@@ -10,7 +10,7 @@ import {
   getAuthenticityCallout,
   hasAuthenticityDetails,
 } from "../../../lib/authenticity";
-import { normalizeListingImageUrls } from "../../../lib/listing-image-utils";
+import { selectFrontBackListingImages } from "../../../lib/listing-image-utils";
 import { storefrontCategoryForItem } from "../../../lib/storefront-taxonomy";
 import { createSupabaseServerClient } from "../../../lib/supabase-server";
 import { configuredSiteOrigin } from "../../../lib/site-origin";
@@ -108,7 +108,7 @@ const getProductImages = cache(
         : {};
     const savedImages = (imageResult.data || []).map((row) => row.image_url);
 
-    return normalizeListingImageUrls([
+    return selectFrontBackListingImages([
       ...savedImages,
       fallbackImage,
       ...stringList(metadata.ebay_image_urls),
