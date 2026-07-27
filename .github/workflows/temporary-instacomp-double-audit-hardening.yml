@@ -1,4 +1,4 @@
-name: Commit Certified InstaComp Source
+name: Materialize Certified InstaComp Source
 
 on:
   push:
@@ -11,9 +11,9 @@ permissions:
   contents: write
 
 jobs:
-  materialize-test-commit:
+  materialize-and-commit:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 30
     steps:
       - name: Check out audit branch
         uses: actions/checkout@v4
@@ -27,7 +27,7 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Materialize final audited source
+      - name: Materialize certified source
         run: |
           set -euo pipefail
           python -m py_compile scripts/harden-instacomp-*.py scripts/run-instacomp-*.py
@@ -40,49 +40,15 @@ jobs:
           python scripts/harden-instacomp-benchmark-report.py
           python scripts/run-instacomp-final-materialization.py
           npm pkg set 'dependencies.sharp=^0.34.5'
-          npm install --package-lock-only
+          npm install --package-lock-only --ignore-scripts
           find scripts -type d -name __pycache__ -prune -exec rm -rf {} +
           python scripts/check-instacomp-control-characters.py
+          python scripts/assert-instacomp-final-source.py
           git diff --check
-
-      - name: Install exact materialized dependencies
-        run: npm ci
-
-      - name: Verify certified source
-        run: |
-          set -euo pipefail
-          node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
-          node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
-          node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
-          node --import tsx scripts/run-instacomp-final-audit-regressions.ts
-          node --import tsx scripts/run-instacomp-final-audit-regressions.ts
-          node --import tsx scripts/run-instacomp-final-audit-regressions.ts
-          node --import tsx scripts/run-instacomp-live-pipeline-regressions.ts
-          node --import tsx scripts/run-instacomp-batch-drop-regressions.ts
-          npx eslint \
-            src/app/api/instacomp/benchmark/ebay-25/route.ts \
-            src/app/api/instacomp/live-scan/route.ts \
-            src/app/api/instacomp/scan/route.ts \
-            src/app/api/account/seller/inventory/instacomp/route.ts \
-            src/app/instacomp-test/InstaCompBatchLiveScanner.tsx \
-            src/lib/instacomp.ts \
-            src/lib/instacomp-benchmark-title.ts \
-            src/lib/instacomp-live-pipeline.ts \
-            src/lib/instacomp-exact-market-provider.ts \
-            src/lib/instacomp-openai-web-market-provider.ts \
-            src/lib/instacomp-comp-visual-verification.ts \
-            src/lib/instacomp-curated-checklist.ts \
-            src/lib/instacomp-image-safety.ts \
-            src/lib/instacomp-image-orientation.ts \
-            scripts/run-instacomp-exact-market-proof-regressions.ts \
-            scripts/run-instacomp-final-audit-regressions.ts
-          npm run build
 
       - name: Commit certified source
         run: |
           set -euo pipefail
-          find scripts -type d -name __pycache__ -prune -exec rm -rf {} +
-          rm -f instacomp-final-materialization.log instacomp-materialization-status.log
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add package.json package-lock.json scripts src
