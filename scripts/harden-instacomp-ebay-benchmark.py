@@ -1,4 +1,5 @@
 from pathlib import Path
+import runpy
 
 ROUTE_PATH = Path("src/app/api/instacomp/benchmark/ebay-25/route.ts")
 
@@ -166,6 +167,7 @@ async function downloadImage(url: string, fileName: string) {
     )
 
     ROUTE_PATH.write_text(text)
+    runpy.run_path("scripts/harden-instacomp-catalog-registry.py", run_name="__main__")
 
 
 if __name__ == "__main__":
