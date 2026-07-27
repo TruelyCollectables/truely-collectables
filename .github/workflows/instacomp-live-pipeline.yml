@@ -4,9 +4,11 @@ on:
   pull_request:
     paths:
       - "src/app/api/instacomp/**"
+      - "src/app/api/account/seller/inventory/instacomp/**"
       - "src/app/instacomp-test/**"
       - "src/lib/instacomp*.ts"
       - "scripts/run-instacomp-live-pipeline-regressions.ts"
+      - "scripts/run-instacomp-provider-safety-regressions.ts"
       - "scripts/run-instacomp-batch-drop-regressions.ts"
       - ".github/workflows/instacomp-live-pipeline.yml"
   workflow_dispatch:
@@ -40,6 +42,9 @@ jobs:
       - name: Run live-pipeline regressions
         run: node --import tsx scripts/run-instacomp-live-pipeline-regressions.ts
 
+      - name: Run provider-safety regressions
+        run: node --import tsx scripts/run-instacomp-provider-safety-regressions.ts
+
       - name: Run multi-card drag-drop regressions
         run: node --import tsx scripts/run-instacomp-batch-drop-regressions.ts
 
@@ -47,11 +52,14 @@ jobs:
         run: >-
           npx eslint
           src/app/api/instacomp/live-scan/route.ts
+          src/app/api/account/seller/inventory/instacomp/route.ts
           src/app/instacomp-test/InstaCompBatchLiveScanner.tsx
           src/app/instacomp-test/InstaCompLiveScanner.tsx
           src/app/instacomp-test/page.tsx
           src/lib/instacomp-batch-drop.ts
           src/lib/instacomp-live-pipeline.ts
+          src/lib/instacomp-provider-safety.ts
+          scripts/run-instacomp-provider-safety-regressions.ts
           scripts/run-instacomp-batch-drop-regressions.ts
           scripts/run-instacomp-live-pipeline-regressions.ts
 
