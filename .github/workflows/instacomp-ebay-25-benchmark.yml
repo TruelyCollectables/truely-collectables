@@ -69,8 +69,6 @@ jobs:
             python scripts/harden-instacomp-visual-review-types.py
             python scripts/harden-instacomp-benchmark-report.py
             python scripts/run-instacomp-final-materialization.py
-            npm pkg set 'dependencies.sharp=^0.34.5'
-            npm install --package-lock-only
             git diff --check
             python scripts/check-instacomp-control-characters.py
             python scripts/assert-instacomp-final-source.py
