@@ -54,9 +54,9 @@ jobs:
       - name: Apply deterministic deep-audit fixes
         run: |
           set -euo pipefail
-          echo "Applying audited source patch set v3"
+          echo "Applying audited source patch set v4"
           python -m py_compile scripts/apply-instacomp-deep-audit-fixes.py
-          python scripts/apply-instacomp-deep-audit-fixes.py
+          python scripts/apply-instacomp-deep-audit-fixes.py 2>&1 | tee deep-audit-patch.log
           python scripts/check-instacomp-control-characters.py
           git diff --check
 
@@ -66,11 +66,13 @@ jobs:
       - name: Run focused regressions
         run: |
           set -euo pipefail
-          node --import tsx scripts/run-instacomp-live-pipeline-regressions.ts
-          node --import tsx scripts/run-instacomp-provider-safety-regressions.ts
-          node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
-          node --import tsx scripts/run-instacomp-final-audit-regressions.ts
-          node --import tsx scripts/run-instacomp-batch-drop-regressions.ts
+          {
+            node --import tsx scripts/run-instacomp-live-pipeline-regressions.ts
+            node --import tsx scripts/run-instacomp-provider-safety-regressions.ts
+            node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
+            node --import tsx scripts/run-instacomp-final-audit-regressions.ts
+            node --import tsx scripts/run-instacomp-batch-drop-regressions.ts
+          } 2>&1 | tee deep-audit-regressions.log
 
       - name: Lint changed runtime files
         run: |
@@ -86,10 +88,26 @@ jobs:
             src/lib/instacomp-provider-safety.ts \
             scripts/run-instacomp-live-pipeline-regressions.ts \
             scripts/run-instacomp-provider-safety-regressions.ts \
-            scripts/run-instacomp-batch-001-live-market-proof.ts
+            scripts/run-instacomp-batch-001-live-market-proof.ts \
+            2>&1 | tee deep-audit-lint.log
 
       - name: Build production application
-        run: npm run build
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee deep-audit-build.log
+
+      - name: Upload deep-audit diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-deep-audit-diagnostics-${{ github.run_number }}
+          path: |
+            deep-audit-patch.log
+            deep-audit-regressions.log
+            deep-audit-lint.log
+            deep-audit-build.log
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Commit hardened source
         run: |
