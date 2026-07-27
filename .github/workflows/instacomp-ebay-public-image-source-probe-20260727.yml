@@ -1,9 +1,9 @@
 name: InstaComp eBay Public Image Source Probe 20260727
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/instacomp-exact-market-final-20260726
+      - main
     paths:
       - ".github/workflows/instacomp-ebay-public-image-source-probe-20260727.yml"
   workflow_dispatch:
@@ -14,7 +14,7 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: instacomp-ebay-public-image-probe-${{ github.run_id }}
+  group: instacomp-ebay-public-image-probe-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: false
 
 jobs:
@@ -34,7 +34,7 @@ jobs:
       - name: Check out pinned commit
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 1
 
       - name: Set up Node.js
