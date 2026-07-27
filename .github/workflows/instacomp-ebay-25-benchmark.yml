@@ -64,7 +64,9 @@ jobs:
           python scripts/harden-instacomp-benchmark-report.py
           python scripts/harden-instacomp-final-audit.py
           python scripts/harden-instacomp-final-audit-2.py
-          npm install sharp@0.34.5 --save --package-lock-only
+          python scripts/harden-instacomp-final-deduplicate.py
+          npm pkg set 'dependencies.sharp=^0.34.5'
+          npm install --package-lock-only
           git diff --check
           python scripts/check-instacomp-control-characters.py
           git status --short | tee instacomp-materialization-status.log
