@@ -93,7 +93,7 @@ assert.match(
 for (const contract of [
   '.from("inventory_images")',
   '.from("inventory_items")',
-  "normalizeListingImageUrls([",
+  "selectFrontBackListingImages([",
   "...stringList(metadata.ebay_image_urls)",
   "<ProductGallery title={product.title} images={galleryImages} />",
 ]) {
@@ -110,7 +110,7 @@ for (const contract of [
   assert.ok(productGallery.includes(contract), `Product gallery is missing ${contract}.`);
 }
 
-assert.equal(MAX_LISTING_IMAGES, 20, "Inventory ingestion must preserve up to twenty ordered listing images.");
+assert.equal(MAX_LISTING_IMAGES, 24, "Internal ingestion must preserve up to twenty-four ordered source images.");
 assert.match(imageSync, /ebay_all_image_sync_version/, "Image repair must persist its complete-image version.");
 assert.match(
   imageSync,
@@ -147,13 +147,13 @@ assert.deepEqual(
     "https://i.ebayimg.com/images/g/back/s-l1600.jpg",
   ],
 );
-const normalizedTwenty = normalizeListingImageUrls(
-  Array.from({ length: 25 }, (_, index) =>
+const normalizedImages = normalizeListingImageUrls(
+  Array.from({ length: 30 }, (_, index) =>
     `https://i.ebayimg.com/images/g/photo-${index + 1}/s-l140.jpg`,
   ),
 );
-assert.equal(normalizedTwenty.length, 20);
-assert.equal(normalizedTwenty.at(-1), "https://i.ebayimg.com/images/g/photo-20/s-l1600.jpg");
+assert.equal(normalizedImages.length, 24);
+assert.equal(normalizedImages.at(-1), "https://i.ebayimg.com/images/g/photo-24/s-l1600.jpg");
 assert.deepEqual(
   selectFrontBackListingImages([
     "https://i.ebayimg.com/images/g/front/s-l140.jpg",
@@ -198,4 +198,4 @@ for (const [title, sport, expected] of launchScopeCases) {
   assert.equal(isLaunchSportsCard({ title, sport }), expected, `Unexpected launch scope decision for: ${title}`);
 }
 
-console.log("eBay import, sports-card scope, and complete 1–20 image simulations passed.");
+console.log("eBay import, sports-card scope, internal image preservation, and public front/back simulations passed.");
