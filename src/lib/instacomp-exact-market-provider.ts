@@ -51,6 +51,25 @@ function cleanSpaces(value: string | null | undefined) {
   return String(value || "").replace(/\s+/g, " ").trim();
 }
 
+export function isSerpApiNoResultsMessage(value: unknown) {
+  const message = cleanSpaces(typeof value === "string" ? value : "");
+  return /(?:hasn['’]?t returned any results|no results(?: were)? found|no matching results)/i.test(
+    message,
+  );
+}
+
+export function classifyExactEbayProviderStatus(params: {
+  configured: boolean;
+  resultCount: number;
+  successfulAttemptCount: number;
+  firstError: string | null;
+}): InstaCompProviderResult["status"] {
+  if (!params.configured) return "not_configured";
+  if (params.resultCount > 0) return "live";
+  if (params.successfulAttemptCount > 0) return "no_matches";
+  return params.firstError ? "error" : "no_matches";
+}
+
 function normalizedText(value: string | null | undefined) {
   return cleanSpaces(value)
     .toLowerCase()
@@ -227,12 +246,21 @@ async function fetchLane(query: string, lane: EbayLane) {
       { cache: "no-store", signal: AbortSignal.timeout(45_000) },
     );
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok || payload?.error) {
+    const payloadError = payload?.error;
+    if (!response.ok || (payloadError && !isSerpApiNoResultsMessage(payloadError))) {
       return {
         ok: false as const,
         items: [] as EbaySerpItem[],
         cached: false,
-        message: sanitizeInstaCompProviderError(`SerpApi eBay ${lane} search failed: ${String(payload?.error || response.statusText)}`),
+        message: sanitizeInstaCompProviderError(`SerpApi eBay ${lane} search failed: ${String(payloadError || response.statusText)}`),
+      };
+    }
+    if (isSerpApiNoResultsMessage(payloadError)) {
+      return {
+        ok: true as const,
+        items: [] as EbaySerpItem[],
+        cached: false,
+        message: cleanSpaces(String(payloadError)),
       };
     }
     const items = normalizeEbaySerpItems(payload);
@@ -449,6 +477,7 @@ export async function providerAcrossQueries(params: {
   const attempts: ProviderAttempt[] = [];
   let results: InstaCompComp[] = [];
   let firstError: string | null = null;
+  let successfulAttemptCount = 0;
 
   for (const query of params.queries) {
     const fetched = await fetchLane(query, params.lane);
@@ -458,6 +487,7 @@ export async function providerAcrossQueries(params: {
       if (!SERPAPI_API_KEY) break;
       continue;
     }
+    successfulAttemptCount += 1;
     const exact = filterStrictExactMarketMatches(rawComps(fetched.items, params.lane), params.ai, 50).map(
       (comp) => ({
         ...comp,
@@ -483,20 +513,21 @@ export async function providerAcrossQueries(params: {
   }
 
   const primaryQuery = params.queries[0] || "sports card";
-  const status = !SERPAPI_API_KEY
-    ? "not_configured"
-    : results.length
-      ? "live"
-      : firstError
-        ? "error"
-        : "no_matches";
+  const status = classifyExactEbayProviderStatus({
+    configured: Boolean(SERPAPI_API_KEY),
+    resultCount: results.length,
+    successfulAttemptCount,
+    firstError,
+  });
   return {
     source: params.lane === "sold" ? "ebay_sold_serpapi_exact" : "ebay_active_serpapi_exact",
     label: params.lane === "sold" ? "eBay Sold" : "eBay Active",
     status,
     message: results.length
       ? `${results.length} strict exact ${params.lane} result${results.length === 1 ? "" : "s"} passed after ${attempts.length} query attempt${attempts.length === 1 ? "" : "s"}.`
-      : firstError || `No strict exact ${params.lane} results passed after ${attempts.length} query attempt${attempts.length === 1 ? "" : "s"}.`,
+      : successfulAttemptCount > 0
+        ? `No strict exact ${params.lane} results passed after ${successfulAttemptCount} successful query attempt${successfulAttemptCount === 1 ? "" : "s"}${firstError ? `; an additional attempt reported: ${firstError}` : "."}`
+        : firstError || `No strict exact ${params.lane} results passed after ${attempts.length} query attempt${attempts.length === 1 ? "" : "s"}.`,
     results,
     searchUrl: verificationUrl(primaryQuery, params.lane),
     attempts,
