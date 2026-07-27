@@ -55,6 +55,7 @@ jobs:
       - name: Apply SerpApi schema patch
         run: |
           set -euo pipefail
+          echo "Applying SerpApi schema patch v2"
           python -m py_compile scripts/apply-instacomp-serpapi-schema-fix.py scripts/harden-instacomp-visual-review-types.py
           python scripts/apply-instacomp-serpapi-schema-fix.py
           python scripts/harden-instacomp-visual-review-types.py
