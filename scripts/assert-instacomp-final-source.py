@@ -49,14 +49,25 @@ benchmark = Path("src/app/api/instacomp/benchmark/ebay-25/route.ts")
 require(
     benchmark,
     [
-        "benchmarkTitleHasExpectedPlayer",
-        "benchmarkTitleHasExpectedBrand",
-        "benchmarkTitleHasExpectedSet",
+        'from "../../../../../lib/instacomp-benchmark-title";',
+        "benchmarkTitleEligible(title, testCase)",
         "benchmarkTitleHasExpectedYear",
-        "benchmarkTitleHasExpectedParallel",
-        "benchmarkTitleHasExpectedSerialRun",
-        "benchmarkTitleEligible",
         "x-instacomp-benchmark-ephemeral",
+    ],
+)
+reject(benchmark, ["const BENCHMARK_VARIATION_CUES"])
+
+benchmark_title = Path("src/lib/instacomp-benchmark-title.ts")
+require(
+    benchmark_title,
+    [
+        "export function benchmarkTitleHasExpectedYear",
+        "export function benchmarkTitleHasExpectedParallel",
+        "export function benchmarkTitleHasExpectedSerialRun",
+        "function benchmarkTitleHasExpectedPlayer",
+        "function benchmarkTitleHasExpectedBrand",
+        "function benchmarkTitleHasExpectedSet",
+        "export function benchmarkTitleEligible",
     ],
 )
 
@@ -113,6 +124,7 @@ require(visual, ["awaiting image proof"])
 
 for path in [
     benchmark,
+    benchmark_title,
     Path("src/app/api/instacomp/live-scan/route.ts"),
     scan,
     matcher,
@@ -123,5 +135,9 @@ for path in [
 regression = Path("scripts/run-instacomp-exact-market-proof-regressions.ts")
 require(regression, ['benchmarkSource.includes("benchmarkTitleHasExpectedSerialRun")'])
 reject(regression, ['benchmarkSource.includes("titleHasExpectedSerialRun")'])
+
+final_regression = Path("scripts/run-instacomp-final-audit-regressions.ts")
+require(final_regression, ['from "../src/lib/instacomp-benchmark-title";'])
+reject(final_regression, ['from "../src/app/api/instacomp/benchmark/ebay-25/route";'])
 
 print("Final InstaComp materialized source invariants passed.")
