@@ -3,7 +3,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import {
   ensureAccountStoreMembership,
-  getAuthenticatedAccountFromRequest,
+  getAuthenticatedSellerAccountFromRequest,
 } from "./account-auth";
 import {
   canonicalActiveMarketProofItemId,
@@ -462,7 +462,7 @@ export async function handleActiveMarketAttackWithCompetitorProofGuard(
     return Response.json(payload, { status: baseResponse.status });
   }
 
-  const account = await getAuthenticatedAccountFromRequest(request);
+  const account = await getAuthenticatedSellerAccountFromRequest(request);
   if (!account) return Response.json(payload, { status: baseResponse.status });
   await ensureAccountStoreMembership({
     accountId: account.id,

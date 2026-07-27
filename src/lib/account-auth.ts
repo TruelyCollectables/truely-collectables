@@ -271,3 +271,43 @@ export async function getAuthenticatedAccountFromRequest(
     email,
   };
 }
+
+export async function getAuthenticatedAccountWithStoreRoleFromRequest(
+  request: Request,
+  params: {
+    role: AccountRole;
+    status?: string;
+  },
+): Promise<AuthenticatedAccount | null> {
+  const account = await getAuthenticatedAccountFromRequest(request);
+  if (!account) return null;
+
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from("account_store_memberships")
+    .select("status")
+    .eq("account_id", account.id)
+    .eq("store_id", getActiveStoreId())
+    .eq("role", params.role)
+    .maybeSingle();
+
+  if (error) {
+    if (!isMissingAccountTableError(error)) {
+      console.error("Account membership verification failed:", error.message);
+    }
+    return null;
+  }
+
+  if (!data || data.status !== (params.status || "active")) return null;
+  return account;
+}
+
+export async function getAuthenticatedSellerAccountFromRequest(
+  request: Request,
+): Promise<AuthenticatedAccount | null> {
+  return getAuthenticatedAccountWithStoreRoleFromRequest(request, {
+    role: "seller",
+    status: "active",
+  });
+}
+

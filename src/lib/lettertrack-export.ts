@@ -94,6 +94,11 @@ const csvHeaders: Array<keyof LetterTrackExportRow> = [
 
 export const LETTERTRACK_CSV_HEADERS = csvHeaders;
 
+// Retained so archived evidence from before the Tracked Card Letter rename
+// remains searchable without changing current customer-facing output.
+export const LEGACY_STANDARD_ENVELOPE_MISSING_ORDER_REASON =
+  "Order row was not found for this Standard Envelope label.";
+
 function text(value: unknown) {
   return String(value || "").trim();
 }
@@ -205,7 +210,7 @@ export function buildLetterTrackExport(params: {
       coverageInstruction:
         "Truely Collectables under-$20 seller protection is internal and item-only when applicable; LetterTrack provides limited delivery evidence, not external insurance.",
       sellerProtectionProgram: "Truely Collectables Under-$20 Seller Protection",
-      sellerProtectionOptInRequired: "store program rules apply",
+      sellerProtectionOptInRequired: "Seller must opt in per shipment.",
       sellerProtectionReserveRate: "2%",
       sellerProtectionMaxCoverage: "$20.00 item sale amount",
       sellerProtectionCoverageBasis: "item_sale_amount_excluding_shipping",

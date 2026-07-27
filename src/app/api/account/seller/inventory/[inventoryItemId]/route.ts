@@ -1,6 +1,6 @@
 import {
   ensureAccountStoreMembership,
-  getAuthenticatedAccountFromRequest,
+  getAuthenticatedSellerAccountFromRequest,
 } from "../../../../../../lib/account-auth";
 import {
   mergeAuthenticityIntoMetadata,
@@ -100,7 +100,7 @@ export async function PATCH(
   context: { params: Promise<{ inventoryItemId: string }> },
 ) {
   try {
-    const account = await getAuthenticatedAccountFromRequest(request);
+    const account = await getAuthenticatedSellerAccountFromRequest(request);
 
     if (!account) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });

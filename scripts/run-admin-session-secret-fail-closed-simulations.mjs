@@ -83,15 +83,20 @@ for (const [label, fragment] of [
 }
 
 for (const fragment of [
-  "createAdminSessionValue()",
+  'createAdminSessionValue("cookie")',
   '"session_error"',
   "appendExpiredAdminSessionCookies",
+  "Set ADMIN_SESSION_SECRET and restart the server.",
 ]) {
   assert.ok(
     loginRouteSource.includes(fragment),
     `Admin login route must preserve clean session-creation failure handling: ${fragment}`,
   );
 }
+assert.ok(
+  !loginRouteSource.includes("Set ADMIN_SESSION_SECRET or ADMIN_PASSWORD"),
+  "Admin login must not claim ADMIN_PASSWORD can replace the session-signing secret.",
+);
 
 console.log(
   "Admin session-secret fail-closed simulations passed: password verification and session signing use independent credentials, and Launch Readiness blocks missing signing-secret configuration.",

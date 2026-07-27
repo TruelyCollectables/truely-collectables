@@ -50,6 +50,7 @@ import {
   attachStripeSessionToCheckoutReservation,
   CHECKOUT_RESERVATION_MINUTES,
   releaseCheckoutReservation,
+  releaseCheckoutReservationForExpiredSession,
   reserveCheckoutInventory,
 } from "../../../lib/checkout-inventory-reservations";
 import { getStripePaymentRuntime } from "../../../lib/live-payment-launch";
@@ -338,34 +339,96 @@ export async function POST(request: Request) {
       identityMetadata: metadataSafeIdentity(clientIdentity),
     });
 
+    if (claim.stripeSessionId) {
+      let existingSession: Stripe.Checkout.Session;
+      try {
+        existingSession = await stripe.checkout.sessions.retrieve(
+          claim.stripeSessionId,
+        );
+      } catch {
+        return NextResponse.json(
+          {
+            error:
+              "The previous Checkout Session could not be verified. Try again shortly.",
+            retryable: true,
+          },
+          { status: 503, headers: { "Retry-After": "2" } },
+        );
+      }
+
+      if (existingSession.status === "complete") {
+        return NextResponse.json(
+          {
+            error:
+              "This checkout has already completed and the order is being finalized.",
+            retryable: false,
+          },
+          { status: 409 },
+        );
+      }
+
+      if (
+        existingSession.url &&
+        existingSession.status === "open" &&
+        claim.requestStatus === "session_created"
+      ) {
+        const reservationResult = await supabase
+          .from("checkout_inventory_reservations")
+          .select("id")
+          .eq("store_id", storeId)
+          .eq("checkout_attempt_id", checkoutAttemptId)
+          .eq("stripe_session_id", existingSession.id)
+          .eq("status", "active");
+        if (reservationResult.error) throw reservationResult.error;
+
+        if ((reservationResult.data || []).length === cart.length) {
+          return NextResponse.json({
+            url: existingSession.url,
+            replayed: true,
+            checkoutAttemptId,
+          });
+        }
+      }
+
+      if (existingSession.status === "open") {
+        try {
+          await stripe.checkout.sessions.expire(existingSession.id);
+        } catch {
+          return NextResponse.json(
+            {
+              error:
+                "The previous Checkout Session could not be safely reset. Try again shortly.",
+              retryable: true,
+            },
+            { status: 503, headers: { "Retry-After": "2" } },
+          );
+        }
+      }
+
+      await releaseCheckoutReservationForExpiredSession({
+        supabase,
+        storeId,
+        stripeSessionId: existingSession.id,
+      });
+
+      return NextResponse.json(
+        {
+          error:
+            "The previous Checkout Session ended. Start checkout again to create a fresh secure session.",
+          retryable: false,
+          resetAttempt: true,
+        },
+        { status: 409 },
+      );
+    }
+
     if (!claim.fingerprintMatches) {
       return NextResponse.json(
         {
           error:
             "This checkout attempt no longer matches the current cart. Start checkout again.",
           retryable: false,
-        },
-        { status: 409 },
-      );
-    }
-
-    if (claim.requestStatus === "session_created" && claim.stripeSessionId) {
-      const existingSession = await stripe.checkout.sessions.retrieve(
-        claim.stripeSessionId,
-      );
-
-      if (existingSession.url && existingSession.status === "open") {
-        return NextResponse.json({
-          url: existingSession.url,
-          replayed: true,
-          checkoutAttemptId,
-        });
-      }
-
-      return NextResponse.json(
-        {
-          error: "The previous Checkout Session is no longer available.",
-          retryable: false,
+          resetAttempt: true,
         },
         { status: 409 },
       );
@@ -478,6 +541,7 @@ export async function POST(request: Request) {
       storeId,
       checkoutAttemptId,
       stripeSessionId: session.id,
+      expectedCount: reservation.rows.length,
     });
 
     await completeCheckoutAttempt({
@@ -535,6 +599,7 @@ export async function POST(request: Request) {
           supabase: checkoutJournal.supabase,
           rowId: checkoutJournal.rowId,
           error,
+          stripeSessionId: checkoutJournal.stripeSessionId,
         });
       } catch {
         console.error("Checkout attempt failure could not be journaled");

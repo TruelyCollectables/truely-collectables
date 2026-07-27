@@ -25,6 +25,7 @@ import {
   getStripeTestWebhookSecret,
 } from "../../../lib/stripe-credentials";
 import { finalizeCheckoutOrder } from "../../../lib/checkout-order-finalization";
+import { releaseCheckoutReservationForExpiredSession } from "../../../lib/checkout-inventory-reservations";
 
 export const dynamic = "force-dynamic";
 
@@ -296,6 +297,35 @@ export async function POST(req: Request) {
         },
       });
       return NextResponse.json({ received: true, simulation: true });
+    }
+
+    if (event.type === "checkout.session.expired") {
+      const session = event.data.object as Stripe.Checkout.Session;
+      const metadata = session.metadata || {};
+
+      if (session.mode !== "payment" || metadata.store_id !== storeId) {
+        await finishStripeWebhookEvent({
+          ...journal,
+          status: "ignored",
+          metadata: { outcome: "expired_session_not_store_payment" },
+        });
+        return NextResponse.json({ received: true });
+      }
+
+      const released = await releaseCheckoutReservationForExpiredSession({
+        supabase,
+        storeId,
+        stripeSessionId: session.id,
+      });
+      await finishStripeWebhookEvent({
+        ...journal,
+        status: "processed",
+        metadata: {
+          outcome: "expired_checkout_reservation_released",
+          released_reservation_count: released.releasedCount,
+        },
+      });
+      return NextResponse.json({ received: true });
     }
 
     if (event.type === "account.updated") {

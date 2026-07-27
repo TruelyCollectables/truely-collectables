@@ -40,6 +40,7 @@ type OrderNotificationRow = {
   provider_message_id: string | null;
   last_error: string | null;
   last_attempt_at: string | null;
+  next_attempt_at: string;
   sent_at: string | null;
 };
 
@@ -50,6 +51,14 @@ export type OrderNotificationDeliveryResult = {
   providerMessageId: string | null;
   error: string | null;
 };
+
+export function orderNotificationRetryDelaySeconds(attemptCount: number) {
+  const normalizedAttempt = Number.isFinite(attemptCount)
+    ? Math.max(Math.floor(attemptCount) - 1, 0)
+    : 0;
+  const exponent = Math.min(normalizedAttempt, 5);
+  return Math.min(15 * 60 * 2 ** exponent, 6 * 60 * 60);
+}
 
 function cleanInline(value: unknown, fallback = "") {
   const text = String(value ?? "")
@@ -272,9 +281,17 @@ async function markNotificationFailed(params: {
   error: string;
 }) {
   const safeError = cleanInline(params.error, "Email delivery failed").slice(0, 2000);
+  const nextAttemptAt = new Date(
+    Date.now() +
+      orderNotificationRetryDelaySeconds(params.row.attempt_count) * 1000,
+  ).toISOString();
   await params.supabase
     .from("order_notification_deliveries")
-    .update({ status: "failed", last_error: safeError })
+    .update({
+      status: "failed",
+      last_error: safeError,
+      next_attempt_at: nextAttemptAt,
+    })
     .eq("id", params.row.id)
     .eq("store_id", params.row.store_id);
 
@@ -370,6 +387,7 @@ export async function deliverOrderNotification(params: {
         status: "sent",
         provider_message_id: String(data.id),
         sent_at: sentAt,
+        next_attempt_at: sentAt,
         last_error: null,
       })
       .eq("id", row.id)
@@ -408,12 +426,15 @@ export async function retryOrderNotifications(params: {
   limit?: number;
 }) {
   const limit = Math.min(Math.max(Math.floor(params.limit || 25), 1), 100);
+  const now = new Date().toISOString();
   const { data, error } = await params.supabase
     .from("order_notification_deliveries")
     .select("id")
     .eq("store_id", params.storeId)
     .in("status", ["pending", "failed", "sending"])
     .lt("attempt_count", 10)
+    .lte("next_attempt_at", now)
+    .order("next_attempt_at", { ascending: true })
     .order("created_at", { ascending: true })
     .limit(limit);
   if (error) throw error;

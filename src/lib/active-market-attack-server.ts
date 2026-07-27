@@ -2,7 +2,7 @@ import "server-only";
 
 import {
   ensureAccountStoreMembership,
-  getAuthenticatedAccountFromRequest,
+  getAuthenticatedSellerAccountFromRequest,
 } from "./account-auth";
 import { classifyCollectibleCategory } from "./collectible-category-policy";
 import { getActiveStoreId } from "./stores";
@@ -865,7 +865,7 @@ export async function handleActiveMarketAttack(
   context: { params: Promise<{ inventoryItemId: string }> },
 ) {
   try {
-    const account = await getAuthenticatedAccountFromRequest(request);
+    const account = await getAuthenticatedSellerAccountFromRequest(request);
     if (!account) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }

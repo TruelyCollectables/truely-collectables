@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getAuthenticatedAccountFromRequest } from "../../../../../../lib/account-auth";
+import { getAuthenticatedSellerAccountFromRequest } from "../../../../../../lib/account-auth";
 import { buildSellerOrderSignals } from "../../../../../../lib/seller-order-signals";
 import {
   isMissingPayoutReviewGuardTable,
@@ -180,7 +180,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const account = await getAuthenticatedAccountFromRequest(request);
+    const account = await getAuthenticatedSellerAccountFromRequest(request);
 
     if (!account) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

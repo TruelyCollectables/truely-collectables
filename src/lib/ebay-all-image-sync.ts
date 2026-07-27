@@ -366,7 +366,7 @@ export async function syncEbayAllListingImages(params: {
       imagesRemoved: 0,
       pagesRead: remote.pagesRead,
       cycleComplete: remote.cycleComplete,
-      maxImagesPerListing: 20,
+      maxImagesPerListing: 24,
       remainingCandidates: 0,
       errors: [] as Array<{ legacyProductId: number; error: string }>,
     };
@@ -473,7 +473,7 @@ export async function syncEbayAllListingImages(params: {
     imagesRemoved,
     pagesRead: remote.pagesRead,
     cycleComplete: remote.cycleComplete,
-    maxImagesPerListing: 20,
+    maxImagesPerListing: 24,
     remainingCandidates: Math.max(allCandidates.length - candidates.length, 0),
     errors,
   };

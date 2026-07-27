@@ -1,6 +1,11 @@
 const REVIEW_FULFILLMENT_STATUSES = new Set([
   "inventory_review",
   "shipping_review",
+  "payment_review",
+  "financial_review",
+  "offer_review",
+  "refund_review",
+  "dispute_review",
 ]);
 
 export function isPaidOrderStatus(status: string | null | undefined) {

@@ -16,6 +16,7 @@ export const LIVE_PAYMENT_APPROVAL_VERSION = "tcos-live-payments-v1";
 export const REQUIRED_LIVE_WEBHOOK_EVENTS = [
   "account.updated",
   "checkout.session.completed",
+  "checkout.session.expired",
   "refund.created",
   "refund.updated",
   "refund.failed",

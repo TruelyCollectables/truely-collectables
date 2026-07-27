@@ -134,8 +134,8 @@ function jsonBodyNextPath(body: unknown, fallback: string) {
     typeof record.next === "string"
       ? record.next
       : typeof record.nextPath === "string"
-      ? record.nextPath
-      : fallback,
+        ? record.nextPath
+        : fallback,
   );
 }
 
@@ -258,7 +258,7 @@ export async function POST(req: Request) {
         code: "admin_password_missing",
         error: "Admin password is not configured. Set ADMIN_PASSWORD and restart the server.",
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 
@@ -298,14 +298,14 @@ export async function POST(req: Request) {
               0,
             ),
       },
-      { status: isSoftLockout ? 429 : 401 }
+      { status: isSoftLockout ? 429 : 401 },
     );
   }
 
   let sessionValue: string;
 
   try {
-    sessionValue = await createAdminSessionValue();
+    sessionValue = await createAdminSessionValue("cookie");
   } catch (error) {
     console.error("Admin session creation failed after password verification:", error);
 
@@ -326,7 +326,7 @@ export async function POST(req: Request) {
         success: false,
         code: "admin_session_not_created",
         error:
-          "Admin password was accepted, but the server could not create an admin session. Set ADMIN_SESSION_SECRET or ADMIN_PASSWORD and restart the server.",
+          "Admin password was accepted, but the server could not create an admin session. Set ADMIN_SESSION_SECRET and restart the server.",
       },
       { status: 500 },
     );

@@ -1,6 +1,6 @@
 import {
   ensureAccountStoreMembership,
-  getAuthenticatedAccountFromRequest,
+  getAuthenticatedSellerAccountFromRequest,
 } from "../../../../../../../lib/account-auth";
 import {
   publicSellerMarketplaceConnection,
@@ -76,7 +76,7 @@ export async function POST(request: Request) {
   let requestedAction: SyncControlAction | "invalid" | "unknown" = "unknown";
 
   try {
-    const account = await getAuthenticatedAccountFromRequest(request);
+    const account = await getAuthenticatedSellerAccountFromRequest(request);
 
     if (!account) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });

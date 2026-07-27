@@ -17,6 +17,43 @@ import {
 import { selectedCheckoutShipping } from "./stripe-selected-shipping";
 import { persistBuyerProtectionForOrder } from "./buyer-protection-order";
 import { enqueueAndAttemptOrderNotification } from "./order-notifications";
+import { loadStripePaidCheckoutAmounts } from "./stripe-paid-item-prices";
+
+function roundMoney(value: number) {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function money(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? roundMoney(parsed) : 0;
+}
+
+function moneyMatches(left: unknown, right: unknown) {
+  return Math.round(money(left) * 100) === Math.round(money(right) * 100);
+}
+
+function isValidEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) && value.length <= 320;
+}
+
+async function markOrderReview(params: {
+  supabase: SupabaseClient;
+  storeId: string;
+  orderId: number;
+  status: string;
+  fulfillmentStatus: string;
+}) {
+  const { error } = await params.supabase
+    .from("orders")
+    .update({
+      status: params.status,
+      fulfillment_status: params.fulfillmentStatus,
+      last_payment_event_at: new Date().toISOString(),
+    })
+    .eq("id", params.orderId)
+    .eq("store_id", params.storeId);
+  if (error) throw error;
+}
 
 export async function finalizeCheckoutOrder(params: {
   supabase: SupabaseClient;
@@ -28,25 +65,36 @@ export async function finalizeCheckoutOrder(params: {
 }) {
   const { supabase, stripe, event, session, storeId, inventoryEngine } = params;
   const metadata = session.metadata || {};
+
+  if (
+    event.type !== "checkout.session.completed" ||
+    session.mode !== "payment" ||
+    session.status !== "complete" ||
+    session.payment_status !== "paid"
+  ) {
+    throw new Error("The Stripe event is not a completed paid Checkout Session.");
+  }
+  if (session.livemode !== event.livemode) {
+    throw new Error("The Stripe event and Checkout Session payment modes disagree.");
+  }
+  if (metadata.store_id !== storeId) {
+    throw new Error("The paid Checkout Session does not belong to the active store.");
+  }
+
   const collectedInfo = session.collected_information as any;
-  const customerEmail =
-    session.customer_details?.email || session.customer_email || "unknown";
+  const legacyShippingDetails = (session as any).shipping_details;
+  const shippingDetails =
+    collectedInfo?.shipping_details || legacyShippingDetails || null;
+  const customerEmail = String(
+    session.customer_details?.email || session.customer_email || "unknown",
+  )
+    .trim()
+    .toLowerCase();
   const customerName =
-    session.customer_details?.name || collectedInfo?.shipping_details?.name || null;
-  const shipping = collectedInfo?.shipping_details?.address;
+    session.customer_details?.name || shippingDetails?.name || null;
+  const shipping = shippingDetails?.address || null;
   const shippingCountry = shipping?.country || null;
   const shippingAllowed = isAllowedShippingCountry(shippingCountry);
-  const total = Number(session.amount_total || 0) / 100;
-  const selectedShipping = await selectedCheckoutShipping({
-    stripe,
-    session,
-    metadata,
-  });
-  const shippingMethod = selectedShipping.method;
-  const shippingName = selectedShipping.name;
-  const shippingAmount = selectedShipping.amount;
-  const subtotal = Number(metadata.subtotal || total - shippingAmount);
-  const itemCount = Number(metadata.item_count || 0);
   const accountId = metadata.account_id || null;
   const offerId = metadata.offer_id;
   const checkoutType = metadata.type || "cart";
@@ -89,45 +137,95 @@ export async function finalizeCheckoutOrder(params: {
     }
   }
 
+  const paidAmounts = await loadStripePaidCheckoutAmounts({
+    stripe,
+    session,
+    expectedItems: cart,
+    checkoutType,
+    metadata,
+  });
+  const selectedShipping = await selectedCheckoutShipping({
+    stripe,
+    session,
+    metadata,
+  });
+  const shippingMethod = selectedShipping.method;
+  const shippingName = selectedShipping.name;
+  const total = paidAmounts.total;
+  const subtotal = paidAmounts.itemSubtotal;
+  const shippingAmount = paidAmounts.shippingAmount;
+  const buyerProtectionAmount = paidAmounts.buyerProtectionAmount;
   const normalizedItemCount = cart.reduce(
     (sum, cartItem) => sum + cartItem.quantity,
     0,
   );
+
+  const paymentReviewReasons: string[] = [];
+  if (!moneyMatches(metadata.subtotal, subtotal)) {
+    paymentReviewReasons.push("metadata_subtotal_mismatch");
+  }
+  if (!moneyMatches(metadata.shipping_amount, shippingAmount)) {
+    paymentReviewReasons.push("metadata_shipping_mismatch");
+  }
+  if (!moneyMatches(selectedShipping.amount, shippingAmount)) {
+    paymentReviewReasons.push("selected_shipping_mismatch");
+  }
+  const metadataProtectionSelected =
+    metadata.buyer_protection_selected === "true";
+  if (metadataProtectionSelected !== (buyerProtectionAmount > 0)) {
+    paymentReviewReasons.push("buyer_protection_selection_mismatch");
+  }
+  if (
+    metadataProtectionSelected &&
+    !moneyMatches(metadata.buyer_protection_fee, buyerProtectionAmount)
+  ) {
+    paymentReviewReasons.push("buyer_protection_fee_mismatch");
+  }
+  if (Number(metadata.item_count || normalizedItemCount) !== normalizedItemCount) {
+    paymentReviewReasons.push("item_count_mismatch");
+  }
+
+  const paymentReviewRequired = paymentReviewReasons.length > 0;
+  const initialStatus = paymentReviewRequired
+    ? "paid_payment_review"
+    : shippingAllowed
+      ? "paid"
+      : "paid_shipping_review";
+  const initialFulfillmentStatus = paymentReviewRequired
+    ? "payment_review"
+    : shippingAllowed
+      ? "ready_to_ship"
+      : "shipping_review";
+  const now = new Date().toISOString();
+
   const { data: existingOrder, error: existingOrderError } = await supabase
     .from("orders")
-    .select("id")
+    .select("id,status,fulfillment_status")
     .eq("stripe_session_id", session.id)
     .eq("store_id", storeId)
     .maybeSingle();
-
   if (existingOrderError) throw existingOrderError;
 
-  const orderPayload = {
-    store_id: storeId,
+  const stableOrderPayload = {
     account_id: accountId,
     customer_email: customerEmail,
     customer_name: customerName,
     total,
-    status: shippingAllowed ? "paid" : "paid_shipping_review",
-    payment_status: session.payment_status || "paid",
+    payment_status: session.payment_status,
     stripe_payment_intent_id: stripePaymentIntentId,
     stripe_charge_id: stripeChargeId,
-    last_payment_event_at: new Date().toISOString(),
+    last_payment_event_at: now,
     shipping_method: shippingMethod,
     shipping_name: shippingName,
     shipping_amount: shippingAmount,
     subtotal,
-    item_count: itemCount || normalizedItemCount,
-    fulfillment_status: shippingAllowed ? "ready_to_ship" : "shipping_review",
+    item_count: normalizedItemCount,
     shipping_address_line1: shipping?.line1 || null,
     shipping_address_line2: shipping?.line2 || null,
     shipping_city: shipping?.city || null,
     shipping_state: shipping?.state || null,
     shipping_postal_code: shipping?.postal_code || null,
     shipping_country: shippingCountry,
-    contains_seller_items: false,
-    seller_item_count: 0,
-    store_item_count: 0,
     is_test: isE2ETest,
     test_run_id: testRunId,
     tos_accepted: metadata.tos_accepted === "true",
@@ -140,52 +238,95 @@ export async function finalizeCheckoutOrder(params: {
     tos_ip_block_reason: metadata.tos_ip_block_reason || null,
   };
 
+  const existingStatus = String(existingOrder?.status || "");
+  const existingFulfillment = String(existingOrder?.fulfillment_status || "");
   let orderId: number;
   if (existingOrder) {
     orderId = Number(existingOrder.id);
+    const mayApplySafetyReview = ![
+      "shipped",
+      "delivered",
+      "cancelled",
+      "refunded",
+      "disputed",
+    ].some(
+      (value) =>
+        existingStatus.includes(value) || existingFulfillment.includes(value),
+    );
     const { error } = await supabase
       .from("orders")
-      .update(orderPayload)
+      .update({
+        ...stableOrderPayload,
+        ...(paymentReviewRequired && mayApplySafetyReview
+          ? {
+              status: initialStatus,
+              fulfillment_status: initialFulfillmentStatus,
+            }
+          : {}),
+      })
       .eq("id", orderId)
       .eq("store_id", storeId);
     if (error) throw error;
   } else {
     const { data: order, error } = await supabase
       .from("orders")
-      .insert({ ...orderPayload, stripe_session_id: session.id })
+      .insert({
+        store_id: storeId,
+        ...stableOrderPayload,
+        status: initialStatus,
+        fulfillment_status: initialFulfillmentStatus,
+        contains_seller_items: false,
+        seller_item_count: 0,
+        store_item_count: 0,
+        stripe_session_id: session.id,
+      })
       .select("id")
       .single();
     if (error || !order) throw error || new Error("Order insert failed");
     orderId = Number(order.id);
   }
 
-  await persistBuyerProtectionForOrder({
-    supabase,
-    storeId,
-    orderId,
-    accountId,
-    shippingMethod,
-    metadata,
-    isTest: isE2ETest,
-  });
+  if (paymentReviewRequired) {
+    console.error(
+      `Paid order ${orderId} requires amount review: ${paymentReviewReasons.join(", ")}`,
+    );
+  }
 
-  const { data: existingItems, error: existingItemsError } = await supabase
+  try {
+    await persistBuyerProtectionForOrder({
+      supabase,
+      storeId,
+      orderId,
+      accountId,
+      shippingMethod,
+      metadata,
+      isTest: isE2ETest,
+      paidFeeAmount: buyerProtectionAmount,
+      paidItemSubtotal: subtotal,
+    });
+  } catch (protectionError) {
+    await markOrderReview({
+      supabase,
+      storeId,
+      orderId,
+      status: "paid_payment_review",
+      fulfillmentStatus: "payment_review",
+    });
+    throw protectionError;
+  }
+
+  const { data: existingOrderItems, error: existingOrderItemsError } = await supabase
     .from("order_items")
-    .select("product_id")
+    .select("id,product_id,seller_account_id,title,price,quantity")
     .eq("order_id", orderId)
     .eq("store_id", storeId);
-  if (existingItemsError) throw existingItemsError;
-
-  const existingProductIds = new Set(
-    (existingItems || []).map((item) => Number(item.product_id)),
+  if (existingOrderItemsError) throw existingOrderItemsError;
+  const existingOrderItemsByProductId = new Map(
+    (existingOrderItems || []).map((item) => [Number(item.product_id), item]),
   );
-  let sellerItemCount = 0;
-  let storeItemCount = 0;
 
   for (const cartItem of cart) {
     const product = productById.get(cartItem.id)!;
-    if (product.sellerAccountId) sellerItemCount += cartItem.quantity;
-    else storeItemCount += cartItem.quantity;
 
     let mutation;
     try {
@@ -207,44 +348,129 @@ export async function finalizeCheckoutOrder(params: {
               quantity: cartItem.quantity,
             });
     } catch (inventoryError) {
-      await supabase
-        .from("orders")
-        .update({
-          fulfillment_status: "inventory_review",
-          status: "paid_inventory_review",
-        })
-        .eq("id", orderId)
-        .eq("store_id", storeId);
+      await markOrderReview({
+        supabase,
+        storeId,
+        orderId,
+        status: "paid_inventory_review",
+        fulfillmentStatus: "inventory_review",
+      });
       throw inventoryError;
     }
 
-    if (!existingProductIds.has(product.legacyProductId)) {
-      const { error: itemError } = await supabase.from("order_items").insert({
-        store_id: storeId,
-        order_id: orderId,
-        product_id: product.legacyProductId,
-        seller_account_id: product.sellerAccountId,
-        title: product.title,
-        price: Number(product.price),
-        quantity: cartItem.quantity,
-        is_test: isE2ETest,
-        test_run_id: testRunId,
+    const paidUnitPrice = paidAmounts.unitPrices.get(product.legacyProductId);
+    if (paidUnitPrice === undefined) {
+      await markOrderReview({
+        supabase,
+        storeId,
+        orderId,
+        status: "paid_payment_review",
+        fulfillmentStatus: "payment_review",
       });
-      if (itemError) throw itemError;
-      existingProductIds.add(product.legacyProductId);
+      throw new Error(
+        `The paid unit price for product ${product.legacyProductId} is unavailable.`,
+      );
+    }
+
+    const existingOrderItem = existingOrderItemsByProductId.get(
+      product.legacyProductId,
+    );
+    if (existingOrderItem) {
+      if (Number(existingOrderItem.quantity) !== cartItem.quantity) {
+        await markOrderReview({
+          supabase,
+          storeId,
+          orderId,
+          status: "paid_payment_review",
+          fulfillmentStatus: "payment_review",
+        });
+        throw new Error(
+          `The persisted order quantity for product ${product.legacyProductId} does not match Stripe.`,
+        );
+      }
+
+      const { error: itemUpdateError } = await supabase
+        .from("order_items")
+        .update({
+          price: paidUnitPrice,
+          quantity: cartItem.quantity,
+          is_test: isE2ETest,
+          test_run_id: testRunId,
+        })
+        .eq("id", existingOrderItem.id)
+        .eq("store_id", storeId)
+        .eq("order_id", orderId);
+      if (itemUpdateError) throw itemUpdateError;
+    } else {
+      const { data: insertedOrderItem, error: itemInsertError } = await supabase
+        .from("order_items")
+        .insert({
+          store_id: storeId,
+          order_id: orderId,
+          product_id: product.legacyProductId,
+          seller_account_id: product.sellerAccountId,
+          title: product.title,
+          price: paidUnitPrice,
+          quantity: cartItem.quantity,
+          is_test: isE2ETest,
+          test_run_id: testRunId,
+        })
+        .select("id,product_id,seller_account_id,title,price,quantity")
+        .single();
+      if (itemInsertError || !insertedOrderItem) {
+        throw itemInsertError || new Error("Order item insert failed");
+      }
+      existingOrderItemsByProductId.set(
+        product.legacyProductId,
+        insertedOrderItem,
+      );
     }
 
     try {
-      await syncEbayQuantityAfterSale({
+      const immediateSync = await syncEbayQuantityAfterSale({
         sku: product.sku,
         ebayItemId: product.ebayItemId,
         newQuantity: mutation.newQuantity,
       });
+      if (!immediateSync.success) {
+        console.error(
+          "Immediate eBay sync after sale was deferred to the durable outbox:",
+          immediateSync.reason || "unknown reason",
+        );
+      }
     } catch (ebayError: any) {
-      console.error("eBay sync after sale failed:", ebayError.message);
+      console.error(
+        "Immediate eBay sync after sale failed; durable outbox will retry:",
+        ebayError?.message || ebayError,
+      );
     }
   }
 
+  const { data: ledgerOrderItems, error: ledgerItemsError } = await supabase
+    .from("order_items")
+    .select("id,product_id,seller_account_id,title,price,quantity")
+    .eq("order_id", orderId)
+    .eq("store_id", storeId);
+  if (ledgerItemsError) throw ledgerItemsError;
+  if (!ledgerOrderItems || ledgerOrderItems.length !== cart.length) {
+    await markOrderReview({
+      supabase,
+      storeId,
+      orderId,
+      status: "paid_financial_review",
+      fulfillmentStatus: "financial_review",
+    });
+    throw new Error("The paid order item ledger does not cover every cart line.");
+  }
+
+  const sellerItemCount = ledgerOrderItems.reduce(
+    (sum, item) => sum + (item.seller_account_id ? Number(item.quantity || 0) : 0),
+    0,
+  );
+  const storeItemCount = ledgerOrderItems.reduce(
+    (sum, item) => sum + (!item.seller_account_id ? Number(item.quantity || 0) : 0),
+    0,
+  );
   const { error: countUpdateError } = await supabase
     .from("orders")
     .update({
@@ -256,76 +482,85 @@ export async function finalizeCheckoutOrder(params: {
     .eq("store_id", storeId);
   if (countUpdateError) throw countUpdateError;
 
-  const { data: ledgerOrderItems, error: ledgerItemsError } = await supabase
-    .from("order_items")
-    .select("id,product_id,seller_account_id,title,price,quantity")
-    .eq("order_id", orderId)
-    .eq("store_id", storeId);
-  if (ledgerItemsError) throw ledgerItemsError;
+  try {
+    const storeSettings = await getStoreSettings(supabase, storeId);
+    const productIds = Array.from(
+      new Set(
+        ledgerOrderItems
+          .map((item) => Number(item.product_id || 0))
+          .filter((productId) => productId > 0),
+      ),
+    );
+    const { data: ledgerInventoryItems, error: ledgerInventoryError } =
+      productIds.length === 0
+        ? { data: [], error: null }
+        : await supabase
+            .from("inventory_items")
+            .select("legacy_product_id,metadata")
+            .eq("store_id", storeId)
+            .in("legacy_product_id", productIds);
+    if (ledgerInventoryError) throw ledgerInventoryError;
+    const metadataByProductId = new Map(
+      (ledgerInventoryItems || []).map((item: any) => [
+        Number(item.legacy_product_id || 0),
+        item.metadata || {},
+      ]),
+    );
+    const itemsWithMetadata = ledgerOrderItems.map((item) => ({
+      ...item,
+      metadata: metadataByProductId.get(Number(item.product_id || 0)) || {},
+    }));
 
-  if (ledgerOrderItems && ledgerOrderItems.length > 0) {
-    try {
-      const storeSettings = await getStoreSettings(supabase, storeId);
-      const productIds = Array.from(
-        new Set(
-          ledgerOrderItems
-            .map((item) => Number(item.product_id || 0))
-            .filter((productId) => productId > 0),
-        ),
-      );
-      const { data: ledgerInventoryItems } =
-        productIds.length === 0
-          ? { data: [] }
-          : await supabase
-              .from("inventory_items")
-              .select("legacy_product_id,metadata")
-              .eq("store_id", storeId)
-              .in("legacy_product_id", productIds);
-      const metadataByProductId = new Map(
-        (ledgerInventoryItems || []).map((item: any) => [
-          Number(item.legacy_product_id || 0),
-          item.metadata || {},
-        ]),
-      );
-      const itemsWithMetadata = ledgerOrderItems.map((item) => ({
-        ...item,
-        metadata: metadataByProductId.get(Number(item.product_id || 0)) || {},
-      }));
-
-      await createPlatformFeeLedgerForOrder({
-        supabase,
-        storeId,
-        orderId,
-        orderItems: itemsWithMetadata,
-        shippingAmount,
-        platformFeeRate: storeSettings.sellerCommissionRate,
-        stripeSession: session,
-      });
-      await createSellerPayoutLedgerForOrder({
-        supabase,
-        storeId,
-        orderId,
-        orderItems: itemsWithMetadata,
-        shippingAmount,
-        shippingMethod,
-        platformFeeRate: storeSettings.sellerCommissionRate,
-        stripeSession: session,
-      });
-    } catch (ledgerError: any) {
-      console.error(
-        "Seller payout ledger update failed:",
-        ledgerError.message || ledgerError,
-      );
-    }
+    await createPlatformFeeLedgerForOrder({
+      supabase,
+      storeId,
+      orderId,
+      orderItems: itemsWithMetadata,
+      shippingAmount,
+      platformFeeRate: storeSettings.sellerCommissionRate,
+      stripeSession: session,
+    });
+    await createSellerPayoutLedgerForOrder({
+      supabase,
+      storeId,
+      orderId,
+      orderItems: itemsWithMetadata,
+      shippingAmount,
+      shippingMethod,
+      platformFeeRate: storeSettings.sellerCommissionRate,
+      stripeSession: session,
+    });
+  } catch (ledgerError) {
+    await markOrderReview({
+      supabase,
+      storeId,
+      orderId,
+      status: "paid_financial_review",
+      fulfillmentStatus: "financial_review",
+    });
+    throw ledgerError;
   }
 
   if (checkoutType === "accepted_offer" && offerId) {
-    const { error } = await supabase
+    const { data: paidOffer, error } = await supabase
       .from("offers")
       .update({ status: "paid", updated_at: new Date().toISOString() })
       .eq("id", offerId)
-      .eq("store_id", storeId);
+      .eq("store_id", storeId)
+      .in("status", ["accepted", "countered", "paid"])
+      .select("id")
+      .maybeSingle();
     if (error) throw error;
+    if (!paidOffer) {
+      await markOrderReview({
+        supabase,
+        storeId,
+        orderId,
+        status: "paid_offer_review",
+        fulfillmentStatus: "offer_review",
+      });
+      throw new Error("The paid accepted offer could not be finalized safely.");
+    }
   }
 
   try {
@@ -336,43 +571,75 @@ export async function finalizeCheckoutOrder(params: {
       stripeEvent: event,
       storeId,
     });
-  } catch (reportError: any) {
-    console.error(
-      "Transaction evidence report failed:",
-      reportError.message || reportError,
-    );
+  } catch (reportError) {
+    await markOrderReview({
+      supabase,
+      storeId,
+      orderId,
+      status: "paid_financial_review",
+      fulfillmentStatus: "financial_review",
+    });
+    throw reportError;
   }
 
-  if (!isE2ETest) {
-    try {
-      await enqueueAndAttemptOrderNotification({
-        supabase,
-        storeId,
+  if (!isE2ETest && isValidEmail(customerEmail)) {
+    const notification = await enqueueAndAttemptOrderNotification({
+      supabase,
+      storeId,
+      orderId,
+      notificationType: "payment_confirmation",
+      recipientEmail: customerEmail,
+      recipientName: customerName,
+      payload: {
         orderId,
-        notificationType: "payment_confirmation",
-        recipientEmail: customerEmail,
-        recipientName: customerName,
-        payload: {
-          orderId,
-          customerName,
-          total,
-          subtotal,
-          shippingAmount,
-          shippingName,
-          items: (ledgerOrderItems || []).map((item) => ({
-            title: String(item.title || "Item"),
-            quantity: Number(item.quantity || 1),
-            price: Number(item.price || 0),
-          })),
-        },
-      });
-    } catch (notificationError: any) {
+        customerName,
+        total,
+        subtotal,
+        shippingAmount,
+        shippingName,
+        items: ledgerOrderItems.map((item) => ({
+          title: String(item.title || "Item"),
+          quantity: Number(item.quantity || 1),
+          price: Number(item.price || 0),
+        })),
+      },
+    });
+    if (notification && !notification.sent) {
       console.error(
-        "Payment confirmation notification failed:",
-        notificationError?.message || notificationError,
+        `Payment confirmation for order ${orderId} is queued for retry: ${notification.error || notification.status}`,
       );
     }
   }
 
-  return { orderId };
+  const recoverableReviewStatuses = new Set([
+    "paid_inventory_review",
+    "paid_financial_review",
+    "paid_offer_review",
+    "paid_payment_review",
+  ]);
+  if (
+    existingOrder &&
+    recoverableReviewStatuses.has(existingStatus) &&
+    !paymentReviewRequired
+  ) {
+    await markOrderReview({
+      supabase,
+      storeId,
+      orderId,
+      status: shippingAllowed ? "paid" : "paid_shipping_review",
+      fulfillmentStatus: shippingAllowed ? "ready_to_ship" : "shipping_review",
+    });
+  }
+
+  return {
+    orderId,
+    paymentReviewRequired,
+    paymentReviewReasons,
+    paidAmounts: {
+      total,
+      subtotal,
+      shippingAmount,
+      buyerProtectionAmount,
+    },
+  };
 }

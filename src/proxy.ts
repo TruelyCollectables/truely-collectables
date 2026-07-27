@@ -3,7 +3,6 @@ import type { NextRequest } from "next/server";
 import { getClientIdentity } from "./lib/client-identity";
 import {
   ADMIN_SESSION_COOKIE_NAMES,
-  appendAdminSessionCookies,
   isValidAdminSessionValue,
 } from "./lib/admin-session";
 
@@ -11,6 +10,11 @@ function applySecurityHeaders(response: NextResponse, req: NextRequest) {
   const isAdminOrApi =
     req.nextUrl.pathname.startsWith("/admin") ||
     req.nextUrl.pathname.startsWith("/api");
+  const scriptSources = ["'self'", "'unsafe-inline'"];
+
+  if (process.env.NODE_ENV !== "production") {
+    scriptSources.push("'unsafe-eval'");
+  }
 
   response.headers.set("X-Content-Type-Options", "nosniff");
   response.headers.set("X-Frame-Options", "DENY");
@@ -26,11 +30,12 @@ function applySecurityHeaders(response: NextResponse, req: NextRequest) {
     "Content-Security-Policy",
     [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+      `script-src ${scriptSources.join(" ")}`,
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https:",
       "font-src 'self' data:",
       "connect-src 'self' https:",
+      "object-src 'none'",
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self' https://checkout.stripe.com",
@@ -167,7 +172,9 @@ function unauthorized(req: NextRequest) {
   }
 
   const url = req.nextUrl.clone();
-  const nextPath = `${req.nextUrl.pathname}${req.nextUrl.search}`;
+  const intendedUrl = req.nextUrl.clone();
+  intendedUrl.searchParams.delete("admin_handoff");
+  const nextPath = `${intendedUrl.pathname}${intendedUrl.search}`;
   url.pathname = "/admin/login";
   url.search = "";
   url.searchParams.set("next", nextPath);
@@ -185,8 +192,34 @@ function canonicalDomainRedirect(req: NextRequest) {
   return NextResponse.redirect(url, 308);
 }
 
+function stripLegacyAdminHandoff(req: NextRequest) {
+  if (!req.nextUrl.searchParams.has("admin_handoff")) return null;
+
+  const url = req.nextUrl.clone();
+  url.searchParams.delete("admin_handoff");
+
+  if (req.method === "GET" || req.method === "HEAD") {
+    return NextResponse.redirect(url, 303);
+  }
+
+  if (req.nextUrl.pathname.startsWith("/api")) {
+    return NextResponse.json(
+      { error: "Administrator session tokens are not accepted in URLs." },
+      { status: 400 },
+    );
+  }
+
+  return NextResponse.redirect(url, 303);
+}
+
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
+  const legacyHandoffResponse = stripLegacyAdminHandoff(req);
+
+  if (legacyHandoffResponse) {
+    return applySecurityHeaders(legacyHandoffResponse, req);
+  }
+
   const canonicalRedirect = canonicalDomainRedirect(req);
 
   if (canonicalRedirect) {
@@ -205,27 +238,6 @@ export async function proxy(req: NextRequest) {
   }
 
   if (isProtectedPath(pathname)) {
-    const adminHandoff = req.nextUrl.searchParams.get("admin_handoff");
-
-    if (adminHandoff && (await isValidAdminSessionValue(adminHandoff))) {
-      const isSafeRedirectMethod = req.method === "GET" || req.method === "HEAD";
-      const response = isSafeRedirectMethod
-        ? (() => {
-            const url = req.nextUrl.clone();
-            url.searchParams.delete("admin_handoff");
-            return NextResponse.redirect(url, 303);
-          })()
-        : NextResponse.next();
-
-      appendAdminSessionCookies(
-        response.headers,
-        req.nextUrl.hostname,
-        adminHandoff,
-      );
-
-      return applySecurityHeaders(response, req);
-    }
-
     const adminCookies = ADMIN_SESSION_COOKIE_NAMES.flatMap((cookieName) =>
       req.cookies.getAll(cookieName).map((cookie) => cookie.value),
     );

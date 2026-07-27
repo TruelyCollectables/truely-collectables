@@ -195,7 +195,13 @@ export async function verifyAdminPassword(password: string): Promise<boolean> {
   return safeBytesEqual(providedHash, expectedHash);
 }
 
-export async function createAdminSessionValue(): Promise<string> {
+export async function createAdminSessionValue(
+  purpose: "cookie" | "internal" = "internal",
+): Promise<string> {
+  if (purpose !== "cookie") {
+    return "";
+  }
+
   const secret = getSessionSecret();
 
   if (!secret) {

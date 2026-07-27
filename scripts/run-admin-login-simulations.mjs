@@ -165,7 +165,7 @@ scenario("admin login shows operator-readable failure guidance", () => {
 scenario("admin login fails cleanly when session creation fails", () => {
   for (const fragment of [
     "let sessionValue: string;",
-    "createAdminSessionValue()",
+    'createAdminSessionValue("cookie")',
     "loginPayload.nextPath",
     "loginRedirect(\n        req,\n        \"session_error\",\n        loginPayload.nextPath,\n      )",
     "admin_session_not_created",

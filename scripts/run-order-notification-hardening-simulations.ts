@@ -70,7 +70,8 @@ assert.match(helper, /notificationType: OrderNotificationType/);
 
 assert.match(checkout, /notificationType: "payment_confirmation"/);
 assert.match(checkout, /enqueueAndAttemptOrderNotification/);
-assert.match(checkout, /if \(!isE2ETest\)/);
+assert.match(checkout, /if \(!isE2ETest && isValidEmail\(customerEmail\)\)/);
+assert.match(checkout, /queued for retry/);
 
 assert.match(shipped, /notificationType: "shipment_confirmation"/);
 assert.match(shipped, /order\.shipped_at \|\| new Date\(\)\.toISOString\(\)/);

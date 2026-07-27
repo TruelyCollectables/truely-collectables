@@ -338,7 +338,7 @@ async function main() {
   }
 
   console.log("\n=== APPLYING DIRECTLY TO SUPABASE ===");
-  if (!process.env.ADMIN_SESSION_SECRET?.trim() && !process.env.ADMIN_PASSWORD?.trim()) {
+  if (!process.env.ADMIN_SESSION_SECRET?.trim()) {
     process.env.ADMIN_SESSION_SECRET = randomBytes(32).toString("hex");
     console.log("Using an ephemeral in-process admin session for this local import only.");
   }
@@ -347,7 +347,7 @@ async function main() {
       import("../src/lib/admin-session.ts"),
       import("../src/app/api/admin/verified-reference-import/route.ts"),
     ]);
-  const sessionValue = await createAdminSessionValue();
+  const sessionValue = await createAdminSessionValue("cookie");
   const formData = new FormData();
   formData.set(
     "verifiedReferenceFile",

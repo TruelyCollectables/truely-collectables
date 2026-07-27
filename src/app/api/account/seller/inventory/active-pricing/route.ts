@@ -1,6 +1,6 @@
 import {
   ensureAccountStoreMembership,
-  getAuthenticatedAccountFromRequest,
+  getAuthenticatedSellerAccountFromRequest,
 } from "../../../../../../lib/account-auth";
 import {
   classifyCollectibleCategory,
@@ -98,7 +98,7 @@ function uniqueImages(values: Array<string | null | undefined>) {
 
 export async function GET(request: Request) {
   try {
-    const account = await getAuthenticatedAccountFromRequest(request);
+    const account = await getAuthenticatedSellerAccountFromRequest(request);
     if (!account) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }

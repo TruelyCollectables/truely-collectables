@@ -1,6 +1,6 @@
 import {
   ensureAccountStoreMembership,
-  getAuthenticatedAccountFromRequest,
+  getAuthenticatedSellerAccountFromRequest,
 } from "../../../../../../../lib/account-auth";
 import { createSellerMarketplaceOAuthState } from "../../../../../../../lib/marketplace-token-crypto";
 import { getStoreSettings } from "../../../../../../../lib/store-settings";
@@ -42,7 +42,7 @@ export async function POST(request: Request) {
   let storeSyncStatus: "enabled" | "disabled" | "unknown" = "unknown";
 
   try {
-    const account = await getAuthenticatedAccountFromRequest(request);
+    const account = await getAuthenticatedSellerAccountFromRequest(request);
 
     if (!account) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });

@@ -6,7 +6,7 @@ import type { ShippingMethod } from "../../lib/shipping";
 import { TERMS_OF_SERVICE_VERSION } from "../../lib/legal";
 import { getAccountSession } from "../account/account-session";
 
-const CHECKOUT_ATTEMPT_STORAGE_KEY = "tcos_checkout_attempt_v1";
+export const CHECKOUT_ATTEMPT_STORAGE_KEY = "tcos_checkout_attempt_v1";
 const CHECKOUT_ATTEMPT_MAX_AGE_MS = 23 * 60 * 60 * 1000;
 
 type StoredCheckoutAttempt = {
@@ -126,7 +126,9 @@ export default function CheckoutButton({
       const data = await response.json();
 
       if (data.url) {
-        clearCheckoutAttempt();
+        // Keep the attempt until payment is verified. If the customer cancels or
+        // presses Back, the server can replay the same open Stripe Session instead
+        // of creating a second reservation that conflicts with the first one.
         window.location.href = data.url;
         return;
       }

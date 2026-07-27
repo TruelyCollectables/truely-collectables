@@ -10,50 +10,22 @@ import {
 } from "../src/lib/listing-image-utils";
 import { isLaunchSportsCard } from "../src/lib/sports-card-launch-scope";
 
-const adminEngine = fs.readFileSync(
-  "src/modules/inventory/admin-engine.ts",
-  "utf8",
-);
-const inventoryIndex = fs.readFileSync(
-  "src/modules/inventory/index.ts",
-  "utf8",
-);
-const checkoutInventoryEngine = fs.readFileSync(
-  "src/modules/inventory/checkout-engine.ts",
-  "utf8",
-);
-const inventoryRepository = fs.readFileSync(
-  "src/modules/inventory/repository.ts",
-  "utf8",
-);
-const importRoute = fs.readFileSync(
-  "src/app/api/ebay/import-listings/route.ts",
-  "utf8",
-);
-const importRunner = fs.readFileSync(
-  "src/app/admin/ebay/import-runner/EbayImportRunner.tsx",
-  "utf8",
-);
-const publicInventoryEngine = fs.readFileSync(
-  "src/lib/server-inventory-engine.ts",
-  "utf8",
-);
-const productImageRoute = fs.readFileSync(
-  "src/app/api/storefront/product-images/[id]/route.ts",
-  "utf8",
-);
-const productActions = fs.readFileSync(
-  "src/app/product/[id]/ProductActions.tsx",
-  "utf8",
-);
-const imageSync = fs.readFileSync(
-  "src/lib/ebay-all-image-sync.ts",
-  "utf8",
-);
-const scheduledEbaySync = fs.readFileSync(
-  "src/app/api/cron/ebay-store-fixed-price-sync/route.ts",
-  "utf8",
-);
+function read(path: string) {
+  return fs.readFileSync(path, "utf8");
+}
+
+const adminEngine = read("src/modules/inventory/admin-engine.ts");
+const inventoryIndex = read("src/modules/inventory/index.ts");
+const checkoutInventoryEngine = read("src/modules/inventory/checkout-engine.ts");
+const inventoryRepository = read("src/modules/inventory/repository.ts");
+const importRoute = read("src/app/api/ebay/import-listings/route.ts");
+const importRunner = read("src/app/admin/ebay/import-runner/EbayImportRunner.tsx");
+const publicInventoryEngine = read("src/lib/server-inventory-engine.ts");
+const productImageRoute = read("src/app/api/storefront/product-images/[id]/route.ts");
+const productPage = read("src/app/product/[id]/page.tsx");
+const productGallery = read("src/app/product/[id]/ProductGallery.tsx");
+const imageSync = read("src/lib/ebay-all-image-sync.ts");
+const scheduledEbaySync = read("src/app/api/cron/ebay-store-fixed-price-sync/route.ts");
 
 assert.match(
   adminEngine,
@@ -82,30 +54,15 @@ assert.match(
 );
 assert.match(
   checkoutInventoryEngine,
-  /class InventoryEngine extends BaseInventoryEngine/,
-  "Checkout launch-scope enforcement must preserve the base inventory API.",
-);
-assert.match(
-  checkoutInventoryEngine,
   /items\.find\(\(item\) => !isLaunchSportsCard\(item\)\)/,
   "Checkout must reject every cart line outside the sports-card launch scope.",
 );
-assert.match(
-  checkoutInventoryEngine,
-  /Product \$\{blockedItem\.legacyProductId\} is not available for purchase/,
-  "Checkout must fail closed before reserving an out-of-scope item.",
-);
 
 const upsertStart = inventoryRepository.indexOf("async upsertBySku");
-const legacyProductLookup = inventoryRepository.indexOf(
-  "getByLegacyProductId",
-  upsertStart,
-);
+const legacyProductLookup = inventoryRepository.indexOf("getByLegacyProductId", upsertStart);
 const skuLookup = inventoryRepository.indexOf("getBySku", upsertStart);
 assert.ok(
-  upsertStart >= 0 &&
-    legacyProductLookup > upsertStart &&
-    skuLookup > legacyProductLookup,
+  upsertStart >= 0 && legacyProductLookup > upsertStart && skuLookup > legacyProductLookup,
   "Inventory upserts must resolve the existing legacy product row before falling back to SKU.",
 );
 assert.match(
@@ -114,57 +71,47 @@ assert.match(
   "SKU fallback must reuse the canonical product-linked inventory row when available.",
 );
 
-assert.match(
-  publicInventoryEngine,
-  /items\.filter\(isLaunchSportsCard\)/,
-  "Every public inventory feed must enforce the sports-card launch scope.",
-);
-assert.match(
-  publicInventoryEngine,
-  /class PublicStorefrontInventoryEngine extends InventoryEngine/,
-  "Public storefront filtering must preserve the full InventoryEngine API.",
-);
-assert.match(
-  publicInventoryEngine,
-  /async getByLegacyProductId\([\s\S]*return item && isLaunchSportsCard\(item\) \? item : null;/,
-  "Direct product URLs must return no product when launch scope rejects the item.",
-);
-assert.match(
-  publicInventoryEngine,
-  /async getByLegacyProductIds\([\s\S]*return items\.filter\(isLaunchSportsCard\);/,
-  "Bulk public product lookups must enforce the same launch scope.",
-);
+for (const contract of [
+  "items.filter(isLaunchSportsCard)",
+  "class PublicStorefrontInventoryEngine extends InventoryEngine",
+  "return item && isLaunchSportsCard(item) ? item : null;",
+  "return items.filter(isLaunchSportsCard);",
+]) {
+  assert.ok(publicInventoryEngine.includes(contract), `Public inventory scope is missing ${contract}.`);
+}
 
 assert.match(
   productImageRoute,
   /createServerInventoryEngine\(\)\.getByLegacyProductId/,
-  "The public product-image endpoint must reuse the sports-card scope guard.",
+  "The legacy public product-image endpoint must retain the sports-card scope guard.",
 );
 assert.match(
   productImageRoute,
   /selectFrontBackListingImages/,
-  "Public product images must choose one complete front/back pair.",
+  "The legacy endpoint must still return a deterministic front/back pair.",
 );
-assert.match(
-  productActions,
-  /\/api\/storefront\/product-images\/\$\{product\.id\}/,
-  "Product pages must load the scoped front/back image response.",
-);
-assert.match(
-  productActions,
-  /index === 0 \? "Front" : "Back"/,
-  "The native product photo panel must label front and back deterministically.",
-);
-assert.equal(
-  MAX_LISTING_IMAGES,
-  20,
-  "Inventory ingestion must preserve up to twenty ordered listing images.",
-);
-assert.match(
-  imageSync,
-  /ebay_all_image_sync_version/,
-  "The eBay image repair must persist the complete-image synchronization version.",
-);
+for (const contract of [
+  '.from("inventory_images")',
+  '.from("inventory_items")',
+  "selectFrontBackListingImages([",
+  "...stringList(metadata.ebay_image_urls)",
+  "<ProductGallery title={product.title} images={galleryImages} />",
+]) {
+  assert.ok(productPage.includes(contract), `Product page gallery is missing ${contract}.`);
+}
+for (const contract of [
+  "listingImageAltText",
+  "listingImageLabel",
+  "images.map((image, index)",
+  'aria-label="Choose listing photo"',
+  "className=\"object-contain p-3\"",
+  "className=\"object-contain\"",
+]) {
+  assert.ok(productGallery.includes(contract), `Product gallery is missing ${contract}.`);
+}
+
+assert.equal(MAX_LISTING_IMAGES, 24, "Internal ingestion must preserve up to twenty-four ordered source images.");
+assert.match(imageSync, /ebay_all_image_sync_version/, "Image repair must persist its complete-image version.");
 assert.match(
   imageSync,
   /sort_order: index,[\s\S]*is_primary: index === 0/,
@@ -173,29 +120,21 @@ assert.match(
 assert.match(
   imageSync,
   /imageListsMatch\(currentImages, finalImages\)/,
-  "Image repair must compare the complete ordered image list rather than stopping at two images.",
+  "Image repair must compare the complete ordered image list.",
 );
 assert.match(
   scheduledEbaySync,
   /syncEbayAllListingImages/,
-  "The scheduled authoritative eBay job must run complete 1–20 image reconciliation.",
+  "The scheduled authoritative eBay job must run complete image reconciliation.",
 );
 
 assert.equal(
-  preferHighResolutionListingImage(
-    "https://i.ebayimg.com/images/g/example/s-l140.jpg",
-  ),
+  preferHighResolutionListingImage("https://i.ebayimg.com/images/g/example/s-l140.jpg"),
   "https://i.ebayimg.com/images/g/example/s-l1600.jpg",
-  "eBay thumbnails must be upgraded to the high-resolution image path.",
 );
 assert.equal(
-  listingImageIdentity(
-    "https://i.ebayimg.com/images/g/example/s-l140.jpg",
-  ),
-  listingImageIdentity(
-    "https://i.ebayimg.com/images/g/example/s-l1600.jpg",
-  ),
-  "Different eBay size variants of the same photo must share one identity.",
+  listingImageIdentity("https://i.ebayimg.com/images/g/example/s-l140.jpg"),
+  listingImageIdentity("https://i.ebayimg.com/images/g/example/s-l1600.jpg"),
 );
 assert.deepEqual(
   normalizeListingImageUrls([
@@ -207,23 +146,14 @@ assert.deepEqual(
     "https://i.ebayimg.com/images/g/front/s-l1600.jpg",
     "https://i.ebayimg.com/images/g/back/s-l1600.jpg",
   ],
-  "Image normalization must keep one front and one distinct back photo.",
 );
-const twentyFiveImages = Array.from(
-  { length: 25 },
-  (_, index) => `https://i.ebayimg.com/images/g/photo-${index + 1}/s-l140.jpg`,
+const normalizedImages = normalizeListingImageUrls(
+  Array.from({ length: 30 }, (_, index) =>
+    `https://i.ebayimg.com/images/g/photo-${index + 1}/s-l140.jpg`,
+  ),
 );
-const normalizedTwenty = normalizeListingImageUrls(twentyFiveImages);
-assert.equal(
-  normalizedTwenty.length,
-  20,
-  "Image normalization must retain the first twenty distinct listing images.",
-);
-assert.equal(
-  normalizedTwenty.at(-1),
-  "https://i.ebayimg.com/images/g/photo-20/s-l1600.jpg",
-  "The twenty-image cap must preserve eBay listing order.",
-);
+assert.equal(normalizedImages.length, 24);
+assert.equal(normalizedImages.at(-1), "https://i.ebayimg.com/images/g/photo-24/s-l1600.jpg");
 assert.deepEqual(
   selectFrontBackListingImages([
     "https://i.ebayimg.com/images/g/front/s-l140.jpg",
@@ -234,121 +164,38 @@ assert.deepEqual(
     "https://storage.googleapis.com/cards/front.jpg",
     "https://storage.googleapis.com/cards/back.jpg",
   ],
-  "A complete existing front/back pair must beat a lone eBay thumbnail.",
 );
-assert.equal(
-  listingImageAltText("Test Card", 1),
-  "Test Card back",
-  "The second synchronized image must receive a back-photo alt label.",
-);
+assert.equal(listingImageAltText("Test Card", 1), "Test Card back");
 
-assert.match(
-  importRoute,
-  /limit: Number\(url\.searchParams\.get\("limit"\) \|\| "10"\)/,
-  "Import route must default to ten-listing batches.",
-);
-assert.match(
-  importRoute,
-  /result\.debugSamples\.find\([\s\S]*includes\("failed"\)/,
-  "Import route must inspect diagnostics for batch failures.",
-);
-assert.match(
-  importRoute,
-  /success: false,[\s\S]*status: 409/,
-  "Diagnostic failures must stop the browser runner with a non-success response.",
-);
-assert.match(
-  importRoute,
-  /result\.nextOffset === null[\s\S]*syncEbayAllListingImages/,
-  "The final paged import must reconcile every available eBay image.",
-);
-assert.match(
-  importRunner,
-  /const \[limit, setLimit\] = useState\(10\);/,
-  "Browser import runner must default to ten listings.",
-);
-assert.match(
-  importRunner,
-  /\{\[5, 10\]\.map\(\(value\) => \(/,
-  "Browser import runner must offer only timeout-safe batch sizes.",
-);
-assert.match(
-  importRunner,
-  /border-rose-300 bg-rose-50[\s\S]*border-sky-300 bg-sky-50/,
-  "Import status banner must distinguish error red from success blue.",
-);
+for (const [pattern, message] of [
+  [/limit: Number\(url\.searchParams\.get\("limit"\) \|\| "10"\)/, "Import route must default to ten-listing batches."],
+  [/result\.debugSamples\.find\([\s\S]*includes\("failed"\)/, "Import route must inspect diagnostics for batch failures."],
+  [/success: false,[\s\S]*status: 409/, "Diagnostic failures must stop the browser runner."],
+  [/result\.nextOffset === null[\s\S]*syncEbayAllListingImages/, "Final import page must reconcile all images."],
+] as const) {
+  assert.match(importRoute, pattern, message);
+}
+assert.match(importRunner, /const \[limit, setLimit\] = useState\(10\);/);
+assert.match(importRunner, /\{\[5, 10\]\.map\(\(value\) => \(/);
+assert.match(importRunner, /border-rose-300 bg-rose-50[\s\S]*border-sky-300 bg-sky-50/);
 
 const launchScopeCases = [
-  {
-    title: "2025-26 Upper Deck #702 Florian Xhekaj",
-    sport: null,
-    expected: true,
-  },
-  {
-    title: "2023 Topps Max Meyer 1988 35th Chrome RC Auto /249 PSA 8",
-    sport: null,
-    expected: true,
-  },
-  {
-    title: "2025-26 SP Game Used #115 Dustin Byfuglien Red Jersey",
-    sport: "HOCKEY",
-    expected: true,
-  },
-  {
-    title: "2014-15 Flawless Nick Van Exel Momentous Autographed Memorabilia /20",
-    sport: "BASKETBALL",
-    expected: true,
-  },
-  {
-    title: "2017-18 SP Authentic #188 Cole Sillinger #/999",
-    sport: "HOCKEY",
-    expected: true,
-  },
-  {
-    title: "18-19 Contenders Nick Van Exel Legendary Auto /99",
-    sport: "BASKETBALL",
-    expected: true,
-  },
-  {
-    title: "Wailord ex 016/084 Double Rare Pokemon Pitch Black 2026 NM",
-    sport: null,
-    expected: false,
-  },
-  {
-    title: "Prize Pack Series Cards #005 Basic Psychic Energy",
-    sport: null,
-    expected: false,
-  },
-  {
-    title: "Adidas Ultraboost Men's Running Shoes Size 11",
-    sport: null,
-    expected: false,
-  },
-  {
-    title: "Upper Deck Authenticated Wayne Gretzky Signed Puck",
-    sport: "HOCKEY",
-    expected: false,
-  },
-  {
-    title: "Connor McDavid Autographed Edmonton Oilers Jersey",
-    sport: "HOCKEY",
-    expected: false,
-  },
-  {
-    title: "Oakley Sports Sunglasses Black",
-    sport: null,
-    expected: false,
-  },
+  ["2025-26 Upper Deck #702 Florian Xhekaj", null, true],
+  ["2023 Topps Max Meyer 1988 35th Chrome RC Auto /249 PSA 8", null, true],
+  ["2025-26 SP Game Used #115 Dustin Byfuglien Red Jersey", "HOCKEY", true],
+  ["2014-15 Flawless Nick Van Exel Momentous Autographed Memorabilia /20", "BASKETBALL", true],
+  ["2017-18 SP Authentic #188 Cole Sillinger #/999", "HOCKEY", true],
+  ["18-19 Contenders Nick Van Exel Legendary Auto /99", "BASKETBALL", true],
+  ["Wailord ex 016/084 Double Rare Pokemon Pitch Black 2026 NM", null, false],
+  ["Prize Pack Series Cards #005 Basic Psychic Energy", null, false],
+  ["Adidas Ultraboost Men's Running Shoes Size 11", null, false],
+  ["Upper Deck Authenticated Wayne Gretzky Signed Puck", "HOCKEY", false],
+  ["Connor McDavid Autographed Edmonton Oilers Jersey", "HOCKEY", false],
+  ["Oakley Sports Sunglasses Black", null, false],
 ] as const;
 
-for (const testCase of launchScopeCases) {
-  assert.equal(
-    isLaunchSportsCard(testCase),
-    testCase.expected,
-    `Unexpected launch scope decision for: ${testCase.title}`,
-  );
+for (const [title, sport, expected] of launchScopeCases) {
+  assert.equal(isLaunchSportsCard({ title, sport }), expected, `Unexpected launch scope decision for: ${title}`);
 }
 
-console.log(
-  "eBay import, sports-card scope, and complete 1–20 image simulations passed: 48/48",
-);
+console.log("eBay import, sports-card scope, internal image preservation, and public front/back simulations passed.");

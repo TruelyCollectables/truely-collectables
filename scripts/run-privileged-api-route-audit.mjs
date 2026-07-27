@@ -6,6 +6,8 @@ const repositoryRoot = process.cwd();
 const apiRoot = path.join(repositoryRoot, "src/app/api");
 const proxyPath = path.join(repositoryRoot, "src/proxy.ts");
 const instaCompActorPath = path.join(repositoryRoot, "src/lib/instacomp-job-server.ts");
+const accountAuthPath = path.join(repositoryRoot, "src/lib/account-auth.ts");
+const sellerApiRoot = path.join(repositoryRoot, "src/app/api/account/seller");
 const marketplaceTokenCryptoPath = path.join(
   repositoryRoot,
   "src/lib/marketplace-token-crypto.ts",
@@ -150,7 +152,9 @@ function explicitProtection(route, content, methods) {
     return "verified InstaComp seller-or-admin actor validation";
   }
 
-  const accountAuth = called(content, "getAuthenticatedAccountFromRequest");
+  const accountAuth =
+    called(content, "getAuthenticatedAccountFromRequest") ||
+    called(content, "getAuthenticatedSellerAccountFromRequest");
   const publicRateLimit = called(content, "checkPublicEndpointRateLimit");
   const adminSession =
     called(content, "isValidAdminSessionValue") ||
@@ -184,6 +188,8 @@ for (const requiredPath of [
   apiRoot,
   proxyPath,
   instaCompActorPath,
+  accountAuthPath,
+  sellerApiRoot,
   marketplaceTokenCryptoPath,
   adminEbayAuthPath,
   ebayCallbackPath,
@@ -198,7 +204,9 @@ for (const [name, pattern] of [
   ["orders namespace", /pathname\.startsWith\("\/api\/orders"\)/],
   ["offer accept decisions", /pathname === "\/api\/offers\/update-status"/],
   ["offer counter decisions", /pathname === "\/api\/offers\/counter"/],
-  ["signed admin handoff validation", /isValidAdminSessionValue\(adminHandoff\)/],
+  ["legacy admin handoff stripping", /stripLegacyAdminHandoff\(req\)/],
+  ["legacy handoff URL rejection", /Administrator session tokens are not accepted in URLs\./],
+  ["accepted admin cookie enumeration", /ADMIN_SESSION_COOKIE_NAMES\.flatMap/],
   ["admin cookie validation", /isValidAdminSessionValue\(adminCookie\)/],
 ]) {
   assert.match(proxySource, pattern, `Proxy protection is missing for ${name}.`);
@@ -216,6 +224,53 @@ for (const [name, pattern] of [
     instaCompActorSource,
     pattern,
     `InstaComp actor authentication is missing ${name}.`,
+  );
+}
+
+const accountAuthSource = source(accountAuthPath);
+for (const [name, pattern] of [
+  [
+    "active seller role helper",
+    /getAuthenticatedSellerAccountFromRequest[\s\S]*role:\s*"seller"[\s\S]*status:\s*"active"/,
+  ],
+  [
+    "membership lookup without role mutation",
+    /getAuthenticatedAccountWithStoreRoleFromRequest[\s\S]*\.from\("account_store_memberships"\)[\s\S]*\.select\("status"\)/,
+  ],
+]) {
+  assert.match(accountAuthSource, pattern, `Account authorization is missing ${name}.`);
+}
+
+const sellerRoleHelper = accountAuthSource.slice(
+  accountAuthSource.indexOf(
+    "export async function getAuthenticatedAccountWithStoreRoleFromRequest",
+  ),
+  accountAuthSource.indexOf(
+    "export async function getAuthenticatedSellerAccountFromRequest",
+  ),
+);
+assert.doesNotMatch(
+  sellerRoleHelper,
+  /\.upsert\(|\.insert\(|\.update\(/,
+  "Seller authorization must verify membership without granting it.",
+);
+
+for (const file of walk(sellerApiRoot).filter((entry) => entry.endsWith(".ts"))) {
+  const content = source(file);
+  const normalized = file.split(path.sep).join("/");
+  if (normalized.endsWith("/seller/payout-onboarding/route.ts")) {
+    assert.match(
+      content,
+      /getAuthenticatedAccountFromRequest/,
+      "Explicit seller payout onboarding must remain available to authenticated buyers.",
+    );
+    continue;
+  }
+
+  assert.doesNotMatch(
+    content,
+    /getAuthenticatedAccountFromRequest/,
+    `${normalized} must require an existing active seller membership.`,
   );
 }
 

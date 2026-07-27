@@ -33,11 +33,11 @@ import {
   under20SellerProtectionSkippedRowReasonLabel,
 } from "./under20-seller-protection-claims";
 
-export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-14.6";
+export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-27.1";
 export const SHIPPING_SIMULATION_EXPECTED_SCENARIO_KEYS = [
   "standard_envelope_under_20_and_3oz",
   "standard_envelope_over_20_forces_ground_advantage",
-  "standard_envelope_over_3oz_forces_ground_advantage",
+  "standard_envelope_four_cards_at_3oz_remains_eligible",
   "coverage_required_for_standard_and_ground",
   "under_20_seller_protection_opted_in_item_only",
   "under_20_seller_protection_not_opted_in_seller_liability",
@@ -152,24 +152,26 @@ export async function runShippingSimulationSuite() {
     },
   });
 
-  const overThreeOunces = resolveShippingMethod({
+  const fourCardsAtThreeOunces = resolveShippingMethod({
     requestedMethod: "STANDARD_ENVELOPE",
     itemCount: 4,
     subtotal: 19,
   });
   scenarios.push({
-    scenario_key: "standard_envelope_over_3oz_forces_ground_advantage",
+    scenario_key: "standard_envelope_four_cards_at_3oz_remains_eligible",
     scenario_status: pass(
-      overThreeOunces.method === "GROUND_ADVANTAGE" &&
-        overThreeOunces.standardEnvelope.estimatedOunces === 4,
+      fourCardsAtThreeOunces.method === "STANDARD_ENVELOPE" &&
+        fourCardsAtThreeOunces.standardEnvelope.eligible === true &&
+        fourCardsAtThreeOunces.standardEnvelope.estimatedOunces === 3,
     ),
     detail:
-      "A raw-card order estimated above 3 oz is forced from Standard Envelope to Ground Advantage.",
+      "Four qualifying raw cards at exactly 3 estimated oz remain eligible for Tracked Card Letter.",
     assertions: {
-      requested_method: overThreeOunces.requestedMethod,
-      resolved_method: overThreeOunces.method,
-      estimated_ounces: overThreeOunces.standardEnvelope.estimatedOunces,
-      reason: overThreeOunces.reason,
+      requested_method: fourCardsAtThreeOunces.requestedMethod,
+      resolved_method: fourCardsAtThreeOunces.method,
+      estimated_ounces: fourCardsAtThreeOunces.standardEnvelope.estimatedOunces,
+      eligible: fourCardsAtThreeOunces.standardEnvelope.eligible,
+      reason: fourCardsAtThreeOunces.reason,
     },
   });
 
@@ -752,17 +754,17 @@ export async function runShippingSimulationSuite() {
         skippedLetterTrackExport.rows.length === 0 &&
         skippedLetterTrackExport.skipped.length === 2 &&
         skippedLetterTrackReasonSummary.includes(
-          "Order row was not found for this Standard Envelope label. (1)",
+          "Order row was not found for this Tracked Card Letter label. (1)",
         ) &&
         skippedLetterTrackReasonSummary.includes(
           "Recipient name, address line 1, city, state, and postal code are required before LetterTrack export. (1)",
         ) &&
         letterTrackCsv.includes("LetterTrack / USPS Informed Visibility IMb") &&
         letterTrackCsv.includes("sellerProtectionReserveRate") &&
-        letterTrackCsv.includes("TCOS-1003"),
+        letterTrackCsv.includes("TRUELY-1003"),
     ),
     detail:
-      "Standard Envelope labels can be exported to a LetterTrack import CSV with recipient address, order reference, value, IMb recording instructions, and an operator-readable skipped-row reason summary.",
+      "Tracked Card Letter labels can be exported to a LetterTrack import CSV with recipient address, order reference, value, IMb recording instructions, and an operator-readable skipped-row reason summary.",
     assertions: {
       row_count: letterTrackExport.rows.length,
       skipped_count: letterTrackExport.skipped.length,
@@ -779,17 +781,21 @@ export async function runShippingSimulationSuite() {
     scenario_key: "lettertrack_csv_seller_protection_contract",
     scenario_status: pass(
       letterTrackRow?.sellerProtectionProgram ===
-        "TCOS Under-$20 Seller Protection" &&
-        letterTrackRow?.sellerProtectionOptInRequired.includes("seller must opt in") &&
+        "Truely Collectables Under-$20 Seller Protection" &&
+        letterTrackRow?.sellerProtectionOptInRequired ===
+          "Seller must opt in per shipment." &&
         letterTrackRow?.sellerProtectionReserveRate === "2%" &&
         letterTrackRow?.sellerProtectionMaxCoverage === "$20.00 item sale amount" &&
         letterTrackRow?.sellerProtectionCoverageBasis ===
           "item_sale_amount_excluding_shipping" &&
         letterTrackRow?.sellerProtectionReimbursesShipping === "no" &&
-        letterTrackRow?.deliveryEvidenceRequirement.includes("LetterTrack status"),
+        letterTrackRow?.deliveryEvidenceRequirement.includes("may be incomplete") &&
+        letterTrackRow?.deliveryEvidenceRequirement.includes(
+          "delivery-related status",
+        ),
     ),
     detail:
-      "LetterTrack CSV rows carry the under-$20 seller-protection contract: opt-in required, 2% reserve, $20 item-only cap, shipping excluded, and IMb delivery-evidence requirement.",
+      "LetterTrack CSV rows carry the Truely Collectables under-$20 seller-protection contract: per-shipment seller opt-in, 2% reserve, $20 item-only cap, shipping excluded, and IMb delivery-evidence requirements.",
     assertions: {
       seller_protection_program: letterTrackRow?.sellerProtectionProgram,
       opt_in_required: letterTrackRow?.sellerProtectionOptInRequired,

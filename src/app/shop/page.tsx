@@ -4,6 +4,7 @@ import Image from "next/image";
 import ClearCartOnSuccess from "../../components/ClearCartOnSuccess";
 import { preferHighResolutionListingImage } from "../../lib/listing-image-utils";
 import { createServerInventoryEngine } from "../../lib/server-inventory-engine";
+import { storefrontCategoryForItem } from "../../lib/storefront-taxonomy";
 import type { UniversalInventoryItem } from "../../modules/inventory";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +13,7 @@ export const revalidate = 0;
 export const metadata: Metadata = {
   title: "Shop Sports Cards",
   description:
-    "Shop live sports-card inventory from Truely Collectables by player, sport, set, rookie, autograph, grade, parallel, or card number.",
+    "Shop live sports-card inventory from Truely Collectables by player, league, team, set, rookie, autograph, grade, parallel, or card number.",
   alternates: {
     canonical: "/shop",
   },
@@ -77,8 +78,7 @@ export default async function Shop({
             Shop Sports Cards
           </h1>
           <p className="mt-3 max-w-2xl text-neutral-600">
-            Search by player, card, or category. Every product page includes
-            collector research links and exact-match signals.
+            Search by player, league, team, set, card number, or category—including WNBA.
           </p>
         </div>
 
@@ -89,9 +89,9 @@ export default async function Shop({
 
       <form className="mb-8 grid grid-cols-1 gap-3 rounded border bg-white p-3 sm:p-4 md:grid-cols-4">
         <input
-          type="text"
+          type="search"
           name="q"
-          placeholder="Search player, card, sport..."
+          placeholder="Search player, WNBA, team, set, card number..."
           defaultValue={q}
           className="min-h-12 rounded border px-4 py-3 text-base md:col-span-2"
         />
@@ -99,9 +99,10 @@ export default async function Shop({
         <select
           name="sport"
           defaultValue={sport}
+          aria-label="Card category"
           className="min-h-12 rounded border px-4 py-3 text-base"
         >
-          <option value="">All Sports</option>
+          <option value="">All Categories</option>
 
           {uniqueSports.map((sportName) => (
             <option key={sportName} value={sportName}>
@@ -118,13 +119,24 @@ export default async function Shop({
         </button>
       </form>
 
-      {products.length === 0 && <p className="text-gray-600">No cards found.</p>}
+      {products.length === 0 ? (
+        <section className="rounded border bg-white p-8 text-center">
+          <h2 className="text-xl font-black">No cards found</h2>
+          <p className="mt-2 text-neutral-600">
+            Try a player, team, league, set, or a broader category.
+          </p>
+          <Link href="/shop" className="mt-4 inline-block font-bold underline">
+            Clear search
+          </Link>
+        </section>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
         {products.map((product) => {
           const storefrontImage =
             preferHighResolutionListingImage(product.imageUrl) ||
             "/placeholder.png";
+          const category = storefrontCategoryForItem(product);
 
           return (
             <article
@@ -136,27 +148,29 @@ export default async function Shop({
                 className="block"
                 aria-label={`View ${product.title}`}
               >
-                <div className="relative aspect-[4/5] bg-neutral-100">
+                <div className="relative aspect-[4/5] bg-white">
                   <Image
                     src={storefrontImage}
                     alt={product.title}
                     fill
                     sizes="(min-width: 1280px) 300px, (min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
                     quality={90}
-                    className="object-contain p-2"
+                    className="object-contain p-3"
                   />
                 </div>
               </Link>
 
               <div className="p-4">
-                <h2 className="line-clamp-2 min-h-14 text-lg font-black leading-7">
+                <p className="text-xs font-bold uppercase tracking-wide text-neutral-500">
+                  {category}
+                </p>
+                <h2 className="mt-2 line-clamp-2 min-h-14 text-lg font-black leading-7">
                   {product.title}
                 </h2>
 
-                <p className="mt-2 text-sm text-neutral-500">
-                  {product.sport || "Collectable"}
-                  {product.player ? ` - ${product.player}` : ""}
-                </p>
+                {product.player ? (
+                  <p className="mt-2 text-sm text-neutral-500">{product.player}</p>
+                ) : null}
 
                 <div className="mt-4 flex items-center justify-between gap-3">
                   <p className="text-2xl font-black">

@@ -1,6 +1,6 @@
 import {
   ensureAccountStoreMembership,
-  getAuthenticatedAccountFromRequest,
+  getAuthenticatedSellerAccountFromRequest,
 } from "../../../../../../../lib/account-auth";
 import {
   loadSellerEbayReconciliationStatus,
@@ -95,7 +95,7 @@ function sellerMarketplaceReconciliationHeaders(params: {
 }
 
 async function authenticate(request: Request) {
-  const account = await getAuthenticatedAccountFromRequest(request);
+  const account = await getAuthenticatedSellerAccountFromRequest(request);
 
   if (!account) return null;
 
