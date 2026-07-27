@@ -1,0 +1,198 @@
+name: Apply Seller Membership Authorization Fix
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/apply-seller-membership-auth-fix.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply-seller-auth-fix:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out audit branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/emergency-post-launch-audit-fixes-20260726
+          fetch-depth: 0
+
+      - name: Require an existing active seller membership
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          account_auth = Path("src/lib/account-auth.ts")
+          source = account_auth.read_text()
+          marker = "export async function getAuthenticatedAccountFromRequest("
+          if marker not in source:
+              raise SystemExit("account auth marker was not found")
+
+          helper = r'''
+
+export async function getAuthenticatedAccountWithStoreRoleFromRequest(
+  request: Request,
+  params: {
+    role: AccountRole;
+    status?: string;
+  },
+): Promise<AuthenticatedAccount | null> {
+  const account = await getAuthenticatedAccountFromRequest(request);
+  if (!account) return null;
+
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from("account_store_memberships")
+    .select("status")
+    .eq("account_id", account.id)
+    .eq("store_id", getActiveStoreId())
+    .eq("role", params.role)
+    .maybeSingle();
+
+  if (error) {
+    if (!isMissingAccountTableError(error)) {
+      console.error("Account membership verification failed:", error.message);
+    }
+    return null;
+  }
+
+  if (!data || data.status !== (params.status || "active")) return null;
+  return account;
+}
+
+export async function getAuthenticatedSellerAccountFromRequest(
+  request: Request,
+): Promise<AuthenticatedAccount | null> {
+  return getAuthenticatedAccountWithStoreRoleFromRequest(request, {
+    role: "seller",
+    status: "active",
+  });
+}
+'''
+
+          if "export async function getAuthenticatedSellerAccountFromRequest" not in source:
+              source = source.rstrip() + helper + "\n"
+              account_auth.write_text(source)
+
+          targets = []
+          seller_root = Path("src/app/api/account/seller")
+          for path in seller_root.rglob("*.ts"):
+              if path.as_posix().endswith("/payout-onboarding/route.ts"):
+                  continue
+              text = path.read_text()
+              if "getAuthenticatedAccountFromRequest" in text:
+                  targets.append(path)
+
+          for path in Path("src/lib").glob("active-market-*.ts"):
+              text = path.read_text()
+              if "getAuthenticatedAccountFromRequest" in text:
+                  targets.append(path)
+
+          for path in sorted(set(targets)):
+              text = path.read_text()
+              text = text.replace(
+                  "getAuthenticatedAccountFromRequest",
+                  "getAuthenticatedSellerAccountFromRequest",
+              )
+              path.write_text(text)
+
+          test = Path("scripts/run-seller-membership-authorization-simulations.ts")
+          test.write_text(r'''import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+
+const auth = fs.readFileSync("src/lib/account-auth.ts", "utf8");
+for (const contract of [
+  "getAuthenticatedAccountWithStoreRoleFromRequest",
+  "getAuthenticatedSellerAccountFromRequest",
+  '.from("account_store_memberships")',
+  '.eq("account_id", account.id)',
+  '.eq("store_id", getActiveStoreId())',
+  '.eq("role", params.role)',
+  'data.status !== (params.status || "active")',
+]) {
+  assert.ok(auth.includes(contract), `Seller membership verification is missing ${contract}.`);
+}
+
+const sellerHelperStart = auth.indexOf(
+  "export async function getAuthenticatedAccountWithStoreRoleFromRequest",
+);
+const sellerHelperEnd = auth.indexOf(
+  "export async function getAuthenticatedSellerAccountFromRequest",
+  sellerHelperStart,
+);
+const sellerHelper = auth.slice(sellerHelperStart, sellerHelperEnd);
+assert.doesNotMatch(
+  sellerHelper,
+  /\.upsert\(|\.insert\(|\.update\(/,
+  "Seller authentication must verify membership without creating or activating it.",
+);
+
+function filesUnder(root: string): string[] {
+  const results: string[] = [];
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    const full = path.join(root, entry.name);
+    if (entry.isDirectory()) results.push(...filesUnder(full));
+    else if (entry.isFile() && entry.name.endsWith(".ts")) results.push(full);
+  }
+  return results;
+}
+
+const payoutOnboarding = "src/app/api/account/seller/payout-onboarding/route.ts";
+for (const filename of filesUnder("src/app/api/account/seller")) {
+  const source = fs.readFileSync(filename, "utf8");
+  if (filename === payoutOnboarding) {
+    assert.ok(
+      source.includes("getAuthenticatedAccountFromRequest"),
+      "Explicit seller payout onboarding must remain available to authenticated buyers.",
+    );
+    continue;
+  }
+  if (source.includes("getAuthenticatedSellerAccountFromRequest")) {
+    assert.doesNotMatch(
+      source,
+      /getAuthenticatedAccountFromRequest/,
+      `${filename} must not bypass active seller membership verification.`,
+    );
+  }
+}
+
+for (const filename of filesUnder("src/lib").filter((name) =>
+  path.basename(name).startsWith("active-market-"),
+)) {
+  const source = fs.readFileSync(filename, "utf8");
+  if (source.includes("getAuthenticatedSellerAccountFromRequest")) {
+    assert.doesNotMatch(
+      source,
+      /getAuthenticatedAccountFromRequest/,
+      `${filename} must not grant seller access from buyer authentication alone.`,
+    );
+  }
+}
+
+const sellerPayouts = fs.readFileSync("src/lib/seller-payouts.ts", "utf8");
+assert.ok(
+  sellerPayouts.includes('role: "seller"') &&
+    sellerPayouts.includes('payload.onboarding_status === "active"'),
+  "Stripe payout verification must remain the explicit non-owner seller membership grant path.",
+);
+
+console.log(
+  "Seller membership authorization simulations passed: seller APIs require an existing active seller role, while explicit payout onboarding remains the only buyer-to-seller grant path.",
+);
+''')
+
+          print(f"Updated {len(set(targets))} seller authorization files.")
+          PY
+
+          git config user.name "Truely Collectables Audit"
+          git config user.email "sales@truelycollectables.com"
+          git add src/lib/account-auth.ts src/app/api/account/seller src/lib/active-market-*.ts scripts/run-seller-membership-authorization-simulations.ts
+          git commit -m "Require active seller membership for seller APIs"
+          git push origin HEAD:agent/emergency-post-launch-audit-fixes-20260726
