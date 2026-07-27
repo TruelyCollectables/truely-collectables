@@ -59,6 +59,8 @@ function hasTrustedDeliveredPrice(comp: InstaCompComp) {
     return false;
   }
 
+  if (comp.sourceCategory === "sold" && !clean(comp.soldAt)) return false;
+
   if (comp.itemPrice !== undefined && comp.itemPrice !== null) {
     const itemPrice = Number(comp.itemPrice);
     if (!Number.isFinite(itemPrice) || itemPrice <= 0) return false;

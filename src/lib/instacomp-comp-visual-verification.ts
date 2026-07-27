@@ -114,7 +114,7 @@ function requiresVisualVerification(candidate: InstaCompVisualCandidate) {
 function cleanedExactFlags(candidate: InstaCompVisualCandidate, verdict: VisualVerdict) {
   const flags = candidate.flags.filter(
     (flag) =>
-      !/parallel mismatch|not exact parallel|guidance comp|not used for pricing/i.test(flag),
+      !/parallel mismatch|not exact parallel|guidance comp|awaiting image proof/i.test(flag),
   );
   flags.push("listing image verified exact parallel");
   flags.push(`visual evidence: ${verdict.reason}`.slice(0, 120));

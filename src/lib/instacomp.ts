@@ -263,7 +263,7 @@ function graderGradesFromTitle(title: string, grader: string) {
   const normalizedTitle = normalizeText(title);
   const graderPattern = escapeRegex(grader).replace(/\\s+/g, "\\s*");
   const pattern = new RegExp(
-    `(?:^|\\s)${graderPattern}\\s*(?:(?:gem|near|nm|mint|pristine)\\s*)*(10|[0-9](?:\\.[0-9])?)\\b`,
+    `(?:^|\\s)${graderPattern}\\s*(?:(?:gem|near|nm|mint|pristine|mt|ex)\\s*)*(10|[0-9](?:\\.[0-9])?)\\b`,
     "gi",
   );
   return Array.from(normalizedTitle.matchAll(pattern))
@@ -462,6 +462,89 @@ export function explainInstaCompParallelMismatch(
   if (!missingTokens.length) return null;
 
   return `parallel mismatch: expected ${expected}; missing ${missingTokens.join(" ")}`;
+}
+
+const BASE_VARIATION_CUES = [
+  "red",
+  "blue",
+  "green",
+  "gold",
+  "silver",
+  "purple",
+  "orange",
+  "pink",
+  "black",
+  "white",
+  "yellow",
+  "teal",
+  "aqua",
+  "bronze",
+  "copper",
+  "clear cut",
+  "acetate",
+  "outburst",
+  "deluxe",
+  "exclusives",
+  "speckle",
+  "sparkle",
+  "shimmer",
+  "wave",
+  "mojo",
+  "pulsar",
+  "scope",
+  "laser",
+  "cracked ice",
+  "disco",
+  "reactive",
+  "x-fractor",
+  "xfractor",
+  "atomic",
+  "sepia",
+  "negative",
+  "tie dye",
+  "zebra",
+  "camo",
+  "genesis",
+  "fluorescent",
+  "refractor",
+  "prizm",
+  "holo",
+  "foil",
+  "limited",
+  "superfractor",
+  "sapphire",
+  "mini diamond",
+  "checkerboard",
+  "velocity",
+  "neon",
+  "hyper",
+  "flash",
+  "fractal",
+  "galactic",
+  "cosmic",
+  "rainbow",
+  "canvas",
+] as const;
+
+function titleHasPhrase(title: string, phrase: string) {
+  const pattern = escapeRegex(phrase).replace(/\\\s+/g, "[-\\s]+");
+  return new RegExp(`(?:^|[^a-z0-9])${pattern}(?:$|[^a-z0-9])`, "i").test(title);
+}
+
+export function explainUnexpectedInstaCompBaseVariation(
+  title: string,
+  ai: InstaCompAiResult,
+) {
+  if (!isBaseParallel(ai.parallel)) return null;
+  const normalizedTitle = normalizeText(title);
+  const targetReference = normalizeText(
+    [ai.player, ai.team, ai.brand, ai.setName, ai.parallel].filter(Boolean).join(" "),
+  );
+  const unexpected = BASE_VARIATION_CUES.filter(
+    (cue) => titleHasPhrase(normalizedTitle, cue) && !titleHasPhrase(targetReference, cue),
+  );
+  if (!unexpected.length) return null;
+  return `parallel mismatch: expected Base; listing says ${unexpected.join("/")}`;
 }
 
 export function buildInstaCompQueries(ai: InstaCompAiResult) {
@@ -715,14 +798,26 @@ export function looksLikeBadCompTitle(title: string, ai?: InstaCompAiResult) {
     if (containsAny(` ${t} `, gradedWords)) return true;
   }
 
+  if (ai && !ai.isRookie) {
+    if (containsAny(` ${t} `, [" rookie ", " rc "])) return true;
+  }
+
   if (ai && !ai.isAuto) {
-    if (containsAny(` ${t} `, [" auto ", " autograph", " signed"])) {
+    if (
+      containsAny(` ${t} `, [
+        " auto ",
+        " autograph",
+        " signed",
+        " signature",
+        " rpa ",
+      ])
+    ) {
       return true;
     }
   }
 
   if (ai && !ai.isRelic) {
-    if (containsAny(t, [" relic", " patch", " jersey", " memorabilia", " swatch", " material"])) {
+    if (containsAny(t, [" relic", " patch", " jersey", " memorabilia", " swatch", " material", " rpa "])) {
       return true;
     }
   }
@@ -748,6 +843,7 @@ export function scoreCompMatch(title: string, ai: InstaCompAiResult) {
   const grade = normalizeText(ai.gradeValue);
   const certificationNumber = cleanCertificationNumber(ai.certificationNumber);
   const parallelMismatch = explainInstaCompParallelMismatch(title, ai.parallel);
+  const unexpectedBaseVariation = explainUnexpectedInstaCompBaseVariation(title, ai);
 
   if (player && t.includes(player)) {
     score += 30;
@@ -802,6 +898,12 @@ export function scoreCompMatch(title: string, ai: InstaCompAiResult) {
   if (parallelMismatch) {
     score -= 150;
     flags.push(parallelMismatch);
+    flags.push("not exact parallel");
+  }
+
+  if (unexpectedBaseVariation) {
+    score -= 150;
+    flags.push(unexpectedBaseVariation);
     flags.push("not exact parallel");
   }
 
@@ -872,7 +974,7 @@ export function scoreCompMatch(title: string, ai: InstaCompAiResult) {
 
   if (
     ai.isAuto &&
-    containsAny(` ${t} `, [" auto ", " autograph ", " autographed ", " signed "])
+    containsAny(` ${t} `, [" auto ", " autograph ", " autographed ", " signed ", " signature ", " signatures ", " rpa "])
   ) {
     score += 12;
     flags.push("autograph");
@@ -880,7 +982,7 @@ export function scoreCompMatch(title: string, ai: InstaCompAiResult) {
 
   if (
     ai.isRelic &&
-    containsAny(` ${t} `, [" relic ", " patch ", " jersey ", " memorabilia ", " swatch ", " swatches ", " material ", " materials "])
+    containsAny(` ${t} `, [" relic ", " patch ", " jersey ", " memorabilia ", " swatch ", " swatches ", " material ", " materials ", " rpa "])
   ) {
     score += 12;
     flags.push("relic");

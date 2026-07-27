@@ -168,10 +168,18 @@ function dedupeEvidence(values: Evidence[], limit: number) {
 
 function isExcludedEvidence(row: Evidence) {
   return row.flags.some((flag) =>
-    /excluded|guidance comp|not used for pricing|parallel mismatch|not exact parallel|visual mismatch|inconclusive|unavailable/i.test(
+    /excluded|guidance comp|parallel mismatch|not exact parallel|visual mismatch|inconclusive|unavailable/i.test(
       flag,
     ),
   );
+}
+
+function isPricingEligibleEvidence(row: Evidence, lane: "sold" | "active") {
+  if (!row.priceIncludesShipping) return false;
+  if (!Number.isFinite(row.itemPrice) || Number(row.itemPrice) <= 0) return false;
+  if (!Number.isFinite(row.shippingPrice) || Number(row.shippingPrice) < 0) return false;
+  if (lane === "sold" && !row.soldAt) return false;
+  return true;
 }
 
 function forceImageVerification(values: Evidence[]) {
@@ -390,7 +398,7 @@ export async function POST(request: NextRequest) {
     ]);
 
     const excludedCompUrls = new Set(stringList(currentInstaComp.excludedCompUrls));
-    const soldCompEvidence = dedupeEvidence(
+    const acceptedSoldEvidence = dedupeEvidence(
       evidenceList(soldReview.accepted, 50).filter(
         (row) => row.sourceCategory === "sold" && !isExcludedEvidence(row),
       ),
@@ -404,6 +412,19 @@ export async function POST(request: NextRequest) {
       ),
       30,
     ).filter((row) => !excludedCompUrls.has(row.url));
+    const soldCompEvidence = acceptedSoldEvidence.filter((row) =>
+      isPricingEligibleEvidence(row, "sold"),
+    );
+    const activePricingEvidence = activeCompetition.filter((row) =>
+      isPricingEligibleEvidence(row, "active"),
+    );
+    const pricingIneligibleExactEvidence = dedupeEvidence(
+      [
+        ...acceptedSoldEvidence.filter((row) => !isPricingEligibleEvidence(row, "sold")),
+        ...activeCompetition.filter((row) => !isPricingEligibleEvidence(row, "active")),
+      ],
+      60,
+    );
     const rejectedCandidates = dedupeEvidence(
       [...evidenceList(soldReview.rejected, 30), ...evidenceList(activeReview.rejected, 30)],
       60,
@@ -411,7 +432,7 @@ export async function POST(request: NextRequest) {
 
     const rawPricingAnalysis = calculateInstaCompSweetSpot({
       sold: soldCompEvidence,
-      active: activeCompetition,
+      active: activePricingEvidence,
     });
     const hasReliableSoldComps = rawPricingAnalysis.soldCount > 0;
     const suggestedPrice = hasReliableSoldComps ? rawPricingAnalysis.suggestedPrice : 0;
@@ -471,6 +492,8 @@ export async function POST(request: NextRequest) {
         soldCompEvidence,
         activeCompetition,
         rejectedCandidates,
+        pricingIneligibleExactEvidence,
+        activePricingEvidenceCount: activePricingEvidence.length,
         excludedCompUrls: Array.from(excludedCompUrls),
         excludedCompEvidence: Array.isArray(currentInstaComp.excludedCompEvidence)
           ? currentInstaComp.excludedCompEvidence
@@ -514,6 +537,8 @@ export async function POST(request: NextRequest) {
       soldCompEvidence,
       activeCompetition,
       rejectedCandidates,
+      pricingIneligibleExactEvidence,
+      activePricingEvidenceCount: activePricingEvidence.length,
       sourceLinks,
       providerCoverage,
       providerProblems: providerCoverage.filter(

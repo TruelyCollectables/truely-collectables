@@ -12,6 +12,10 @@ import {
   type InstaCompEbayBenchmarkCase,
   type InstaCompEbayBenchmarkExpectedIdentity,
 } from "../../../../../lib/instacomp-ebay-benchmark-cases";
+import {
+  benchmarkTitleEligible,
+  benchmarkTitleHasExpectedYear,
+} from "../../../../../lib/instacomp-benchmark-title";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -207,33 +211,12 @@ function rejectedTitle(title: string) {
   );
 }
 
-function titleConflictsWithExpectedParallel(
-  title: string,
-  testCase: InstaCompEbayBenchmarkCase,
-) {
-  const expectedParallel = normalized(testCase.expected.parallel);
-  if (expectedParallel && expectedParallel !== "base") return false;
-
-  const titleText = normalized(title);
-  const conflictingParallels = new Set<string>();
-  for (const candidate of INSTACOMP_EBAY_BENCHMARK_CASES) {
-    if (normalized(candidate.expected.setName) !== normalized(testCase.expected.setName)) continue;
-    const names = [candidate.expected.parallel, ...(candidate.expected.parallelAliases || [])]
-      .map(normalized)
-      .filter((value) => value && value !== "base");
-    for (const name of names) conflictingParallels.add(name);
-  }
-  return Array.from(conflictingParallels).some((parallel) =>
-    parallel.split(" ").every((token) => titleText.includes(token)),
-  );
-}
-
 function titleScore(title: string, expected: InstaCompEbayBenchmarkExpectedIdentity) {
   const text = normalized(title);
   const playerOptions = [expected.player, ...(expected.playerAliases || [])].map(normalized);
   const playerPass = playerOptions.some((player) => player && text.includes(player));
   const numberPass = titleHasExactCardNumber(title, expected.cardNumber);
-  const yearPass = text.includes(normalized(expected.year));
+  const yearPass = benchmarkTitleHasExpectedYear(title, { expected } as InstaCompEbayBenchmarkCase);
   const setOptions = [expected.setName, ...(expected.setAliases || [])].map(normalized);
   const setPass = setOptions.some((setName) => setName && setName.split(" ").every((token) => text.includes(token)));
   const parallelOptions = [expected.parallel, ...(expected.parallelAliases || [])]
@@ -291,8 +274,7 @@ async function searchEbay(testCase: InstaCompEbayBenchmarkCase) {
       ({ item, title, score }) =>
         item.itemId &&
         title &&
-        !rejectedTitle(title) &&
-        !titleConflictsWithExpectedParallel(title, testCase) &&
+        benchmarkTitleEligible(title, testCase) &&
         score >= 65,
     )
     .sort((left, right) => right.score - left.score)
@@ -862,6 +844,7 @@ export async function POST(request: NextRequest) {
       headers: {
         cookie: `${ADMIN_SESSION_COOKIE_NAME}=${encodeURIComponent(adminSession)}`,
         "x-forwarded-for": "127.0.0.1",
+        "x-instacomp-benchmark-ephemeral": clean(process.env.INSTACOMP_BENCHMARK_TOKEN),
       },
       body: formData,
     });

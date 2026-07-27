@@ -403,7 +403,7 @@ import { buildInstaCompCuratedChecklistEvidence } from "../src/lib/instacomp-cur
     brand: "Upper Deck",
     setName: "2024-25 Upper Deck Series 1 - UD Canvas Young Guns",
     cardNumber: "C-111",
-    parallel: "UD Canvas",
+    parallel: "Canvas Young Guns",
     serialNumber: null,
     team: "Montreal Canadiens",
     sport: "Hockey",
@@ -419,6 +419,67 @@ assert.equal(officialCatalogMatch?.status, "catalog_confirmed");
 assert.equal(officialCatalogMatch?.compIdentity?.cardNumber, "C-111");
 assert.equal(officialCatalogMatch?.compIdentity?.year, "2024-25");
 assert.match(String(officialCatalogMatch?.compIdentity?.parallel), /Canvas Young Guns/i);
+
+const officialBlackWhiteCanvasVariation = buildInstaCompCuratedChecklistEvidence({
+  ai: {
+    player: "Lane Hutson",
+    year: "2024",
+    brand: "Upper Deck",
+    setName: "2024-25 Upper Deck Series 1 - UD Canvas Black and White Parallel - Young Guns",
+    cardNumber: "C-111",
+    parallel: "Black and White",
+    serialNumber: null,
+    team: "Montreal Canadiens",
+    sport: "Hockey",
+    isRookie: true,
+    isAuto: false,
+    isRelic: false,
+    conditionGuess: "Raw",
+    confidence: 0.95,
+    notes: null,
+  },
+});
+assert.equal(officialBlackWhiteCanvasVariation?.status, "catalog_confirmed");
+assert.equal(officialBlackWhiteCanvasVariation?.compIdentity?.cardNumber, "C-111");
+assert.match(
+  String(officialBlackWhiteCanvasVariation?.compIdentity?.parallel),
+  /Black and White/i,
+);
+
+const unlistedCanvasVariation = buildInstaCompCuratedChecklistEvidence({
+  ai: {
+    player: "Lane Hutson",
+    year: "2024",
+    brand: "Upper Deck",
+    setName: "2024-25 Upper Deck Series 1 - UD Canvas Sepia Parallel - Young Guns",
+    cardNumber: "C-111",
+    parallel: "Sepia",
+    serialNumber: null,
+    team: "Montreal Canadiens",
+    sport: "Hockey",
+    isRookie: true,
+    isAuto: false,
+    isRelic: false,
+    conditionGuess: "Raw",
+    confidence: 0.95,
+    notes: null,
+  },
+});
+assert.notEqual(
+  unlistedCanvasVariation?.status,
+  "catalog_confirmed",
+  "an unlisted Sepia C-111 variation must not be catalog confirmed",
+);
+assert.equal(
+  unlistedCanvasVariation?.compIdentity ?? null,
+  null,
+  "an unlisted Sepia C-111 variation must not inherit a comp identity",
+);
+assert.equal(
+  unlistedCanvasVariation?.actionPermissions.exactCompSearchAllowed ?? false,
+  false,
+  "an unlisted Sepia C-111 variation must remain blocked from exact comps",
+);
 
 const wrongCatalogParallel = buildInstaCompCuratedChecklistEvidence({
   ai: {

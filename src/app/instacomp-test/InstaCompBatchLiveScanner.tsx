@@ -132,6 +132,15 @@ type LiveScanResponse = {
   note?: string;
   exactMarket?: ExactMarket;
   pipelineDiagnostics?: PipelineDiagnostics;
+  imageOrientation?: {
+    status: string;
+    model: string | null;
+    frontRotation: 0 | 90 | 180 | 270;
+    backRotation: 0 | 90 | 180 | 270;
+    frontConfidence: number;
+    backConfidence: number;
+    reason: string;
+  } | null;
 };
 
 type BatchStatus = "incomplete" | "queued" | "scanning" | "done" | "error";
@@ -857,7 +866,7 @@ export default function InstaCompBatchLiveScanner() {
                   >
                     <div>
                       {card.frontPreview ? (
-                        <img src={card.frontPreview} alt={`Card ${index + 1} front`} style={queuePreviewStyle} />
+                        <img src={card.frontPreview} alt={`Card ${index + 1} front`} style={{ ...queuePreviewStyle, transform: `rotate(${card.result?.imageOrientation?.frontRotation || 0}deg)` }} />
                       ) : (
                         <div style={missingPreviewStyle}>Missing front</div>
                       )}
@@ -877,7 +886,7 @@ export default function InstaCompBatchLiveScanner() {
                     </div>
                     <div>
                       {card.backPreview ? (
-                        <img src={card.backPreview} alt={`Card ${index + 1} back`} style={queuePreviewStyle} />
+                        <img src={card.backPreview} alt={`Card ${index + 1} back`} style={{ ...queuePreviewStyle, transform: `rotate(${card.result?.imageOrientation?.backRotation || 0}deg)` }} />
                       ) : (
                         <div style={missingPreviewStyle}>Missing back</div>
                       )}
@@ -977,6 +986,11 @@ export default function InstaCompBatchLiveScanner() {
                 label="Images"
                 status={diagnostics?.request?.frontReceived && diagnostics?.request?.backReceived ? "complete" : "error"}
                 detail={`Front ${diagnostics?.request?.frontReceived ? "received" : "missing"}; back ${diagnostics?.request?.backReceived ? "received" : "missing"}`}
+              />
+              <StatusBox
+                label="Orientation"
+                status={result.imageOrientation?.status || "review"}
+                detail={`Front ${result.imageOrientation?.frontRotation || 0}°; back ${result.imageOrientation?.backRotation || 0}°`}
               />
               <StatusBox
                 label="Identity"

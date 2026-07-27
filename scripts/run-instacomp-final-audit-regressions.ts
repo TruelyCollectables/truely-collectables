@@ -10,13 +10,14 @@ import {
   benchmarkTitleHasExpectedParallel,
   benchmarkTitleHasExpectedSerialRun,
   benchmarkTitleHasExpectedYear,
-} from "../src/app/api/instacomp/benchmark/ebay-25/route";
+} from "../src/lib/instacomp-benchmark-title";
 import { detectInstaCompImageMime } from "../src/lib/instacomp-image-safety";
 import {
   normalizeInstaCompRotation,
   rotateInstaCompImageBytes,
 } from "../src/lib/instacomp-image-orientation";
 
+async function main() {
 function marketRow(
   title: string,
   options: Partial<Omit<InstaCompComp, "matchScore" | "flags">> = {},
@@ -243,12 +244,12 @@ assert.equal(
   buildInstaCompCuratedChecklistEvidence({
     ai: {
       ...catalogAi(canvasCase!),
-      setName: "2024-25 Upper Deck Series 1 UD Canvas Black and White Young Guns",
-      parallel: "Black and White",
+      setName: "2024-25 Upper Deck Series 1 UD Canvas Sepia Young Guns",
+      parallel: "Sepia",
     },
   }),
   null,
-  "an unlisted Black & White variation must not fall back to Canvas Young Guns",
+  "an unlisted Sepia variation must not fall back to Canvas Young Guns",
 );
 assert.equal(
   buildInstaCompCuratedChecklistEvidence({
@@ -293,23 +294,53 @@ assert.equal(benchmarkTitleHasExpectedSerialRun(exactBaseTitle, baseCase!), true
 assert.equal(benchmarkTitleHasExpectedSerialRun(`${exactBaseTitle} 01/99`, baseCase!), false);
 assert.equal(benchmarkTitleEligible(exactBaseTitle, baseCase!), true);
 assert.equal(benchmarkTitleEligible(`${exactBaseTitle} Outburst`, baseCase!), false);
+assert.equal(
+  benchmarkTitleEligible(exactBaseTitle.replace("Lane Hutson", "Cole Caufield"), baseCase!),
+  false,
+  "benchmark source must reject the wrong player",
+);
+assert.equal(
+  benchmarkTitleEligible(exactBaseTitle.replace("Upper Deck", "Topps"), baseCase!),
+  false,
+  "benchmark source must reject the wrong manufacturer",
+);
+assert.equal(
+  benchmarkTitleEligible(exactBaseTitle.replace("Young Guns", "Dazzlers"), baseCase!),
+  false,
+  "benchmark source must reject the wrong insert or set",
+);
 
 const htmlBytes = new TextEncoder().encode("<html>not an image</html>");
 assert.equal(detectInstaCompImageMime(htmlBytes), null);
 assert.equal(normalizeInstaCompRotation(-90), 270);
 assert.equal(normalizeInstaCompRotation(95), 90);
 assert.equal(normalizeInstaCompRotation(44), 0);
-const sourcePng = await sharp({
-  create: { width: 2, height: 1, channels: 3, background: { r: 255, g: 0, b: 0 } },
-}).png().toBuffer();
-assert.equal(detectInstaCompImageMime(sourcePng), "image/png");
-const rotatedPng = await rotateInstaCompImageBytes({
-  bytes: new Uint8Array(sourcePng),
-  mime: "image/png",
-  rotation: 90,
-});
-const rotatedMetadata = await sharp(rotatedPng).metadata();
-assert.equal(rotatedMetadata.width, 1);
-assert.equal(rotatedMetadata.height, 2);
+async function runImageSafetyRegressions() {
+  const sourcePng = await sharp({
+    create: { width: 2, height: 1, channels: 3, background: { r: 255, g: 0, b: 0 } },
+  }).png().toBuffer();
+  assert.equal(detectInstaCompImageMime(sourcePng), "image/png");
+  const rotatedPng = await rotateInstaCompImageBytes({
+    bytes: new Uint8Array(sourcePng),
+    mime: "image/png",
+    rotation: 90,
+  });
+  const rotatedMetadata = await sharp(rotatedPng).metadata();
+  assert.equal(rotatedMetadata.width, 1);
+  assert.equal(rotatedMetadata.height, 2);
+}
 
-console.log("InstaComp final adversarial audit regressions passed.");
+runImageSafetyRegressions()
+  .then(() => {
+    console.log("InstaComp final adversarial audit regressions passed.");
+  })
+  .catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

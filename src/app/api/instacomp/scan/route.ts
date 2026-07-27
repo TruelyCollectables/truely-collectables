@@ -1,4 +1,4 @@
-import { createHash } from "crypto";
+import { createHash, timingSafeEqual } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import {
@@ -45,6 +45,8 @@ import {
   catalogEvidenceToConsensusReferee,
 } from "../../../../lib/instacomp-curated-checklist";
 import { detectGradingDetails } from "../../../../lib/grading-cert";
+import { normalizeInstaCompSideImages } from "../../../../lib/instacomp-image-orientation";
+import { readValidatedInstaCompImage } from "../../../../lib/instacomp-image-safety";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -166,11 +168,8 @@ function jsonError(message: string, status = 400, details?: unknown) {
   );
 }
 
-async function fileToDataUrl(file: File) {
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const mime = file.type || "image/jpeg";
-
-  return `data:${mime};base64,${buffer.toString("base64")}`;
+async function fileToDataUrl(file: File, label = "Image") {
+  return (await readValidatedInstaCompImage(file, label)).dataUrl;
 }
 
 type InstaCompDetailImage = {
@@ -2842,6 +2841,7 @@ async function saveScanToSupabase(input: {
   soldComps: InstaCompComp[];
   remainingCards: InstaCompComp[];
   catalogEvidence?: unknown;
+  imageOrientation?: unknown;
 }) {
   if (!SUPABASE_URL || !SUPABASE_KEY) {
     return null;
@@ -2901,6 +2901,7 @@ async function saveScanToSupabase(input: {
         remainingCards: input.remainingCards,
         sourceLinks: input.links,
         catalogEvidence: input.catalogEvidence || null,
+        imageOrientation: input.imageOrientation || null,
       } as any,
     })
     .select("id")
@@ -3324,12 +3325,22 @@ async function failPersistentJobScan(
   }
 }
 
+function authorizedEphemeralBenchmark(req: NextRequest) {
+  if (String(process.env.VERCEL_ENV || "").trim() !== "preview") return false;
+  const expected = String(process.env.INSTACOMP_BENCHMARK_TOKEN || "").trim();
+  const supplied = String(req.headers.get("x-instacomp-benchmark-ephemeral") || "").trim();
+  if (expected.length < 32 || supplied.length !== expected.length) return false;
+  return timingSafeEqual(Buffer.from(supplied), Buffer.from(expected));
+}
+
 export async function POST(req: NextRequest) {
   let persistentContext: PersistentJobScanContext | null = null;
   let requestedAiCouncilTier: string | null = null;
   let operatorSerialNumberOverride: string | null | undefined = undefined;
+  let imageOrientation: Awaited<ReturnType<typeof normalizeInstaCompSideImages>>["orientation"] | null = null;
 
   try {
+    const ephemeralBenchmark = authorizedEphemeralBenchmark(req);
     const actor = await requireInstaCompJobActor(req);
     const rateLimit = await checkPublicEndpointRateLimit({
       request: req,
@@ -3426,6 +3437,14 @@ export async function POST(req: NextRequest) {
       backImageForScan = backImage;
     }
 
+    const normalizedSides = await normalizeInstaCompSideImages({
+      frontImage,
+      backImage: backImageForScan,
+    });
+    frontImage = normalizedSides.frontFile;
+    backImageForScan = normalizedSides.backFile;
+    imageOrientation = normalizedSides.orientation;
+
     const detailImageJobs = detailImageFiles.map(async (detailImage) => {
       if (!ALLOWED_SCAN_IMAGE_TYPES.has(detailImage.type.toLowerCase())) {
         throw new InstaCompJobServerError(
@@ -3445,15 +3464,13 @@ export async function POST(req: NextRequest) {
 
       return {
         name: detailImage.name || "detail-crop.jpg",
-        dataUrl: await fileToDataUrl(detailImage),
+        dataUrl: await fileToDataUrl(detailImage, `Detail image ${detailImage.name || "crop"}`),
       } satisfies InstaCompDetailImage;
     });
 
-    const [frontDataUrl, backDataUrl, detailImages] = await Promise.all([
-      fileToDataUrl(frontImage),
-      backImageForScan ? fileToDataUrl(backImageForScan) : Promise.resolve(undefined),
-      Promise.all(detailImageJobs),
-    ]);
+    const [detailImages] = await Promise.all([Promise.all(detailImageJobs)]);
+    const frontDataUrl = normalizedSides.frontDataUrl;
+    const backDataUrl = normalizedSides.backDataUrl;
 
     const totalInputBytes =
       frontImage.size +
@@ -3639,21 +3656,24 @@ export async function POST(req: NextRequest) {
       : calculateCompStats([]);
     const sourceCoverage = buildSourceCoverage(links, providers);
 
-    const scanId = await saveScanToSupabase({
-      imageFilename: frontImage.name || null,
-      ai,
-      searchQuery: queries.primary,
-      backupQueries: queries.backupQueries,
-      stats,
-      soldStats,
-      links,
-      providers,
-      sourceCoverage,
-      marketValueComps,
-      soldComps,
-      remainingCards,
-      catalogEvidence,
-    });
+    const scanId = ephemeralBenchmark
+      ? null
+      : await saveScanToSupabase({
+          imageFilename: frontImage.name || null,
+          ai,
+          searchQuery: queries.primary,
+          backupQueries: queries.backupQueries,
+          stats,
+          soldStats,
+          links,
+          providers,
+          sourceCoverage,
+          marketValueComps,
+          soldComps,
+          remainingCards,
+          catalogEvidence,
+          imageOrientation,
+        });
 
     const reviewReasons = scanReview.reviewReasons;
     const responsePayload = {
@@ -3664,7 +3684,13 @@ export async function POST(req: NextRequest) {
       consensus,
       consensusEscalation,
       catalogEvidence,
+      imageOrientation,
+      benchmarkDiagnostics: {
+        ephemeral: ephemeralBenchmark,
+        persistenceSkipped: ephemeralBenchmark,
+      },
       ocrDiagnostics: {
+        imageOrientation,
         paddleOcrConfigured: Boolean(PADDLEOCR_API_URL),
         googleVisionConfigured: Boolean(GOOGLE_VISION_API_KEY),
         provider: externalOcr?.provider || null,

@@ -10,6 +10,7 @@ import {
 } from "../src/lib/instacomp-exact-market-provider";
 import { calculateInstaCompSweetSpot } from "../src/lib/instacomp-sweet-spot";
 import { mergeExactMarketSources } from "../src/lib/instacomp-live-pipeline";
+import { buildInstaCompCuratedChecklistEvidence } from "../src/lib/instacomp-curated-checklist";
 
 type FixtureCard = {
   id: string;
@@ -310,6 +311,130 @@ assert.match(
 );
 assert.ok(sellerRoute.includes("soldCompEvidence"));
 assert.ok(sellerRoute.includes("activeCompetition"));
+
+const officialCatalogMatch = buildInstaCompCuratedChecklistEvidence({
+  ai: {
+    player: "Lane Hutson",
+    year: "2024",
+    brand: "Upper Deck",
+    setName: "2024-25 Upper Deck Series 1 - UD Canvas Young Guns",
+    cardNumber: "C-111",
+    parallel: "Canvas Young Guns",
+    serialNumber: null,
+    team: "Montreal Canadiens",
+    sport: "Hockey",
+    isRookie: true,
+    isAuto: false,
+    isRelic: false,
+    conditionGuess: "Raw",
+    confidence: 0.95,
+    notes: null,
+  },
+});
+assert.equal(officialCatalogMatch?.status, "catalog_confirmed");
+assert.equal(officialCatalogMatch?.compIdentity?.cardNumber, "C-111");
+assert.equal(officialCatalogMatch?.compIdentity?.year, "2024-25");
+assert.match(String(officialCatalogMatch?.compIdentity?.parallel), /Canvas Young Guns/i);
+
+const officialBlackWhiteCanvasVariation = buildInstaCompCuratedChecklistEvidence({
+  ai: {
+    player: "Lane Hutson",
+    year: "2024",
+    brand: "Upper Deck",
+    setName: "2024-25 Upper Deck Series 1 - UD Canvas Black and White Parallel - Young Guns",
+    cardNumber: "C-111",
+    parallel: "Black and White",
+    serialNumber: null,
+    team: "Montreal Canadiens",
+    sport: "Hockey",
+    isRookie: true,
+    isAuto: false,
+    isRelic: false,
+    conditionGuess: "Raw",
+    confidence: 0.95,
+    notes: null,
+  },
+});
+assert.equal(officialBlackWhiteCanvasVariation?.status, "catalog_confirmed");
+assert.equal(officialBlackWhiteCanvasVariation?.compIdentity?.cardNumber, "C-111");
+assert.match(
+  String(officialBlackWhiteCanvasVariation?.compIdentity?.parallel),
+  /Black and White/i,
+);
+
+const unlistedCanvasVariation = buildInstaCompCuratedChecklistEvidence({
+  ai: {
+    player: "Lane Hutson",
+    year: "2024",
+    brand: "Upper Deck",
+    setName: "2024-25 Upper Deck Series 1 - UD Canvas Sepia Parallel - Young Guns",
+    cardNumber: "C-111",
+    parallel: "Sepia",
+    serialNumber: null,
+    team: "Montreal Canadiens",
+    sport: "Hockey",
+    isRookie: true,
+    isAuto: false,
+    isRelic: false,
+    conditionGuess: "Raw",
+    confidence: 0.95,
+    notes: null,
+  },
+});
+assert.notEqual(
+  unlistedCanvasVariation?.status,
+  "catalog_confirmed",
+  "an unlisted Sepia C-111 variation must not be catalog confirmed",
+);
+assert.equal(
+  unlistedCanvasVariation?.compIdentity ?? null,
+  null,
+  "an unlisted Sepia C-111 variation must not inherit a comp identity",
+);
+assert.equal(
+  unlistedCanvasVariation?.actionPermissions.exactCompSearchAllowed ?? false,
+  false,
+  "an unlisted Sepia C-111 variation must remain blocked from exact comps",
+);
+
+const wrongCatalogParallel = buildInstaCompCuratedChecklistEvidence({
+  ai: {
+    player: "Connor Bedard",
+    year: "2024",
+    brand: "Upper Deck",
+    setName: "2024-25 Upper Deck Series 1 - City Satellites",
+    cardNumber: "CS-11",
+    parallel: "Blue parallel",
+    serialNumber: null,
+    team: "Chicago Blackhawks",
+    sport: "Hockey",
+    isRookie: false,
+    isAuto: false,
+    isRelic: false,
+    conditionGuess: "Raw",
+    confidence: 0.8,
+    notes: null,
+  },
+});
+assert.equal(
+  wrongCatalogParallel,
+  null,
+  "an unlisted blue City Satellites variation must not fall back to the base catalog card",
+);
+
+const scanSource = fs.readFileSync("src/app/api/instacomp/scan/route.ts", "utf8");
+const benchmarkSource = fs.readFileSync(
+  "src/app/api/instacomp/benchmark/ebay-25/route.ts",
+  "utf8",
+);
+const benchmarkTitleSource = fs.readFileSync(
+  "src/lib/instacomp-benchmark-title.ts",
+  "utf8",
+);
+assert.ok(scanSource.includes("authorizedEphemeralBenchmark"));
+assert.ok(scanSource.includes("const scanId = ephemeralBenchmark"));
+assert.ok(benchmarkSource.includes("x-instacomp-benchmark-ephemeral"));
+assert.ok(benchmarkTitleSource.includes("benchmarkTitleHasExpectedSerialRun"));
 
 console.log(
   "InstaComp Batch 001 exact-market regression passed: six exact identities, strict player/year/card/parallel/grade/condition/print-run gates, sold and active evidence lists, delivered-price normalization, and sold-only suggested-price trust.",
