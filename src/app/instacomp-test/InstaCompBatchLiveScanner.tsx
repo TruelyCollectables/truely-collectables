@@ -492,15 +492,19 @@ export default function InstaCompBatchLiveScanner() {
       }
     }
 
+    const currentCard = cards.find((card) => card.id === cardId);
+    if (!currentCard) return;
+    const oldPreview = side === "front" ? currentCard.frontPreview : currentCard.backPreview;
+    const nextPreview = createPreview(file);
+    revokePreview(oldPreview);
+
     setGlobalError(null);
     setCopiedCardId(null);
     patchCard(cardId, (card) => {
-      const oldPreview = side === "front" ? card.frontPreview : card.backPreview;
-      revokePreview(oldPreview);
       const nextCard = {
         ...card,
         [side]: file,
-        [`${side}Preview`]: createPreview(file),
+        [`${side}Preview`]: nextPreview,
         result: null,
         error: null,
       } as BatchCard;
@@ -525,14 +529,12 @@ export default function InstaCompBatchLiveScanner() {
   }
 
   function removeCard(cardId: string) {
-    setCards((current) => {
-      const removed = current.find((card) => card.id === cardId);
-      if (removed) {
-        revokePreview(removed.frontPreview);
-        revokePreview(removed.backPreview);
-      }
-      return current.filter((card) => card.id !== cardId);
-    });
+    const removed = cards.find((card) => card.id === cardId);
+    if (removed) {
+      revokePreview(removed.frontPreview);
+      revokePreview(removed.backPreview);
+    }
+    setCards((current) => current.filter((card) => card.id !== cardId));
   }
 
   function clearAll() {
