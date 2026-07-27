@@ -6,6 +6,7 @@ on:
       - agent/instacomp-live-torture-isolated-20260727
     paths:
       - ".github/workflows/instacomp-isolated-local-smoke.yml"
+      - "scripts/patch-instacomp-benchmark-serpapi-source.py"
   workflow_dispatch:
 
 permissions:
@@ -73,7 +74,10 @@ jobs:
           TCOS_LIVE_PAYMENTS_ENABLED: "false"
           TCOS_SHIPPING_PURCHASE_MODE: dry_run
           TCOS_LIVE_SHIPPING_ENABLED: "false"
-        run: npm run build
+        run: |
+          set -o pipefail
+          mkdir -p .codex-run
+          npm run build 2>&1 | tee .codex-run/instacomp-local-build.log
 
       - name: Start local preview and scan one official card
         shell: bash
@@ -169,6 +173,7 @@ jobs:
           path: |
             .codex-run/instacomp-one-card-smoke-response.json
             .codex-run/instacomp-local-server.log
+            .codex-run/instacomp-local-build.log
             src/app/api/instacomp/benchmark/ebay-25/route.ts
           if-no-files-found: warn
           retention-days: 14
