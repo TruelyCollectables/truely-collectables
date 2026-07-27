@@ -6,6 +6,7 @@ on:
       - agent/instacomp-exact-market-final-20260726
     paths:
       - "scripts/harden-instacomp-*.py"
+      - "scripts/run-instacomp-certification-safe.py"
       - "scripts/run-instacomp-certification-round2-safe.py"
       - ".github/workflows/instacomp-ebay-25-benchmark.yml"
   pull_request:
@@ -13,6 +14,7 @@ on:
       - main
     paths:
       - "scripts/harden-instacomp-*.py"
+      - "scripts/run-instacomp-certification-safe.py"
       - "scripts/run-instacomp-certification-round2-safe.py"
       - ".github/workflows/instacomp-ebay-25-benchmark.yml"
   workflow_dispatch:
@@ -42,11 +44,11 @@ jobs:
           set -o pipefail
           {
             set -x
-            python -m py_compile scripts/harden-instacomp-*.py scripts/run-instacomp-certification-round2-safe.py
+            python -m py_compile scripts/harden-instacomp-*.py scripts/run-instacomp-certification-safe.py scripts/run-instacomp-certification-round2-safe.py
             python scripts/harden-instacomp-ebay-benchmark.py
             python scripts/harden-instacomp-benchmark-source.py
             python scripts/harden-instacomp-benchmark-cleanup.py
-            python scripts/harden-instacomp-certification.py
+            python scripts/run-instacomp-certification-safe.py
             python scripts/harden-instacomp-visual-proof.py
             python scripts/harden-instacomp-visual-review-types.py
             python scripts/harden-instacomp-benchmark-report.py
