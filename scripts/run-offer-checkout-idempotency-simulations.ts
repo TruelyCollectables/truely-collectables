@@ -79,14 +79,41 @@ assert.match(
   /const stripeIdempotencyKey = `truely_offer_checkout_\$\{params\.storeId\}_\$\{checkoutAttemptId\}`/,
 );
 assert.doesNotMatch(reservedOfferCheckout, /selectionKey/);
-assert.doesNotMatch(
-  reservedOfferCheckout,
-  /legacy\.status === "open"[\s\S]*legacyAttemptId[\s\S]*checkout\.sessions\.expire\(legacy\.id\)/,
-  "A second browser must never expire a valid reservation-backed open session.",
+
+const reservedReplayStart = reservedOfferCheckout.indexOf(
+  'if (legacy.status === "open" && legacyAttemptId)',
+);
+const unreservedExpiryStart = reservedOfferCheckout.indexOf(
+  'if (legacy.status === "open" && !legacyAttemptId)',
+);
+assert.ok(
+  reservedReplayStart >= 0 && unreservedExpiryStart > reservedReplayStart,
+  "The reservation-backed replay branch must precede the legacy unreserved retirement branch.",
+);
+const reservedReplayBlock = reservedOfferCheckout.slice(
+  reservedReplayStart,
+  unreservedExpiryStart,
 );
 assert.match(
-  reservedOfferCheckout,
-  /legacy\.status === "open" && !legacyAttemptId[\s\S]*checkout\.sessions\.expire\(legacy\.id\)/,
+  reservedReplayBlock,
+  /return replayResult\(legacy, legacyAttemptId\)/,
+  "A second browser must replay the valid reservation-backed open session.",
+);
+assert.doesNotMatch(
+  reservedReplayBlock,
+  /checkout\.sessions\.expire\(legacy\.id\)/,
+  "A second browser must never expire a valid reservation-backed open session.",
+);
+const unreservedExpiryBlock = reservedOfferCheckout.slice(
+  unreservedExpiryStart,
+  reservedOfferCheckout.indexOf(
+    "await releaseExpiredSessionReservation({",
+    unreservedExpiryStart,
+  ),
+);
+assert.match(
+  unreservedExpiryBlock,
+  /checkout\.sessions\.expire\(legacy\.id\)/,
   "Only the old unreserved accepted-offer session may be retired during migration.",
 );
 assert.match(
