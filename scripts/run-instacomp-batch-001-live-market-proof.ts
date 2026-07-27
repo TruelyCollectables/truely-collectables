@@ -20,6 +20,8 @@ async function main() {
     fs.readFileSync("scripts/fixtures/instacomp-batch-001-exact-market.json", "utf8"),
   ) as { cards: FixtureCard[] };
 
+  const includeOpenAiDiscovery =
+    String(process.env.INSTACOMP_PROOF_INCLUDE_OPENAI_DISCOVERY || "").trim() === "1";
   const startedAt = new Date().toISOString();
   const cards: Array<Record<string, unknown>> = [];
   for (const card of fixture.cards) {
@@ -29,6 +31,7 @@ async function main() {
       ai: card.ai,
     });
     const openAi =
+      includeOpenAiDiscovery &&
       process.env.OPENAI_API_KEY &&
       (serp.sold.results.length === 0 || serp.active.results.length === 0)
         ? await getOpenAiExactEbayMarketProviders({
@@ -40,7 +43,8 @@ async function main() {
 
     // Only the deterministic SerpApi lane is eligible for this provider proof.
     // OpenAI web-search rows remain discovery-only and are never merged into
-    // trusted sold pricing or the pass/fail criteria.
+    // trusted sold pricing or the pass/fail criteria. The optional OpenAI call
+    // is disabled by default so it cannot add cost or latency to certification.
     const trusted = mergeExactMarketSources([
       { sold: serp.sold, active: serp.active },
     ]);
@@ -97,6 +101,7 @@ async function main() {
             trustedForPricing: false,
           }
         : null,
+      openAiDiscoveryEnabled: includeOpenAiDiscovery,
     });
   }
 
@@ -109,7 +114,7 @@ async function main() {
       Number(card.trustedSuggestedPrice || 0) <= 0,
   );
   const proof = {
-    schema: "tcos.instacompBatch001LiveMarketProviderProof.v3",
+    schema: "tcos.instacompBatch001LiveMarketProviderProof.v4",
     scope:
       "Live exact-market provider proof. This does not replace the production image-identity and visual-verification route test.",
     startedAt,
