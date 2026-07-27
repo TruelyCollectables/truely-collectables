@@ -9,6 +9,12 @@ const reservationHelper = fs.readFileSync(
   "src/lib/checkout-inventory-reservations.ts",
   "utf8",
 );
+const attemptHelper = fs.readFileSync("src/lib/checkout-attempts.ts", "utf8");
+const checkoutRoute = fs.readFileSync("src/app/api/checkout/route.ts", "utf8");
+const checkoutButton = fs.readFileSync(
+  "src/app/components/CheckoutButton.tsx",
+  "utf8",
+);
 const finalizer = fs.readFileSync(
   "src/lib/checkout-order-finalization.ts",
   "utf8",
@@ -36,12 +42,40 @@ for (const contract of [
   "tcos_consume_checkout_reservation_after_sale",
   "tcos_decrement_order_inventory_once",
   "alreadyConsumed",
+  "releaseCheckoutReservationForExpiredSession",
 ]) {
   assert.ok(
     reservationHelper.includes(contract),
     `Missing reservation helper contract: ${contract}`,
   );
 }
+
+for (const contract of [
+  "stripeSessionId?: string | null",
+  "stripe_session_id: params.stripeSessionId || null",
+]) {
+  assert.ok(
+    attemptHelper.includes(contract),
+    `Failed checkout attempt journaling is missing ${contract}.`,
+  );
+}
+for (const contract of [
+  "if (claim.stripeSessionId)",
+  "checkout.sessions.retrieve",
+  "checkout.sessions.expire",
+  "releaseCheckoutReservationForExpiredSession",
+  "resetAttempt: true",
+  "stripeSessionId: checkoutJournal.stripeSessionId",
+  '.from("checkout_inventory_reservations")',
+  '.eq("stripe_session_id", existingSession.id)',
+]) {
+  assert.ok(checkoutRoute.includes(contract), `Cart recovery is missing ${contract}.`);
+}
+assert.ok(
+  checkoutButton.includes("data.retryable !== true") &&
+    checkoutButton.includes("clearCheckoutAttempt()"),
+  "A nonretryable ended cart session must clear its browser attempt so the next click gets a new idempotency key.",
+);
 
 assert.ok(
   finalizer.includes("getByLegacyProductIds"),
@@ -51,46 +85,21 @@ assert.ok(
   !finalizer.includes("requireAvailableCartItems"),
   "Webhook retries must not fail because inventory was already sold by the first attempt.",
 );
-assert.ok(
-  finalizer.includes("consumeCheckoutReservationAfterSale"),
-  "Reserved cart purchases must consume their reservation exactly once.",
-);
-assert.ok(
-  finalizer.includes("decrementOrderInventoryOnce"),
-  "Accepted offers and other non-reserved checkouts must use the exactly-once order journal.",
-);
-assert.ok(
-  finalizer.includes("loadStripePaidCheckoutAmounts"),
-  "Order finalization must rebuild paid prices and totals from Stripe line items.",
-);
-assert.ok(
-  finalizer.includes('onConflict: "store_id,order_id,product_id"'),
-  "Order item retries must upsert one row per paid product.",
-);
+assert.ok(finalizer.includes("consumeCheckoutReservationAfterSale"));
+assert.ok(finalizer.includes("decrementOrderInventoryOnce"));
+assert.ok(finalizer.includes("loadStripePaidCheckoutAmounts"));
+assert.ok(finalizer.includes('onConflict: "store_id,order_id,product_id"'));
 assert.ok(
   finalizer.indexOf("consumeCheckoutReservationAfterSale") <
     finalizer.indexOf('.from("order_items").upsert'),
-  "Inventory consumption must occur before order-item upsert so an upsert retry cannot double-decrement.",
 );
-assert.ok(
-  finalizer.includes("paidUnitPrice"),
-  "Order items must store the Stripe-paid unit price rather than the mutable listing price.",
-);
-assert.doesNotMatch(
-  finalizer,
-  /price:\s*Number\(product\.price\)/,
-  "Order finalization must never write the current listing price as the paid price.",
-);
+assert.ok(finalizer.includes("paidUnitPrice"));
+assert.doesNotMatch(finalizer, /price:\s*Number\(product\.price\)/);
 assert.ok(
   finalizer.includes("stableOrderPayload") &&
     finalizer.includes("paymentReviewRequired && mayApplySafetyReview"),
-  "Webhook retries must update stable payment facts without resetting progressed order status.",
 );
-assert.doesNotMatch(
-  finalizer,
-  /\.update\(orderPayload\)/,
-  "Webhook retries must not overwrite the full initial order payload.",
-);
+assert.doesNotMatch(finalizer, /\.update\(orderPayload\)/);
 
 for (const contract of [
   "claimStripeWebhookEvent",
@@ -102,6 +111,8 @@ for (const contract of [
   "finalizeCheckoutOrder",
   "finishStripeWebhookEvent",
   "failStripeWebhookEvent",
+  'event.type === "checkout.session.expired"',
+  "expired_checkout_reservation_released",
 ]) {
   assert.ok(webhookRoute.includes(contract), `Webhook router lost: ${contract}`);
 }
@@ -168,4 +179,6 @@ function processLine(state: LineState, requested: number, failInsert = false) {
   });
 }
 
-console.log("Checkout webhook idempotency simulations passed: 4/4 failure paths plus structural contracts");
+console.log(
+  "Checkout webhook, orphan-session recovery, expired-session release, and idempotency simulations passed.",
+);
