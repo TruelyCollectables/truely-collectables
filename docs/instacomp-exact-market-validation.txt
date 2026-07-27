@@ -6,7 +6,7 @@ regression_pass_3=0
 live_six_card_market_proof=1
 lint=0
 build=0
-validated_source_commit=7a5759e1066c7977ec3f5de614dbc68ff8ebc74d
+validated_source_commit=9e4f5c7390cbb44db6b6f42d1a29d5e306dea6d6
 --- provider configuration (presence only) ---
 provider_env_presence={"SERPAPI_API_KEY":false,"EBAY_CLIENT_ID":true,"EBAY_CLIENT_SECRET":true,"GOOGLE_CSE_API_KEY":false,"GOOGLE_CUSTOM_SEARCH_API_KEY":false,"GOOGLE_CSE_CX":false,"GOOGLE_CUSTOM_SEARCH_CX":false,"PRICECHARTING_API_TOKEN":false,"SPORTSCARDSPRO_API_TOKEN":false,"SPORTSCARDS_PRO_API_TOKEN":false}
 --- assertions and errors with context ---
@@ -92,10 +92,10 @@ provider_env_presence={"SERPAPI_API_KEY":false,"EBAY_CLIENT_ID":true,"EBAY_CLIEN
 130-- Environments: .env.production.local, .env.local
 131-
 132-  Creating an optimized production build ...
-133-✓ Compiled successfully in 29.4s
+133-✓ Compiled successfully in 25.8s
 --- log head ---
 
-added 377 packages, and audited 378 packages in 13s
+added 377 packages, and audited 378 packages in 11s
 
 143 packages are looking for funding
   run `npm fund` for details
@@ -226,15 +226,15 @@ https://nextjs.org/telemetry
 - Environments: .env.production.local, .env.local
 
   Creating an optimized production build ...
-✓ Compiled successfully in 29.4s
+✓ Compiled successfully in 25.8s
   Running TypeScript ...
-  Finished TypeScript in 43s ...
+  Finished TypeScript in 37.1s ...
   Collecting page data using 3 workers ...
   Generating static pages using 3 workers (0/51) ...
   Generating static pages using 3 workers (12/51) 
   Generating static pages using 3 workers (25/51) 
   Generating static pages using 3 workers (38/51) 
-✓ Generating static pages using 3 workers (51/51) in 1005ms
+✓ Generating static pages using 3 workers (51/51) in 795ms
   Finalizing page optimization ...
   Collecting build traces ...
 
