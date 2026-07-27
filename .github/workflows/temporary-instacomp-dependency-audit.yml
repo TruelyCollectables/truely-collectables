@@ -28,7 +28,9 @@ jobs:
           cache: npm
 
       - name: Install exact dependencies
-        run: npm ci
+        run: |
+          echo "Running production dependency audit v2"
+          npm ci
 
       - name: Capture complete audit
         id: complete_audit
