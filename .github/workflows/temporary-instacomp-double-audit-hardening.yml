@@ -1,4 +1,4 @@
-name: Temporary InstaComp Benchmark Route Hardening
+name: Temporary InstaComp Catalog Commit
 
 on:
   push:
@@ -11,9 +11,9 @@ permissions:
   contents: write
 
 jobs:
-  patch-route:
+  commit-catalog-resolver:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - name: Check out audit branch
         uses: actions/checkout@v4
@@ -21,121 +21,49 @@ jobs:
           ref: agent/instacomp-exact-market-final-20260726
           fetch-depth: 0
 
-      - name: Harden benchmark source selection and images
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate audited catalog resolver
         run: |
+          python -m py_compile scripts/harden-instacomp-catalog-registry.py scripts/harden-instacomp-official-catalog-resolution.py
+          python scripts/harden-instacomp-catalog-registry.py
+          python scripts/harden-instacomp-official-catalog-resolution.py
           python - <<'PY'
           from pathlib import Path
 
-          path = Path("src/app/api/instacomp/benchmark/ebay-25/route.ts")
+          path = Path("src/lib/instacomp-curated-checklist.ts")
           text = path.read_text()
-
-          replacements = []
-
-          replacements.append((
-          r'''  return /\b(?:lot|team set|complete set|reprint|custom|digital|nft|break|you pick|choose your card|psa|bgs|sgc|cgc|graded|gem mint)\b/i.test(
-    title,
-  );''',
-          r'''  return /\b(?:lot|team set|complete set|reprint|custom|digital|nft|break|you pick|choose your card|psa|bgs|sgc|cgc|graded|gem mint|oversized|oversize|jumbo|mini|box topper|5x7|8x10|promo)\b/i.test(
-    title,
-  );'''))
-
-          replacements.append((
-          '''  const numberPass = text.replace(/[^a-z0-9]/g, "").includes(compactCardNumber(expected.cardNumber));''',
-          '''  const expectedNumber = compactCardNumber(expected.cardNumber);
-  const numberCandidates = Array.from(
-    title.matchAll(
-      /[a-z]{1,6}[-\\s]?\\d{1,5}|(?:#|card(?:\\s*(?:no\\.?|number))?)\\s*\\d{1,5}/gi,
-    ),
-  ).map((match) => compactCardNumber(match[0]));
-  const numberPass = numberCandidates.includes(expectedNumber);'''))
-
-          replacements.append((
-          '''async function downloadImage(url: string, fileName: string) {
-  const response = await fetch(url, {
-    cache: "no-store",
-    headers: { "User-Agent": "TCOS-InstaComp-Benchmark/1.0" },
-    signal: AbortSignal.timeout(60_000),
-  });
-  if (!response.ok) {
-    throw new Error(`Could not download ${fileName} (${response.status}).`);
-  }
-  const bytes = await response.arrayBuffer();
-  if (!bytes.byteLength || bytes.byteLength > MAX_IMAGE_BYTES) {
-    throw new Error(`${fileName} was empty or exceeded 12 MB.`);
-  }
-  const reportedType = clean(response.headers.get("content-type")).split(";")[0].toLowerCase();
-  const inferredType = /\\.png(?:\\?|$)/i.test(url)
-    ? "image/png"
-    : /\\.webp(?:\\?|$)/i.test(url)
-      ? "image/webp"
-      : "image/jpeg";
-  const type = ALLOWED_IMAGE_TYPES.has(reportedType) ? reportedType : inferredType;
-  return new File([bytes], fileName, { type });
-}''',
-          '''function imageTypeFromMagic(bytes: Uint8Array) {
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
-    return "image/jpeg";
-  }
-  if (
-    bytes.length >= 8 &&
-    bytes[0] === 0x89 &&
-    bytes[1] === 0x50 &&
-    bytes[2] === 0x4e &&
-    bytes[3] === 0x47 &&
-    bytes[4] === 0x0d &&
-    bytes[5] === 0x0a &&
-    bytes[6] === 0x1a &&
-    bytes[7] === 0x0a
-  ) {
-    return "image/png";
-  }
-  if (
-    bytes.length >= 12 &&
-    String.fromCharCode(...bytes.slice(0, 4)) === "RIFF" &&
-    String.fromCharCode(...bytes.slice(8, 12)) === "WEBP"
-  ) {
-    return "image/webp";
-  }
-  return null;
-}
-
-async function downloadImage(url: string, fileName: string) {
-  const response = await fetch(url, {
-    cache: "no-store",
-    headers: { "User-Agent": "TCOS-InstaComp-Benchmark/1.0" },
-    signal: AbortSignal.timeout(60_000),
-  });
-  if (!response.ok) {
-    throw new Error(`Could not download ${fileName} (${response.status}).`);
-  }
-  const buffer = await response.arrayBuffer();
-  if (!buffer.byteLength || buffer.byteLength > MAX_IMAGE_BYTES) {
-    throw new Error(`${fileName} was empty or exceeded 12 MB.`);
-  }
-  const bytes = new Uint8Array(buffer);
-  const detectedType = imageTypeFromMagic(bytes);
-  if (!detectedType || !ALLOWED_IMAGE_TYPES.has(detectedType)) {
-    const reportedType = clean(response.headers.get("content-type")).split(";")[0].toLowerCase();
-    throw new Error(
-      `${fileName} was not a real JPEG, PNG, or WebP image (reported ${reportedType || "unknown"}).`,
-    );
-  }
-  return new File([buffer], fileName, { type: detectedType });
-}'''))
-
-          for old, new in replacements:
-              if old not in text:
-                  raise SystemExit(f"Expected route block not found: {old[:80]!r}")
-              text = text.replace(old, new, 1)
-
-          path.write_text(text)
+          if "\x08" in text:
+              raise SystemExit("The committed curated checklist still contains a hidden backspace byte")
+          required = (
+              "officialBenchmarkCatalogCandidate",
+              "parallelEvidenceTokens",
+              "inputParallelDistinctive.every",
+              "tcos-official-${testCase.id}",
+          )
+          missing = [marker for marker in required if marker not in text]
+          if missing:
+              raise SystemExit(f"Missing audited catalog markers: {missing}")
           PY
-
-      - name: Commit route hardening
-        run: |
           git diff --check
-          git config user.name "OpenAI Audit Agent"
-          git config user.email "actions@users.noreply.github.com"
-          git add src/app/api/instacomp/benchmark/ebay-25/route.ts
-          git commit -m "Harden InstaComp eBay torture source validation"
+
+      - name: Verify exact-market regression and build
+        run: |
+          node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
+          npm run build
+
+      - name: Commit generated catalog source
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/instacomp-curated-checklist.ts
+          git diff --cached --quiet && { echo "No catalog source changes were produced"; exit 1; }
+          git commit -m "Commit audited InstaComp catalog resolver"
           git push origin HEAD:agent/instacomp-exact-market-final-20260726
