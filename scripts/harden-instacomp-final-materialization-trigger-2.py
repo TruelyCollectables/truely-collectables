@@ -1,1 +1,1 @@
-# Trigger marker for the bound, logged, fail-closed final InstaComp materialization workflow.
+# Trigger marker for the invariant-backed final InstaComp materialization workflow.
