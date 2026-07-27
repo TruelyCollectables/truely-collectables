@@ -131,13 +131,17 @@ assert.ok(navbar.includes('{ href: "/shop?sport=WNBA", label: "WNBA" }'));
 const imageUtils = fs.readFileSync("src/lib/listing-image-utils.ts", "utf8");
 assert.ok(
   imageUtils.includes("MAX_LISTING_IMAGES = 24"),
-  "The storefront must preserve all 24 photos allowed by an eBay listing.",
+  "Internal ingestion must preserve all 24 photos allowed by an eBay listing.",
+);
+assert.ok(
+  imageUtils.includes("selectFrontBackListingImages"),
+  "The public storefront must have a deterministic front/back image selector.",
 );
 
 const imageSync = fs.readFileSync("src/lib/ebay-all-image-sync.ts", "utf8");
 assert.ok(
   imageSync.includes("maxImagesPerListing: 24"),
-  "The eBay synchronization report must use the same 24-photo contract.",
+  "The eBay synchronization report must use the same 24-photo internal contract.",
 );
 
 const productPage = fs.readFileSync("src/app/product/[id]/page.tsx", "utf8");
@@ -146,12 +150,17 @@ for (const token of [
   "metadata.ebay_image_urls",
   "metadata.image_urls",
   "metadata.source_image_urls",
-  "normalizeListingImageUrls",
+  "selectFrontBackListingImages",
   "<ProductGallery",
   "<OfferForm",
 ]) {
   assert.ok(productPage.includes(token), `Product page is missing ${token}.`);
 }
+assert.doesNotMatch(
+  productPage,
+  /normalizeListingImageUrls/,
+  "The launch storefront must not expose the full internal source-image set.",
+);
 assert.doesNotMatch(productPage, /Collector Intelligence/);
 assert.doesNotMatch(productPage, /Research before you make it yours/);
 assert.doesNotMatch(productPage, /buildCollectorIntelligence/);
@@ -181,7 +190,7 @@ assert.doesNotMatch(gallery, /animate-|group-hover|blur-|duration-|transition/);
 assert.match(
   gallery,
   /images\.map\([\s\S]*setSelectedIndex/,
-  "Every listing photo must be represented by a selectable thumbnail.",
+  "The selected front/back pair must remain keyboard-selectable.",
 );
 
 const productActions = fs.readFileSync(
@@ -196,5 +205,5 @@ const offerForm = fs.readFileSync("src/app/product/[id]/OfferForm.tsx", "utf8");
 assert.ok(offerForm.includes("Shoot Me an Offer"));
 
 console.log(
-  "Storefront taxonomy and gallery simulations passed: one Basketball category, searchable WNBA, shared homepage/shop taxonomy, every saved image preserved up to 24 photos, one stable selectable gallery, and no product-page intelligence tail.",
+  "Storefront taxonomy and gallery simulations passed: one Basketball category, searchable WNBA, shared homepage/shop taxonomy, up to 24 source images retained internally, exactly one clean public front/back pair, and no product-page intelligence tail.",
 );
