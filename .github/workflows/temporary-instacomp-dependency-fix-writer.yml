@@ -53,6 +53,7 @@ jobs:
       - name: Apply explicit safe dependency versions
         run: |
           set -euo pipefail
+          echo "Applying certified dependency upgrade v2"
           npm pkg set \
             'dependencies.next=16.2.12' \
             'dependencies.sharp=0.35.3' \
