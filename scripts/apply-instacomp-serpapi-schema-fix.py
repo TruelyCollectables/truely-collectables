@@ -16,7 +16,7 @@ def replace_once(path: str, old: str, new: str, marker: str) -> None:
 PROVIDER = "src/lib/instacomp-exact-market-provider.ts"
 replace_once(
     PROVIDER,
-    '''function moneyFromRecord(value: unknown, allowZero = false): number | null {
+    r'''function moneyFromRecord(value: unknown, allowZero = false): number | null {
   const record = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
   const direct = Number(record.extracted);
   if (Number.isFinite(direct) && (allowZero ? direct >= 0 : direct > 0)) return direct;
@@ -29,7 +29,7 @@ replace_once(
     return rawNumber;
   }
 ''',
-    '''function moneyFromRecord(value: unknown, allowZero = false): number | null {
+    r'''function moneyFromRecord(value: unknown, allowZero = false): number | null {
   const record = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
   const direct = typeof value === "number" ? value : Number(record.extracted);
   if (Number.isFinite(direct) && (allowZero ? direct >= 0 : direct > 0)) return direct;
@@ -54,19 +54,19 @@ replace_once(
 )
 replace_once(
     PROVIDER,
-    'serpapi_ebay_v6_',
-    'serpapi_ebay_v7_',
-    'serpapi_ebay_v7_',
+    "serpapi_ebay_v6_",
+    "serpapi_ebay_v7_",
+    "serpapi_ebay_v7_",
 )
 
 REGRESSIONS = "scripts/run-instacomp-exact-market-proof-regressions.ts"
 replace_once(
     REGRESSIONS,
-    '''assert.equal(normalized[0].soldDate, "Jul 20, 2026");
+    r'''assert.equal(normalized[0].soldDate, "Jul 20, 2026");
 
 const seasonTarget: InstaCompAiResult = {
 ''',
-    '''assert.equal(normalized[0].soldDate, "Jul 20, 2026");
+    r'''assert.equal(normalized[0].soldDate, "Jul 20, 2026");
 
 const normalizedDocumentedShippingStrings = normalizeEbaySerpItems({
   organic_results: [
