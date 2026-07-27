@@ -110,14 +110,23 @@ jobs:
       - name: Validate order review actions
         run: node --import tsx scripts/run-admin-order-review-actions-simulations.mjs
 
-      - name: Run authentication, authorization, and public security simulations
-        run: |
-          node scripts/run-admin-session-secret-fail-closed-simulations.mjs
-          node --import tsx scripts/run-admin-login-simulations.mjs
-          node scripts/run-privileged-api-route-audit.mjs
-          node --import tsx scripts/run-live-payment-identity-gate-simulations.ts
-          node --import tsx scripts/run-public-rate-limit-fail-closed-simulations.ts
-          node scripts/run-admin-security-actions-simulations.mjs
+      - name: Validate admin session fail-closed behavior
+        run: node scripts/run-admin-session-secret-fail-closed-simulations.mjs
+
+      - name: Validate admin login behavior
+        run: node --import tsx scripts/run-admin-login-simulations.mjs
+
+      - name: Audit privileged API routes
+        run: node scripts/run-privileged-api-route-audit.mjs
+
+      - name: Validate live-payment identity scope
+        run: node --import tsx scripts/run-live-payment-identity-gate-simulations.ts
+
+      - name: Validate public rate-limit fail-closed behavior
+        run: node --import tsx scripts/run-public-rate-limit-fail-closed-simulations.ts
+
+      - name: Validate admin security actions
+        run: node scripts/run-admin-security-actions-simulations.mjs
 
       - name: Validate eBay OAuth state security
         run: node --import tsx scripts/run-ebay-oauth-state-simulations.ts
