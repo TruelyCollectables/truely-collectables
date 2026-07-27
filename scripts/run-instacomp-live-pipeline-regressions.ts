@@ -38,14 +38,15 @@ function comp(params: {
   url: string;
   lane: "sold" | "active";
   delivered?: boolean;
+  shippingFlagOnly?: boolean;
 }): InstaCompComp {
   const delivered = params.delivered !== false;
   return {
     title: params.title,
     price: params.price,
-    itemPrice: params.price,
-    shippingPrice: delivered ? 0 : null,
-    priceIncludesShipping: delivered,
+    itemPrice: params.shippingFlagOnly ? undefined : params.price,
+    shippingPrice: params.shippingFlagOnly ? undefined : delivered ? 0 : null,
+    priceIncludesShipping: params.shippingFlagOnly ? undefined : delivered,
     currency: "USD",
     url: params.url,
     imageUrl: "https://example.com/card.jpg",
@@ -53,7 +54,11 @@ function comp(params: {
     sourceLabel: params.lane === "sold" ? "Test Sold" : "Test Active",
     sourceCategory: params.lane === "sold" ? "sold" : "marketplace",
     matchScore: 100,
-    flags: ["strict exact identity", "exact print run /50"],
+    flags: [
+      "strict exact identity",
+      "exact print run /50",
+      ...(params.shippingFlagOnly ? ["shipping not reported"] : []),
+    ],
     soldAt: params.lane === "sold" ? "2026-07-20" : null,
     listedAt: params.lane === "active" ? "2026-07-21" : null,
   };
@@ -107,7 +112,20 @@ const shippingUnknown = comp({
 assert.equal(
   dedupeExactMarketComps([shippingUnknown]).length,
   0,
-  "A provider row with unverified shipping must not enter trusted pricing.",
+  "A provider row with priceIncludesShipping=false must not enter trusted pricing.",
+);
+
+const shippingUnknownByFlag = comp({
+  title,
+  price: 20,
+  url: "https://www.ebay.com/itm/shipping-flag-unknown",
+  lane: "sold",
+  shippingFlagOnly: true,
+});
+assert.equal(
+  dedupeExactMarketComps([shippingUnknownByFlag]).length,
+  0,
+  "A SerpApi row flagged shipping not reported must not enter trusted pricing.",
 );
 
 const sold = [
