@@ -15,4 +15,8 @@ source = source.replace(
     '            raise SystemExit("Could not locate regression insertion marker")',
     '            print("Certification hardening notice: regression insertion marker was already changed")\n            return',
 )
-exec(compile(source, str(source_path), "exec"), {"__name__": "__main__"})
+source = source.replace(
+    '    patch_instacomp_matcher()\n',
+    '    if "function titleHasExactCardNumber" not in Path("src/lib/instacomp.ts").read_text():\n        patch_instacomp_matcher()\n    else:\n        print("Certification hardening notice: matcher helpers already exist; skipping reinsertion")\n',
+)
+exec(compile(source, str(source_path), "exec"), {"__name__": "__main__", "Path": Path})
