@@ -95,16 +95,21 @@ export async function attachCheckoutTosEvidence(params: {
   rowId: string;
   tosAcceptanceEventId: string;
 }) {
-  const { error } = await params.supabase
+  const { data, error } = await params.supabase
     .from("checkout_attempts")
     .update({
       tos_acceptance_event_id: params.tosAcceptanceEventId,
       updated_at: new Date().toISOString(),
     })
     .eq("id", params.rowId)
-    .eq("request_status", "processing");
+    .eq("request_status", "processing")
+    .select("id")
+    .maybeSingle();
 
   if (error) throw error;
+  if (!data) {
+    throw new Error("Checkout terms evidence could not be attached to the active attempt.");
+  }
 }
 
 export async function completeCheckoutAttempt(params: {
@@ -113,7 +118,7 @@ export async function completeCheckoutAttempt(params: {
   stripeSessionId: string;
 }) {
   const now = new Date().toISOString();
-  const { error } = await params.supabase
+  const { data, error } = await params.supabase
     .from("checkout_attempts")
     .update({
       request_status: "session_created",
@@ -124,9 +129,14 @@ export async function completeCheckoutAttempt(params: {
       updated_at: now,
     })
     .eq("id", params.rowId)
-    .eq("request_status", "processing");
+    .eq("request_status", "processing")
+    .select("id")
+    .maybeSingle();
 
   if (error) throw error;
+  if (!data) {
+    throw new Error("Checkout Session could not be durably attached to the active attempt.");
+  }
 }
 
 export async function failCheckoutAttempt(params: {
