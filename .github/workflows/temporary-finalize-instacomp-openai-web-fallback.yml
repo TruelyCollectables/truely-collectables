@@ -47,6 +47,19 @@ jobs:
           git fetch origin agent/instacomp-exact-market-proof-20260726
           mkdir -p src/lib
           git show origin/agent/instacomp-exact-market-proof-20260726:src/lib/instacomp-openai-web-market-provider.ts > src/lib/instacomp-openai-web-market-provider.ts
+      - name: Repair escaped live-proof template
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("scripts/apply-instacomp-openai-web-fallback-final.mjs")
+          source = path.read_text()
+          before = r'\`${JSON.stringify(proof, null, 2)}\\n\`'
+          after = r'\`\${JSON.stringify(proof, null, 2)}\\n\`'
+          if before not in source:
+              raise SystemExit("Live-proof template marker was not found")
+          path.write_text(source.replace(before, after))
+          PY
       - name: Apply fallback to clean release candidate
         run: node scripts/apply-instacomp-openai-web-fallback-final.mjs
       - name: Remove temporary patch machinery
