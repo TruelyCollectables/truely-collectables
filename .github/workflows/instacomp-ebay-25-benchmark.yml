@@ -8,6 +8,7 @@ on:
       - "src/app/api/instacomp/benchmark/ebay-25/route.ts"
       - "src/app/api/instacomp/live-scan/route.ts"
       - "src/app/api/instacomp/scan/route.ts"
+      - "src/lib/client-identity.ts"
       - "src/lib/instacomp-ebay-benchmark-cases.ts"
       - "src/lib/instacomp-curated-checklist.ts"
       - "src/lib/instacomp*.ts"
@@ -21,6 +22,7 @@ on:
       - "src/app/api/instacomp/benchmark/ebay-25/route.ts"
       - "src/app/api/instacomp/live-scan/route.ts"
       - "src/app/api/instacomp/scan/route.ts"
+      - "src/lib/client-identity.ts"
       - "src/lib/instacomp-ebay-benchmark-cases.ts"
       - "src/lib/instacomp-curated-checklist.ts"
       - "src/lib/instacomp*.ts"
@@ -39,7 +41,7 @@ concurrency:
 jobs:
   ebay-25-real-cards:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 240
     env:
       VERCEL_SCOPE: truelycollectables-projects
       VERCEL_PROJECT: truely-collectables
@@ -65,6 +67,7 @@ jobs:
         run: >-
           npx eslint
           src/app/api/instacomp/benchmark/ebay-25/route.ts
+          src/lib/client-identity.ts
           src/lib/instacomp-ebay-benchmark-cases.ts
           scripts/run-instacomp-ebay-25-benchmark.mjs
           scripts/run-instacomp-ebay-25-through-vercel-curl.mjs
@@ -142,63 +145,88 @@ jobs:
           fi
           node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("benchmark-manifest.json","utf8"));if(!p.ok||!Array.isArray(p.cases)||p.cases.length<25)throw new Error(`Benchmark manifest is not ready: ${JSON.stringify(p).slice(0,1000)}`);console.log(`Manifest ready: ${p.cases.length} official checklist cases`);'
 
-      - name: Run 25 real eBay cards through InstaComp
-        id: benchmark
+      - name: Run 25 real eBay cards through InstaComp — audit pass 1
+        id: benchmark_pass_1
+        continue-on-error: true
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          INSTACOMP_PREVIEW_DEPLOYMENT_URL: ${{ steps.deploy.outputs.preview_url }}
+          INSTACOMP_BENCHMARK_REPORT_DIR: reports/pass-1
+        run: node scripts/run-instacomp-ebay-25-through-vercel-curl.mjs
+
+      - name: Run 25 real eBay cards through InstaComp — audit pass 2
+        id: benchmark_pass_2
         continue-on-error: true
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           INSTACOMP_PREVIEW_DEPLOYMENT_URL: ${{ steps.deploy.outputs.preview_url }}
         run: node scripts/run-instacomp-ebay-25-through-vercel-curl.mjs
 
-      - name: Summarize benchmark result
+      - name: Summarize benchmark results
         if: always()
         run: |
-          if [ -f reports/instacomp-ebay-25-report.json ]; then
-            node - <<'NODE'
+          node - <<'NODE'
           const fs = require("fs");
-          const report = JSON.parse(fs.readFileSync("reports/instacomp-ebay-25-report.json", "utf8"));
-          const summary = report.summary || {};
-          const lines = [
-            "# InstaComp eBay 25-Card Benchmark",
-            "",
-            `Preview: ${report.previewUrl || "unknown"}`,
-            `Completed: ${summary.completedCards || 0}/${report.requestedTarget || 25}`,
-            `Target met: ${Boolean(summary.targetMet)}`,
-            `Average score: ${summary.averageScore ?? "n/a"}`,
-            `Catalog confirmed: ${summary.catalogIdentityConfirmed || 0}/${summary.completedCards || 0}`,
-            `Exact sold supported: ${summary.exactSoldSupportedCards || 0}/${summary.completedCards || 0}`,
-            `Weird errors: ${summary.totalWeirdErrors || 0} (${summary.criticalErrors || 0} critical, ${summary.majorErrors || 0} major, ${summary.minorErrors || 0} minor)`,
+          const reports = [
+            ["Pass 1", "reports/pass-1/instacomp-ebay-25-report.json"],
+            ["Pass 2", "reports/instacomp-ebay-25-report.json"],
           ];
+          const lines = ["# InstaComp eBay 25-Card Double Audit", ""];
+          for (const [label, file] of reports) {
+            if (!fs.existsSync(file)) {
+              lines.push(`## ${label}`, "No report file was produced.", "");
+              continue;
+            }
+            const report = JSON.parse(fs.readFileSync(file, "utf8"));
+            const summary = report.summary || {};
+            lines.push(
+              `## ${label}`,
+              `Preview: ${report.previewUrl || "unknown"}`,
+              `Completed: ${summary.completedCards || 0}/${report.requestedTarget || 25}`,
+              `Target met: ${Boolean(summary.targetMet)}`,
+              `Average score: ${summary.averageScore ?? "n/a"}`,
+              `Catalog confirmed: ${summary.catalogIdentityConfirmed || 0}/${summary.completedCards || 0}`,
+              `Exact sold supported: ${summary.exactSoldSupportedCards || 0}/${summary.completedCards || 0}`,
+              `Trusted sold-backed prices: ${summary.trustedPriceCards || 0}/${summary.completedCards || 0}`,
+              `Weird errors: ${summary.totalWeirdErrors || 0} (${summary.criticalErrors || 0} critical, ${summary.majorErrors || 0} major, ${summary.minorErrors || 0} minor)`,
+              "",
+            );
+          }
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join("\n")}\n`);
           NODE
-          else
-            echo "# InstaComp eBay 25-Card Benchmark" >> "$GITHUB_STEP_SUMMARY"
-            echo "No report file was produced." >> "$GITHUB_STEP_SUMMARY"
-          fi
 
-      - name: Upload benchmark report
+      - name: Upload double-audit reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: instacomp-ebay-25-report-${{ github.run_number }}
+          name: instacomp-ebay-25-double-audit-${{ github.run_number }}
           path: |
             reports/instacomp-ebay-25-report.json
             reports/instacomp-ebay-25-report.md
+            reports/pass-1/instacomp-ebay-25-report.json
+            reports/pass-1/instacomp-ebay-25-report.md
             benchmark-manifest.json
             benchmark-manifest-error.txt
             deployment-url.txt
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Enforce 25 completed cards
+      - name: Enforce two completed 25-card passes
         if: always()
         run: |
+          test -f reports/pass-1/instacomp-ebay-25-report.json
           test -f reports/instacomp-ebay-25-report.json
           node - <<'NODE'
           const fs = require("fs");
-          const report = JSON.parse(fs.readFileSync("reports/instacomp-ebay-25-report.json", "utf8"));
-          if (!report?.summary?.targetMet || Number(report?.summary?.completedCards || 0) < 25) {
-            throw new Error(`Benchmark incomplete: ${report?.summary?.completedCards || 0}/25 real cards completed.`);
+          const reports = [
+            ["pass 1", "reports/pass-1/instacomp-ebay-25-report.json"],
+            ["pass 2", "reports/instacomp-ebay-25-report.json"],
+          ];
+          for (const [label, file] of reports) {
+            const report = JSON.parse(fs.readFileSync(file, "utf8"));
+            if (!report?.summary?.targetMet || Number(report?.summary?.completedCards || 0) < 25) {
+              throw new Error(`${label} incomplete: ${report?.summary?.completedCards || 0}/25 real cards completed.`);
+            }
+            console.log(`${label} complete: ${report.summary.completedCards}/25 real eBay cards.`);
           }
-          console.log(`Benchmark complete: ${report.summary.completedCards}/25 real eBay cards.`);
           NODE
