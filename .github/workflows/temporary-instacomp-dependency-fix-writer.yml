@@ -53,7 +53,7 @@ jobs:
       - name: Apply explicit safe dependency versions
         run: |
           set -euo pipefail
-          echo "Applying certified dependency upgrade v3"
+          echo "Applying certified dependency upgrade v4"
           npm pkg set \
             'dependencies.next=16.2.12' \
             'dependencies.sharp=0.35.3' \
@@ -68,11 +68,60 @@ jobs:
       - name: Install exact upgraded dependencies
         run: npm ci
 
+      - name: Capture post-upgrade audits
+        run: |
+          npm audit --omit=dev --json > npm-audit-upgraded-production.json || true
+          npm audit --json > npm-audit-upgraded-all.json || true
+          node <<'NODE'
+          const fs = require("node:fs");
+          const read = (path) => JSON.parse(fs.readFileSync(path, "utf8"));
+          const production = read("npm-audit-upgraded-production.json");
+          const all = read("npm-audit-upgraded-all.json");
+          const mapRows = (audit) => Object.entries(audit.vulnerabilities || {}).map(([name, row]) => ({
+            name,
+            severity: row.severity,
+            direct: row.isDirect,
+            via: (row.via || []).map((item) => typeof item === "string" ? item : item.title),
+            range: row.range,
+            fixAvailable: row.fixAvailable,
+          }));
+          const summary = {
+            production: production.metadata?.vulnerabilities || {},
+            all: all.metadata?.vulnerabilities || {},
+            productionAdvisories: mapRows(production),
+            allAdvisories: mapRows(all),
+          };
+          fs.writeFileSync("npm-audit-upgraded-summary.json", JSON.stringify(summary, null, 2) + "\n");
+          console.log(JSON.stringify(summary, null, 2));
+          NODE
+
+      - name: Upload post-upgrade audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-dependency-upgrade-audit-${{ github.run_number }}
+          path: |
+            npm-audit-upgraded-production.json
+            npm-audit-upgraded-all.json
+            npm-audit-upgraded-summary.json
+            package.json
+            package-lock.json
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Enforce zero high or critical advisories
         run: |
-          set -euo pipefail
-          npm audit --omit=dev --audit-level=high
-          npm audit --audit-level=high
+          node <<'NODE'
+          const fs = require("node:fs");
+          for (const path of ["npm-audit-upgraded-production.json", "npm-audit-upgraded-all.json"]) {
+            const audit = JSON.parse(fs.readFileSync(path, "utf8"));
+            const counts = audit.metadata?.vulnerabilities || {};
+            const blocking = Number(counts.high || 0) + Number(counts.critical || 0);
+            if (blocking > 0) {
+              console.error(`${path} still contains ${blocking} high/critical vulnerability records.`);
+              process.exitCode = 1;
+            }
+          }
+          NODE
 
       - name: Run InstaComp regressions
         run: |
