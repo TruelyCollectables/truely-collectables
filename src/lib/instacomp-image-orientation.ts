@@ -18,7 +18,7 @@ export type InstaCompOrientationDecision = {
   reason: string;
 };
 
-function normalizedRotation(value: unknown): InstaCompRotation {
+export function normalizeInstaCompRotation(value: unknown): InstaCompRotation {
   const number = Number(value);
   if (!Number.isFinite(number)) return 0;
   const normalized = ((Math.round(number / 90) * 90) % 360 + 360) % 360;
@@ -136,8 +136,8 @@ export async function detectInstaCompSideOrientations(params: {
     return {
       status: "completed",
       model,
-      frontRotation: normalizedRotation(parsed.frontRotation),
-      backRotation: params.backDataUrl ? normalizedRotation(parsed.backRotation) : 0,
+      frontRotation: normalizeInstaCompRotation(parsed.frontRotation),
+      backRotation: params.backDataUrl ? normalizeInstaCompRotation(parsed.backRotation) : 0,
       frontConfidence: normalizedConfidence(parsed.frontConfidence),
       backConfidence: params.backDataUrl ? normalizedConfidence(parsed.backConfidence) : 0,
       reason:
@@ -158,7 +158,7 @@ export async function detectInstaCompSideOrientations(params: {
   }
 }
 
-async function rotatedBytes(params: {
+export async function rotateInstaCompImageBytes(params: {
   bytes: Uint8Array;
   mime: InstaCompImageMime;
   rotation: InstaCompRotation;
@@ -185,13 +185,13 @@ export async function normalizeInstaCompSideImages(params: {
     backDataUrl: back?.dataUrl || null,
   });
   const [frontBytes, backBytes] = await Promise.all([
-    rotatedBytes({
+    rotateInstaCompImageBytes({
       bytes: front.bytes,
       mime: front.mime,
       rotation: orientation.frontRotation,
     }),
     back
-      ? rotatedBytes({
+      ? rotateInstaCompImageBytes({
           bytes: back.bytes,
           mime: back.mime,
           rotation: orientation.backRotation,
