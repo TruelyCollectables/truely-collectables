@@ -1,0 +1,206 @@
+name: Authorized Production Deploy 20260727
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/authorized-production-deploy-20260727.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: authorized-production-deploy-20260727
+  cancel-in-progress: false
+
+jobs:
+  deploy-production:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'deploy/production-20260727')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      DEPLOY_SOURCE_SHA: d6026f7ce5a85d670065e4246892e282ae234512
+
+    steps:
+      - name: Check out exact production source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DEPLOY_SOURCE_SHA }}
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Confirm Vercel token identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          npx --yes vercel@56.2.0 whoami --token "$VERCEL_TOKEN" --no-color
+
+      - name: Resolve exact Vercel project
+        id: link
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .vercel .deployment-evidence
+          link_mode=''
+
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+            link_mode='explicit_ids'
+          else
+            set +e
+            npx --yes vercel@56.2.0 link \
+              --yes \
+              --project truely-collectables \
+              --scope "$VERCEL_SCOPE" \
+              --token "$VERCEL_TOKEN" \
+              --no-color \
+              > .deployment-evidence/link-team.log 2>&1
+            team_status=$?
+            set -e
+            if [ "$team_status" -eq 0 ] && [ -f .vercel/project.json ]; then
+              link_mode='team_scope'
+            else
+              rm -rf .vercel
+              mkdir -p .vercel
+              set +e
+              npx --yes vercel@56.2.0 link \
+                --yes \
+                --project truely-collectables \
+                --token "$VERCEL_TOKEN" \
+                --no-color \
+                > .deployment-evidence/link-default.log 2>&1
+              default_status=$?
+              set -e
+              if [ "$default_status" -eq 0 ] && [ -f .vercel/project.json ]; then
+                link_mode='token_default_scope'
+              fi
+            fi
+          fi
+
+          if [ -z "$link_mode" ] || [ ! -f .vercel/project.json ]; then
+            echo 'Unable to link the Vercel token to the truely-collectables project.' >&2
+            for log in .deployment-evidence/link-team.log .deployment-evidence/link-default.log; do
+              if [ -f "$log" ]; then
+                sed -E 's/(token|secret|password|api[_-]?key)[=:][^[:space:]]+/\1=[redacted]/Ig' "$log" | tail -n 40
+              fi
+            done
+            exit 1
+          fi
+
+          echo "link_mode=$link_mode" | tee .deployment-evidence/link-summary.txt
+          echo "link_mode=$link_mode" >> "$GITHUB_OUTPUT"
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const p = JSON.parse(fs.readFileSync('.vercel/project.json', 'utf8'));
+          const summary = { orgIdPresent: Boolean(p.orgId), projectIdPresent: Boolean(p.projectId) };
+          fs.writeFileSync('.deployment-evidence/project-link-summary.json', JSON.stringify(summary, null, 2) + '\n');
+          if (!summary.orgIdPresent || !summary.projectIdPresent) process.exit(1);
+          NODE
+
+      - name: Deploy exact main revision to Production
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .deployment-evidence
+          set +e
+          npx --yes vercel@56.2.0 deploy \
+            --prod \
+            --yes \
+            --token "$VERCEL_TOKEN" \
+            --no-color \
+            > .deployment-evidence/vercel-deploy.log 2>&1
+          deploy_status=$?
+          set -e
+
+          sed -E 's/(token|secret|password|api[_-]?key)[=:][^[:space:]]+/\1=[redacted]/Ig' .deployment-evidence/vercel-deploy.log | tail -n 120
+          if [ "$deploy_status" -ne 0 ]; then
+            echo "Vercel production deployment failed with exit ${deploy_status}." >&2
+            exit "$deploy_status"
+          fi
+
+          deployment_url="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' .deployment-evidence/vercel-deploy.log | tail -n 1 || true)"
+          if [ -z "$deployment_url" ]; then
+            echo 'Vercel returned success but no deployment URL was found.' >&2
+            exit 1
+          fi
+          printf '%s\n' "$deployment_url" | tee .deployment-evidence/deployment-url.txt
+          echo "deployment_url=$deployment_url" >> "$GITHUB_OUTPUT"
+
+      - name: Verify deployed scanner on Production URLs
+        id: verify
+        shell: bash
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
+        run: |
+          set -euo pipefail
+          marker='LIVE BATCH MODE'
+          urls=(
+            "$DEPLOYMENT_URL/instacomp-test"
+            'https://truely-collectables.vercel.app/instacomp-test'
+            'https://truelycollectables.com/instacomp-test'
+          )
+          success_url=''
+          for attempt in $(seq 1 30); do
+            echo "Post-deploy verification attempt ${attempt}/30"
+            for index in "${!urls[@]}"; do
+              url="${urls[$index]}"
+              body=".deployment-evidence/verify-${attempt}-${index}.html"
+              headers=".deployment-evidence/verify-${attempt}-${index}-headers.txt"
+              code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 45 --dump-header "$headers" --output "$body" --write-out '%{http_code}' "$url" || true)"
+              marker_present=false
+              if grep -Fq "$marker" "$body" 2>/dev/null; then marker_present=true; fi
+              echo "$url HTTP=$code marker=$marker_present"
+              if [ "$code" = 200 ] && [ "$marker_present" = true ]; then
+                success_url="$url"
+                break 2
+              fi
+            done
+            sleep 15
+          done
+          if [ -z "$success_url" ]; then
+            echo 'Deployment command succeeded, but the hardened production marker was not confirmed.' >&2
+            exit 1
+          fi
+          printf '%s\n' "$success_url" | tee .deployment-evidence/verified-url.txt
+          echo "success_url=$success_url" >> "$GITHUB_OUTPUT"
+
+      - name: Report successful Production deployment
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERIFIED_URL: ${{ steps.verify.outputs.success_url }}
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
+        run: |
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/143/comments" \
+            -f body="Production deployment succeeded for source commit \`${DEPLOY_SOURCE_SHA}\`. Vercel deployment: ${DEPLOYMENT_URL}. Hardened InstaComp live batch scanner verified at ${VERIFIED_URL}. Post-deployment re-audit has not been started yet."
+
+      - name: Report failed Production deployment
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/143/comments" \
+            -f body="Authorized Production deployment failed for source commit \`${DEPLOY_SOURCE_SHA}\`. Review the Authorized Production Deploy workflow evidence; no successful deployment is being claimed."
+
+      - name: Upload deployment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: authorized-production-deploy-${{ github.run_number }}
+          path: .deployment-evidence
+          if-no-files-found: warn
+          retention-days: 30
