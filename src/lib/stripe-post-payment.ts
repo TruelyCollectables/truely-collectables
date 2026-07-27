@@ -432,9 +432,16 @@ export async function processStripeRefundEvent(params: {
     if (feeUpdateError) throw feeUpdateError;
   }
 
+  const fulfillmentProgressed = ["shipped", "delivered"].includes(
+    String(order.fulfillment_status || ""),
+  );
   const { error: orderUpdateError } = await params.supabase
     .from("orders")
     .update({
+      status: fullyRefunded ? "refunded_review" : "partial_refund_review",
+      fulfillment_status: fulfillmentProgressed
+        ? order.fulfillment_status
+        : "refund_review",
       payment_status: fullyRefunded ? "refunded" : "partially_refunded",
       refund_status: status,
       amount_refunded: totalRefunded,
@@ -685,9 +692,16 @@ export async function processStripeDisputeEvent(params: {
       : dispute.status === "won"
         ? "dispute_won_review"
         : "disputed";
+  const disputeFulfillmentProgressed = ["shipped", "delivered"].includes(
+    String(order.fulfillment_status || ""),
+  );
   const { error: orderError } = await params.supabase
     .from("orders")
     .update({
+      status: "dispute_review",
+      fulfillment_status: disputeFulfillmentProgressed
+        ? order.fulfillment_status
+        : "dispute_review",
       payment_status: paymentStatus,
       dispute_status: dispute.status,
       stripe_payment_intent_id: paymentIntentId,

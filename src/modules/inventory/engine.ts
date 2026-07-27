@@ -841,10 +841,12 @@ export class InventoryEngine {
       quantitiesByProduct.set(productId, nextQuantity);
     }
 
-    return Array.from(quantitiesByProduct.entries()).map(([id, quantity]) => ({
-      id,
-      quantity,
-    }));
+    return Array.from(quantitiesByProduct.entries())
+      .sort(([leftId], [rightId]) => leftId - rightId)
+      .map(([id, quantity]) => ({
+        id,
+        quantity,
+      }));
   }
 
   async decrementAfterSale(params: {
