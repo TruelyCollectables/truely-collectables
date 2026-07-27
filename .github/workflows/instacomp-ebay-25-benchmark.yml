@@ -4,13 +4,16 @@ on:
   push:
     branches:
       - agent/instacomp-certification-freeze-20260727
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: instacomp-frozen-certification
+  group: instacomp-frozen-certification-${{ github.event_name }}
   cancel-in-progress: false
 
 jobs:
