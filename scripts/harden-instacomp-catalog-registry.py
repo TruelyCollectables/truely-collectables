@@ -112,7 +112,7 @@ function cleanText(value: string | null | undefined) {
     Boolean(player) &&
     Boolean(candidatePlayer) &&
     (player === candidatePlayer ||
-      player.replace(/\\band\\b/g, " ") === candidatePlayer.replace(/\\band\\b/g, " "));
+      player.replace(/\band\b/g, " ") === candidatePlayer.replace(/\band\b/g, " "));
   const parallelMatches =
     !parallel ||
     !candidateParallel ||
@@ -135,6 +135,49 @@ function cleanText(value: string | null | undefined) {
   );
 '''
     text = replace_once(text, old, new, "strict catalog identity gate")
+
+    text = replace_once(
+        text,
+        '''function candidateIsPlausible(
+  input: InstaCompCatalogIdentityInput,
+  candidate: InstaCompCatalogCandidateIdentity,
+  evidenceText: string,
+) {
+''',
+        '''function candidateIsPlausible(
+  input: InstaCompCatalogIdentityInput,
+  candidate: InstaCompCatalogCandidateIdentity,
+) {
+''',
+        "catalog matcher signature",
+    )
+
+    text = replace_once(
+        text,
+        '''  const evidenceText = [
+    input.year,
+    input.brand,
+    input.setName,
+    input.cardNumber,
+    input.player,
+    input.parallel,
+    input.variation,
+    params.ai.notes,
+    params.externalOcrText,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const candidates = TCOS_CURATED_CHECKLIST_CANDIDATES.filter((candidate) =>
+    candidateIsPlausible(input, candidate, evidenceText),
+  );
+''',
+        '''  const candidates = TCOS_CURATED_CHECKLIST_CANDIDATES.filter((candidate) =>
+    candidateIsPlausible(input, candidate),
+  );
+''',
+        "catalog matcher invocation",
+    )
+
     path.write_text(text)
 
 
