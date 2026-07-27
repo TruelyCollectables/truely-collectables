@@ -171,7 +171,23 @@ jobs:
         run: node scripts/run-hardened-checkout-function-migration-simulations.mjs
 
       - name: Validate production guardrails
-        run: node scripts/check-production-guardrails.mjs
+        id: production_guardrails
+        shell: bash
+        run: |
+          set +e
+          node scripts/check-production-guardrails.mjs 2>&1 | tee production-guardrails.log
+          guardrail_status=${PIPESTATUS[0]}
+          echo "exit_code=${guardrail_status}" >> "$GITHUB_OUTPUT"
+          exit "$guardrail_status"
+
+      - name: Upload production guardrail diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: emergency-production-guardrail-diagnostics
+          path: production-guardrails.log
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Run lint
         run: npm run lint
