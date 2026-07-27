@@ -21,6 +21,8 @@ type ProviderHealthLane = {
   lane: "sold" | "active";
   query: string;
   httpStatus: number;
+  searchStatus: string | null;
+  normalNoResults: boolean;
   rawCount: number;
   normalizedCount: number;
   soldDateCount: number;
@@ -41,22 +43,29 @@ async function probeProviderHealth(lane: "sold" | "active"): Promise<ProviderHea
     });
     const payload = await response.json().catch(() => ({}));
     const payloadError = payload?.error;
+    const searchStatus =
+      typeof payload?.search_metadata?.status === "string"
+        ? payload.search_metadata.status
+        : null;
     const normalNoResults = isSerpApiNoResultsMessage(payloadError);
     const rows = normalizeEbaySerpItems(payload);
-    const error =
-      !response.ok || (payloadError && !normalNoResults)
-        ? String(payloadError || response.statusText || "Provider health request failed.")
-        : normalNoResults
-          ? String(payloadError)
-          : null;
+    const searchCompleted =
+      response.ok &&
+      searchStatus !== "Error" &&
+      (!payloadError || normalNoResults);
+    const error = searchCompleted
+      ? null
+      : String(payloadError || response.statusText || "Provider health request failed.");
     return {
       lane,
       query: PROVIDER_HEALTH_QUERY,
       httpStatus: response.status,
+      searchStatus,
+      normalNoResults,
       rawCount: Array.isArray(payload?.organic_results) ? payload.organic_results.length : 0,
       normalizedCount: rows.length,
       soldDateCount: rows.filter((row) => Boolean(row.soldDate)).length,
-      success: response.ok && !payloadError && rows.length > 0,
+      success: searchCompleted && (lane === "sold" || rows.length > 0),
       error,
     };
   } catch (error) {
@@ -64,6 +73,8 @@ async function probeProviderHealth(lane: "sold" | "active"): Promise<ProviderHea
       lane,
       query: PROVIDER_HEALTH_QUERY,
       httpStatus: 0,
+      searchStatus: null,
+      normalNoResults: false,
       rawCount: 0,
       normalizedCount: 0,
       soldDateCount: 0,
@@ -224,9 +235,9 @@ async function main() {
     (card) => Number(card.trustedSuggestedPrice || 0) > 0,
   ).length;
   const proof = {
-    schema: "tcos.instacompBatch001LiveMarketProviderProof.v6",
+    schema: "tcos.instacompBatch001LiveMarketProviderProof.v7",
     scope:
-      "Live provider health plus strict rare-card behavior. Exact sold evidence may legitimately be absent; when absent, pricing must fail closed.",
+      "Live provider endpoint health plus strict rare-card behavior. A completed sold search may legitimately be empty; missing exact sold evidence must always fail closed.",
     startedAt,
     completedAt: new Date().toISOString(),
     success:
@@ -268,7 +279,7 @@ async function main() {
     `Rare-card exact-market safety proof failed for: ${cardFailures.map((card) => card.id).join(", ")}`,
   );
   console.log(
-    `InstaComp provider proof passed: sold/active provider health passed; ${completedCards.length}/6 rare cards preserved strict exact matching; ${failClosedCardCount} safely refused pricing without exact sold evidence; ${pricedCardCount} returned sold-backed prices.`,
+    `InstaComp provider proof passed: sold/active provider endpoints completed successfully; ${completedCards.length}/6 rare cards preserved strict exact matching; ${failClosedCardCount} safely refused pricing without exact sold evidence; ${pricedCardCount} returned sold-backed prices.`,
   );
 }
 
