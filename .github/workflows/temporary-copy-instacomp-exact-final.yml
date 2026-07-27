@@ -47,19 +47,47 @@ jobs:
           done
           rm -f .github/workflows/temporary-copy-instacomp-exact-final.yml
       - run: npm ci
-      - name: Exactness proof pass 1
-        run: node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
-      - name: Exactness proof pass 2
-        run: node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
-      - name: Exactness proof pass 3
-        run: node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
-      - name: Lint
-        run: npm run lint
-      - name: Production build
-        run: npm run build
-      - name: Commit clean implementation
+      - name: Run and capture complete validation
         shell: bash
         run: |
+          set +e
+          mkdir -p docs
+          : > docs/instacomp-clean-validation.log
+          node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts >> docs/instacomp-clean-validation.log 2>&1
+          PASS1=$?
+          node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts >> docs/instacomp-clean-validation.log 2>&1
+          PASS2=$?
+          node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts >> docs/instacomp-clean-validation.log 2>&1
+          PASS3=$?
+          npm run lint >> docs/instacomp-clean-validation.log 2>&1
+          LINT=$?
+          npm run build >> docs/instacomp-clean-validation.log 2>&1
+          BUILD=$?
+          {
+            echo "pass1=$PASS1"
+            echo "pass2=$PASS2"
+            echo "pass3=$PASS3"
+            echo "lint=$LINT"
+            echo "build=$BUILD"
+          } > docs/instacomp-clean-validation-status.txt
+          exit 0
+      - name: Upload clean validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-clean-validation
+          path: |
+            docs/instacomp-clean-validation.log
+            docs/instacomp-clean-validation-status.txt
+          if-no-files-found: error
+      - name: Commit clean implementation only after every gate passes
+        shell: bash
+        run: |
+          grep -q '^pass1=0$' docs/instacomp-clean-validation-status.txt
+          grep -q '^pass2=0$' docs/instacomp-clean-validation-status.txt
+          grep -q '^pass3=0$' docs/instacomp-clean-validation-status.txt
+          grep -q '^lint=0$' docs/instacomp-clean-validation-status.txt
+          grep -q '^build=0$' docs/instacomp-clean-validation-status.txt
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src scripts .github/workflows/temporary-copy-instacomp-exact-final.yml
