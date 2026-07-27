@@ -1,4 +1,5 @@
 name: Temporary InstaComp Double Audit Hardening
+# retrigger: 2026-07-27
 
 on:
   push:
