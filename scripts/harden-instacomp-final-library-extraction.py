@@ -47,14 +47,14 @@ def patch_benchmark_route() -> None:
         else:
             raise SystemExit("Could not locate benchmark source eligibility filter")
 
-    rejected_helper = '''function rejectedTitle(title: string) {
+    rejected_helper = r'''function rejectedTitle(title: string) {
   return /\b(?:lot|team set|complete set|reprint|custom|digital|nft|break|you pick|choose your card|psa|bgs|sgc|cgc|graded|gem mint|oversized|oversize|jumbo|mini|box topper|5x7|8x10|promo)\b/i.test(
     title,
   );
 }
 
 '''
-    if rejected_helper in text and "rejectedTitle(" not in text.replace(rejected_helper, ""):
+    if rejected_helper in text and text.count("rejectedTitle(") == 1:
         text = text.replace(rejected_helper, "", 1)
 
     path.write_text(text)
