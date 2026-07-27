@@ -5,39 +5,60 @@ on:
     branches:
       - agent/instacomp-exact-market-final-20260726
     paths:
-      - ".github/workflows/instacomp-ebay-25-benchmark.yml"
-      - "scripts/harden-instacomp-*.py"
-      - "src/lib/instacomp*.ts"
-      - "src/app/api/instacomp/**/*.ts"
+      - "src/app/api/instacomp/benchmark/ebay-25/route.ts"
+      - "src/app/api/instacomp/live-scan/route.ts"
+      - "src/app/api/instacomp/scan/route.ts"
       - "src/app/api/account/seller/inventory/instacomp/route.ts"
+      - "src/lib/client-identity.ts"
+      - "src/lib/instacomp-ebay-benchmark-cases.ts"
+      - "src/lib/instacomp-curated-checklist.ts"
+      - "src/lib/instacomp*.ts"
+      - "scripts/harden-instacomp-*.py"
+      - "scripts/run-instacomp-ebay-25-benchmark.mjs"
+      - "scripts/run-instacomp-ebay-25-through-vercel-curl.mjs"
+      - "scripts/run-instacomp-exact-market-proof-regressions.ts"
+      - ".github/workflows/instacomp-ebay-25-benchmark.yml"
   pull_request:
     branches:
       - main
     paths:
-      - ".github/workflows/instacomp-ebay-25-benchmark.yml"
-      - "scripts/harden-instacomp-*.py"
-      - "src/lib/instacomp*.ts"
-      - "src/app/api/instacomp/**/*.ts"
+      - "src/app/api/instacomp/benchmark/ebay-25/route.ts"
+      - "src/app/api/instacomp/live-scan/route.ts"
+      - "src/app/api/instacomp/scan/route.ts"
       - "src/app/api/account/seller/inventory/instacomp/route.ts"
+      - "src/lib/client-identity.ts"
+      - "src/lib/instacomp-ebay-benchmark-cases.ts"
+      - "src/lib/instacomp-curated-checklist.ts"
+      - "src/lib/instacomp*.ts"
+      - "scripts/harden-instacomp-*.py"
+      - "scripts/run-instacomp-ebay-25-benchmark.mjs"
+      - "scripts/run-instacomp-ebay-25-through-vercel-curl.mjs"
+      - "scripts/run-instacomp-exact-market-proof-regressions.ts"
+      - ".github/workflows/instacomp-ebay-25-benchmark.yml"
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: instacomp-ebay-25-certification
   cancel-in-progress: true
 
 jobs:
-  lint-diagnostics:
+  ebay-25-real-cards:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 300
+    env:
+      VERCEL_SCOPE: truelycollectables-projects
+      VERCEL_PROJECT: truely-collectables
+      INSTACOMP_BENCHMARK_TARGET: "25"
+      INSTACOMP_BENCHMARK_CONCURRENCY: "2"
     steps:
       - name: Check out certification branch
         uses: actions/checkout@v4
         with:
           ref: agent/instacomp-exact-market-final-20260726
-          fetch-depth: 1
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -45,7 +66,7 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Repair and apply all audit hardening
+      - name: Repair and validate hardening scripts
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -57,6 +78,9 @@ jobs:
           path.write_text(text)
           PY
           python -m py_compile scripts/harden-instacomp-*.py
+
+      - name: Apply full InstaComp audit hardening
+        run: |
           python scripts/harden-instacomp-ebay-benchmark.py
           python scripts/harden-instacomp-benchmark-source.py
           python scripts/harden-instacomp-benchmark-cleanup.py
@@ -68,17 +92,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Verify exactness regressions remain green
+      - name: Run exactness regressions three times
         run: |
           node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
           node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
           node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
 
-      - name: Capture ESLint diagnostics
-        id: lint
-        continue-on-error: true
+      - name: Lint hardened InstaComp paths
         run: |
-          set -o pipefail
           npx eslint \
             src/app/api/instacomp/benchmark/ebay-25/route.ts \
             src/app/api/instacomp/live-scan/route.ts \
@@ -94,20 +115,186 @@ jobs:
             src/lib/instacomp-curated-checklist.ts \
             scripts/run-instacomp-exact-market-proof-regressions.ts \
             scripts/run-instacomp-ebay-25-benchmark.mjs \
-            scripts/run-instacomp-ebay-25-through-vercel-curl.mjs \
-            --format stylish 2>&1 | tee instacomp-lint-diagnostics.log
+            scripts/run-instacomp-ebay-25-through-vercel-curl.mjs
 
-      - name: Upload ESLint diagnostics
+      - name: Build hardened production application
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+          ADMIN_PASSWORD: build-only-placeholder-password
+          ADMIN_SESSION_SECRET: build-only-placeholder-admin-session-secret
+          NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+          STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build-only-placeholder
+          STRIPE_WEBHOOK_SECRET: whsec_build-only-placeholder
+          EBAY_CLIENT_ID: build-only-placeholder-client-id
+          EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+          EBAY_ENVIRONMENT: production
+          TCOS_LIVE_PAYMENTS_ENABLED: "false"
+          TCOS_SHIPPING_PURCHASE_MODE: dry_run
+          TCOS_LIVE_SHIPPING_ENABLED: "false"
+        run: npm run build
+
+      - name: Commit validated hardening without retriggering CI
+        run: |
+          if git diff --quiet; then
+            echo "No generated hardening changes remained to commit."
+            exit 0
+          fi
+          git config user.name "OpenAI Audit Agent"
+          git config user.email "actions@users.noreply.github.com"
+          git add \
+            src/app/api/instacomp/benchmark/ebay-25/route.ts \
+            src/app/api/instacomp/live-scan/route.ts \
+            src/app/api/instacomp/scan/route.ts \
+            src/app/api/account/seller/inventory/instacomp/route.ts \
+            src/lib/instacomp.ts \
+            src/lib/instacomp-live-pipeline.ts \
+            src/lib/instacomp-exact-market-provider.ts \
+            src/lib/instacomp-openai-web-market-provider.ts \
+            src/lib/instacomp-comp-visual-verification.ts \
+            src/lib/instacomp-curated-checklist.ts \
+            scripts/harden-instacomp-certification.py \
+            scripts/run-instacomp-exact-market-proof-regressions.ts \
+            scripts/run-instacomp-ebay-25-benchmark.mjs
+          git commit -m "Harden InstaComp certification gates [skip ci]"
+          git push origin HEAD:agent/instacomp-exact-market-final-20260726
+
+      - name: Link Vercel project
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: >-
+          npx vercel@latest link
+          --yes
+          --project "$VERCEL_PROJECT"
+          --scope "$VERCEL_SCOPE"
+          --token "$VERCEL_TOKEN"
+
+      - name: Generate isolated benchmark secrets
+        run: |
+          BENCHMARK_TOKEN="$(openssl rand -hex 32)"
+          BENCHMARK_ADMIN_SECRET="$(openssl rand -hex 48)"
+          echo "INSTACOMP_BENCHMARK_TOKEN=$BENCHMARK_TOKEN" >> "$GITHUB_ENV"
+          echo "INSTACOMP_BENCHMARK_ADMIN_SECRET=$BENCHMARK_ADMIN_SECRET" >> "$GITHUB_ENV"
+
+      - name: Deploy isolated hardened preview
+        id: deploy
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          npx vercel@latest deploy \
+            --yes \
+            --force \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" \
+            --env "INSTACOMP_BENCHMARK_TOKEN=$INSTACOMP_BENCHMARK_TOKEN" \
+            --env "ADMIN_SESSION_SECRET=$INSTACOMP_BENCHMARK_ADMIN_SECRET" \
+            > deployment-url.txt
+          PREVIEW_URL="$(tail -n 1 deployment-url.txt | tr -d '\r\n')"
+          test -n "$PREVIEW_URL"
+          echo "INSTACOMP_BENCHMARK_URL=$PREVIEW_URL" >> "$GITHUB_ENV"
+          echo "preview_url=$PREVIEW_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Verify hardened benchmark manifest
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          npx vercel@latest curl \
+            /api/instacomp/benchmark/ebay-25 \
+            --deployment "$INSTACOMP_BENCHMARK_URL" \
+            --header "Authorization: Bearer $INSTACOMP_BENCHMARK_TOKEN" \
+            > benchmark-manifest.json 2> benchmark-manifest-error.txt
+          node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("benchmark-manifest.json","utf8"));if(!p.ok||!Array.isArray(p.cases)||p.cases.length<25)throw new Error(`Manifest not ready: ${JSON.stringify(p).slice(0,1000)}`);'
+
+      - name: Run hardened 25-card audit pass 1
+        continue-on-error: true
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          INSTACOMP_PREVIEW_DEPLOYMENT_URL: ${{ steps.deploy.outputs.preview_url }}
+          INSTACOMP_BENCHMARK_REPORT_DIR: reports/pass-1
+        run: node scripts/run-instacomp-ebay-25-through-vercel-curl.mjs
+
+      - name: Run hardened 25-card audit pass 2
+        continue-on-error: true
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          INSTACOMP_PREVIEW_DEPLOYMENT_URL: ${{ steps.deploy.outputs.preview_url }}
+        run: node scripts/run-instacomp-ebay-25-through-vercel-curl.mjs
+
+      - name: Summarize hardened audit
+        if: always()
+        run: |
+          node - <<'NODE'
+          const fs = require("fs");
+          const reports = [
+            ["Pass 1", "reports/pass-1/instacomp-ebay-25-report.json"],
+            ["Pass 2", "reports/instacomp-ebay-25-report.json"],
+          ];
+          const lines = ["# InstaComp Hardened 25-Card Double Audit", ""];
+          for (const [label, file] of reports) {
+            if (!fs.existsSync(file)) {
+              lines.push(`## ${label}`, "No report produced.", "");
+              continue;
+            }
+            const report = JSON.parse(fs.readFileSync(file, "utf8"));
+            const s = report.summary || {};
+            lines.push(
+              `## ${label}`,
+              `Completed: ${s.completedCards || 0}/25`,
+              `Passed: ${s.passedCards || 0}/${s.completedCards || 0}`,
+              `Average identity score: ${s.averageScore ?? "n/a"}`,
+              `Critical-error cards: ${s.cardsWithCriticalErrors || 0}`,
+              `Exact sold supported: ${s.exactSoldSupportedCards || 0}`,
+              `Trusted sold-backed prices: ${s.trustedPriceCards || 0}`,
+              `Cleanup failures: ${s.cleanupFailures || 0}`,
+              "",
+            );
+          }
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join("\n")}\n`);
+          NODE
+
+      - name: Upload hardened double-audit reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: instacomp-lint-diagnostics-${{ github.run_number }}
-          path: instacomp-lint-diagnostics.log
-          if-no-files-found: error
+          name: instacomp-ebay-25-hardened-double-audit-${{ github.run_number }}
+          path: |
+            reports/instacomp-ebay-25-report.json
+            reports/instacomp-ebay-25-report.md
+            reports/pass-1/instacomp-ebay-25-report.json
+            reports/pass-1/instacomp-ebay-25-report.md
+            benchmark-manifest.json
+            benchmark-manifest-error.txt
+            deployment-url.txt
+          if-no-files-found: warn
           retention-days: 30
 
-      - name: Enforce lint
-        if: ${{ steps.lint.outcome != 'success' }}
+      - name: Enforce hardened audit completion and integrity
+        if: always()
         run: |
-          cat instacomp-lint-diagnostics.log
-          exit 1
+          test -f reports/pass-1/instacomp-ebay-25-report.json
+          test -f reports/instacomp-ebay-25-report.json
+          node - <<'NODE'
+          const fs = require("fs");
+          const reports = [
+            ["pass 1", "reports/pass-1/instacomp-ebay-25-report.json"],
+            ["pass 2", "reports/instacomp-ebay-25-report.json"],
+          ];
+          for (const [label, file] of reports) {
+            const report = JSON.parse(fs.readFileSync(file, "utf8"));
+            const s = report.summary || {};
+            if (!s.targetMet || Number(s.completedCards || 0) < 25) {
+              throw new Error(`${label}: only ${s.completedCards || 0}/25 cards completed.`);
+            }
+            const unsupported = (report.completed || []).filter((row) =>
+              (row.grade?.weirdErrors || []).some((error) => error.code === "UNSUPPORTED_PRICE_CREATED"),
+            );
+            if (unsupported.length) {
+              throw new Error(`${label}: ${unsupported.length} cards created an unsupported price.`);
+            }
+            if (Number(s.cleanupFailures || 0) > 0) {
+              throw new Error(`${label}: ${s.cleanupFailures} benchmark scan rows were not cleaned up.`);
+            }
+          }
+          NODE
