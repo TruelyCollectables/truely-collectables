@@ -38,8 +38,12 @@ export type EbayQuantitySyncRetryResult = {
   }>;
 };
 
+const MAX_MONOTONIC_CORRECTIONS = 10;
+
 function cleanError(error: unknown) {
-  return (error instanceof Error ? error.message : String(error || "Unknown eBay quantity sync failure"))
+  return (error instanceof Error
+    ? error.message
+    : String(error || "Unknown eBay quantity sync failure"))
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 1000);
@@ -68,8 +72,66 @@ async function markRows(params: {
     .from("ebay_quantity_sync_outbox")
     .update({ ...params.values, updated_at: new Date().toISOString() })
     .eq("store_id", params.storeId)
+    .eq("status", "pending")
     .in("id", params.ids);
   if (error) throw error;
+}
+
+async function loadPendingProductRows(params: {
+  supabase: SupabaseClient;
+  storeId: string;
+  legacyProductId: number;
+}) {
+  const { data, error } = await params.supabase
+    .from("ebay_quantity_sync_outbox")
+    .select("id,legacy_product_id,desired_quantity,sku,ebay_item_id,attempt_count")
+    .eq("store_id", params.storeId)
+    .eq("legacy_product_id", params.legacyProductId)
+    .eq("status", "pending")
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  return (data || []) as EbayQuantitySyncOutboxRow[];
+}
+
+async function loadLocalProductState(params: {
+  supabase: SupabaseClient;
+  storeId: string;
+  legacyProductId: number;
+}) {
+  const [productResult, inventoryResult] = await Promise.all([
+    params.supabase
+      .from("products")
+      .select("id,sku,ebay_item_id,quantity")
+      .eq("store_id", params.storeId)
+      .eq("id", params.legacyProductId)
+      .maybeSingle(),
+    params.supabase
+      .from("inventory_items")
+      .select("legacy_product_id,quantity")
+      .eq("store_id", params.storeId)
+      .eq("legacy_product_id", params.legacyProductId)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+  if (productResult.error) throw productResult.error;
+  if (inventoryResult.error) throw inventoryResult.error;
+  return {
+    product: productResult.data as ProductRow | null,
+    inventory: inventoryResult.data as InventoryRow | null,
+  };
+}
+
+function safeTarget(params: {
+  rows: EbayQuantitySyncOutboxRow[];
+  product: ProductRow;
+  inventory: InventoryRow | null;
+}) {
+  return selectLowestSafeEbayQuantity([
+    ...params.rows.map((row) => row.desired_quantity),
+    params.product.quantity,
+    params.inventory?.quantity,
+  ]);
 }
 
 export async function retryPendingEbayQuantitySyncs(params: {
@@ -89,10 +151,10 @@ export async function retryPendingEbayQuantitySyncs(params: {
     .limit(limit);
   if (error) throw error;
 
-  const rows = (data || []) as EbayQuantitySyncOutboxRow[];
-  const groups = groupByProduct(rows);
+  const dueRows = (data || []) as EbayQuantitySyncOutboxRow[];
+  const groups = groupByProduct(dueRows);
   const result: EbayQuantitySyncRetryResult = {
-    scannedRows: rows.length,
+    scannedRows: dueRows.length,
     scannedProducts: groups.size,
     syncedProducts: 0,
     deferredProducts: 0,
@@ -100,126 +162,166 @@ export async function retryPendingEbayQuantitySyncs(params: {
     errors: [],
   };
 
-  for (const [legacyProductId, productRows] of groups) {
-    const ids = productRows.map((row) => row.id);
-    const maximumAttemptCount = Math.max(
-      0,
-      ...productRows.map((row) => Number(row.attempt_count || 0)),
-    );
+  for (const [legacyProductId] of groups) {
+    let lastPushedQuantity: number | null = null;
+    let productSynced = false;
+    let productSkipped = false;
 
-    try {
-      const [productResult, inventoryResult] = await Promise.all([
-        params.supabase
-          .from("products")
-          .select("id,sku,ebay_item_id,quantity")
-          .eq("store_id", params.storeId)
-          .eq("id", legacyProductId)
-          .maybeSingle(),
-        params.supabase
-          .from("inventory_items")
-          .select("legacy_product_id,quantity")
-          .eq("store_id", params.storeId)
-          .eq("legacy_product_id", legacyProductId)
-          .order("updated_at", { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-      ]);
-      if (productResult.error) throw productResult.error;
-      if (inventoryResult.error) throw inventoryResult.error;
-
-      const product = productResult.data as ProductRow | null;
-      const inventory = inventoryResult.data as InventoryRow | null;
-      if (!product) {
-        await markRows({
-          supabase: params.supabase,
-          storeId: params.storeId,
-          ids,
-          values: {
-            status: "skipped",
-            last_attempt_at: now,
-            last_error: "Local product no longer exists.",
-          },
-        });
-        result.skippedProducts += 1;
-        continue;
-      }
-
-      const targetQuantity = selectLowestSafeEbayQuantity([
-        ...productRows.map((row) => row.desired_quantity),
-        product.quantity,
-        inventory?.quantity,
-      ]);
-      const sku = product.sku || productRows.find((row) => row.sku)?.sku || null;
-      const ebayItemId =
-        product.ebay_item_id ||
-        productRows.find((row) => row.ebay_item_id)?.ebay_item_id ||
-        null;
-
-      if (!sku && !ebayItemId) {
-        await markRows({
-          supabase: params.supabase,
-          storeId: params.storeId,
-          ids,
-          values: {
-            status: "skipped",
-            last_attempt_at: now,
-            last_error: "No eBay SKU or listing ID is linked to this product.",
-          },
-        });
-        result.skippedProducts += 1;
-        continue;
-      }
-
-      const syncResult = await syncEbayQuantityAfterSale({
-        sku,
-        ebayItemId,
-        newQuantity: targetQuantity,
-      });
-      if (!syncResult.success) {
-        throw new Error(syncResult.reason || "eBay quantity update was skipped.");
-      }
-
-      await markRows({
-        supabase: params.supabase,
-        storeId: params.storeId,
-        ids,
-        values: {
-          status: "synced",
-          attempt_count: maximumAttemptCount + 1,
-          last_attempt_at: now,
-          last_error: null,
-          synced_at: now,
-          next_attempt_at: now,
-        },
-      });
-      result.syncedProducts += 1;
-    } catch (syncError) {
-      const message = cleanError(syncError);
-      const nextAttemptAt = new Date(
-        Date.now() + ebayQuantityRetryDelaySeconds(maximumAttemptCount) * 1000,
-      ).toISOString();
+    for (let correction = 0; correction < MAX_MONOTONIC_CORRECTIONS; correction += 1) {
+      let pendingRows: EbayQuantitySyncOutboxRow[] = [];
       try {
+        pendingRows = await loadPendingProductRows({
+          supabase: params.supabase,
+          storeId: params.storeId,
+          legacyProductId,
+        });
+        const { product, inventory } = await loadLocalProductState({
+          supabase: params.supabase,
+          storeId: params.storeId,
+          legacyProductId,
+        });
+
+        if (!product) {
+          await markRows({
+            supabase: params.supabase,
+            storeId: params.storeId,
+            ids: pendingRows.map((row) => row.id),
+            values: {
+              status: "skipped",
+              last_attempt_at: now,
+              last_error: "Local product no longer exists.",
+            },
+          });
+          productSkipped = true;
+          break;
+        }
+
+        const targetQuantity = safeTarget({ rows: pendingRows, product, inventory });
+        const sku = product.sku || pendingRows.find((row) => row.sku)?.sku || null;
+        const ebayItemId =
+          product.ebay_item_id ||
+          pendingRows.find((row) => row.ebay_item_id)?.ebay_item_id ||
+          null;
+
+        if (!sku && !ebayItemId) {
+          await markRows({
+            supabase: params.supabase,
+            storeId: params.storeId,
+            ids: pendingRows.map((row) => row.id),
+            values: {
+              status: "skipped",
+              last_attempt_at: now,
+              last_error: "No eBay SKU or listing ID is linked to this product.",
+            },
+          });
+          productSkipped = true;
+          break;
+        }
+
+        if (lastPushedQuantity === null || targetQuantity < lastPushedQuantity) {
+          const syncResult = await syncEbayQuantityAfterSale({
+            sku,
+            ebayItemId,
+            newQuantity: targetQuantity,
+          });
+          if (!syncResult.success) {
+            throw new Error(syncResult.reason || "eBay quantity update was skipped.");
+          }
+          lastPushedQuantity = targetQuantity;
+        }
+
+        const attemptCount = Math.max(
+          0,
+          ...pendingRows.map((row) => Number(row.attempt_count || 0)),
+        );
         await markRows({
           supabase: params.supabase,
           storeId: params.storeId,
-          ids,
+          ids: pendingRows.map((row) => row.id),
           values: {
-            status: "pending",
-            attempt_count: maximumAttemptCount + 1,
+            status: "synced",
+            attempt_count: attemptCount + 1,
             last_attempt_at: now,
-            last_error: message,
-            next_attempt_at: nextAttemptAt,
+            last_error: null,
+            synced_at: now,
+            next_attempt_at: now,
           },
         });
-      } catch (journalError) {
-        result.errors.push({
+
+        // Re-read after the remote write. If a website sale committed while the
+        // eBay request was in flight, its new lower outbox row or local quantity
+        // must win immediately instead of waiting for the next 15-minute cron.
+        const nextRows = await loadPendingProductRows({
+          supabase: params.supabase,
+          storeId: params.storeId,
           legacyProductId,
-          error: `${message}; retry journal failed: ${cleanError(journalError)}`,
         });
+        const nextState = await loadLocalProductState({
+          supabase: params.supabase,
+          storeId: params.storeId,
+          legacyProductId,
+        });
+        if (!nextState.product) {
+          productSynced = true;
+          break;
+        }
+        const nextTarget = safeTarget({
+          rows: nextRows,
+          product: nextState.product,
+          inventory: nextState.inventory,
+        });
+        if (lastPushedQuantity !== null && nextTarget < lastPushedQuantity) {
+          continue;
+        }
+
+        productSynced = true;
+        break;
+      } catch (syncError) {
+        const message = cleanError(syncError);
+        const maximumAttemptCount = Math.max(
+          0,
+          ...pendingRows.map((row) => Number(row.attempt_count || 0)),
+        );
+        const nextAttemptAt = new Date(
+          Date.now() + ebayQuantityRetryDelaySeconds(maximumAttemptCount) * 1000,
+        ).toISOString();
+        try {
+          await markRows({
+            supabase: params.supabase,
+            storeId: params.storeId,
+            ids: pendingRows.map((row) => row.id),
+            values: {
+              status: "pending",
+              attempt_count: maximumAttemptCount + 1,
+              last_attempt_at: now,
+              last_error: message,
+              next_attempt_at: nextAttemptAt,
+            },
+          });
+        } catch (journalError) {
+          result.errors.push({
+            legacyProductId,
+            error: `${message}; retry journal failed: ${cleanError(journalError)}`,
+          });
+          result.deferredProducts += 1;
+          break;
+        }
+        result.errors.push({ legacyProductId, error: message });
         result.deferredProducts += 1;
-        continue;
+        break;
       }
-      result.errors.push({ legacyProductId, error: message });
+    }
+
+    if (productSkipped) {
+      result.skippedProducts += 1;
+    } else if (productSynced) {
+      result.syncedProducts += 1;
+    } else if (!result.errors.some((item) => item.legacyProductId === legacyProductId)) {
+      result.errors.push({
+        legacyProductId,
+        error:
+          "Post-sale eBay quantity kept changing during the correction window; the pending outbox row remains protected for retry.",
+      });
       result.deferredProducts += 1;
     }
   }
