@@ -15,7 +15,7 @@ def main() -> None:
 
     text = replace_once(
         text,
-        '''function imageUrls(item: EbayItemSummary) {
+        r'''function imageUrls(item: EbayItemSummary) {
   return Array.from(
     new Set(
       [item.image?.imageUrl, ...(item.additionalImages || []).map((image) => image?.imageUrl)]
@@ -25,7 +25,7 @@ def main() -> None:
   );
 }
 ''',
-        '''function fullResolutionEbayImageUrl(value: unknown) {
+        r'''function fullResolutionEbayImageUrl(value: unknown) {
   const url = clean(value);
   if (!/^https?:\/\//i.test(url)) return "";
   return url.replace(/\/s-l\d+(?=\.(?:jpe?g|png|webp)(?:\?|$))/i, "/s-l1600");
