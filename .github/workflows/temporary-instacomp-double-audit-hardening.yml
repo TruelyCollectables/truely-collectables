@@ -1,0 +1,180 @@
+name: Temporary InstaComp Double Audit Hardening
+
+on:
+  push:
+    branches:
+      - agent/instacomp-exact-market-final-20260726
+    paths:
+      - ".github/workflows/temporary-instacomp-double-audit-hardening.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  harden-and-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out audit branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/instacomp-exact-market-final-20260726
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Apply audit hardening
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          route_path = Path("src/app/api/instacomp/benchmark/ebay-25/route.ts")
+          route = route_path.read_text()
+
+          old_ip = '        "x-forwarded-for": "127.0.0.1",\n'
+          new_ip = '''        "x-forwarded-for":
+          request.headers.get("x-vercel-forwarded-for") ||
+          request.headers.get("x-forwarded-for") ||
+          request.headers.get("x-real-ip") ||
+          "",
+'''
+          if old_ip not in route:
+              raise SystemExit("Expected hard-coded benchmark IP line was not found.")
+          route = route.replace(old_ip, new_ip, 1)
+
+          old_reject = r'''  return /\b(?:lot|team set|complete set|reprint|custom|digital|nft|break|you pick|choose your card|psa|bgs|sgc|cgc|graded|gem mint)\b/i.test(
+    title,
+  );'''
+          new_reject = r'''  return /\b(?:lot|team set|complete set|reprint|custom|digital|nft|break|you pick|choose your card|psa|bgs|sgc|cgc|graded|gem mint|oversized|oversize|jumbo|mini|box topper|5x7|8x10|promo)\b/i.test(
+    title,
+  );'''
+          if old_reject not in route:
+              raise SystemExit("Expected benchmark title-rejection block was not found.")
+          route = route.replace(old_reject, new_reject, 1)
+          route_path.write_text(route)
+
+          workflow_path = Path(".github/workflows/instacomp-ebay-25-benchmark.yml")
+          workflow = workflow_path.read_text()
+
+          old_run = '''      - name: Run 25 real eBay cards through InstaComp
+        id: benchmark
+        continue-on-error: true
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          INSTACOMP_PREVIEW_DEPLOYMENT_URL: ${{ steps.deploy.outputs.preview_url }}
+        run: node scripts/run-instacomp-ebay-25-through-vercel-curl.mjs
+'''
+          new_run = '''      - name: Run 25 real eBay cards through InstaComp — audit pass 1
+        id: benchmark_pass_1
+        continue-on-error: true
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          INSTACOMP_PREVIEW_DEPLOYMENT_URL: ${{ steps.deploy.outputs.preview_url }}
+          INSTACOMP_BENCHMARK_REPORT_DIR: reports/pass-1
+        run: node scripts/run-instacomp-ebay-25-through-vercel-curl.mjs
+
+      - name: Run 25 real eBay cards through InstaComp — audit pass 2
+        id: benchmark_pass_2
+        continue-on-error: true
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          INSTACOMP_PREVIEW_DEPLOYMENT_URL: ${{ steps.deploy.outputs.preview_url }}
+        run: node scripts/run-instacomp-ebay-25-through-vercel-curl.mjs
+'''
+          if old_run not in workflow:
+              raise SystemExit("Expected single benchmark run block was not found.")
+          workflow = workflow.replace(old_run, new_run, 1)
+
+          old_upload = '''            reports/instacomp-ebay-25-report.json
+            reports/instacomp-ebay-25-report.md
+'''
+          new_upload = '''            reports/instacomp-ebay-25-report.json
+            reports/instacomp-ebay-25-report.md
+            reports/pass-1/instacomp-ebay-25-report.json
+            reports/pass-1/instacomp-ebay-25-report.md
+'''
+          if old_upload not in workflow:
+              raise SystemExit("Expected report upload paths were not found.")
+          workflow = workflow.replace(old_upload, new_upload, 1)
+
+          old_enforce = '''          test -f reports/instacomp-ebay-25-report.json
+          node - <<'NODE'
+          const fs = require("fs");
+          const report = JSON.parse(fs.readFileSync("reports/instacomp-ebay-25-report.json", "utf8"));
+          if (!report?.summary?.targetMet || Number(report?.summary?.completedCards || 0) < 25) {
+            throw new Error(`Benchmark incomplete: ${report?.summary?.completedCards || 0}/25 real cards completed.`);
+          }
+          console.log(`Benchmark complete: ${report.summary.completedCards}/25 real eBay cards.`);
+          NODE
+'''
+          new_enforce = '''          test -f reports/pass-1/instacomp-ebay-25-report.json
+          test -f reports/instacomp-ebay-25-report.json
+          node - <<'NODE'
+          const fs = require("fs");
+          const reports = [
+            ["pass 1", "reports/pass-1/instacomp-ebay-25-report.json"],
+            ["pass 2", "reports/instacomp-ebay-25-report.json"],
+          ];
+          for (const [label, file] of reports) {
+            const report = JSON.parse(fs.readFileSync(file, "utf8"));
+            if (!report?.summary?.targetMet || Number(report?.summary?.completedCards || 0) < 25) {
+              throw new Error(`${label} incomplete: ${report?.summary?.completedCards || 0}/25 real cards completed.`);
+            }
+            console.log(`${label} complete: ${report.summary.completedCards}/25 real eBay cards.`);
+          }
+          NODE
+'''
+          if old_enforce not in workflow:
+              raise SystemExit("Expected benchmark enforcement block was not found.")
+          workflow = workflow.replace(old_enforce, new_enforce, 1)
+          workflow_path.write_text(workflow)
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate hardened benchmark
+        run: |
+          git diff --check
+          npx eslint \
+            src/app/api/instacomp/benchmark/ebay-25/route.ts \
+            src/lib/instacomp-ebay-benchmark-cases.ts \
+            scripts/run-instacomp-ebay-25-benchmark.mjs \
+            scripts/run-instacomp-ebay-25-through-vercel-curl.mjs
+
+      - name: Build hardened application
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+          ADMIN_PASSWORD: build-only-placeholder-password
+          ADMIN_SESSION_SECRET: build-only-placeholder-admin-session-secret
+          NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+          STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only-placeholder
+          STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+          EBAY_CLIENT_ID: build-only-placeholder-client-id
+          EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+          EBAY_ENVIRONMENT: production
+          TCOS_LIVE_PAYMENTS_ENABLED: "false"
+          TCOS_SHIPPING_PURCHASE_MODE: dry_run
+          TCOS_LIVE_SHIPPING_ENABLED: "false"
+        run: npm run build
+
+      - name: Commit hardened benchmark
+        run: |
+          if git diff --quiet; then
+            echo "No hardening changes remained to commit."
+            exit 0
+          fi
+          git config user.name "OpenAI Audit Agent"
+          git config user.email "actions@users.noreply.github.com"
+          git add \
+            src/app/api/instacomp/benchmark/ebay-25/route.ts \
+            .github/workflows/instacomp-ebay-25-benchmark.yml
+          git commit -m "Harden InstaComp double 25-card audit"
+          git push origin HEAD:agent/instacomp-exact-market-final-20260726
