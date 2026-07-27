@@ -3,7 +3,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import {
   ensureAccountStoreMembership,
-  getAuthenticatedAccountFromRequest,
+  getAuthenticatedSellerAccountFromRequest,
 } from "./account-auth";
 import {
   appendActiveMarketScanHistory,
@@ -196,7 +196,7 @@ export async function handleActiveMarketAttackWithConcurrencyGuard(
   request: Request,
   context: { params: Promise<{ inventoryItemId: string }> },
 ) {
-  const account = await getAuthenticatedAccountFromRequest(request);
+  const account = await getAuthenticatedSellerAccountFromRequest(request);
   if (!account) {
     return Response.json({ error: "Log in to run Active Market Attack Mode." }, { status: 401 });
   }

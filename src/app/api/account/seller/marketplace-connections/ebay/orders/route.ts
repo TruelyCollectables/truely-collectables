@@ -1,6 +1,6 @@
 import {
   ensureAccountStoreMembership,
-  getAuthenticatedAccountFromRequest,
+  getAuthenticatedSellerAccountFromRequest,
 } from "../../../../../../../lib/account-auth";
 import {
   importSellerEbayOrdersBatch,
@@ -100,7 +100,7 @@ function unavailableOrderImportResponse() {
 }
 
 async function authenticate(request: Request) {
-  const account = await getAuthenticatedAccountFromRequest(request);
+  const account = await getAuthenticatedSellerAccountFromRequest(request);
   if (!account) return null;
 
   await ensureAccountStoreMembership({

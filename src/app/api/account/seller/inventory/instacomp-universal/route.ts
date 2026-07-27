@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   ensureAccountStoreMembership,
-  getAuthenticatedAccountFromRequest,
+  getAuthenticatedSellerAccountFromRequest,
 } from "../../../../../../lib/account-auth";
 import { buildInstaCompQueries } from "../../../../../../lib/instacomp";
 import { verifyInstaCompCompetitionImages } from "../../../../../../lib/instacomp-comp-visual-verification";
@@ -155,7 +155,7 @@ function providerCoverageRow(provider: {
 
 export async function POST(request: NextRequest) {
   try {
-    const account = await getAuthenticatedAccountFromRequest(request);
+    const account = await getAuthenticatedSellerAccountFromRequest(request);
     if (!account) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     await ensureAccountStoreMembership({
       accountId: account.id,

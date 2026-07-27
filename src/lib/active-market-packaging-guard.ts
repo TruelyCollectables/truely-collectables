@@ -2,7 +2,7 @@ import "server-only";
 
 import {
   ensureAccountStoreMembership,
-  getAuthenticatedAccountFromRequest,
+  getAuthenticatedSellerAccountFromRequest,
 } from "./account-auth";
 import { handleActiveMarketAttack } from "./active-market-attack-server";
 import { getActiveStoreId } from "./stores";
@@ -291,7 +291,7 @@ export async function handleActiveMarketAttackWithPackagingGuard(
     return Response.json(payload, { status: baseResponse.status });
   }
 
-  const account = await getAuthenticatedAccountFromRequest(request);
+  const account = await getAuthenticatedSellerAccountFromRequest(request);
   if (!account) return Response.json(payload, { status: baseResponse.status });
   await ensureAccountStoreMembership({
     accountId: account.id,

@@ -2,7 +2,7 @@ import "server-only";
 
 import {
   ensureAccountStoreMembership,
-  getAuthenticatedAccountFromRequest,
+  getAuthenticatedSellerAccountFromRequest,
 } from "./account-auth";
 import { handleActiveMarketAttackWithCompetitorProofGuard } from "./active-market-competitor-proof-guard";
 import { auditActiveMarketIntegrity } from "./active-market-integrity-audit";
@@ -54,7 +54,7 @@ export async function handleActiveMarketAttackWithIntegrityGuard(
     return Response.json(payload, { status: baseResponse.status });
   }
 
-  const account = await getAuthenticatedAccountFromRequest(request);
+  const account = await getAuthenticatedSellerAccountFromRequest(request);
   if (!account) return Response.json(payload, { status: baseResponse.status });
   await ensureAccountStoreMembership({
     accountId: account.id,

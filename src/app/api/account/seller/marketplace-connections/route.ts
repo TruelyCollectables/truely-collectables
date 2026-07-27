@@ -1,5 +1,5 @@
 import { ensureAccountStoreMembership } from "../../../../../lib/account-auth";
-import { getAuthenticatedAccountFromRequest } from "../../../../../lib/account-auth";
+import { getAuthenticatedSellerAccountFromRequest } from "../../../../../lib/account-auth";
 import {
   SELLER_MARKETPLACE_PROVIDERS,
   isMissingSellerMarketplaceConnectionsTable,
@@ -87,7 +87,7 @@ function sellerMarketplaceConnectionMutationHeaders(params: {
 
 export async function GET(request: Request) {
   try {
-    const account = await getAuthenticatedAccountFromRequest(request);
+    const account = await getAuthenticatedSellerAccountFromRequest(request);
 
     if (!account) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
@@ -152,7 +152,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const account = await getAuthenticatedAccountFromRequest(request);
+    const account = await getAuthenticatedSellerAccountFromRequest(request);
 
     if (!account) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });

@@ -1,6 +1,6 @@
 import {
   ensureAccountStoreMembership,
-  getAuthenticatedAccountFromRequest,
+  getAuthenticatedSellerAccountFromRequest,
 } from "../../../../../../../lib/account-auth";
 import { classifyCollectibleCategory } from "../../../../../../../lib/collectible-category-policy";
 import { stageLegacySellerAutographIntake } from "../../../../../../../lib/seller-legacy-autograph-intake";
@@ -72,7 +72,7 @@ function hasAutographSignal(
 
 export async function POST(request: Request) {
   try {
-    const account = await getAuthenticatedAccountFromRequest(request);
+    const account = await getAuthenticatedSellerAccountFromRequest(request);
     if (!account) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }

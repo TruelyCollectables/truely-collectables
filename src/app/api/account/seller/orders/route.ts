@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getAuthenticatedAccountFromRequest } from "../../../../../lib/account-auth";
+import { getAuthenticatedSellerAccountFromRequest } from "../../../../../lib/account-auth";
 import {
   buildSellerOrderSignals,
   sortSellerOrderSignals,
@@ -173,7 +173,7 @@ function sellerOrdersHeaders(params: {
 
 export async function GET(request: Request) {
   try {
-    const account = await getAuthenticatedAccountFromRequest(request);
+    const account = await getAuthenticatedSellerAccountFromRequest(request);
 
     if (!account) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

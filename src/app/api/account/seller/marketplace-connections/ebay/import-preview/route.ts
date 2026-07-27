@@ -1,6 +1,6 @@
 import {
   ensureAccountStoreMembership,
-  getAuthenticatedAccountFromRequest,
+  getAuthenticatedSellerAccountFromRequest,
 } from "../../../../../../../lib/account-auth";
 import { loadSellerEbayInventoryPreview } from "../../../../../../../lib/seller-ebay";
 import { getActiveStoreId } from "../../../../../../../lib/stores";
@@ -107,7 +107,7 @@ export async function GET(request: Request) {
   let requestedLimit = 5;
 
   try {
-    const account = await getAuthenticatedAccountFromRequest(request);
+    const account = await getAuthenticatedSellerAccountFromRequest(request);
 
     if (!account) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
