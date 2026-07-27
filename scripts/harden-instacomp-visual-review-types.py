@@ -13,6 +13,14 @@ def main() -> None:
     path = Path("src/app/api/instacomp/live-scan/route.ts")
     text = path.read_text()
 
+    if (
+        "function normalizedVisualSourceCategory(" in text
+        and 'Awaited<ReturnType<typeof verifyInstaCompCompetitionImages>>["accepted"]' in text
+        and "matchScore: row.matchScore ?? 0" in text
+    ):
+        print("Visual-review provider normalization is already hardened; no migration needed")
+        return
+
     text = replace_once(
         text,
         '''function providerAfterVisualReview(params: {
