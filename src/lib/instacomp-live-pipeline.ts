@@ -44,7 +44,22 @@ function compKey(comp: InstaCompComp) {
   return `${normalizedTitle(comp.title)}|${Number(comp.price).toFixed(2)}`;
 }
 
-function hasTrustedDeliveredPrice(comp: InstaCompComp) {
+function isDiscoveryOnlyEvidence(comp: InstaCompComp) {
+  const source = clean(comp.source).toLowerCase();
+  const flags = (comp.flags || []).map((flag) => normalizedTitle(flag));
+  return (
+    comp.sourceCategory === "reference" ||
+    source.startsWith("openai_web_") ||
+    flags.some((flag) =>
+      /not independently verified for pricing|discovery(?: only| candidate)?|not used for pricing/.test(
+        flag,
+      ),
+    )
+  );
+}
+
+export function isInstaCompPricingEligibleComp(comp: InstaCompComp) {
+  if (isDiscoveryOnlyEvidence(comp)) return false;
   if (!Number.isFinite(Number(comp.price)) || Number(comp.price) <= 0) return false;
 
   // Exact-market providers must normalize item price plus shipping. When a
@@ -94,7 +109,7 @@ export function dedupeExactMarketEvidence(values: InstaCompComp[], limit = 50) {
 }
 
 export function dedupeExactMarketComps(values: InstaCompComp[], limit = 50) {
-  return dedupeExactMarketEvidence(values, limit).filter(hasTrustedDeliveredPrice);
+  return dedupeExactMarketEvidence(values, limit).filter(isInstaCompPricingEligibleComp);
 }
 
 export function missingExactIdentityFields(ai: InstaCompAiResult) {
@@ -153,8 +168,12 @@ export function mergeExactMarketSources(
     sold: pricingSold,
     active: pricingActive,
   });
-  const providerError = sources.some(
-    (source) => source?.sold?.status === "error" || source?.active?.status === "error",
+  const providerUnavailable = sources.some(
+    (source) =>
+      source?.sold?.status === "error" ||
+      source?.active?.status === "error" ||
+      source?.sold?.status === "not_configured" ||
+      source?.active?.status === "not_configured",
   );
 
   return {
@@ -164,7 +183,7 @@ export function mergeExactMarketSources(
     trustedSuggestedPrice: pricingSold.length ? pricing.suggestedPrice : null,
     status: pricingSold.length
       ? "ready"
-      : providerError
+      : providerUnavailable
         ? "provider_error"
         : "no_exact_sold",
   };
