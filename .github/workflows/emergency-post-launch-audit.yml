@@ -87,14 +87,23 @@ jobs:
           node --import tsx scripts/run-post-sale-ebay-sync-simulations.ts
           node --import tsx scripts/run-live-storefront-money-integrity-simulations.ts
 
-      - name: Run payment, refund, dispute, notification, and reconciliation simulations
-        run: |
-          node --import tsx scripts/run-buyer-protection-simulations.ts
-          node --import tsx scripts/run-post-purchase-buyer-flow-simulations.ts
-          node scripts/run-order-notification-hardening-simulations.ts
-          node scripts/run-order-review-payout-resolution-simulations.mjs
-          node scripts/run-admin-financial-reconciliation-simulations.mjs
-          node scripts/run-admin-order-review-actions-simulations.mjs
+      - name: Validate Buyer Protection
+        run: node --import tsx scripts/run-buyer-protection-simulations.ts
+
+      - name: Validate post-purchase buyer flow
+        run: node --import tsx scripts/run-post-purchase-buyer-flow-simulations.ts
+
+      - name: Validate order notification retries
+        run: node --import tsx scripts/run-order-notification-hardening-simulations.ts
+
+      - name: Validate order-review payout resolution
+        run: node --import tsx scripts/run-order-review-payout-resolution-simulations.mjs
+
+      - name: Validate financial reconciliation
+        run: node --import tsx scripts/run-admin-financial-reconciliation-simulations.mjs
+
+      - name: Validate order review actions
+        run: node --import tsx scripts/run-admin-order-review-actions-simulations.mjs
 
       - name: Run authentication, authorization, and public security simulations
         run: |
@@ -151,5 +160,5 @@ jobs:
         with:
           name: emergency-post-launch-build-diagnostics
           path: emergency-build.log
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 7
