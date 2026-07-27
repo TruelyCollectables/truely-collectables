@@ -1,1 +1,1 @@
-# Trigger marker for the simplified final InstaComp materialization workflow.
+# Trigger marker for the complete final InstaComp materialization workflow.
