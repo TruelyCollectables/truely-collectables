@@ -11,6 +11,97 @@ type FixtureCard = {
   ai: InstaCompAiResult;
 };
 
+const CARD_CONCURRENCY = 2;
+
+async function proveCard(
+  card: FixtureCard,
+  includeOpenAiDiscovery: boolean,
+): Promise<Record<string, unknown>> {
+  const serp = await getExactEbayMarketProviders({
+    exactTitle: card.exactTitle,
+    fallbackQuery: card.exactTitle,
+    ai: card.ai,
+  });
+  const openAi =
+    includeOpenAiDiscovery &&
+    process.env.OPENAI_API_KEY &&
+    (serp.sold.results.length === 0 || serp.active.results.length === 0)
+      ? await getOpenAiExactEbayMarketProviders({
+          exactTitle: card.exactTitle,
+          ai: card.ai,
+          bypassCache: true,
+        })
+      : null;
+
+  // Only the deterministic SerpApi lane is eligible for this provider proof.
+  // OpenAI web-search rows remain discovery-only and are never merged into
+  // trusted sold pricing or the pass/fail criteria. The optional OpenAI call
+  // is disabled by default so it cannot add cost or latency to certification.
+  const trusted = mergeExactMarketSources([
+    { sold: serp.sold, active: serp.active },
+  ]);
+  const sold = trusted.sold;
+  const active = trusted.active;
+
+  const result = {
+    id: card.id,
+    identity: card.exactTitle,
+    queries: serp.queries,
+    soldProviderStatus: serp.sold.status,
+    activeProviderStatus: serp.active.status,
+    soldMessages: [serp.sold.message].filter(Boolean),
+    activeMessages: [serp.active.message].filter(Boolean),
+    soldEvidenceCount: sold.length,
+    pricingEligibleSoldCount: trusted.pricing.soldCount,
+    activeEvidenceCount: active.length,
+    pricingEligibleActiveCount: trusted.pricing.activeCount,
+    trustedSuggestedPrice: trusted.trustedSuggestedPrice,
+    pricing: trusted.pricing,
+    sold: sold.map((comp) => ({
+      title: comp.title,
+      deliveredPrice: comp.price,
+      soldAt: comp.soldAt || null,
+      url: comp.url,
+      imageUrl: comp.imageUrl,
+      matchScore: comp.matchScore,
+      flags: comp.flags,
+    })),
+    active: active.map((comp) => ({
+      title: comp.title,
+      deliveredPrice: comp.price,
+      listedAt: comp.listedAt || null,
+      url: comp.url,
+      imageUrl: comp.imageUrl,
+      matchScore: comp.matchScore,
+      flags: comp.flags,
+    })),
+    providerAttempts: {
+      sold: serp.sold.attempts,
+      active: serp.active.attempts,
+    },
+    discoveryOnlyOpenAiWeb: openAi
+      ? {
+          soldStatus: openAi.sold.status,
+          activeStatus: openAi.active.status,
+          soldCount: openAi.sold.results.length,
+          activeCount: openAi.active.results.length,
+          model: openAi.model,
+          responseId: openAi.responseId,
+          citedItemIds: openAi.citedItemIds,
+          notes: openAi.notes,
+          cached: openAi.cached,
+          trustedForPricing: false,
+        }
+      : null,
+    openAiDiscoveryEnabled: includeOpenAiDiscovery,
+  } satisfies Record<string, unknown>;
+
+  console.log(
+    `proof_card_completed=${card.id} sold=${trusted.pricing.soldCount} active=${active.length} status=${trusted.status}`,
+  );
+  return result;
+}
+
 async function main() {
   assert.ok(
     process.env.SERPAPI_API_KEY,
@@ -23,89 +114,29 @@ async function main() {
   const includeOpenAiDiscovery =
     String(process.env.INSTACOMP_PROOF_INCLUDE_OPENAI_DISCOVERY || "").trim() === "1";
   const startedAt = new Date().toISOString();
-  const cards: Array<Record<string, unknown>> = [];
-  for (const card of fixture.cards) {
-    const serp = await getExactEbayMarketProviders({
-      exactTitle: card.exactTitle,
-      fallbackQuery: card.exactTitle,
-      ai: card.ai,
-    });
-    const openAi =
-      includeOpenAiDiscovery &&
-      process.env.OPENAI_API_KEY &&
-      (serp.sold.results.length === 0 || serp.active.results.length === 0)
-        ? await getOpenAiExactEbayMarketProviders({
-            exactTitle: card.exactTitle,
-            ai: card.ai,
-            bypassCache: true,
-          })
-        : null;
+  const cards: Array<Record<string, unknown> | undefined> = new Array(fixture.cards.length);
+  let nextIndex = 0;
 
-    // Only the deterministic SerpApi lane is eligible for this provider proof.
-    // OpenAI web-search rows remain discovery-only and are never merged into
-    // trusted sold pricing or the pass/fail criteria. The optional OpenAI call
-    // is disabled by default so it cannot add cost or latency to certification.
-    const trusted = mergeExactMarketSources([
-      { sold: serp.sold, active: serp.active },
-    ]);
-    const sold = trusted.sold;
-    const active = trusted.active;
-
-    cards.push({
-      id: card.id,
-      identity: card.exactTitle,
-      queries: serp.queries,
-      soldProviderStatus: serp.sold.status,
-      activeProviderStatus: serp.active.status,
-      soldMessages: [serp.sold.message].filter(Boolean),
-      activeMessages: [serp.active.message].filter(Boolean),
-      soldEvidenceCount: sold.length,
-      pricingEligibleSoldCount: trusted.pricing.soldCount,
-      activeEvidenceCount: active.length,
-      pricingEligibleActiveCount: trusted.pricing.activeCount,
-      trustedSuggestedPrice: trusted.trustedSuggestedPrice,
-      pricing: trusted.pricing,
-      sold: sold.map((comp) => ({
-        title: comp.title,
-        deliveredPrice: comp.price,
-        soldAt: comp.soldAt || null,
-        url: comp.url,
-        imageUrl: comp.imageUrl,
-        matchScore: comp.matchScore,
-        flags: comp.flags,
-      })),
-      active: active.map((comp) => ({
-        title: comp.title,
-        deliveredPrice: comp.price,
-        listedAt: comp.listedAt || null,
-        url: comp.url,
-        imageUrl: comp.imageUrl,
-        matchScore: comp.matchScore,
-        flags: comp.flags,
-      })),
-      providerAttempts: {
-        sold: serp.sold.attempts,
-        active: serp.active.attempts,
-      },
-      discoveryOnlyOpenAiWeb: openAi
-        ? {
-            soldStatus: openAi.sold.status,
-            activeStatus: openAi.active.status,
-            soldCount: openAi.sold.results.length,
-            activeCount: openAi.active.results.length,
-            model: openAi.model,
-            responseId: openAi.responseId,
-            citedItemIds: openAi.citedItemIds,
-            notes: openAi.notes,
-            cached: openAi.cached,
-            trustedForPricing: false,
-          }
-        : null,
-      openAiDiscoveryEnabled: includeOpenAiDiscovery,
-    });
+  async function worker() {
+    while (true) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= fixture.cards.length) return;
+      cards[index] = await proveCard(fixture.cards[index], includeOpenAiDiscovery);
+    }
   }
 
-  const failures = cards.filter(
+  await Promise.all(
+    Array.from(
+      { length: Math.min(CARD_CONCURRENCY, Math.max(1, fixture.cards.length)) },
+      () => worker(),
+    ),
+  );
+
+  const completedCards = cards.filter(
+    (card): card is Record<string, unknown> => Boolean(card),
+  );
+  const failures = completedCards.filter(
     (card) =>
       card.soldProviderStatus !== "live" ||
       card.activeProviderStatus !== "live" ||
@@ -114,15 +145,15 @@ async function main() {
       Number(card.trustedSuggestedPrice || 0) <= 0,
   );
   const proof = {
-    schema: "tcos.instacompBatch001LiveMarketProviderProof.v4",
+    schema: "tcos.instacompBatch001LiveMarketProviderProof.v5",
     scope:
       "Live exact-market provider proof. This does not replace the production image-identity and visual-verification route test.",
     startedAt,
     completedAt: new Date().toISOString(),
-    success: failures.length === 0,
-    cardCount: cards.length,
+    success: failures.length === 0 && completedCards.length === fixture.cards.length,
+    cardCount: completedCards.length,
     failures: failures.map((card) => card.id),
-    cards,
+    cards: completedCards,
   };
   fs.mkdirSync("docs", { recursive: true });
   fs.writeFileSync(
@@ -131,12 +162,17 @@ async function main() {
   );
 
   assert.equal(
+    completedCards.length,
+    fixture.cards.length,
+    "Live exact-market provider proof did not complete every fixture card",
+  );
+  assert.equal(
     failures.length,
     0,
     `Live exact-market provider proof is blocked for: ${failures.map((card) => card.id).join(", ")}`,
   );
   console.log(
-    `InstaComp Batch 001 provider proof passed: ${cards.length}/6 cards each returned deterministic strict exact sold evidence, exact active competition, and a sold-backed trusted suggested price.`,
+    `InstaComp Batch 001 provider proof passed: ${completedCards.length}/6 cards each returned deterministic strict exact sold evidence, exact active competition, and a sold-backed trusted suggested price.`,
   );
 }
 
