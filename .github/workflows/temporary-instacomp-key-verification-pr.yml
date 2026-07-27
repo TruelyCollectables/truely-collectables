@@ -1,6 +1,6 @@
 name: Temporary InstaComp Key Verification PR
 
-# Fast provider-proof rerun with discovery-only OpenAI calls disabled.
+# Fast provider-proof rerun with discovery-only OpenAI calls and cache I/O disabled.
 on:
   pull_request:
     branches:
@@ -25,10 +25,6 @@ jobs:
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
-      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
-      SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
-      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
 
     steps:
       - name: Confirm secrets are present
