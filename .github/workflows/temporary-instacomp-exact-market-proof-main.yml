@@ -1,5 +1,6 @@
 name: Temporary InstaComp Exact Market Production Proof
 
+# Credential verification rerun after Vercel and GitHub secrets were updated on 2026-07-27.
 on:
   push:
     branches:
