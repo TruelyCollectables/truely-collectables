@@ -17,7 +17,7 @@ def main() -> None:
         text,
         '''export function buildInstaCompCuratedChecklistEvidence(params: {
 ''',
-        '''function officialBenchmarkCatalogCandidate(
+        r'''function officialBenchmarkCatalogCandidate(
   input: InstaCompCatalogIdentityInput,
 ): InstaCompCatalogCandidateIdentity | null {
   const playerKey = normalizedPlayerKey(input.player);
