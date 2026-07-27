@@ -10,11 +10,11 @@ export type ClientIdentity = {
 };
 
 const IP_HEADER_NAMES = [
+  "x-vercel-forwarded-for",
+  "x-forwarded-for",
   "cf-connecting-ip",
   "true-client-ip",
   "x-real-ip",
-  "x-forwarded-for",
-  "x-vercel-forwarded-for",
   "forwarded",
 ] as const;
 
@@ -52,8 +52,22 @@ function isIpv4(value: string): boolean {
   });
 }
 
+function normalizedIpv6(value: string): string | null {
+  if (!value.includes(":") || value.includes("%")) return null;
+
+  try {
+    const parsed = new URL(`http://[${value}]/`);
+    const hostname = parsed.hostname;
+    return hostname.startsWith("[") && hostname.endsWith("]")
+      ? hostname.slice(1, -1).toLowerCase()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function isIpv6(value: string): boolean {
-  return value.includes(":") && /^[0-9a-f:.]+$/i.test(value);
+  return normalizedIpv6(value) !== null;
 }
 
 function isRecognizedIp(value: string): boolean {
@@ -83,15 +97,20 @@ function isPrivateOrReservedIpv4(value: string): boolean {
 }
 
 function isPrivateOrReservedIpv6(value: string): boolean {
-  const normalized = value.toLowerCase();
+  const normalized = normalizedIpv6(value);
+  if (!normalized) return true;
+
+  const firstHextet = Number.parseInt(normalized.split(":", 1)[0] || "0", 16);
 
   return (
     normalized === "::" ||
     normalized === "::1" ||
+    normalized.startsWith("::ffff:") ||
     normalized.startsWith("fc") ||
     normalized.startsWith("fd") ||
-    normalized.startsWith("fe80:") ||
-    normalized.startsWith("2001:db8:")
+    (Number.isFinite(firstHextet) && (firstHextet & 0xffc0) === 0xfe80) ||
+    normalized.startsWith("2001:db8:") ||
+    normalized.startsWith("ff")
   );
 }
 
@@ -309,4 +328,5 @@ export const clientIdentityTestHelpers = {
   isIpv6,
   isRecognizedIp,
   isPrivateOrReservedIp,
+  getClientIp,
 };

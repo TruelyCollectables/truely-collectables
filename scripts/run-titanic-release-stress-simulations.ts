@@ -78,9 +78,12 @@ assert.ok(
 );
 assert.ok(
   finalizer.includes("loadStripePaidCheckoutAmounts") &&
-    finalizer.includes('onConflict: "store_id,order_id,product_id"') &&
-    finalizer.includes("paidUnitPrice"),
-  "Order finalization must use Stripe-paid amounts and idempotent item upserts.",
+    finalizer.includes("existingOrderItemsByProductId") &&
+    finalizer.includes('.from("order_items").insert') &&
+    !finalizer.includes('.from("order_items").upsert') &&
+    finalizer.includes("paidUnitPrice") &&
+    finalizer.includes("ledgerOrderItems.reduce"),
+  "Order finalization must use Stripe-paid amounts and persisted seller ownership on retries.",
 );
 assert.ok(
   outboxMigration.includes("before update of quantity on public.products") &&

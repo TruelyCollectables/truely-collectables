@@ -238,11 +238,11 @@ export async function finalizeCheckoutOrder(params: {
     tos_ip_block_reason: metadata.tos_ip_block_reason || null,
   };
 
+  const existingStatus = String(existingOrder?.status || "");
+  const existingFulfillment = String(existingOrder?.fulfillment_status || "");
   let orderId: number;
   if (existingOrder) {
     orderId = Number(existingOrder.id);
-    const existingStatus = String(existingOrder.status || "");
-    const existingFulfillment = String(existingOrder.fulfillment_status || "");
     const mayApplySafetyReview = ![
       "shipped",
       "delivered",
@@ -315,13 +315,18 @@ export async function finalizeCheckoutOrder(params: {
     throw protectionError;
   }
 
-  let sellerItemCount = 0;
-  let storeItemCount = 0;
+  const { data: existingOrderItems, error: existingOrderItemsError } = await supabase
+    .from("order_items")
+    .select("id,product_id,seller_account_id,title,price,quantity")
+    .eq("order_id", orderId)
+    .eq("store_id", storeId);
+  if (existingOrderItemsError) throw existingOrderItemsError;
+  const existingOrderItemsByProductId = new Map(
+    (existingOrderItems || []).map((item) => [Number(item.product_id), item]),
+  );
 
   for (const cartItem of cart) {
     const product = productById.get(cartItem.id)!;
-    if (product.sellerAccountId) sellerItemCount += cartItem.quantity;
-    else storeItemCount += cartItem.quantity;
 
     let mutation;
     try {
@@ -367,21 +372,59 @@ export async function finalizeCheckoutOrder(params: {
       );
     }
 
-    const { error: itemError } = await supabase.from("order_items").upsert(
-      {
-        store_id: storeId,
-        order_id: orderId,
-        product_id: product.legacyProductId,
-        seller_account_id: product.sellerAccountId,
-        title: product.title,
-        price: paidUnitPrice,
-        quantity: cartItem.quantity,
-        is_test: isE2ETest,
-        test_run_id: testRunId,
-      },
-      { onConflict: "store_id,order_id,product_id" },
+    const existingOrderItem = existingOrderItemsByProductId.get(
+      product.legacyProductId,
     );
-    if (itemError) throw itemError;
+    if (existingOrderItem) {
+      if (Number(existingOrderItem.quantity) !== cartItem.quantity) {
+        await markOrderReview({
+          supabase,
+          storeId,
+          orderId,
+          status: "paid_payment_review",
+          fulfillmentStatus: "payment_review",
+        });
+        throw new Error(
+          `The persisted order quantity for product ${product.legacyProductId} does not match Stripe.`,
+        );
+      }
+
+      const { error: itemUpdateError } = await supabase
+        .from("order_items")
+        .update({
+          price: paidUnitPrice,
+          quantity: cartItem.quantity,
+          is_test: isE2ETest,
+          test_run_id: testRunId,
+        })
+        .eq("id", existingOrderItem.id)
+        .eq("store_id", storeId)
+        .eq("order_id", orderId);
+      if (itemUpdateError) throw itemUpdateError;
+    } else {
+      const { data: insertedOrderItem, error: itemInsertError } = await supabase
+        .from("order_items")
+        .insert({
+          store_id: storeId,
+          order_id: orderId,
+          product_id: product.legacyProductId,
+          seller_account_id: product.sellerAccountId,
+          title: product.title,
+          price: paidUnitPrice,
+          quantity: cartItem.quantity,
+          is_test: isE2ETest,
+          test_run_id: testRunId,
+        })
+        .select("id,product_id,seller_account_id,title,price,quantity")
+        .single();
+      if (itemInsertError || !insertedOrderItem) {
+        throw itemInsertError || new Error("Order item insert failed");
+      }
+      existingOrderItemsByProductId.set(
+        product.legacyProductId,
+        insertedOrderItem,
+      );
+    }
 
     try {
       const immediateSync = await syncEbayQuantityAfterSale({
@@ -403,17 +446,6 @@ export async function finalizeCheckoutOrder(params: {
     }
   }
 
-  const { error: countUpdateError } = await supabase
-    .from("orders")
-    .update({
-      contains_seller_items: sellerItemCount > 0,
-      seller_item_count: sellerItemCount,
-      store_item_count: storeItemCount,
-    })
-    .eq("id", orderId)
-    .eq("store_id", storeId);
-  if (countUpdateError) throw countUpdateError;
-
   const { data: ledgerOrderItems, error: ledgerItemsError } = await supabase
     .from("order_items")
     .select("id,product_id,seller_account_id,title,price,quantity")
@@ -430,6 +462,25 @@ export async function finalizeCheckoutOrder(params: {
     });
     throw new Error("The paid order item ledger does not cover every cart line.");
   }
+
+  const sellerItemCount = ledgerOrderItems.reduce(
+    (sum, item) => sum + (item.seller_account_id ? Number(item.quantity || 0) : 0),
+    0,
+  );
+  const storeItemCount = ledgerOrderItems.reduce(
+    (sum, item) => sum + (!item.seller_account_id ? Number(item.quantity || 0) : 0),
+    0,
+  );
+  const { error: countUpdateError } = await supabase
+    .from("orders")
+    .update({
+      contains_seller_items: sellerItemCount > 0,
+      seller_item_count: sellerItemCount,
+      store_item_count: storeItemCount,
+    })
+    .eq("id", orderId)
+    .eq("store_id", storeId);
+  if (countUpdateError) throw countUpdateError;
 
   try {
     const storeSettings = await getStoreSettings(supabase, storeId);
@@ -560,9 +611,15 @@ export async function finalizeCheckoutOrder(params: {
     }
   }
 
+  const recoverableReviewStatuses = new Set([
+    "paid_inventory_review",
+    "paid_financial_review",
+    "paid_offer_review",
+    "paid_payment_review",
+  ]);
   if (
     existingOrder &&
-    String(existingOrder.status || "") === "paid_inventory_review" &&
+    recoverableReviewStatuses.has(existingStatus) &&
     !paymentReviewRequired
   ) {
     await markOrderReview({

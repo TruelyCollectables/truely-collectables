@@ -75,6 +75,36 @@ assert.equal(
   clientIdentityTestHelpers.isPrivateOrReservedIp("2606:4700:4700::1111"),
   false,
 );
+assert.equal(
+  clientIdentityTestHelpers.isIpv6("::::"),
+  false,
+  "Malformed colon strings must never be accepted as IPv6 addresses",
+);
+assert.equal(
+  clientIdentityTestHelpers.isIpv6("1:2:3:4:5:6:7:8:9"),
+  false,
+  "Overlong IPv6 addresses must fail closed",
+);
+assert.equal(
+  clientIdentityTestHelpers.isPrivateOrReservedIp("febf::1"),
+  true,
+  "The complete IPv6 link-local fe80::/10 range must be reserved",
+);
+assert.equal(
+  clientIdentityTestHelpers.isPrivateOrReservedIp("ff02::1"),
+  true,
+  "IPv6 multicast addresses must be reserved",
+);
+const trustedProxyHeaders = new Headers({
+  "x-vercel-forwarded-for": "198.51.100.20",
+  "x-forwarded-for": "203.0.113.99",
+  "cf-connecting-ip": "192.0.2.44",
+});
+assert.equal(
+  clientIdentityTestHelpers.getClientIp(trustedProxyHeaders),
+  "198.51.100.20",
+  "Vercel's forwarding header must win over less authoritative forwarded headers",
+);
 
 const offerAttemptA = offerCheckoutAttemptId({
   storeId: "00000000-0000-0000-0000-000000000001",

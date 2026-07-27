@@ -88,10 +88,18 @@ assert.ok(
 assert.ok(finalizer.includes("consumeCheckoutReservationAfterSale"));
 assert.ok(finalizer.includes("decrementOrderInventoryOnce"));
 assert.ok(finalizer.includes("loadStripePaidCheckoutAmounts"));
-assert.ok(finalizer.includes('onConflict: "store_id,order_id,product_id"'));
+assert.ok(finalizer.includes("existingOrderItemsByProductId"));
+assert.ok(finalizer.includes('.from("order_items").insert'));
+assert.doesNotMatch(finalizer, /\.from\("order_items"\)\.upsert/);
 assert.ok(
   finalizer.indexOf("consumeCheckoutReservationAfterSale") <
-    finalizer.indexOf('.from("order_items").upsert'),
+    finalizer.indexOf('.from("order_items").insert'),
+);
+assert.ok(
+  finalizer.includes("recoverableReviewStatuses") &&
+    finalizer.includes('"paid_financial_review"') &&
+    finalizer.includes('"paid_offer_review"'),
+  "A successful webhook retry must clear transient inventory, financial, offer, and payment review states.",
 );
 assert.ok(finalizer.includes("paidUnitPrice"));
 assert.doesNotMatch(finalizer, /price:\s*Number\(product\.price\)/);

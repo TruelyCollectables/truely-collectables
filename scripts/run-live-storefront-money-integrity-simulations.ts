@@ -25,7 +25,10 @@ for (const token of [
   "metadata.store_id !== storeId",
   "loadStripePaidCheckoutAmounts",
   "paidAmounts.unitPrices",
-  'onConflict: "store_id,order_id,product_id"',
+  "existingOrderItemsByProductId",
+  '.from("order_items").insert',
+  "recoverableReviewStatuses",
+  "ledgerOrderItems.reduce",
   "stableOrderPayload",
   "paymentReviewRequired && mayApplySafetyReview",
 ]) {
@@ -41,6 +44,27 @@ assert.doesNotMatch(
   /\.update\(orderPayload\)/,
   "A webhook retry must not reset the complete initial order payload.",
 );
+assert.doesNotMatch(
+  finalizer,
+  /\.from\("order_items"\)\.upsert/,
+  "Webhook retries must not overwrite historical seller ownership or titles.",
+);
+assert.doesNotMatch(
+  finalizer,
+  /if \(product\.sellerAccountId\)/,
+  "Seller/store item counts must come from persisted order items, not mutable inventory ownership.",
+);
+for (const recoverable of [
+  "paid_inventory_review",
+  "paid_financial_review",
+  "paid_offer_review",
+  "paid_payment_review",
+]) {
+  assert.ok(
+    finalizer.includes(recoverable),
+    `Webhook recovery must include ${recoverable}.`,
+  );
+}
 
 for (const token of [
   "starting_after",
