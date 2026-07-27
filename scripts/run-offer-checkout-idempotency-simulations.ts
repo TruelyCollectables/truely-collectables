@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { offerCheckoutAttemptId } from "../src/lib/offer-checkout-attempt";
 
 function source(path: string) {
   return fs.readFileSync(path, "utf8");
@@ -38,88 +39,89 @@ for (const [name, route] of [
   ["accepted offer decision", acceptOfferRoute],
   ["counteroffer decision", counterOfferRoute],
 ] as const) {
-  assert.match(
-    route,
-    /createOfferCheckoutToken/,
-    `${name} must create a signed buyer choice link.`,
-  );
-  assert.match(
-    route,
-    /\/offer-checkout\/\$\{offer\.id\}\?token=/,
-    `${name} must route the buyer through the shipping and protection choice page.`,
-  );
-  assert.doesNotMatch(
-    route,
-    /checkout\.sessions\.create/,
-    `${name} must not create a fixed Stripe session before the buyer chooses shipping and protection.`,
-  );
+  assert.match(route, /createOfferCheckoutToken/);
+  assert.match(route, /\/offer-checkout\/\$\{offer\.id\}\?token=/);
+  assert.doesNotMatch(route, /checkout\.sessions\.create/);
 }
 
-assert.match(
-  buyerCheckoutRoute,
-  /parseOfferCheckoutToken/,
-  "Buyer-configured offer checkout must verify the signed offer token.",
-);
-assert.match(
-  buyerCheckoutRoute,
-  /startReservedOfferCheckout\(\{/,
-  "Buyer-configured offer checkout must use the reservation-backed lifecycle.",
-);
-assert.doesNotMatch(
-  buyerCheckoutRoute,
-  /checkout\.sessions\.create/,
-  "The route must not bypass the reservation helper to create Stripe sessions directly.",
-);
-assert.match(
-  reservedOfferCheckout,
-  /reserveCheckoutInventory\(\{[\s\S]*checkout\.sessions\.create\(/,
+assert.match(buyerCheckoutRoute, /parseOfferCheckoutToken/);
+assert.match(buyerCheckoutRoute, /startReservedOfferCheckout\(\{/);
+assert.doesNotMatch(buyerCheckoutRoute, /checkout\.sessions\.create/);
+
+for (const contract of [
+  "retrieveVerifiedOfferSession",
+  "legacy.status === \"open\" && legacyAttemptId",
+  "return replayResult(legacy, legacyAttemptId)",
+  "legacy.status === \"open\" && !legacyAttemptId",
+  "checkout.sessions.expire(legacy.id)",
+  "releaseCheckoutReservationForExpiredSession",
+  "previousStripeSessionId = existing.id",
+  "generation < 5",
+  "reserveCheckoutInventory({",
+  "checkout.sessions.create(",
+  "attachStripeSessionToCheckoutReservation",
+  "expectedCount: reservation.rows.length",
+  "completeCheckoutAttempt",
+  "stripeSessionId,",
+]) {
+  assert.ok(
+    reservedOfferCheckout.includes(contract),
+    `Accepted-offer checkout is missing ${contract}.`,
+  );
+}
+assert.ok(
+  reservedOfferCheckout.indexOf("reserveCheckoutInventory({") <
+    reservedOfferCheckout.indexOf("checkout.sessions.create("),
   "Accepted-offer inventory must be reserved before Stripe creates a payable session.",
 );
 assert.match(
   reservedOfferCheckout,
-  /claimCheckoutAttempt\(\{[\s\S]*requestStatus === "session_created"[\s\S]*replayed: true/,
-  "Accepted-offer retries must claim one durable attempt and replay its open session.",
-);
-assert.match(
-  reservedOfferCheckout,
   /const stripeIdempotencyKey = `truely_offer_checkout_\$\{params\.storeId\}_\$\{checkoutAttemptId\}`/,
-  "Accepted-offer idempotency must be tied to one offer attempt, not a mutable selection.",
 );
+assert.doesNotMatch(reservedOfferCheckout, /selectionKey/);
 assert.doesNotMatch(
   reservedOfferCheckout,
-  /selectionKey/,
-  "Shipping or protection changes must not create parallel payable sessions for one accepted offer.",
+  /legacy\.status === "open"[\s\S]*legacyAttemptId[\s\S]*checkout\.sessions\.expire\(legacy\.id\)/,
+  "A second browser must never expire a valid reservation-backed open session.",
 );
 assert.match(
   reservedOfferCheckout,
-  /legacy\.status === "open"[\s\S]*checkout\.sessions\.expire\(legacy\.id\)/,
-  "Unreserved legacy offer sessions must be expired before a reservation-backed replacement is created.",
-);
-assert.match(
-  reservedOfferCheckout,
-  /attachStripeSessionToCheckoutReservation/,
-  "The Stripe Session must be durably attached to the accepted-offer reservation.",
-);
-assert.match(
-  reservedOfferCheckout,
-  /releaseCheckoutReservation/,
-  "Failed accepted-offer session creation must release its reservation when safe.",
+  /legacy\.status === "open" && !legacyAttemptId[\s\S]*checkout\.sessions\.expire\(legacy\.id\)/,
+  "Only the old unreserved accepted-offer session may be retired during migration.",
 );
 assert.match(
   offerCheckoutAttempt,
-  /createHash\("sha256"\)/,
-  "Each offer must derive a deterministic checkout-attempt UUID.",
+  /previousStripeSessionId/,
+  "Expired Stripe sessions must rotate the accepted-offer idempotency generation.",
 );
-assert.match(
-  buyerCheckoutRoute,
-  /buyer_protection_selected/,
-  "Buyer-configured offer checkout must preserve the protection selection.",
-);
+assert.match(buyerCheckoutRoute, /buyer_protection_selected/);
 assert.match(
   attachedReservationMigration,
   /reservation\.stripe_session_id = v_order_stripe_session_id[\s\S]*set status = 'consumed'/,
-  "A paid accepted-offer session must consume its attached reservation atomically.",
 );
+
+const storeId = "00000000-0000-0000-0000-000000000001";
+const initial = offerCheckoutAttemptId({ storeId, offerId: 101 });
+const initialReplay = offerCheckoutAttemptId({ storeId, offerId: 101 });
+const replacement = offerCheckoutAttemptId({
+  storeId,
+  offerId: 101,
+  previousStripeSessionId: "cs_live_expired_one",
+});
+const secondReplacement = offerCheckoutAttemptId({
+  storeId,
+  offerId: 101,
+  previousStripeSessionId: "cs_live_expired_two",
+});
+assert.equal(initial, initialReplay);
+assert.notEqual(initial, replacement);
+assert.notEqual(replacement, secondReplacement);
+for (const attempt of [initial, replacement, secondReplacement]) {
+  assert.match(
+    attempt,
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-8[0-9a-f]{3}-[0-9a-f]{12}$/,
+  );
+}
 
 for (const token of [
   "createHmac",
@@ -128,12 +130,9 @@ for (const token of [
   "payload.storeId !== params.storeId",
   "payload.offerId !== params.offerId",
 ]) {
-  assert.ok(
-    offerCheckoutToken.includes(token),
-    `Signed offer checkout tokens must include ${token}.`,
-  );
+  assert.ok(offerCheckoutToken.includes(token));
 }
 
 console.log(
-  "Offer checkout scope, reservation, and idempotency simulations passed: 22/22",
+  "Offer checkout scope, reservation, replay, expiration rotation, and idempotency simulations passed.",
 );
