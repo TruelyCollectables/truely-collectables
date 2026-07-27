@@ -50,7 +50,8 @@ def patch_visual_verifier() -> None:
   return null;
 }
 
-function dataUrlFromBytes(bytes: ArrayBuffer, _contentType: string | null) {
+function dataUrlFromBytes(bytes: ArrayBuffer, contentType: string | null) {
+  void contentType;
   const mime = detectedImageMime(bytes);
   if (!mime) throw new Error("Image bytes were not a real JPEG, PNG, or WebP file.");
   return `data:${mime};base64,${Buffer.from(bytes).toString("base64")}`;
@@ -133,8 +134,8 @@ def patch_seller_image_download() -> None:
         '''function imageType(url: string, responseType: string | null) {
   const normalized = String(responseType || "").split(";")[0].trim().toLowerCase();
   if (ALLOWED_IMAGE_TYPES.has(normalized)) return normalized;
-  if (/\\.png(?:\\?|$)/i.test(url)) return "image/png";
-  if (/\\.webp(?:\\?|$)/i.test(url)) return "image/webp";
+  if (/\.png(?:\?|$)/i.test(url)) return "image/png";
+  if (/\.webp(?:\?|$)/i.test(url)) return "image/webp";
   return "image/jpeg";
 }
 ''',
