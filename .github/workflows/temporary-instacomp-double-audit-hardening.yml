@@ -35,7 +35,7 @@ jobs:
           python scripts/harden-instacomp-benchmark-source.py
           python scripts/harden-instacomp-benchmark-cleanup.py
           python scripts/run-instacomp-certification-safe.py
-          python scripts/harden-instacomp-visual-proof.py
+          python scripts/run-instacomp-visual-proof-safe.py
           python scripts/harden-instacomp-visual-review-types.py
           python scripts/harden-instacomp-benchmark-report.py
           python scripts/run-instacomp-final-materialization.py
