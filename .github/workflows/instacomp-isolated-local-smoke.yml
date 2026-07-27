@@ -8,6 +8,7 @@ on:
       - ".github/workflows/instacomp-isolated-local-smoke.yml"
       - "scripts/patch-instacomp-benchmark-serpapi-source.py"
       - "scripts/patch-instacomp-benchmark-performance.py"
+      - "scripts/patch-instacomp-benchmark-correctness.py"
   workflow_dispatch:
 
 permissions:
@@ -38,7 +39,7 @@ jobs:
         run: |
           ISSUE_NUMBER="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/issues" \
             -f title="InstaComp isolated local smoke ${GITHUB_RUN_ID}" \
-            -f body="Pinned to commit \`${GITHUB_SHA}\`. Running one official eBay front/back card through the actual local protected InstaComp runtime with duplicate legacy discovery and dead caches disabled." \
+            -f body="Pinned to commit \`${GITHUB_SHA}\`. Rechecking the official Lane Hutson card after final catalog normalization and bounded sold-provider failure handling." \
             --jq .number)"
           echo "issue_number=$ISSUE_NUMBER" >> "$GITHUB_OUTPUT"
 
@@ -57,17 +58,19 @@ jobs:
       - name: Install exact dependencies
         run: npm ci
 
-      - name: Apply isolated benchmark source and performance hardening
+      - name: Apply isolated benchmark hardening
         run: |
           set -euo pipefail
           python scripts/patch-instacomp-benchmark-serpapi-source.py
           python scripts/patch-instacomp-benchmark-performance.py
+          python scripts/patch-instacomp-benchmark-correctness.py
           git diff --check
           npx eslint \
             src/app/api/instacomp/benchmark/ebay-25/route.ts \
             src/app/api/instacomp/scan/route.ts \
             src/app/api/instacomp/live-scan/route.ts \
             src/lib/instacomp-job-server.ts \
+            src/lib/instacomp-curated-checklist.ts \
             src/lib/instacomp-exact-market-provider.ts \
             src/lib/instacomp-openai-web-market-provider.ts \
             src/lib/instacomp-comp-visual-verification.ts
@@ -170,9 +173,8 @@ jobs:
               status: data?.status,
               caseId: data?.caseId,
               sellerTitle: data?.eBay?.title,
-              frontImageUrl: data?.eBay?.frontImageUrl,
-              backImageUrl: data?.eBay?.backImageUrl,
               ai: data?.scan?.ai,
+              catalogEvidence: data?.scan?.catalogEvidence,
               exactMarket: data?.scan?.exactMarket,
               grade: data?.grade,
               durationMs: data?.durationMs,
