@@ -1,5 +1,6 @@
 name: Temporary InstaComp Key Verification PR
 
+# Registered-workflow retrigger after both provider secrets were added.
 on:
   pull_request:
     branches:
