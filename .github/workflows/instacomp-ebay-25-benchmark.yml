@@ -13,13 +13,25 @@ on:
       - "src/lib/instacomp*.ts"
       - "scripts/run-instacomp-ebay-25-benchmark.mjs"
       - ".github/workflows/instacomp-ebay-25-benchmark.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "src/app/api/instacomp/benchmark/ebay-25/route.ts"
+      - "src/app/api/instacomp/live-scan/route.ts"
+      - "src/app/api/instacomp/scan/route.ts"
+      - "src/lib/instacomp-ebay-benchmark-cases.ts"
+      - "src/lib/instacomp-curated-checklist.ts"
+      - "src/lib/instacomp*.ts"
+      - "scripts/run-instacomp-ebay-25-benchmark.mjs"
+      - ".github/workflows/instacomp-ebay-25-benchmark.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: instacomp-ebay-25-${{ github.ref }}
+  group: instacomp-ebay-25-real-cards
   cancel-in-progress: true
 
 jobs:
