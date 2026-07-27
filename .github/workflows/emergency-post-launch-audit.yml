@@ -114,16 +114,29 @@ jobs:
           node --import tsx scripts/run-public-rate-limit-fail-closed-simulations.ts
           node scripts/run-admin-security-actions-simulations.mjs
 
-      - name: Run eBay, inventory, shipping, and fulfillment simulations
-        run: |
-          node --import tsx scripts/run-ebay-oauth-state-simulations.ts
-          node scripts/run-ebay-duplicate-merge-simulations.mjs
-          node --import tsx scripts/run-ebay-import-admin-client-simulations.ts
-          node --import tsx scripts/run-ebay-launch-ready-simulations.ts
-          node --import tsx scripts/run-ebay-launch-ready-ui-simulations.ts
-          node --import tsx scripts/run-shipping-purchase-audit-simulations.ts
-          node --import tsx scripts/run-shipping-simulations.ts
-          node scripts/run-admin-shipping-actions-simulations.mjs
+      - name: Validate eBay OAuth state security
+        run: node --import tsx scripts/run-ebay-oauth-state-simulations.ts
+
+      - name: Validate eBay duplicate merge handling
+        run: node scripts/run-ebay-duplicate-merge-simulations.mjs
+
+      - name: Validate eBay import and storefront gallery
+        run: node --import tsx scripts/run-ebay-import-admin-client-simulations.ts
+
+      - name: Validate eBay launch readiness
+        run: node --import tsx scripts/run-ebay-launch-ready-simulations.ts
+
+      - name: Validate eBay launch-readiness UI
+        run: node --import tsx scripts/run-ebay-launch-ready-ui-simulations.ts
+
+      - name: Validate shipping purchase audit
+        run: node --import tsx scripts/run-shipping-purchase-audit-simulations.ts
+
+      - name: Validate shipping calculations
+        run: node --import tsx scripts/run-shipping-simulations.ts
+
+      - name: Validate admin shipping actions
+        run: node scripts/run-admin-shipping-actions-simulations.mjs
 
       - name: Run storefront, mobile, trust, and launch-contract simulations
         run: |
