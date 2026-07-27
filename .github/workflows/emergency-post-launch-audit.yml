@@ -173,14 +173,23 @@ jobs:
       - name: Validate admin shipping actions
         run: node scripts/run-admin-shipping-actions-simulations.mjs
 
-      - name: Run storefront, mobile, trust, and launch-contract simulations
-        run: |
-          node --import tsx scripts/run-storefront-taxonomy-gallery-simulations.ts
-          node --import tsx scripts/run-mobile-buyer-flow-simulations.ts
-          node --import tsx scripts/run-public-trust-policy-simulations.ts
-          node --import tsx scripts/run-live-payment-owner-marker-simulations.ts
-          node --import tsx scripts/run-live-payment-status-color-simulations.ts
-          node --import tsx scripts/run-sunday-launch-one-build.ts
+      - name: Validate storefront taxonomy and gallery
+        run: node --import tsx scripts/run-storefront-taxonomy-gallery-simulations.ts
+
+      - name: Validate mobile buyer flow
+        run: node --import tsx scripts/run-mobile-buyer-flow-simulations.ts
+
+      - name: Validate public trust policies
+        run: node --import tsx scripts/run-public-trust-policy-simulations.ts
+
+      - name: Validate live-payment owner marker
+        run: node --import tsx scripts/run-live-payment-owner-marker-simulations.ts
+
+      - name: Validate live-payment status colors
+        run: node --import tsx scripts/run-live-payment-status-color-simulations.ts
+
+      - name: Validate Sunday launch contract
+        run: node --import tsx scripts/run-sunday-launch-one-build.ts
 
       - name: Run migration and production guardrail audits
         run: |
