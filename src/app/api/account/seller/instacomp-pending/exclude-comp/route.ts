@@ -95,9 +95,9 @@ export async function POST(request: NextRequest) {
       sold: nextSold,
       active: nextActive,
     });
-    const suggestedPrice = pricingAnalysis.suggestedPrice;
     const hasReliableSoldComps = pricingAnalysis.soldCount > 0;
-    const pricingStatus = suggestedPrice > 0
+    const suggestedPrice = hasReliableSoldComps ? pricingAnalysis.suggestedPrice : 0;
+    const pricingStatus = hasReliableSoldComps && suggestedPrice > 0
       ? "suggested_from_reliable_sold_comps"
       : "seller_price_required";
     const checkedAt = new Date().toISOString();
@@ -113,7 +113,13 @@ export async function POST(request: NextRequest) {
         marketPrice: suggestedPrice,
         suggestedPrice,
         pricingStatus,
-        pricingReason: pricingAnalysis.explanation,
+        pricingReason: hasReliableSoldComps
+          ? pricingAnalysis.explanation
+          : nextActive.length
+            ? "No exact sold listing remains. " + nextActive.length +
+              " exact active listing" + (nextActive.length === 1 ? " is" : "s are") +
+              " shown only as competition; seller pricing is required."
+            : "No exact sold or active listing remains; seller pricing is required.",
         reliableSoldCompCount: hasReliableSoldComps ? pricingAnalysis.soldCount : 0,
         trustedForPricing: hasReliableSoldComps,
         pricingCheckedAt: checkedAt,

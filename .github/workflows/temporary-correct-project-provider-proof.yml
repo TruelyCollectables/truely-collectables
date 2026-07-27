@@ -1,0 +1,95 @@
+name: Temporary Correct Project Provider Proof
+
+on:
+  push:
+    branches:
+      - agent/instacomp-exact-market-proof-20260726
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  provider-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/instacomp-exact-market-proof-20260726
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Force link to correct Vercel project
+        shell: bash
+        run: |
+          test -n "$VERCEL_TOKEN"
+          rm -rf .vercel .env.production.local
+          npx vercel link --yes --project truely-collectables --scope truelycollectables-projects --token "$VERCEL_TOKEN"
+          npx vercel env pull .env.production.local --yes --environment=production --token "$VERCEL_TOKEN"
+      - name: Record redacted environment health
+        shell: bash
+        run: |
+          node --env-file=.env.production.local - <<'NODE' > docs/instacomp-correct-project-env-health.json
+          const names = [
+            'NEXT_PUBLIC_SUPABASE_URL',
+            'SUPABASE_SERVICE_ROLE_KEY',
+            'OPENAI_API_KEY',
+            'EBAY_CLIENT_ID',
+            'EBAY_CLIENT_SECRET',
+            'SERPAPI_API_KEY'
+          ];
+          const rows = Object.fromEntries(names.map((name) => {
+            const value = String(process.env[name] || '');
+            return [name, {
+              configured: Boolean(value.trim()),
+              length: value.trim().length,
+              placeholderLike: /placeholder|example|build-only|your[_-]?/i.test(value)
+            }];
+          }));
+          console.log(JSON.stringify({ generatedAt: new Date().toISOString(), rows }, null, 2));
+          NODE
+      - name: Probe official eBay active listings
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          node --env-file=.env.production.local --import tsx scripts/probe-ebay-browse-active.ts > docs/instacomp-correct-project-ebay-browse.log 2>&1
+          echo "status=$?" >> docs/instacomp-correct-project-ebay-browse.log
+          exit 0
+      - name: Probe stored seller token active listings
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          node --env-file=.env.production.local --import tsx scripts/probe-ebay-stored-user-token-browse.ts > docs/instacomp-correct-project-stored-token.log 2>&1
+          echo "status=$?" >> docs/instacomp-correct-project-stored-token.log
+          exit 0
+      - name: Probe OpenAI web exact sold and active listings
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          node --env-file=.env.production.local --import tsx scripts/probe-openai-web-exact-market.ts > docs/instacomp-correct-project-openai-web.log 2>&1
+          echo "status=$?" >> docs/instacomp-correct-project-openai-web.log
+          exit 0
+      - name: Upload correct-project provider proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-correct-project-provider-proof
+          path: |
+            docs/instacomp-correct-project-env-health.json
+            docs/instacomp-correct-project-ebay-browse.log
+            docs/instacomp-correct-project-stored-token.log
+            docs/instacomp-correct-project-openai-web.log
+            docs/instacomp-ebay-browse-active-probe.json
+            docs/instacomp-ebay-stored-user-token-browse-probe.json
+            docs/instacomp-openai-web-exact-market-probe.json
+          if-no-files-found: warn

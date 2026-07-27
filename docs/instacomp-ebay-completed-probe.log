@@ -1,0 +1,116 @@
+{
+  "success": false,
+  "usableCards": 0,
+  "totalCards": 6,
+  "report": [
+    {
+      "id": "batch-001-card-01",
+      "query": "2012 Justin Nicolino #PPGU14 /100",
+      "status": 403,
+      "finalHost": "www.ebay.com",
+      "contentType": "text/html",
+      "htmlBytes": 1831,
+      "markers": {
+        "sItem": false,
+        "sItemTitle": false,
+        "sItemPrice": false,
+        "soldFilter": false,
+        "captcha": false,
+        "robot": false
+      },
+      "parsedCount": 0,
+      "samples": []
+    },
+    {
+      "id": "batch-001-card-02",
+      "query": "2025 Shedeur Sanders #RSW-SSS Red Prizm",
+      "status": 403,
+      "finalHost": "www.ebay.com",
+      "contentType": "text/html",
+      "htmlBytes": 1831,
+      "markers": {
+        "sItem": false,
+        "sItemTitle": false,
+        "sItemPrice": false,
+        "soldFilter": false,
+        "captcha": false,
+        "robot": false
+      },
+      "parsedCount": 0,
+      "samples": []
+    },
+    {
+      "id": "batch-001-card-03",
+      "query": "2023 Tank Bigsby #CRPA-TBI /99",
+      "status": 403,
+      "finalHost": "www.ebay.com",
+      "contentType": "text/html",
+      "htmlBytes": 1831,
+      "markers": {
+        "sItem": false,
+        "sItemTitle": false,
+        "sItemPrice": false,
+        "soldFilter": false,
+        "captcha": false,
+        "robot": false
+      },
+      "parsedCount": 0,
+      "samples": []
+    },
+    {
+      "id": "batch-001-card-04",
+      "query": "2023 Tank Bigsby #RAU-TBI Neon Green Prizm /35",
+      "status": 403,
+      "finalHost": "www.ebay.com",
+      "contentType": "text/html",
+      "htmlBytes": 1831,
+      "markers": {
+        "sItem": false,
+        "sItemTitle": false,
+        "sItemPrice": false,
+        "soldFilter": false,
+        "captcha": false,
+        "robot": false
+      },
+      "parsedCount": 0,
+      "samples": []
+    },
+    {
+      "id": "batch-001-card-05",
+      "query": "1989 Gary Sheffield #343 PSA 10",
+      "status": 403,
+      "finalHost": "www.ebay.com",
+      "contentType": "text/html",
+      "htmlBytes": 1831,
+      "markers": {
+        "sItem": false,
+        "sItemTitle": false,
+        "sItemPrice": false,
+        "soldFilter": false,
+        "captcha": false,
+        "robot": false
+      },
+      "parsedCount": 0,
+      "samples": []
+    },
+    {
+      "id": "batch-001-card-06",
+      "query": "2023 Tank Bigsby #IF-TB Choice Fusion Red & Yellow Prizm PSA 9",
+      "status": 403,
+      "finalHost": "www.ebay.com",
+      "contentType": "text/html",
+      "htmlBytes": 1831,
+      "markers": {
+        "sItem": false,
+        "sItemTitle": false,
+        "sItemPrice": false,
+        "soldFilter": false,
+        "captcha": false,
+        "robot": false
+      },
+      "parsedCount": 0,
+      "samples": []
+    }
+  ]
+}
+probe_status=1

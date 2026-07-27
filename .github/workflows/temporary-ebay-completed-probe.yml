@@ -1,0 +1,44 @@
+name: Temporary eBay Completed Probe
+
+on:
+  push:
+    branches:
+      - agent/instacomp-exact-market-proof-20260726
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/instacomp-exact-market-proof-20260726
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Probe completed listings
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          node --import tsx scripts/probe-ebay-completed-market.ts > docs/instacomp-ebay-completed-probe.log 2>&1
+          STATUS=$?
+          echo "probe_status=$STATUS" >> docs/instacomp-ebay-completed-probe.log
+          exit 0
+      - name: Upload probe evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-ebay-completed-probe
+          path: |
+            docs/instacomp-ebay-completed-probe.json
+            docs/instacomp-ebay-completed-probe.log
+          if-no-files-found: error

@@ -21,6 +21,9 @@ const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 type Evidence = {
   title: string;
   price: number;
+  itemPrice: number | null;
+  shippingPrice: number | null;
+  priceIncludesShipping: boolean;
   currency: string;
   url: string;
   imageUrl: string | null;
@@ -64,6 +67,9 @@ function normalizedEvidence(value: unknown): Evidence | null {
   return {
     title: typeof row.title === "string" ? row.title : "Untitled listing",
     price: Math.round(price * 100) / 100,
+    itemPrice: Number.isFinite(Number(row.itemPrice)) ? Math.round(Number(row.itemPrice) * 100) / 100 : null,
+    shippingPrice: Number.isFinite(Number(row.shippingPrice)) ? Math.round(Number(row.shippingPrice) * 100) / 100 : null,
+    priceIncludesShipping: row.priceIncludesShipping === true,
     currency: typeof row.currency === "string" ? row.currency : "USD",
     url,
     imageUrl: typeof row.imageUrl === "string" ? row.imageUrl : null,
@@ -142,6 +148,7 @@ function providerCoverageRow(provider: {
   message: string | null;
   results: unknown[];
   searchUrl?: string;
+  queryAttempts?: string[];
 }) {
   return {
     source: provider.source,
@@ -150,6 +157,7 @@ function providerCoverageRow(provider: {
     resultCount: provider.results.length,
     message: provider.message,
     searchUrl: provider.searchUrl || null,
+    queryAttempts: Array.isArray(provider.queryAttempts) ? provider.queryAttempts.slice(0, 10) : [],
   };
 }
 
@@ -350,13 +358,19 @@ export async function POST(request: NextRequest) {
       sold: soldCompEvidence,
       active: activeCompetition,
     });
-    const suggestedPrice = pricingAnalysis.suggestedPrice;
     const reliableSoldCompCount = pricingAnalysis.soldCount;
-    const hasReliableSoldComps = pricingAnalysis.soldCount > 0;
-    const pricingStatus = suggestedPrice > 0
+    const hasReliableSoldComps = reliableSoldCompCount > 0;
+    const suggestedPrice = hasReliableSoldComps ? pricingAnalysis.suggestedPrice : 0;
+    const pricingStatus = hasReliableSoldComps && suggestedPrice > 0
       ? "suggested_from_reliable_sold_comps"
       : "seller_price_required";
-    const pricingReason = pricingAnalysis.explanation;
+    const pricingReason = hasReliableSoldComps
+      ? pricingAnalysis.explanation
+      : activeCompetition.length
+        ? "No exact sold listing passed. " + activeCompetition.length +
+          " exact active listing" + (activeCompetition.length === 1 ? " is" : "s are") +
+          " shown only as current competition; seller pricing is required."
+        : "No exact sold or active listing passed; seller pricing is required.";
     const checkedAt = new Date().toISOString();
 
     const existingCoverage = Array.isArray(currentInstaComp.providerCoverage)
@@ -383,6 +397,7 @@ export async function POST(request: NextRequest) {
         schema: "truely.instacompInventoryScan.v3",
         exactStoredTitleQuery: universal.query,
         fallbackIdentityQuery: universal.fallbackQuery,
+        exactSearchQueries: universal.queries,
         marketPrice: suggestedPrice,
         suggestedPrice,
         pricingStatus,
@@ -436,6 +451,7 @@ export async function POST(request: NextRequest) {
       ),
       exactStoredTitleQuery: universal.query,
       fallbackIdentityQuery: universal.fallbackQuery,
+      exactSearchQueries: universal.queries,
       universalEbayReview: {
         soldReviewed: soldReview.reviewedCount,
         activeReviewed: activeReview.reviewedCount,

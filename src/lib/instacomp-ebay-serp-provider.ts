@@ -1,8 +1,10 @@
 import { createHash } from "crypto";
 import { createClient } from "@supabase/supabase-js";
 import {
+  buildInstaCompQueries,
   filterAndRankExactMatches,
   filterAndRankGuidanceMatches,
+  normalizeInstaCompParallelForExactMatching,
   type InstaCompAiResult,
   type InstaCompComp,
   type InstaCompProviderResult,
@@ -23,6 +25,8 @@ export type EbaySerpItem = {
   link: string;
   productId: string | null;
   price: number;
+  itemPrice: number;
+  shippingPrice: number;
   thumbnail: string | null;
   soldDate: string | null;
   listingDate: string | null;
@@ -41,7 +45,7 @@ function normalizeKey(value: string) {
 
 function cacheKey(query: string, lane: EbayLane) {
   return createHash("sha256")
-    .update(`serpapi_ebay_v4_${lane}:${normalizeKey(query)}`)
+    .update(`serpapi_ebay_v6_${lane}:${normalizeKey(query)}`)
     .digest("hex");
 }
 
@@ -67,6 +71,16 @@ function extractedPrice(value: unknown): number {
   return 0;
 }
 
+function extractedShipping(value: unknown): number {
+  if (typeof value === "string") {
+    if (/free/i.test(value)) return 0;
+    const match = value.replace(/,/g, "").match(/(?:\$|USD\s*)(\d+(?:\.\d{1,2})?)/i);
+    const parsed = match ? Number(match[1]) : 0;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  }
+  return extractedPrice(value);
+}
+
 function itemLink(item: Record<string, unknown>) {
   const direct = typeof item.link === "string" && item.link.trim() ? item.link.trim() : null;
   if (direct) return direct;
@@ -82,15 +96,19 @@ export function normalizeEbaySerpItems(value: unknown): EbaySerpItem[] {
     .map((row): EbaySerpItem | null => {
       const item = row && typeof row === "object" ? (row as Record<string, unknown>) : {};
       const title = typeof item.title === "string" ? item.title.trim() : "";
-      const price = extractedPrice(item.price);
+      const itemPrice = extractedPrice(item.price);
+      const shippingPrice = extractedShipping(item.shipping);
+      const price = Math.round((itemPrice + shippingPrice) * 100) / 100;
       const link = itemLink(item);
-      if (!title || !price || !link) return null;
+      if (!title || !itemPrice || !price || !link) return null;
 
       return {
         title,
         link,
         productId: typeof item.product_id === "string" ? item.product_id : null,
         price,
+        itemPrice,
+        shippingPrice,
         thumbnail: typeof item.thumbnail === "string" ? item.thumbnail : null,
         soldDate: typeof item.sold_date === "string" ? item.sold_date : null,
         listingDate: typeof item.listing_date === "string" ? item.listing_date : null,
@@ -112,6 +130,7 @@ export function buildSerpApiEbayRequestUrl(
   url.searchParams.set("_nkw", query);
   url.searchParams.set("_ipg", String(RESULT_LIMIT));
   url.searchParams.set("_blrs", "spell_auto_correct");
+  if (process.env.INSTACOMP_BYPASS_CACHE === "1") url.searchParams.set("no_cache", "true");
   if (lane === "sold") url.searchParams.set("show_only", "Sold");
   else url.searchParams.set("_sop", "10");
   return url;
@@ -128,6 +147,7 @@ function verificationUrl(query: string, lane: EbayLane) {
 }
 
 async function readCache(query: string, lane: EbayLane) {
+  if (process.env.INSTACOMP_BYPASS_CACHE === "1") return null;
   if (!SUPABASE_URL || !SUPABASE_KEY) return null;
   const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
   const { data, error } = await supabase
@@ -143,6 +163,7 @@ async function readCache(query: string, lane: EbayLane) {
 }
 
 async function writeCache(query: string, lane: EbayLane, items: EbaySerpItem[]) {
+  if (process.env.INSTACOMP_BYPASS_CACHE === "1") return;
   if (!SUPABASE_URL || !SUPABASE_KEY || !items.length) return;
   const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
   const now = new Date();
@@ -254,6 +275,101 @@ function titleSerialDenominator(value: string | null | undefined) {
   return parsed.length ? parsed[parsed.length - 1] : null;
 }
 
+function compactSearchPart(value: string | null | undefined) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function escapeRegExp(value: string) {
+  const special = "\\^$.*+?()[]{}|";
+  return value
+    .split("")
+    .map((character) => special.includes(character) ? `\\${character}` : character)
+    .join("");
+}
+
+function sanitizeExactSearchQuery(value: string, ai: InstaCompAiResult) {
+  let query = compactSearchPart(value);
+  const denominator = titleSerialDenominator(ai.serialNumber);
+  if (denominator) {
+    query = query
+      .replace(
+        new RegExp(`\\b\\d{1,6}\\s*\\/\\s*0*${denominator}\\b`, "gi"),
+        `/${denominator}`,
+      )
+      .replace(
+        new RegExp(`\\b(?:serial(?:ly)?[-\\s]?numbered|numbered)\\s*(?:to|\\/)?\\s*0*${denominator}\\b`, "gi"),
+        `/${denominator}`,
+      );
+  }
+  const cert = compactIdentity(ai.certificationNumber);
+  if (cert) {
+    query = query.replace(new RegExp(escapeRegExp(cert), "gi"), " ");
+  }
+  return query
+    .replace(/\bcert(?:ification)?\s*[#:.-]*\s*[a-z0-9-]{5,}\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function buildExactEbayQueryLadder(params: {
+  exactTitle: string | null | undefined;
+  fallbackQuery: string;
+  ai: InstaCompAiResult;
+}) {
+  const ai = params.ai;
+  const built = buildInstaCompQueries(ai);
+  const denominator = titleSerialDenominator(ai.serialNumber);
+  const serialRun = denominator ? `/${denominator}` : "";
+  const parallel = normalizeInstaCompParallelForExactMatching(ai.parallel);
+  const grade = [ai.gradingCompany, ai.gradeValue].map(compactSearchPart).filter(Boolean).join(" ");
+  const cardNumber = compactSearchPart(ai.cardNumber)
+    ? `#${compactSearchPart(ai.cardNumber).replace(/^#/, "")}`
+    : "";
+  const identityFeatures = [
+    ai.isRookie ? "rookie" : "",
+    ai.isAuto ? "auto" : "",
+    ai.isRelic ? "patch" : "",
+  ].filter(Boolean);
+
+  const candidates = [
+    [
+      grade,
+      compactSearchPart(ai.year),
+      compactSearchPart(ai.player),
+      cardNumber,
+      parallel,
+      serialRun,
+      ...identityFeatures,
+    ].filter(Boolean).join(" "),
+    [
+      grade,
+      compactSearchPart(ai.year),
+      compactSearchPart(ai.brand),
+      compactSearchPart(ai.setName),
+      compactSearchPart(ai.player),
+      cardNumber,
+      parallel,
+      serialRun,
+    ].filter(Boolean).join(" "),
+    sanitizeExactSearchQuery(String(params.exactTitle || ""), ai),
+    sanitizeExactSearchQuery(String(params.fallbackQuery || ""), ai),
+    sanitizeExactSearchQuery(built.primary, ai),
+    ...built.backupQueries.map((query) => sanitizeExactSearchQuery(query, ai)),
+  ];
+
+  const seen = new Set<string>();
+  return candidates
+    .map((query) => query.replace(/\s+/g, " ").trim())
+    .filter((query) => query.length >= 4)
+    .filter((query) => {
+      const key = normalizeKey(query);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 6);
+}
+
 function deterministicExactTitle(
   title: string,
   query: string,
@@ -270,7 +386,9 @@ function deterministicExactTitle(
   const cardNumber = compactIdentity(ai.cardNumber);
   if (cardNumber && !titleCompact.includes(cardNumber)) return false;
 
-  const distinctiveParallelTokens = normalizedWords(String(ai.parallel || "")).filter(
+  const distinctiveParallelTokens = normalizedWords(
+    normalizeInstaCompParallelForExactMatching(ai.parallel),
+  ).filter(
     (token) => !["prizm", "refractor", "parallel", "foil", "holo"].includes(token),
   );
   if (
@@ -279,16 +397,17 @@ function deterministicExactTitle(
   ) return false;
 
   const targetDenominator = titleSerialDenominator(ai.serialNumber);
-  if (targetDenominator && titleSerialDenominator(title) !== targetDenominator) return false;
+  const candidateDenominator = titleSerialDenominator(title);
+  if (targetDenominator) {
+    if (candidateDenominator !== targetDenominator) return false;
+  } else if (candidateDenominator !== null) {
+    return false;
+  }
 
-  if (ai.gradingCompany) {
-    const grader = compactIdentity(ai.gradingCompany);
-    if (grader && !titleCompact.includes(grader)) return false;
-  }
-  if (ai.gradeValue) {
-    const grade = compactIdentity(String(ai.gradeValue));
-    if (grade && !titleCompact.includes(grade)) return false;
-  }
+  if (ai.gradingCompany && !flags.includes("grader")) return false;
+  if (ai.gradeValue && !flags.includes("grade")) return false;
+  if (ai.isAuto && !flags.includes("autograph")) return false;
+  if (ai.isRelic && !flags.includes("relic")) return false;
 
   const queryTokens = normalizedWords(query).filter(
     (token) => !["panini", "topps", "upper", "deck", "rookie", "card"].includes(token),
@@ -322,6 +441,9 @@ function rawComps(items: EbaySerpItem[], lane: EbayLane) {
   return items.map((item) => ({
     title: item.title,
     price: item.price,
+    itemPrice: item.itemPrice,
+    shippingPrice: item.shippingPrice,
+    priceIncludesShipping: true,
     currency: "USD",
     url: item.link,
     imageUrl: item.thumbnail,
@@ -419,36 +541,66 @@ function mergeProviders(primary: InstaCompProviderResult, fallback: InstaCompPro
   } satisfies InstaCompProviderResult;
 }
 
+async function providerAcrossQueries(
+  queries: string[],
+  ai: InstaCompAiResult,
+  lane: EbayLane,
+) {
+  let combined: InstaCompProviderResult | null = null;
+  const queryAttempts: string[] = [];
+  const targetExactCount = lane === "sold" ? 5 : 8;
+
+  for (const query of queries) {
+    const next = await provider(query, ai, lane);
+    queryAttempts.push(query);
+    combined = combined ? mergeProviders(combined, next) : next;
+    const exactCount = combined.results.filter(
+      (comp) =>
+        !comp.flags.includes("guidance comp") &&
+        !comp.flags.includes("not used for pricing") &&
+        !comp.flags.some((flag) => /parallel mismatch|not exact parallel|excluded/i.test(flag)),
+    ).length;
+    if (exactCount >= targetExactCount) break;
+    if ((next.status === "not_configured" || next.status === "error") && next.results.length === 0) {
+      break;
+    }
+  }
+
+  const fallback = combined || (await provider(queries[0] || "sports card", ai, lane));
+  const exactCount = fallback.results.filter(
+    (comp) =>
+      !comp.flags.includes("guidance comp") &&
+      !comp.flags.includes("not used for pricing") &&
+      !comp.flags.some((flag) => /parallel mismatch|not exact parallel|excluded/i.test(flag)),
+  ).length;
+  return {
+    ...fallback,
+    status: exactCount > 0 ? "live" : fallback.status === "not_configured" || fallback.status === "error"
+      ? fallback.status
+      : "no_matches",
+    queryAttempts,
+    message: exactCount > 0
+      ? `Found ${exactCount} exact eBay ${lane} match${exactCount === 1 ? "" : "es"} after ${queryAttempts.length} exact-identity quer${queryAttempts.length === 1 ? "y" : "ies"}.`
+      : `No exact eBay ${lane} match survived identity, parallel, print-run, grade, and condition gates after ${queryAttempts.length} quer${queryAttempts.length === 1 ? "y" : "ies"}.`,
+  };
+}
+
 export async function getUniversalEbaySerpProviders(params: {
   exactTitle: string | null | undefined;
   fallbackQuery: string;
   ai: InstaCompAiResult;
 }) {
-  const primaryQuery = String(params.exactTitle || params.fallbackQuery || "").trim();
-  const fallbackQuery = String(params.fallbackQuery || "").trim();
-  const [primarySold, primaryActive] = await Promise.all([
-    provider(primaryQuery, params.ai, "sold"),
-    provider(primaryQuery, params.ai, "active"),
+  const queries = buildExactEbayQueryLadder(params);
+  const [sold, active] = await Promise.all([
+    providerAcrossQueries(queries, params.ai, "sold"),
+    providerAcrossQueries(queries, params.ai, "active"),
   ]);
 
-  const fallbackIsDifferent =
-    Boolean(normalizeKey(fallbackQuery)) &&
-    normalizeKey(fallbackQuery) !== normalizeKey(primaryQuery);
-  const [fallbackSold, fallbackActive] = fallbackIsDifferent
-    ? await Promise.all([
-        hasExactResult(primarySold)
-          ? Promise.resolve(null)
-          : provider(fallbackQuery, params.ai, "sold"),
-        hasExactResult(primaryActive)
-          ? Promise.resolve(null)
-          : provider(fallbackQuery, params.ai, "active"),
-      ])
-    : [null, null];
-
   return {
-    query: primaryQuery,
-    fallbackQuery: fallbackIsDifferent ? fallbackQuery : null,
-    sold: mergeProviders(primarySold, fallbackSold),
-    active: mergeProviders(primaryActive, fallbackActive),
+    query: queries[0] || String(params.exactTitle || params.fallbackQuery || "").trim(),
+    fallbackQuery: queries[1] || null,
+    queries,
+    sold,
+    active,
   };
 }
