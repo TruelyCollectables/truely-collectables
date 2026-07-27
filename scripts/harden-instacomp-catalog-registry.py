@@ -15,6 +15,11 @@ def main() -> None:
     path = Path("src/lib/instacomp-curated-checklist.ts")
     text = path.read_text()
 
+    # Older hardening runs interpreted JavaScript regex word boundaries as
+    # Python backspace escapes. Normalize that legacy output before checking
+    # whether the correct generated block is already present.
+    text = text.replace("\x08", r"\b")
+
     text = replace_once(
         text,
         '''import type { InstaCompAiResult } from "./instacomp";
