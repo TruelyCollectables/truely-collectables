@@ -1,9 +1,9 @@
 name: Temporary InstaComp Deep Audit Writer
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/instacomp-exact-market-final-20260726
+      - main
     paths:
       - ".github/workflows/temporary-instacomp-deep-audit-writer.yml"
       - "scripts/apply-instacomp-deep-audit-fixes.py"
@@ -13,11 +13,12 @@ permissions:
   contents: write
 
 concurrency:
-  group: temporary-instacomp-deep-audit-writer
+  group: temporary-instacomp-deep-audit-writer-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
 
 jobs:
   harden-test-and-commit:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -53,7 +54,7 @@ jobs:
       - name: Apply deterministic deep-audit fixes
         run: |
           set -euo pipefail
-          echo "Applying audited source patch set v2"
+          echo "Applying audited source patch set v3"
           python -m py_compile scripts/apply-instacomp-deep-audit-fixes.py
           python scripts/apply-instacomp-deep-audit-fixes.py
           python scripts/check-instacomp-control-characters.py
