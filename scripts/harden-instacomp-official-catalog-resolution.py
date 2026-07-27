@@ -15,6 +15,27 @@ def main() -> None:
 
     text = replace_once(
         text,
+        '''  const parallelMatches = candidateIsBase
+    ? inputParallelDistinctive.length === 0
+    : candidateParallelTokens.every((token) => inputSetTokens.has(token));
+''',
+        '''  const inputParallelTokens = new Set(
+    catalogTokens(input.parallel || input.variation).filter(
+      (token) =>
+        !["parallel", "prizm", "refractor", "holo", "base", "card", "the"].includes(token),
+    ),
+  );
+  const parallelMatches = candidateIsBase
+    ? inputParallelDistinctive.length === 0
+    : candidateParallelTokens.length > 0 &&
+      candidateParallelTokens.every((token) => inputParallelTokens.has(token)) &&
+      inputParallelDistinctive.every((token) => candidateParallelTokens.includes(token));
+''',
+        "strict fallback parallel identity gate",
+    )
+
+    text = replace_once(
+        text,
         '''export function buildInstaCompCuratedChecklistEvidence(params: {
 ''',
         r'''function officialBenchmarkCatalogCandidate(
