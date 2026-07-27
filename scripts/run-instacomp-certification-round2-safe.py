@@ -22,7 +22,27 @@ source = source.replace(
 source = source.replace("        '''function", "        r'''function")
 source = source.replace("        '''    year:", "        r'''    year:")
 
-exec(compile(source, str(source_path), "exec"), {"__name__": "__main__"})
+# The final audited catalog resolver already contains these helpers. Re-running
+# the older round-two stage must not insert duplicate function declarations.
+source = source.replace(
+    "    patch_catalog_resolution()\n",
+    '''    catalog_source = Path("src/lib/instacomp-curated-checklist.ts").read_text()
+    if all(
+        marker in catalog_source
+        for marker in (
+            "function catalogTokens(",
+            "function normalizedPlayerKey(",
+            "function catalogYearStart(",
+            "function officialBenchmarkCatalogCandidate(",
+        )
+    ):
+        print("Round-two hardening notice: final catalog resolver already exists; skipping legacy catalog insertion")
+    else:
+        patch_catalog_resolution()
+''',
+)
+
+exec(compile(source, str(source_path), "exec"), {"__name__": "__main__", "Path": Path})
 
 for generated_path in (
     Path("src/lib/instacomp-curated-checklist.ts"),
