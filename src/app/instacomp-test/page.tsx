@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import InstaCompLiveScanner from "./InstaCompLiveScanner";
+import InstaCompBatchLiveScanner from "./InstaCompBatchLiveScanner";
 
 export const dynamic = "force-dynamic";
 
@@ -73,15 +73,14 @@ export default async function InstaCompAdminPage() {
       }}
     >
       <div style={{ marginBottom: 24 }}>
-        <h1 style={{ marginBottom: 4 }}>InstaComp™ Live Scan Lab</h1>
+        <h1 style={{ marginBottom: 4 }}>InstaComp™ Live Batch Scan Lab</h1>
         <p style={{ marginTop: 0, color: "#555" }}>
-          Upload the real front and back. The live pipeline identifies the exact card,
-          pulls strict exact sold comps and active competition, and refuses to invent a
-          price when sold proof is missing.
+          Drag in many real front/back card images, verify every pair, and run the
+          real identity and strict exact-market pipeline for each card.
         </p>
       </div>
 
-      <InstaCompLiveScanner />
+      <InstaCompBatchLiveScanner />
 
       <section
         style={{
