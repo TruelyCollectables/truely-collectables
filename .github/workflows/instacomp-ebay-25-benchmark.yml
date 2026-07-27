@@ -78,6 +78,7 @@ jobs:
           python scripts/harden-instacomp-benchmark-cleanup.py
           python scripts/harden-instacomp-certification.py
           python scripts/harden-instacomp-visual-proof.py
+          python scripts/harden-instacomp-visual-review-types.py
           python scripts/harden-instacomp-benchmark-report.py
           git diff --check
 
