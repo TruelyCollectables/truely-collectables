@@ -28,6 +28,14 @@ Production deploy and smoke target overrides accept only valid DNS hostnames or 
 
 Normal deploys also enforce the local quota cooldown before npm exec or Git fetch. Unwanted-alias cleanup must succeed or the deployment is not treated as complete.
 
+### Read-only Vercel quota status
+
+Use `npm run status:production` for the human-readable read-only quota check, or `npm --silent run status:production:json` for schema `tcos.productionQuotaStatus.v1`. JSON evidence includes `vercelUploadStarted: false`, `deployTimeoutMs`, `deployTimeout`, and `deployTimeoutEnv`, plus the read-only guarantee.
+
+The report shows exact UTC blocked/retry timestamps, local operator blocked/retry timestamps, the configured Vercel deploy timeout, and `Vercel upload started: no`. A malformed or unreadable marker fails closed, and a zero, negative, or nonnumeric cooldown value also fails closed.
+
+Quota markers are success-cleared, not attempt-cleared. Nonzero `vercel --prod` results are rejected before URL parsing, alias changes, marker clearing, or smoke handoff.
+
 ## Nightly emergency backups
 
 Run a manual backup with `npm run backup:nightly`, or install the nightly macOS LaunchAgent with `npm run backup:nightly:install`.
