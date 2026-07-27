@@ -8,16 +8,8 @@ on:
       - "scripts/harden-instacomp-*.py"
       - "scripts/run-instacomp-certification-safe.py"
       - "scripts/run-instacomp-certification-round2-safe.py"
-      - "scripts/run-instacomp-exact-market-proof-regressions.ts"
-      - ".github/workflows/instacomp-ebay-25-benchmark.yml"
-  pull_request:
-    branches:
-      - main
-    paths:
-      - "scripts/harden-instacomp-*.py"
-      - "scripts/run-instacomp-certification-safe.py"
-      - "scripts/run-instacomp-certification-round2-safe.py"
-      - "scripts/run-instacomp-exact-market-proof-regressions.ts"
+      - "scripts/run-instacomp-*-regressions.ts"
+      - "src/lib/instacomp-image-*.ts"
       - ".github/workflows/instacomp-ebay-25-benchmark.yml"
   workflow_dispatch:
 
@@ -25,13 +17,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: instacomp-round2-regression-${{ github.event_name }}
+  group: instacomp-final-materialization-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  regression-diagnostics:
+  materialization-diagnostics:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 120
     steps:
       - name: Check out certification branch
         uses: actions/checkout@v4
@@ -45,43 +37,141 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Apply all hardening
-        run: |
-          python -m py_compile scripts/harden-instacomp-*.py scripts/run-instacomp-certification-safe.py scripts/run-instacomp-certification-round2-safe.py
-          python scripts/harden-instacomp-ebay-benchmark.py
-          python scripts/harden-instacomp-benchmark-source.py
-          python scripts/harden-instacomp-benchmark-cleanup.py
-          python scripts/run-instacomp-certification-safe.py
-          python scripts/harden-instacomp-visual-proof.py
-          python scripts/harden-instacomp-visual-review-types.py
-          python scripts/harden-instacomp-benchmark-report.py
-          git diff --check
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Capture exactness regression diagnostics
-        id: regression
+      - name: Materialize final hardened source
+        id: materialize
         continue-on-error: true
         run: |
           set -o pipefail
-          node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts 2>&1 | tee instacomp-round2-regression.log
+          {
+            set -x
+            python -m py_compile scripts/harden-instacomp-*.py scripts/run-instacomp-certification-safe.py scripts/run-instacomp-certification-round2-safe.py
+            python scripts/harden-instacomp-ebay-benchmark.py
+            python scripts/harden-instacomp-benchmark-source.py
+            python scripts/harden-instacomp-benchmark-cleanup.py
+            python scripts/run-instacomp-certification-safe.py
+            python scripts/harden-instacomp-visual-proof.py
+            python scripts/harden-instacomp-visual-review-types.py
+            python scripts/harden-instacomp-benchmark-report.py
+            python scripts/harden-instacomp-final-audit.py
+            npm install sharp --save
+            git diff --check
+            python - <<'PY'
+          from pathlib import Path
+          bad = []
+          for root in (Path("src"), Path("scripts")):
+              for path in root.rglob("*"):
+                  if not path.is_file() or path.suffix not in {".ts", ".tsx", ".js", ".mjs", ".py", ".json"}:
+                      continue
+                  data = path.read_bytes()
+                  controls = sorted({byte for byte in data if byte < 32 and byte not in {9, 10, 13}})
+                  if controls:
+                      bad.append((str(path), controls))
+          if bad:
+              raise SystemExit(f"Control characters found: {bad}")
+          PY
+            git status --short
+          } 2>&1 | tee instacomp-materialization.log
 
-      - name: Upload exactness regression diagnostics
+      - name: Run exactness and adversarial regressions
+        id: regressions
+        continue-on-error: true
+        if: steps.materialize.outcome == 'success'
+        run: |
+          set -o pipefail
+          {
+            node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
+            node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
+            node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
+            node --import tsx scripts/run-instacomp-final-audit-regressions.ts
+            node --import tsx scripts/run-instacomp-final-audit-regressions.ts
+            node --import tsx scripts/run-instacomp-final-audit-regressions.ts
+            node --import tsx scripts/run-instacomp-live-pipeline-regressions.ts
+            node --import tsx scripts/run-instacomp-batch-drop-regressions.ts
+          } 2>&1 | tee instacomp-final-regressions.log
+
+      - name: Lint hardened InstaComp paths
+        id: lint
+        continue-on-error: true
+        if: steps.regressions.outcome == 'success'
+        run: |
+          set -o pipefail
+          npx eslint \
+            src/app/api/instacomp/benchmark/ebay-25/route.ts \
+            src/app/api/instacomp/live-scan/route.ts \
+            src/app/api/instacomp/scan/route.ts \
+            src/app/api/account/seller/inventory/instacomp/route.ts \
+            src/app/instacomp-test/InstaCompBatchLiveScanner.tsx \
+            src/lib/instacomp.ts \
+            src/lib/instacomp-live-pipeline.ts \
+            src/lib/instacomp-exact-market-provider.ts \
+            src/lib/instacomp-openai-web-market-provider.ts \
+            src/lib/instacomp-comp-visual-verification.ts \
+            src/lib/instacomp-curated-checklist.ts \
+            src/lib/instacomp-image-safety.ts \
+            src/lib/instacomp-image-orientation.ts \
+            scripts/run-instacomp-exact-market-proof-regressions.ts \
+            scripts/run-instacomp-final-audit-regressions.ts \
+            scripts/run-instacomp-ebay-25-benchmark.mjs \
+            scripts/run-instacomp-ebay-25-through-vercel-curl.mjs \
+            2>&1 | tee instacomp-final-lint.log
+
+      - name: Build hardened production application
+        id: build
+        continue-on-error: true
+        if: steps.lint.outcome == 'success'
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+          ADMIN_PASSWORD: build-only-placeholder-password
+          ADMIN_SESSION_SECRET: build-only-placeholder-admin-session-secret
+          NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+          STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build-only-placeholder
+          STRIPE_WEBHOOK_SECRET: whsec_build-only-placeholder
+          EBAY_CLIENT_ID: build-only-placeholder-client-id
+          EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+          EBAY_ENVIRONMENT: production
+          TCOS_LIVE_PAYMENTS_ENABLED: "false"
+          TCOS_SHIPPING_PURCHASE_MODE: dry_run
+          TCOS_LIVE_SHIPPING_ENABLED: "false"
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee instacomp-final-build.log
+
+      - name: Upload materialized source and diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: instacomp-round2-regression-${{ github.run_number }}
+          name: instacomp-final-materialization-${{ github.run_number }}
           path: |
-            instacomp-round2-regression.log
+            instacomp-materialization.log
+            instacomp-final-regressions.log
+            instacomp-final-lint.log
+            instacomp-final-build.log
+            package.json
+            package-lock.json
+            src/app/api/instacomp/benchmark/ebay-25/route.ts
+            src/app/api/instacomp/live-scan/route.ts
+            src/app/api/instacomp/scan/route.ts
+            src/app/api/account/seller/inventory/instacomp/route.ts
+            src/app/instacomp-test/InstaCompBatchLiveScanner.tsx
+            src/lib/instacomp.ts
+            src/lib/instacomp-live-pipeline.ts
+            src/lib/instacomp-exact-market-provider.ts
+            src/lib/instacomp-comp-visual-verification.ts
             src/lib/instacomp-curated-checklist.ts
+            src/lib/instacomp-image-safety.ts
+            src/lib/instacomp-image-orientation.ts
             scripts/run-instacomp-exact-market-proof-regressions.ts
-            src/lib/instacomp-ebay-benchmark-cases.ts
-          if-no-files-found: error
+            scripts/run-instacomp-final-audit-regressions.ts
+          if-no-files-found: warn
           retention-days: 30
 
-      - name: Enforce exactness regression
-        if: ${{ steps.regression.outcome != 'success' }}
+      - name: Enforce materialization certification
+        if: always()
         run: |
-          cat instacomp-round2-regression.log
-          exit 1
+          test "${{ steps.materialize.outcome }}" = "success"
+          test "${{ steps.regressions.outcome }}" = "success"
+          test "${{ steps.lint.outcome }}" = "success"
+          test "${{ steps.build.outcome }}" = "success"
