@@ -6,8 +6,7 @@ on:
       - agent/instacomp-exact-market-final-20260726
     paths:
       - "scripts/harden-instacomp-*.py"
-      - "scripts/run-instacomp-certification-safe.py"
-      - "scripts/run-instacomp-certification-round2-safe.py"
+      - "scripts/run-instacomp-*.py"
       - "scripts/run-instacomp-*-regressions.ts"
       - "scripts/check-instacomp-control-characters.py"
       - "src/lib/instacomp-image-*.ts"
@@ -17,8 +16,7 @@ on:
       - main
     paths:
       - "scripts/harden-instacomp-*.py"
-      - "scripts/run-instacomp-certification-safe.py"
-      - "scripts/run-instacomp-certification-round2-safe.py"
+      - "scripts/run-instacomp-*.py"
       - "scripts/run-instacomp-*-regressions.ts"
       - "scripts/check-instacomp-control-characters.py"
       - "src/lib/instacomp-image-*.ts"
@@ -54,22 +52,22 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
-          python -m py_compile scripts/harden-instacomp-*.py scripts/run-instacomp-certification-safe.py scripts/run-instacomp-certification-round2-safe.py
-          python scripts/harden-instacomp-ebay-benchmark.py
-          python scripts/harden-instacomp-benchmark-source.py
-          python scripts/harden-instacomp-benchmark-cleanup.py
-          python scripts/run-instacomp-certification-safe.py
-          python scripts/harden-instacomp-visual-proof.py
-          python scripts/harden-instacomp-visual-review-types.py
-          python scripts/harden-instacomp-benchmark-report.py
-          python scripts/harden-instacomp-final-audit.py
-          python scripts/harden-instacomp-final-audit-2.py
-          python scripts/harden-instacomp-final-deduplicate.py
-          npm pkg set 'dependencies.sharp=^0.34.5'
-          npm install --package-lock-only
-          git diff --check
-          python scripts/check-instacomp-control-characters.py
-          git status --short | tee instacomp-materialization-status.log
+          {
+            python -m py_compile scripts/harden-instacomp-*.py scripts/run-instacomp-*.py
+            python scripts/harden-instacomp-ebay-benchmark.py
+            python scripts/harden-instacomp-benchmark-source.py
+            python scripts/harden-instacomp-benchmark-cleanup.py
+            python scripts/run-instacomp-certification-safe.py
+            python scripts/harden-instacomp-visual-proof.py
+            python scripts/harden-instacomp-visual-review-types.py
+            python scripts/harden-instacomp-benchmark-report.py
+            python scripts/run-instacomp-final-materialization.py
+            npm pkg set 'dependencies.sharp=^0.34.5'
+            npm install --package-lock-only
+            git diff --check
+            python scripts/check-instacomp-control-characters.py
+            git status --short | tee instacomp-materialization-status.log
+          } 2>&1 | tee instacomp-final-materialization.log
 
       - name: Install exact materialized dependencies
         id: dependencies
@@ -148,6 +146,7 @@ jobs:
         with:
           name: instacomp-final-materialization-${{ github.run_number }}
           path: |
+            instacomp-final-materialization.log
             instacomp-materialization-status.log
             instacomp-final-dependencies.log
             instacomp-final-regressions.log
