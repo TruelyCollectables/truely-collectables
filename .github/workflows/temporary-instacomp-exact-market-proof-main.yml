@@ -68,8 +68,10 @@ jobs:
               if "\x08" in path.read_text():
                   raise SystemExit(f"InstaComp source contains a hidden backspace control character: {path}")
           PY
+          find scripts -type d -name __pycache__ -prune -exec rm -rf {} +
           git diff --check
-          test -z "$(git status --porcelain)"
+          git diff --exit-code
+          git diff --cached --exit-code
 
       - name: Run three deterministic proof passes
         id: regressions
