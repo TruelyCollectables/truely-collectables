@@ -29,9 +29,9 @@ function titleHasExactCardNumber(title: string, cardNumber: string) {
   const expected = compactCardNumber(cardNumber);
   if (!expected) return false;
 
-  const escaped = normalized(cardNumber).replace(/\\s+/g, "[-\\\\s]?");
+  const escaped = normalized(cardNumber).replace(/\s+/g, "[-\\s]?");
   const explicit = new RegExp(
-    `(?:#|card(?:\\\\s*(?:no\\\\.?|number))?)\\\\s*${escaped}(?![a-z0-9])`,
+    `(?:#|card(?:\\s*(?:no\\.?|number))?)\\s*${escaped}(?![a-z0-9])`,
     "i",
   );
   if (explicit.test(title)) return true;
@@ -64,13 +64,13 @@ function titleHasExactCardNumber(title: string, cardNumber: string) {
     text = replace_once(
         text,
         '''function rejectedTitle(title: string) {
-  return /\\b(?:lot|team set|complete set|reprint|custom|digital|nft|break|you pick|choose your card|psa|bgs|sgc|cgc|graded|gem mint)\\b/i.test(
+  return /\b(?:lot|team set|complete set|reprint|custom|digital|nft|break|you pick|choose your card|psa|bgs|sgc|cgc|graded|gem mint)\b/i.test(
     title,
   );
 }
 ''',
         '''function rejectedTitle(title: string) {
-  return /\\b(?:lot|team set|complete set|reprint|custom|digital|nft|break|you pick|choose your card|psa|bgs|sgc|cgc|graded|gem mint|oversized|oversize|jumbo|mini|box topper|5x7|8x10|promo)\\b/i.test(
+  return /\b(?:lot|team set|complete set|reprint|custom|digital|nft|break|you pick|choose your card|psa|bgs|sgc|cgc|graded|gem mint|oversized|oversize|jumbo|mini|box topper|5x7|8x10|promo)\b/i.test(
     title,
   );
 }
@@ -103,9 +103,9 @@ function titleHasExactCardNumber(title: string, cardNumber: string) {
     throw new Error(`${fileName} was empty or exceeded 12 MB.`);
   }
   const reportedType = clean(response.headers.get("content-type")).split(";")[0].toLowerCase();
-  const inferredType = /\\.png(?:\\?|$)/i.test(url)
+  const inferredType = /\.png(?:\?|$)/i.test(url)
     ? "image/png"
-    : /\\.webp(?:\\?|$)/i.test(url)
+    : /\.webp(?:\?|$)/i.test(url)
       ? "image/webp"
       : "image/jpeg";
   const type = ALLOWED_IMAGE_TYPES.has(reportedType) ? reportedType : inferredType;
@@ -167,7 +167,7 @@ async function downloadImage(url: string, fileName: string) {
     )
 
     ROUTE_PATH.write_text(text)
-    runpy.run_path("scripts/harden-instacomp-catalog-registry.py", run_name="__main__")
+    runpy.run_path("scripts/run-instacomp-catalog-registry-safe.py", run_name="__main__")
 
 
 if __name__ == "__main__":
