@@ -125,6 +125,15 @@ assert.doesNotMatch(
   "Homepage categories must not use raw imported sport labels.",
 );
 
+const navbar = fs.readFileSync("src/app/components/Navbar.tsx", "utf8");
+assert.ok(navbar.includes('{ href: "/shop?sport=WNBA", label: "WNBA" }'));
+
+const imageUtils = fs.readFileSync("src/lib/listing-image-utils.ts", "utf8");
+assert.ok(
+  imageUtils.includes("MAX_LISTING_IMAGES = 24"),
+  "The storefront must preserve all 24 photos allowed by an eBay listing.",
+);
+
 const productPage = fs.readFileSync("src/app/product/[id]/page.tsx", "utf8");
 for (const token of [
   '.from("inventory_images")',
@@ -147,9 +156,17 @@ assert.ok(
   "Shoot Me an Offer must remain on the simplified product page.",
 );
 
+const productActions = fs.readFileSync(
+  "src/app/product/[id]/ProductActions.tsx",
+  "utf8",
+);
+assert.doesNotMatch(productActions, /Card Photos|Front \+ Back/);
+assert.doesNotMatch(productActions, /api\/storefront\/product-images/);
+assert.doesNotMatch(productActions, /<Image/);
+
 const offerForm = fs.readFileSync("src/app/product/[id]/OfferForm.tsx", "utf8");
 assert.ok(offerForm.includes("Shoot Me an Offer"));
 
 console.log(
-  "Storefront taxonomy and gallery simulations passed: one Basketball category, searchable WNBA, shared homepage/shop taxonomy, every saved image source rendered, and no product-page intelligence tail.",
+  "Storefront taxonomy and gallery simulations passed: one Basketball category, searchable WNBA, shared homepage/shop taxonomy, every saved image source rendered up to 24 photos, one clean gallery, and no product-page intelligence tail.",
 );
