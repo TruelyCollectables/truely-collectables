@@ -63,6 +63,7 @@ jobs:
           python scripts/harden-instacomp-visual-review-types.py
           python scripts/harden-instacomp-benchmark-report.py
           python scripts/harden-instacomp-final-audit.py
+          python scripts/harden-instacomp-final-audit-2.py
           npm install sharp --save
           git diff --check
           python scripts/check-instacomp-control-characters.py
@@ -71,7 +72,6 @@ jobs:
       - name: Run exactness and adversarial regressions
         id: regressions
         continue-on-error: true
-        if: steps.materialize.outcome == 'success'
         run: |
           set -o pipefail
           {
@@ -88,7 +88,6 @@ jobs:
       - name: Lint hardened InstaComp paths
         id: lint
         continue-on-error: true
-        if: steps.regressions.outcome == 'success'
         run: |
           set -o pipefail
           npx eslint \
@@ -114,7 +113,6 @@ jobs:
       - name: Build hardened production application
         id: build
         continue-on-error: true
-        if: steps.lint.outcome == 'success'
         env:
           NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
           NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
