@@ -1,0 +1,57 @@
+name: Restore Importer And Seller Audit
+
+on:
+  push:
+    branches:
+      - agent/emergency-post-launch-audit-fixes-20260726
+    paths:
+      - ".github/workflows/restore-importer-and-seller-audit.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  restore-and-patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out current audit branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/emergency-post-launch-audit-fixes-20260726
+          fetch-depth: 0
+
+      - name: Restore exact importer and apply scoped audit patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout bf5c97c1f9a3e6f49b252a43b01953edaf463af9 -- scripts/import-verified-reference-batch001.mjs
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("scripts/import-verified-reference-batch001.mjs")
+          source = path.read_text()
+          replacements = [
+              (
+                  "if (!process.env.ADMIN_SESSION_SECRET?.trim() && !process.env.ADMIN_PASSWORD?.trim()) {",
+                  "if (!process.env.ADMIN_SESSION_SECRET?.trim()) {",
+              ),
+              (
+                  "const sessionValue = await createAdminSessionValue();",
+                  'const sessionValue = await createAdminSessionValue("cookie");',
+              ),
+          ]
+          for old, new in replacements:
+              if source.count(old) != 1:
+                  raise SystemExit(f"Expected exactly one importer contract: {old}")
+              source = source.replace(old, new)
+          path.write_text(source)
+          PY
+          test -f .audit/guardrail-wording.patch
+          git apply --check --include=scripts/run-privileged-api-route-audit.mjs .audit/guardrail-wording.patch
+          git apply --include=scripts/run-privileged-api-route-audit.mjs .audit/guardrail-wording.patch
+          rm .audit/guardrail-wording.patch
+          rmdir .audit 2>/dev/null || true
+          git config user.name "Truely Collectables Audit"
+          git config user.email "sales@truelycollectables.com"
+          git add scripts/import-verified-reference-batch001.mjs scripts/run-privileged-api-route-audit.mjs .audit/guardrail-wording.patch
+          git commit -m "Restore verified importer and enforce seller authorization audit"
+          git push origin HEAD:agent/emergency-post-launch-audit-fixes-20260726
