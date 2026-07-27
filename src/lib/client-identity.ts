@@ -186,7 +186,10 @@ export async function getClientIdentity(request: Request): Promise<ClientIdentit
   const ipAddress = getClientIp(request.headers);
   const userAgent = truncate(request.headers.get("user-agent"), 500);
   const evidence = buildEvidence(request.headers);
-  const allowPrivateIp = process.env.NODE_ENV !== "production";
+  const allowPrivateIp =
+    process.env.NODE_ENV !== "production" ||
+    (process.env.VERCEL_ENV === "preview" &&
+      Boolean(String(process.env.INSTACOMP_BENCHMARK_TOKEN || "").trim()));
 
   if (!ipAddress) {
     if (allowPrivateIp) {
