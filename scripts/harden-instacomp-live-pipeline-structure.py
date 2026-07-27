@@ -31,7 +31,7 @@ def main() -> None:
 }
 
 export function dedupeExactMarketComps(values: InstaCompComp[], limit = 50) {
-  return dedupeExactMarketEvidence(values, limit).filter(hasTrustedDeliveredPrice);
+  return dedupeExactMarketEvidence(values, limit).filter(isInstaCompPricingEligibleComp);
 }
 
 '''
