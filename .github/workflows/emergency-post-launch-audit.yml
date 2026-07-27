@@ -113,7 +113,7 @@ jobs:
       - name: Run authentication, authorization, and public security simulations
         run: |
           node scripts/run-admin-session-secret-fail-closed-simulations.mjs
-          node scripts/run-admin-login-simulations.mjs
+          node --import tsx scripts/run-admin-login-simulations.mjs
           node scripts/run-privileged-api-route-audit.mjs
           node --import tsx scripts/run-live-payment-identity-gate-simulations.ts
           node --import tsx scripts/run-public-rate-limit-fail-closed-simulations.ts
