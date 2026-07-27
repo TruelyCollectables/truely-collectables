@@ -232,7 +232,7 @@ function paymentAndInventoryChecks() {
     "decrementOrderInventoryOnce",
     "loadStripePaidCheckoutAmounts",
     "existingOrderItemsByProductId",
-    '.from("order_items").insert',
+    "const { data: insertedOrderItem",
     "recoverableReviewStatuses",
     "paidUnitPrice",
     "stableOrderPayload",

@@ -79,7 +79,7 @@ assert.ok(
 assert.ok(
   finalizer.includes("loadStripePaidCheckoutAmounts") &&
     finalizer.includes("existingOrderItemsByProductId") &&
-    finalizer.includes('.from("order_items").insert') &&
+    finalizer.includes("const { data: insertedOrderItem") &&
     !finalizer.includes('.from("order_items").upsert') &&
     finalizer.includes("paidUnitPrice") &&
     finalizer.includes("ledgerOrderItems.reduce"),
