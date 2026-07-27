@@ -21,9 +21,9 @@ export type InstaCompVisualCandidate = {
   sourceCategory: CandidateCategory;
   matchScore: number | null;
   flags: string[];
-  soldAt: string | null;
-  listedAt: string | null;
-  observedAt: string | null;
+  soldAt?: string | null;
+  listedAt?: string | null;
+  observedAt?: string | null;
 };
 
 type VisualVerdict = {
