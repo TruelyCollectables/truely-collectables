@@ -6,6 +6,8 @@ on:
       - agent/instacomp-exact-market-final-20260726
     paths:
       - "scripts/harden-instacomp-*.py"
+      - "scripts/apply-instacomp-*.py"
+      - "scripts/repair-instacomp-*.py"
       - "scripts/run-instacomp-*"
       - "scripts/check-instacomp-control-characters.py"
       - "src/app/api/instacomp/**"
@@ -20,6 +22,8 @@ on:
       - main
     paths:
       - "scripts/harden-instacomp-*.py"
+      - "scripts/apply-instacomp-*.py"
+      - "scripts/repair-instacomp-*.py"
       - "scripts/run-instacomp-*"
       - "scripts/check-instacomp-control-characters.py"
       - "src/app/api/instacomp/**"
@@ -60,7 +64,7 @@ jobs:
         run: |
           set -euo pipefail
           {
-            python -m py_compile scripts/harden-instacomp-*.py scripts/run-instacomp-*.py
+            python -m py_compile scripts/harden-instacomp-*.py scripts/apply-instacomp-*.py scripts/repair-instacomp-*.py scripts/run-instacomp-*.py
             python scripts/harden-instacomp-ebay-benchmark.py
             python scripts/harden-instacomp-benchmark-source.py
             python scripts/harden-instacomp-benchmark-cleanup.py
@@ -88,6 +92,7 @@ jobs:
         run: |
           set -euo pipefail
           {
+            node --import tsx scripts/run-instacomp-exact-provider-regressions.ts
             node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
             node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
             node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
@@ -120,6 +125,7 @@ jobs:
             src/lib/instacomp-image-safety.ts \
             src/lib/instacomp-image-orientation.ts \
             src/lib/instacomp-provider-safety.ts \
+            scripts/run-instacomp-exact-provider-regressions.ts \
             scripts/run-instacomp-provider-safety-regressions.ts \
             scripts/run-instacomp-exact-market-proof-regressions.ts \
             scripts/run-instacomp-final-audit-regressions.ts \
@@ -178,6 +184,7 @@ jobs:
             src/lib/instacomp-image-safety.ts
             src/lib/instacomp-image-orientation.ts
             src/lib/instacomp-provider-safety.ts
+            scripts/run-instacomp-exact-provider-regressions.ts
             scripts/run-instacomp-provider-safety-regressions.ts
             scripts/run-instacomp-exact-market-proof-regressions.ts
             scripts/run-instacomp-final-audit-regressions.ts
