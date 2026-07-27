@@ -189,6 +189,7 @@ export async function startReservedOfferCheckout(params: {
       storeId: params.storeId,
       checkoutAttemptId,
       stripeSessionId: session.id,
+      expectedCount: reservation.rows.length,
     });
     await completeCheckoutAttempt({
       supabase: params.supabase,
