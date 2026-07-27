@@ -12,6 +12,7 @@ import {
   attachStripeSessionToCheckoutReservation,
   CHECKOUT_RESERVATION_MINUTES,
   releaseCheckoutReservation,
+  releaseCheckoutReservationForExpiredSession,
   reserveCheckoutInventory,
 } from "./checkout-inventory-reservations";
 import { metadataSafeIdentity, type ClientIdentity } from "./client-identity";
@@ -34,6 +35,76 @@ type OfferCheckoutSessionInput = Omit<
   "client_reference_id" | "expires_at"
 >;
 
+function replayResult(
+  session: Stripe.Checkout.Session,
+  checkoutAttemptId: string,
+) {
+  if (!session.url || session.status !== "open") {
+    throw new ReservedOfferCheckoutError(
+      "The accepted-offer payment session is not available.",
+      409,
+      false,
+    );
+  }
+
+  return {
+    session,
+    checkoutAttemptId,
+    reservationExpiresAt: session.expires_at
+      ? new Date(session.expires_at * 1000).toISOString()
+      : null,
+    replayed: true,
+  };
+}
+
+async function retrieveVerifiedOfferSession(params: {
+  stripe: Stripe;
+  stripeSessionId: string;
+  storeId: string;
+  offerId: number;
+}) {
+  let session: Stripe.Checkout.Session;
+  try {
+    session = await params.stripe.checkout.sessions.retrieve(
+      params.stripeSessionId,
+    );
+  } catch {
+    throw new ReservedOfferCheckoutError(
+      "The existing accepted-offer payment session could not be verified. Try again shortly.",
+      503,
+      true,
+    );
+  }
+
+  const metadata = session.metadata || {};
+  if (
+    metadata.store_id !== params.storeId ||
+    metadata.offer_id !== String(params.offerId) ||
+    session.mode !== "payment"
+  ) {
+    throw new ReservedOfferCheckoutError(
+      "The existing accepted-offer payment session does not match this offer.",
+      409,
+      false,
+    );
+  }
+
+  return session;
+}
+
+async function releaseExpiredSessionReservation(params: {
+  supabase: SupabaseClient;
+  storeId: string;
+  session: Stripe.Checkout.Session;
+}) {
+  if (params.session.status !== "expired") return;
+  await releaseCheckoutReservationForExpiredSession({
+    supabase: params.supabase,
+    storeId: params.storeId,
+    stripeSessionId: params.session.id,
+  });
+}
+
 export async function startReservedOfferCheckout(params: {
   supabase: SupabaseClient;
   stripe: Stripe;
@@ -46,214 +117,239 @@ export async function startReservedOfferCheckout(params: {
   legacyStripeSessionId: string | null;
   sessionInput: OfferCheckoutSessionInput;
 }) {
-  const checkoutAttemptId = offerCheckoutAttemptId({
-    storeId: params.storeId,
-    offerId: params.offerId,
-  });
-  const stripeIdempotencyKey = `truely_offer_checkout_${params.storeId}_${checkoutAttemptId}`;
-  const fingerprint = checkoutRequestFingerprint({
-    ...params.sessionInput,
-    checkout_attempt_id: checkoutAttemptId,
-    product_id: params.productId,
-  });
-  const claim = await claimCheckoutAttempt({
-    supabase: params.supabase,
-    storeId: params.storeId,
-    checkoutAttemptId,
-    accountId: params.accountId,
-    requestFingerprint: fingerprint,
-    stripeIdempotencyKey,
-    identityMetadata: metadataSafeIdentity(params.identity),
-  });
+  let previousStripeSessionId: string | null = null;
 
-  if (!claim.fingerprintMatches) {
-    throw new ReservedOfferCheckoutError(
-      "This accepted offer already has an open payment session with the original shipping and protection choice. Use that session or wait for it to expire before changing the selection.",
-      409,
-      false,
-    );
-  }
-
-  if (claim.requestStatus === "session_created" && claim.stripeSessionId) {
-    const existing = await params.stripe.checkout.sessions.retrieve(
-      claim.stripeSessionId,
-    );
-
-    if (existing.url && existing.status === "open") {
-      return {
-        session: existing,
-        checkoutAttemptId,
-        reservationExpiresAt: existing.expires_at
-          ? new Date(existing.expires_at * 1000).toISOString()
-          : null,
-        replayed: true,
-      };
-    }
-
-    throw new ReservedOfferCheckoutError(
-      existing.status === "complete"
-        ? "This accepted offer payment has already completed and is being finalized."
-        : "The previous accepted-offer payment session is no longer available.",
-      409,
-      false,
-    );
-  }
-
-  if (!claim.claimed) {
-    throw new ReservedOfferCheckoutError(
-      "This accepted-offer payment session is already being created. Try again in a moment.",
-      409,
-      true,
-    );
-  }
-
-  let reservationCreated = false;
-  let stripeSessionId: string | null = null;
-
-  try {
-    if (!claim.tosAcceptanceEventId && params.tosAcceptanceEventId) {
-      await attachCheckoutTosEvidence({
-        supabase: params.supabase,
-        rowId: claim.rowId,
-        tosAcceptanceEventId: params.tosAcceptanceEventId,
-      });
-    }
-
-    if (params.legacyStripeSessionId) {
-      try {
-        const legacy = await params.stripe.checkout.sessions.retrieve(
-          params.legacyStripeSessionId,
-        );
-        const legacyAttemptId = legacy.metadata?.checkout_attempt_id || null;
-
-        if (legacy.status === "complete") {
-          throw new ReservedOfferCheckoutError(
-            "This accepted offer payment has already completed and is being finalized.",
-            409,
-            false,
-          );
-        }
-
-        if (legacy.status === "open" && legacyAttemptId !== checkoutAttemptId) {
-          await params.stripe.checkout.sessions.expire(legacy.id);
-        }
-      } catch (legacyError) {
-        if (legacyError instanceof ReservedOfferCheckoutError) {
-          throw legacyError;
-        }
-        // Missing or already-expired legacy sessions do not block the new
-        // reservation-backed session.
-      }
-    }
-
-    const reservation = await reserveCheckoutInventory({
-      supabase: params.supabase,
+  if (params.legacyStripeSessionId) {
+    const legacy = await retrieveVerifiedOfferSession({
+      stripe: params.stripe,
+      stripeSessionId: params.legacyStripeSessionId,
       storeId: params.storeId,
-      checkoutAttemptId,
-      cart: [{ id: params.productId, quantity: 1 }],
-      ttlMinutes: CHECKOUT_RESERVATION_MINUTES,
+      offerId: params.offerId,
     });
-    reservationCreated = true;
-    const stripeExpiresAt = Math.floor(Date.now() / 1000) + 31 * 60;
+    const legacyAttemptId = legacy.metadata?.checkout_attempt_id || null;
 
-    if (stripeExpiresAt >= reservation.expiresAtUnix) {
-      throw new Error(
-        "The accepted-offer inventory reservation does not safely cover the Stripe payment window.",
+    if (legacy.status === "complete") {
+      throw new ReservedOfferCheckoutError(
+        "This accepted offer payment has already completed and is being finalized.",
+        409,
+        false,
       );
     }
 
-    const session = await params.stripe.checkout.sessions.create(
-      {
-        ...params.sessionInput,
-        client_reference_id: checkoutAttemptId,
-        expires_at: stripeExpiresAt,
-        metadata: {
-          ...(params.sessionInput.metadata || {}),
-          checkout_attempt_id: checkoutAttemptId,
-          inventory_reservation_expires_at: reservation.expiresAt,
-          tos_acceptance_event_id:
-            params.tosAcceptanceEventId || claim.tosAcceptanceEventId || "",
-          ...claim.identityMetadata,
-        },
-      },
-      { idempotencyKey: stripeIdempotencyKey },
-    );
-    stripeSessionId = session.id;
-
-    if (!session.url) {
-      throw new Error("Stripe did not return an accepted-offer Checkout URL.");
+    if (legacy.status === "open" && legacyAttemptId) {
+      return replayResult(legacy, legacyAttemptId);
     }
 
-    await attachStripeSessionToCheckoutReservation({
+    if (legacy.status === "open" && !legacyAttemptId) {
+      // One-time migration from the old unreserved accepted-offer flow. An
+      // unreserved open session must not compete with a new reserved session.
+      await params.stripe.checkout.sessions.expire(legacy.id);
+    }
+
+    await releaseExpiredSessionReservation({
+      supabase: params.supabase,
+      storeId: params.storeId,
+      session: legacy,
+    });
+    previousStripeSessionId = legacy.id;
+  }
+
+  for (let generation = 0; generation < 5; generation += 1) {
+    const checkoutAttemptId = offerCheckoutAttemptId({
+      storeId: params.storeId,
+      offerId: params.offerId,
+      previousStripeSessionId,
+    });
+    const stripeIdempotencyKey = `truely_offer_checkout_${params.storeId}_${checkoutAttemptId}`;
+    const fingerprint = checkoutRequestFingerprint({
+      ...params.sessionInput,
+      checkout_attempt_id: checkoutAttemptId,
+      product_id: params.productId,
+    });
+    const claim = await claimCheckoutAttempt({
       supabase: params.supabase,
       storeId: params.storeId,
       checkoutAttemptId,
-      stripeSessionId: session.id,
-      expectedCount: reservation.rows.length,
-    });
-    await completeCheckoutAttempt({
-      supabase: params.supabase,
-      rowId: claim.rowId,
-      stripeSessionId: session.id,
+      accountId: params.accountId,
+      requestFingerprint: fingerprint,
+      stripeIdempotencyKey,
+      identityMetadata: metadataSafeIdentity(params.identity),
     });
 
-    return {
-      session,
-      checkoutAttemptId,
-      reservationExpiresAt: reservation.expiresAt,
-      replayed: false,
-    };
-  } catch (error) {
-    let reservationMayBeReleased = stripeSessionId === null;
+    if (claim.stripeSessionId) {
+      const existing = await retrieveVerifiedOfferSession({
+        stripe: params.stripe,
+        stripeSessionId: claim.stripeSessionId,
+        storeId: params.storeId,
+        offerId: params.offerId,
+      });
 
-    if (stripeSessionId) {
-      try {
-        const session = await params.stripe.checkout.sessions.retrieve(
-          stripeSessionId,
+      if (existing.status === "open") {
+        return replayResult(existing, checkoutAttemptId);
+      }
+      if (existing.status === "complete") {
+        throw new ReservedOfferCheckoutError(
+          "This accepted offer payment has already completed and is being finalized.",
+          409,
+          false,
         );
-        if (session.status === "open") {
-          await params.stripe.checkout.sessions.expire(session.id);
-          reservationMayBeReleased = true;
-        } else if (session.status === "complete") {
-          reservationMayBeReleased = false;
-        } else {
-          reservationMayBeReleased = true;
-        }
-      } catch {
-        reservationMayBeReleased = false;
       }
+
+      await releaseExpiredSessionReservation({
+        supabase: params.supabase,
+        storeId: params.storeId,
+        session: existing,
+      });
+      previousStripeSessionId = existing.id;
+      continue;
     }
 
-    if (reservationCreated && reservationMayBeReleased) {
-      try {
-        await releaseCheckoutReservation({
-          supabase: params.supabase,
-          storeId: params.storeId,
-          checkoutAttemptId,
-        });
-      } catch {
-        console.error("Accepted-offer inventory reservation could not be released");
-      }
+    if (!claim.fingerprintMatches) {
+      throw new ReservedOfferCheckoutError(
+        "This accepted offer already has a payment attempt with the original shipping and protection choice. Try again shortly.",
+        409,
+        true,
+      );
     }
+
+    if (!claim.claimed) {
+      throw new ReservedOfferCheckoutError(
+        "This accepted-offer payment session is already being created. Try again in a moment.",
+        409,
+        true,
+      );
+    }
+
+    let reservationCreated = false;
+    let stripeSessionId: string | null = null;
 
     try {
-      await failCheckoutAttempt({
+      if (!claim.tosAcceptanceEventId && params.tosAcceptanceEventId) {
+        await attachCheckoutTosEvidence({
+          supabase: params.supabase,
+          rowId: claim.rowId,
+          tosAcceptanceEventId: params.tosAcceptanceEventId,
+        });
+      }
+
+      const reservation = await reserveCheckoutInventory({
+        supabase: params.supabase,
+        storeId: params.storeId,
+        checkoutAttemptId,
+        cart: [{ id: params.productId, quantity: 1 }],
+        ttlMinutes: CHECKOUT_RESERVATION_MINUTES,
+      });
+      reservationCreated = true;
+      const stripeExpiresAt = Math.floor(Date.now() / 1000) + 31 * 60;
+
+      if (stripeExpiresAt >= reservation.expiresAtUnix) {
+        throw new Error(
+          "The accepted-offer inventory reservation does not safely cover the Stripe payment window.",
+        );
+      }
+
+      const session = await params.stripe.checkout.sessions.create(
+        {
+          ...params.sessionInput,
+          client_reference_id: checkoutAttemptId,
+          expires_at: stripeExpiresAt,
+          metadata: {
+            ...(params.sessionInput.metadata || {}),
+            checkout_attempt_id: checkoutAttemptId,
+            inventory_reservation_expires_at: reservation.expiresAt,
+            tos_acceptance_event_id:
+              params.tosAcceptanceEventId || claim.tosAcceptanceEventId || "",
+            ...claim.identityMetadata,
+          },
+        },
+        { idempotencyKey: stripeIdempotencyKey },
+      );
+      stripeSessionId = session.id;
+
+      if (!session.url || session.status !== "open") {
+        throw new Error("Stripe did not return an open accepted-offer Checkout URL.");
+      }
+
+      await attachStripeSessionToCheckoutReservation({
+        supabase: params.supabase,
+        storeId: params.storeId,
+        checkoutAttemptId,
+        stripeSessionId: session.id,
+        expectedCount: reservation.rows.length,
+      });
+      await completeCheckoutAttempt({
         supabase: params.supabase,
         rowId: claim.rowId,
-        error,
+        stripeSessionId: session.id,
       });
-    } catch {
-      console.error("Accepted-offer checkout failure could not be journaled");
-    }
 
-    if (error instanceof InventoryEngineError) throw error;
-    if (error instanceof ReservedOfferCheckoutError) throw error;
-    throw new ReservedOfferCheckoutError(
-      error instanceof Error
-        ? error.message
-        : "Could not create the accepted-offer payment session.",
-      500,
-      true,
-    );
+      return {
+        session,
+        checkoutAttemptId,
+        reservationExpiresAt: reservation.expiresAt,
+        replayed: false,
+      };
+    } catch (error) {
+      let reservationMayBeReleased = stripeSessionId === null;
+
+      if (stripeSessionId) {
+        try {
+          const session = await params.stripe.checkout.sessions.retrieve(
+            stripeSessionId,
+          );
+          if (session.status === "open") {
+            await params.stripe.checkout.sessions.expire(session.id);
+            reservationMayBeReleased = true;
+          } else if (session.status === "complete") {
+            reservationMayBeReleased = false;
+          } else {
+            reservationMayBeReleased = true;
+          }
+        } catch {
+          reservationMayBeReleased = false;
+        }
+      }
+
+      if (reservationCreated && reservationMayBeReleased) {
+        try {
+          await releaseCheckoutReservation({
+            supabase: params.supabase,
+            storeId: params.storeId,
+            checkoutAttemptId,
+          });
+        } catch {
+          console.error(
+            "Accepted-offer inventory reservation could not be released",
+          );
+        }
+      }
+
+      try {
+        await failCheckoutAttempt({
+          supabase: params.supabase,
+          rowId: claim.rowId,
+          error,
+          stripeSessionId,
+        });
+      } catch {
+        console.error("Accepted-offer checkout failure could not be journaled");
+      }
+
+      if (error instanceof InventoryEngineError) throw error;
+      if (error instanceof ReservedOfferCheckoutError) throw error;
+      throw new ReservedOfferCheckoutError(
+        error instanceof Error
+          ? error.message
+          : "Could not create the accepted-offer payment session.",
+        500,
+        true,
+      );
+    }
   }
+
+  throw new ReservedOfferCheckoutError(
+    "Too many expired accepted-offer payment generations were encountered. Try again shortly.",
+    503,
+    true,
+  );
 }
