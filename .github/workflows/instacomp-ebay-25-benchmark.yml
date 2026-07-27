@@ -32,7 +32,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: instacomp-ebay-25-real-cards
@@ -52,7 +52,166 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: agent/instacomp-exact-market-final-20260726
-          fetch-depth: 1
+          fetch-depth: 0
+
+      - name: Harden benchmark source selection and image validation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/app/api/instacomp/benchmark/ebay-25/route.ts")
+          text = path.read_text()
+
+          old = '''function compactCardNumber(value: unknown) {
+  return normalized(value).replace(/[^a-z0-9]/g, "");
+}
+'''
+          new = '''function compactCardNumber(value: unknown) {
+  return normalized(value).replace(/[^a-z0-9]/g, "");
+}
+
+function titleHasExactCardNumber(title: string, cardNumber: string) {
+  const expected = compactCardNumber(cardNumber);
+  if (!expected) return false;
+
+  const escaped = clean(cardNumber)
+    .replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")
+    .replace(/[-\\s]+/g, "[-\\s]?");
+  const explicit = new RegExp(
+    `(?:#|card(?:\\s*(?:no\\.?|number))?)\\s*${escaped}(?![a-z0-9])`,
+    "i",
+  );
+  if (explicit.test(title)) return true;
+
+  const tokens = clean(title).match(/[a-z0-9]+(?:-[a-z0-9]+)*/gi) || [];
+  const disallowedPrevious = new Set([
+    "series",
+    "season",
+    "year",
+    "lot",
+    "qty",
+    "quantity",
+    "box",
+    "case",
+    "of",
+  ]);
+  return tokens.some((token, index) => {
+    if (compactCardNumber(token) !== expected) return false;
+    const previous = normalized(tokens[index - 1]);
+    if (disallowedPrevious.has(previous)) return false;
+    const start = Math.max(0, title.toLowerCase().indexOf(token.toLowerCase()) - 1);
+    if (title[start] === "/") return false;
+    return true;
+  });
+}
+'''
+          if old not in text:
+            raise SystemExit("compactCardNumber insertion point not found")
+          text = text.replace(old, new, 1)
+
+          old = '''function rejectedTitle(title: string) {
+  return /\\b(?:lot|team set|complete set|reprint|custom|digital|nft|break|you pick|choose your card|psa|bgs|sgc|cgc|graded|gem mint)\\b/i.test(
+    title,
+  );
+}
+'''
+          new = '''function rejectedTitle(title: string) {
+  return /\\b(?:lot|team set|complete set|reprint|custom|digital|nft|break|you pick|choose your card|psa|bgs|sgc|cgc|graded|gem mint|oversized|oversize|jumbo|mini|box topper|5x7|8x10|promo)\\b/i.test(
+    title,
+  );
+}
+'''
+          if old not in text:
+            raise SystemExit("rejectedTitle block not found")
+          text = text.replace(old, new, 1)
+
+          old = '''  const numberPass = text.replace(/[^a-z0-9]/g, "").includes(compactCardNumber(expected.cardNumber));
+'''
+          new = '''  const numberPass = titleHasExactCardNumber(title, expected.cardNumber);
+'''
+          if old not in text:
+            raise SystemExit("title card-number check not found")
+          text = text.replace(old, new, 1)
+
+          old = '''async function downloadImage(url: string, fileName: string) {
+  const response = await fetch(url, {
+    cache: "no-store",
+    headers: { "User-Agent": "TCOS-InstaComp-Benchmark/1.0" },
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!response.ok) {
+    throw new Error(`Could not download ${fileName} (${response.status}).`);
+  }
+  const bytes = await response.arrayBuffer();
+  if (!bytes.byteLength || bytes.byteLength > MAX_IMAGE_BYTES) {
+    throw new Error(`${fileName} was empty or exceeded 12 MB.`);
+  }
+  const reportedType = clean(response.headers.get("content-type")).split(";")[0].toLowerCase();
+  const inferredType = /\\.png(?:\\?|$)/i.test(url)
+    ? "image/png"
+    : /\\.webp(?:\\?|$)/i.test(url)
+      ? "image/webp"
+      : "image/jpeg";
+  const type = ALLOWED_IMAGE_TYPES.has(reportedType) ? reportedType : inferredType;
+  return new File([bytes], fileName, { type });
+}
+'''
+          new = '''function imageTypeFromMagic(bytes: Uint8Array) {
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return "image/jpeg";
+  }
+  if (
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47 &&
+    bytes[4] === 0x0d &&
+    bytes[5] === 0x0a &&
+    bytes[6] === 0x1a &&
+    bytes[7] === 0x0a
+  ) {
+    return "image/png";
+  }
+  if (
+    bytes.length >= 12 &&
+    String.fromCharCode(...bytes.slice(0, 4)) === "RIFF" &&
+    String.fromCharCode(...bytes.slice(8, 12)) === "WEBP"
+  ) {
+    return "image/webp";
+  }
+  return null;
+}
+
+async function downloadImage(url: string, fileName: string) {
+  const response = await fetch(url, {
+    cache: "no-store",
+    headers: { "User-Agent": "TCOS-InstaComp-Benchmark/1.0" },
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!response.ok) {
+    throw new Error(`Could not download ${fileName} (${response.status}).`);
+  }
+  const buffer = await response.arrayBuffer();
+  if (!buffer.byteLength || buffer.byteLength > MAX_IMAGE_BYTES) {
+    throw new Error(`${fileName} was empty or exceeded 12 MB.`);
+  }
+  const bytes = new Uint8Array(buffer);
+  const type = imageTypeFromMagic(bytes);
+  if (!type || !ALLOWED_IMAGE_TYPES.has(type)) {
+    const reportedType = clean(response.headers.get("content-type")).split(";")[0].toLowerCase();
+    throw new Error(
+      `${fileName} was not a real JPEG, PNG, or WebP image (reported ${reportedType || "unknown"}).`,
+    );
+  }
+  return new File([buffer], fileName, { type });
+}
+'''
+          if old not in text:
+            raise SystemExit("downloadImage block not found")
+          text = text.replace(old, new, 1)
+          path.write_text(text)
+          PY
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -63,16 +222,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Validate benchmark code
-        run: >-
-          npx eslint
-          src/app/api/instacomp/benchmark/ebay-25/route.ts
-          src/lib/client-identity.ts
-          src/lib/instacomp-ebay-benchmark-cases.ts
-          scripts/run-instacomp-ebay-25-benchmark.mjs
-          scripts/run-instacomp-ebay-25-through-vercel-curl.mjs
+      - name: Validate hardened benchmark code
+        run: |
+          git diff --check
+          npx eslint \
+            src/app/api/instacomp/benchmark/ebay-25/route.ts \
+            src/lib/client-identity.ts \
+            src/lib/instacomp-ebay-benchmark-cases.ts \
+            scripts/run-instacomp-ebay-25-benchmark.mjs \
+            scripts/run-instacomp-ebay-25-through-vercel-curl.mjs
 
-      - name: Build production application
+      - name: Build hardened production application
         env:
           NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
           NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
@@ -90,6 +250,18 @@ jobs:
           TCOS_SHIPPING_PURCHASE_MODE: dry_run
           TCOS_LIVE_SHIPPING_ENABLED: "false"
         run: npm run build
+
+      - name: Commit hardened benchmark route
+        run: |
+          if git diff --quiet -- src/app/api/instacomp/benchmark/ebay-25/route.ts; then
+            echo "Benchmark route already hardened."
+          else
+            git config user.name "OpenAI Audit Agent"
+            git config user.email "actions@users.noreply.github.com"
+            git add src/app/api/instacomp/benchmark/ebay-25/route.ts
+            git commit -m "Harden InstaComp eBay torture source validation"
+            git push origin HEAD:agent/instacomp-exact-market-final-20260726
+          fi
 
       - name: Link Vercel project
         env:
