@@ -18,6 +18,10 @@ The manual explains daily store operation, inventory, orders, offers, eBay sync,
 
 When the mobile app is built, maintain its operator manual and downloadable PDF separately from the main TCOS web manual while keeping shared policies consistent.
 
+## Account and seller API boundaries
+
+Seller account APIs require a valid bearer-authenticated account that is active and already has an `active` seller membership for the active store. Authorization is read-only with respect to role assignment: the seller-auth helper verifies `account_store_memberships` and never inserts, upserts, or upgrades a seller role while deciding access. Routes return HTTP 401 when seller authentication is absent or invalid, and seller-owned records remain filtered by the authenticated account ID. The dedicated payout-onboarding route is the explicit exception: it remains available to an authenticated buyer so that seller onboarding can begin deliberately.
+
 ## Production deployment safety
 
 The deployment helper command-pins Vercel CLI `56.2.0` and runs it through isolated `npm exec --package=vercel@56.2.0` without a machine-global `vercel` command. Its temporary cache stays outside application `node_modules` and the lockfile. Every Vercel call receives `--cwd` with the repository root.
