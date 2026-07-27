@@ -1,5 +1,7 @@
 import { runShippingSimulationSuite } from "../src/lib/shipping-simulations";
 
+// This runner intentionally treats live-provider approval blockers as reportable
+// while failing only when the deterministic shipping simulation contract fails.
 async function main() {
   const result = await runShippingSimulationSuite();
 
