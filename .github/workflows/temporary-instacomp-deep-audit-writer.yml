@@ -53,6 +53,7 @@ jobs:
       - name: Apply deterministic deep-audit fixes
         run: |
           set -euo pipefail
+          echo "Applying audited source patch set v2"
           python -m py_compile scripts/apply-instacomp-deep-audit-fixes.py
           python scripts/apply-instacomp-deep-audit-fixes.py
           python scripts/check-instacomp-control-characters.py
