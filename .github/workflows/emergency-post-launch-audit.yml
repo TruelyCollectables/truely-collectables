@@ -10,13 +10,45 @@ on:
       - "supabase/migrations/**"
       - "package.json"
       - ".github/workflows/emergency-post-launch-audit.yml"
+  push:
+    branches:
+      - agent/emergency-post-launch-audit-fixes-20260726
+    paths:
+      - ".audit/titanic-hardening.patch"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
+  apply-titanic-patch:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out emergency audit branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/emergency-post-launch-audit-fixes-20260726
+          fetch-depth: 0
+
+      - name: Apply audited hardening patch exactly once
+        shell: bash
+        run: |
+          test -f .audit/titanic-hardening.patch
+          git apply --check .audit/titanic-hardening.patch
+          git apply .audit/titanic-hardening.patch
+          rm .audit/titanic-hardening.patch
+          rmdir .audit 2>/dev/null || true
+          git config user.name "Truely Collectables Audit"
+          git config user.email "sales@truelycollectables.com"
+          git add -A
+          git commit -m "Harden live checkout money and fulfillment integrity"
+          git push origin HEAD:agent/emergency-post-launch-audit-fixes-20260726
+
   post-launch-safety:
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -84,6 +116,14 @@ jobs:
         run: |
           node --import tsx scripts/run-checkout-webhook-idempotency-simulations.ts
           node --import tsx scripts/run-offer-checkout-idempotency-simulations.ts
+
+      - name: Run live storefront money integrity simulations
+        run: node --import tsx scripts/run-live-storefront-money-integrity-simulations.ts
+
+      - name: Run Buyer Protection and post-purchase simulations
+        run: |
+          node --import tsx scripts/run-buyer-protection-simulations.ts
+          node --import tsx scripts/run-post-purchase-buyer-flow-simulations.ts
 
       - name: Run lint
         run: npm run lint
