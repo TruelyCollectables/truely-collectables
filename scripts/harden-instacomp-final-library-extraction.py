@@ -47,10 +47,20 @@ def patch_benchmark_route() -> None:
         else:
             raise SystemExit("Could not locate benchmark source eligibility filter")
 
+    rejected_helper = '''function rejectedTitle(title: string) {
+  return /\b(?:lot|team set|complete set|reprint|custom|digital|nft|break|you pick|choose your card|psa|bgs|sgc|cgc|graded|gem mint|oversized|oversize|jumbo|mini|box topper|5x7|8x10|promo)\b/i.test(
+    title,
+  );
+}
+
+'''
+    if rejected_helper in text and "rejectedTitle(" not in text.replace(rejected_helper, ""):
+        text = text.replace(rejected_helper, "", 1)
+
     path.write_text(text)
 
 
-def patch_regression_import() -> None:
+def patch_final_regression_import() -> None:
     path = Path("scripts/run-instacomp-final-audit-regressions.ts")
     text = path.read_text()
     text = text.replace(
@@ -59,6 +69,36 @@ def patch_regression_import() -> None:
     )
     if 'from "../src/lib/instacomp-benchmark-title";' not in text:
         raise SystemExit("Final audit regression did not import the benchmark title library")
+    path.write_text(text)
+
+
+def patch_exact_regression_source_check() -> None:
+    path = Path("scripts/run-instacomp-exact-market-proof-regressions.ts")
+    text = path.read_text()
+    benchmark_source_block = '''const benchmarkSource = fs.readFileSync(
+  "src/app/api/instacomp/benchmark/ebay-25/route.ts",
+  "utf8",
+);
+'''
+    library_source_block = '''const benchmarkTitleSource = fs.readFileSync(
+  "src/lib/instacomp-benchmark-title.ts",
+  "utf8",
+);
+'''
+    if library_source_block not in text:
+        if benchmark_source_block not in text:
+            raise SystemExit("Could not locate benchmark source regression block")
+        text = text.replace(
+            benchmark_source_block,
+            benchmark_source_block + library_source_block,
+            1,
+        )
+    text = text.replace(
+        'assert.ok(benchmarkSource.includes("benchmarkTitleHasExpectedSerialRun"));',
+        'assert.ok(benchmarkTitleSource.includes("benchmarkTitleHasExpectedSerialRun"));',
+    )
+    if 'benchmarkTitleSource.includes("benchmarkTitleHasExpectedSerialRun")' not in text:
+        raise SystemExit("Exact-market regression did not inspect the benchmark title library")
     path.write_text(text)
 
 
@@ -76,7 +116,8 @@ def patch_grade_descriptors() -> None:
 
 def main() -> None:
     patch_benchmark_route()
-    patch_regression_import()
+    patch_final_regression_import()
+    patch_exact_regression_source_check()
     patch_grade_descriptors()
 
 
