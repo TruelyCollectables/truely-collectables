@@ -20,19 +20,6 @@ index 6d8f20d..405776a 100644
    const formData = new FormData();
    formData.set(
      "verifiedReferenceFile",
-diff --git a/scripts/run-admin-session-secret-fail-closed-simulations.mjs b/scripts/run-admin-session-secret-fail-closed-simulations.mjs
-index 75c875a..25554d0 100644
---- a/scripts/run-admin-session-secret-fail-closed-simulations.mjs
-+++ b/scripts/run-admin-session-secret-fail-closed-simulations.mjs
-@@ -83,7 +83,7 @@ for (const [label, fragment] of [
- }
- 
- for (const fragment of [
--  "createAdminSessionValue()",
-+  'createAdminSessionValue("cookie")',
-   '"session_error"',
-   "appendExpiredAdminSessionCookies",
- ]) {
 diff --git a/scripts/run-privileged-api-route-audit.mjs b/scripts/run-privileged-api-route-audit.mjs
 index e6fc24f..1bf0929 100644
 --- a/scripts/run-privileged-api-route-audit.mjs
