@@ -1,0 +1,127 @@
+from __future__ import annotations
+
+import re
+from collections import Counter
+from pathlib import Path
+
+
+def require(path: Path, values: list[str]) -> None:
+    text = path.read_text()
+    missing = [value for value in values if value not in text]
+    if missing:
+        raise SystemExit(f"{path}: missing final audit source invariants: {missing}")
+
+
+def reject(path: Path, values: list[str]) -> None:
+    text = path.read_text()
+    present = [value for value in values if value in text]
+    if present:
+        raise SystemExit(f"{path}: forbidden final audit source fragments remain: {present}")
+
+
+def assert_unique_functions(path: Path) -> None:
+    text = path.read_text()
+    names = re.findall(
+        r"\b(?:export\s+)?(?:async\s+)?function\s+([A-Za-z0-9_]+)\s*\(",
+        text,
+    )
+    duplicates = {name: count for name, count in Counter(names).items() if count > 1}
+    if duplicates:
+        raise SystemExit(f"{path}: duplicate function declarations remain: {duplicates}")
+
+
+scan = Path("src/app/api/instacomp/scan/route.ts")
+require(
+    scan,
+    [
+        'import { normalizeInstaCompSideImages }',
+        'import { readValidatedInstaCompImage }',
+        'const normalizedSides = await normalizeInstaCompSideImages({',
+        'frontImage = normalizedSides.frontFile;',
+        'backImageForScan = normalizedSides.backFile;',
+        'imageOrientation: input.imageOrientation || null,',
+        'imageOrientation,\n      benchmarkDiagnostics:',
+        'ocrDiagnostics: {\n        imageOrientation,',
+    ],
+)
+
+benchmark = Path("src/app/api/instacomp/benchmark/ebay-25/route.ts")
+require(
+    benchmark,
+    [
+        "benchmarkTitleHasExpectedPlayer",
+        "benchmarkTitleHasExpectedBrand",
+        "benchmarkTitleHasExpectedSet",
+        "benchmarkTitleHasExpectedYear",
+        "benchmarkTitleHasExpectedParallel",
+        "benchmarkTitleHasExpectedSerialRun",
+        "benchmarkTitleEligible",
+        "x-instacomp-benchmark-ephemeral",
+    ],
+)
+
+seller = Path("src/app/api/account/seller/inventory/instacomp/route.ts")
+require(
+    seller,
+    [
+        'function isPricingEligibleEvidence(row: Evidence, lane: "sold" | "active")',
+        'if (lane === "sold" && !row.soldAt) return false;',
+        'const soldCompEvidence = acceptedSoldEvidence.filter',
+        'const activePricingEvidence = activeCompetition.filter',
+        'pricingIneligibleExactEvidence',
+    ],
+)
+
+market = Path("src/lib/instacomp-live-pipeline.ts")
+require(market, ['if (comp.sourceCategory === "sold" && !clean(comp.soldAt)) return false;'])
+
+matcher = Path("src/lib/instacomp.ts")
+require(
+    matcher,
+    [
+        "explainUnexpectedInstaCompBaseVariation",
+        '" signature",',
+        '" rpa ",',
+        'if (ai && !ai.isRookie)',
+    ],
+)
+
+catalog = Path("src/lib/instacomp-curated-checklist.ts")
+require(
+    catalog,
+    [
+        "officialBenchmarkCatalogFamily",
+        "officialBenchmarkCatalogCandidate",
+        "if (officialBenchmarkCatalogFamily(input) && !officialCandidate) return null;",
+    ],
+)
+
+orientation = Path("src/lib/instacomp-image-orientation.ts")
+require(
+    orientation,
+    [
+        '.autoOrient()\n    .rotate(params.rotation)',
+        "Judge FRONT and BACK independently",
+        "frontRotation",
+        "backRotation",
+    ],
+)
+reject(orientation, [".rotate()\n    .rotate(params.rotation)"])
+
+visual = Path("src/lib/instacomp-comp-visual-verification.ts")
+require(visual, ["awaiting image proof"])
+
+for path in [
+    benchmark,
+    Path("src/app/api/instacomp/live-scan/route.ts"),
+    scan,
+    matcher,
+    catalog,
+]:
+    assert_unique_functions(path)
+
+regression = Path("scripts/run-instacomp-exact-market-proof-regressions.ts")
+require(regression, ['benchmarkSource.includes("benchmarkTitleHasExpectedSerialRun")'])
+reject(regression, ['benchmarkSource.includes("titleHasExpectedSerialRun")'])
+
+print("Final InstaComp materialized source invariants passed.")
