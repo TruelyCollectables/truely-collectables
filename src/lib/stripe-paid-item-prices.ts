@@ -12,6 +12,16 @@ function money(value: unknown) {
     : null;
 }
 
+function productMetadata(
+  product: string | Stripe.Product | Stripe.DeletedProduct | null | undefined,
+): Stripe.Metadata {
+  if (!product || typeof product === "string" || product.deleted === true) {
+    return {};
+  }
+
+  return product.metadata || {};
+}
+
 export async function loadStripePaidUnitPrices(params: {
   stripe: Stripe;
   session: Stripe.Checkout.Session;
@@ -30,14 +40,10 @@ export async function loadStripePaidUnitPrices(params: {
   );
 
   for (const lineItem of lineItems.data) {
-    const stripeProduct =
-      lineItem.price?.product && typeof lineItem.price.product === "object"
-        ? lineItem.price.product
-        : null;
-    const productMetadata = stripeProduct?.metadata || {};
-    if (productMetadata.tcos_line_type) continue;
+    const metadata = productMetadata(lineItem.price?.product);
+    if (metadata.tcos_line_type) continue;
 
-    let productId = positiveInteger(productMetadata.legacy_product_id);
+    let productId = positiveInteger(metadata.legacy_product_id);
     if (!productId && params.checkoutType === "accepted_offer") {
       productId = positiveInteger(params.metadata.product_id);
     }
