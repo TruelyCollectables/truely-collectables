@@ -1,0 +1,24 @@
+name: Temporary InstaComp Live Double Torture Cancellation
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/temporary-instacomp-live-double-torture.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instacomp-live-double-torture-visible
+  cancel-in-progress: true
+
+jobs:
+  cancel-preview-deploy-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Confirm no deployment action
+        run: echo "Cancelled superseded preview-deploy torture audit; no deployment command is present in this workflow."
