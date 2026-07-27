@@ -256,7 +256,13 @@ function serialDenominator(value: string | null | undefined) {
 }
 
 function titleDenominators(value: string | null | undefined) {
-  return Array.from(String(value || "").matchAll(/(?:\b\d{1,6}\s*)?\/\s*(\d{1,6})\b/g))
+  const withoutSeasons = String(value || "").replace(
+    /\b(?:19|20)\d{2}\s*[-/]\s*\d{2,4}\b/g,
+    " ",
+  );
+  return Array.from(
+    withoutSeasons.matchAll(/(?:\b\d{1,6}\s*)?\/\s*(\d{1,6})\b/g),
+  )
     .map((match) => Number(match[1]))
     .filter((number) => Number.isFinite(number) && number > 0);
 }
@@ -365,6 +371,9 @@ function rawComps(items: EbaySerpItem[], lane: EbayLane): Omit<InstaCompComp, "m
   return items.map((item) => ({
     title: item.title,
     price: item.price,
+    itemPrice: item.itemPrice,
+    shippingPrice: item.shippingPrice,
+    priceIncludesShipping: item.priceIncludesShipping,
     currency: "USD",
     url: item.link,
     imageUrl: item.thumbnail,

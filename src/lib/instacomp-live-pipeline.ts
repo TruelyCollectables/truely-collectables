@@ -72,11 +72,11 @@ function hasTrustedDeliveredPrice(comp: InstaCompComp) {
   return true;
 }
 
-export function dedupeExactMarketComps(values: InstaCompComp[], limit = 50) {
+export function dedupeExactMarketEvidence(values: InstaCompComp[], limit = 50) {
   const seen = new Set<string>();
   return values
     .filter((comp) => {
-      if (!hasTrustedDeliveredPrice(comp)) return false;
+      if (!Number.isFinite(Number(comp.price)) || Number(comp.price) <= 0) return false;
       const key = compKey(comp);
       if (!key || seen.has(key)) return false;
       seen.add(key);
@@ -89,6 +89,10 @@ export function dedupeExactMarketComps(values: InstaCompComp[], limit = 50) {
       return left.price - right.price;
     })
     .slice(0, limit);
+}
+
+export function dedupeExactMarketComps(values: InstaCompComp[], limit = 50) {
+  return dedupeExactMarketEvidence(values, limit).filter(hasTrustedDeliveredPrice);
 }
 
 export function missingExactIdentityFields(ai: InstaCompAiResult) {
@@ -133,15 +137,20 @@ export function buildExactIdentityTitle(
 export function mergeExactMarketSources(
   sources: Array<InstaCompExactMarketSource | null | undefined>,
 ): InstaCompTrustedMarketSummary {
-  const sold = dedupeExactMarketComps(
+  const sold = dedupeExactMarketEvidence(
     sources.flatMap((source) => source?.sold?.results || []),
     50,
   );
-  const active = dedupeExactMarketComps(
+  const active = dedupeExactMarketEvidence(
     sources.flatMap((source) => source?.active?.results || []),
     30,
   );
-  const pricing = calculateInstaCompSweetSpot({ sold, active });
+  const pricingSold = dedupeExactMarketComps(sold, 50);
+  const pricingActive = dedupeExactMarketComps(active, 30);
+  const pricing = calculateInstaCompSweetSpot({
+    sold: pricingSold,
+    active: pricingActive,
+  });
   const providerError = sources.some(
     (source) => source?.sold?.status === "error" || source?.active?.status === "error",
   );
@@ -150,8 +159,12 @@ export function mergeExactMarketSources(
     sold,
     active,
     pricing,
-    trustedSuggestedPrice: sold.length ? pricing.suggestedPrice : null,
-    status: sold.length ? "ready" : providerError ? "provider_error" : "no_exact_sold",
+    trustedSuggestedPrice: pricingSold.length ? pricing.suggestedPrice : null,
+    status: pricingSold.length
+      ? "ready"
+      : providerError
+        ? "provider_error"
+        : "no_exact_sold",
   };
 }
 

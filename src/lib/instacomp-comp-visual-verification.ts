@@ -45,8 +45,38 @@ function parseJsonText(value: string) {
   return JSON.parse(candidate.slice(start, end + 1));
 }
 
+function detectedImageMime(bytes: ArrayBuffer) {
+  const view = new Uint8Array(bytes);
+  if (view.length >= 3 && view[0] === 0xff && view[1] === 0xd8 && view[2] === 0xff) {
+    return "image/jpeg";
+  }
+  if (
+    view.length >= 8 &&
+    view[0] === 0x89 &&
+    view[1] === 0x50 &&
+    view[2] === 0x4e &&
+    view[3] === 0x47 &&
+    view[4] === 0x0d &&
+    view[5] === 0x0a &&
+    view[6] === 0x1a &&
+    view[7] === 0x0a
+  ) {
+    return "image/png";
+  }
+  if (
+    view.length >= 12 &&
+    String.fromCharCode(...view.slice(0, 4)) === "RIFF" &&
+    String.fromCharCode(...view.slice(8, 12)) === "WEBP"
+  ) {
+    return "image/webp";
+  }
+  return null;
+}
+
 function dataUrlFromBytes(bytes: ArrayBuffer, contentType: string | null) {
-  const mime = String(contentType || "image/jpeg").split(";")[0].trim() || "image/jpeg";
+  void contentType;
+  const mime = detectedImageMime(bytes);
+  if (!mime) throw new Error("Image bytes were not a real JPEG, PNG, or WebP file.");
   return `data:${mime};base64,${Buffer.from(bytes).toString("base64")}`;
 }
 
@@ -68,9 +98,16 @@ async function remoteImageToDataUrl(url: string) {
 }
 
 function requiresVisualVerification(candidate: InstaCompVisualCandidate) {
+  if (
+    candidate.flags.some((flag) =>
+      /awaiting image proof|guidance comp|not used for pricing/i.test(flag),
+    )
+  ) {
+    return true;
+  }
   if (candidate.flags.some((flag) => /deterministic exact identity/i.test(flag))) return false;
   return candidate.flags.some((flag) =>
-    /parallel mismatch|not exact parallel|guidance comp|not used for pricing/i.test(flag),
+    /parallel mismatch|not exact parallel/i.test(flag),
   );
 }
 
@@ -102,6 +139,12 @@ function rejectedFlags(candidate: InstaCompVisualCandidate, verdict: VisualVerdi
 }
 
 function inferredExactCategory(candidate: InstaCompVisualCandidate) {
+  if (
+    /^openai_web_/i.test(candidate.source) ||
+    candidate.flags.some((flag) => /not independently verified for pricing/i.test(flag))
+  ) {
+    return "reference";
+  }
   if (candidate.source === "ebay_active") return "marketplace";
   if (/sold/i.test(candidate.sourceLabel)) return "sold";
   return candidate.sourceCategory;
@@ -137,10 +180,10 @@ async function verifyOneCandidate(params: {
                 "You are the TCOS image-first exact-card referee.",
                 "Compare TARGET CARD IMAGE with CANDIDATE LISTING IMAGE.",
                 "Seller titles are untrusted claims. The card images are ground truth.",
-                "Judge the exact parallel/variation, especially color and printed pattern.",
+                "Judge the complete exact card identity: player, year/product, card number, parallel/variation, serial print-run denominator, autograph/relic state, raw/graded state, grading company, and grade. Color and printed pattern are necessary but not sufficient.",
                 "Return JSON only with verdict, confidence, targetParallel, candidateParallel, titleImageConflict, reason.",
                 "verdict must be exact_visual_match, wrong_parallel, or uncertain.",
-                "Use exact_visual_match only when the candidate image shows the same exact parallel/variation as the target image.",
+                "Use exact_visual_match only when every identity field visible in both images agrees. Any wrong player, card number, product, parallel, print run, autograph/relic state, grader, or grade must be wrong_parallel or uncertain.",
                 "If the image matches but the seller title names another color, use exact_visual_match and titleImageConflict=true.",
                 `TARGET IDENTITY: ${JSON.stringify({
                   player: params.targetAi.player,
@@ -220,7 +263,7 @@ export async function verifyInstaCompCompetitionImages(params: {
         targetAi: params.targetAi,
         candidate,
       });
-      if (verdict.verdict === "exact_visual_match" && verdict.confidence >= 0.78) {
+      if (verdict.verdict === "exact_visual_match" && verdict.confidence >= 0.85) {
         if (verdict.titleImageConflict) titleOverrides += 1;
         accepted.push({
           ...candidate,

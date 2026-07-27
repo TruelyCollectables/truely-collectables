@@ -246,7 +246,7 @@ function normalizedRows(params: {
         imageUrl,
         source: params.lane === "sold" ? "openai_web_ebay_sold_exact" : "openai_web_ebay_active_exact",
         sourceLabel: params.lane === "sold" ? "eBay Sold via OpenAI Web" : "eBay Active via OpenAI Web",
-        sourceCategory: params.lane === "sold" ? ("sold" as const) : ("marketplace" as const),
+        sourceCategory: "reference" as const,
         soldAt: params.lane === "sold" ? soldAt : null,
         listedAt: params.lane === "active" ? listedAt : null,
         observedAt: new Date().toISOString(),
@@ -341,7 +341,13 @@ export async function getOpenAiExactEbayMarketProviders(params: {
       MAX_RESULTS_PER_LANE,
     ).map((row) => ({
       ...row,
-      flags: Array.from(new Set([...row.flags, "direct cited eBay sold source", "shipping verified"])).slice(0, 20),
+      flags: Array.from(
+        new Set([
+          ...row.flags,
+          "direct cited eBay sold discovery candidate",
+          "not independently verified for pricing",
+        ]),
+      ).slice(0, 20),
     }));
     const active = filterStrictExactMarketMatches(
       normalizedRows({ rows: Array.isArray(parsed.active) ? parsed.active : [], lane: "active", citedIds }),
@@ -349,7 +355,13 @@ export async function getOpenAiExactEbayMarketProviders(params: {
       MAX_RESULTS_PER_LANE,
     ).map((row) => ({
       ...row,
-      flags: Array.from(new Set([...row.flags, "direct cited eBay active source", "shipping verified"])).slice(0, 20),
+      flags: Array.from(
+        new Set([
+          ...row.flags,
+          "direct cited eBay active discovery candidate",
+          "not independently verified for pricing",
+        ]),
+      ).slice(0, 20),
     }));
     const result: OpenAiWebMarketProviderResult = {
       model: clean(payload?.model) || model,
@@ -360,14 +372,14 @@ export async function getOpenAiExactEbayMarketProviders(params: {
         lane: "sold",
         results: sold,
         message: sold.length
-          ? `${sold.length} direct-cited, strict exact eBay sold listing${sold.length === 1 ? "" : "s"} passed identity, image, date, and delivered-price verification.`
+          ? `${sold.length} direct-cited, strict exact eBay sold listing${sold.length === 1 ? "" : "s"} passed initial identity screening but remain discovery-only until independently cross-verified.`
           : "OpenAI web search found no direct-cited eBay sold listing that passed every exact-card, image, sale-date, and shipping gate.",
       }),
       active: providerResult({
         lane: "active",
         results: active,
         message: active.length
-          ? `${active.length} direct-cited, strict exact active eBay listing${active.length === 1 ? "" : "s"} passed identity, image, and delivered-price verification.`
+          ? `${active.length} direct-cited, strict exact active eBay listing${active.length === 1 ? "" : "s"} passed initial identity screening but remain discovery-only until independently cross-verified.`
           : "OpenAI web search found no direct-cited active eBay listing that passed every exact-card, image, status, and shipping gate.",
       }),
       cached: false,

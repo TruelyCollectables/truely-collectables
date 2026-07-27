@@ -1783,6 +1783,9 @@ async function getEbayProvider(
       return {
         title: String(item?.title || ""),
         price: Number.isFinite(value) ? value : 0,
+        itemPrice: Number.isFinite(value) ? value : null,
+        shippingPrice: null,
+        priceIncludesShipping: false,
         currency: String(item?.price?.currency || "USD"),
         url: String(item?.itemWebUrl || ""),
         imageUrl: item?.image?.imageUrl ? String(item.image.imageUrl) : null,
@@ -1800,7 +1803,10 @@ async function getEbayProvider(
       return true;
     });
 
-  let results = filterAndRankExactMatches(rawComps, ai, 3, 55);
+  let results = filterAndRankExactMatches(rawComps, ai, 3, 55).map((result) => ({
+    ...result,
+    flags: Array.from(new Set([...result.flags, "shipping unknown", "not used for pricing"])),
+  }));
   let reviewOnly = false;
 
   const guidanceResults = filterAndRankGuidanceMatches(rawComps, ai, 5, 30);

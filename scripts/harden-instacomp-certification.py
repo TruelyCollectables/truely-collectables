@@ -13,7 +13,7 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
 
 
 def regex_once(text: str, pattern: str, replacement: str, label: str, flags: int = 0) -> str:
-    updated, count = re.subn(pattern, replacement, text, count=1, flags=flags)
+    updated, count = re.subn(pattern, lambda _match: replacement, text, count=1, flags=flags)
     if count == 0:
         if replacement in text:
             return text

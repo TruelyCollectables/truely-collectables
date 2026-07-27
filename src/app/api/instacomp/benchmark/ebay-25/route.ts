@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
 import { POST as runLiveScan } from "../../live-scan/route";
 import {
   ADMIN_SESSION_COOKIE_NAME,
@@ -79,6 +79,39 @@ function compactCardNumber(value: unknown) {
   return normalized(value).replace(/[^a-z0-9]/g, "");
 }
 
+function titleHasExactCardNumber(title: string, cardNumber: string) {
+  const expected = compactCardNumber(cardNumber);
+  if (!expected) return false;
+
+  const escaped = normalized(cardNumber).replace(/\s+/g, "[-\\s]?");
+  const explicit = new RegExp(
+    `(?:#|card(?:\\s*(?:no\\.?|number))?)\\s*${escaped}(?![a-z0-9])`,
+    "i",
+  );
+  if (explicit.test(title)) return true;
+
+  const tokens = clean(title).match(/[a-z0-9]+(?:-[a-z0-9]+)*/gi) || [];
+  const disallowedPrevious = new Set([
+    "series",
+    "season",
+    "year",
+    "lot",
+    "qty",
+    "quantity",
+    "box",
+    "case",
+    "of",
+  ]);
+  return tokens.some((token, index) => {
+    if (compactCardNumber(token) !== expected) return false;
+    const previous = normalized(tokens[index - 1]);
+    if (disallowedPrevious.has(previous)) return false;
+    const occurrence = title.toLowerCase().indexOf(token.toLowerCase());
+    if (occurrence > 0 && title[occurrence - 1] === "/") return false;
+    return true;
+  });
+}
+
 function safeTokenEqual(left: string, right: string) {
   const leftBuffer = Buffer.from(left);
   const rightBuffer = Buffer.from(right);
@@ -152,19 +185,46 @@ async function getEbayApplicationToken() {
   return ebayTokenCache.token;
 }
 
+function fullResolutionEbayImageUrl(value: unknown) {
+  const url = clean(value);
+  if (!/^https?:\/\//i.test(url)) return "";
+  return url.replace(/\/s-l\d+(?=\.(?:jpe?g|png|webp)(?:\?|$))/i, "/s-l1600");
+}
+
 function imageUrls(item: EbayItemSummary) {
   return Array.from(
     new Set(
       [item.image?.imageUrl, ...(item.additionalImages || []).map((image) => image?.imageUrl)]
-        .map(clean)
-        .filter((url) => /^https?:\/\//i.test(url)),
+        .map(fullResolutionEbayImageUrl)
+        .filter(Boolean),
     ),
   );
 }
 
 function rejectedTitle(title: string) {
-  return /\b(?:lot|team set|complete set|reprint|custom|digital|nft|break|you pick|choose your card|psa|bgs|sgc|cgc|graded|gem mint)\b/i.test(
+  return /\b(?:lot|team set|complete set|reprint|custom|digital|nft|break|you pick|choose your card|psa|bgs|sgc|cgc|graded|gem mint|oversized|oversize|jumbo|mini|box topper|5x7|8x10|promo)\b/i.test(
     title,
+  );
+}
+
+function titleConflictsWithExpectedParallel(
+  title: string,
+  testCase: InstaCompEbayBenchmarkCase,
+) {
+  const expectedParallel = normalized(testCase.expected.parallel);
+  if (expectedParallel && expectedParallel !== "base") return false;
+
+  const titleText = normalized(title);
+  const conflictingParallels = new Set<string>();
+  for (const candidate of INSTACOMP_EBAY_BENCHMARK_CASES) {
+    if (normalized(candidate.expected.setName) !== normalized(testCase.expected.setName)) continue;
+    const names = [candidate.expected.parallel, ...(candidate.expected.parallelAliases || [])]
+      .map(normalized)
+      .filter((value) => value && value !== "base");
+    for (const name of names) conflictingParallels.add(name);
+  }
+  return Array.from(conflictingParallels).some((parallel) =>
+    parallel.split(" ").every((token) => titleText.includes(token)),
   );
 }
 
@@ -172,7 +232,7 @@ function titleScore(title: string, expected: InstaCompEbayBenchmarkExpectedIdent
   const text = normalized(title);
   const playerOptions = [expected.player, ...(expected.playerAliases || [])].map(normalized);
   const playerPass = playerOptions.some((player) => player && text.includes(player));
-  const numberPass = text.replace(/[^a-z0-9]/g, "").includes(compactCardNumber(expected.cardNumber));
+  const numberPass = titleHasExactCardNumber(title, expected.cardNumber);
   const yearPass = text.includes(normalized(expected.year));
   const setOptions = [expected.setName, ...(expected.setAliases || [])].map(normalized);
   const setPass = setOptions.some((setName) => setName && setName.split(" ").every((token) => text.includes(token)));
@@ -227,7 +287,14 @@ async function searchEbay(testCase: InstaCompEbayBenchmarkCase) {
       title: clean(item.title),
       score: titleScore(clean(item.title), testCase.expected),
     }))
-    .filter(({ item, title, score }) => item.itemId && title && !rejectedTitle(title) && score >= 65)
+    .filter(
+      ({ item, title, score }) =>
+        item.itemId &&
+        title &&
+        !rejectedTitle(title) &&
+        !titleConflictsWithExpectedParallel(title, testCase) &&
+        score >= 65,
+    )
     .sort((left, right) => right.score - left.score)
     .slice(0, MAX_CANDIDATES_TO_HYDRATE);
 
@@ -360,6 +427,33 @@ async function selectImageRoles(urls: string[]): Promise<ImageRoleSelection> {
   }
 }
 
+function imageTypeFromMagic(bytes: Uint8Array) {
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return "image/jpeg";
+  }
+  if (
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47 &&
+    bytes[4] === 0x0d &&
+    bytes[5] === 0x0a &&
+    bytes[6] === 0x1a &&
+    bytes[7] === 0x0a
+  ) {
+    return "image/png";
+  }
+  if (
+    bytes.length >= 12 &&
+    String.fromCharCode(...bytes.slice(0, 4)) === "RIFF" &&
+    String.fromCharCode(...bytes.slice(8, 12)) === "WEBP"
+  ) {
+    return "image/webp";
+  }
+  return null;
+}
+
 async function downloadImage(url: string, fileName: string) {
   const response = await fetch(url, {
     cache: "no-store",
@@ -369,18 +463,19 @@ async function downloadImage(url: string, fileName: string) {
   if (!response.ok) {
     throw new Error(`Could not download ${fileName} (${response.status}).`);
   }
-  const bytes = await response.arrayBuffer();
-  if (!bytes.byteLength || bytes.byteLength > MAX_IMAGE_BYTES) {
+  const buffer = await response.arrayBuffer();
+  if (!buffer.byteLength || buffer.byteLength > MAX_IMAGE_BYTES) {
     throw new Error(`${fileName} was empty or exceeded 12 MB.`);
   }
-  const reportedType = clean(response.headers.get("content-type")).split(";")[0].toLowerCase();
-  const inferredType = /\.png(?:\?|$)/i.test(url)
-    ? "image/png"
-    : /\.webp(?:\?|$)/i.test(url)
-      ? "image/webp"
-      : "image/jpeg";
-  const type = ALLOWED_IMAGE_TYPES.has(reportedType) ? reportedType : inferredType;
-  return new File([bytes], fileName, { type });
+  const bytes = new Uint8Array(buffer);
+  const type = imageTypeFromMagic(bytes);
+  if (!type || !ALLOWED_IMAGE_TYPES.has(type)) {
+    const reportedType = clean(response.headers.get("content-type")).split(";")[0].toLowerCase();
+    throw new Error(
+      `${fileName} was not a real JPEG, PNG, or WebP image (reported ${reportedType || "unknown"}).`,
+    );
+  }
+  return new File([buffer], fileName, { type });
 }
 
 function phrasePass(actual: unknown, options: Array<string | null | undefined>) {
@@ -618,7 +713,11 @@ function gradeScan(
       severity: "major",
       detail: "One or more exact sold/active providers failed during the real scan.",
     });
-  } else if (!Number(scan?.exactMarket?.soldCount || 0)) {
+  } else if (
+    !Number(
+      scan?.exactMarket?.pricingEligibleSoldCount ?? scan?.exactMarket?.soldCount ?? 0,
+    )
+  ) {
     weirdErrors.push({
       code: "ZERO_STRICT_EXACT_SOLD_COMPS",
       severity: "minor",
@@ -626,7 +725,12 @@ function gradeScan(
     });
   }
 
-  if (scan?.exactMarket?.trustedSuggestedPrice && !Number(scan?.exactMarket?.soldCount || 0)) {
+  if (
+    scan?.exactMarket?.trustedSuggestedPrice &&
+    !Number(
+      scan?.exactMarket?.pricingEligibleSoldCount ?? scan?.exactMarket?.soldCount ?? 0,
+    )
+  ) {
     weirdErrors.push({
       code: "UNSUPPORTED_PRICE_CREATED",
       severity: "critical",
@@ -665,18 +769,28 @@ function gradeScan(
 
 async function cleanupBenchmarkScan(scanId: unknown) {
   const id = clean(scanId);
-  const url = clean(process.env.NEXT_PUBLIC_SUPABASE_URL);
-  const key = clean(process.env.SUPABASE_SERVICE_ROLE_KEY);
   if (!id) return { status: "skipped", message: "No saved scan ID was returned." };
-  if (!url || !key) return { status: "error", message: "Supabase service-role cleanup is not configured." };
 
-  const supabase = createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  const { error } = await supabase.from("instacomp_scans").delete().eq("id", id);
-  return error
-    ? { status: "error", message: error.message }
-    : { status: "deleted", message: "Benchmark scan row removed after grading." };
+  try {
+    const supabase = createSupabaseServerClient({ admin: true });
+    const { error, count } = await supabase
+      .from("instacomp_scans")
+      .delete({ count: "exact" })
+      .eq("id", id);
+    if (error) return { status: "error", message: error.message };
+    if (count !== 1) {
+      return {
+        status: "error",
+        message: `Benchmark cleanup deleted ${count ?? 0} rows instead of exactly one.`,
+      };
+    }
+    return { status: "deleted", message: "Benchmark scan row removed after grading." };
+  } catch (error) {
+    return {
+      status: "error",
+      message: error instanceof Error ? error.message : "Unknown benchmark cleanup error.",
+    };
+  }
 }
 
 export async function GET(request: NextRequest) {

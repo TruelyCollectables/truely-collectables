@@ -9,6 +9,7 @@ import {
   normalizeInstaCompParallelForExactMatching,
 } from "../src/lib/instacomp-exact-market-provider";
 import { calculateInstaCompSweetSpot } from "../src/lib/instacomp-sweet-spot";
+import { mergeExactMarketSources } from "../src/lib/instacomp-live-pipeline";
 
 type FixtureCard = {
   id: string;
@@ -160,6 +161,112 @@ assert.equal(normalized[0].shippingPrice, 1.25);
 assert.equal(normalized[0].price, 7.25, "pricing evidence must use delivered cost");
 assert.equal(normalized[0].priceIncludesShipping, true);
 assert.equal(normalized[0].soldDate, "Jul 20, 2026");
+
+const seasonTarget: InstaCompAiResult = {
+  player: "Season Guard",
+  year: "2024-25",
+  brand: "Upper Deck",
+  setName: "Series 1",
+  cardNumber: "25",
+  parallel: "Base",
+  serialNumber: null,
+  team: "Test Team",
+  sport: "Hockey",
+  isRookie: false,
+  isAuto: false,
+  isRelic: false,
+  conditionGuess: "Raw",
+  confidence: 1,
+  notes: null,
+};
+assert.equal(
+  filterStrictExactMarketMatches(
+    [candidate("2024/25 Upper Deck Series 1 Season Guard #25", 10, 5000)],
+    seasonTarget,
+    10,
+  ).length,
+  1,
+  "a 2024/25 season must not be treated as a /25 print run",
+);
+const numberedTarget = { ...seasonTarget, serialNumber: "07/25" };
+assert.equal(
+  filterStrictExactMarketMatches(
+    [candidate("2024/25 Upper Deck Series 1 Season Guard #25", 10, 5001)],
+    numberedTarget,
+    10,
+  ).length,
+  0,
+  "a season written 2024/25 must not satisfy a true /25 serial gate",
+);
+
+const psaNine: InstaCompAiResult = {
+  ...seasonTarget,
+  player: "Grade Guard",
+  year: "1989",
+  brand: "Topps",
+  setName: "Topps",
+  cardNumber: "9",
+  gradingCompany: "PSA",
+  gradeValue: "9",
+  conditionGuess: "Graded",
+};
+assert.equal(
+  filterStrictExactMarketMatches(
+    [candidate("1989 Topps Grade Guard #9 PSA 10", 10, 5002)],
+    psaNine,
+    10,
+  ).length,
+  0,
+  "card #9 must never make a PSA 10 listing pass as PSA 9",
+);
+assert.equal(
+  filterStrictExactMarketMatches(
+    [candidate("1989 Topps Grade Guard #9 PSA 9", 10, 5003)],
+    psaNine,
+    10,
+  ).length,
+  1,
+  "the exact PSA 9 grade must still pass",
+);
+
+const shippingUnknown = {
+  ...candidate("2024-25 Upper Deck Series 1 Season Guard #25", 10, 5004),
+  matchScore: 100,
+  flags: ["strict exact identity", "shipping unknown"],
+  itemPrice: 10,
+  shippingPrice: null,
+  priceIncludesShipping: false,
+};
+const delivered = {
+  ...candidate("2024-25 Upper Deck Series 1 Season Guard #25", 12, 5005),
+  matchScore: 100,
+  flags: ["strict exact identity", "price includes reported shipping"],
+  itemPrice: 10,
+  shippingPrice: 2,
+  priceIncludesShipping: true,
+};
+const merged = mergeExactMarketSources([
+  {
+    sold: {
+      source: "fixture_sold",
+      label: "Fixture Sold",
+      status: "live",
+      message: null,
+      results: [delivered],
+    },
+    active: {
+      source: "fixture_active",
+      label: "Fixture Active",
+      status: "live",
+      message: null,
+      results: [shippingUnknown],
+    },
+  },
+]);
+assert.equal(merged.active.length, 1, "shipping-unknown exact active evidence must stay visible");
+assert.equal(merged.pricing.activeCount, 0, "shipping-unknown evidence must not enter pricing");
+assert.equal(merged.pricing.soldCount, 1, "delivered-price sold evidence must enter pricing");
+assert.ok(merged.trustedSuggestedPrice && merged.trustedSuggestedPrice > 0);
 
 const soldUrl = buildSerpApiEbayRequestUrl("exact card", "sold").toString();
 const activeUrl = buildSerpApiEbayRequestUrl("exact card", "active").toString();

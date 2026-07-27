@@ -209,10 +209,24 @@ function summarize(results, manifest, startedAt, completedAt) {
     Boolean(result.scan?.catalogEvidence),
   ).length;
   const exactSoldSupported = completed.filter(
-    (result) => Number(result.scan?.exactMarket?.soldCount || 0) > 0,
+    (result) =>
+      Number(
+        result.scan?.exactMarket?.pricingEligibleSoldCount ??
+          result.scan?.exactMarket?.soldCount ??
+          0,
+      ) > 0,
   ).length;
-  const trustedPrices = completed.filter((result) =>
-    Number.isFinite(Number(result.scan?.exactMarket?.trustedSuggestedPrice)),
+  const trustedPrices = completed.filter((result) => {
+    const price = Number(result.scan?.exactMarket?.trustedSuggestedPrice);
+    const soldCount = Number(
+      result.scan?.exactMarket?.pricingEligibleSoldCount ??
+        result.scan?.exactMarket?.soldCount ??
+        0,
+    );
+    return Number.isFinite(price) && price > 0 && soldCount > 0;
+  }).length;
+  const cleanupFailures = completed.filter(
+    (result) => result.cleanup?.status === "error",
   ).length;
   const providerErrors = completed.filter(
     (result) => result.scan?.exactMarket?.status === "provider_error",
@@ -264,6 +278,7 @@ function summarize(results, manifest, startedAt, completedAt) {
         : 0,
       trustedPriceCards: trustedPrices,
       providerErrorCards: providerErrors,
+      cleanupFailures,
       weakOrMislabeledSellerTitles: sellerTitleWeak,
       cardsWithCriticalErrors: criticalCards,
       cardsWithMajorErrors: majorCards,
@@ -302,7 +317,7 @@ function renderMarkdown(report) {
     "",
     "## Test design",
     "",
-    `- Target: ${report.requestedTarget} successfully scanned live eBay listings with a verified front/back image pair.`,
+    `- Target: ${report.requestedTarget} successfully scanned live eBay listings with a verified front/back image pair using the highest available eBay image resolution.`,
     "- Source listings: active eBay sports-card listings discovered through the official eBay Browse API.",
     "- Ground truth: official Upper Deck 2024-25 Series 1 manufacturer checklist records.",
     "- Scanner: the real InstaComp live route, including front/back vision, OCR, identity guard, consensus, TCOS catalog evidence, exact sold/active providers, diagnostics, and persistence cleanup.",
@@ -321,6 +336,7 @@ function renderMarkdown(report) {
     `- Strict exact sold support: **${s.exactSoldSupportedCards}/${s.completedCards}** (${percent(s.exactSoldSupportRate)})`,
     `- Trusted sold-backed prices: **${s.trustedPriceCards}/${s.completedCards}**`,
     `- Exact-market provider errors: **${s.providerErrorCards}**`,
+    `- Benchmark scan cleanup failures: **${s.cleanupFailures}**`,
     `- Weak or mislabeled seller titles: **${s.weakOrMislabeledSellerTitles}**`,
     `- Weird errors: **${s.totalWeirdErrors}** — ${s.criticalErrors} critical, ${s.majorErrors} major, ${s.minorErrors} minor`,
     "",
