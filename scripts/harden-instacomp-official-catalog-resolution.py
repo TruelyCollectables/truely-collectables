@@ -27,6 +27,9 @@ def main() -> None:
   const evidenceTokens = new Set(
     catalogTokens([input.setName, input.parallel, input.variation].filter(Boolean).join(" ")),
   );
+  const parallelEvidenceTokens = new Set(
+    catalogTokens([input.parallel, input.variation].filter(Boolean).join(" ")),
+  );
   const genericTokens = new Set([
     "base",
     "card",
@@ -77,7 +80,7 @@ def main() -> None:
         catalogTokens(parallel).filter((token) => !genericTokens.has(token)),
       )
       .filter((tokens) => tokens.length > 0)
-      .some((tokens) => tokens.every((token) => evidenceTokens.has(token)));
+      .some((tokens) => tokens.every((token) => parallelEvidenceTokens.has(token)));
   });
 
   if (matches.length !== 1) return null;
