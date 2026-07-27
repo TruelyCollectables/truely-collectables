@@ -72,7 +72,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: instacomp-round2-regression-${{ github.run_number }}
-          path: instacomp-round2-regression.log
+          path: |
+            instacomp-round2-regression.log
+            src/lib/instacomp-curated-checklist.ts
+            scripts/run-instacomp-exact-market-proof-regressions.ts
+            src/lib/instacomp-ebay-benchmark-cases.ts
           if-no-files-found: error
           retention-days: 30
 
