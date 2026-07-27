@@ -39,6 +39,7 @@ function comp(params: {
   lane: "sold" | "active";
   delivered?: boolean;
   shippingFlagOnly?: boolean;
+  discoveryOnly?: boolean;
 }): InstaCompComp {
   const delivered = params.delivered !== false;
   return {
@@ -49,15 +50,26 @@ function comp(params: {
     priceIncludesShipping: params.shippingFlagOnly ? undefined : delivered,
     currency: "USD",
     url: params.url,
-    imageUrl: "https://example.com/card.jpg",
-    source: params.lane === "sold" ? "test_sold" : "test_active",
+    imageUrl: "https://i.ebayimg.com/images/g/test/s-l1600.jpg",
+    source: params.discoveryOnly
+      ? params.lane === "sold"
+        ? "openai_web_ebay_sold_exact"
+        : "openai_web_ebay_active_exact"
+      : params.lane === "sold"
+        ? "test_sold"
+        : "test_active",
     sourceLabel: params.lane === "sold" ? "Test Sold" : "Test Active",
-    sourceCategory: params.lane === "sold" ? "sold" : "marketplace",
+    sourceCategory: params.discoveryOnly
+      ? "reference"
+      : params.lane === "sold"
+        ? "sold"
+        : "marketplace",
     matchScore: 100,
     flags: [
       "strict exact identity",
       "exact print run /50",
       ...(params.shippingFlagOnly ? ["shipping not reported"] : []),
+      ...(params.discoveryOnly ? ["not independently verified for pricing"] : []),
     ],
     soldAt: params.lane === "sold" ? "2026-07-20" : null,
     listedAt: params.lane === "active" ? "2026-07-21" : null,
@@ -128,6 +140,28 @@ assert.equal(
   "A SerpApi row flagged shipping not reported must not enter trusted pricing.",
 );
 
+const discoveryOnlySold = comp({
+  title,
+  price: 999,
+  url: "https://www.ebay.com/itm/discovery-only",
+  lane: "sold",
+  discoveryOnly: true,
+});
+assert.equal(
+  dedupeExactMarketComps([discoveryOnlySold]).length,
+  0,
+  "A direct-cited OpenAI discovery row must never enter trusted pricing.",
+);
+const discoveryOnlySummary = mergeExactMarketSources([
+  {
+    sold: provider("sold", [discoveryOnlySold]),
+    active: provider("active", []),
+  },
+]);
+assert.equal(discoveryOnlySummary.sold.length, 1, "Discovery evidence may remain visible.");
+assert.equal(discoveryOnlySummary.pricing.soldCount, 0);
+assert.equal(discoveryOnlySummary.trustedSuggestedPrice, null);
+
 const sold = [
   comp({ title, price: 20, url: "https://www.ebay.com/itm/1", lane: "sold" }),
   comp({ title, price: 24, url: "https://www.ebay.com/itm/2", lane: "sold" }),
@@ -161,6 +195,15 @@ const providerFailure = mergeExactMarketSources([
 assert.equal(providerFailure.status, "provider_error");
 assert.equal(providerFailure.trustedSuggestedPrice, null);
 
+const providerMissing = mergeExactMarketSources([
+  {
+    sold: provider("sold", [], "not_configured"),
+    active: provider("active", [], "not_configured"),
+  },
+]);
+assert.equal(providerMissing.status, "provider_error");
+assert.equal(providerMissing.trustedSuggestedPrice, null);
+
 console.log(
-  "InstaComp live-pipeline regressions passed: identity gating, exact comp dedupe, delivered-price enforcement, sold-backed pricing, active-only refusal, and provider failure handling.",
+  "InstaComp live-pipeline regressions passed: identity gating, exact comp dedupe, delivered-price enforcement, discovery-only exclusion, sold-backed pricing, active-only refusal, and provider failure handling.",
 );
