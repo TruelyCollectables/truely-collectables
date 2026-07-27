@@ -8,12 +8,15 @@ on:
       - "src/app/api/instacomp/benchmark/ebay-25/route.ts"
       - "src/app/api/instacomp/live-scan/route.ts"
       - "src/app/api/instacomp/scan/route.ts"
+      - "src/app/api/account/seller/inventory/instacomp/route.ts"
       - "src/lib/client-identity.ts"
       - "src/lib/instacomp-ebay-benchmark-cases.ts"
       - "src/lib/instacomp-curated-checklist.ts"
       - "src/lib/instacomp*.ts"
+      - "scripts/harden-instacomp-*.py"
       - "scripts/run-instacomp-ebay-25-benchmark.mjs"
       - "scripts/run-instacomp-ebay-25-through-vercel-curl.mjs"
+      - "scripts/run-instacomp-exact-market-proof-regressions.ts"
       - ".github/workflows/instacomp-ebay-25-benchmark.yml"
   pull_request:
     branches:
@@ -22,12 +25,15 @@ on:
       - "src/app/api/instacomp/benchmark/ebay-25/route.ts"
       - "src/app/api/instacomp/live-scan/route.ts"
       - "src/app/api/instacomp/scan/route.ts"
+      - "src/app/api/account/seller/inventory/instacomp/route.ts"
       - "src/lib/client-identity.ts"
       - "src/lib/instacomp-ebay-benchmark-cases.ts"
       - "src/lib/instacomp-curated-checklist.ts"
       - "src/lib/instacomp*.ts"
+      - "scripts/harden-instacomp-*.py"
       - "scripts/run-instacomp-ebay-25-benchmark.mjs"
       - "scripts/run-instacomp-ebay-25-through-vercel-curl.mjs"
+      - "scripts/run-instacomp-exact-market-proof-regressions.ts"
       - ".github/workflows/instacomp-ebay-25-benchmark.yml"
   workflow_dispatch:
 
@@ -35,183 +41,24 @@ permissions:
   contents: write
 
 concurrency:
-  group: instacomp-ebay-25-real-cards
+  group: instacomp-ebay-25-certification
   cancel-in-progress: true
 
 jobs:
   ebay-25-real-cards:
     runs-on: ubuntu-latest
-    timeout-minutes: 240
+    timeout-minutes: 300
     env:
       VERCEL_SCOPE: truelycollectables-projects
       VERCEL_PROJECT: truely-collectables
       INSTACOMP_BENCHMARK_TARGET: "25"
       INSTACOMP_BENCHMARK_CONCURRENCY: "2"
     steps:
-      - name: Check out benchmark branch
+      - name: Check out certification branch
         uses: actions/checkout@v4
         with:
           ref: agent/instacomp-exact-market-final-20260726
           fetch-depth: 0
-
-      - name: Harden benchmark source selection and image validation
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path("src/app/api/instacomp/benchmark/ebay-25/route.ts")
-          text = path.read_text()
-
-          old = '''function compactCardNumber(value: unknown) {
-  return normalized(value).replace(/[^a-z0-9]/g, "");
-}
-'''
-          new = '''function compactCardNumber(value: unknown) {
-  return normalized(value).replace(/[^a-z0-9]/g, "");
-}
-
-function titleHasExactCardNumber(title: string, cardNumber: string) {
-  const expected = compactCardNumber(cardNumber);
-  if (!expected) return false;
-
-  const escaped = clean(cardNumber)
-    .replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")
-    .replace(/[-\\s]+/g, "[-\\s]?");
-  const explicit = new RegExp(
-    `(?:#|card(?:\\s*(?:no\\.?|number))?)\\s*${escaped}(?![a-z0-9])`,
-    "i",
-  );
-  if (explicit.test(title)) return true;
-
-  const tokens = clean(title).match(/[a-z0-9]+(?:-[a-z0-9]+)*/gi) || [];
-  const disallowedPrevious = new Set([
-    "series",
-    "season",
-    "year",
-    "lot",
-    "qty",
-    "quantity",
-    "box",
-    "case",
-    "of",
-  ]);
-  return tokens.some((token, index) => {
-    if (compactCardNumber(token) !== expected) return false;
-    const previous = normalized(tokens[index - 1]);
-    if (disallowedPrevious.has(previous)) return false;
-    const start = Math.max(0, title.toLowerCase().indexOf(token.toLowerCase()) - 1);
-    if (title[start] === "/") return false;
-    return true;
-  });
-}
-'''
-          if old not in text:
-            raise SystemExit("compactCardNumber insertion point not found")
-          text = text.replace(old, new, 1)
-
-          old = '''function rejectedTitle(title: string) {
-  return /\\b(?:lot|team set|complete set|reprint|custom|digital|nft|break|you pick|choose your card|psa|bgs|sgc|cgc|graded|gem mint)\\b/i.test(
-    title,
-  );
-}
-'''
-          new = '''function rejectedTitle(title: string) {
-  return /\\b(?:lot|team set|complete set|reprint|custom|digital|nft|break|you pick|choose your card|psa|bgs|sgc|cgc|graded|gem mint|oversized|oversize|jumbo|mini|box topper|5x7|8x10|promo)\\b/i.test(
-    title,
-  );
-}
-'''
-          if old not in text:
-            raise SystemExit("rejectedTitle block not found")
-          text = text.replace(old, new, 1)
-
-          old = '''  const numberPass = text.replace(/[^a-z0-9]/g, "").includes(compactCardNumber(expected.cardNumber));
-'''
-          new = '''  const numberPass = titleHasExactCardNumber(title, expected.cardNumber);
-'''
-          if old not in text:
-            raise SystemExit("title card-number check not found")
-          text = text.replace(old, new, 1)
-
-          old = '''async function downloadImage(url: string, fileName: string) {
-  const response = await fetch(url, {
-    cache: "no-store",
-    headers: { "User-Agent": "TCOS-InstaComp-Benchmark/1.0" },
-    signal: AbortSignal.timeout(60_000),
-  });
-  if (!response.ok) {
-    throw new Error(`Could not download ${fileName} (${response.status}).`);
-  }
-  const bytes = await response.arrayBuffer();
-  if (!bytes.byteLength || bytes.byteLength > MAX_IMAGE_BYTES) {
-    throw new Error(`${fileName} was empty or exceeded 12 MB.`);
-  }
-  const reportedType = clean(response.headers.get("content-type")).split(";")[0].toLowerCase();
-  const inferredType = /\\.png(?:\\?|$)/i.test(url)
-    ? "image/png"
-    : /\\.webp(?:\\?|$)/i.test(url)
-      ? "image/webp"
-      : "image/jpeg";
-  const type = ALLOWED_IMAGE_TYPES.has(reportedType) ? reportedType : inferredType;
-  return new File([bytes], fileName, { type });
-}
-'''
-          new = '''function imageTypeFromMagic(bytes: Uint8Array) {
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
-    return "image/jpeg";
-  }
-  if (
-    bytes.length >= 8 &&
-    bytes[0] === 0x89 &&
-    bytes[1] === 0x50 &&
-    bytes[2] === 0x4e &&
-    bytes[3] === 0x47 &&
-    bytes[4] === 0x0d &&
-    bytes[5] === 0x0a &&
-    bytes[6] === 0x1a &&
-    bytes[7] === 0x0a
-  ) {
-    return "image/png";
-  }
-  if (
-    bytes.length >= 12 &&
-    String.fromCharCode(...bytes.slice(0, 4)) === "RIFF" &&
-    String.fromCharCode(...bytes.slice(8, 12)) === "WEBP"
-  ) {
-    return "image/webp";
-  }
-  return null;
-}
-
-async function downloadImage(url: string, fileName: string) {
-  const response = await fetch(url, {
-    cache: "no-store",
-    headers: { "User-Agent": "TCOS-InstaComp-Benchmark/1.0" },
-    signal: AbortSignal.timeout(60_000),
-  });
-  if (!response.ok) {
-    throw new Error(`Could not download ${fileName} (${response.status}).`);
-  }
-  const buffer = await response.arrayBuffer();
-  if (!buffer.byteLength || buffer.byteLength > MAX_IMAGE_BYTES) {
-    throw new Error(`${fileName} was empty or exceeded 12 MB.`);
-  }
-  const bytes = new Uint8Array(buffer);
-  const type = imageTypeFromMagic(bytes);
-  if (!type || !ALLOWED_IMAGE_TYPES.has(type)) {
-    const reportedType = clean(response.headers.get("content-type")).split(";")[0].toLowerCase();
-    throw new Error(
-      `${fileName} was not a real JPEG, PNG, or WebP image (reported ${reportedType || "unknown"}).`,
-    );
-  }
-  return new File([buffer], fileName, { type });
-}
-'''
-          if old not in text:
-            raise SystemExit("downloadImage block not found")
-          text = text.replace(old, new, 1)
-          path.write_text(text)
-          PY
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -219,16 +66,54 @@ async function downloadImage(url: string, fileName: string) {
           node-version: 22
           cache: npm
 
+      - name: Repair and validate hardening scripts
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("scripts/harden-instacomp-certification.py")
+          text = path.read_text()
+          text = text.replace(
+              "updated, count = re.subn(pattern, replacement, text, count=1, flags=flags)",
+              "updated, count = re.subn(pattern, lambda _match: replacement, text, count=1, flags=flags)",
+          )
+          path.write_text(text)
+          PY
+          python -m py_compile scripts/harden-instacomp-*.py
+
+      - name: Apply full InstaComp audit hardening
+        run: |
+          python scripts/harden-instacomp-ebay-benchmark.py
+          python scripts/harden-instacomp-benchmark-source.py
+          python scripts/harden-instacomp-benchmark-cleanup.py
+          python scripts/harden-instacomp-certification.py
+          python scripts/harden-instacomp-visual-proof.py
+          python scripts/harden-instacomp-benchmark-report.py
+          git diff --check
+
       - name: Install dependencies
         run: npm ci
 
-      - name: Validate hardened benchmark code
+      - name: Run exactness regressions three times
         run: |
-          git diff --check
+          node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
+          node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
+          node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
+
+      - name: Lint hardened InstaComp paths
+        run: |
           npx eslint \
             src/app/api/instacomp/benchmark/ebay-25/route.ts \
+            src/app/api/instacomp/live-scan/route.ts \
+            src/app/api/instacomp/scan/route.ts \
+            src/app/api/account/seller/inventory/instacomp/route.ts \
             src/lib/client-identity.ts \
+            src/lib/instacomp.ts \
+            src/lib/instacomp-live-pipeline.ts \
+            src/lib/instacomp-exact-market-provider.ts \
+            src/lib/instacomp-openai-web-market-provider.ts \
+            src/lib/instacomp-comp-visual-verification.ts \
             src/lib/instacomp-ebay-benchmark-cases.ts \
+            scripts/run-instacomp-exact-market-proof-regressions.ts \
             scripts/run-instacomp-ebay-25-benchmark.mjs \
             scripts/run-instacomp-ebay-25-through-vercel-curl.mjs
 
@@ -251,17 +136,29 @@ async function downloadImage(url: string, fileName: string) {
           TCOS_LIVE_SHIPPING_ENABLED: "false"
         run: npm run build
 
-      - name: Commit hardened benchmark route
+      - name: Commit validated hardening without retriggering CI
         run: |
-          if git diff --quiet -- src/app/api/instacomp/benchmark/ebay-25/route.ts; then
-            echo "Benchmark route already hardened."
-          else
-            git config user.name "OpenAI Audit Agent"
-            git config user.email "actions@users.noreply.github.com"
-            git add src/app/api/instacomp/benchmark/ebay-25/route.ts
-            git commit -m "Harden InstaComp eBay torture source validation"
-            git push origin HEAD:agent/instacomp-exact-market-final-20260726
+          if git diff --quiet; then
+            echo "No generated hardening changes remained to commit."
+            exit 0
           fi
+          git config user.name "OpenAI Audit Agent"
+          git config user.email "actions@users.noreply.github.com"
+          git add \
+            src/app/api/instacomp/benchmark/ebay-25/route.ts \
+            src/app/api/instacomp/live-scan/route.ts \
+            src/app/api/instacomp/scan/route.ts \
+            src/app/api/account/seller/inventory/instacomp/route.ts \
+            src/lib/instacomp.ts \
+            src/lib/instacomp-live-pipeline.ts \
+            src/lib/instacomp-exact-market-provider.ts \
+            src/lib/instacomp-openai-web-market-provider.ts \
+            src/lib/instacomp-comp-visual-verification.ts \
+            scripts/harden-instacomp-certification.py \
+            scripts/run-instacomp-exact-market-proof-regressions.ts \
+            scripts/run-instacomp-ebay-25-benchmark.mjs
+          git commit -m "Harden InstaComp certification gates [skip ci]"
+          git push origin HEAD:agent/instacomp-exact-market-final-20260726
 
       - name: Link Vercel project
         env:
@@ -280,7 +177,7 @@ async function downloadImage(url: string, fileName: string) {
           echo "INSTACOMP_BENCHMARK_TOKEN=$BENCHMARK_TOKEN" >> "$GITHUB_ENV"
           echo "INSTACOMP_BENCHMARK_ADMIN_SECRET=$BENCHMARK_ADMIN_SECRET" >> "$GITHUB_ENV"
 
-      - name: Deploy isolated preview benchmark
+      - name: Deploy isolated hardened preview
         id: deploy
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -297,28 +194,19 @@ async function downloadImage(url: string, fileName: string) {
           test -n "$PREVIEW_URL"
           echo "INSTACOMP_BENCHMARK_URL=$PREVIEW_URL" >> "$GITHUB_ENV"
           echo "preview_url=$PREVIEW_URL" >> "$GITHUB_OUTPUT"
-          echo "Preview benchmark deployment: $PREVIEW_URL"
 
-      - name: Verify preview benchmark endpoint through Vercel protection
+      - name: Verify hardened benchmark manifest
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          set +e
           npx vercel@latest curl \
             /api/instacomp/benchmark/ebay-25 \
             --deployment "$INSTACOMP_BENCHMARK_URL" \
             --header "Authorization: Bearer $INSTACOMP_BENCHMARK_TOKEN" \
             > benchmark-manifest.json 2> benchmark-manifest-error.txt
-          CURL_STATUS=$?
-          set -e
-          if [ "$CURL_STATUS" -ne 0 ]; then
-            cat benchmark-manifest-error.txt >&2
-            exit "$CURL_STATUS"
-          fi
-          node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("benchmark-manifest.json","utf8"));if(!p.ok||!Array.isArray(p.cases)||p.cases.length<25)throw new Error(`Benchmark manifest is not ready: ${JSON.stringify(p).slice(0,1000)}`);console.log(`Manifest ready: ${p.cases.length} official checklist cases`);'
+          node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("benchmark-manifest.json","utf8"));if(!p.ok||!Array.isArray(p.cases)||p.cases.length<25)throw new Error(`Manifest not ready: ${JSON.stringify(p).slice(0,1000)}`);'
 
-      - name: Run 25 real eBay cards through InstaComp — audit pass 1
-        id: benchmark_pass_1
+      - name: Run hardened 25-card audit pass 1
         continue-on-error: true
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -326,15 +214,14 @@ async function downloadImage(url: string, fileName: string) {
           INSTACOMP_BENCHMARK_REPORT_DIR: reports/pass-1
         run: node scripts/run-instacomp-ebay-25-through-vercel-curl.mjs
 
-      - name: Run 25 real eBay cards through InstaComp — audit pass 2
-        id: benchmark_pass_2
+      - name: Run hardened 25-card audit pass 2
         continue-on-error: true
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           INSTACOMP_PREVIEW_DEPLOYMENT_URL: ${{ steps.deploy.outputs.preview_url }}
         run: node scripts/run-instacomp-ebay-25-through-vercel-curl.mjs
 
-      - name: Summarize benchmark results
+      - name: Summarize hardened audit
         if: always()
         run: |
           node - <<'NODE'
@@ -343,35 +230,34 @@ async function downloadImage(url: string, fileName: string) {
             ["Pass 1", "reports/pass-1/instacomp-ebay-25-report.json"],
             ["Pass 2", "reports/instacomp-ebay-25-report.json"],
           ];
-          const lines = ["# InstaComp eBay 25-Card Double Audit", ""];
+          const lines = ["# InstaComp Hardened 25-Card Double Audit", ""];
           for (const [label, file] of reports) {
             if (!fs.existsSync(file)) {
-              lines.push(`## ${label}`, "No report file was produced.", "");
+              lines.push(`## ${label}`, "No report produced.", "");
               continue;
             }
             const report = JSON.parse(fs.readFileSync(file, "utf8"));
-            const summary = report.summary || {};
+            const s = report.summary || {};
             lines.push(
               `## ${label}`,
-              `Preview: ${report.previewUrl || "unknown"}`,
-              `Completed: ${summary.completedCards || 0}/${report.requestedTarget || 25}`,
-              `Target met: ${Boolean(summary.targetMet)}`,
-              `Average score: ${summary.averageScore ?? "n/a"}`,
-              `Catalog confirmed: ${summary.catalogIdentityConfirmed || 0}/${summary.completedCards || 0}`,
-              `Exact sold supported: ${summary.exactSoldSupportedCards || 0}/${summary.completedCards || 0}`,
-              `Trusted sold-backed prices: ${summary.trustedPriceCards || 0}/${summary.completedCards || 0}`,
-              `Weird errors: ${summary.totalWeirdErrors || 0} (${summary.criticalErrors || 0} critical, ${summary.majorErrors || 0} major, ${summary.minorErrors || 0} minor)`,
+              `Completed: ${s.completedCards || 0}/25`,
+              `Passed: ${s.passedCards || 0}/${s.completedCards || 0}`,
+              `Average identity score: ${s.averageScore ?? "n/a"}`,
+              `Critical-error cards: ${s.cardsWithCriticalErrors || 0}`,
+              `Exact sold supported: ${s.exactSoldSupportedCards || 0}`,
+              `Trusted sold-backed prices: ${s.trustedPriceCards || 0}`,
+              `Cleanup failures: ${s.cleanupFailures || 0}`,
               "",
             );
           }
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join("\n")}\n`);
           NODE
 
-      - name: Upload double-audit reports
+      - name: Upload hardened double-audit reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: instacomp-ebay-25-double-audit-${{ github.run_number }}
+          name: instacomp-ebay-25-hardened-double-audit-${{ github.run_number }}
           path: |
             reports/instacomp-ebay-25-report.json
             reports/instacomp-ebay-25-report.md
@@ -383,7 +269,7 @@ async function downloadImage(url: string, fileName: string) {
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Enforce two completed 25-card passes
+      - name: Enforce hardened audit completion and integrity
         if: always()
         run: |
           test -f reports/pass-1/instacomp-ebay-25-report.json
@@ -396,9 +282,18 @@ async function downloadImage(url: string, fileName: string) {
           ];
           for (const [label, file] of reports) {
             const report = JSON.parse(fs.readFileSync(file, "utf8"));
-            if (!report?.summary?.targetMet || Number(report?.summary?.completedCards || 0) < 25) {
-              throw new Error(`${label} incomplete: ${report?.summary?.completedCards || 0}/25 real cards completed.`);
+            const s = report.summary || {};
+            if (!s.targetMet || Number(s.completedCards || 0) < 25) {
+              throw new Error(`${label}: only ${s.completedCards || 0}/25 cards completed.`);
             }
-            console.log(`${label} complete: ${report.summary.completedCards}/25 real eBay cards.`);
+            const unsupported = (report.completed || []).filter((row) =>
+              (row.grade?.weirdErrors || []).some((error) => error.code === "UNSUPPORTED_PRICE_CREATED"),
+            );
+            if (unsupported.length) {
+              throw new Error(`${label}: ${unsupported.length} cards created an unsupported price.`);
+            }
+            if (Number(s.cleanupFailures || 0) > 0) {
+              throw new Error(`${label}: ${s.cleanupFailures} benchmark scan rows were not cleaned up.`);
+            }
           }
           NODE
