@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import InstaCompScanner from "./InstaCompScanner";
+import InstaCompBatchLiveScanner from "./InstaCompBatchLiveScanner";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +31,7 @@ async function getRecentScans(): Promise<ScanRow[]> {
   const { data, error } = await supabase
     .from("instacomp_scans")
     .select(
-      "id, created_at, player, year, brand, set_name, card_number, parallel, confidence, search_query, suggested_price, ebay_sold_url"
+      "id, created_at, player, year, brand, set_name, card_number, parallel, confidence, search_query, suggested_price, ebay_sold_url",
     )
     .order("created_at", { ascending: false })
     .limit(15);
@@ -55,7 +55,8 @@ function money(value: number | null) {
 
 function confidence(value: number | null) {
   if (value === null || value === undefined) return "—";
-  return `${Math.round(Number(value) * 100)}%`;
+  const normalized = Number(value) <= 1 ? Number(value) * 100 : Number(value);
+  return `${Math.round(normalized)}%`;
 }
 
 export default async function InstaCompAdminPage() {
@@ -65,21 +66,21 @@ export default async function InstaCompAdminPage() {
     <main
       style={{
         padding: 24,
-        maxWidth: 1200,
+        maxWidth: 1280,
         margin: "0 auto",
         background: "#f7f7f7",
         minHeight: "100vh",
       }}
     >
       <div style={{ marginBottom: 24 }}>
-        <h1 style={{ marginBottom: 4 }}>InstaComp™ Scan Lab</h1>
+        <h1 style={{ marginBottom: 4 }}>InstaComp™ Live Batch Scan Lab</h1>
         <p style={{ marginTop: 0, color: "#555" }}>
-          Run deterministic scanner and draft workflows before touching live
-          inventory.
+          Drag in many real front/back card images, verify every pair, and run the
+          real identity and strict exact-market pipeline for each card.
         </p>
       </div>
 
-      <InstaCompScanner testMode />
+      <InstaCompBatchLiveScanner />
 
       <section
         style={{
@@ -90,7 +91,7 @@ export default async function InstaCompAdminPage() {
           background: "white",
         }}
       >
-        <h2 style={{ marginTop: 0 }}>Recent InstaComp™ Scans</h2>
+        <h2 style={{ marginTop: 0 }}>Recent saved InstaComp™ scans</h2>
 
         {!recentScans.length ? (
           <p>No scans saved yet.</p>
@@ -101,10 +102,10 @@ export default async function InstaCompAdminPage() {
                 <tr style={{ textAlign: "left", borderBottom: "1px solid #ddd" }}>
                   <th style={th}>Date</th>
                   <th style={th}>Card</th>
-                  <th style={th}>Query</th>
-                  <th style={th}>Confidence</th>
-                  <th style={th}>Suggested</th>
-                  <th style={th}>Sold Search</th>
+                  <th style={th}>Exact query</th>
+                  <th style={th}>Identity confidence</th>
+                  <th style={th}>Sold-backed price</th>
+                  <th style={th}>Sold search</th>
                 </tr>
               </thead>
 
@@ -124,7 +125,7 @@ export default async function InstaCompAdminPage() {
                   return (
                     <tr key={scan.id} style={{ borderBottom: "1px solid #eee" }}>
                       <td style={td}>
-                        {new Date(scan.created_at).toLocaleString()}
+                        {new Date(scan.created_at).toLocaleString("en-US")}
                       </td>
                       <td style={td}>{title || "—"}</td>
                       <td style={td}>{scan.search_query || "—"}</td>
@@ -132,7 +133,7 @@ export default async function InstaCompAdminPage() {
                       <td style={td}>{money(scan.suggested_price)}</td>
                       <td style={td}>
                         {scan.ebay_sold_url ? (
-                          <a href={scan.ebay_sold_url} target="_blank">
+                          <a href={scan.ebay_sold_url} target="_blank" rel="noreferrer">
                             Open
                           </a>
                         ) : (

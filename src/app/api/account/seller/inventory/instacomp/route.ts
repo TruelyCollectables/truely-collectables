@@ -3,8 +3,19 @@ import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
 } from "../../../../../../lib/account-auth";
-import { normalizeListingImageUrls } from "../../../../../../lib/listing-image-utils";
+import {
+  buildInstaCompQueries,
+  type InstaCompAiResult,
+} from "../../../../../../lib/instacomp";
 import { verifyInstaCompCompetitionImages } from "../../../../../../lib/instacomp-comp-visual-verification";
+import { getExactEbayMarketProviders } from "../../../../../../lib/instacomp-exact-market-provider";
+import { getOpenAiExactEbayMarketProviders } from "../../../../../../lib/instacomp-openai-web-market-provider";
+import { calculateInstaCompSweetSpot } from "../../../../../../lib/instacomp-sweet-spot";
+import {
+  assertSafeInstaCompRemoteImageUrl,
+  sanitizeInstaCompProviderError,
+} from "../../../../../../lib/instacomp-provider-safety";
+import { normalizeListingImageUrls } from "../../../../../../lib/listing-image-utils";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 import { POST as runInstaCompScan } from "../../../../instacomp/scan/route";
@@ -17,18 +28,72 @@ const MAX_SOURCE_IMAGE_BYTES = 12 * 1024 * 1024;
 const MAX_TOTAL_SCAN_BYTES = 18 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
-function recordValue(value: unknown): Record<string, unknown> {
+type Evidence = {
+  title: string;
+  price: number;
+  itemPrice: number | null;
+  shippingPrice: number | null;
+  priceIncludesShipping: boolean;
+  currency: string;
+  url: string;
+  imageUrl: string | null;
+  source: string;
+  sourceLabel: string;
+  sourceCategory: string;
+  matchScore: number | null;
+  flags: string[];
+  soldAt: string | null;
+  listedAt: string | null;
+  observedAt: string | null;
+};
+
+function recordValue(value: unknown): Record<string, any> {
   return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
+    ? (value as Record<string, any>)
     : {};
 }
 
-function imageType(url: string, responseType: string | null) {
-  const normalized = String(responseType || "").split(";")[0].trim().toLowerCase();
-  if (ALLOWED_IMAGE_TYPES.has(normalized)) return normalized;
-  if (/\.png(?:\?|$)/i.test(url)) return "image/png";
-  if (/\.webp(?:\?|$)/i.test(url)) return "image/webp";
-  return "image/jpeg";
+function stringList(value: unknown) {
+  return Array.isArray(value)
+    ? value.map((entry) => String(entry || "").trim()).filter(Boolean).slice(0, 250)
+    : [];
+}
+
+function hasUsableStoredIdentity(ai: Record<string, unknown>) {
+  return Boolean(
+    String(ai.player || "").trim() &&
+      String(ai.year || "").trim() &&
+      String(ai.setName || ai.brand || "").trim() &&
+      String(ai.cardNumber || "").trim(),
+  );
+}
+
+function imageType(bytes: ArrayBuffer) {
+  const view = new Uint8Array(bytes);
+  if (view.length >= 3 && view[0] === 0xff && view[1] === 0xd8 && view[2] === 0xff) {
+    return "image/jpeg";
+  }
+  if (
+    view.length >= 8 &&
+    view[0] === 0x89 &&
+    view[1] === 0x50 &&
+    view[2] === 0x4e &&
+    view[3] === 0x47 &&
+    view[4] === 0x0d &&
+    view[5] === 0x0a &&
+    view[6] === 0x1a &&
+    view[7] === 0x0a
+  ) {
+    return "image/png";
+  }
+  if (
+    view.length >= 12 &&
+    String.fromCharCode(...view.slice(0, 4)) === "RIFF" &&
+    String.fromCharCode(...view.slice(8, 12)) === "WEBP"
+  ) {
+    return "image/webp";
+  }
+  return null;
 }
 
 function imageExtension(type: string) {
@@ -37,85 +102,171 @@ function imageExtension(type: string) {
   return "jpg";
 }
 
-function roundedPrice(value: unknown) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0
-    ? Math.round(parsed * 100) / 100
-    : 0;
-}
-
-function compactComp(value: any) {
-  const price = roundedPrice(value?.price);
-  const url = String(value?.url || "").trim();
-  if (!price || !url) return null;
-
-  return {
-    title: String(value?.title || "Untitled comp").slice(0, 300),
-    price,
-    currency: String(value?.currency || "USD").slice(0, 12),
-    url,
-    imageUrl: typeof value?.imageUrl === "string" ? value.imageUrl : null,
-    source: String(value?.source || "unknown").slice(0, 100),
-    sourceLabel: String(value?.sourceLabel || value?.source || "Source").slice(0, 120),
-    sourceCategory: String(value?.sourceCategory || "broad").slice(0, 40),
-    matchScore: Number.isFinite(Number(value?.matchScore))
-      ? Number(value.matchScore)
-      : null,
-    flags: Array.isArray(value?.flags)
-      ? value.flags.map((flag: unknown) => String(flag).slice(0, 120)).slice(0, 20)
-      : [],
-    soldAt: typeof value?.soldAt === "string" ? value.soldAt : null,
-    listedAt: typeof value?.listedAt === "string" ? value.listedAt : null,
-    observedAt: typeof value?.observedAt === "string" ? value.observedAt : null,
-  };
-}
-
-function compactCompList(values: unknown, limit = 20) {
-  if (!Array.isArray(values)) return [];
-  return values
-    .map(compactComp)
-    .filter((value): value is NonNullable<ReturnType<typeof compactComp>> => Boolean(value))
-    .slice(0, limit);
-}
-
-function isExcludedEvidence(comp: ReturnType<typeof compactComp>) {
-  return Boolean(
-    comp?.flags.some((flag: string) =>
-      /excluded|guidance comp|not used for pricing|parallel mismatch|not exact parallel/i.test(flag),
-    ),
-  );
-}
-
-function isOwnStoreCompetition(comp: ReturnType<typeof compactComp>) {
-  if (!comp) return true;
-  if (comp.source.toLowerCase() === "tcos_inventory") return true;
-  return comp.flags.some((flag: string) => /seller listing|own listing|store listing/i.test(flag));
-}
-
 async function downloadImage(url: string, index: number) {
-  const response = await fetch(url, {
+  const safeUrl = assertSafeInstaCompRemoteImageUrl(url);
+  const response = await fetch(safeUrl, {
+    redirect: "error",
     signal: AbortSignal.timeout(25_000),
-    headers: { "User-Agent": "TCOS-InstaComp/1.0" },
+    headers: { "User-Agent": "TCOS-InstaComp-ExactMarket/1.0" },
   });
-  if (!response.ok) {
-    throw new Error(`Image ${index + 1} returned HTTP ${response.status}.`);
+  if (!response.ok) throw new Error(`Image ${index + 1} returned HTTP ${response.status}.`);
+  const declaredBytes = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredBytes) && declaredBytes > MAX_SOURCE_IMAGE_BYTES) {
+    throw new Error(`Image ${index + 1} is larger than 12MB.`);
   }
   const bytes = await response.arrayBuffer();
   if (bytes.byteLength <= 0 || bytes.byteLength > MAX_SOURCE_IMAGE_BYTES) {
     throw new Error(`Image ${index + 1} is empty or larger than 12MB.`);
   }
-  const type = imageType(url, response.headers.get("content-type"));
-  return new File([bytes], `inventory-${index + 1}.${imageExtension(type)}`, {
-    type,
+  const type = imageType(bytes);
+  if (!type || !ALLOWED_IMAGE_TYPES.has(type)) {
+    throw new Error(`Image ${index + 1} was not a real JPEG, PNG, or WebP image.`);
+  }
+  return new File([bytes], `inventory-${index + 1}.${imageExtension(type)}`, { type });
+}
+
+function normalizedEvidence(value: unknown): Evidence | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  const price = Number(row.price);
+  const url = typeof row.url === "string" ? row.url.trim() : "";
+  if (!Number.isFinite(price) || price <= 0 || !url) return null;
+  return {
+    title: typeof row.title === "string" ? row.title : "Untitled listing",
+    price: Math.round(price * 100) / 100,
+    itemPrice:
+      Number.isFinite(Number(row.itemPrice)) && Number(row.itemPrice) > 0
+        ? Math.round(Number(row.itemPrice) * 100) / 100
+        : null,
+    shippingPrice:
+      Number.isFinite(Number(row.shippingPrice)) && Number(row.shippingPrice) >= 0
+        ? Math.round(Number(row.shippingPrice) * 100) / 100
+        : null,
+    priceIncludesShipping: row.priceIncludesShipping === true,
+    currency: typeof row.currency === "string" ? row.currency : "USD",
+    url,
+    imageUrl: typeof row.imageUrl === "string" ? row.imageUrl : null,
+    source: typeof row.source === "string" ? row.source : "unknown",
+    sourceLabel: typeof row.sourceLabel === "string" ? row.sourceLabel : "Unknown source",
+    sourceCategory: typeof row.sourceCategory === "string" ? row.sourceCategory : "broad",
+    matchScore: Number.isFinite(Number(row.matchScore)) ? Number(row.matchScore) : null,
+    flags: Array.isArray(row.flags) ? row.flags.map((flag) => String(flag)).slice(0, 20) : [],
+    soldAt: typeof row.soldAt === "string" ? row.soldAt : null,
+    listedAt: typeof row.listedAt === "string" ? row.listedAt : null,
+    observedAt: typeof row.observedAt === "string" ? row.observedAt : null,
+  };
+}
+
+function evidenceList(value: unknown, limit = 50) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map(normalizedEvidence)
+    .filter((row): row is Evidence => Boolean(row))
+    .slice(0, limit);
+}
+
+function dedupeEvidence(values: Evidence[], limit: number) {
+  const seen = new Set<string>();
+  return values
+    .filter((row) => {
+      if (seen.has(row.url)) return false;
+      seen.add(row.url);
+      return true;
+    })
+    .slice(0, limit);
+}
+
+function isExcludedEvidence(row: Evidence) {
+  return row.flags.some((flag) =>
+    /excluded|guidance comp|parallel mismatch|not exact parallel|visual mismatch|inconclusive|unavailable/i.test(
+      flag,
+    ),
+  );
+}
+
+function isPricingEligibleEvidence(row: Evidence, lane: "sold" | "active") {
+  if (
+    row.sourceCategory === "reference" ||
+    row.source.toLowerCase().startsWith("openai_web_") ||
+    row.flags.some((flag) =>
+      /not independently verified for pricing|discovery(?: only| candidate)?|not used for pricing/i.test(
+        flag,
+      ),
+    )
+  ) {
+    return false;
+  }
+  if (!row.priceIncludesShipping) return false;
+  if (!Number.isFinite(row.itemPrice) || Number(row.itemPrice) <= 0) return false;
+  if (!Number.isFinite(row.shippingPrice) || Number(row.shippingPrice) < 0) return false;
+  if (lane === "sold" && !row.soldAt) return false;
+  return true;
+}
+
+function forceImageVerification(values: Evidence[]) {
+  return values.map((row) => ({
+    ...row,
+    flags: Array.from(new Set([...row.flags, "guidance comp", "strict exact title awaiting image proof"])).slice(
+      0,
+      20,
+    ),
+  }));
+}
+
+function providerCoverageRow(provider: {
+  source: string;
+  label: string;
+  status: string;
+  message: string | null;
+  results: unknown[];
+  searchUrl?: string;
+  attempts?: unknown[];
+}) {
+  return {
+    source: provider.source,
+    label: provider.label,
+    status: provider.status,
+    resultCount: provider.results.length,
+    message: provider.message,
+    searchUrl: provider.searchUrl || null,
+    attempts: Array.isArray(provider.attempts) ? provider.attempts : [],
+  };
+}
+
+async function scanIdentity(params: {
+  request: NextRequest;
+  files: File[];
+  aiCouncilTier: string;
+}) {
+  const formData = new FormData();
+  formData.set("frontImage", params.files[0]);
+  if (params.files[1]) formData.set("backImage", params.files[1]);
+  for (const detail of params.files.slice(2, 8)) formData.append("detailImages", detail);
+  formData.set("aiCouncilTier", params.aiCouncilTier);
+  const authorization = params.request.headers.get("authorization") || "";
+  const scanRequest = new NextRequest("http://localhost/api/instacomp/scan", {
+    method: "POST",
+    headers: authorization ? { authorization } : undefined,
+    body: formData,
   });
+  const response = await runInstaCompScan(scanRequest);
+  const text = await response.text();
+  let scan: any;
+  try {
+    scan = JSON.parse(text);
+  } catch {
+    throw new Error(`InstaComp returned an unreadable response: ${text.slice(0, 300)}`);
+  }
+  if (!response.ok || scan?.ok !== true || !scan?.ai) {
+    throw new Error(scan?.error || "InstaComp could not identify this inventory item.");
+  }
+  return scan;
 }
 
 export async function POST(request: NextRequest) {
   try {
     const account = await getAuthenticatedAccountFromRequest(request);
-    if (!account) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (!account) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     await ensureAccountStoreMembership({
       accountId: account.id,
       role: "seller",
@@ -125,23 +276,18 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}));
     const inventoryItemId = String(body?.inventoryItemId || "").trim();
     if (!inventoryItemId) {
-      return NextResponse.json(
-        { error: "Choose a seller inventory item to scan." },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "Choose a seller inventory item to scan." }, { status: 400 });
     }
 
+    const scanStartedAt = Date.now();
     const supabase = createSupabaseServerClient({ admin: true });
     const storeId = getActiveStoreId();
     const isStoreOwnerAccount =
       account.email === "sales@truelycollectables.com" ||
       account.email === "sales@trulycollectables.com";
-
     let itemQuery = supabase
       .from("inventory_items")
-      .select(
-        "id,legacy_product_id,seller_account_id,sku,title,status,quantity,price,metadata",
-      )
+      .select("id,legacy_product_id,seller_account_id,sku,title,status,quantity,price,metadata")
       .eq("id", inventoryItemId)
       .eq("store_id", storeId);
     itemQuery = isStoreOwnerAccount
@@ -149,12 +295,7 @@ export async function POST(request: NextRequest) {
       : itemQuery.eq("seller_account_id", account.id);
     const { data: item, error: itemError } = await itemQuery.maybeSingle();
     if (itemError) throw itemError;
-    if (!item) {
-      return NextResponse.json(
-        { error: "Seller inventory item was not found." },
-        { status: 404 },
-      );
-    }
+    if (!item) return NextResponse.json({ error: "Seller inventory item was not found." }, { status: 404 });
 
     const [{ data: product, error: productError }, { data: imageRows, error: imageError }] =
       await Promise.all([
@@ -175,22 +316,27 @@ export async function POST(request: NextRequest) {
     if (productError) throw productError;
     if (imageError) throw imageError;
 
-    const metadata = recordValue(item.metadata);
+    let metadata = recordValue(item.metadata);
+    let currentInstaComp = recordValue(metadata.instacomp);
+    const storedAi = recordValue(currentInstaComp.ai);
+    const trustedStoredIdentity =
+      currentInstaComp.humanVerified === true || currentInstaComp.trustedForIdentity === true;
+    const useStoredIdentity =
+      body?.forceIdentityRescan !== true && trustedStoredIdentity && hasUsableStoredIdentity(storedAi);
+
     const sourceUrls = normalizeListingImageUrls([
       ...(imageRows || []).map((row: any) => row.image_url),
       product?.image_url,
       ...(Array.isArray(metadata.ebay_image_urls) ? metadata.ebay_image_urls : []),
     ]);
     if (!sourceUrls.length) {
-      return NextResponse.json(
-        { error: "This inventory item has no usable card images." },
-        { status: 409 },
-      );
+      return NextResponse.json({ error: "This inventory item has no usable card images." }, { status: 409 });
     }
 
     const files: File[] = [];
     let totalBytes = 0;
-    for (const [index, url] of sourceUrls.slice(0, 8).entries()) {
+    const imageLimit = useStoredIdentity ? 2 : 8;
+    for (const [index, url] of sourceUrls.slice(0, imageLimit).entries()) {
       try {
         const file = await downloadImage(url, index);
         if (totalBytes + file.size > MAX_TOTAL_SCAN_BYTES) break;
@@ -200,168 +346,195 @@ export async function POST(request: NextRequest) {
         if (index === 0) throw error;
       }
     }
-    if (!files.length) {
-      return NextResponse.json(
-        { error: "The primary listing image could not be downloaded." },
-        { status: 502 },
-      );
+    if (!files.length) throw new Error("The primary card image could not be downloaded.");
+
+    let ai: InstaCompAiResult;
+    let scanId: string | null = String(currentInstaComp.scanId || "").trim() || null;
+    let review: unknown = currentInstaComp.review || null;
+    let identitySource = "stored_human_verified_identity";
+    if (useStoredIdentity) {
+      ai = storedAi as InstaCompAiResult;
+    } else {
+      const scan = await scanIdentity({
+        request,
+        files,
+        aiCouncilTier: typeof body?.aiCouncilTier === "string" ? body.aiCouncilTier : "adaptive",
+      });
+      ai = scan.ai as InstaCompAiResult;
+      scanId = scan.scanId || null;
+      review = scan.review || null;
+      identitySource = "fresh_image_scan";
+      const { data: refreshedItem, error: refreshError } = await supabase
+        .from("inventory_items")
+        .select("metadata")
+        .eq("id", item.id)
+        .eq("store_id", storeId)
+        .maybeSingle();
+      if (refreshError) throw refreshError;
+      metadata = recordValue(refreshedItem?.metadata || metadata);
+      currentInstaComp = recordValue(metadata.instacomp);
     }
 
-    const formData = new FormData();
-    formData.set("frontImage", files[0]);
-    if (files[1]) formData.set("backImage", files[1]);
-    for (const detail of files.slice(2, 8)) formData.append("detailImages", detail);
-    formData.set(
-      "aiCouncilTier",
-      typeof body?.aiCouncilTier === "string" ? body.aiCouncilTier : "adaptive",
-    );
-
-    const authorization = request.headers.get("authorization") || "";
-    const scanRequest = new NextRequest("http://localhost/api/instacomp/scan", {
-      method: "POST",
-      headers: authorization ? { authorization } : undefined,
-      body: formData,
+    const fallbackQuery = buildInstaCompQueries(ai).primary;
+    const serpMarket = await getExactEbayMarketProviders({
+      exactTitle: item.title,
+      fallbackQuery,
+      ai,
     });
-    const scanResponse = await runInstaCompScan(scanRequest);
-    const scanText = await scanResponse.text();
-    let scan: any;
-    try {
-      scan = JSON.parse(scanText);
-    } catch {
-      return NextResponse.json(
-        {
-          error: "InstaComp returned an unreadable response.",
-          details: scanText.slice(0, 1000),
-        },
-        { status: 502 },
-      );
-    }
-    if (!scanResponse.ok || scan?.ok !== true) {
-      return NextResponse.json(
-        {
-          error: scan?.error || "InstaComp could not scan this inventory item.",
-          details: scan?.details || null,
-        },
-        { status: scanResponse.status || 500 },
-      );
-    }
+    const shouldSearchOpenAiWeb =
+      serpMarket.sold.results.length === 0 || serpMarket.active.results.length === 0;
+    const openAiMarket = shouldSearchOpenAiWeb
+      ? await getOpenAiExactEbayMarketProviders({
+          exactTitle: item.title,
+          ai,
+        })
+      : null;
+    const mergedSoldCandidates = dedupeEvidence(
+      [
+        ...evidenceList(serpMarket.sold.results, 50),
+        ...evidenceList(openAiMarket?.sold.results, 20),
+      ],
+      50,
+    );
+    const mergedActiveCandidates = dedupeEvidence(
+      [
+        ...evidenceList(serpMarket.active.results, 30),
+        ...evidenceList(openAiMarket?.active.results, 20),
+      ],
+      30,
+    );
+    const soldCandidates = forceImageVerification(mergedSoldCandidates);
+    const activeCandidates = forceImageVerification(mergedActiveCandidates);
+    const [soldReview, activeReview] = await Promise.all([
+      verifyInstaCompCompetitionImages({
+        targetFrontImage: files[0],
+        targetAi: ai,
+        candidates: soldCandidates,
+      }),
+      verifyInstaCompCompetitionImages({
+        targetFrontImage: files[0],
+        targetAi: ai,
+        candidates: activeCandidates,
+      }),
+    ]);
 
-    const providerCoverage = Array.isArray(scan?.providers)
-      ? scan.providers.map((provider: any) => ({
-          source: provider?.source || null,
-          label: provider?.label || null,
-          status: provider?.status || null,
-          resultCount: Array.isArray(provider?.results) ? provider.results.length : 0,
-          message: provider?.message || null,
-          searchUrl: typeof provider?.searchUrl === "string" ? provider.searchUrl : null,
-        }))
-      : [];
-    const failedProviders = providerCoverage.filter(
-      (provider: any) =>
-        provider.status === "error" || provider.status === "not_configured",
+    const excludedCompUrls = new Set(stringList(currentInstaComp.excludedCompUrls));
+    const acceptedSoldEvidence = dedupeEvidence(
+      evidenceList(soldReview.accepted, 50).filter(
+        (row) => row.sourceCategory === "sold" && !isExcludedEvidence(row),
+      ),
+      50,
+    ).filter((row) => !excludedCompUrls.has(row.url));
+    const activeCompetition = dedupeEvidence(
+      evidenceList(activeReview.accepted, 30).filter(
+        (row) =>
+          (row.sourceCategory === "marketplace" || row.sourceCategory === "auction") &&
+          !isExcludedEvidence(row),
+      ),
+      30,
+    ).filter((row) => !excludedCompUrls.has(row.url));
+    const soldCompEvidence = acceptedSoldEvidence.filter((row) =>
+      isPricingEligibleEvidence(row, "sold"),
+    );
+    const activePricingEvidence = activeCompetition.filter((row) =>
+      isPricingEligibleEvidence(row, "active"),
+    );
+    const pricingIneligibleExactEvidence = dedupeEvidence(
+      [
+        ...acceptedSoldEvidence.filter((row) => !isPricingEligibleEvidence(row, "sold")),
+        ...activeCompetition.filter((row) => !isPricingEligibleEvidence(row, "active")),
+      ],
+      60,
+    );
+    const rejectedCandidates = dedupeEvidence(
+      [...evidenceList(soldReview.rejected, 30), ...evidenceList(activeReview.rejected, 30)],
+      60,
     );
 
-    const soldCompEvidence = compactCompList(scan?.soldComps, 20).filter(
-      (comp) => comp.sourceCategory === "sold" && !isExcludedEvidence(comp),
-    );
-    const competitionCandidates = compactCompList(
-      Array.isArray(scan?.remainingCards) ? scan.remainingCards : scan?.activeComps,
-      20,
-    ).filter(
-      (comp) =>
-        (comp.sourceCategory === "marketplace" ||
-          comp.sourceCategory === "auction" ||
-          comp.source === "ebay_active") &&
-        !isOwnStoreCompetition(comp),
-    );
-    const visualCompetitionReview = await verifyInstaCompCompetitionImages({
-      targetFrontImage: files[0],
-      targetAi: scan.ai,
-      candidates: competitionCandidates,
+    const rawPricingAnalysis = calculateInstaCompSweetSpot({
+      sold: soldCompEvidence,
+      active: activePricingEvidence,
     });
-    const activeCompetition = visualCompetitionReview.accepted.filter(
-      (comp) =>
-        (comp.sourceCategory === "marketplace" || comp.sourceCategory === "auction") &&
-        !isExcludedEvidence(comp),
-    );
-    const rejectedCandidates = visualCompetitionReview.rejected;
-
-    const reliableSoldCompCount = soldCompEvidence.length;
-    const priceCandidate = roundedPrice(
-      scan?.soldStats?.suggestedPrice || scan?.soldStats?.median || 0,
-    );
-    const trustedForPricing = scan?.review?.trustedForPricing === true;
-    const hasReliableSoldComps =
-      trustedForPricing && reliableSoldCompCount > 0 && priceCandidate > 0;
-    const suggestedPrice = hasReliableSoldComps ? priceCandidate : 0;
+    const hasReliableSoldComps = rawPricingAnalysis.soldCount > 0;
+    const suggestedPrice = hasReliableSoldComps ? rawPricingAnalysis.suggestedPrice : 0;
+    const pricingAnalysis = { ...rawPricingAnalysis, suggestedPrice };
     const pricingStatus = hasReliableSoldComps
       ? "suggested_from_reliable_sold_comps"
       : "seller_price_required";
-    const providerFailureSummary = failedProviders
-      .slice(0, 3)
-      .map(
-        (provider: any) =>
-          provider.message || `${provider.label || provider.source || "Provider"} unavailable`,
-      )
-      .join("; ");
     const pricingReason = hasReliableSoldComps
-      ? `${reliableSoldCompCount} reliable exact sold comp${reliableSoldCompCount === 1 ? "" : "s"} passed identity and pricing trust checks. Active listings were not used to calculate this price.`
-      : providerFailureSummary
-        ? `No reliable sold-comp price was available. ${providerFailureSummary} Active listings are shown only as competition. Seller sets the price.`
-        : "No reliable sold comps passed the exact-card identity and pricing trust checks. Active listings are shown only as competition. Seller sets the price.";
-    const pricingCheckedAt = new Date().toISOString();
+      ? pricingAnalysis.explanation
+      : `${pricingAnalysis.explanation} InstaComp will not issue a suggested price without at least one image-verified exact sold listing.`;
+    const checkedAt = new Date().toISOString();
+    const providerCoverage = [
+      providerCoverageRow(serpMarket.sold),
+      providerCoverageRow(serpMarket.active),
+      ...(openAiMarket
+        ? [providerCoverageRow(openAiMarket.sold), providerCoverageRow(openAiMarket.active)]
+        : []),
+    ];
     const sourceLinks = {
-      ebaySoldUrl: typeof scan?.links?.ebaySoldUrl === "string" ? scan.links.ebaySoldUrl : null,
-      ebayActiveUrl:
-        typeof scan?.links?.ebayActiveUrl === "string" ? scan.links.ebayActiveUrl : null,
-      broadCardMarketUrl:
-        typeof scan?.links?.broadCardMarketUrl === "string"
-          ? scan.links.broadCardMarketUrl
-          : null,
+      ...recordValue(currentInstaComp.sourceLinks),
+      ebaySoldUrl: serpMarket.sold.searchUrl || null,
+      ebayActiveUrl: serpMarket.active.searchUrl || null,
     };
 
-    const existingInstaComp = recordValue(metadata.instacomp);
     const nextMetadata = {
       ...metadata,
       instacomp: {
-        ...existingInstaComp,
-        schema: "truely.instacompInventoryScan.v2",
-        source: "seller_inventory_action",
-        scanId: scan.scanId || null,
-        humanVerified: existingInstaComp.humanVerified === true,
-        trustedForIdentity:
-          scan?.consensus?.trustedForIdentity === true ||
-          scan?.review?.trustedForPricing === true,
-        hasBackImage: files.length >= 2,
+        ...currentInstaComp,
+        schema: "truely.instacompInventoryScan.v4",
+        source: "seller_inventory_exact_market_action",
+        scanId,
+        humanVerified: currentInstaComp.humanVerified === true,
+        trustedForIdentity: useStoredIdentity || currentInstaComp.trustedForIdentity === true,
+        identitySource,
+        hasBackImage: files.length >= 2 || currentInstaComp.hasBackImage === true,
+        ai,
+        review,
+        exactStoredTitleQuery: serpMarket.query,
+        exactMarketQueries: serpMarket.queries,
+        openAiWebMarket: openAiMarket
+          ? {
+              model: openAiMarket.model,
+              responseId: openAiMarket.responseId,
+              citedItemIds: openAiMarket.citedItemIds,
+              notes: openAiMarket.notes,
+              cached: openAiMarket.cached,
+            }
+          : null,
         marketPrice: suggestedPrice,
         suggestedPrice,
         pricingStatus,
         pricingReason,
-        reliableSoldCompCount: hasReliableSoldComps ? reliableSoldCompCount : 0,
-        pricingCheckedAt,
+        pricingAnalysis,
+        reliableSoldCompCount: hasReliableSoldComps ? pricingAnalysis.soldCount : 0,
+        pricingCheckedAt: checkedAt,
         trustedForPricing: hasReliableSoldComps,
-        listingPrice: existingInstaComp.listingPrice ?? null,
-        listingPriceSource: existingInstaComp.listingPriceSource ?? null,
-        ai: scan.ai,
-        review: scan.review || null,
-        providerCoverage,
         soldCompEvidence,
         activeCompetition,
         rejectedCandidates,
-        visualCompetitionReview: {
-          reviewedCount: visualCompetitionReview.reviewedCount,
-          titleOverrides: visualCompetitionReview.titleOverrides,
-          configured: visualCompetitionReview.configured,
-          model: visualCompetitionReview.model,
-        },
+        pricingIneligibleExactEvidence,
+        activePricingEvidenceCount: activePricingEvidence.length,
+        excludedCompUrls: Array.from(excludedCompUrls),
+        excludedCompEvidence: Array.isArray(currentInstaComp.excludedCompEvidence)
+          ? currentInstaComp.excludedCompEvidence
+          : [],
+        providerCoverage,
         sourceLinks,
-        searchQuery: scan.searchQuery || null,
-        scannedAt: pricingCheckedAt,
+        exactMarketVisualReview: {
+          soldReviewed: soldReview.reviewedCount,
+          activeReviewed: activeReview.reviewedCount,
+          soldTitleOverrides: soldReview.titleOverrides,
+          activeTitleOverrides: activeReview.titleOverrides,
+          configured: soldReview.configured && activeReview.configured,
+          model: soldReview.model,
+        },
+        scannedAt: checkedAt,
       },
     };
     const { error: updateError } = await supabase
       .from("inventory_items")
-      .update({ metadata: nextMetadata, updated_at: pricingCheckedAt })
+      .update({ metadata: nextMetadata, updated_at: checkedAt })
       .eq("id", item.id)
       .eq("store_id", storeId);
     if (updateError) throw updateError;
@@ -371,33 +544,51 @@ export async function POST(request: NextRequest) {
       inventoryItemId: item.id,
       sku: item.sku,
       title: item.title,
-      scanId: scan.scanId || null,
-      ai: scan.ai,
-      review: scan.review || null,
+      scanId,
+      ai,
+      review,
+      identitySource,
       suggestedPrice,
       pricingStatus,
       pricingReason,
+      pricingAnalysis,
       trustedForPricing: hasReliableSoldComps,
-      exactCompCount: reliableSoldCompCount,
-      reliableSoldCompCount: hasReliableSoldComps ? reliableSoldCompCount : 0,
+      exactCompCount: hasReliableSoldComps ? pricingAnalysis.soldCount : 0,
+      reliableSoldCompCount: hasReliableSoldComps ? pricingAnalysis.soldCount : 0,
       soldCompEvidence,
       activeCompetition,
       rejectedCandidates,
-      visualCompetitionReview: {
-        reviewedCount: visualCompetitionReview.reviewedCount,
-        titleOverrides: visualCompetitionReview.titleOverrides,
-        configured: visualCompetitionReview.configured,
-        model: visualCompetitionReview.model,
-      },
+      pricingIneligibleExactEvidence,
+      activePricingEvidenceCount: activePricingEvidence.length,
       sourceLinks,
       providerCoverage,
-      providerProblems: failedProviders,
+      providerProblems: providerCoverage.filter(
+        (row) => row.status === "error" || row.status === "not_configured",
+      ),
+      exactMarketQueries: serpMarket.queries,
+      openAiWebMarket: openAiMarket
+        ? {
+            model: openAiMarket.model,
+            responseId: openAiMarket.responseId,
+            citedItemIds: openAiMarket.citedItemIds,
+            notes: openAiMarket.notes,
+            cached: openAiMarket.cached,
+          }
+        : null,
+      exactMarketVisualReview: {
+        soldReviewed: soldReview.reviewedCount,
+        activeReviewed: activeReview.reviewedCount,
+        soldTitleOverrides: soldReview.titleOverrides,
+        activeTitleOverrides: activeReview.titleOverrides,
+      },
+      fastLane: useStoredIdentity,
+      durationMs: Date.now() - scanStartedAt,
       imageCountUsed: files.length,
     });
   } catch (error: any) {
     return NextResponse.json(
       {
-        error: error?.message || "Seller inventory InstaComp scan failed.",
+        error: sanitizeInstaCompProviderError(error?.message || "Seller inventory InstaComp exact-market scan failed."),
         code: error?.code || null,
       },
       { status: 500 },

@@ -35,6 +35,9 @@ function evidenceList(value: unknown) {
       return {
         title: textValue(row.title) || "Untitled listing",
         price: optionalPrice(row.price) || 0,
+        itemPrice: optionalPrice(row.itemPrice),
+        shippingPrice: optionalPrice(row.shippingPrice),
+        priceIncludesShipping: row.priceIncludesShipping === true,
         currency: textValue(row.currency) || "USD",
         url: textValue(row.url),
         imageUrl: textValue(row.imageUrl),
@@ -70,6 +73,9 @@ function providerCoverageList(value: unknown) {
         resultCount: Math.max(0, Number(row.resultCount || 0)),
         message: textValue(row.message),
         searchUrl: textValue(row.searchUrl),
+        queryAttempts: Array.isArray(row.queryAttempts)
+          ? row.queryAttempts.map((query) => String(query)).slice(0, 10)
+          : [],
       };
     });
 }

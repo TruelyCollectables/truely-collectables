@@ -1,4 +1,8 @@
 import type { InstaCompAiResult } from "./instacomp";
+import {
+  assertSafeInstaCompRemoteImageUrl,
+  sanitizeInstaCompProviderError,
+} from "./instacomp-provider-safety";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const VISUAL_MODEL =
@@ -6,7 +10,8 @@ const VISUAL_MODEL =
   process.env.INSTACOMP_OPENAI_FALLBACK_MODEL ||
   "gpt-4.1-mini";
 const MAX_REMOTE_IMAGE_BYTES = 5 * 1024 * 1024;
-const MAX_VISUAL_CANDIDATES = 8;
+const MAX_VISUAL_CANDIDATES = 6;
+const VISUAL_REVIEW_CONCURRENCY = 2;
 
 type CandidateCategory = string;
 
@@ -21,9 +26,9 @@ export type InstaCompVisualCandidate = {
   sourceCategory: CandidateCategory;
   matchScore: number | null;
   flags: string[];
-  soldAt: string | null;
-  listedAt: string | null;
-  observedAt: string | null;
+  soldAt?: string | null;
+  listedAt?: string | null;
+  observedAt?: string | null;
 };
 
 type VisualVerdict = {
@@ -45,8 +50,38 @@ function parseJsonText(value: string) {
   return JSON.parse(candidate.slice(start, end + 1));
 }
 
+function detectedImageMime(bytes: ArrayBuffer) {
+  const view = new Uint8Array(bytes);
+  if (view.length >= 3 && view[0] === 0xff && view[1] === 0xd8 && view[2] === 0xff) {
+    return "image/jpeg";
+  }
+  if (
+    view.length >= 8 &&
+    view[0] === 0x89 &&
+    view[1] === 0x50 &&
+    view[2] === 0x4e &&
+    view[3] === 0x47 &&
+    view[4] === 0x0d &&
+    view[5] === 0x0a &&
+    view[6] === 0x1a &&
+    view[7] === 0x0a
+  ) {
+    return "image/png";
+  }
+  if (
+    view.length >= 12 &&
+    String.fromCharCode(...view.slice(0, 4)) === "RIFF" &&
+    String.fromCharCode(...view.slice(8, 12)) === "WEBP"
+  ) {
+    return "image/webp";
+  }
+  return null;
+}
+
 function dataUrlFromBytes(bytes: ArrayBuffer, contentType: string | null) {
-  const mime = String(contentType || "image/jpeg").split(";")[0].trim() || "image/jpeg";
+  void contentType;
+  const mime = detectedImageMime(bytes);
+  if (!mime) throw new Error("Image bytes were not a real JPEG, PNG, or WebP file.");
   return `data:${mime};base64,${Buffer.from(bytes).toString("base64")}`;
 }
 
@@ -55,11 +90,17 @@ async function fileToDataUrl(file: File) {
 }
 
 async function remoteImageToDataUrl(url: string) {
-  const response = await fetch(url, {
+  const safeUrl = assertSafeInstaCompRemoteImageUrl(url, { ebayOnly: true });
+  const response = await fetch(safeUrl, {
+    redirect: "error",
     signal: AbortSignal.timeout(15_000),
     headers: { "User-Agent": "TCOS-InstaComp-VisualVerifier/1.0" },
   });
   if (!response.ok) throw new Error(`Candidate image returned HTTP ${response.status}.`);
+  const declaredBytes = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredBytes) && declaredBytes > MAX_REMOTE_IMAGE_BYTES) {
+    throw new Error("Candidate image was larger than 5MB.");
+  }
   const bytes = await response.arrayBuffer();
   if (!bytes.byteLength || bytes.byteLength > MAX_REMOTE_IMAGE_BYTES) {
     throw new Error("Candidate image was empty or larger than 5MB.");
@@ -68,16 +109,23 @@ async function remoteImageToDataUrl(url: string) {
 }
 
 function requiresVisualVerification(candidate: InstaCompVisualCandidate) {
+  if (
+    candidate.flags.some((flag) =>
+      /awaiting image proof|guidance comp|not used for pricing/i.test(flag),
+    )
+  ) {
+    return true;
+  }
   if (candidate.flags.some((flag) => /deterministic exact identity/i.test(flag))) return false;
   return candidate.flags.some((flag) =>
-    /parallel mismatch|not exact parallel|guidance comp|not used for pricing/i.test(flag),
+    /parallel mismatch|not exact parallel/i.test(flag),
   );
 }
 
 function cleanedExactFlags(candidate: InstaCompVisualCandidate, verdict: VisualVerdict) {
   const flags = candidate.flags.filter(
     (flag) =>
-      !/parallel mismatch|not exact parallel|guidance comp|not used for pricing/i.test(flag),
+      !/parallel mismatch|not exact parallel|guidance comp|awaiting image proof/i.test(flag),
   );
   flags.push("listing image verified exact parallel");
   flags.push(`visual evidence: ${verdict.reason}`.slice(0, 120));
@@ -95,13 +143,21 @@ function rejectedFlags(candidate: InstaCompVisualCandidate, verdict: VisualVerdi
     );
   } else {
     flags.push(
-      `visual verification unavailable: ${error instanceof Error ? error.message : "unknown error"}`,
+      `visual verification unavailable: ${sanitizeInstaCompProviderError(
+        error instanceof Error ? error.message : "unknown error",
+      )}`,
     );
   }
   return Array.from(new Set(flags.map((flag) => flag.slice(0, 120)))).slice(0, 20);
 }
 
 function inferredExactCategory(candidate: InstaCompVisualCandidate) {
+  if (
+    /^openai_web_/i.test(candidate.source) ||
+    candidate.flags.some((flag) => /not independently verified for pricing/i.test(flag))
+  ) {
+    return "reference";
+  }
   if (candidate.source === "ebay_active") return "marketplace";
   if (/sold/i.test(candidate.sourceLabel)) return "sold";
   return candidate.sourceCategory;
@@ -137,10 +193,10 @@ async function verifyOneCandidate(params: {
                 "You are the TCOS image-first exact-card referee.",
                 "Compare TARGET CARD IMAGE with CANDIDATE LISTING IMAGE.",
                 "Seller titles are untrusted claims. The card images are ground truth.",
-                "Judge the exact parallel/variation, especially color and printed pattern.",
+                "Judge the complete exact card identity: player, year/product, card number, parallel/variation, serial print-run denominator, autograph/relic state, raw/graded state, grading company, and grade. Color and printed pattern are necessary but not sufficient.",
                 "Return JSON only with verdict, confidence, targetParallel, candidateParallel, titleImageConflict, reason.",
                 "verdict must be exact_visual_match, wrong_parallel, or uncertain.",
-                "Use exact_visual_match only when the candidate image shows the same exact parallel/variation as the target image.",
+                "Use exact_visual_match only when every identity field visible in both images agrees. Any wrong player, card number, product, parallel, print run, autograph/relic state, grader, or grade must be wrong_parallel or uncertain.",
                 "If the image matches but the seller title names another color, use exact_visual_match and titleImageConflict=true.",
                 `TARGET IDENTITY: ${JSON.stringify({
                   player: params.targetAi.player,
@@ -167,7 +223,11 @@ async function verifyOneCandidate(params: {
   });
 
   const responseText = await response.text();
-  if (!response.ok) throw new Error(`Visual verifier returned HTTP ${response.status}: ${responseText.slice(0, 300)}`);
+  if (!response.ok) {
+    throw new Error(
+      sanitizeInstaCompProviderError(`Visual verifier returned HTTP ${response.status}: ${responseText}`),
+    );
+  }
   const payload = JSON.parse(responseText);
   const parsed = parseJsonText(String(payload?.choices?.[0]?.message?.content || ""));
   const confidence = Number(parsed?.confidence);
@@ -193,61 +253,91 @@ export async function verifyInstaCompCompetitionImages(params: {
   targetAi: InstaCompAiResult;
   candidates: InstaCompVisualCandidate[];
 }) {
-  const accepted: InstaCompVisualCandidate[] = [];
-  const rejected: InstaCompVisualCandidate[] = [];
+  const indexedAccepted: Array<{ index: number; row: InstaCompVisualCandidate }> = [];
+  const indexedRejected: Array<{ index: number; row: InstaCompVisualCandidate }> = [];
   const targetDataUrl = await fileToDataUrl(params.targetFrontImage);
+  let nextIndex = 0;
   let reviewedCount = 0;
   let titleOverrides = 0;
 
-  for (const candidate of params.candidates) {
-    if (!requiresVisualVerification(candidate)) {
-      accepted.push(candidate);
-      continue;
-    }
+  async function worker() {
+    while (true) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= params.candidates.length) return;
+      const candidate = params.candidates[index];
 
-    if (reviewedCount >= MAX_VISUAL_CANDIDATES) {
-      rejected.push({
-        ...candidate,
-        flags: [...candidate.flags, "visual review cap reached"].slice(0, 20),
-      });
-      continue;
-    }
+      if (!requiresVisualVerification(candidate)) {
+        indexedAccepted.push({ index, row: candidate });
+        continue;
+      }
 
-    reviewedCount += 1;
-    try {
-      const verdict = await verifyOneCandidate({
-        targetDataUrl,
-        targetAi: params.targetAi,
-        candidate,
-      });
-      if (verdict.verdict === "exact_visual_match" && verdict.confidence >= 0.78) {
-        if (verdict.titleImageConflict) titleOverrides += 1;
-        accepted.push({
-          ...candidate,
-          sourceCategory: inferredExactCategory(candidate),
-          matchScore:
-            candidate.matchScore === null
-              ? 25
-              : Math.max(0, candidate.matchScore + 150) + 25,
-          flags: cleanedExactFlags(candidate, verdict),
+      if (reviewedCount >= MAX_VISUAL_CANDIDATES) {
+        indexedRejected.push({
+          index,
+          row: {
+            ...candidate,
+            flags: [...candidate.flags, "visual review cap reached"].slice(0, 20),
+          },
         });
-      } else {
-        rejected.push({
-          ...candidate,
-          flags: rejectedFlags(candidate, verdict),
+        continue;
+      }
+
+      reviewedCount += 1;
+      try {
+        const verdict = await verifyOneCandidate({
+          targetDataUrl,
+          targetAi: params.targetAi,
+          candidate,
+        });
+        if (verdict.verdict === "exact_visual_match" && verdict.confidence >= 0.85) {
+          if (verdict.titleImageConflict) titleOverrides += 1;
+          indexedAccepted.push({
+            index,
+            row: {
+              ...candidate,
+              sourceCategory: inferredExactCategory(candidate),
+              matchScore:
+                candidate.matchScore === null
+                  ? 25
+                  : Math.max(0, candidate.matchScore + 150) + 25,
+              flags: cleanedExactFlags(candidate, verdict),
+            },
+          });
+        } else {
+          indexedRejected.push({
+            index,
+            row: { ...candidate, flags: rejectedFlags(candidate, verdict) },
+          });
+        }
+      } catch (error) {
+        indexedRejected.push({
+          index,
+          row: { ...candidate, flags: rejectedFlags(candidate, null, error) },
         });
       }
-    } catch (error) {
-      rejected.push({
-        ...candidate,
-        flags: rejectedFlags(candidate, null, error),
-      });
     }
   }
 
+  await Promise.all(
+    Array.from(
+      {
+        length: Math.min(
+          VISUAL_REVIEW_CONCURRENCY,
+          Math.max(1, params.candidates.length),
+        ),
+      },
+      () => worker(),
+    ),
+  );
+
   return {
-    accepted,
-    rejected,
+    accepted: indexedAccepted
+      .sort((left, right) => left.index - right.index)
+      .map((entry) => entry.row),
+    rejected: indexedRejected
+      .sort((left, right) => left.index - right.index)
+      .map((entry) => entry.row),
     reviewedCount,
     titleOverrides,
     configured: Boolean(OPENAI_API_KEY),

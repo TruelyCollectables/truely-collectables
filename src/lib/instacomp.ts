@@ -42,6 +42,9 @@ export type InstaCompProviderStatus =
 export type InstaCompComp = {
   title: string;
   price: number;
+  itemPrice?: number | null;
+  shippingPrice?: number | null;
+  priceIncludesShipping?: boolean;
   currency: string;
   url: string;
   imageUrl: string | null;
@@ -188,6 +191,86 @@ function normalizeCardNumber(value: string | null | undefined) {
   return String(value).toLowerCase().replace("#", "").trim();
 }
 
+function stripSeasonRanges(value: string) {
+  return String(value || "").replace(
+    /\b(?:19|20)\d{2}\s*[-/]\s*\d{2,4}\b/g,
+    " ",
+  );
+}
+
+function canonicalSeason(value: string | null | undefined) {
+  const normalized = normalizeText(value);
+  const match = normalized.match(
+    /\b((?:19|20)\d{2})\s*[-/]\s*(\d{2,4})\b/,
+  );
+  if (!match) return normalized;
+  const start = match[1];
+  const rawEnd = match[2];
+  const end = rawEnd.length === 2 ? `${start.slice(0, 2)}${rawEnd}` : rawEnd;
+  return `${start}-${end}`;
+}
+
+function titleHasYear(title: string, value: string | null | undefined) {
+  const target = canonicalSeason(value);
+  if (!target) return false;
+  if (/^(?:19|20)\d{2}$/.test(target)) {
+    return new RegExp(`(?:^|[^0-9])${target}(?:$|[^0-9])`).test(
+      normalizeText(title),
+    );
+  }
+  return canonicalSeason(title) === target;
+}
+
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function titleHasExactCardNumber(
+  title: string,
+  value: string | null | undefined,
+) {
+  const cardNumber = normalizeCardNumber(value);
+  if (!cardNumber) return false;
+
+  const flexible = escapeRegex(cardNumber).replace(/\\-/g, "[-\\s]?");
+  const explicit = new RegExp(
+    `(?:#|card\\s*(?:no\\.?|number)?|no\\.?)\\s*${flexible}(?![a-z0-9])`,
+    "i",
+  );
+  if (explicit.test(title)) return true;
+
+  const stripped = stripSeasonRanges(normalizeText(title));
+  if (/[a-z]/i.test(cardNumber)) {
+    return new RegExp(`(?:^|[^a-z0-9])${flexible}(?:$|[^a-z0-9])`, "i").test(
+      stripped,
+    );
+  }
+
+  const number = Number(cardNumber);
+  if (!Number.isFinite(number) || number <= 10) return false;
+  return new RegExp(`(?:^|[^0-9])${escapeRegex(cardNumber)}(?:$|[^0-9])`).test(
+    stripped,
+  );
+}
+
+function numericGrade(value: string | null | undefined) {
+  const match = String(value || "").match(/\b(10|[0-9](?:\.[0-9])?)\b/);
+  return match ? Number(match[1]) : null;
+}
+
+function graderGradesFromTitle(title: string, grader: string) {
+  if (!grader) return [] as number[];
+  const normalizedTitle = normalizeText(title);
+  const graderPattern = escapeRegex(grader).replace(/\\s+/g, "\\s*");
+  const pattern = new RegExp(
+    `(?:^|\\s)${graderPattern}\\s*(?:(?:gem|near|nm|mint|pristine|mt|ex)\\s*)*(10|[0-9](?:\\.[0-9])?)\\b`,
+    "gi",
+  );
+  return Array.from(normalizedTitle.matchAll(pattern))
+    .map((match) => Number(match[1]))
+    .filter((value) => Number.isFinite(value));
+}
+
 function normalizeSerialNumber(value: string | null | undefined) {
   if (!value) return "";
 
@@ -241,13 +324,13 @@ function serialRunDenominator(value: string | null | undefined) {
 }
 
 function serialRunDenominatorFromTitle(title: string) {
-  const normalized = normalizeText(title)
-    .replace(/\bone\s+of\s+one\b/g, "1/1")
-    .replace(/\b1\s+of\s+1\b/g, "1/1");
-  const match =
-    normalized.match(/(?:\d+\s*\/\s*|\/\s*|of\s+)(\d{1,4})(?!\d)/i) ||
-    normalized.match(/numbered\s*(?:to|\/)\s*(\d{1,4})(?!\d)/i);
-  const denominator = match ? Number(match[1]) : NaN;
+  const normalized = stripSeasonRanges(
+    normalizeText(title)
+      .replace(/\bone\s+of\s+one\b/g, "1/1")
+      .replace(/\b1\s+of\s+1\b/g, "1/1"),
+  );
+  const parsed = extractInstaCompSerialNumber(normalized);
+  const denominator = Number(parsed?.denominator);
 
   return Number.isFinite(denominator) && denominator > 0 ? denominator : null;
 }
@@ -260,16 +343,34 @@ function serialRunAdjustmentFactor(targetDenominator: number, compDenominator: n
   return Math.max(0.4, Math.min(3, raw));
 }
 
+function normalizedParallelDescriptor(value: string | null | undefined) {
+  let normalized = normalizeText(value).replace(/\s*&\s*/g, " and ");
+  if (!normalized || isUncertainParallel(value)) return "";
+
+  normalized = normalized
+    .replace(/\b(?:serial(?:ly)?[-\s]?numbered|numbered)\b(?:\s*(?:to|\/))?\s*\d{1,6}\b/g, " ")
+    .replace(/\b\d{1,6}\s*\/\s*\d{1,6}\b/g, " ")
+    .replace(/(?:^|\s)\/\s*\d{1,6}\b/g, " ")
+    .replace(/\bbase\b/g, " ")
+    .replace(/\b(?:memorabilia|relic|autograph|auto)\s+issue\b/g, " ")
+    .replace(/\bissue\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (["standard", "standard card", "regular", "regular card", "card"].includes(normalized)) {
+    return "";
+  }
+  return normalized;
+}
+
+export function normalizeInstaCompParallelForExactMatching(
+  value: string | null | undefined,
+) {
+  return normalizedParallelDescriptor(value);
+}
+
 function isBaseParallel(value: string | null | undefined) {
-  const normalized = normalizeText(value);
-  return (
-    normalized === "base" ||
-    normalized === "base card" ||
-    normalized === "standard" ||
-    normalized === "standard card" ||
-    normalized === "regular" ||
-    normalized === "regular card"
-  );
+  return normalizedParallelDescriptor(value) === "";
 }
 
 function isUncertainParallel(value: string | null | undefined) {
@@ -279,21 +380,18 @@ function isUncertainParallel(value: string | null | undefined) {
 }
 
 function searchParallelPart(value: string | null | undefined) {
-  if (!value || isBaseParallel(value) || isUncertainParallel(value)) return "";
-
-  return cleanPart(value);
+  const normalized = normalizedParallelDescriptor(value);
+  return normalized ? cleanPart(normalized) : "";
 }
 
 function parallelTokens(value: string | null | undefined) {
-  const normalized = normalizeText(value);
+  const normalized = normalizedParallelDescriptor(value);
+  if (!normalized) return [];
 
-  if (!normalized || isBaseParallel(value) || isUncertainParallel(value)) {
-    return [];
-  }
-
-  return normalized
+  const tokens = normalized
     .split(/\s+/)
     .map((token) => token.trim())
+    .filter((token) => /^[a-z0-9]+$/.test(token))
     .filter(Boolean)
     .filter(
       (token) =>
@@ -304,8 +402,13 @@ function parallelTokens(value: string | null | undefined) {
           "uncertain",
           "version",
           "card",
-        ].includes(token)
+          "and",
+        ].includes(token),
     );
+  const distinctive = tokens.filter(
+    (token) => !["prizm", "refractor", "foil", "holo"].includes(token),
+  );
+  return distinctive.length ? distinctive : tokens;
 }
 
 const PARALLEL_COLOR_TOKENS = [
@@ -359,6 +462,89 @@ export function explainInstaCompParallelMismatch(
   if (!missingTokens.length) return null;
 
   return `parallel mismatch: expected ${expected}; missing ${missingTokens.join(" ")}`;
+}
+
+const BASE_VARIATION_CUES = [
+  "red",
+  "blue",
+  "green",
+  "gold",
+  "silver",
+  "purple",
+  "orange",
+  "pink",
+  "black",
+  "white",
+  "yellow",
+  "teal",
+  "aqua",
+  "bronze",
+  "copper",
+  "clear cut",
+  "acetate",
+  "outburst",
+  "deluxe",
+  "exclusives",
+  "speckle",
+  "sparkle",
+  "shimmer",
+  "wave",
+  "mojo",
+  "pulsar",
+  "scope",
+  "laser",
+  "cracked ice",
+  "disco",
+  "reactive",
+  "x-fractor",
+  "xfractor",
+  "atomic",
+  "sepia",
+  "negative",
+  "tie dye",
+  "zebra",
+  "camo",
+  "genesis",
+  "fluorescent",
+  "refractor",
+  "prizm",
+  "holo",
+  "foil",
+  "limited",
+  "superfractor",
+  "sapphire",
+  "mini diamond",
+  "checkerboard",
+  "velocity",
+  "neon",
+  "hyper",
+  "flash",
+  "fractal",
+  "galactic",
+  "cosmic",
+  "rainbow",
+  "canvas",
+] as const;
+
+function titleHasPhrase(title: string, phrase: string) {
+  const pattern = escapeRegex(phrase).replace(/\\\s+/g, "[-\\s]+");
+  return new RegExp(`(?:^|[^a-z0-9])${pattern}(?:$|[^a-z0-9])`, "i").test(title);
+}
+
+export function explainUnexpectedInstaCompBaseVariation(
+  title: string,
+  ai: InstaCompAiResult,
+) {
+  if (!isBaseParallel(ai.parallel)) return null;
+  const normalizedTitle = normalizeText(title);
+  const targetReference = normalizeText(
+    [ai.player, ai.team, ai.brand, ai.setName, ai.parallel].filter(Boolean).join(" "),
+  );
+  const unexpected = BASE_VARIATION_CUES.filter(
+    (cue) => titleHasPhrase(normalizedTitle, cue) && !titleHasPhrase(targetReference, cue),
+  );
+  if (!unexpected.length) return null;
+  return `parallel mismatch: expected Base; listing says ${unexpected.join("/")}`;
 }
 
 export function buildInstaCompQueries(ai: InstaCompAiResult) {
@@ -612,14 +798,26 @@ export function looksLikeBadCompTitle(title: string, ai?: InstaCompAiResult) {
     if (containsAny(` ${t} `, gradedWords)) return true;
   }
 
+  if (ai && !ai.isRookie) {
+    if (containsAny(` ${t} `, [" rookie ", " rc "])) return true;
+  }
+
   if (ai && !ai.isAuto) {
-    if (containsAny(` ${t} `, [" auto ", " autograph", " signed"])) {
+    if (
+      containsAny(` ${t} `, [
+        " auto ",
+        " autograph",
+        " signed",
+        " signature",
+        " rpa ",
+      ])
+    ) {
       return true;
     }
   }
 
   if (ai && !ai.isRelic) {
-    if (containsAny(t, [" relic", " patch", " jersey", " memorabilia"])) {
+    if (containsAny(t, [" relic", " patch", " jersey", " memorabilia", " swatch", " material", " rpa "])) {
       return true;
     }
   }
@@ -633,7 +831,7 @@ export function scoreCompMatch(title: string, ai: InstaCompAiResult) {
   let score = 0;
 
   const player = normalizeText(ai.player);
-  const year = normalizeText(ai.year);
+  const year = canonicalSeason(ai.year);
   const brand = normalizeText(ai.brand);
   const setName = normalizeText(ai.setName);
   const setTokens = meaningfulTokens(ai.setName);
@@ -645,13 +843,14 @@ export function scoreCompMatch(title: string, ai: InstaCompAiResult) {
   const grade = normalizeText(ai.gradeValue);
   const certificationNumber = cleanCertificationNumber(ai.certificationNumber);
   const parallelMismatch = explainInstaCompParallelMismatch(title, ai.parallel);
+  const unexpectedBaseVariation = explainUnexpectedInstaCompBaseVariation(title, ai);
 
   if (player && t.includes(player)) {
     score += 30;
     flags.push("player");
   }
 
-  if (year && t.includes(year)) {
+  if (year && titleHasYear(title, ai.year)) {
     score += 15;
     flags.push("year");
   }
@@ -675,23 +874,9 @@ export function scoreCompMatch(title: string, ai: InstaCompAiResult) {
     }
   }
 
-  if (cardNumber) {
-    const padded = ` ${t} `;
-
-    const patterns = [
-      `#${cardNumber}`,
-      ` ${cardNumber} `,
-      `-${cardNumber} `,
-      `/${cardNumber} `,
-      ` no ${cardNumber} `,
-      ` number ${cardNumber} `,
-      ` card ${cardNumber} `,
-    ];
-
-    if (patterns.some((pattern) => padded.includes(pattern))) {
-      score += 25;
-      flags.push("card #");
-    }
+  if (cardNumber && titleHasExactCardNumber(title, ai.cardNumber)) {
+    score += 25;
+    flags.push("card #");
   }
 
   if (parallel && !isBaseParallel(ai.parallel)) {
@@ -716,8 +901,14 @@ export function scoreCompMatch(title: string, ai: InstaCompAiResult) {
     flags.push("not exact parallel");
   }
 
+  if (unexpectedBaseVariation) {
+    score -= 150;
+    flags.push(unexpectedBaseVariation);
+    flags.push("not exact parallel");
+  }
+
   if (serial.normalized) {
-    const compactTitle = t.replace(/\s+/g, "");
+    const compactTitle = stripSeasonRanges(t).replace(/\s+/g, "");
     const exactSerialPatterns = [
       serial.normalized,
       serial.unpadded,
@@ -748,19 +939,21 @@ export function scoreCompMatch(title: string, ai: InstaCompAiResult) {
   }
 
   if (grade) {
-    const gradePatterns = [
-      ` ${grader} ${grade} `,
-      ` ${grade} graded `,
-      ` grade ${grade} `,
-      ` graded ${grade} `,
-      ` mint ${grade} `,
-      ` gem mint ${grade} `,
-      ` ${grade} `,
-    ].filter(Boolean);
-
-    if (gradePatterns.some((pattern) => ` ${t} `.includes(pattern))) {
+    const targetGrade = numericGrade(ai.gradeValue);
+    const visibleGrades = graderGradesFromTitle(title, grader);
+    if (
+      targetGrade !== null &&
+      visibleGrades.some((visibleGrade) => visibleGrade === targetGrade)
+    ) {
       score += 20;
       flags.push("grade");
+    } else if (targetGrade !== null && visibleGrades.length) {
+      score -= 150;
+      flags.push(
+        `grade mismatch: expected ${cleanPart(ai.gradingCompany)} ${cleanPart(
+          ai.gradeValue,
+        )}; listing says ${cleanPart(ai.gradingCompany)} ${visibleGrades.join("/")}`,
+      );
     }
   }
 
@@ -781,7 +974,7 @@ export function scoreCompMatch(title: string, ai: InstaCompAiResult) {
 
   if (
     ai.isAuto &&
-    containsAny(` ${t} `, [" auto ", " autograph ", " autographed ", " signed "])
+    containsAny(` ${t} `, [" auto ", " autograph ", " autographed ", " signed ", " signature ", " signatures ", " rpa "])
   ) {
     score += 12;
     flags.push("autograph");
@@ -789,7 +982,7 @@ export function scoreCompMatch(title: string, ai: InstaCompAiResult) {
 
   if (
     ai.isRelic &&
-    containsAny(` ${t} `, [" relic ", " patch ", " jersey ", " memorabilia "])
+    containsAny(` ${t} `, [" relic ", " patch ", " jersey ", " memorabilia ", " swatch ", " swatches ", " material ", " materials ", " rpa "])
   ) {
     score += 12;
     flags.push("relic");
@@ -840,7 +1033,11 @@ export function filterAndRankExactMatches(
     .filter((comp) => !comp.flags.includes("excluded"))
     .filter(
       (comp) =>
-        !comp.flags.some((flag) => flag.startsWith("parallel mismatch:")),
+        !comp.flags.some(
+          (flag) =>
+            flag.startsWith("parallel mismatch:") ||
+            flag.startsWith("grade mismatch:"),
+        ),
     )
     .filter(
       (comp) =>
@@ -863,9 +1060,9 @@ export function filterAndRankExactMatches(
         comp.flags.includes("parallel partial")
     )
     .filter((comp) => {
-      if (!targetDenominator) return true;
-
-      return serialRunDenominatorFromTitle(comp.title) === targetDenominator;
+      const compDenominator = serialRunDenominatorFromTitle(comp.title);
+      if (targetDenominator) return compDenominator === targetDenominator;
+      return compDenominator === null;
     })
     .filter((comp) => comp.matchScore >= minScore)
     .sort((a, b) => {

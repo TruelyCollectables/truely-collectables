@@ -15,6 +15,14 @@ const requiredProductionKeys = Object.freeze([
   "STRIPE_LIVE_WEBHOOK_SECRET",
   "STRIPE_LIVE_FINANCIAL_EVENTS_VERIFIED",
   "TCOS_LIVE_PAYMENTS_ENABLED",
+  "OPENAI_API_KEY",
+  "SERPAPI_API_KEY",
+  "EBAY_CLIENT_ID",
+  "EBAY_CLIENT_SECRET",
+  "EBAY_ENVIRONMENT",
+  "RESEND_API_KEY",
+  "TCOS_SHIPPING_PURCHASE_MODE",
+  "TCOS_LIVE_SHIPPING_ENABLED",
 ]);
 const vercelCliVersion = "56.2.0";
 const vercelCliPackage = `vercel@${vercelCliVersion}`;
@@ -82,7 +90,7 @@ function auditEnvironmentListing(output, requiredKeys = requiredProductionKeys) 
 
 function buildPayload(audit, scope) {
   return {
-    schema: "tcos.vercelProductionEnvironmentAudit.v1",
+    schema: "tcos.vercelProductionEnvironmentAudit.v2",
     generatedAt: new Date().toISOString(),
     scope,
     environment: "production",
@@ -154,7 +162,7 @@ function runSelfTest() {
   }
 
   console.log(
-    "Vercel production environment audit self-test passed: exact-name matching, missing service-role detection, and scope validation are fail closed.",
+    "Vercel production environment audit self-test passed: exact-name matching, complete launch-variable coverage, missing service-role detection, and scope validation are fail closed.",
   );
 }
 

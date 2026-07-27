@@ -1,0 +1,114 @@
+name: Temporary Production Runtime Read-Only Audit
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/temporary-instacomp-live-double-torture.yml"
+      - "scripts/run-production-runtime-readonly-audit.ts"
+      - "scripts/audit-vercel-production-environment.mjs"
+      - "scripts/status-live-money.ts"
+      - "src/lib/live-shipping-launch.ts"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-runtime-read-only-audit-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  audit-production-runtime:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'agent/instacomp-exact-market-final-20260726')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+
+    steps:
+      - name: Check out immutable audit revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Resolve the existing Vercel project without deploying
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p .vercel .codex-run
+          STATUS="$(curl --silent --show-error \
+            -o .codex-run/vercel-project.json \
+            -w '%{http_code}' \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v9/projects/truely-collectables?slug=$VERCEL_SCOPE")"
+          if [ "$STATUS" != "200" ]; then
+            node -e 'const fs=require("node:fs");fs.writeFileSync(".codex-run/production-runtime-readiness.json",JSON.stringify({schema:"tcos.productionRuntimeReadOnlyAudit.v2",generatedAt:new Date().toISOString(),readyForOneControlledDeployment:false,blockers:[`Vercel project lookup failed with HTTP ${process.argv[1]}`],deploymentStarted:false,secretValuesPrinted:false},null,2)+"\n")' "$STATUS"
+            exit 1
+          fi
+          node <<'NODE'
+          const fs = require("node:fs");
+          const project = JSON.parse(fs.readFileSync(".codex-run/vercel-project.json", "utf8"));
+          const orgId = project.accountId || project.teamId || project.ownerId;
+          if (!project.id || !orgId) throw new Error("Vercel project response did not contain project and account IDs.");
+          fs.writeFileSync(".vercel/project.json", JSON.stringify({ orgId, projectId: project.id }) + "\n", { mode: 0o600 });
+          NODE
+          rm -f .codex-run/vercel-project.json
+          echo "Resolved the existing Vercel project through a read-only project lookup."
+
+      - name: Pull actual Production names and values read-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/audit-vercel-production-environment.mjs --self-test
+          npx vercel@56.2.0 env ls production \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" \
+            --no-color > .codex-run/vercel-production-env-names.txt
+          npx vercel@56.2.0 env pull .env.production.audit \
+            --yes \
+            --environment=production \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" >/dev/null
+          test -s .env.production.audit
+          chmod 600 .env.production.audit
+
+      - name: Run sanitized production runtime readiness audit
+        id: runtime_audit
+        continue-on-error: true
+        env:
+          TCOS_VERCEL_ENV_NAMES_PATH: .codex-run/vercel-production-env-names.txt
+          TCOS_RUNTIME_AUDIT_OUTPUT: .codex-run/production-runtime-readiness.json
+        run: >-
+          node --env-file=.env.production.audit --import tsx
+          scripts/run-production-runtime-readonly-audit.ts
+
+      - name: Remove ephemeral Production values
+        if: always()
+        run: rm -rf .env.production.audit .vercel .codex-run/vercel-production-env-names.txt
+
+      - name: Upload read-only runtime audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-runtime-read-only-audit-${{ github.run_number }}
+          path: .codex-run/production-runtime-readiness.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Enforce runtime readiness
+        if: always()
+        run: test "${{ steps.runtime_audit.outcome }}" = "success"
