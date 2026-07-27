@@ -10,47 +10,15 @@ on:
       - "supabase/migrations/**"
       - "package.json"
       - ".github/workflows/emergency-post-launch-audit.yml"
-  push:
-    branches:
-      - agent/emergency-post-launch-audit-fixes-20260726
-    paths:
-      - ".audit/titanic-hardening.patch"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  apply-titanic-patch:
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Check out emergency audit branch
-        uses: actions/checkout@v4
-        with:
-          ref: agent/emergency-post-launch-audit-fixes-20260726
-          fetch-depth: 0
-
-      - name: Apply audited hardening patch exactly once
-        shell: bash
-        run: |
-          test -f .audit/titanic-hardening.patch
-          git apply --check .audit/titanic-hardening.patch
-          git apply .audit/titanic-hardening.patch
-          rm .audit/titanic-hardening.patch
-          rmdir .audit 2>/dev/null || true
-          git config user.name "Truely Collectables Audit"
-          git config user.email "sales@truelycollectables.com"
-          git add -A
-          git commit -m "Harden live checkout money and fulfillment integrity"
-          git push origin HEAD:agent/emergency-post-launch-audit-fixes-20260726
-
   post-launch-safety:
-    if: github.event_name != 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
       NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
@@ -109,24 +77,60 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run post-sale safety simulations
-        run: node --import tsx scripts/run-post-sale-ebay-sync-simulations.ts
+      - name: Run Titanic randomized stress simulations
+        run: node --import tsx scripts/run-titanic-release-stress-simulations.ts
 
-      - name: Run checkout and offer idempotency simulations
+      - name: Run checkout, webhook, offer, and post-sale race simulations
         run: |
           node --import tsx scripts/run-checkout-webhook-idempotency-simulations.ts
           node --import tsx scripts/run-offer-checkout-idempotency-simulations.ts
+          node --import tsx scripts/run-post-sale-ebay-sync-simulations.ts
+          node --import tsx scripts/run-live-storefront-money-integrity-simulations.ts
 
-      - name: Run live storefront money integrity simulations
-        run: node --import tsx scripts/run-live-storefront-money-integrity-simulations.ts
-
-      - name: Run storefront taxonomy and gallery simulations
-        run: node --import tsx scripts/run-storefront-taxonomy-gallery-simulations.ts
-
-      - name: Run Buyer Protection and post-purchase simulations
+      - name: Run payment, refund, dispute, notification, and reconciliation simulations
         run: |
           node --import tsx scripts/run-buyer-protection-simulations.ts
           node --import tsx scripts/run-post-purchase-buyer-flow-simulations.ts
+          node scripts/run-order-notification-hardening-simulations.ts
+          node scripts/run-order-review-payout-resolution-simulations.mjs
+          node scripts/run-admin-financial-reconciliation-simulations.mjs
+          node scripts/run-admin-order-review-actions-simulations.mjs
+
+      - name: Run authentication, authorization, and public security simulations
+        run: |
+          node scripts/run-admin-session-secret-fail-closed-simulations.mjs
+          node scripts/run-admin-login-simulations.mjs
+          node scripts/run-privileged-api-route-audit.mjs
+          node --import tsx scripts/run-live-payment-identity-gate-simulations.ts
+          node --import tsx scripts/run-public-rate-limit-fail-closed-simulations.ts
+          node scripts/run-admin-security-actions-simulations.mjs
+
+      - name: Run eBay, inventory, shipping, and fulfillment simulations
+        run: |
+          node --import tsx scripts/run-ebay-oauth-state-simulations.ts
+          node scripts/run-ebay-duplicate-merge-simulations.mjs
+          node --import tsx scripts/run-ebay-import-admin-client-simulations.ts
+          node --import tsx scripts/run-ebay-launch-ready-simulations.ts
+          node --import tsx scripts/run-ebay-launch-ready-ui-simulations.ts
+          node --import tsx scripts/run-shipping-purchase-audit-simulations.ts
+          node --import tsx scripts/run-shipping-simulations.ts
+          node scripts/run-admin-shipping-actions-simulations.mjs
+
+      - name: Run storefront, mobile, trust, and launch-contract simulations
+        run: |
+          node --import tsx scripts/run-storefront-taxonomy-gallery-simulations.ts
+          node --import tsx scripts/run-mobile-buyer-flow-simulations.ts
+          node --import tsx scripts/run-public-trust-policy-simulations.ts
+          node --import tsx scripts/run-live-payment-owner-marker-simulations.ts
+          node --import tsx scripts/run-live-payment-status-color-simulations.ts
+          node --import tsx scripts/run-sunday-launch-one-build.ts
+
+      - name: Run migration and production guardrail audits
+        run: |
+          node scripts/run-launch-database-migration-coverage.mjs
+          node scripts/run-launch-database-schema-definition-simulations.mjs
+          node scripts/run-hardened-checkout-function-migration-simulations.mjs
+          node scripts/check-production-guardrails.mjs
 
       - name: Run lint
         run: npm run lint
