@@ -28,9 +28,7 @@ jobs:
           cache: npm
 
       - name: Install exact dependencies
-        run: |
-          echo "Running production dependency audit v2"
-          npm ci
+        run: npm ci
 
       - name: Capture complete audit
         id: complete_audit
@@ -102,3 +100,68 @@ jobs:
             process.exit(1);
           }
           NODE
+
+  eslint-10-compatibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      ADMIN_PASSWORD: build-only-placeholder-password
+      ADMIN_SESSION_SECRET: build-only-placeholder-session-secret
+      STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build-only-placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+      EBAY_CLIENT_ID: build-only-placeholder-client-id
+      EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+      EBAY_ENVIRONMENT: production
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Resolve ESLint 10 trial lockfile
+        run: npm install --save-dev --package-lock-only eslint@10.8.0
+
+      - name: Install ESLint 10 trial tree
+        run: npm ci
+
+      - name: Enforce zero full-tree high or critical advisories
+        run: |
+          npm audit --json > npm-audit-eslint10.json || true
+          node <<'NODE'
+          const fs = require("node:fs");
+          const audit = JSON.parse(fs.readFileSync("npm-audit-eslint10.json", "utf8"));
+          const counts = audit.metadata?.vulnerabilities || {};
+          const blocking = Number(counts.high || 0) + Number(counts.critical || 0);
+          console.log(JSON.stringify(counts));
+          if (blocking > 0) process.exit(1);
+          NODE
+
+      - name: Run full lint with ESLint 10
+        run: npm run lint
+
+      - name: Build production application with ESLint 10 tree
+        run: npm run build
+
+      - name: Upload ESLint 10 compatibility evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eslint-10-compatibility-${{ github.run_number }}
+          path: |
+            package.json
+            package-lock.json
+            npm-audit-eslint10.json
+          if-no-files-found: warn
+          retention-days: 7
