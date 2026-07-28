@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 import {
+  getInstaCompServiceToken,
+  getProfitHunterConnectorToken,
+} from "../src/lib/tcos-profit-hunter-secrets";
+import {
   validateProfitHunterIdentity,
   validateProfitHunterServiceBearer,
 } from "../src/lib/tcos-profit-hunter-policy";
@@ -9,6 +13,32 @@ assert.equal(validateProfitHunterServiceBearer(`Bearer ${secret}`, secret), true
 assert.equal(validateProfitHunterServiceBearer("Bearer wrong", secret), false);
 assert.equal(validateProfitHunterServiceBearer(null, secret), false);
 assert.equal(validateProfitHunterServiceBearer(`Bearer ${secret}`, ""), false);
+
+const previousAdminSecret = process.env.ADMIN_SESSION_SECRET;
+const previousConnectorSecret = process.env.TCOS_CONNECTOR_TOKEN;
+const previousServiceSecret = process.env.INSTACOMP_SERVICE_TOKEN;
+process.env.ADMIN_SESSION_SECRET = "simulation-admin-root-secret";
+delete process.env.TCOS_CONNECTOR_TOKEN;
+delete process.env.INSTACOMP_SERVICE_TOKEN;
+const derivedConnector = getProfitHunterConnectorToken();
+const derivedService = getInstaCompServiceToken();
+assert.ok(derivedConnector.length >= 40);
+assert.ok(derivedService.length >= 40);
+assert.notEqual(derivedConnector, derivedService);
+assert.equal(
+  validateProfitHunterServiceBearer(`Bearer ${derivedConnector}`),
+  true,
+);
+process.env.TCOS_CONNECTOR_TOKEN = "explicit-connector-override";
+process.env.INSTACOMP_SERVICE_TOKEN = "explicit-service-override";
+assert.equal(getProfitHunterConnectorToken(), "explicit-connector-override");
+assert.equal(getInstaCompServiceToken(), "explicit-service-override");
+if (previousAdminSecret === undefined) delete process.env.ADMIN_SESSION_SECRET;
+else process.env.ADMIN_SESSION_SECRET = previousAdminSecret;
+if (previousConnectorSecret === undefined) delete process.env.TCOS_CONNECTOR_TOKEN;
+else process.env.TCOS_CONNECTOR_TOKEN = previousConnectorSecret;
+if (previousServiceSecret === undefined) delete process.env.INSTACOMP_SERVICE_TOKEN;
+else process.env.INSTACOMP_SERVICE_TOKEN = previousServiceSecret;
 
 const wnbaBase = validateProfitHunterIdentity({
   lane: "wnba",
@@ -127,5 +157,5 @@ const trueFirst = validateProfitHunterIdentity({
 assert.equal(trueFirst.accepted, true);
 
 console.log(
-  "TCOS Profit Hunter policy passed: auth fails closed, WNBA Base/college and Demidov non-rookies are rejected, Arias BDC-13 fails true-1st proof, and verified Silver/true-1st examples pass.",
+  "TCOS Profit Hunter policy passed: auth fails closed, derived tokens are isolated, explicit overrides work, WNBA Base/college and Demidov non-rookies are rejected, Arias BDC-13 fails true-1st proof, and verified Silver/true-1st examples pass.",
 );
