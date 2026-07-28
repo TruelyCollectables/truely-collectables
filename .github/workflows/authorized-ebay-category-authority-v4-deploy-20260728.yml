@@ -1,4 +1,4 @@
-name: Authorized Fresh eBay Image Sync Production Deploy 20260728
+name: Authorized eBay 3000 Active Sync Production Deploy 20260728
 
 on:
   pull_request:
@@ -25,12 +25,12 @@ jobs:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_SCOPE: truelycollectables-projects
-      DEPLOY_SOURCE_SHA: fd358db386883f67e15275b2bb86647255ea6c97
+      DEPLOY_SOURCE_SHA: 012471da826ca41c64baf29832a99776aafa5b4a
     steps:
       - name: Check out exact merged source
         uses: actions/checkout@v4
         with:
-          ref: fd358db386883f67e15275b2bb86647255ea6c97
+          ref: 012471da826ca41c64baf29832a99776aafa5b4a
           fetch-depth: 1
 
       - name: Set up Node.js
@@ -107,13 +107,13 @@ jobs:
             sleep 15
           done
           test -n "$success"
-          echo "Verified fresh image-sync production deployment at $success"
+          echo "Verified eBay 3,000-active production deployment at $success"
 
       - name: Upload deployment evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: fresh-ebay-image-sync-production-deploy-${{ github.run_number }}
+          name: ebay-3000-active-production-deploy-${{ github.run_number }}
           path: .deployment-evidence
           if-no-files-found: warn
           retention-days: 30
