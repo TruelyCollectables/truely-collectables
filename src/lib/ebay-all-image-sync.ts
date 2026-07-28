@@ -11,6 +11,10 @@ const TRADING_API_VERSION = "1409";
 const PAGE_SIZE = 200;
 const MAX_PAGES = 25;
 const APPLY_CONCURRENCY = 8;
+const DATABASE_PAGE_SIZE = 1000;
+const MAX_DATABASE_PAGES = 50;
+const PRODUCT_ID_CHUNK_SIZE = 100;
+const INVENTORY_ID_CHUNK_SIZE = 20;
 const MAX_ITEMS_PER_RUN = 250;
 const IMAGE_SYNC_VERSION = 2;
 
@@ -41,6 +45,26 @@ function recordValue(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function syncErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error) return error.message.slice(0, 400);
+  if (typeof error === "string") return error.slice(0, 400);
+  const value = recordValue(error);
+  const parts = [
+    value.message ? String(value.message) : null,
+    value.code ? `code=${String(value.code)}` : null,
+    value.details ? `details=${String(value.details)}` : null,
+    value.hint ? `hint=${String(value.hint)}` : null,
+  ].filter((part): part is string => Boolean(part));
+  if (parts.length) return parts.join(" | ").slice(0, 400);
+  try {
+    const serialized = JSON.stringify(error);
+    if (serialized && serialized !== "{}") return serialized.slice(0, 400);
+  } catch {
+    // Fall through to the bounded generic message.
+  }
+  return fallback;
 }
 
 function decodeXml(value: string) {
@@ -333,6 +357,88 @@ async function runWorkers<T>(items: T[], worker: (item: T) => Promise<void>) {
   );
 }
 
+function chunkValues<T>(values: T[], size: number) {
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+  return chunks;
+}
+
+async function readActiveProducts(params: {
+  supabase: SupabaseClient;
+  storeId: string;
+}) {
+  const rows: ProductRow[] = [];
+  for (let page = 0; page < MAX_DATABASE_PAGES; page += 1) {
+    const from = page * DATABASE_PAGE_SIZE;
+    const { data, error } = await params.supabase
+      .from("products")
+      .select("id,title,ebay_item_id,image_url")
+      .eq("store_id", params.storeId)
+      .gt("quantity", 0)
+      .not("ebay_item_id", "is", null)
+      .order("id", { ascending: true })
+      .range(from, from + DATABASE_PAGE_SIZE - 1);
+    if (error) throw error;
+    const batch = (data || []) as ProductRow[];
+    rows.push(...batch);
+    if (batch.length < DATABASE_PAGE_SIZE) return rows;
+  }
+  throw new Error(`Active eBay product pagination exceeded ${MAX_DATABASE_PAGES * DATABASE_PAGE_SIZE} rows.`);
+}
+
+async function readInventoriesByProductIds(params: {
+  supabase: SupabaseClient;
+  storeId: string;
+  productIds: number[];
+}) {
+  const rows: InventoryRow[] = [];
+  for (const productIds of chunkValues(params.productIds, PRODUCT_ID_CHUNK_SIZE)) {
+    for (let page = 0; page < MAX_DATABASE_PAGES; page += 1) {
+      const from = page * DATABASE_PAGE_SIZE;
+      const { data, error } = await params.supabase
+        .from("inventory_items")
+        .select("id,legacy_product_id,title,metadata")
+        .eq("store_id", params.storeId)
+        .in("legacy_product_id", productIds)
+        .order("legacy_product_id", { ascending: true })
+        .range(from, from + DATABASE_PAGE_SIZE - 1);
+      if (error) throw error;
+      const batch = (data || []) as InventoryRow[];
+      rows.push(...batch);
+      if (batch.length < DATABASE_PAGE_SIZE) break;
+      if (page === MAX_DATABASE_PAGES - 1) throw new Error(`Inventory-item pagination exceeded ${MAX_DATABASE_PAGES * DATABASE_PAGE_SIZE} rows for one product chunk.`);
+    }
+  }
+  return rows;
+}
+
+async function readInventoryImagesByInventoryIds(params: {
+  supabase: SupabaseClient;
+  inventoryIds: string[];
+}) {
+  const rows: InventoryImageRow[] = [];
+  for (const inventoryIds of chunkValues(params.inventoryIds, INVENTORY_ID_CHUNK_SIZE)) {
+    for (let page = 0; page < MAX_DATABASE_PAGES; page += 1) {
+      const from = page * DATABASE_PAGE_SIZE;
+      const { data, error } = await params.supabase
+        .from("inventory_images")
+        .select("id,inventory_item_id,image_url,alt_text,sort_order,is_primary")
+        .in("inventory_item_id", inventoryIds)
+        .order("inventory_item_id", { ascending: true })
+        .order("sort_order", { ascending: true })
+        .range(from, from + DATABASE_PAGE_SIZE - 1);
+      if (error) throw error;
+      const batch = (data || []) as InventoryImageRow[];
+      rows.push(...batch);
+      if (batch.length < DATABASE_PAGE_SIZE) break;
+      if (page === MAX_DATABASE_PAGES - 1) throw new Error(`Inventory-image pagination exceeded ${MAX_DATABASE_PAGES * DATABASE_PAGE_SIZE} rows for one inventory chunk.`);
+    }
+  }
+  return rows;
+}
+
 export async function syncEbayAllListingImages(params: {
   supabase: SupabaseClient;
   storeId: string;
@@ -348,16 +454,11 @@ export async function syncEbayAllListingImages(params: {
     accessToken,
   });
 
-  const { data: productRows, error: productError } = await params.supabase
-    .from("products")
-    .select("id,title,ebay_item_id,image_url")
-    .eq("store_id", params.storeId)
-    .gt("quantity", 0)
-    .not("ebay_item_id", "is", null);
-  if (productError) throw productError;
-
-  const products = (productRows || []) as ProductRow[];
-  const productIds = products.map((product) => Number(product.id));
+  const products = await readActiveProducts({
+  supabase: params.supabase,
+  storeId: params.storeId,
+});
+const productIds = products.map((product) => Number(product.id));
   if (!productIds.length) {
     return {
       checked: 0,
@@ -372,22 +473,18 @@ export async function syncEbayAllListingImages(params: {
     };
   }
 
-  const { data: inventoryRows, error: inventoryError } = await params.supabase
-    .from("inventory_items")
-    .select("id,legacy_product_id,title,metadata")
-    .eq("store_id", params.storeId)
-    .in("legacy_product_id", productIds);
-  if (inventoryError) throw inventoryError;
-  const inventories = (inventoryRows || []) as InventoryRow[];
-  const inventoryIds = inventories.map((inventory) => inventory.id);
-
-  const { data: imageRows, error: imageError } = inventoryIds.length
-    ? await params.supabase
-        .from("inventory_images")
-        .select("id,inventory_item_id,image_url,alt_text,sort_order,is_primary")
-        .in("inventory_item_id", inventoryIds)
-    : { data: [], error: null };
-  if (imageError) throw imageError;
+  const inventories = await readInventoriesByProductIds({
+  supabase: params.supabase,
+  storeId: params.storeId,
+  productIds,
+});
+const inventoryIds = inventories.map((inventory) => inventory.id);
+const imageRows = inventoryIds.length
+  ? await readInventoryImagesByInventoryIds({
+      supabase: params.supabase,
+      inventoryIds,
+    })
+  : [];
 
   const imagesByInventoryId = new Map<string, InventoryImageRow[]>();
   for (const image of (imageRows || []) as InventoryImageRow[]) {
@@ -460,8 +557,7 @@ export async function syncEbayAllListingImages(params: {
     } catch (error) {
       errors.push({
         legacyProductId: Number(candidate.inventory.legacy_product_id),
-        error:
-          error instanceof Error ? error.message.slice(0, 400) : "Unknown image sync error",
+        error: syncErrorMessage(error, "Unknown image sync error"),
       });
     }
   });

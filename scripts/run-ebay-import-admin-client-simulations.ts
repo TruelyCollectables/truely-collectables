@@ -176,6 +176,22 @@ assert.match(
   "Image repair must compare the complete ordered image list rather than stopping at two images.",
 );
 assert.match(
+  imageSync,
+  /const PRODUCT_ID_CHUNK_SIZE = 100;/,
+  "Image synchronization must chunk product-ID filters.",
+);
+assert.match(
+  imageSync,
+  /const INVENTORY_ID_CHUNK_SIZE = 20;/,
+  "Image synchronization must bound inventory UUID filters.",
+);
+assert.match(
+  imageSync,
+  /readInventoryImagesByInventoryIds[\s\S]*\.range\(from, from \+ DATABASE_PAGE_SIZE - 1\)/,
+  "Image synchronization must paginate rows beyond Supabase's default cap.",
+);
+
+assert.match(
   scheduledEbaySync,
   /syncEbayAllListingImages/,
   "The scheduled authoritative eBay job must run complete 1–20 image reconciliation.",
