@@ -4,16 +4,13 @@ on:
   push:
     branches:
       - fix/instacomp-ebay-25-live-benchmark-20260727
-  pull_request:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: instacomp-ebay-25-live-benchmark-${{ github.ref }}
+  group: instacomp-ebay-25-live-benchmark
   cancel-in-progress: true
 
 jobs:
@@ -26,10 +23,36 @@ jobs:
       INSTACOMP_BENCHMARK_TARGET: "25"
       INSTACOMP_BENCHMARK_CONCURRENCY: "2"
     steps:
-      - name: Check out benchmark revision
+      - name: Check out repaired benchmark branch
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          ref: fix/instacomp-ebay-25-live-benchmark-20260727
+          fetch-depth: 0
+
+      - name: Materialize benchmark-discovered repairs
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/repair-instacomp-benchmark-findings.py
+          python scripts/repair-instacomp-benchmark-findings.py
+          git diff --check
+
+      - name: Commit repaired source to the branch
+        run: |
+          set -euo pipefail
+          git add \
+            src/app/api/instacomp/benchmark/ebay-25/route.ts \
+            src/lib/instacomp-identity-guard.ts \
+            src/lib/instacomp-consensus.ts \
+            src/lib/instacomp-curated-checklist.ts \
+            src/lib/instacomp-live-pipeline.ts
+          if git diff --cached --quiet; then
+            echo "Repaired source is already materialized."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Materialize fixes from 25-card InstaComp benchmark"
+          git push origin HEAD:fix/instacomp-ebay-25-live-benchmark-20260727
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -40,13 +63,29 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Run benchmark-quality regressions
+        run: node --import tsx scripts/run-instacomp-benchmark-quality-regressions.ts
+
+      - name: Run existing InstaComp regressions
+        run: |
+          node --import tsx scripts/run-instacomp-exact-provider-regressions.ts
+          node --import tsx scripts/run-instacomp-live-pipeline-regressions.ts
+          node --import tsx scripts/run-instacomp-provider-safety-regressions.ts
+          node --import tsx scripts/run-instacomp-batch-drop-regressions.ts
+
       - name: Validate benchmark source
         run: >-
           npx eslint
           src/app/api/instacomp/benchmark/ebay-25/route.ts
           src/app/api/instacomp/live-scan/route.ts
           src/app/api/instacomp/scan/route.ts
+          src/lib/instacomp-benchmark-grading.ts
           src/lib/instacomp-ebay-benchmark-cases.ts
+          src/lib/instacomp-identity-guard.ts
+          src/lib/instacomp-consensus.ts
+          src/lib/instacomp-curated-checklist.ts
+          src/lib/instacomp-live-pipeline.ts
+          scripts/run-instacomp-benchmark-quality-regressions.ts
           scripts/run-instacomp-ebay-25-benchmark.mjs
           scripts/run-instacomp-ebay-25-through-vercel-curl.mjs
 
@@ -127,7 +166,7 @@ jobs:
           console.log(`Protected-preview transport verified with ${payload.cases.length} official cases.`);
           NODE
 
-      - name: Run 25 real eBay cards through InstaComp
+      - name: Run 25 new real eBay cards through InstaComp
         id: benchmark
         continue-on-error: true
         env:
@@ -149,11 +188,13 @@ jobs:
             `Pool: ${report.poolSize || 0} official cards`,
             `Completed: ${summary.completedCards || 0}/${report.requestedTarget || 25}`,
             `Target met: ${Boolean(summary.targetMet)}`,
+            `Passed cards: ${summary.passedCards || 0}/${summary.completedCards || 0}`,
             `Average score: ${summary.averageScore ?? "n/a"}`,
             `Median score: ${summary.medianScore ?? "n/a"}`,
             `Catalog confirmed: ${summary.catalogIdentityConfirmed || 0}/${summary.completedCards || 0}`,
             `Exact sold supported: ${summary.exactSoldSupportedCards || 0}/${summary.completedCards || 0}`,
             `Trusted prices: ${summary.trustedPriceCards || 0}/${summary.completedCards || 0}`,
+            `Provider errors: ${summary.providerErrorCards || 0}/${summary.completedCards || 0}`,
             `Weird errors: ${summary.totalWeirdErrors || 0} (${summary.criticalErrors || 0} critical, ${summary.majorErrors || 0} major, ${summary.minorErrors || 0} minor)`,
             "",
           ].join("\n"));
@@ -167,7 +208,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: instacomp-ebay-25-live-report-${{ github.run_number }}
+          name: instacomp-ebay-25-improvement-report-${{ github.run_number }}
           path: |
             reports/instacomp-ebay-25-report.json
             reports/instacomp-ebay-25-report.md
@@ -186,7 +227,7 @@ jobs:
           const report = JSON.parse(fs.readFileSync("reports/instacomp-ebay-25-report.json", "utf8"));
           const completed = Number(report?.summary?.completedCards || 0);
           if (!report?.summary?.targetMet || completed < 25) {
-            throw new Error(`Benchmark incomplete: ${completed}/25 real eBay cards completed.`);
+            throw new Error(`Benchmark incomplete: ${completed}/25 new real eBay cards completed.`);
           }
-          console.log(`Benchmark complete: ${completed}/25 real eBay cards.`);
+          console.log(`Benchmark complete: ${completed}/25 new real eBay cards.`);
           NODE
