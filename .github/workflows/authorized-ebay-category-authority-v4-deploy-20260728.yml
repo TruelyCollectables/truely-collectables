@@ -1,4 +1,4 @@
-name: Authorized Final Stable eBay 3000 Sync Production Deploy 20260728
+name: Authorized Final Merged Alias Production Deploy 20260728
 
 on:
   pull_request:
@@ -25,12 +25,12 @@ jobs:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_SCOPE: truelycollectables-projects
-      DEPLOY_SOURCE_SHA: fcbc5bd35ba3cc3e89c28cf152fc9444c3724d7e
+      DEPLOY_SOURCE_SHA: 795771d075706c913958d91f0acf6fcaf9486f21
     steps:
       - name: Check out exact merged source
         uses: actions/checkout@v4
         with:
-          ref: fcbc5bd35ba3cc3e89c28cf152fc9444c3724d7e
+          ref: 795771d075706c913958d91f0acf6fcaf9486f21
           fetch-depth: 1
 
       - name: Set up Node.js
@@ -107,13 +107,13 @@ jobs:
             sleep 15
           done
           test -n "$success"
-          echo "Verified final stable eBay 3,000-active production deployment at $success"
+          echo "Verified final merged-alias production deployment at $success"
 
       - name: Upload deployment evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: final-stable-ebay-3000-production-deploy-${{ github.run_number }}
+          name: final-merged-alias-production-deploy-${{ github.run_number }}
           path: .deployment-evidence
           if-no-files-found: warn
           retention-days: 30
