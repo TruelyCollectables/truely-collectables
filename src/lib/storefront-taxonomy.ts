@@ -281,7 +281,7 @@ export function classifyStorefrontItem(input: {
       tcos_is_rookie: String(features.rookie),
       tcos_is_graded: String(features.graded),
       tcos_is_numbered: String(features.numbered),
-      tcos_taxonomy_version: "3",
+      tcos_taxonomy_version: "4",
     },
     metadata: {
       tcos_storefront_section: section,
@@ -290,7 +290,7 @@ export function classifyStorefrontItem(input: {
       tcos_is_rookie: features.rookie,
       tcos_is_graded: features.graded,
       tcos_is_numbered: features.numbered,
-      tcos_taxonomy_version: 3,
+      tcos_taxonomy_version: 4,
     },
   };
 }

@@ -11,6 +11,7 @@ on:
       - "src/lib/ebay-authoritative-store-sync.ts"
       - "src/lib/sports-card-launch-scope.ts"
       - "src/lib/server-inventory-engine.ts"
+      - "src/app/api/cron/ebay-store-fixed-price-sync/route.ts"
       - "src/modules/inventory/**"
       - "src/app/shop/**"
       - "src/app/page.tsx"
@@ -28,6 +29,7 @@ on:
       - "src/lib/ebay-authoritative-store-sync.ts"
       - "src/lib/sports-card-launch-scope.ts"
       - "src/lib/server-inventory-engine.ts"
+      - "src/app/api/cron/ebay-store-fixed-price-sync/route.ts"
       - "src/modules/inventory/**"
       - "src/app/shop/**"
       - "src/app/page.tsx"
@@ -83,6 +85,7 @@ jobs:
           src/lib/ebay-authoritative-store-sync.ts
           src/lib/sports-card-launch-scope.ts
           src/lib/server-inventory-engine.ts
+          src/app/api/cron/ebay-store-fixed-price-sync/route.ts
           src/modules/inventory/types.ts
           src/modules/inventory/repository.ts
           src/modules/inventory/engine.ts
