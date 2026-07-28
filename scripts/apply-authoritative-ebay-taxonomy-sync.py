@@ -114,17 +114,17 @@ replace_once(
 )
 replace_once(
     SYNC,
-    '''       ["ebay_category_id", params.remote.categoryId],
-       ["ebay_category_name", params.remote.categoryName],
-       ...Object.entries(params.remote.aspects).map(([name, values]) => [
+    '''      ["ebay_category_id", params.remote.categoryId],
+      ["ebay_category_name", params.remote.categoryName],
+      ...Object.entries(params.remote.aspects).map(([name, values]) => [
 ''',
-    '''       ["ebay_category_id", params.remote.categoryId],
-       ["ebay_category_name", params.remote.categoryName],
-       ...Object.entries(params.remote.storefrontAttributes).map(([name, value]) => [
-         name,
-         value,
-       ]),
-       ...Object.entries(params.remote.aspects).map(([name, values]) => [
+    '''      ["ebay_category_id", params.remote.categoryId],
+      ["ebay_category_name", params.remote.categoryName],
+      ...Object.entries(params.remote.storefrontAttributes).map(([name, value]) => [
+        name,
+        value,
+      ]),
+      ...Object.entries(params.remote.aspects).map(([name, values]) => [
 ''',
     "persist taxonomy attributes",
 )
