@@ -1,4 +1,4 @@
-name: Authorized Final eBay 3000 Sync Verification 1117 20260728
+name: Authorized Final Alias-Aware eBay Sync Verification 1217 20260728
 
 on:
   pull_request:
@@ -26,8 +26,8 @@ jobs:
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_SCOPE: truelycollectables-projects
       PRODUCTION_ORIGIN: https://truelycollectables.com
-      CRON_NOT_BEFORE_UTC: 2026-07-28T17:16:30Z
-      CRON_COMPLETION_TARGET_UTC: 2026-07-28T17:27:00Z
+      CRON_NOT_BEFORE_UTC: 2026-07-28T18:16:30Z
+      CRON_COMPLETION_TARGET_UTC: 2026-07-28T18:27:00Z
       BASELINE_REMOTE_TOTAL_0902: "893"
       BASELINE_ELIGIBLE_0902: "865"
     steps:
@@ -53,7 +53,7 @@ jobs:
             npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > final-verification/logs/vercel-link.log 2>&1
           fi
 
-      - name: Wait for final protected cron window
+      - name: Wait for protected cron completion
         shell: bash
         run: |
           set -euo pipefail
@@ -61,7 +61,7 @@ jobs:
           now="$(date -u +%s)"
           if [ "$target" -gt "$now" ]; then sleep "$((target - now))"; fi
 
-      - name: Capture and certify final production receipt
+      - name: Capture and certify alias-aware production receipt
         shell: bash
         run: |
           set -euo pipefail
@@ -136,12 +136,14 @@ jobs:
           if (!first?.cycleComplete || Number(first.pagesRead || 0) < 1 || Number(first.failed || 0) !== 0) fail('Initial active eBay cycle was incomplete or failed.');
           if (Number(first.remoteFixedPriceTotal || 0) > 3000) fail(`Active eBay total ${first.remoteFixedPriceTotal} exceeded the approved 3,000 ceiling.`);
           if (Number(first.eligibleCollectibles || 0) + Number(first.skippedNonCollectibles || 0) !== Number(first.remoteFixedPriceTotal || 0)) fail('Eligible plus excluded listings did not reconcile to the active eBay total.');
+          if (Number(first.representedInventoryRows || 0) + Number(first.mergedAliasListings || 0) !== Number(first.eligibleCollectibles || 0)) fail('Represented rows plus merged aliases did not reconcile to eligible eBay listings.');
           if (!images?.cycleComplete || Number(images.failed || 0) !== 0 || Number(images.remainingCandidates || 0) !== 0) fail('Complete image synchronization did not converge.');
           if (!receipt.quantities || Number(receipt.quantities.failed || 0) !== 0) fail('Quantity reconciliation failed.');
           if (!final?.cycleComplete || Number(final.failed || 0) !== 0) fail('Final authoritative cycle failed.');
           if (Number(final.inserted || 0) !== 0 || Number(final.updated || 0) !== 0 || Number(final.deactivated || 0) !== 0) fail(`Final cycle was not stable: ${JSON.stringify(final)}`);
-          if (Number(final.unchanged || 0) !== Number(final.eligibleCollectibles || 0)) fail('Final unchanged total did not equal eligible eBay inventory.');
-          if (audit.matchesEligibleEbayInventory !== true || Number(audit.activeLinkedProducts || 0) !== Number(final.eligibleCollectibles || 0)) fail('Active website database inventory did not match eligible eBay inventory.');
+          if (Number(final.unchanged || 0) !== Number(final.representedInventoryRows || 0)) fail('Final unchanged total did not equal represented website inventory rows.');
+          if (Number(final.representedInventoryRows || 0) + Number(final.mergedAliasListings || 0) !== Number(final.eligibleCollectibles || 0)) fail('Final alias-aware totals did not reconcile.');
+          if (audit.matchesEligibleEbayInventory !== true || Number(audit.activeLinkedProducts || 0) !== Number(final.representedInventoryRows || 0)) fail('Active website database rows did not match represented eBay inventory.');
           const baselineRemote = Number(process.env.BASELINE_REMOTE_TOTAL_0902 || 0);
           const baselineEligible = Number(process.env.BASELINE_ELIGIBLE_0902 || 0);
           const summary = {
@@ -150,6 +152,8 @@ jobs:
             remoteFixedPriceTotal: Number(final.remoteFixedPriceTotal || 0),
             eligibleCollectibles: Number(final.eligibleCollectibles || 0),
             skippedNonCollectibles: Number(final.skippedNonCollectibles || 0),
+            mergedAliasListings: Number(final.mergedAliasListings || 0),
+            representedInventoryRows: Number(final.representedInventoryRows || 0),
             activeLinkedProducts: Number(audit.activeLinkedProducts || 0),
             firstPassChanges: {
               inserted: Number(first.inserted || 0),
@@ -193,18 +197,18 @@ jobs:
             return match ? Number(match[1].replaceAll(',', '')) : null;
           };
           const results = { all: count('all'), pucks: count('pucks'), autographs: count('autographs'), shoes: count('shoes'), pants: count('pants'), parts: count('parts') };
-          if (results.all !== summary.eligibleCollectibles) throw new Error(`Live storefront ${results.all} does not match eligible eBay inventory ${summary.eligibleCollectibles}.`);
+          if (results.all !== summary.representedInventoryRows) throw new Error(`Live storefront ${results.all} does not match represented eBay inventory ${summary.representedInventoryRows}.`);
           if (!Number.isInteger(results.pucks) || results.pucks < 1) throw new Error('Pucks section is empty.');
           if (!Number.isInteger(results.autographs) || results.autographs < 1) throw new Error('Autographs filter is empty.');
           for (const key of ['shoes', 'pants', 'parts']) if (results[key] !== 0) throw new Error(`${key} exclusion returned ${results[key]} items.`);
           fs.writeFileSync('final-verification/storefront-summary.json', `${JSON.stringify({ success: true, results }, null, 2)}\n`);
           NODE
 
-      - name: Upload final synchronization certificate
+      - name: Upload final alias-aware synchronization certificate
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: final-ebay-3000-sync-certificate-1117-${{ github.run_number }}
+          name: final-alias-aware-ebay-sync-certificate-${{ github.run_number }}
           path: final-verification
           if-no-files-found: warn
           retention-days: 30
