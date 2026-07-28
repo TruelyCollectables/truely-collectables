@@ -6,28 +6,56 @@ on:
       - "connectors/tcos-market-intel-mcp/**"
       - ".github/workflows/tcos-market-intel-connector.yml"
   push:
-    branches: [main]
+    branches:
+      - main
+      - feature/tcos-market-intel-connector-v1
     paths:
       - "connectors/tcos-market-intel-mcp/**"
       - ".github/workflows/tcos-market-intel-connector.yml"
+  workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: connectors/tcos-market-intel-mcp
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'push' && github.ref_name || github.head_ref }}
+          fetch-depth: 0
+      - name: Materialize hardened InstaComp tool
+        working-directory: connectors/tcos-market-intel-mcp
+        run: |
+          node scripts/apply-instacomp-bridge.mjs
+          git diff --check
+      - name: Commit materialized connector server
+        if: github.event_name == 'push' && github.ref_name == 'feature/tcos-market-intel-connector-v1'
+        run: |
+          git add connectors/tcos-market-intel-mcp/src/server.mjs
+          if git diff --cached --quiet; then
+            echo "Hardened InstaComp tool already materialized."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Materialize hardened InstaComp MCP bridge"
+          git push origin HEAD:feature/tcos-market-intel-connector-v1
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: connectors/tcos-market-intel-mcp/package.json
-      - run: npm install
-      - run: npm run check
+      - name: Install connector dependencies
+        working-directory: connectors/tcos-market-intel-mcp
+        run: npm install
+      - name: Validate connector
+        working-directory: connectors/tcos-market-intel-mcp
+        env:
+          TCOS_CONNECTOR_TOKEN: test-connector-token
+          TCOS_REQUIRE_INSTACOMP: "false"
+        run: npm run check
       - name: Build connector Docker image
+        working-directory: connectors/tcos-market-intel-mcp
         run: docker build -t tcos-market-intel-connector:test .
