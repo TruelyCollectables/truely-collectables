@@ -1,0 +1,72 @@
+name: Profit Hunter InstaComp Service Bridge
+
+on:
+  push:
+    branches:
+      - feature/profit-hunter-instacomp-service-v2-20260728
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "src/lib/instacomp-job-server.ts"
+      - "scripts/apply-profit-hunter-instacomp-service.py"
+      - "scripts/run-instacomp-service-auth-simulations.ts"
+      - ".github/workflows/profit-hunter-instacomp-service.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  materialize-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/profit-hunter-instacomp-service-v2-20260728
+          fetch-depth: 0
+      - name: Materialize service authentication
+        run: |
+          python -m py_compile scripts/apply-profit-hunter-instacomp-service.py
+          python scripts/apply-profit-hunter-instacomp-service.py
+          git diff --check
+      - name: Commit materialized source
+        run: |
+          git add src/lib/instacomp-job-server.ts
+          if git diff --cached --quiet; then
+            echo "Service authentication already materialized."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Materialize Profit Hunter InstaComp service authentication"
+          git push origin HEAD:feature/profit-hunter-instacomp-service-v2-20260728
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Run service-auth regression
+        run: node --import tsx scripts/run-instacomp-service-auth-simulations.ts
+      - name: Lint bridge paths
+        run: npx eslint src/lib/instacomp-job-server.ts scripts/run-instacomp-service-auth-simulations.ts
+      - name: Build production application
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+          ADMIN_PASSWORD: build-only-placeholder-password
+          ADMIN_SESSION_SECRET: build-only-placeholder-admin-session-secret
+          INSTACOMP_SERVICE_TOKEN: build-only-placeholder-instacomp-service-token
+          NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+          STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+          STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+          EBAY_CLIENT_ID: build-only-placeholder-client-id
+          EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+          EBAY_ENVIRONMENT: production
+          TCOS_LIVE_PAYMENTS_ENABLED: "false"
+          TCOS_SHIPPING_PURCHASE_MODE: dry_run
+          TCOS_LIVE_SHIPPING_ENABLED: "false"
+        run: npm run build

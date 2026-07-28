@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   ADMIN_SESSION_COOKIE_NAMES,
@@ -107,6 +108,30 @@ function bearerToken(request: Request) {
     : null;
 }
 
+function constantTimeSecretMatch(provided: string, expected: string) {
+  const providedBytes = Buffer.from(provided, "utf8");
+  const expectedBytes = Buffer.from(expected, "utf8");
+
+  return (
+    providedBytes.length === expectedBytes.length &&
+    timingSafeEqual(providedBytes, expectedBytes)
+  );
+}
+
+export function isValidInstaCompServiceRequest(
+  request: Request,
+  expectedToken = process.env.INSTACOMP_SERVICE_TOKEN,
+) {
+  const expected = String(expectedToken || "").trim();
+  const provided = String(
+    request.headers.get("x-tcos-instacomp-service-token") || "",
+  ).trim();
+
+  return Boolean(
+    expected && provided && constantTimeSecretMatch(provided, expected),
+  );
+}
+
 export function requireInstaCompJobSupabase(): SupabaseClient {
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()) {
     throw new InstaCompJobServerError(
@@ -135,6 +160,18 @@ export async function requireInstaCompJobActor(
   const supabase = requireInstaCompJobSupabase();
 
   const storeId = getActiveStoreId();
+
+  // Profit Hunter and Market Intel use a dedicated service credential. This
+  // keeps reusable seller JWTs and administrator cookies out of background
+  // connector infrastructure while preserving the same private store scope.
+  if (isValidInstaCompServiceRequest(request)) {
+    return {
+      type: "admin",
+      storeId,
+      sellerAccountId: null,
+    };
+  }
+
   const token = bearerToken(request);
   let validAccountId: string | null = null;
 
