@@ -52,15 +52,41 @@ jobs:
           node-version: 22
           cache: npm
       - name: Apply local pagination fix
-        run: python scripts/apply-ebay-local-pagination-fix.py
+        shell: bash
+        run: |
+          set -o pipefail
+          python scripts/apply-ebay-local-pagination-fix.py 2>&1 | tee ebay-local-pagination-patch.log
       - name: Install exact dependencies
         run: npm ci
       - name: Run pagination and taxonomy regressions
-        run: node --import tsx scripts/run-storefront-taxonomy-regressions.ts
+        shell: bash
+        run: |
+          set -o pipefail
+          node --import tsx scripts/run-storefront-taxonomy-regressions.ts 2>&1 | tee ebay-local-pagination-regressions.log
       - name: Lint changed paths
-        run: npx eslint src/lib/ebay-authoritative-store-sync.ts scripts/run-storefront-taxonomy-regressions.ts
+        shell: bash
+        run: |
+          set -o pipefail
+          npx eslint src/lib/ebay-authoritative-store-sync.ts scripts/run-storefront-taxonomy-regressions.ts 2>&1 | tee ebay-local-pagination-lint.log
       - name: Build production application
-        run: npm run build
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee ebay-local-pagination-build.log
+      - name: Upload pagination certification diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ebay-local-pagination-certification-${{ github.run_number }}
+          path: |
+            ebay-local-pagination-patch.log
+            ebay-local-pagination-regressions.log
+            ebay-local-pagination-lint.log
+            ebay-local-pagination-build.log
+            src/lib/ebay-authoritative-store-sync.ts
+            scripts/run-storefront-taxonomy-regressions.ts
+          if-no-files-found: warn
+          retention-days: 14
       - name: Commit verified source
         run: |
           git config user.name "github-actions[bot]"
