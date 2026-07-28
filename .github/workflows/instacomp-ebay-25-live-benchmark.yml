@@ -67,32 +67,48 @@ jobs:
         run: npm ci
 
       - name: Run benchmark-quality regressions
-        run: node --import tsx scripts/run-instacomp-benchmark-quality-regressions.ts
+        id: quality
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          node --import tsx scripts/run-instacomp-benchmark-quality-regressions.ts \
+            2>&1 | tee benchmark-quality-regressions.log
 
       - name: Run existing InstaComp regressions
+        id: existing
+        continue-on-error: true
         run: |
-          node --import tsx scripts/run-instacomp-exact-provider-regressions.ts
-          node --import tsx scripts/run-instacomp-live-pipeline-regressions.ts
-          node --import tsx scripts/run-instacomp-provider-safety-regressions.ts
-          node --import tsx scripts/run-instacomp-batch-drop-regressions.ts
+          set -o pipefail
+          {
+            node --import tsx scripts/run-instacomp-exact-provider-regressions.ts
+            node --import tsx scripts/run-instacomp-live-pipeline-regressions.ts
+            node --import tsx scripts/run-instacomp-provider-safety-regressions.ts
+            node --import tsx scripts/run-instacomp-batch-drop-regressions.ts
+          } 2>&1 | tee existing-instacomp-regressions.log
 
       - name: Validate benchmark source
-        run: >-
-          npx eslint
-          src/app/api/instacomp/benchmark/ebay-25/route.ts
-          src/app/api/instacomp/live-scan/route.ts
-          src/app/api/instacomp/scan/route.ts
-          src/lib/instacomp-benchmark-grading.ts
-          src/lib/instacomp-ebay-benchmark-cases.ts
-          src/lib/instacomp-identity-guard.ts
-          src/lib/instacomp-consensus.ts
-          src/lib/instacomp-curated-checklist.ts
-          src/lib/instacomp-live-pipeline.ts
-          scripts/run-instacomp-benchmark-quality-regressions.ts
-          scripts/run-instacomp-ebay-25-benchmark.mjs
-          scripts/run-instacomp-ebay-25-through-vercel-curl.mjs
+        id: lint
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          npx eslint \
+            src/app/api/instacomp/benchmark/ebay-25/route.ts \
+            src/app/api/instacomp/live-scan/route.ts \
+            src/app/api/instacomp/scan/route.ts \
+            src/lib/instacomp-benchmark-grading.ts \
+            src/lib/instacomp-ebay-benchmark-cases.ts \
+            src/lib/instacomp-identity-guard.ts \
+            src/lib/instacomp-consensus.ts \
+            src/lib/instacomp-curated-checklist.ts \
+            src/lib/instacomp-live-pipeline.ts \
+            scripts/run-instacomp-benchmark-quality-regressions.ts \
+            scripts/run-instacomp-ebay-25-benchmark.mjs \
+            scripts/run-instacomp-ebay-25-through-vercel-curl.mjs \
+            2>&1 | tee benchmark-lint.log
 
       - name: Build application
+        id: build
+        continue-on-error: true
         env:
           NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
           NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
@@ -109,7 +125,16 @@ jobs:
           TCOS_LIVE_PAYMENTS_ENABLED: "false"
           TCOS_SHIPPING_PURCHASE_MODE: dry_run
           TCOS_LIVE_SHIPPING_ENABLED: "false"
-        run: npm run build
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee benchmark-build.log
+
+      - name: Enforce local repair validation
+        run: |
+          test "${{ steps.quality.outcome }}" = "success"
+          test "${{ steps.existing.outcome }}" = "success"
+          test "${{ steps.lint.outcome }}" = "success"
+          test "${{ steps.build.outcome }}" = "success"
 
       - name: Link Vercel project
         env:
@@ -207,7 +232,7 @@ jobs:
             echo "No benchmark report was produced." >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Upload benchmark report and transport evidence
+      - name: Upload benchmark report and diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -215,6 +240,10 @@ jobs:
           path: |
             reports/instacomp-ebay-25-report.json
             reports/instacomp-ebay-25-report.md
+            benchmark-quality-regressions.log
+            existing-instacomp-regressions.log
+            benchmark-lint.log
+            benchmark-build.log
             benchmark-manifest.json
             benchmark-manifest-stderr.txt
             deployment-url.txt
