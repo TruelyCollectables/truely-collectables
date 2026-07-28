@@ -25,12 +25,12 @@ jobs:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_SCOPE: truelycollectables-projects
-      DEPLOY_SOURCE_SHA: c806829b3a8c61a346c8c1e05ce82fe4821e4ccc
+      DEPLOY_SOURCE_SHA: 10df06e37bb8ecec3530a2a6ffdbef49d4496185
     steps:
       - name: Check out exact merged source
         uses: actions/checkout@v4
         with:
-          ref: c806829b3a8c61a346c8c1e05ce82fe4821e4ccc
+          ref: 10df06e37bb8ecec3530a2a6ffdbef49d4496185
           fetch-depth: 1
 
       - name: Set up Node.js
