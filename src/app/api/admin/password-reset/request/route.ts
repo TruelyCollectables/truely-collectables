@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { createAdminPasswordReset } from "../../../../../../lib/admin-credentials";
-import { safeAdminLoginNextPath } from "../../../../../../lib/admin-login-destination";
-import { requestOrigin } from "../../../../../../lib/request-origin";
-import { getStoreSettings } from "../../../../../../lib/store-settings";
-import { getActiveStoreId } from "../../../../../../lib/stores";
-import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
+import { createAdminPasswordReset } from "../../../../../lib/admin-credentials";
+import { safeAdminLoginNextPath } from "../../../../../lib/admin-login-destination";
+import { requestOrigin } from "../../../../../lib/request-origin";
+import { getStoreSettings } from "../../../../../lib/store-settings";
+import { getActiveStoreId } from "../../../../../lib/stores";
+import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

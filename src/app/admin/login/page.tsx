@@ -1,5 +1,29 @@
 import AdminSubmitButton from "../AdminSubmitButton";
+import { getDatabaseAdminCredentialStatus } from "../../../lib/admin-credentials";
 import { safeAdminLoginNextPath } from "../../../lib/admin-login-destination";
+
+function resetStatusMessage(code: string | string[] | undefined) {
+  const resetCode = Array.isArray(code) ? code[0] : code;
+  if (resetCode === "sent") {
+    return {
+      tone: "success" as const,
+      message: "A one-time password reset link was sent to the private owner recovery email. Check the inbox and spam folder.",
+    };
+  }
+  if (resetCode === "email_error") {
+    return {
+      tone: "error" as const,
+      message: "The reset request was saved, but the recovery email could not be delivered. Check the Resend configuration.",
+    };
+  }
+  if (resetCode === "storage_error") {
+    return {
+      tone: "error" as const,
+      message: "The private database credential store was unavailable. Try again in a moment.",
+    };
+  }
+  return null;
+}
 
 function loginErrorMessage(code: string | string[] | undefined) {
   const errorCode = Array.isArray(code) ? code[0] : code;
@@ -13,15 +37,15 @@ function loginErrorMessage(code: string | string[] | undefined) {
   }
 
   if (errorCode === "missing_password") {
-    return "Admin password is not configured. Set ADMIN_PASSWORD and restart the server.";
+    return "No permanent database password or emergency fallback is configured. Use the owner reset link below.";
   }
 
   if (errorCode === "session_error") {
-    return "Admin password was accepted, but the server could not create an admin session. Set ADMIN_SESSION_SECRET or ADMIN_PASSWORD for this running server, restart it, and try again.";
+    return "The password was accepted, but the secure admin session could not be created. Try again or use the owner reset link.";
   }
 
   if (errorCode === "invalid") {
-    return "Invalid admin password. Confirm you are using the ADMIN_PASSWORD value for this running server.";
+    return "Invalid admin password. Stop guessing and use the owner reset link below to set a permanent password.";
   }
 
   if (errorCode === "bad_request") {
@@ -39,8 +63,12 @@ export default async function AdminLoginPage({
   const params = await searchParams;
   const nextPath = safeAdminLoginNextPath(params.next);
   const error = loginErrorMessage(params.error);
+  const resetStatus = resetStatusMessage(params.reset);
   const localDevelopmentLoginAvailable = process.env.NODE_ENV !== "production";
-  const adminPasswordConfigured = Boolean(process.env.ADMIN_PASSWORD);
+  const databaseCredential = await getDatabaseAdminCredentialStatus();
+  const emergencyPasswordConfigured = Boolean(process.env.ADMIN_PASSWORD);
+  const adminPasswordConfigured =
+    databaseCredential.configured || emergencyPasswordConfigured;
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(245,158,11,0.16),_transparent_34%),linear-gradient(180deg,_#faf7ef_0%,_#f4f1ea_42%,_#eee7da_100%)] px-4 py-8 text-neutral-950 sm:px-6 lg:px-8">
@@ -65,9 +93,11 @@ export default async function AdminLoginPage({
                   Password source
                 </dt>
                 <dd className="mt-1 font-black">
-                  {adminPasswordConfigured
-                    ? "ADMIN_PASSWORD is configured"
-                    : "ADMIN_PASSWORD missing in process env"}
+                  {databaseCredential.configured
+                    ? "Permanent database owner password configured"
+                    : emergencyPasswordConfigured
+                      ? "Temporary Vercel fallback configured"
+                      : "No owner password configured"}
                 </dd>
               </div>
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4 shadow-sm">
@@ -121,7 +151,7 @@ export default async function AdminLoginPage({
               <AdminSubmitButton
                 className="w-full rounded-2xl bg-neutral-950 px-4 py-3 font-black text-white shadow-sm transition hover:bg-neutral-800"
                 pendingChildren="Signing in..."
-                title="Submit the typed ADMIN_PASSWORD and create the admin session cookie for this browser."
+                title="Submit the permanent database owner password and create the admin session cookie for this browser."
               >
                 Login
               </AdminSubmitButton>
@@ -130,6 +160,36 @@ export default async function AdminLoginPage({
                 sends this browser to the destination shown on the left.
               </p>
             </form>
+
+            <form
+              action={`/api/admin/password-reset/request?next=${encodeURIComponent(nextPath)}`}
+              method="post"
+              className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm ring-1 ring-amber-950/5"
+            >
+              <input type="hidden" name="next" value={nextPath} />
+              <AdminSubmitButton
+                className="w-full rounded-2xl border border-amber-300 bg-white px-4 py-3 text-sm font-black text-amber-950 shadow-sm transition hover:bg-amber-100"
+                pendingChildren="Sending private reset link..."
+                title="Send a one-time password reset link to the private owner recovery email."
+              >
+                Email Owner Reset Link
+              </AdminSubmitButton>
+              <p className="mt-2 text-xs font-semibold leading-5 text-amber-950">
+                The link expires in 30 minutes. The new password is stored privately in the database and survives deployments.
+              </p>
+            </form>
+
+            {resetStatus ? (
+              <p
+                className={`mt-4 rounded-2xl border px-4 py-3 text-sm font-black shadow-sm ring-1 ${
+                  resetStatus.tone === "success"
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-900 ring-emerald-950/5"
+                    : "border-rose-200 bg-rose-50 text-rose-900 ring-rose-950/5"
+                }`}
+              >
+                {resetStatus.message}
+              </p>
+            ) : null}
 
             {error ? (
               <p className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-black text-rose-900 shadow-sm ring-1 ring-rose-950/5">
