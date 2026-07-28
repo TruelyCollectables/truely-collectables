@@ -17,8 +17,6 @@ const APPAREL_PATTERN =
 const JERSEY_PATTERN = /\bjerseys?\b/i;
 const JERSEY_COLLECTIBLE_PATTERN =
   /\b(?:signed|autographed|inscribed|authenticated|authentication|coa|jsa|beckett|psa\/?dna|game[- ]used|game[- ]worn|game[- ]issued|player[- ]worn|framed|memorabilia)\b/i;
-const COLLECTIBLE_EVIDENCE_PATTERN =
-  /\b(?:trading cards?|sports cards?|rookie cards?|sealed wax|hobby box|blaster box|booster box|autographs?|signed|memorabilia|pucks?|baseballs?|footballs?|basketballs?|soccer balls?|softballs?|golf balls?|bats?|baseball gloves?|helmets?|photos?|photographs?|prints?|posters?|tickets?|programs?|media guides?|comics?|coins?|bullion|funko|action figures?|diecast|toys?|collectibles?)\b/i;
 
 const ALLOWED_CATEGORIES = new Set([
   "sports_cards",
@@ -87,7 +85,10 @@ export function isLaunchCollectible(candidate: CollectibleLaunchCandidate) {
   if (ALLOWED_CATEGORIES.has(category)) return true;
   if (ALLOWED_SECTIONS.has(section)) return true;
 
-  return COLLECTIBLE_EVIDENCE_PATTERN.test(searchable);
+  // The owner's explicit catalog policy is all active eBay inventory except
+  // parts, ordinary clothing, and footwear. Unrecognized allowed items remain
+  // sellable under Other Collectables instead of silently disappearing.
+  return true;
 }
 
 // Compatibility export for older callers while the public launch expands from
