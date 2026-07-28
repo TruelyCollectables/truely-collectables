@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { mapEbayInventoryCategory } from "./ebay-category-mapper";
 import { classifyStorefrontItem } from "./storefront-taxonomy";
 import { getStoreSettings } from "./store-settings";
+import { listingImageIdentity } from "./listing-image-utils";
 import { InventoryRepository } from "../modules/inventory";
 
 const TRADING_API_VERSION = "1409";
@@ -598,6 +599,10 @@ async function readAllRemoteListings(params: {
   };
 }
 
+function normalizedNullableText(value: unknown) {
+  return String(value || "").trim();
+}
+
 function listingChanged(
   local: LocalProduct,
   remote: EbayStoreRemoteListing,
@@ -607,8 +612,10 @@ function listingChanged(
     Number(local.quantity) !== remote.quantity ||
     Math.round(Number(local.price) * 100) !==
       Math.round(remote.price * 100) ||
-    local.image_url !== remote.imageUrl ||
-    local.sport !== remote.sport ||
+    listingImageIdentity(local.image_url) !==
+      listingImageIdentity(remote.imageUrl) ||
+    normalizedNullableText(local.sport) !==
+      normalizedNullableText(remote.sport) ||
     (!local.sku && Boolean(remote.sku))
   );
 }
@@ -947,7 +954,7 @@ export async function runEbayAuthoritativeStoreSync(params: {
             : action === "update"
               ? taxonomyRefreshRequired
                 ? "Storefront taxonomy version 4 eBay-category refresh is required."
-                : "Local title, quantity, price, image, sport, or SKU differs from eBay."
+                : "Local title, quantity, price, image identity, sport, or SKU differs from eBay."
               : "Local listing matches active eBay inventory.",
         legacyProductId: local?.id || null,
         remoteQuantity: listing.quantity,

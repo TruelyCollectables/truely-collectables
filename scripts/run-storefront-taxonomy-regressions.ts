@@ -290,6 +290,22 @@ const authoritativeSyncSource = fs.readFileSync(
   "utf8",
 );
 assert.ok(
+  authoritativeSyncSource.includes(
+    'import { listingImageIdentity } from "./listing-image-utils";',
+  ),
+  "Authoritative convergence must compare stable eBay image identities.",
+);
+assert.match(
+  authoritativeSyncSource,
+  /listingImageIdentity\(local\.image_url\) !==[\s\S]*listingImageIdentity\(remote\.imageUrl\)/,
+  "Image resolution variants must not create endless inventory updates.",
+);
+assert.match(
+  authoritativeSyncSource,
+  /normalizedNullableText\(local\.sport\) !==[\s\S]*normalizedNullableText\(remote\.sport\)/,
+  "Null and empty storefront category values must compare consistently.",
+);
+assert.ok(
   authoritativeSyncSource.includes("const MAX_ACTIVE_LISTINGS = 3000;"),
   "Authoritative eBay inventory reads must stop at the approved 3,000-active-listing ceiling.",
 );
