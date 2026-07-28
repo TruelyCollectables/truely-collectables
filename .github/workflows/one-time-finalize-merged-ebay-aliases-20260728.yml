@@ -1,0 +1,578 @@
+name: One-Time Finalize Merged eBay Aliases 20260728
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/one-time-finalize-merged-ebay-aliases-20260728.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: one-time-finalize-merged-ebay-aliases-20260728
+  cancel-in-progress: false
+
+jobs:
+  patch-and-validate:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'agent/finalize-merged-ebay-aliases-20260728'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+      ADMIN_SESSION_SECRET: build-only-placeholder-session-secret
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+      EBAY_CLIENT_ID: build-only-placeholder-client-id
+      EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+      EBAY_ENVIRONMENT: production
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/finalize-merged-ebay-aliases-20260728
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - name: Formalize merged eBay aliases
+        shell: bash
+        run: |
+          set -euo pipefail
+          python <<'PY'
+          from pathlib import Path
+          import re
+
+          merged_path = Path('src/lib/ebay-merged-listing-groups.ts')
+          merged_path.write_text('''export const EBAY_MERGED_LISTING_GROUPS = [
+            {
+              key: "2025-donruss-400-jaxson-dart",
+              canonicalLegacyProductId: 1991,
+              aliasItemIds: ["317570836168", "317570836334"],
+            },
+          ] as const;
+
+          const mergedAliasItemIds = new Set<string>(
+            EBAY_MERGED_LISTING_GROUPS.flatMap((group) => [...group.aliasItemIds]),
+          );
+
+          const mergedCanonicalProductIds = new Set<number>(
+            EBAY_MERGED_LISTING_GROUPS.map((group) => group.canonicalLegacyProductId),
+          );
+
+          export function isMergedEbayAliasItemId(value: unknown) {
+            return mergedAliasItemIds.has(String(value || "").trim());
+          }
+
+          export function isMergedEbayCanonicalProductId(value: unknown) {
+            return mergedCanonicalProductIds.has(Number(value));
+          }
+
+          export function isMergedEbayListingMember(input: {
+            itemId: unknown;
+            legacyProductId: unknown;
+          }) {
+            return (
+              isMergedEbayAliasItemId(input.itemId) ||
+              isMergedEbayCanonicalProductId(input.legacyProductId)
+            );
+          }
+          ''')
+
+          sync_path = Path('src/lib/ebay-authoritative-store-sync.ts')
+          source = sync_path.read_text()
+
+          def literal(old: str, new: str, label: str) -> None:
+              global source
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected one match, found {count}')
+              source = source.replace(old, new, 1)
+
+          def regex(pattern: str, replacement: str, label: str, flags=re.S) -> None:
+              global source
+              source, count = re.subn(pattern, lambda _: replacement, source, count=1, flags=flags)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected one match, found {count}')
+
+          literal(
+              'import { getStoreSettings } from "./store-settings";\nimport { InventoryRepository } from "../modules/inventory";',
+              'import { getStoreSettings } from "./store-settings";\nimport { EBAY_MERGED_LISTING_GROUPS } from "./ebay-merged-listing-groups";\nimport { InventoryRepository } from "../modules/inventory";',
+              'merged group import',
+          )
+
+          literal(
+              '''  eligibleCollectibles: number;
+            skippedNonCollectibles: number;
+            eligibleSportsCards: number;''',
+              '''  eligibleCollectibles: number;
+            skippedNonCollectibles: number;
+            mergedAliasListings: number;
+            representedInventoryRows: number;
+            eligibleSportsCards: number;''',
+              'result metrics',
+          )
+
+          listing_changed = '''function listingChanged(
+            local: LocalProduct,
+            remote: EbayStoreRemoteListing,
+          ) {
+            // The complete image synchronizer owns image convergence. Keeping image
+            // URLs out of this comparison prevents the two stages from fighting over
+            // equivalent or intentionally preserved images.
+            return listingDifferences(local, remote).length > 0;
+          }
+          '''
+          collapse_helper = listing_changed + '''
+          function collapseMergedRemoteListings(params: {
+            remoteListings: EbayStoreRemoteListing[];
+            locals: LocalProduct[];
+          }) {
+            const localsById = new Map(params.locals.map((row) => [row.id, row] as const));
+            const localByItemId = new Map(
+              params.locals.map((row) => [String(row.ebay_item_id || ""), row] as const),
+            );
+            const claimedItemIds = new Set<string>();
+            const mergedListings: EbayStoreRemoteListing[] = [];
+            const aliasActions: EbayStoreSyncAction[] = [];
+            let mergedAliasListings = 0;
+
+            for (const group of EBAY_MERGED_LISTING_GROUPS) {
+              const canonical = localsById.get(group.canonicalLegacyProductId) || null;
+              const canonicalItemId = String(canonical?.ebay_item_id || "").trim();
+              const activeAliases = params.remoteListings.filter((listing) =>
+                group.aliasItemIds.includes(listing.itemId as never),
+              );
+
+              if (!canonical || !canonicalItemId) {
+                if (activeAliases.length > 0) {
+                  throw new Error(
+                    `Merged eBay canonical product ${group.canonicalLegacyProductId} is missing.`,
+                  );
+                }
+                continue;
+              }
+
+              const memberIds = new Set<string>([
+                canonicalItemId,
+                ...group.aliasItemIds,
+              ]);
+              const activeMembers = params.remoteListings.filter((listing) =>
+                memberIds.has(listing.itemId),
+              );
+              if (activeMembers.length === 0) continue;
+
+              for (const listing of activeMembers) claimedItemIds.add(listing.itemId);
+              const representative =
+                activeMembers.find((listing) => listing.itemId === canonicalItemId) ||
+                activeMembers[0];
+              const mergedQuantity = activeMembers.reduce(
+                (total, listing) => total + listing.quantity,
+                0,
+              );
+
+              mergedListings.push({
+                ...representative,
+                itemId: canonicalItemId,
+                sku: canonical.sku || representative.sku,
+                quantity: mergedQuantity,
+              });
+              mergedAliasListings += Math.max(activeMembers.length - 1, 0);
+
+              for (const listing of activeMembers) {
+                if (listing.itemId === canonicalItemId) continue;
+                const aliasLocal = localByItemId.get(listing.itemId) || null;
+                aliasActions.push({
+                  itemId: listing.itemId,
+                  title: listing.title,
+                  action: "skip",
+                  reason: `Merged alias represented by canonical legacy product ${canonical.id}.`,
+                  legacyProductId: aliasLocal?.id || null,
+                  remoteQuantity: listing.quantity,
+                  localQuantity: aliasLocal ? Number(aliasLocal.quantity) : null,
+                  remotePrice: listing.price,
+                  localPrice: aliasLocal ? Number(aliasLocal.price) : null,
+                  sku: aliasLocal?.sku || listing.sku,
+                  categoryName: listing.categoryName,
+                });
+              }
+            }
+
+            return {
+              listings: [
+                ...params.remoteListings.filter(
+                  (listing) => !claimedItemIds.has(listing.itemId),
+                ),
+                ...mergedListings,
+              ],
+              aliasActions,
+              mergedAliasListings,
+            };
+          }
+          '''
+          literal(listing_changed, collapse_helper, 'merged listing collapse helper')
+
+          regex(
+              r'''  const localByItemId = new Map\([\s\S]*?  const actions: EbayStoreSyncAction\[] = remote\.listings\.map\([\s\S]*?\n  \);\n\n  if \(remote\.cycleComplete\) \{''',
+              '''  const localByItemId = new Map(
+            locals.map(
+              (row) => [String(row.ebay_item_id || ""), row] as const,
+            ),
+          );
+          const rawRemoteByItemId = new Map(
+            remote.listings.map((row) => [row.itemId, row] as const),
+          );
+          const mergedRemote = collapseMergedRemoteListings({
+            remoteListings: remote.listings,
+            locals,
+          });
+          const effectiveRemoteListings = mergedRemote.listings;
+          const effectiveRemoteByItemId = new Map(
+            effectiveRemoteListings.map((row) => [row.itemId, row] as const),
+          );
+          const actions: EbayStoreSyncAction[] = [
+            ...effectiveRemoteListings.map((listing) => {
+              const local = localByItemId.get(listing.itemId) || null;
+              const differences = local ? listingDifferences(local, listing) : [];
+              const action = !local
+                ? "insert"
+                : taxonomyRefreshRequired || differences.length > 0
+                  ? "update"
+                  : "unchanged";
+              return {
+                itemId: listing.itemId,
+                title: listing.title,
+                action,
+                reason:
+                  action === "insert"
+                    ? "Active eBay sports-card listing is missing locally."
+                    : action === "update"
+                      ? taxonomyRefreshRequired
+                        ? "Storefront taxonomy version 4 eBay-category refresh is required."
+                        : `Local differences: ${differences.join(", ")}.`
+                      : "Local listing matches active eBay inventory.",
+                legacyProductId: local?.id || null,
+                remoteQuantity: listing.quantity,
+                localQuantity: local ? Number(local.quantity) : null,
+                remotePrice: listing.price,
+                localPrice: local ? Number(local.price) : null,
+                sku: local?.sku || listing.sku,
+                categoryName: listing.categoryName,
+              } satisfies EbayStoreSyncAction;
+            }),
+            ...mergedRemote.aliasActions,
+          ];
+
+          if (remote.cycleComplete) {''',
+              'effective remote actions',
+          )
+
+          literal(
+              '      if (!itemId || remoteByItemId.has(itemId)) continue;',
+              '      if (\n        !itemId ||\n        rawRemoteByItemId.has(itemId) ||\n        effectiveRemoteByItemId.has(itemId)\n      )\n        continue;',
+              'ended preview guard',
+          )
+
+          literal(
+              '''    const changedListings = remote.listings.filter((listing) => {
+                  const local = localByItemId.get(listing.itemId) || null;
+                  return !local || taxonomyRefreshRequired || listingChanged(local, listing);
+                });''',
+              '''    const changedListings = effectiveRemoteListings.filter((listing) => {
+                  const local = localByItemId.get(listing.itemId) || null;
+                  return !local || taxonomyRefreshRequired || listingChanged(local, listing);
+                });''',
+              'effective changed listings',
+          )
+
+          literal(
+              '''      : remote.listings
+                .map((listing) => localByItemId.get(listing.itemId) || null)''',
+              '''      : effectiveRemoteListings
+                .map((listing) => localByItemId.get(listing.itemId) || null)''',
+              'effective unchanged listings',
+          )
+          source = source.replace('remoteByItemId.get(String(local.ebay_item_id))!', 'effectiveRemoteByItemId.get(String(local.ebay_item_id))!', 1)
+
+          literal(
+              '''      const endedLocals = locals.filter(
+                  (local) =>
+                    !remoteByItemId.has(String(local.ebay_item_id || "")),
+                );''',
+              '''      const endedLocals = locals.filter((local) => {
+                  const itemId = String(local.ebay_item_id || "");
+                  return (
+                    !rawRemoteByItemId.has(itemId) &&
+                    !effectiveRemoteByItemId.has(itemId)
+                  );
+                });''',
+              'ended apply guard',
+          )
+
+          literal(
+              '''          authoritative_store_sync_last_eligible_cards:
+                    remote.listings.length,
+                  authoritative_store_sync_last_inserted: inserted,''',
+              '''          authoritative_store_sync_last_eligible_cards:
+                    remote.listings.length,
+                  authoritative_store_sync_last_represented_inventory_rows:
+                    effectiveRemoteListings.length,
+                  authoritative_store_sync_last_merged_alias_listings:
+                    mergedRemote.mergedAliasListings,
+                  authoritative_store_sync_last_inserted: inserted,''',
+              'cursor alias metrics',
+          )
+
+          literal(
+              '''            eligible_cards: remote.listings.length,
+                    inserted,''',
+              '''            eligible_cards: remote.listings.length,
+                    represented_inventory_rows: effectiveRemoteListings.length,
+                    merged_alias_listings: mergedRemote.mergedAliasListings,
+                    inserted,''',
+              'provider alias metrics',
+          )
+
+          literal(
+              '''    skippedNonCollectibles: Math.max(
+                  remote.remoteItemsRead - remote.listings.length,
+                  0,
+                ),
+                // Backward-compatible aliases for existing admin receipts.''',
+              '''    skippedNonCollectibles: Math.max(
+                  remote.remoteItemsRead - remote.listings.length,
+                  0,
+                ),
+                mergedAliasListings: mergedRemote.mergedAliasListings,
+                representedInventoryRows: effectiveRemoteListings.length,
+                // Backward-compatible aliases for existing admin receipts.''',
+              'return alias metrics',
+          )
+          sync_path.write_text(source)
+
+          route_path = Path('src/app/api/cron/ebay-store-fixed-price-sync/route.ts')
+          route = route_path.read_text()
+          route = route.replace(
+              '''        skippedNonCollectibles: sync.skippedNonCollectibles,
+                  inserted: sync.inserted,''',
+              '''        skippedNonCollectibles: sync.skippedNonCollectibles,
+                  mergedAliasListings: sync.mergedAliasListings,
+                  representedInventoryRows: sync.representedInventoryRows,
+                  inserted: sync.inserted,''',
+              1,
+          )
+          route = route.replace(
+              '    sync.unchanged === sync.eligibleCollectibles',
+              '    sync.unchanged === sync.representedInventoryRows',
+              1,
+          )
+          reconciliation_marker = '''    if (
+                firstAuthoritative.cycleComplete &&
+                firstAuthoritative.eligibleCollectibles +
+                  firstAuthoritative.skippedNonCollectibles !==
+                  firstAuthoritative.remoteFixedPriceTotal
+              ) {'''
+          reconciliation_replacement = reconciliation_marker + '''
+          '''
+          if route.count(reconciliation_marker) != 1:
+              raise SystemExit('remote reconciliation marker was not unique')
+          alias_check = '''
+              if (
+                firstAuthoritative.cycleComplete &&
+                firstAuthoritative.representedInventoryRows +
+                  firstAuthoritative.mergedAliasListings !==
+                  firstAuthoritative.eligibleCollectibles
+              ) {
+                errors.push({
+                  step: "authoritative_full_store_sync",
+                  error: "Represented inventory rows plus merged aliases did not reconcile to eligible eBay listings.",
+                });
+              }
+          '''
+          insert_after = '''      errors.push({
+                step: "authoritative_full_store_sync",
+                error: "The active eBay total did not reconcile to eligible plus intentionally excluded listings.",
+              });
+            }
+          '''
+          if route.count(insert_after) != 1:
+              raise SystemExit('remote reconciliation insertion point was not unique')
+          route = route.replace(insert_after, insert_after + alias_check, 1)
+          route = route.replace(
+              '      if (activeLinkedProducts !== finalAuthoritative.eligibleCollectibles) {',
+              '      if (activeLinkedProducts !== finalAuthoritative.representedInventoryRows) {',
+              1,
+          )
+          route = route.replace(
+              '          error: `Active linked database count ${activeLinkedProducts} does not equal current eligible eBay inventory ${finalAuthoritative.eligibleCollectibles}.`,',
+              '          error: `Active linked database count ${activeLinkedProducts} does not equal represented eBay inventory ${finalAuthoritative.representedInventoryRows}.`,',
+              1,
+          )
+          route = route.replace(
+              '''      activeLinkedProducts,
+                  matchesEligibleEbayInventory:
+                    finalAuthoritative !== null &&
+                    activeLinkedProducts === finalAuthoritative.eligibleCollectibles,''',
+              '''      activeLinkedProducts,
+                  expectedActiveLinkedProducts:
+                    finalAuthoritative?.representedInventoryRows ?? null,
+                  matchesEligibleEbayInventory:
+                    finalAuthoritative !== null &&
+                    activeLinkedProducts === finalAuthoritative.representedInventoryRows,''',
+              1,
+          )
+          route_path.write_text(route)
+
+          backfill_path = Path('src/lib/ebay-fixed-price-backfill.ts')
+          backfill = backfill_path.read_text()
+          backfill = backfill.replace(
+              'import { getStoreSettings } from "./store-settings";\nimport { InventoryRepository } from "../modules/inventory";',
+              'import { getStoreSettings } from "./store-settings";\nimport {\n  isMergedEbayAliasItemId,\n  isMergedEbayListingMember,\n} from "./ebay-merged-listing-groups";\nimport { InventoryRepository } from "../modules/inventory";',
+              1,
+          )
+          backfill = backfill.replace(
+              '''}) {
+              const { data: existing, error: existingError } = await params.supabase''',
+              '''}) {
+              if (isMergedEbayAliasItemId(params.listing.itemId)) {
+                return { inserted: false, reason: "merged_alias" };
+              }
+
+              const { data: existing, error: existingError } = await params.supabase''',
+              1,
+          )
+          backfill = backfill.replace(
+              '''  for (const listing of listings) {
+                counters.checked += 1;
+
+                try {''',
+              '''  for (const listing of listings) {
+                counters.checked += 1;
+
+                if (isMergedEbayListingMember(listing)) {
+                  counters.unchanged += 1;
+                  continue;
+                }
+
+                try {''',
+              1,
+          )
+          backfill_path.write_text(backfill)
+
+          test_path = Path('scripts/run-storefront-taxonomy-regressions.ts')
+          test = test_path.read_text()
+          test = test.replace(
+              'import { ebayAuthoritativeStoreSyncTestHelpers } from "../src/lib/ebay-authoritative-store-sync";\nimport { isLaunchCollectible } from "../src/lib/sports-card-launch-scope";',
+              'import { ebayAuthoritativeStoreSyncTestHelpers } from "../src/lib/ebay-authoritative-store-sync";\nimport {\n  EBAY_MERGED_LISTING_GROUPS,\n  isMergedEbayAliasItemId,\n  isMergedEbayCanonicalProductId,\n} from "../src/lib/ebay-merged-listing-groups";\nimport { isLaunchCollectible } from "../src/lib/sports-card-launch-scope";',
+              1,
+          )
+          old_assertions = '''assert.ok(
+            authoritativeSyncSource.includes(
+              'import { listingImageIdentity } from "./listing-image-utils";',
+            ),
+            "Authoritative convergence must compare stable eBay image identities.",
+          );
+          assert.match(
+            authoritativeSyncSource,
+            /listingImageIdentity\(local\.image_url\) !==[\s\S]*listingImageIdentity\(remote\.imageUrl\)/,
+            "Image resolution variants must not create endless inventory updates.",
+          );
+          assert.match(
+            authoritativeSyncSource,
+            /normalizedNullableText\(local\.sport\) !==[\s\S]*normalizedNullableText\(remote\.sport\)/,
+            "Null and empty storefront category values must compare consistently.",
+          );'''
+          new_assertions = '''assert.match(
+            authoritativeSyncSource,
+            /function normalizedComparableText[\s\S]*\.normalize\("NFKC"\)/,
+            "Equivalent Unicode and whitespace values must compare consistently.",
+          );
+          assert.match(
+            authoritativeSyncSource,
+            /function listingDifferences[\s\S]*differences\.push\("title"\)[\s\S]*differences\.push\("quantity"\)[\s\S]*differences\.push\("price"\)[\s\S]*differences\.push\("sport"\)/,
+            "Field-level convergence diagnostics must remain deterministic.",
+          );
+          assert.ok(
+            !authoritativeSyncSource.includes("listingImageIdentity(local.image_url)"),
+            "Authoritative inventory and complete image reconciliation must not fight.",
+          );
+          assert.equal(EBAY_MERGED_LISTING_GROUPS[0].canonicalLegacyProductId, 1991);
+          assert.deepEqual([...EBAY_MERGED_LISTING_GROUPS[0].aliasItemIds], [
+            "317570836168",
+            "317570836334",
+          ]);
+          assert.equal(isMergedEbayAliasItemId("317570836168"), true);
+          assert.equal(isMergedEbayCanonicalProductId(1991), true);
+          assert.match(
+            authoritativeSyncSource,
+            /function collapseMergedRemoteListings[\s\S]*mergedQuantity[\s\S]*mergedAliasListings/,
+            "Merged eBay listings must aggregate into their canonical website inventory row.",
+          );
+          assert.ok(authoritativeSyncSource.includes("representedInventoryRows"));'''
+          if test.count(old_assertions) != 1:
+              raise SystemExit(f'outdated convergence assertions: found {test.count(old_assertions)}')
+          test = test.replace(old_assertions, new_assertions, 1)
+          test += '''
+
+          const scheduledSyncSource = fs.readFileSync(
+            "src/app/api/cron/ebay-store-fixed-price-sync/route.ts",
+            "utf8",
+          );
+          const fixedPriceBackfillSource = fs.readFileSync(
+            "src/lib/ebay-fixed-price-backfill.ts",
+            "utf8",
+          );
+          assert.match(
+            scheduledSyncSource,
+            /sync\.unchanged === sync\.representedInventoryRows/,
+            "Cron convergence must use represented website rows rather than raw alias listings.",
+          );
+          assert.match(
+            scheduledSyncSource,
+            /expectedActiveLinkedProducts[\s\S]*representedInventoryRows/,
+            "Database audit must expose the alias-aware expected row count.",
+          );
+          assert.match(
+            fixedPriceBackfillSource,
+            /isMergedEbayAliasItemId\(params\.listing\.itemId\)/,
+            "Backfill must not recreate merged aliases.",
+          );
+          assert.match(
+            fixedPriceBackfillSource,
+            /isMergedEbayListingMember\(listing\)/,
+            "Quantity reconciliation must leave merged listing groups to the authoritative aggregate sync.",
+          );
+          '''
+          test_path.write_text(test)
+
+          for temporary in [
+              '.github/workflows/one-time-finalize-merged-ebay-aliases-20260728.yml',
+              '.github/workflows/ops-finalize-certified-ebay-fix-20260728.yml',
+          ]:
+              Path(temporary).unlink(missing_ok=True)
+          PY
+
+      - name: Validate final inventory contract
+        run: |
+          set -euo pipefail
+          npm ci
+          node --import tsx scripts/run-storefront-taxonomy-regressions.ts
+          node --import tsx scripts/run-ebay-import-admin-client-simulations.ts
+          npx eslint src/lib/ebay-merged-listing-groups.ts src/lib/ebay-authoritative-store-sync.ts src/lib/ebay-fixed-price-backfill.ts src/app/api/cron/ebay-store-fixed-price-sync/route.ts scripts/run-storefront-taxonomy-regressions.ts
+          npm run build
+
+      - name: Commit validated final inventory contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Truely Collectables Automation"
+          git config user.email "automation@truelycollectables.com"
+          git add -A
+          git commit -m "Finalize merged eBay alias inventory synchronization"
+          git push origin HEAD:agent/finalize-merged-ebay-aliases-20260728
