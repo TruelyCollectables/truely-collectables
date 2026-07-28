@@ -21,80 +21,113 @@ const mandatorySources = [
 
 const searches = [
   {
-    name: "Ivan Demidov full catalog",
+    name: "Ivan Demidov professional rookie cards",
     query:
-      "Ivan Demidov hockey cards rookies inserts parallels variations autographs memorabilia numbered raw graded lots misspellings",
+      "Ivan Demidov professional NHL rookie RC Young Guns rookie parallel numbered autograph memorabilia raw graded misspelling mislabeled",
     sources: mandatorySources,
     filters: {
-      ordinaryBaseExcluded: true,
+      professionalRookieOnly: true,
+      youngGunsEligible: true,
+      ordinaryNonRookieExcluded: true,
       exactIdentityRequired: true,
+      frontBackImagesRequired: true,
       multiVariationSelectionRequired: true,
-      minimumSingleNetProfit: 15,
-      minimumLotNetProfit: 25,
+      hardenedInstaCompRequired: true,
+      minimumNetRoiPercent: 20,
     },
     cadence: "hourly",
   },
   {
-    name: "WNBA watchlist and color lots",
+    name: "WNBA professional rookie Silver or better",
     query:
-      "Caitlin Clark Paige Bueckers Dominique Malonga Angel Reese Cameron Brink Kamilla Cardoso Sonia Citron Kiki Iriafen Rickea Jackson Kate Martin WNBA Prizm Select color lots",
+      "Caitlin Clark Paige Bueckers Dominique Malonga Sonia Citron Kiki Iriafen professional WNBA rookie Silver Prizm color numbered SSP case hit autograph memorabilia misspelling mislabeled",
     sources: mandatorySources,
     filters: {
-      years: [2024, 2025],
+      players: [
+        "Caitlin Clark",
+        "Paige Bueckers",
+        "Dominique Malonga",
+        "Sonia Citron",
+        "Kiki Iriafen",
+      ],
+      professionalWnbaRookieOnly: true,
       ordinaryBaseExcluded: true,
-      courtsideBaseAllowed: true,
-      silverAlwaysEligible: true,
+      minimumTier: "Silver Prizm or equivalent",
+      collegeNcaaBowmanUniversityDraftPicksExcluded: true,
       exactIdentityRequired: true,
-      minimumSingleNetProfit: 15,
-      minimumLotNetProfit: 25,
+      frontBackImagesRequired: true,
+      multiVariationSelectionRequired: true,
+      hardenedInstaCompRequired: true,
+      minimumNetRoiPercent: 20,
     },
     cadence: "hourly",
   },
   {
-    name: "2024-2025 WNBA Logo Prizms",
+    name: "Danny Norris WNBA rookie mislisting lane",
     query:
-      "2024 2025 Panini Prizm WNBA Logo Prizm refractor parallel cards lots misspellings under comps",
+      "Danny Norris CollX Caitlin Clark Paige Bueckers Dominique Malonga Sonia Citron Kiki Iriafen WNBA rookie Silver color numbered autograph memorabilia misspelling mislabeled",
     sources: mandatorySources,
     filters: {
-      exactParallel: "WNBA Logo Prizm",
-      exactPhotoMatchRequired: true,
-      multiVariationSelectionRequired: true,
-      minimumRoiPercent: 10,
+      sellerName: "Danny Norris",
+      professionalWnbaRookieOnly: true,
+      ordinaryBaseExcluded: true,
+      minimumTier: "Silver Prizm or equivalent",
+      collegeNcaaBowmanUniversityDraftPicksExcluded: true,
+      sellerInventorySweep: true,
+      exactIdentityRequired: true,
+      frontBackImagesRequired: true,
+      hardenedInstaCompRequired: true,
+      minimumNetRoiPercent: 20,
     },
     cadence: "hourly",
   },
   {
-    name: "2021-present 1st Bowman prospects",
+    name: "2021-present true 1st Bowman prospects",
     query:
-      "2021 2022 2023 2024 2025 2026 true 1st Bowman Chrome prospects refractors Mojo Sapphire color autos lots misspellings",
+      "2021 2022 2023 2024 2025 2026 true 1st Bowman Chrome prospects refractor Sapphire color numbered autograph misspelling mislabeled",
     sources: mandatorySources,
     filters: {
       trueFirstBowmanOnly: true,
-      chromeBaseLotsAllowed: true,
-      paperBaseNormallyFiller: true,
-      minimumSingleNetProfit: 15,
-      minimumLotNetProfit: 25,
+      issueYearMinimum: 2021,
+      completePlayerChronologyRequired: true,
+      authoritativeChecklistRequired: true,
+      proofNoEarlierFirstBowmanRequired: true,
+      frontBackImagesRequired: true,
+      hardenedInstaCompRequired: true,
+      minimumNetRoiPercent: 20,
+      permanentFailureExample: "Franklin Arias 2025 Bowman Draft Chrome BDC-13 is not a 1st Bowman",
     },
     cadence: "hourly",
   },
   {
-    name: "Public Facebook and X collection liquidations",
+    name: "Signed prospect baseball opportunities",
     query:
-      "sports card collection below comps priced to sell need gone moving sale collection liquidation take the lot fire sale claim sale Denver Parker Colorado",
-    sources: ["Facebook Marketplace", "public Facebook groups/pages", "public X posts"],
+      "baseball prospect signed baseball autograph official MLB MiLB Futures Game Spring Training raw PSA DNA JSA Beckett BAS authentication upside",
+    sources: [
+      ...mandatorySources,
+      "MLB Auctions",
+      "MiLB and team auctions",
+      "Fanatics Authentic",
+      "team stores",
+      "autograph dealers",
+      "estate and liquidation listings",
+    ],
     filters: {
-      publicOrAuthorizedOnly: true,
-      localAreas: ["Denver", "Parker", "Colorado"],
-      sellerRiskReviewRequired: true,
-      travelCostRequiredForPickup: true,
-      buyerProtectedPaymentRequiredForShipping: true,
+      activeAndStrongWatchProspectsOnly: true,
+      rawSignaturesNeverCalledAuthentic: true,
+      ballTypesSeparated: true,
+      provenanceAndFraudReviewRequired: true,
+      authenticationFailureRiskRequired: true,
+      minimumNetRoiPercent: 20,
     },
     cadence: "hourly",
   },
 ];
 
 for (const search of searches) {
-  const existing = (await repository.listSavedSearches()).find((entry) => entry.name === search.name);
+  const existing = (await repository.listSavedSearches()).find(
+    (entry) => entry.name === search.name,
+  );
   await repository.upsertSavedSearch({ ...search, id: existing?.id });
   console.log(`Seeded: ${search.name}`);
 }
