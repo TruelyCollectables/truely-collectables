@@ -18,6 +18,21 @@ jobs:
   patch-branch:
     if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'agent/fix-ebay-local-pagination-20260728'
     runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+      ADMIN_SESSION_SECRET: build-only-placeholder-session-secret
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+      EBAY_CLIENT_ID: build-only-placeholder-client-id
+      EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+      EBAY_ENVIRONMENT: production
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
     steps:
       - name: Check out fix branch
         uses: actions/checkout@v4
@@ -253,7 +268,13 @@ jobs:
               test_source = test_source.replace(marker, regression, 1)
           test_path.write_text(test_source)
 
-          Path('.github/workflows/one-time-fix-ebay-local-pagination-20260728.yml').unlink()
+          for workflow_name in (
+              '.github/workflows/one-time-fix-ebay-local-pagination-20260728.yml',
+              '.github/workflows/one-time-add-pagination-validation-env-20260728.yml',
+          ):
+              workflow = Path(workflow_name)
+              if workflow.exists():
+                  workflow.unlink()
           PY
 
       - name: Verify patch before commit
@@ -290,6 +311,6 @@ jobs:
           set -euo pipefail
           git config user.name "Truely Collectables Automation"
           git config user.email "automation@truelycollectables.com"
-          git add src/lib/ebay-authoritative-store-sync.ts scripts/run-storefront-taxonomy-regressions.ts .github/workflows/one-time-fix-ebay-local-pagination-20260728.yml
+          git add src/lib/ebay-authoritative-store-sync.ts scripts/run-storefront-taxonomy-regressions.ts .github/workflows/one-time-fix-ebay-local-pagination-20260728.yml .github/workflows/one-time-add-pagination-validation-env-20260728.yml
           git commit -m "Paginate all eBay-linked products and converge cleanup"
           git push origin HEAD:agent/fix-ebay-local-pagination-20260728
