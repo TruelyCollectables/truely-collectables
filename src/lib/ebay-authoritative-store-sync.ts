@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { mapEbayInventoryCategory } from "./ebay-category-mapper";
 import { classifyStorefrontItem } from "./storefront-taxonomy";
 import { getStoreSettings } from "./store-settings";
+import { EBAY_MERGED_LISTING_GROUPS } from "./ebay-merged-listing-groups";
 import { InventoryRepository } from "../modules/inventory";
 
 const TRADING_API_VERSION = "1409";
@@ -62,6 +63,8 @@ export type EbayStoreSyncResult = {
   cycleComplete: boolean;
   eligibleCollectibles: number;
   skippedNonCollectibles: number;
+  mergedAliasListings: number;
+  representedInventoryRows: number;
   eligibleSportsCards: number;
   skippedNonCards: number;
   inserted: number;
@@ -647,6 +650,93 @@ function listingChanged(
   return listingDifferences(local, remote).length > 0;
 }
 
+function collapseMergedRemoteListings(params: {
+  remoteListings: EbayStoreRemoteListing[];
+  locals: LocalProduct[];
+}) {
+  const localsById = new Map(params.locals.map((row) => [row.id, row] as const));
+  const localByItemId = new Map(
+    params.locals.map((row) => [String(row.ebay_item_id || ""), row] as const),
+  );
+  const claimedItemIds = new Set<string>();
+  const mergedListings: EbayStoreRemoteListing[] = [];
+  const aliasActions: EbayStoreSyncAction[] = [];
+  let mergedAliasListings = 0;
+
+  for (const group of EBAY_MERGED_LISTING_GROUPS) {
+    const canonical = localsById.get(group.canonicalLegacyProductId) || null;
+    const canonicalItemId = String(canonical?.ebay_item_id || "").trim();
+    const aliasItemIds = new Set<string>(group.aliasItemIds);
+    const activeAliases = params.remoteListings.filter((listing) =>
+      aliasItemIds.has(listing.itemId),
+    );
+
+    if (!canonical || !canonicalItemId) {
+      if (activeAliases.length > 0) {
+        throw new Error(
+          `Merged eBay canonical product ${group.canonicalLegacyProductId} is missing.`,
+        );
+      }
+      continue;
+    }
+
+    const memberIds = new Set<string>([
+      canonicalItemId,
+      ...group.aliasItemIds,
+    ]);
+    const activeMembers = params.remoteListings.filter((listing) =>
+      memberIds.has(listing.itemId),
+    );
+    if (activeMembers.length === 0) continue;
+
+    for (const listing of activeMembers) claimedItemIds.add(listing.itemId);
+    const representative =
+      activeMembers.find((listing) => listing.itemId === canonicalItemId) ||
+      activeMembers[0];
+    const mergedQuantity = activeMembers.reduce(
+      (total, listing) => total + listing.quantity,
+      0,
+    );
+
+    mergedListings.push({
+      ...representative,
+      itemId: canonicalItemId,
+      sku: canonical.sku || representative.sku,
+      quantity: mergedQuantity,
+    });
+    mergedAliasListings += Math.max(activeMembers.length - 1, 0);
+
+    for (const listing of activeMembers) {
+      if (listing.itemId === canonicalItemId) continue;
+      const aliasLocal = localByItemId.get(listing.itemId) || null;
+      aliasActions.push({
+        itemId: listing.itemId,
+        title: listing.title,
+        action: "skip",
+        reason: `Merged alias represented by canonical legacy product ${canonical.id}.`,
+        legacyProductId: aliasLocal?.id || null,
+        remoteQuantity: listing.quantity,
+        localQuantity: aliasLocal ? Number(aliasLocal.quantity) : null,
+        remotePrice: listing.price,
+        localPrice: aliasLocal ? Number(aliasLocal.price) : null,
+        sku: aliasLocal?.sku || listing.sku,
+        categoryName: listing.categoryName,
+      });
+    }
+  }
+
+  return {
+    listings: [
+      ...params.remoteListings.filter(
+        (listing) => !claimedItemIds.has(listing.itemId),
+      ),
+      ...mergedListings,
+    ],
+    aliasActions,
+    mergedAliasListings,
+  };
+}
+
 async function safeSku(params: {
   supabase: SupabaseClient;
   storeId: string;
@@ -960,11 +1050,19 @@ export async function runEbayAuthoritativeStoreSync(params: {
       (row) => [String(row.ebay_item_id || ""), row] as const,
     ),
   );
-  const remoteByItemId = new Map(
+  const rawRemoteByItemId = new Map(
     remote.listings.map((row) => [row.itemId, row] as const),
   );
-  const actions: EbayStoreSyncAction[] = remote.listings.map(
-    (listing) => {
+  const mergedRemote = collapseMergedRemoteListings({
+    remoteListings: remote.listings,
+    locals,
+  });
+  const effectiveRemoteListings = mergedRemote.listings;
+  const effectiveRemoteByItemId = new Map(
+    effectiveRemoteListings.map((row) => [row.itemId, row] as const),
+  );
+  const actions: EbayStoreSyncAction[] = [
+    ...effectiveRemoteListings.map((listing) => {
       const local = localByItemId.get(listing.itemId) || null;
       const differences = local ? listingDifferences(local, listing) : [];
       const action = !local
@@ -991,14 +1089,20 @@ export async function runEbayAuthoritativeStoreSync(params: {
         localPrice: local ? Number(local.price) : null,
         sku: local?.sku || listing.sku,
         categoryName: listing.categoryName,
-      };
-    },
-  );
+      } satisfies EbayStoreSyncAction;
+    }),
+    ...mergedRemote.aliasActions,
+  ];
 
   if (remote.cycleComplete) {
     for (const local of locals) {
       const itemId = String(local.ebay_item_id || "");
-      if (!itemId || remoteByItemId.has(itemId)) continue;
+      if (
+        !itemId ||
+        rawRemoteByItemId.has(itemId) ||
+        effectiveRemoteByItemId.has(itemId)
+      )
+        continue;
       actions.push({
         itemId,
         title: local.title,
@@ -1032,7 +1136,7 @@ export async function runEbayAuthoritativeStoreSync(params: {
     updated = 0;
     unchanged = 0;
     deactivated = 0;
-    const changedListings = remote.listings.filter((listing) => {
+    const changedListings = effectiveRemoteListings.filter((listing) => {
       const local = localByItemId.get(listing.itemId) || null;
       return !local || taxonomyRefreshRequired || listingChanged(local, listing);
     });
@@ -1059,15 +1163,15 @@ export async function runEbayAuthoritativeStoreSync(params: {
 
     const unchangedIds = taxonomyRefreshRequired
       ? []
-      : remote.listings
-      .map((listing) => localByItemId.get(listing.itemId) || null)
+      : effectiveRemoteListings
+        .map((listing) => localByItemId.get(listing.itemId) || null)
       .filter(
         (local): local is LocalProduct =>
           Boolean(
             local &&
               !listingChanged(
                 local,
-                remoteByItemId.get(String(local.ebay_item_id))!,
+                effectiveRemoteByItemId.get(String(local.ebay_item_id))!,
               ),
           ),
       )
@@ -1091,10 +1195,13 @@ export async function runEbayAuthoritativeStoreSync(params: {
     }
 
     if (params.deactivateEnded && remote.cycleComplete) {
-      const endedLocals = locals.filter(
-        (local) =>
-          !remoteByItemId.has(String(local.ebay_item_id || "")),
-      );
+      const endedLocals = locals.filter((local) => {
+        const itemId = String(local.ebay_item_id || "");
+        return (
+          !rawRemoteByItemId.has(itemId) &&
+          !effectiveRemoteByItemId.has(itemId)
+        );
+      });
       await runWorkers(endedLocals, async (local) => {
         try {
           const changed = await deactivateLocalProduct({ ...params, local });
@@ -1127,6 +1234,10 @@ export async function runEbayAuthoritativeStoreSync(params: {
           authoritative_store_sync_last_remote_total: remote.totalEntries,
           authoritative_store_sync_last_eligible_cards:
             remote.listings.length,
+          authoritative_store_sync_last_represented_inventory_rows:
+            effectiveRemoteListings.length,
+          authoritative_store_sync_last_merged_alias_listings:
+            mergedRemote.mergedAliasListings,
           authoritative_store_sync_last_inserted: inserted,
           authoritative_store_sync_last_updated: updated,
           authoritative_store_sync_last_failed: errors.length,
@@ -1139,6 +1250,8 @@ export async function runEbayAuthoritativeStoreSync(params: {
             pages_read: remote.pagesRead,
             remote_total: remote.totalEntries,
             eligible_cards: remote.listings.length,
+            represented_inventory_rows: effectiveRemoteListings.length,
+            merged_alias_listings: mergedRemote.mergedAliasListings,
             inserted,
             updated,
             unchanged,
@@ -1175,6 +1288,8 @@ export async function runEbayAuthoritativeStoreSync(params: {
       remote.remoteItemsRead - remote.listings.length,
       0,
     ),
+    mergedAliasListings: mergedRemote.mergedAliasListings,
+    representedInventoryRows: effectiveRemoteListings.length,
     // Backward-compatible aliases for existing admin receipts.
     eligibleSportsCards: remote.listings.length,
     skippedNonCards: Math.max(
