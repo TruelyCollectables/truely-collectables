@@ -13,6 +13,16 @@ def replace_once(path: str, old: str, new: str, label: str) -> None:
     print(f"Fixed: {label}")
 
 
+def remove_once(path: str, block: str, label: str) -> None:
+    file_path = Path(path)
+    text = file_path.read_text()
+    if block not in text:
+        print(f"Already removed: {label}")
+        return
+    file_path.write_text(text.replace(block, "", 1))
+    print(f"Removed: {label}")
+
+
 # The first patch's broad type anchor landed storefront fields in the legacy
 # database snapshot. Keep that snapshot faithful to the products table and put
 # the derived storefront fields on UniversalInventoryItem instead.
@@ -92,6 +102,24 @@ replace_once(
   if (
 ''',
     "force signed sports cards to retain sports primary category",
+)
+remove_once(
+    "src/lib/ebay-category-mapper.ts",
+    '''  if (
+    best?.category === "sports_cards" &&
+    hasStrongAutographEvidence(input.title, aspects)
+  ) {
+    const autographResult = focusedResults.find(
+      (result) => result.category === "autographs" && result.score > 0,
+    );
+
+    if (autographResult) {
+      best = autographResult;
+    }
+  }
+
+''',
+    "stale sports-card-to-autograph category override",
 )
 
 # Keep uncategorized sports cards ahead of TCG/non-sport sections.
