@@ -56,6 +56,61 @@ export async function assertSafePublicImageUrl(input) {
   return url;
 }
 
+export function classifyProfitHunterOutcome({
+  trustedResalePrice,
+  pricingEligibleSoldCount,
+  netProfit,
+  roiPercent,
+  manualReviewRequired = false,
+  sellerRisk = "unknown",
+}) {
+  if (!(Number(trustedResalePrice) > 0) || Number(pricingEligibleSoldCount) < 1) {
+    return {
+      label: "SUPPRESSED — NO TRUSTED EXACT SOLD PRICE",
+      purchaseReady: false,
+      reason: "Hardened InstaComp did not return pricing-eligible exact sold evidence.",
+    };
+  }
+
+  if (manualReviewRequired || sellerRisk === "high") {
+    return {
+      label: "TOO GOOD TO BE TRUE",
+      purchaseReady: false,
+      reason: "Identity, seller, condition, or fraud review remains unresolved.",
+    };
+  }
+
+  if (Number(roiPercent) >= 50) {
+    return {
+      label: "TOO GOOD TO BE TRUE",
+      purchaseReady: false,
+      reason: "The verified spread is unusually large and requires a final fraud and condition check.",
+    };
+  }
+
+  if (Number(roiPercent) >= 30 && Number(netProfit) >= 15) {
+    return {
+      label: "MUST BUY",
+      purchaseReady: true,
+      reason: "Exact sold-backed economics clear both the 30% ROI and $15 net-profit gates.",
+    };
+  }
+
+  if (Number(roiPercent) >= 20) {
+    return {
+      label: "BORDERLINE BUY",
+      purchaseReady: true,
+      reason: "Exact sold-backed economics clear the 20% minimum ROI gate.",
+    };
+  }
+
+  return {
+    label: "NO FUCKING WAY / OVERPRICED",
+    purchaseReady: false,
+    reason: "Projected net ROI is below 20% after acquisition and resale costs.",
+  };
+}
+
 const extensionForType = (contentType) => {
   if (contentType === "image/png") return "png";
   if (contentType === "image/webp") return "webp";
