@@ -9,7 +9,11 @@ on:
       - main
     paths:
       - "src/app/api/tcos-profit-hunter/**"
+      - "src/app/api/admin/market-intel/profit-hunter-token/**"
       - "src/lib/tcos-profit-hunter-*.ts"
+      - "src/lib/instacomp-job-server.ts"
+      - "connectors/tcos-market-intel-mcp/src/config.mjs"
+      - "scripts/apply-tcos-profit-hunter-derived-secrets.py"
       - "scripts/run-tcos-profit-hunter-policy-simulations.ts"
       - "package.json"
       - "package-lock.json"
@@ -28,6 +32,22 @@ jobs:
         with:
           ref: feature/tcos-profit-hunter-vercel-mcp-20260728
           fetch-depth: 0
+      - name: Materialize domain-separated token fallbacks
+        run: |
+          python -m py_compile scripts/apply-tcos-profit-hunter-derived-secrets.py
+          python scripts/apply-tcos-profit-hunter-derived-secrets.py
+          git diff --check
+      - name: Commit materialized token source
+        run: |
+          git add src/lib/tcos-profit-hunter-policy.ts src/lib/instacomp-job-server.ts connectors/tcos-market-intel-mcp/src/config.mjs
+          if git diff --cached --quiet; then
+            echo "Derived token source already materialized."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "Materialize domain-separated Profit Hunter tokens"
+            git push origin HEAD:feature/tcos-profit-hunter-vercel-mcp-20260728
+          fi
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -46,9 +66,11 @@ jobs:
           git commit -m "Install Vercel MCP dependencies for Profit Hunter"
           git push origin HEAD:feature/tcos-profit-hunter-vercel-mcp-20260728
       - name: Run locked policy regressions
+        env:
+          ADMIN_SESSION_SECRET: simulation-admin-session-secret
         run: node --import tsx scripts/run-tcos-profit-hunter-policy-simulations.ts
       - name: Lint Profit Hunter MCP paths
-        run: npx eslint src/app/api/tcos-profit-hunter/mcp/route.js src/lib/tcos-profit-hunter-policy.ts src/lib/tcos-profit-hunter-owned.ts scripts/run-tcos-profit-hunter-policy-simulations.ts
+        run: npx eslint src/app/api/tcos-profit-hunter/mcp/route.js src/app/api/admin/market-intel/profit-hunter-token/route.ts src/lib/tcos-profit-hunter-policy.ts src/lib/tcos-profit-hunter-owned.ts src/lib/tcos-profit-hunter-secrets.ts src/lib/instacomp-job-server.ts scripts/run-tcos-profit-hunter-policy-simulations.ts
       - name: Build production application
         env:
           NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
@@ -56,8 +78,6 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
           ADMIN_PASSWORD: build-only-placeholder-password
           ADMIN_SESSION_SECRET: build-only-placeholder-admin-session-secret
-          INSTACOMP_SERVICE_TOKEN: build-only-placeholder-instacomp-service-token
-          TCOS_CONNECTOR_TOKEN: build-only-placeholder-connector-token
           INSTACOMP_BASE_URL: https://truelycollectables.com
           OPENAI_API_KEY: build-only-placeholder-openai-key
           SERPAPI_API_KEY: build-only-placeholder-serpapi-key
