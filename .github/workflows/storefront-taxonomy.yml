@@ -9,6 +9,7 @@ on:
       - "src/lib/ebay-category-mapper.ts"
       - "src/lib/ebay-sync.ts"
       - "src/lib/ebay-authoritative-store-sync.ts"
+      - "src/lib/sports-card-launch-scope.ts"
       - "src/lib/server-inventory-engine.ts"
       - "src/modules/inventory/**"
       - "src/app/shop/**"
@@ -24,6 +25,7 @@ on:
       - "src/lib/ebay-category-mapper.ts"
       - "src/lib/ebay-sync.ts"
       - "src/lib/ebay-authoritative-store-sync.ts"
+      - "src/lib/sports-card-launch-scope.ts"
       - "src/lib/server-inventory-engine.ts"
       - "src/modules/inventory/**"
       - "src/app/shop/**"
@@ -75,6 +77,7 @@ jobs:
           src/lib/ebay-category-mapper.ts
           src/lib/ebay-sync.ts
           src/lib/ebay-authoritative-store-sync.ts
+          src/lib/sports-card-launch-scope.ts
           src/lib/server-inventory-engine.ts
           src/modules/inventory/types.ts
           src/modules/inventory/repository.ts
