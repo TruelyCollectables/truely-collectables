@@ -4,7 +4,6 @@ import path from "node:path";
 const origin = process.env.PRODUCTION_ORIGIN || "https://truelycollectables.com";
 const limit = Number(process.env.EBAY_IMPORT_LIMIT || 100);
 const maxPages = Number(process.env.EBAY_IMPORT_MAX_PAGES || 25);
-const adminSessionValue = String(process.env.ADMIN_SESSION_VALUE || "").trim();
 const runId = `storefront-taxonomy-${process.env.GITHUB_RUN_ID || "manual"}-${Date.now()}`;
 const outputDir = path.resolve("ebay-taxonomy-sync");
 const pageDir = path.join(outputDir, "pages");
@@ -23,13 +22,12 @@ function cleanError(error) {
     .slice(0, 1000);
 }
 
-async function fetchText(url, timeoutMs, additionalHeaders = {}) {
+async function fetchText(url, timeoutMs) {
   const response = await fetch(url, {
     headers: {
-      accept: "application/json,text/html;q=0.9,*/*;q=0.8",
+      accept: "text/html,*/*;q=0.8",
       "cache-control": "no-cache",
-      "user-agent": "TCOS-Authorized-Ebay-Taxonomy-Sync/3.0",
-      ...additionalHeaders,
+      "user-agent": "TCOS-Storefront-Taxonomy-Verification/2.0",
     },
     redirect: "follow",
     signal: AbortSignal.timeout(timeoutMs),
@@ -38,13 +36,18 @@ async function fetchText(url, timeoutMs, additionalHeaders = {}) {
 }
 
 async function runImport() {
-  if (!adminSessionValue) {
-    throw new Error("The one-run admin session was not generated; refusing to call the protected import endpoint.");
-  }
+  const [
+    { importEbayListingsPage },
+    { syncEbayAllListingImages },
+    { createSupabaseServerClient },
+    { getActiveStoreId },
+  ] = await Promise.all([
+    import("../src/lib/ebay-sync.ts"),
+    import("../src/lib/ebay-all-image-sync.ts"),
+    import("../src/lib/supabase-server.ts"),
+    import("../src/lib/stores.ts"),
+  ]);
 
-  const adminHeaders = {
-    cookie: `tcos_admin_auth_v3=${adminSessionValue}`,
-  };
   const totals = {
     imported: 0,
     markedSold: 0,
@@ -59,32 +62,19 @@ async function runImport() {
   let finalImageSync = null;
 
   for (let page = 1; page <= maxPages; page += 1) {
-    const url = new URL("/api/ebay/import-listings", origin);
-    url.searchParams.set("offset", String(offset));
-    url.searchParams.set("limit", String(limit));
-    url.searchParams.set("runId", runId);
     console.log(`[import] page=${page} offset=${offset} limit=${limit}`);
-
-    const { response, text } = await fetchText(url, 295_000, adminHeaders);
-    const receiptPath = path.join(
-      pageDir,
-      `page-${String(page).padStart(2, "0")}-offset-${offset}.json`,
+    const payload = await importEbayListingsPage({ offset, limit, runId });
+    writeJson(
+      path.join(pageDir, `page-${String(page).padStart(2, "0")}-offset-${offset}.json`),
+      payload,
     );
-    fs.writeFileSync(receiptPath, `${text}\n`);
 
-    let payload;
-    try {
-      payload = JSON.parse(text);
-    } catch {
-      console.error(`[import] HTTP=${response.status} invalid-json=${text.slice(0, 500).replace(/\s+/g, " ")}`);
-      throw new Error(`Import page ${page} returned HTTP ${response.status} without valid JSON.`);
-    }
-
+    const failedSample = Array.isArray(payload.debugSamples)
+      ? payload.debugSamples.find((sample) => String(sample?.reason || "").includes("failed"))
+      : null;
     const diagnostic = {
       page,
-      httpStatus: response.status,
-      success: payload?.success ?? response.ok,
-      error: payload?.error || null,
+      success: payload?.success ?? true,
       offset: payload?.offset ?? offset,
       received: payload?.received ?? null,
       imported: payload?.imported ?? null,
@@ -97,10 +87,13 @@ async function runImport() {
     };
     console.log(`[import] receipt=${JSON.stringify(diagnostic)}`);
 
-    if (!response.ok || payload?.success === false) {
+    if (failedSample) {
       throw new Error(
-        `Import page ${page} failed with HTTP ${response.status}: ${cleanError(payload?.error || "unknown import failure")}`,
+        `Import page ${page} reported ${cleanError(failedSample.reason || "failed import sample")}.`,
       );
+    }
+    if (payload?.success === false) {
+      throw new Error(`Import page ${page} returned success=false.`);
     }
     if (Number(payload.offset) !== offset) {
       throw new Error(`Import page ${page} reported offset ${payload.offset}; expected ${offset}.`);
@@ -126,7 +119,11 @@ async function runImport() {
     });
 
     if (payload.nextOffset === null || payload.nextOffset === undefined) {
-      finalImageSync = payload.imageSync ?? null;
+      console.log("[import] final page reached; running complete eBay image reconciliation");
+      finalImageSync = await syncEbayAllListingImages({
+        supabase: createSupabaseServerClient({ admin: true }),
+        storeId: getActiveStoreId(),
+      });
       break;
     }
 
@@ -144,7 +141,7 @@ async function runImport() {
   }
 
   const summary = {
-    schema: "truelycollectables.ebayTaxonomySync.v3",
+    schema: "truelycollectables.ebayTaxonomySync.v4",
     generatedAt: new Date().toISOString(),
     origin,
     runId,
