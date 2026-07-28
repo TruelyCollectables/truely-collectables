@@ -7,19 +7,22 @@ function resetStatusMessage(code: string | string[] | undefined) {
   if (resetCode === "sent") {
     return {
       tone: "success" as const,
-      message: "A one-time password reset link was sent to the private owner recovery email. Check the inbox and spam folder.",
+      message:
+        "A one-time password reset link was sent to the private owner recovery email. Check the inbox and spam folder.",
     };
   }
   if (resetCode === "email_error") {
     return {
       tone: "error" as const,
-      message: "The reset request was saved, but the recovery email could not be delivered. Check the Resend configuration.",
+      message:
+        "The reset request was saved, but the recovery email could not be delivered. Check the Resend configuration.",
     };
   }
   if (resetCode === "storage_error") {
     return {
       tone: "error" as const,
-      message: "The private database credential store was unavailable. Try again in a moment.",
+      message:
+        "The private database credential store was unavailable. Try again in a moment.",
     };
   }
   return null;
@@ -29,7 +32,7 @@ function loginErrorMessage(code: string | string[] | undefined) {
   const errorCode = Array.isArray(code) ? code[0] : code;
 
   if (errorCode === "locked") {
-    return "Too many failed attempts were recorded. The correct admin password will unlock this session; pasted leading/trailing spaces are ignored.";
+    return "Too many failed attempts were recorded. Stop retrying unknown passwords and use the owner reset link below.";
   }
 
   if (errorCode === "blocked") {
@@ -82,9 +85,8 @@ export default async function AdminLoginPage({
               Admin Login
             </h1>
             <p className="mt-4 text-sm font-semibold leading-6 text-neutral-300">
-              Sign in with the password configured on this running server. TCOS
-              sets the native admin cookie through a full-page submit so Chrome
-              accepts the session cleanly.
+              Sign in with the permanent owner password stored in the private TCOS
+              database. Once created, Vercel deployments cannot replace it.
             </p>
 
             <dl className="mt-8 space-y-3 text-sm">
@@ -119,12 +121,12 @@ export default async function AdminLoginPage({
 
           <div className="bg-white/95 p-8 lg:p-10">
             <p className="text-sm font-black uppercase tracking-[0.16em] text-neutral-500">
-              Secure operator entry
+              Secure owner entry
             </p>
             <h2 className="mt-2 text-2xl font-black">Enter admin password</h2>
             <p className="mt-2 text-sm font-semibold leading-6 text-neutral-600">
-              If a bad password locks the session, enter the correct password
-              here to clear the lockout and continue.
+              Do not keep guessing an uncertain password. Use the private owner reset
+              link below and create one permanent password.
             </p>
 
             <form
@@ -156,8 +158,8 @@ export default async function AdminLoginPage({
                 Login
               </AdminSubmitButton>
               <p className="text-xs font-bold leading-5 text-neutral-500">
-                Uses the password box above. If accepted, TCOS refreshes the admin cookie and
-                sends this browser to the destination shown on the left.
+                Once the permanent database password exists, deployments cannot replace
+                it. If the password is uncertain, reset it instead of retrying guesses.
               </p>
             </form>
 
@@ -175,7 +177,8 @@ export default async function AdminLoginPage({
                 Email Owner Reset Link
               </AdminSubmitButton>
               <p className="mt-2 text-xs font-semibold leading-5 text-amber-950">
-                The link expires in 30 minutes. The new password is stored privately in the database and survives deployments.
+                The link expires in 30 minutes. The new password is stored privately in
+                the database and survives every deployment.
               </p>
             </form>
 
@@ -199,9 +202,8 @@ export default async function AdminLoginPage({
 
             {!adminPasswordConfigured ? (
               <p className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-black text-amber-950 shadow-sm ring-1 ring-amber-950/5">
-                This process does not expose ADMIN_PASSWORD. In local
-                development, TCOS will also check .env.local and
-                .env.development.local.
+                No permanent database password or emergency fallback is configured. Use
+                the owner reset link to create the durable password.
               </p>
             ) : null}
 
