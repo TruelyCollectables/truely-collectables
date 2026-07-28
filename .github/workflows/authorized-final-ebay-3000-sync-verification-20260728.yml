@@ -1,4 +1,4 @@
-name: Authorized Final eBay 3000 Sync Verification 20260728
+name: Authorized Final eBay 3000 Sync Verification 1117 20260728
 
 on:
   pull_request:
@@ -26,8 +26,8 @@ jobs:
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_SCOPE: truelycollectables-projects
       PRODUCTION_ORIGIN: https://truelycollectables.com
-      CRON_NOT_BEFORE_UTC: 2026-07-28T16:31:30Z
-      CRON_COMPLETION_TARGET_UTC: 2026-07-28T16:40:00Z
+      CRON_NOT_BEFORE_UTC: 2026-07-28T17:16:30Z
+      CRON_COMPLETION_TARGET_UTC: 2026-07-28T17:27:00Z
       BASELINE_REMOTE_TOTAL_0902: "893"
       BASELINE_ELIGIBLE_0902: "865"
     steps:
@@ -66,7 +66,7 @@ jobs:
         run: |
           set -euo pipefail
           found=''
-          for attempt in $(seq 1 12); do
+          for attempt in $(seq 1 16); do
             raw="final-verification/logs/runtime-${attempt}.jsonl"
             npx vercel@56.2.0 logs \
               --project truely-collectables \
@@ -204,7 +204,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: final-ebay-3000-sync-certificate-${{ github.run_number }}
+          name: final-ebay-3000-sync-certificate-1117-${{ github.run_number }}
           path: final-verification
           if-no-files-found: warn
           retention-days: 30
