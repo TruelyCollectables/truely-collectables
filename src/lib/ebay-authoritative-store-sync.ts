@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { mapEbayInventoryCategory } from "./ebay-category-mapper";
+import { classifyStorefrontItem } from "./storefront-taxonomy";
 import { getStoreSettings } from "./store-settings";
 import { InventoryRepository } from "../modules/inventory";
 
@@ -7,6 +8,7 @@ const TRADING_API_VERSION = "1409";
 const PAGE_SIZE = 200;
 const MAX_PAGES = 25;
 const APPLY_CONCURRENCY = 8;
+const STOREFRONT_TAXONOMY_VERSION = 2;
 
 export type EbayStoreSyncMode = "preview" | "apply";
 
@@ -28,6 +30,8 @@ export type EbayStoreRemoteListing = {
   mappedCategory: string;
   categoryConfidence: "high" | "medium" | "low";
   reviewRequired: boolean;
+  storefrontAttributes: Record<string, string>;
+  storefrontMetadata: Record<string, unknown>;
 };
 
 export type EbayStoreSyncAction = {
@@ -83,6 +87,7 @@ type LocalProduct = {
   quantity: number;
   image_url: string | null;
   ebay_item_id: string | null;
+  sport: string | null;
   last_seen_at: string | null;
 };
 
@@ -278,7 +283,14 @@ function parseRemoteListing(itemXml: string): EbayStoreRemoteListing | null {
   const categoryId = xmlText(primaryCategory, "CategoryID")?.trim() || null;
   const categoryName =
     xmlText(primaryCategory, "CategoryName")?.trim() || null;
+  const rawSport = firstAspect(aspects, ["Sport"]);
   const mapping = mapEbayInventoryCategory({ title, aspects });
+  const storefront = classifyStorefrontItem({
+    title,
+    rawSport,
+    primaryCategory: mapping.category,
+    aspects,
+  });
 
   if (
     price <= 0 ||
@@ -310,10 +322,12 @@ function parseRemoteListing(itemXml: string): EbayStoreRemoteListing | null {
     categoryName,
     aspects,
     player: firstAspect(aspects, ["Player/Athlete", "Player", "Athlete"]),
-    sport: firstAspect(aspects, ["Sport"]),
+    sport: storefront.section,
     mappedCategory: mapping.category,
     categoryConfidence: mapping.confidence,
     reviewRequired: mapping.reviewRequired,
+    storefrontAttributes: storefront.attributes,
+    storefrontMetadata: storefront.metadata,
   };
 }
 
@@ -500,6 +514,7 @@ function listingChanged(
     Math.round(Number(local.price) * 100) !==
       Math.round(remote.price * 100) ||
     local.image_url !== remote.imageUrl ||
+    local.sport !== remote.sport ||
     (!local.sku && Boolean(remote.sku))
   );
 }
@@ -612,6 +627,7 @@ async function upsertRemoteListing(params: {
       source_aspects: params.remote.aspects,
       category_confidence: params.remote.categoryConfidence,
       review_required: params.remote.reviewRequired,
+      ...params.remote.storefrontMetadata,
       authoritative_store_sync_at: now,
     },
   };
@@ -638,6 +654,10 @@ async function upsertRemoteListing(params: {
       ["ebay_source_item_id", params.remote.itemId],
       ["ebay_category_id", params.remote.categoryId],
       ["ebay_category_name", params.remote.categoryName],
+      ...Object.entries(params.remote.storefrontAttributes).map(([name, value]) => [
+        name,
+        value,
+      ]),
       ...Object.entries(params.remote.aspects).map(([name, values]) => [
         `ebay_${name.toLowerCase().replace(/[^a-z0-9]+/g, "_")}`,
         values.join(" | "),
@@ -756,13 +776,17 @@ export async function runEbayAuthoritativeStoreSync(params: {
   const { data: localRows, error: localError } = await params.supabase
     .from("products")
     .select(
-      "id,seller_account_id,sku,title,description,price,quantity,image_url,ebay_item_id,last_seen_at",
+      "id,seller_account_id,sku,title,description,price,quantity,image_url,ebay_item_id,sport,last_seen_at",
     )
     .eq("store_id", params.storeId)
     .not("ebay_item_id", "is", null);
   if (localError) throw localError;
 
   const locals = (localRows || []) as LocalProduct[];
+  const taxonomyRefreshRequired =
+    Number(
+      recordValue(connection.import_cursor).storefront_taxonomy_version || 0,
+    ) < STOREFRONT_TAXONOMY_VERSION;
   const localByItemId = new Map(
     locals.map(
       (row) => [String(row.ebay_item_id || ""), row] as const,
@@ -776,7 +800,7 @@ export async function runEbayAuthoritativeStoreSync(params: {
       const local = localByItemId.get(listing.itemId) || null;
       const action = !local
         ? "insert"
-        : listingChanged(local, listing)
+        : taxonomyRefreshRequired || listingChanged(local, listing)
           ? "update"
           : "unchanged";
       return {
@@ -787,7 +811,9 @@ export async function runEbayAuthoritativeStoreSync(params: {
           action === "insert"
             ? "Active eBay sports-card listing is missing locally."
             : action === "update"
-              ? "Local title, quantity, price, image, or SKU differs from eBay."
+              ? taxonomyRefreshRequired
+                ? "Storefront taxonomy version 2 refresh is required."
+                : "Local title, quantity, price, image, sport, or SKU differs from eBay."
               : "Local listing matches active eBay inventory.",
         legacyProductId: local?.id || null,
         remoteQuantity: listing.quantity,
@@ -839,7 +865,7 @@ export async function runEbayAuthoritativeStoreSync(params: {
     deactivated = 0;
     const changedListings = remote.listings.filter((listing) => {
       const local = localByItemId.get(listing.itemId) || null;
-      return !local || listingChanged(local, listing);
+      return !local || taxonomyRefreshRequired || listingChanged(local, listing);
     });
 
     await runWorkers(changedListings, async (listing) => {
@@ -865,7 +891,9 @@ export async function runEbayAuthoritativeStoreSync(params: {
       }
     });
 
-    const unchangedIds = remote.listings
+    const unchangedIds = taxonomyRefreshRequired
+      ? []
+      : remote.listings
       .map((listing) => localByItemId.get(listing.itemId) || null)
       .filter(
         (local): local is LocalProduct =>
@@ -924,6 +952,11 @@ export async function runEbayAuthoritativeStoreSync(params: {
       .update({
         import_cursor: {
           ...recordValue(connection.import_cursor),
+          ...(errors.length === 0 && remote.cycleComplete
+            ? {
+                storefront_taxonomy_version: STOREFRONT_TAXONOMY_VERSION,
+              }
+            : {}),
           authoritative_store_sync_last_completed_at: completedAt,
           authoritative_store_sync_last_remote_total: remote.totalEntries,
           authoritative_store_sync_last_eligible_cards:
