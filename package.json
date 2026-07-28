@@ -162,14 +162,17 @@
     "check:admin-routes": "node scripts/check-admin-routes.mjs"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "1.26.0",
     "@supabase/supabase-js": "^2.108.1",
     "geist": "^1.7.2",
+    "mcp-handler": "1.1.0",
     "next": "16.2.12",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "resend": "^6.14.0",
     "sharp": "0.35.3",
-    "stripe": "^22.2.2"
+    "stripe": "^22.2.2",
+    "zod": "3.25.76"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "4.3.3",

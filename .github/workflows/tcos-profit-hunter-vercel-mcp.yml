@@ -1,0 +1,96 @@
+name: TCOS Profit Hunter Vercel MCP
+
+on:
+  push:
+    branches:
+      - feature/tcos-profit-hunter-vercel-mcp-20260728
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "src/app/api/tcos-profit-hunter/**"
+      - "src/app/api/admin/market-intel/profit-hunter-token/**"
+      - "src/lib/tcos-profit-hunter-*.ts"
+      - "src/lib/instacomp-job-server.ts"
+      - "connectors/tcos-market-intel-mcp/src/config.mjs"
+      - "scripts/apply-tcos-profit-hunter-derived-secrets.py"
+      - "scripts/run-tcos-profit-hunter-policy-simulations.ts"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/tcos-profit-hunter-vercel-mcp.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  materialize-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/tcos-profit-hunter-vercel-mcp-20260728
+          fetch-depth: 0
+      - name: Materialize and commit domain-separated token fallbacks
+        run: |
+          set -euo pipefail
+          BRANCH=feature/tcos-profit-hunter-vercel-mcp-20260728
+          git fetch origin "$BRANCH"
+          git reset --hard "origin/$BRANCH"
+          python -m py_compile scripts/apply-tcos-profit-hunter-derived-secrets.py
+          python scripts/apply-tcos-profit-hunter-derived-secrets.py
+          git diff --check
+          git add src/lib/tcos-profit-hunter-policy.ts src/lib/instacomp-job-server.ts connectors/tcos-market-intel-mcp/src/config.mjs
+          if git diff --cached --quiet; then
+            echo "Derived token source already materialized."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "Materialize domain-separated Profit Hunter tokens"
+            git push origin HEAD:"$BRANCH"
+          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install official Vercel MCP dependencies
+        run: npm install --save-exact mcp-handler@1.1.0 @modelcontextprotocol/sdk@1.26.0 zod@3
+      - name: Commit dependency lockfile updates
+        run: |
+          git add package.json package-lock.json
+          if git diff --cached --quiet; then
+            echo "MCP dependencies already materialized."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Install Vercel MCP dependencies for Profit Hunter"
+          git push origin HEAD:feature/tcos-profit-hunter-vercel-mcp-20260728
+      - name: Run locked policy regressions
+        env:
+          ADMIN_SESSION_SECRET: simulation-admin-session-secret
+        run: node --import tsx scripts/run-tcos-profit-hunter-policy-simulations.ts
+      - name: Lint Profit Hunter MCP paths
+        run: npx eslint src/app/api/tcos-profit-hunter/mcp/route.js src/app/api/admin/market-intel/profit-hunter-token/route.ts src/lib/tcos-profit-hunter-policy.ts src/lib/tcos-profit-hunter-owned.ts src/lib/tcos-profit-hunter-secrets.ts src/lib/instacomp-job-server.ts scripts/run-tcos-profit-hunter-policy-simulations.ts
+      - name: Build production application
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+          ADMIN_PASSWORD: build-only-placeholder-password
+          ADMIN_SESSION_SECRET: build-only-placeholder-admin-session-secret
+          INSTACOMP_BASE_URL: https://truelycollectables.com
+          OPENAI_API_KEY: build-only-placeholder-openai-key
+          SERPAPI_API_KEY: build-only-placeholder-serpapi-key
+          NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+          STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+          STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+          EBAY_CLIENT_ID: build-only-placeholder-client-id
+          EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+          EBAY_ENVIRONMENT: production
+          TCOS_LIVE_PAYMENTS_ENABLED: "false"
+          TCOS_SHIPPING_PURCHASE_MODE: dry_run
+          TCOS_LIVE_SHIPPING_ENABLED: "false"
+        run: npm run build

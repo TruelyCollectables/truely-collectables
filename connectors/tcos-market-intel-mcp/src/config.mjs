@@ -1,3 +1,5 @@
+import { createHmac } from "node:crypto";
+
 const parseBoolean = (value, fallback = false) => {
   if (value == null || value === "") return fallback;
   return ["1", "true", "yes", "on"].includes(String(value).toLowerCase());
@@ -14,9 +16,19 @@ const parseOrigins = (value) =>
     .map((entry) => entry.trim())
     .filter(Boolean);
 
+const derivedSecret = (explicitName, purpose) => {
+  const explicit = String(process.env[explicitName] || "").trim();
+  if (explicit) return explicit;
+  const root = String(process.env.ADMIN_SESSION_SECRET || "").trim();
+  if (!root) return "";
+  return createHmac("sha256", root)
+    .update(`TCOS Profit Hunter ${purpose} v1`, "utf8")
+    .digest("base64url");
+};
+
 export const config = Object.freeze({
   port: parseNumber(process.env.PORT, 8787),
-  connectorToken: process.env.TCOS_CONNECTOR_TOKEN || "",
+  connectorToken: derivedSecret("TCOS_CONNECTOR_TOKEN", "connector bearer"),
   requirePersistence: parseBoolean(process.env.TCOS_REQUIRE_PERSISTENCE, false),
   requireInstaComp: parseBoolean(process.env.TCOS_REQUIRE_INSTACOMP, false),
   allowedOrigins: parseOrigins(process.env.TCOS_ALLOWED_ORIGINS),
@@ -27,8 +39,8 @@ export const config = Object.freeze({
   searchMaxResults: Math.max(1, Math.min(50, parseNumber(process.env.TCOS_SEARCH_MAX_RESULTS, 20))),
   ebayBrowseAccessToken: process.env.EBAY_BROWSE_ACCESS_TOKEN || "",
   xBearerToken: process.env.X_BEARER_TOKEN || "",
-  instacompBaseUrl: String(process.env.INSTACOMP_BASE_URL || "").trim().replace(/\/+$/, ""),
-  instacompServiceToken: String(process.env.INSTACOMP_SERVICE_TOKEN || "").trim(),
+  instacompBaseUrl: String(process.env.INSTACOMP_BASE_URL || process.env.NEXT_PUBLIC_SITE_URL || "").trim().replace(/\/+$/, ""),
+  instacompServiceToken: derivedSecret("INSTACOMP_SERVICE_TOKEN", "InstaComp service bearer"),
   instacompTimeoutMs: Math.max(
     15_000,
     Math.min(300_000, parseNumber(process.env.INSTACOMP_TIMEOUT_MS, 240_000)),

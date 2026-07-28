@@ -7,6 +7,7 @@ import {
 import { MAX_INSTACOMP_JOB_CARDS } from "./instacomp-job-state";
 import { getActiveStoreId } from "./stores";
 import { createSupabaseServerClient } from "./supabase-server";
+import { getInstaCompServiceToken } from "./tcos-profit-hunter-secrets";
 
 export const INSTACOMP_JOB_TABLE = "instacomp_scan_jobs";
 export const INSTACOMP_JOB_ITEM_TABLE = "instacomp_scan_items";
@@ -120,7 +121,7 @@ function constantTimeSecretMatch(provided: string, expected: string) {
 
 export function isValidInstaCompServiceRequest(
   request: Request,
-  expectedToken = process.env.INSTACOMP_SERVICE_TOKEN,
+  expectedToken = getInstaCompServiceToken(),
 ) {
   const expected = String(expectedToken || "").trim();
   const provided = String(
