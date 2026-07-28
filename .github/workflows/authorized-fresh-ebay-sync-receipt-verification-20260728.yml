@@ -1,4 +1,4 @@
-name: Authorized Fresh eBay Receipt Verification 20260728
+name: Authorized 3000 Active eBay Receipt Verification 20260728
 
 on:
   pull_request:
@@ -26,8 +26,10 @@ jobs:
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_SCOPE: truelycollectables-projects
       PRODUCTION_ORIGIN: https://truelycollectables.com
-      CRON_NOT_BEFORE_UTC: 2026-07-28T15:01:30Z
-      CRON_COMPLETION_TARGET_UTC: 2026-07-28T15:10:00Z
+      CRON_NOT_BEFORE_UTC: 2026-07-28T16:01:30Z
+      CRON_COMPLETION_TARGET_UTC: 2026-07-28T16:10:00Z
+      BASELINE_REMOTE_TOTAL_0902: "893"
+      BASELINE_ELIGIBLE_0902: "865"
     steps:
       - name: Check out verification runner
         uses: actions/checkout@v4
@@ -130,6 +132,7 @@ jobs:
           const images = (receipt.imagePasses || []).at(-1);
           const audit = receipt.databaseAudit || {};
           if (!first?.cycleComplete || Number(first.failed || 0) !== 0) fail('Initial authoritative cycle was incomplete or failed.');
+          if (Number(first.remoteFixedPriceTotal || 0) > 3000) fail(`eBay returned ${first.remoteFixedPriceTotal}, above the approved 3,000-listing ceiling.`);
           if (Number(first.eligibleCollectibles || 0) + Number(first.skippedNonCollectibles || 0) !== Number(first.remoteFixedPriceTotal || 0)) fail('Remote totals do not reconcile.');
           if (!images?.cycleComplete || Number(images.failed || 0) !== 0 || Number(images.remainingCandidates || 0) !== 0) fail('Image synchronization did not converge.');
           if (!receipt.quantities || Number(receipt.quantities.failed || 0) !== 0) fail('Quantity reconciliation failed.');
@@ -137,6 +140,8 @@ jobs:
           if (Number(final.inserted || 0) || Number(final.updated || 0) || Number(final.deactivated || 0)) fail(`Inventory did not converge: ${JSON.stringify(final)}`);
           if (Number(final.unchanged || 0) !== Number(final.eligibleCollectibles || 0)) fail('Final unchanged total differs from eligible inventory.');
           if (audit.matchesEligibleEbayInventory !== true || Number(audit.activeLinkedProducts || 0) !== Number(final.eligibleCollectibles || 0)) fail('Database audit does not match eligible eBay inventory.');
+          const baselineRemote = Number(process.env.BASELINE_REMOTE_TOTAL_0902 || 0);
+          const baselineEligible = Number(process.env.BASELINE_ELIGIBLE_0902 || 0);
           fs.writeFileSync('verification/validated-summary.json', `${JSON.stringify({
             success: true,
             completedAt: receipt.completedAt,
@@ -147,6 +152,11 @@ jobs:
             initialChanges: { inserted: first.inserted, updated: first.updated, deactivated: first.deactivated },
             imagePasses: (receipt.imagePasses || []).length,
             convergencePasses: (receipt.convergencePasses || []).length,
+            baseline0902: { remoteFixedPriceTotal: baselineRemote, eligibleCollectibles: baselineEligible },
+            deltaSince0902: {
+              remoteFixedPriceTotal: Number(final.remoteFixedPriceTotal || 0) - baselineRemote,
+              eligibleCollectibles: Number(final.eligibleCollectibles || 0) - baselineEligible,
+            },
           }, null, 2)}\n`);
           console.log(fs.readFileSync('verification/validated-summary.json', 'utf8'));
           NODE
@@ -187,7 +197,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: fresh-ebay-sync-receipt-verification-${{ github.run_number }}
+          name: ebay-3000-active-sync-verification-${{ github.run_number }}
           path: verification
           if-no-files-found: warn
           retention-days: 30
