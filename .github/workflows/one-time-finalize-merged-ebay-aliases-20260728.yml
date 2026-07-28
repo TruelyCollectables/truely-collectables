@@ -10,28 +10,96 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: one-time-finalize-merged-ebay-aliases-20260728
+  cancel-in-progress: false
+
 jobs:
   patch-and-validate:
     if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'agent/finalize-merged-ebay-aliases-20260728'
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+      ADMIN_SESSION_SECRET: build-only-placeholder-session-secret
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+      EBAY_CLIENT_ID: build-only-placeholder-client-id
+      EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+      EBAY_ENVIRONMENT: production
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
     steps:
       - uses: actions/checkout@v4
         with:
           ref: agent/finalize-merged-ebay-aliases-20260728
-          fetch-depth: 1
-      - name: Capture structural patch failure
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - name: Correct unchanged-listing structural matcher
         shell: bash
         run: |
-          set +e
-          mkdir -p diagnostics
-          python scripts/temporary_finalize_merged_ebay_aliases.py > diagnostics/stdout.txt 2> diagnostics/stderr.txt
-          status=$?
-          printf '%s\n' "$status" > diagnostics/status.txt
-          cat diagnostics/stderr.txt
-          exit 0
-      - uses: actions/upload-artifact@v4
-        with:
-          name: merged-alias-structural-patch-diagnostics-${{ github.run_number }}
-          path: diagnostics
-          if-no-files-found: error
-          retention-days: 7
+          set -euo pipefail
+          python <<'PY'
+          from pathlib import Path
+          path = Path('scripts/temporary_finalize_merged_ebay_aliases.py')
+          text = path.read_text()
+          old = '''source = replace_once(
+              source,
+              "      : remote.listings\\n        .map((listing) => localByItemId.get(listing.itemId) || null)",
+              "      : effectiveRemoteListings\\n        .map((listing) => localByItemId.get(listing.itemId) || null)",
+              "effective unchanged listings",
+          )'''
+          new = '''pattern = re.compile(
+              r"      : remote\\.listings\\s+\\.map\\(\\(listing\\) => localByItemId\\.get\\(listing\\.itemId\\) \\|\\| null\\)",
+              re.S,
+          )
+          source, count = pattern.subn(
+              "      : effectiveRemoteListings\\n        .map((listing) => localByItemId.get(listing.itemId) || null)",
+              source,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit(f"effective unchanged listings: expected one match, found {count}")'''
+          if text.count(old) != 1:
+              raise SystemExit(f'unchanged matcher patch: found {text.count(old)}')
+          path.write_text(text.replace(old, new, 1))
+          PY
+
+      - name: Apply structural merged-alias repair
+        run: python scripts/temporary_finalize_merged_ebay_aliases.py
+
+      - name: Remove temporary operations files
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f \
+            .github/workflows/one-time-finalize-merged-ebay-aliases-20260728.yml \
+            .github/workflows/diagnose-final-merged-alias-writer-20260728.yml \
+            .github/workflows/ops-finalize-certified-ebay-fix-20260728.yml \
+            .github/diagnostics/retrigger-final-merged-alias-writer.txt \
+            scripts/temporary_finalize_merged_ebay_aliases.py
+
+      - name: Validate final inventory contract
+        run: |
+          set -euo pipefail
+          npm ci
+          node --import tsx scripts/run-storefront-taxonomy-regressions.ts
+          node --import tsx scripts/run-ebay-import-admin-client-simulations.ts
+          npx eslint src/lib/ebay-merged-listing-groups.ts src/lib/ebay-authoritative-store-sync.ts src/lib/ebay-fixed-price-backfill.ts src/app/api/cron/ebay-store-fixed-price-sync/route.ts scripts/run-storefront-taxonomy-regressions.ts
+          npm run build
+
+      - name: Commit validated final inventory contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Truely Collectables Automation"
+          git config user.email "automation@truelycollectables.com"
+          git add -A
+          git commit -m "Finalize merged eBay alias inventory synchronization"
+          git push origin HEAD:agent/finalize-merged-ebay-aliases-20260728
