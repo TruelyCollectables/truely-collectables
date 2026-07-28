@@ -1,0 +1,272 @@
+name: One-Time Fix Storefront Full Pagination 20260728
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/one-time-fix-storefront-full-pagination-20260728.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: one-time-fix-storefront-full-pagination-20260728
+  cancel-in-progress: false
+
+jobs:
+  patch-and-validate:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'agent/fix-storefront-full-pagination-20260728'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+      ADMIN_SESSION_SECRET: build-only-placeholder-session-secret
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+      EBAY_CLIENT_ID: build-only-placeholder-client-id
+      EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+      EBAY_ENVIRONMENT: production
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/fix-storefront-full-pagination-20260728
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - name: Paginate complete storefront inventory reads
+        shell: bash
+        run: |
+          set -euo pipefail
+          python <<'PY'
+          from pathlib import Path
+
+          path = Path('src/modules/inventory/engine.ts')
+          source = path.read_text()
+
+          marker = 'export class InventoryEngine {'
+          if source.count(marker) != 1:
+              raise SystemExit('InventoryEngine marker was not unique')
+          helpers = '''const DATABASE_PAGE_SIZE = 1000;
+          const MAX_DATABASE_PAGES = 50;
+
+          async function readAllStoreProducts(params: {
+            database: SupabaseClient;
+            storeId: string;
+            positivePriceOnly?: boolean;
+          }) {
+            const rows: any[] = [];
+            for (let page = 0; page < MAX_DATABASE_PAGES; page += 1) {
+              const from = page * DATABASE_PAGE_SIZE;
+              const baseQuery = params.database
+                .from("products")
+                .select("*")
+                .eq("store_id", params.storeId);
+              const query = params.positivePriceOnly
+                ? baseQuery.gt("price", 0)
+                : baseQuery;
+              const { data, error } = await query
+                .order("id", { ascending: true })
+                .range(from, from + DATABASE_PAGE_SIZE - 1);
+              if (error) throw error;
+              const batch = data || [];
+              rows.push(...batch);
+              if (batch.length < DATABASE_PAGE_SIZE) return rows;
+            }
+            throw new Error(
+              `Storefront product pagination exceeded ${MAX_DATABASE_PAGES * DATABASE_PAGE_SIZE} rows.`,
+            );
+          }
+
+          async function readAllStoreInventoryItems(params: {
+            database: SupabaseClient;
+            storeId: string;
+          }) {
+            const rows: InventoryItem[] = [];
+            for (let page = 0; page < MAX_DATABASE_PAGES; page += 1) {
+              const from = page * DATABASE_PAGE_SIZE;
+              const { data, error } = await params.database
+                .from("inventory_items")
+                .select("*")
+                .eq("store_id", params.storeId)
+                .order("id", { ascending: true })
+                .range(from, from + DATABASE_PAGE_SIZE - 1);
+              if (error) throw error;
+              const batch = (data || []) as InventoryItem[];
+              rows.push(...batch);
+              if (batch.length < DATABASE_PAGE_SIZE) return rows;
+            }
+            throw new Error(
+              `Storefront inventory-item pagination exceeded ${MAX_DATABASE_PAGES * DATABASE_PAGE_SIZE} rows.`,
+            );
+          }
+
+          '''
+          source = source.replace(marker, helpers + marker, 1)
+
+          old_available = '''    const [
+                { data: products, error },
+                { data: inventoryItems, error: inventoryError },
+              ] = await Promise.all([
+                this.database
+                  .from("products")
+                  .select("*")
+                  .eq("store_id", this.storeId)
+                  .gt("price", 0)
+                  .order("created_at", { ascending: false }),
+                this.database
+                  .from("inventory_items")
+                  .select("*")
+                  .eq("store_id", this.storeId),
+              ]);
+
+              if (error) throw error;
+              if (inventoryError) throw inventoryError;'''
+          new_available = '''    const [products, inventoryItems] = await Promise.all([
+                readAllStoreProducts({
+                  database: this.database,
+                  storeId: this.storeId,
+                  positivePriceOnly: true,
+                }),
+                readAllStoreInventoryItems({
+                  database: this.database,
+                  storeId: this.storeId,
+                }),
+              ]);'''
+          if source.count(old_available) != 1:
+              raise SystemExit(f'listAvailable read block: found {source.count(old_available)}')
+          source = source.replace(old_available, new_available, 1)
+
+          old_all = '''    const [
+                { data: products, error },
+                { data: inventoryItems, error: inventoryError },
+              ] = await Promise.all([
+                this.database
+                  .from("products")
+                  .select("*")
+                  .eq("store_id", this.storeId)
+                  .order("id"),
+                this.database
+                  .from("inventory_items")
+                  .select("*")
+                  .eq("store_id", this.storeId),
+              ]);
+
+              if (error) throw error;
+              if (inventoryError) throw inventoryError;'''
+          new_all = '''    const [products, inventoryItems] = await Promise.all([
+                readAllStoreProducts({
+                  database: this.database,
+                  storeId: this.storeId,
+                }),
+                readAllStoreInventoryItems({
+                  database: this.database,
+                  storeId: this.storeId,
+                }),
+              ]);'''
+          if source.count(old_all) != 1:
+              raise SystemExit(f'listAll read block: found {source.count(old_all)}')
+          source = source.replace(old_all, new_all, 1)
+
+          old_bridge = '''    const [{ data: products, error: productsError }, { data: inventoryItems, error: inventoryError }] =
+                await Promise.all([
+                  this.database
+                    .from("products")
+                    .select("*")
+                    .eq("store_id", this.storeId)
+                    .order("created_at", { ascending: false }),
+                  this.database
+                    .from("inventory_items")
+                    .select("*")
+                    .eq("store_id", this.storeId),
+                ]);
+
+              if (productsError) throw productsError;
+              if (inventoryError) throw inventoryError;'''
+          new_bridge = '''    const [products, inventoryItems] = await Promise.all([
+                readAllStoreProducts({
+                  database: this.database,
+                  storeId: this.storeId,
+                }),
+                readAllStoreInventoryItems({
+                  database: this.database,
+                  storeId: this.storeId,
+                }),
+              ]);'''
+          if source.count(old_bridge) != 1:
+              raise SystemExit(f'bridge read block: found {source.count(old_bridge)}')
+          source = source.replace(old_bridge, new_bridge, 1)
+          path.write_text(source)
+
+          test_path = Path('scripts/run-ebay-import-admin-client-simulations.ts')
+          test = test_path.read_text()
+          marker = '''const publicInventoryEngine = fs.readFileSync(
+            "src/lib/server-inventory-engine.ts",
+            "utf8",
+          );'''
+          addition = marker + '''
+          const inventoryEngineSource = fs.readFileSync(
+            "src/modules/inventory/engine.ts",
+            "utf8",
+          );'''
+          if test.count(marker) != 1:
+              raise SystemExit('inventory engine test marker was not unique')
+          test = test.replace(marker, addition, 1)
+          assertion_marker = '''assert.match(
+            publicInventoryEngine,
+            /items\.filter\(isLaunchCollectible\)/,
+            "Every public inventory feed must enforce the approved catalog exclusions.",
+          );'''
+          assertions = assertion_marker + '''
+          assert.match(
+            inventoryEngineSource,
+            /const DATABASE_PAGE_SIZE = 1000;/,
+            "Storefront inventory reads must use explicit database pagination.",
+          );
+          assert.match(
+            inventoryEngineSource,
+            /function readAllStoreProducts[\s\S]*\.range\(from, from \+ DATABASE_PAGE_SIZE - 1\)/,
+            "Product reads must continue beyond Supabase's default 1,000-row limit.",
+          );
+          assert.match(
+            inventoryEngineSource,
+            /function readAllStoreInventoryItems[\s\S]*\.range\(from, from \+ DATABASE_PAGE_SIZE - 1\)/,
+            "Inventory-item reads must continue beyond Supabase's default 1,000-row limit.",
+          );
+          assert.match(
+            inventoryEngineSource,
+            /async listAvailable[\s\S]*readAllStoreProducts[\s\S]*readAllStoreInventoryItems/,
+            "The public storefront must use the complete paginated product and inventory sets.",
+          );'''
+          if test.count(assertion_marker) != 1:
+              raise SystemExit('public inventory assertion marker was not unique')
+          test_path.write_text(test.replace(assertion_marker, assertions, 1))
+
+          Path('.github/workflows/one-time-fix-storefront-full-pagination-20260728.yml').unlink()
+          PY
+
+      - name: Validate complete storefront pagination
+        run: |
+          set -euo pipefail
+          npm ci
+          node --import tsx scripts/run-ebay-import-admin-client-simulations.ts
+          node --import tsx scripts/run-storefront-taxonomy-regressions.ts
+          npx eslint src/modules/inventory/engine.ts scripts/run-ebay-import-admin-client-simulations.ts
+          npm run build
+
+      - name: Commit validated pagination fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Truely Collectables Automation"
+          git config user.email "automation@truelycollectables.com"
+          git add -A
+          git commit -m "Paginate complete storefront inventory reads"
+          git push origin HEAD:agent/fix-storefront-full-pagination-20260728
