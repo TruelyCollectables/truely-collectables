@@ -7,6 +7,14 @@ import {
   isValidAdminSessionValue,
 } from "./lib/admin-session";
 
+const PUBLIC_ADMIN_RECOVERY_PATHS = new Set([
+  "/admin/login",
+  "/admin/reset-password",
+  "/api/admin/login",
+  "/api/admin/password-reset/request",
+  "/api/admin/password-reset/confirm",
+]);
+
 function applySecurityHeaders(response: NextResponse, req: NextRequest) {
   const isAdminOrApi =
     req.nextUrl.pathname.startsWith("/admin") ||
@@ -52,7 +60,11 @@ function applySecurityHeaders(response: NextResponse, req: NextRequest) {
 }
 
 function isProtectedPath(pathname: string): boolean {
-  if (pathname.startsWith("/admin") && pathname !== "/admin/login") {
+  if (PUBLIC_ADMIN_RECOVERY_PATHS.has(pathname)) {
+    return false;
+  }
+
+  if (pathname.startsWith("/admin")) {
     return true;
   }
 
@@ -65,7 +77,7 @@ function isProtectedPath(pathname: string): boolean {
   }
   if (pathname.startsWith("/api/ebay")) return true;
   if (pathname.startsWith("/api/orders")) return true;
-  if (pathname.startsWith("/api/admin") && pathname !== "/api/admin/login") {
+  if (pathname.startsWith("/api/admin")) {
     return true;
   }
   if (pathname === "/api/offers/update-status") return true;
