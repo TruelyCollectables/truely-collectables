@@ -241,4 +241,47 @@ assert.equal(
   true,
 );
 
+
+const hockeyJerseyRelicCard = ebayAuthoritativeStoreSyncTestHelpers.parseRemoteListing(`
+<Item>
+  <ItemID>3000000001</ItemID><ListingType>FixedPriceItem</ListingType>
+  <Title>2025-26 SP Game Used #100 Peter Forsberg Red Jersey</Title>
+  <StartPrice>19.99</StartPrice><Quantity>1</Quantity>
+  <PictureDetails><GalleryURL>https://i.ebayimg.com/images/g/relic/s-l1600.jpg</GalleryURL></PictureDetails>
+  <PrimaryCategory><CategoryID>261328</CategoryID><CategoryName>Sports Trading Cards</CategoryName></PrimaryCategory>
+  <ItemSpecifics>
+    <NameValueList><Name>Sport</Name><Value>Ice Hockey</Value></NameValueList>
+    <NameValueList><Name>Features</Name><Value>Memorabilia</Value></NameValueList>
+  </ItemSpecifics>
+</Item>`);
+assert.ok(hockeyJerseyRelicCard);
+assert.equal(hockeyJerseyRelicCard.mappedCategory, "sports_cards");
+assert.equal(hockeyJerseyRelicCard.sport, "Hockey");
+assert.notEqual(hockeyJerseyRelicCard.sport, "Jerseys");
+
+const authoritativeHockeyCard = ebayAuthoritativeStoreSyncTestHelpers.parseRemoteListing(`
+<Item>
+  <ItemID>3000000002</ItemID><ListingType>FixedPriceItem</ListingType>
+  <Title>2022-23 Upper Deck Black Diamond Gordie Howe Exquisite Collection Moments /299</Title>
+  <StartPrice>29.99</StartPrice><Quantity>1</Quantity>
+  <PictureDetails><GalleryURL>https://i.ebayimg.com/images/g/hockey/s-l1600.jpg</GalleryURL></PictureDetails>
+  <PrimaryCategory><CategoryID>261328</CategoryID><CategoryName>Sports Trading Cards</CategoryName></PrimaryCategory>
+  <ItemSpecifics><NameValueList><Name>Sport</Name><Value>Ice Hockey</Value></NameValueList></ItemSpecifics>
+</Item>`);
+assert.ok(authoritativeHockeyCard);
+assert.equal(authoritativeHockeyCard.mappedCategory, "sports_cards");
+assert.equal(authoritativeHockeyCard.sport, "Hockey");
+
+const authoritativePokemonCard = ebayAuthoritativeStoreSyncTestHelpers.parseRemoteListing(`
+<Item>
+  <ItemID>3000000003</ItemID><ListingType>FixedPriceItem</ListingType>
+  <Title>Wailord ex 016/084 Double Rare Pokemon Pitch Black 2026 NM</Title>
+  <StartPrice>9.99</StartPrice><Quantity>1</Quantity>
+  <PictureDetails><GalleryURL>https://i.ebayimg.com/images/g/pokemon/s-l1600.jpg</GalleryURL></PictureDetails>
+  <PrimaryCategory><CategoryID>183454</CategoryID><CategoryName>Collectible Card Games</CategoryName></PrimaryCategory>
+</Item>`);
+assert.ok(authoritativePokemonCard);
+assert.equal(authoritativePokemonCard.mappedCategory, "trading_cards");
+assert.equal(authoritativePokemonCard.sport, "Trading Card Games");
+
 console.log("Storefront taxonomy regressions passed.");

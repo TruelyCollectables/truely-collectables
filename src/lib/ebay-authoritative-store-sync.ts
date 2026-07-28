@@ -8,7 +8,7 @@ const TRADING_API_VERSION = "1409";
 const PAGE_SIZE = 200;
 const MAX_PAGES = 25;
 const APPLY_CONCURRENCY = 8;
-const STOREFRONT_TAXONOMY_VERSION = 3;
+const STOREFRONT_TAXONOMY_VERSION = 4;
 
 export type EbayStoreSyncMode = "preview" | "apply";
 
@@ -186,6 +186,47 @@ function normalizedText(value: unknown) {
     .trim();
 }
 
+function authoritativeMappedCategory(params: {
+  title: string;
+  categoryName: string | null;
+  aspects: Record<string, string[]>;
+  fallback: string;
+}) {
+  const categoryName = normalizedText(params.categoryName);
+  const aspectText = normalizedText(Object.values(params.aspects).flat().join(" "));
+  const searchable = normalizedText(`${params.title} ${categoryName} ${aspectText}`);
+  const sealedSignal =
+    /\b(sealed|unopened|hobby box|blaster box|booster box|mega box|factory sealed|packs?)\b/.test(
+      categoryName,
+    ) &&
+    /\b(trading cards?|sports cards?|collectible card games?|ccg)\b/.test(
+      categoryName,
+    );
+
+  if (sealedSignal) return "sealed_wax";
+  if (/\bsports trading cards?\b|\bsports card singles?\b/.test(categoryName)) {
+    return "sports_cards";
+  }
+  if (
+    /\b(collectible card games?|trading card games?|ccg|pokemon|magic the gathering|yu gi oh|yugioh|lorcana)\b/.test(
+      categoryName,
+    )
+  ) {
+    return "trading_cards";
+  }
+  if (/\btrading cards?\b/.test(categoryName)) {
+    const sportsSignal = Boolean(
+      firstAspect(params.aspects, ["Sport", "League"]) ||
+        /\b(baseball|basketball|football|hockey|soccer|golf|tennis|wrestling|racing|nascar|formula 1|f1|ufc|mma|wnba|nba|nfl|nhl|mlb|mls|ncaa)\b/.test(
+          searchable,
+        ),
+    );
+    return sportsSignal ? "sports_cards" : "trading_cards";
+  }
+
+  return params.fallback;
+}
+
 function isCollectibleListing(input: {
   title: string;
   categoryName: string | null;
@@ -306,10 +347,17 @@ function parseRemoteListing(itemXml: string): EbayStoreRemoteListing | null {
     xmlText(primaryCategory, "CategoryName")?.trim() || null;
   const rawSport = firstAspect(aspects, ["Sport"]);
   const mapping = mapEbayInventoryCategory({ title, aspects });
+  const mappedCategory = authoritativeMappedCategory({
+    title,
+    categoryName,
+    aspects,
+    fallback: mapping.category,
+  });
+  const categoryWasOverridden = mappedCategory !== mapping.category;
   const storefront = classifyStorefrontItem({
     title,
     rawSport,
-    primaryCategory: mapping.category,
+    primaryCategory: mappedCategory,
     aspects,
   });
 
@@ -320,7 +368,7 @@ function parseRemoteListing(itemXml: string): EbayStoreRemoteListing | null {
     !isCollectibleListing({
       title,
       categoryName,
-      mappedCategory: mapping.category,
+      mappedCategory,
       aspects,
     })
   ) {
@@ -344,9 +392,9 @@ function parseRemoteListing(itemXml: string): EbayStoreRemoteListing | null {
     aspects,
     player: firstAspect(aspects, ["Player/Athlete", "Player", "Athlete"]),
     sport: storefront.section,
-    mappedCategory: mapping.category,
-    categoryConfidence: mapping.confidence,
-    reviewRequired: mapping.reviewRequired,
+    mappedCategory,
+    categoryConfidence: categoryWasOverridden ? "high" : mapping.confidence,
+    reviewRequired: categoryWasOverridden ? false : mapping.reviewRequired,
     storefrontAttributes: storefront.attributes,
     storefrontMetadata: storefront.metadata,
   };
@@ -764,6 +812,7 @@ async function runWorkers<T>(
 
 export const ebayAuthoritativeStoreSyncTestHelpers = {
   parseRemoteListing,
+  authoritativeMappedCategory,
   isCollectibleListing,
   // Compatibility alias for existing diagnostics.
   isSportsCardListing: isCollectibleListing,
@@ -835,7 +884,7 @@ export async function runEbayAuthoritativeStoreSync(params: {
             ? "Active eBay sports-card listing is missing locally."
             : action === "update"
               ? taxonomyRefreshRequired
-                ? "Storefront taxonomy version 3 collectibles refresh is required."
+                ? "Storefront taxonomy version 4 eBay-category refresh is required."
                 : "Local title, quantity, price, image, sport, or SKU differs from eBay."
               : "Local listing matches active eBay inventory.",
         legacyProductId: local?.id || null,
