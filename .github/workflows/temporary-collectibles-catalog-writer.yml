@@ -8,6 +8,7 @@ on:
       - "scripts/apply-collectibles-catalog-expansion.py"
       - "scripts/prepare-collectibles-patch-script.py"
       - "scripts/preapply-collectibles-catalog-fixes.py"
+      - "scripts/postapply-collectibles-catalog-fixes.py"
       - ".github/workflows/temporary-collectibles-catalog-writer.yml"
   pull_request:
     branches:
@@ -16,6 +17,7 @@ on:
       - "scripts/apply-collectibles-catalog-expansion.py"
       - "scripts/prepare-collectibles-patch-script.py"
       - "scripts/preapply-collectibles-catalog-fixes.py"
+      - "scripts/postapply-collectibles-catalog-fixes.py"
       - ".github/workflows/temporary-collectibles-catalog-writer.yml"
   workflow_dispatch:
 
@@ -62,7 +64,7 @@ jobs:
           python scripts/prepare-collectibles-patch-script.py
           python scripts/preapply-collectibles-catalog-fixes.py
           python scripts/apply-collectibles-catalog-expansion.py 2>&1 | tee collectibles-catalog-patch.log
-          sed -i 's/isLaunchSportsCard/isLaunchCollectible/g' src/lib/server-inventory-engine.ts
+          python scripts/postapply-collectibles-catalog-fixes.py
       - name: Install exact dependencies
         run: npm ci
       - name: Run collectibles catalog regressions
