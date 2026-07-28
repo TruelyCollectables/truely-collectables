@@ -18,6 +18,7 @@ export const config = Object.freeze({
   port: parseNumber(process.env.PORT, 8787),
   connectorToken: process.env.TCOS_CONNECTOR_TOKEN || "",
   requirePersistence: parseBoolean(process.env.TCOS_REQUIRE_PERSISTENCE, false),
+  requireInstaComp: parseBoolean(process.env.TCOS_REQUIRE_INSTACOMP, false),
   allowedOrigins: parseOrigins(process.env.TCOS_ALLOWED_ORIGINS),
   supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "",
   supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || "",
@@ -26,6 +27,12 @@ export const config = Object.freeze({
   searchMaxResults: Math.max(1, Math.min(50, parseNumber(process.env.TCOS_SEARCH_MAX_RESULTS, 20))),
   ebayBrowseAccessToken: process.env.EBAY_BROWSE_ACCESS_TOKEN || "",
   xBearerToken: process.env.X_BEARER_TOKEN || "",
+  instacompBaseUrl: String(process.env.INSTACOMP_BASE_URL || "").trim().replace(/\/+$/, ""),
+  instacompServiceToken: String(process.env.INSTACOMP_SERVICE_TOKEN || "").trim(),
+  instacompTimeoutMs: Math.max(
+    15_000,
+    Math.min(300_000, parseNumber(process.env.INSTACOMP_TIMEOUT_MS, 240_000)),
+  ),
   defaults: Object.freeze({
     sellingFeeRate: parseNumber(process.env.TCOS_DEFAULT_SELLING_FEE_RATE, 0.1325),
     orderFee: parseNumber(process.env.TCOS_DEFAULT_ORDER_FEE, 0.4),
@@ -40,12 +47,20 @@ export const persistenceConfigured = Boolean(config.supabaseUrl && config.supaba
 export const publicSearchConfigured = Boolean(
   config.openAiApiKey || config.ebayBrowseAccessToken || config.xBearerToken,
 );
+export const instaCompConfigured = Boolean(
+  config.instacompBaseUrl && config.instacompServiceToken,
+);
 
 export const assertProductionConfig = () => {
   const errors = [];
   if (!config.connectorToken) errors.push("TCOS_CONNECTOR_TOKEN is required");
   if (config.requirePersistence && !persistenceConfigured) {
     errors.push("Supabase persistence is required but not configured");
+  }
+  if (config.requireInstaComp && !instaCompConfigured) {
+    errors.push(
+      "Hardened InstaComp is required but INSTACOMP_BASE_URL or INSTACOMP_SERVICE_TOKEN is missing",
+    );
   }
   if (errors.length > 0) {
     throw new Error(errors.join("; "));
