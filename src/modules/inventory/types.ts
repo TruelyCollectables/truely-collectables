@@ -39,6 +39,13 @@ export type LegacyProductSnapshot = {
   last_seen_at: string | null;
 };
 
+export type StorefrontFeatureFlags = {
+  autograph: boolean;
+  rookie: boolean;
+  graded: boolean;
+  numbered: boolean;
+};
+
 export type UniversalInventoryItem = {
   inventoryItemId: string | null;
   legacyProductId: number;
@@ -48,6 +55,10 @@ export type UniversalInventoryItem = {
   description: string | null;
   player: string | null;
   sport: string | null;
+  category: string | null;
+  storefrontSection: string;
+  league: string | null;
+  features: StorefrontFeatureFlags;
   price: number;
   quantity: number;
   imageUrl: string | null;

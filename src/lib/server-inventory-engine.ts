@@ -3,6 +3,7 @@ import {
   InventoryRepository,
 } from "../modules/inventory";
 import { isLaunchSportsCard } from "./sports-card-launch-scope";
+import type { StorefrontSort } from "./storefront-taxonomy";
 import { getActiveStoreId } from "./stores";
 import { createSupabaseServerClient } from "./supabase-server";
 
@@ -11,6 +12,10 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
     params: {
       query?: string;
       sport?: string;
+      section?: string;
+      feature?: string;
+      category?: string;
+      sort?: StorefrontSort;
     } = {},
   ) {
     const items = await super.listAvailable(params);

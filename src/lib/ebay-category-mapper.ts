@@ -227,13 +227,12 @@ function hasStrongAutographEvidence(title: string, aspects: EbayAspectMap) {
   );
 }
 
-function preferSportsCardOverDescriptionNoise(params: {
+function preferSportsCardAsPrimaryCategory(params: {
   title: string;
   aspects: EbayAspectMap;
   currentCategory: string;
 }) {
   if (params.currentCategory !== "autographs") return false;
-  if (hasStrongAutographEvidence(params.title, params.aspects)) return false;
 
   const focused = `${params.title} ${aspectSearchText(params.aspects)}`;
   const sportsCardScore =
@@ -284,29 +283,27 @@ export function mapEbayInventoryCategory(input: {
   })).sort((left, right) => right.score - left.score);
 
   let best = focusedResults[0]?.score > 0 ? focusedResults[0] : fallbackResults[0];
+  const sportsCardResult = focusedResults.find(
+    (result) => result.category === "sports_cards",
+  );
+
+  if (
+    best?.category === "autographs" &&
+    sportsCardResult &&
+    sportsCardResult.score >= 3
+  ) {
+    best = sportsCardResult;
+  }
 
   if (
     best &&
-    preferSportsCardOverDescriptionNoise({
+    preferSportsCardAsPrimaryCategory({
       title: input.title,
       aspects,
       currentCategory: best.category,
     })
   ) {
     best = focusedResults.find((result) => result.category === "sports_cards") ?? best;
-  }
-
-  if (
-    best?.category === "sports_cards" &&
-    hasStrongAutographEvidence(input.title, aspects)
-  ) {
-    const autographResult = focusedResults.find(
-      (result) => result.category === "autographs" && result.score > 0,
-    );
-
-    if (autographResult) {
-      best = autographResult;
-    }
   }
 
   const mappingConfidence = confidence(best?.score ?? 0);
@@ -325,6 +322,7 @@ export function mapEbayInventoryCategory(input: {
       tcos_category_confidence: mappingConfidence,
       tcos_review_required: String(reviewRequired),
       tcos_category_evidence: evidence.join(", "),
+      tcos_is_autograph: String(hasStrongAutographEvidence(input.title, aspects)),
       ...usefulAspectAttributes(aspects),
     },
   };
