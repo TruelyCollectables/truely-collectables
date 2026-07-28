@@ -32,30 +32,32 @@ jobs:
           set -euo pipefail
           python <<'PY'
           from pathlib import Path
+          import re
 
           source_path = Path('src/lib/ebay-authoritative-store-sync.ts')
           source = source_path.read_text()
 
-          def replace_once(old: str, new: str, label: str) -> None:
+          def literal_once(old: str, new: str, label: str) -> None:
               global source
               count = source.count(old)
               if count != 1:
-                  raise SystemExit(f'{label}: expected exactly one match, found {count}')
+                  raise SystemExit(f'{label}: expected exactly one literal match, found {count}')
               source = source.replace(old, new, 1)
 
-          replace_once(
+          def regex_once(pattern: str, replacement: str, label: str) -> None:
+              global source
+              source, count = re.subn(pattern, replacement, source, count=1, flags=re.MULTILINE | re.DOTALL)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly one regex match, found {count}')
+
+          literal_once(
               'const APPLY_CONCURRENCY = 8;\nconst STOREFRONT_TAXONOMY_VERSION = 4;',
               'const APPLY_CONCURRENCY = 8;\nconst LOCAL_PAGE_SIZE = 1000;\nconst MAX_LOCAL_PAGES = 50;\nconst STOREFRONT_TAXONOMY_VERSION = 4;',
               'pagination constants',
           )
 
-          replace_once(
-              '''function positiveMoney(value: unknown) {
-            const parsed = Number(value);
-            return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-          }
-
-          function decodeXml(value: string) {''',
+          regex_once(
+              r'''function positiveMoney\(value: unknown\) \{\n  const parsed = Number\(value\);\n  return Number\.isFinite\(parsed\) && parsed > 0 \? parsed : 0;\n\}\n\n(?=function decodeXml)''',
               '''function positiveMoney(value: unknown) {
             const parsed = Number(value);
             return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
@@ -83,41 +85,11 @@ jobs:
             return fallback;
           }
 
-          function decodeXml(value: string) {''',
+          ''',
               'structured sync errors',
           )
 
-          replace_once(
-              '''async function deactivateLocalProduct(params: {
-            supabase: SupabaseClient;
-            storeId: string;
-            local: LocalProduct;
-          }) {
-            const now = new Date().toISOString();
-            const { error } = await params.supabase
-              .from("products")
-              .update({ quantity: 0, last_seen_at: now })
-              .eq("id", params.local.id)
-              .eq("store_id", params.storeId);
-            if (error) throw error;
-
-            const repository = new InventoryRepository(
-              params.storeId,
-              params.supabase,
-            );
-            const inventory = await repository.getByLegacyProductId(params.local.id);
-            if (inventory) {
-              await repository.update(inventory.id, {
-                quantity: 0,
-                status: "sold",
-                metadata: {
-                  ...recordValue(inventory.metadata),
-                  ebay_not_active_at_last_full_sync: now,
-                },
-              });
-            }
-          }''',
-              '''async function readAllLocalProducts(params: {
+          replacement = '''async function readAllLocalProducts(params: {
             supabase: SupabaseClient;
             storeId: string;
           }) {
@@ -188,21 +160,17 @@ jobs:
             }
 
             return changed;
-          }''',
+          }
+
+          async function runWorkers'''
+          regex_once(
+              r'''async function deactivateLocalProduct\(params: \{[\s\S]*?\n\}\n\nasync function runWorkers''',
+              replacement,
               'paginated local load and idempotent deactivation',
           )
 
-          replace_once(
-              '''  const { data: localRows, error: localError } = await params.supabase
-            .from("products")
-            .select(
-              "id,seller_account_id,sku,title,description,price,quantity,image_url,ebay_item_id,sport,last_seen_at",
-            )
-            .eq("store_id", params.storeId)
-            .not("ebay_item_id", "is", null);
-          if (localError) throw localError;
-
-          const locals = (localRows || []) as LocalProduct[];''',
+          regex_once(
+              r'''  const \{ data: localRows, error: localError \} = await params\.supabase[\s\S]*?\n  const locals = \(localRows \|\| \[\]\) as LocalProduct\[\];''',
               '''  const locals = await readAllLocalProducts({
             supabase: params.supabase,
             storeId: params.storeId,
@@ -210,41 +178,28 @@ jobs:
               'uncapped local product query',
           )
 
-          replace_once(
-              '''          error:
-                    error instanceof Error
-                      ? error.message
-                      : "Unknown sync failure.",''',
-              '''          error: syncErrorMessage(error, "Unknown sync failure."),''',
+          regex_once(
+              r'''error:\s*error instanceof Error\s*\? error\.message\s*:\s*"Unknown sync failure\.",''',
+              'error: syncErrorMessage(error, "Unknown sync failure."),',
               'upsert error details',
           )
-
-          replace_once(
-              '''        error:
-                  error instanceof Error
-                    ? error.message
-                    : "Could not refresh sync timestamps.",''',
-              '''        error: syncErrorMessage(
+          regex_once(
+              r'''error:\s*error instanceof Error\s*\? error\.message\s*:\s*"Could not refresh sync timestamps\.",''',
+              '''error: syncErrorMessage(
                   error,
                   "Could not refresh sync timestamps.",
                 ),''',
               'bulk touch error details',
           )
-
-          replace_once(
-              '''          await deactivateLocalProduct({ ...params, local });
-                  deactivated += 1;''',
-              '''          const changed = await deactivateLocalProduct({ ...params, local });
+          regex_once(
+              r'''await deactivateLocalProduct\(\{ \.\.\.params, local \}\);\n\s*deactivated \+= 1;''',
+              '''const changed = await deactivateLocalProduct({ ...params, local });
                   if (changed) deactivated += 1;''',
               'idempotent deactivate count',
           )
-
-          replace_once(
-              '''            error:
-                      error instanceof Error
-                        ? error.message
-                        : "Unknown deactivate failure.",''',
-              '''            error: syncErrorMessage(
+          regex_once(
+              r'''error:\s*error instanceof Error\s*\? error\.message\s*:\s*"Unknown deactivate failure\.",''',
+              '''error: syncErrorMessage(
                       error,
                       "Unknown deactivate failure.",
                     ),''',
@@ -298,8 +253,7 @@ jobs:
               test_source = test_source.replace(marker, regression, 1)
           test_path.write_text(test_source)
 
-          workflow = Path('.github/workflows/one-time-fix-ebay-local-pagination-20260728.yml')
-          workflow.unlink()
+          Path('.github/workflows/one-time-fix-ebay-local-pagination-20260728.yml').unlink()
           PY
 
       - name: Verify patch before commit
