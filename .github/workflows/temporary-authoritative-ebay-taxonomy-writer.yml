@@ -52,22 +52,10 @@ jobs:
           node-version: 22
           cache: npm
       - name: Apply authoritative taxonomy patch
-        id: patch
-        continue-on-error: true
         shell: bash
         run: |
           set -o pipefail
           python scripts/apply-authoritative-ebay-taxonomy-sync.py 2>&1 | tee authoritative-taxonomy-patch.log
-      - name: Upload patch diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: authoritative-taxonomy-patch-${{ github.run_number }}
-          path: authoritative-taxonomy-patch.log
-          if-no-files-found: error
-          retention-days: 14
-      - name: Enforce patch application
-        run: test "${{ steps.patch.outcome }}" = "success"
       - name: Install exact dependencies
         run: npm ci
       - name: Run storefront and authoritative sync regressions
@@ -81,6 +69,17 @@ jobs:
           scripts/run-storefront-taxonomy-regressions.ts
       - name: Build production application
         run: npm run build
+      - name: Upload certification diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: authoritative-taxonomy-certification-${{ github.run_number }}
+          path: |
+            authoritative-taxonomy-patch.log
+            src/lib/ebay-authoritative-store-sync.ts
+            scripts/run-storefront-taxonomy-regressions.ts
+          if-no-files-found: warn
+          retention-days: 14
       - name: Commit verified source
         run: |
           git config user.name "github-actions[bot]"
