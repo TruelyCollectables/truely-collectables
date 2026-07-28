@@ -1,0 +1,118 @@
+name: Authorized eBay Category Authority V4 Production Deploy 20260728
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/authorized-ebay-category-authority-v4-deploy-20260728.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: authorized-ebay-category-authority-v4-production-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy-production:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'deploy/ebay-category-authority-v4-20260728')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      DEPLOY_SOURCE_SHA: 46317364f71c46ca4ae17fa1625cf1d7d3229ac7
+    steps:
+      - name: Check out exact merged source
+        uses: actions/checkout@v4
+        with:
+          ref: 46317364f71c46ca4ae17fa1625cf1d7d3229ac7
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Confirm Vercel token identity
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          npx vercel@56.2.0 whoami --token "$VERCEL_TOKEN"
+
+      - name: Resolve exact Vercel project
+        run: |
+          set -euo pipefail
+          mkdir -p .vercel .deployment-evidence
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link \
+              --yes \
+              --project truely-collectables \
+              --scope "$VERCEL_SCOPE" \
+              --token "$VERCEL_TOKEN"
+          fi
+          node -e 'const p=require("./.vercel/project.json"); if(!p.orgId||!p.projectId) process.exit(1); console.log(JSON.stringify({orgIdPresent:true,projectIdPresent:true}))'
+
+      - name: Deploy exact main revision to Production
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 deploy \
+            --prod \
+            --yes \
+            --force \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" \
+            2>&1 | tee .deployment-evidence/vercel-deploy.log
+          DEPLOYMENT_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' .deployment-evidence/vercel-deploy.log | tail -n 1)"
+          test -n "$DEPLOYMENT_URL"
+          echo "deployment_url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$DEPLOYMENT_URL" > .deployment-evidence/deployment-url.txt
+
+      - name: Verify v4 storefront release is live
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          marker='Cards and memorabilia stay in their correct section.'
+          urls=(
+            "$DEPLOYMENT_URL/shop"
+            'https://truely-collectables.vercel.app/shop'
+            'https://truelycollectables.com/shop'
+          )
+          success=''
+          for attempt in $(seq 1 24); do
+            echo "Production verification attempt ${attempt}/24"
+            for url in "${urls[@]}"; do
+              slug="$(printf '%s' "$url" | tr -c 'A-Za-z0-9' '-')"
+              body=".deployment-evidence/${slug}-${attempt}.html"
+              code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 60 --output "$body" --write-out '%{http_code}' "$url" || true)"
+              echo "$url HTTP=$code"
+              if [ "$code" = '200' ] && grep -Fq "$marker" "$body"; then
+                success="$url"
+                printf '%s\n' "$url" > .deployment-evidence/verified-url.txt
+                break 2
+              fi
+            done
+            sleep 15
+          done
+          test -n "$success"
+          echo "Verified v4 storefront deployment at $success"
+
+      - name: Upload deployment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ebay-category-authority-v4-production-deploy-${{ github.run_number }}
+          path: .deployment-evidence
+          if-no-files-found: warn
+          retention-days: 30
