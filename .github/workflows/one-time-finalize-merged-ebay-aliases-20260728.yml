@@ -8,7 +8,7 @@ on:
       - ".github/workflows/one-time-finalize-merged-ebay-aliases-20260728.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   patch-and-validate:
