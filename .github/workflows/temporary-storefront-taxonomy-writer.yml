@@ -6,12 +6,14 @@ on:
       - agent/storefront-taxonomy-ebay-sync-20260727
     paths:
       - "scripts/apply-storefront-taxonomy-fix.py"
+      - "scripts/fix-storefront-taxonomy-generated.py"
       - ".github/workflows/temporary-storefront-taxonomy-writer.yml"
   pull_request:
     branches:
       - main
     paths:
       - "scripts/apply-storefront-taxonomy-fix.py"
+      - "scripts/fix-storefront-taxonomy-generated.py"
       - ".github/workflows/temporary-storefront-taxonomy-writer.yml"
   workflow_dispatch:
 
@@ -51,20 +53,18 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - name: Apply taxonomy patch
-        run: python scripts/apply-storefront-taxonomy-fix.py
+      - name: Apply taxonomy patches
+        run: |
+          python scripts/apply-storefront-taxonomy-fix.py
+          python scripts/fix-storefront-taxonomy-generated.py
       - name: Install dependencies
         run: npm ci
       - name: Run taxonomy regressions
-        id: regressions
-        continue-on-error: true
         shell: bash
         run: |
           set -o pipefail
           node --import tsx scripts/run-storefront-taxonomy-regressions.ts 2>&1 | tee storefront-taxonomy-regressions.log
       - name: Lint changed paths
-        id: lint
-        continue-on-error: true
         shell: bash
         run: |
           set -o pipefail
@@ -81,8 +81,6 @@ jobs:
             scripts/run-storefront-taxonomy-regressions.ts \
             2>&1 | tee storefront-taxonomy-lint.log
       - name: Build production application
-        id: build
-        continue-on-error: true
         shell: bash
         run: |
           set -o pipefail
@@ -97,17 +95,15 @@ jobs:
             storefront-taxonomy-lint.log
             storefront-taxonomy-build.log
             src/lib/storefront-taxonomy.ts
+            src/lib/ebay-category-mapper.ts
+            src/modules/inventory/types.ts
             scripts/run-storefront-taxonomy-regressions.ts
           if-no-files-found: warn
           retention-days: 14
-      - name: Enforce verified patch
-        run: |
-          test "${{ steps.regressions.outcome }}" = "success"
-          test "${{ steps.lint.outcome }}" = "success"
-          test "${{ steps.build.outcome }}" = "success"
       - name: Commit verified patch and remove one-time writer
         run: |
           rm scripts/apply-storefront-taxonomy-fix.py
+          rm scripts/fix-storefront-taxonomy-generated.py
           rm .github/workflows/temporary-storefront-taxonomy-writer.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
