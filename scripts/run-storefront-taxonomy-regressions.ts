@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { mapEbayInventoryCategory } from "../src/lib/ebay-category-mapper";
 import { ebayAuthoritativeStoreSyncTestHelpers } from "../src/lib/ebay-authoritative-store-sync";
+import { isLaunchCollectible } from "../src/lib/sports-card-launch-scope";
 import {
   classifyStorefrontItem,
   matchesStorefrontFilters,
@@ -123,6 +124,112 @@ assert.deepEqual(
 assert.deepEqual(
   sortStorefrontItems(inventory, "section").map((item) => item.legacyProductId),
   [2, 3, 1],
+);
+
+const signedPuck = ebayAuthoritativeStoreSyncTestHelpers.parseRemoteListing(`
+<Item>
+  <ItemID>2000000001</ItemID>
+  <ListingType>FixedPriceItem</ListingType>
+  <Title>Wayne Gretzky Signed NHL Hockey Puck JSA COA</Title>
+  <StartPrice>149.99</StartPrice><Quantity>1</Quantity>
+  <PictureDetails><GalleryURL>https://i.ebayimg.com/images/g/puck/s-l1600.jpg</GalleryURL></PictureDetails>
+  <PrimaryCategory><CategoryID>108911</CategoryID><CategoryName>Sports Memorabilia</CategoryName></PrimaryCategory>
+  <ItemSpecifics>
+    <NameValueList><Name>Sport</Name><Value>Ice Hockey</Value></NameValueList>
+    <NameValueList><Name>Autographed</Name><Value>Yes</Value></NameValueList>
+    <NameValueList><Name>Autograph Authentication</Name><Value>James Spence (JSA)</Value></NameValueList>
+  </ItemSpecifics>
+</Item>`);
+assert.ok(signedPuck);
+assert.equal(signedPuck.sport, "Pucks");
+assert.equal(signedPuck.storefrontMetadata.tcos_is_autograph, true);
+
+const signedJersey = ebayAuthoritativeStoreSyncTestHelpers.parseRemoteListing(`
+<Item>
+  <ItemID>2000000002</ItemID>
+  <ListingType>FixedPriceItem</ListingType>
+  <Title>Peyton Manning Autographed Denver Broncos Jersey Beckett COA</Title>
+  <StartPrice>249.99</StartPrice><Quantity>1</Quantity>
+  <PictureDetails><GalleryURL>https://i.ebayimg.com/images/g/jersey/s-l1600.jpg</GalleryURL></PictureDetails>
+  <PrimaryCategory><CategoryID>27277</CategoryID><CategoryName>Football-NFL Autographed Items</CategoryName></PrimaryCategory>
+  <ItemSpecifics>
+    <NameValueList><Name>Sport</Name><Value>Football</Value></NameValueList>
+    <NameValueList><Name>Autographed</Name><Value>Yes</Value></NameValueList>
+  </ItemSpecifics>
+</Item>`);
+assert.ok(signedJersey);
+assert.equal(signedJersey.sport, "Jerseys");
+assert.equal(signedJersey.storefrontMetadata.tcos_is_autograph, true);
+
+const ordinaryJersey = ebayAuthoritativeStoreSyncTestHelpers.parseRemoteListing(`
+<Item>
+  <ItemID>2000000003</ItemID>
+  <ListingType>FixedPriceItem</ListingType>
+  <Title>Denver Broncos Nike Jersey Men's Size XL</Title>
+  <StartPrice>39.99</StartPrice><Quantity>1</Quantity>
+  <PictureDetails><GalleryURL>https://i.ebayimg.com/images/g/apparel/s-l1600.jpg</GalleryURL></PictureDetails>
+  <PrimaryCategory><CategoryID>24409</CategoryID><CategoryName>Clothing, Shoes & Accessories</CategoryName></PrimaryCategory>
+  <ItemSpecifics><NameValueList><Name>Sport</Name><Value>Football</Value></NameValueList></ItemSpecifics>
+</Item>`);
+assert.equal(ordinaryJersey, null);
+
+const shoes = ebayAuthoritativeStoreSyncTestHelpers.parseRemoteListing(`
+<Item>
+  <ItemID>2000000004</ItemID><ListingType>FixedPriceItem</ListingType>
+  <Title>Adidas Running Shoes Men's Size 11</Title><StartPrice>49.99</StartPrice><Quantity>1</Quantity>
+  <PictureDetails><GalleryURL>https://i.ebayimg.com/images/g/shoes/s-l1600.jpg</GalleryURL></PictureDetails>
+  <PrimaryCategory><CategoryID>15709</CategoryID><CategoryName>Athletic Shoes</CategoryName></PrimaryCategory>
+</Item>`);
+assert.equal(shoes, null);
+
+const autoPart = ebayAuthoritativeStoreSyncTestHelpers.parseRemoteListing(`
+<Item>
+  <ItemID>2000000005</ItemID><ListingType>FixedPriceItem</ListingType>
+  <Title>Mass Air Flow Fuel Sensor Replacement Auto Part</Title><StartPrice>24.99</StartPrice><Quantity>1</Quantity>
+  <PictureDetails><GalleryURL>https://i.ebayimg.com/images/g/part/s-l1600.jpg</GalleryURL></PictureDetails>
+  <PrimaryCategory><CategoryID>33557</CategoryID><CategoryName>Auto Parts & Accessories</CategoryName></PrimaryCategory>
+</Item>`);
+assert.equal(autoPart, null);
+
+const comic = ebayAuthoritativeStoreSyncTestHelpers.parseRemoteListing(`
+<Item>
+  <ItemID>2000000006</ItemID><ListingType>FixedPriceItem</ListingType>
+  <Title>Amazing Spider-Man #300 First Venom Comic Book</Title><StartPrice>299.99</StartPrice><Quantity>1</Quantity>
+  <PictureDetails><GalleryURL>https://i.ebayimg.com/images/g/comic/s-l1600.jpg</GalleryURL></PictureDetails>
+  <PrimaryCategory><CategoryID>63</CategoryID><CategoryName>Comic Books & Memorabilia</CategoryName></PrimaryCategory>
+</Item>`);
+assert.ok(comic);
+assert.equal(comic.sport, "Comics");
+
+assert.equal(
+  isLaunchCollectible({
+    title: "Wayne Gretzky Signed Hockey Puck JSA",
+    sport: "Pucks",
+    storefrontSection: "Pucks",
+    category: "memorabilia",
+    features: { autograph: true, rookie: false, graded: false, numbered: false },
+  }),
+  true,
+);
+assert.equal(
+  isLaunchCollectible({
+    title: "Denver Broncos Nike T-Shirt Size XL",
+    sport: "Football",
+    storefrontSection: "Football",
+    category: "memorabilia",
+    features: { autograph: false, rookie: false, graded: false, numbered: false },
+  }),
+  false,
+);
+assert.equal(
+  isLaunchCollectible({
+    title: "Fuel Sensor Auto Part",
+    sport: "Other Collectables",
+    storefrontSection: "Other Collectables",
+    category: "other_collectable",
+    features: { autograph: false, rookie: false, graded: false, numbered: false },
+  }),
+  false,
 );
 
 console.log("Storefront taxonomy regressions passed.");

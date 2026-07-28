@@ -2,7 +2,7 @@ import {
   InventoryEngine,
   InventoryRepository,
 } from "../modules/inventory";
-import { isLaunchSportsCard } from "./sports-card-launch-scope";
+import { isLaunchCollectible } from "./sports-card-launch-scope";
 import type { StorefrontSort } from "./storefront-taxonomy";
 import { getActiveStoreId } from "./stores";
 import { createSupabaseServerClient } from "./supabase-server";
@@ -19,7 +19,7 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
     } = {},
   ) {
     const items = await super.listAvailable(params);
-    return items.filter(isLaunchSportsCard);
+    return items.filter(isLaunchCollectible);
   }
 
   async listAvailableSports(): Promise<string[]> {
@@ -32,12 +32,12 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
 
   async getByLegacyProductId(legacyProductId: number) {
     const item = await super.getByLegacyProductId(legacyProductId);
-    return item && isLaunchSportsCard(item) ? item : null;
+    return item && isLaunchCollectible(item) ? item : null;
   }
 
   async getByLegacyProductIds(legacyProductIds: number[]) {
     const items = await super.getByLegacyProductIds(legacyProductIds);
-    return items.filter(isLaunchSportsCard);
+    return items.filter(isLaunchCollectible);
   }
 }
 

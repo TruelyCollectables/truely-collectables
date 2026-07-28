@@ -121,18 +121,18 @@ export default async function Shop({
             {heading({ section, feature })}
           </h1>
           <p className="mt-3 max-w-2xl text-neutral-600">
-            Sports stay in their correct section. Autographs, rookies, graded cards,
-            and numbered cards can be filtered across every sport.
+            Cards and memorabilia stay in their correct section. Autographs can be
+            filtered across sports cards, pucks, balls, jerseys, photos, and more.
           </p>
         </div>
         <p className="rounded bg-white px-4 py-2 text-sm font-bold text-neutral-700">
-          {products.length.toLocaleString()} active cards
+          {products.length.toLocaleString()} active cards & collectibles
         </p>
       </section>
 
-      <nav className="mb-6 flex flex-wrap gap-2" aria-label="Popular card sections">
+      <nav className="mb-6 flex flex-wrap gap-2" aria-label="Popular collectible sections">
         <Link href="/shop" className="rounded-full border-2 border-neutral-950 bg-white px-4 py-2 text-sm font-black hover:bg-yellow-300">
-          All Cards
+          All Cards & Collectibles
         </Link>
         {quickSections.map((name) => (
           <Link
@@ -155,7 +155,7 @@ export default async function Shop({
         <input
           type="search"
           name="q"
-          placeholder="Player, set, team, card number..."
+          placeholder="Player, team, set, item, card number..."
           defaultValue={q}
           className="min-h-12 rounded border px-4 py-3 text-base md:col-span-2"
         />
@@ -168,7 +168,7 @@ export default async function Shop({
         </select>
 
         <select name="feature" defaultValue={feature} className="min-h-12 rounded border px-3 py-3 text-base">
-          <option value="">All Card Types</option>
+          <option value="">All Features</option>
           <option value="autograph">Autographs</option>
           <option value="rookie">Rookies</option>
           <option value="graded">Graded</option>
@@ -197,7 +197,7 @@ export default async function Shop({
         </div>
       ) : null}
 
-      {products.length === 0 ? <p className="text-gray-600">No cards found.</p> : null}
+      {products.length === 0 ? <p className="text-gray-600">No cards or collectibles found.</p> : null}
 
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
         {products.map((product) => {
@@ -226,7 +226,7 @@ export default async function Shop({
                   {product.title}
                 </h2>
                 <p className="mt-2 text-sm text-neutral-500">
-                  {product.player || product.league || "Sports Card"}
+                  {product.player || product.league || product.category?.replaceAll("_", " ") || "Collectible"}
                 </p>
                 <FeatureBadges product={product} />
 
@@ -238,7 +238,7 @@ export default async function Shop({
                 </div>
 
                 <Link href={`/product/${product.legacyProductId}`} className="mt-4 flex min-h-11 w-full items-center justify-center rounded border border-neutral-950 px-4 py-2 text-center font-bold hover:bg-neutral-950 hover:text-white">
-                  View Card
+                  View Item
                 </Link>
               </div>
             </article>

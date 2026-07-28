@@ -49,9 +49,20 @@ const SECTION_ORDER = [
   "Racing / NASCAR",
   "Multi-Sport",
   "Other Sports",
+  "Sealed Wax",
+  "Pucks",
+  "Balls",
+  "Jerseys",
+  "Helmets",
+  "Bats & Gloves",
+  "Photos & Prints",
+  "Tickets & Programs",
   "Trading Card Games",
   "Autographs",
   "Memorabilia",
+  "Comics",
+  "Coins",
+  "Toys & Figures",
   "Other Collectables",
 ] as const;
 
@@ -102,7 +113,42 @@ function detectSection(params: {
   const league = normalized(aspectValue(params.aspects, "League"));
   const sport = normalized(params.rawSport || aspectValue(params.aspects, "Sport"));
   const title = normalized(params.title);
+  const primaryCategory = normalized(params.primaryCategory);
+  const objectType = normalized(
+    [
+      aspectValue(params.aspects, "Type"),
+      aspectValue(params.aspects, "Product"),
+      aspectValue(params.aspects, "Item Type"),
+      aspectValue(params.aspects, "Autograph Format"),
+    ].join(" "),
+  );
   const focused = `${sport} ${league} ${title}`;
+  const objectFocused = `${title} ${objectType}`;
+  const isCardPrimary = ["sports_cards", "trading_cards", "sealed_wax"].includes(
+    primaryCategory,
+  );
+
+  if (!isCardPrimary) {
+    if (/\bpucks?\b/.test(objectFocused)) return "Pucks";
+    if (/\bjerseys?\b/.test(objectFocused)) return "Jerseys";
+    if (/\bhelmets?\b/.test(objectFocused)) return "Helmets";
+    if (/\b(?:bats?|baseball gloves?|fielding gloves?|catcher'?s mitts?)\b/.test(objectFocused)) {
+      return "Bats & Gloves";
+    }
+    if (/\b(?:photos?|photographs?|prints?|posters?|lithographs?)\b/.test(objectFocused)) {
+      return "Photos & Prints";
+    }
+    if (/\b(?:tickets?|programs?|media guides?)\b/.test(objectFocused)) {
+      return "Tickets & Programs";
+    }
+    if (
+      /\b(?:baseballs?|footballs?|basketballs?|soccer balls?|softballs?|volleyballs?|golf balls?|game balls?)\b/.test(
+        objectFocused,
+      )
+    ) {
+      return "Balls";
+    }
+  }
 
   if (/\bwnba\b|women'?s national basketball association/.test(focused)) {
     return "WNBA";
@@ -140,12 +186,19 @@ function detectSection(params: {
     case "sports_cards":
       return "Other Sports";
     case "trading_cards":
-    case "sealed_wax":
       return "Trading Card Games";
+    case "sealed_wax":
+      return "Sealed Wax";
     case "autographs":
       return "Autographs";
     case "memorabilia":
       return "Memorabilia";
+    case "comics":
+      return "Comics";
+    case "coins":
+      return "Coins";
+    case "toys":
+      return "Toys & Figures";
     default:
       return "Other Collectables";
   }
@@ -228,7 +281,7 @@ export function classifyStorefrontItem(input: {
       tcos_is_rookie: String(features.rookie),
       tcos_is_graded: String(features.graded),
       tcos_is_numbered: String(features.numbered),
-      tcos_taxonomy_version: "2",
+      tcos_taxonomy_version: "3",
     },
     metadata: {
       tcos_storefront_section: section,
@@ -237,7 +290,7 @@ export function classifyStorefrontItem(input: {
       tcos_is_rookie: features.rookie,
       tcos_is_graded: features.graded,
       tcos_is_numbered: features.numbered,
-      tcos_taxonomy_version: 2,
+      tcos_taxonomy_version: 3,
     },
   };
 }

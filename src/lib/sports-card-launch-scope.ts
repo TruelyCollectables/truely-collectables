@@ -1,62 +1,95 @@
 import type { UniversalInventoryItem } from "../modules/inventory/types";
 
-export type SportsCardLaunchCandidate = Pick<
+export type CollectibleLaunchCandidate = Pick<
   UniversalInventoryItem,
   "title" | "sport"
->;
+> &
+  Partial<
+    Pick<UniversalInventoryItem, "category" | "storefrontSection" | "features">
+  >;
 
-const TCG_PATTERN =
-  /\b(?:pokemon|pokémon|wailord|pikachu|charizard|magic\s+the\s+gathering|mtg|yu-?gi-?oh|yugioh|lorcana|digimon|one\s+piece\s+card\s+game|flesh\s+and\s+blood|tcg|ccg|basic\s+(?:psychic|fire|water|grass|lightning|fighting|darkness|metal|fairy)\s+energy|psychic\s+energy)\b/i;
+const PARTS_PATTERN =
+  /\b(?:auto parts?|automotive parts?|car parts?|truck parts?|air intake|fuel sensor|oxygen sensor|mass air flow|alternator|starter motor|spark plugs?|brake pads?|brake rotors?|wheel hubs?|ball bearings?|radiator|transmission|exhaust|muffler|bumper|headlights?|taillights?|engine parts?)\b/i;
+const FOOTWEAR_PATTERN =
+  /\b(?:athletic shoes?|sneakers?|shoes?|boots?|cleats?|sandals?|slippers?|footwear)\b/i;
+const APPAREL_PATTERN =
+  /\b(?:clothing|apparel|pants|shorts|shirts?|t-?shirts?|hoodies?|jackets?|coats?|sweaters?|sweatshirts?|socks?|hats?|caps?)\b/i;
+const JERSEY_PATTERN = /\bjerseys?\b/i;
+const JERSEY_COLLECTIBLE_PATTERN =
+  /\b(?:signed|autographed|inscribed|authenticated|authentication|coa|jsa|beckett|psa\/?dna|game[- ]used|game[- ]worn|game[- ]issued|player[- ]worn|framed|memorabilia)\b/i;
+const COLLECTIBLE_EVIDENCE_PATTERN =
+  /\b(?:trading cards?|sports cards?|rookie cards?|sealed wax|hobby box|blaster box|booster box|autographs?|signed|memorabilia|pucks?|baseballs?|footballs?|basketballs?|soccer balls?|softballs?|golf balls?|bats?|baseball gloves?|helmets?|photos?|photographs?|prints?|posters?|tickets?|programs?|media guides?|comics?|coins?|bullion|funko|action figures?|diecast|toys?|collectibles?)\b/i;
 
-const RETAIL_NON_CARD_PATTERN =
-  /\b(?:sneakers?|shoes?|boots?|wristwatch|watch|sunglasses|pants|air\s+intake|fuel\s+sensor)\b/i;
+const ALLOWED_CATEGORIES = new Set([
+  "sports_cards",
+  "trading_cards",
+  "sealed_wax",
+  "autographs",
+  "memorabilia",
+  "comics",
+  "coins",
+  "toys",
+]);
 
-const SIGNED_OBJECT_PATTERN =
-  /(?:\b(?:signed|autographed)\b[\s\S]{0,50}\b(?:jersey|helmet|puck|photo|photograph|bat|ball)\b|\b(?:jersey|helmet|puck|photo|photograph|bat|ball)\b[\s\S]{0,50}\b(?:signed|autographed)\b)/i;
+const ALLOWED_SECTIONS = new Set([
+  "Baseball",
+  "WNBA",
+  "Basketball",
+  "Football",
+  "Hockey",
+  "Soccer",
+  "Wrestling",
+  "MMA / UFC",
+  "Boxing",
+  "Golf",
+  "Tennis",
+  "Racing / NASCAR",
+  "Multi-Sport",
+  "Other Sports",
+  "Sealed Wax",
+  "Pucks",
+  "Balls",
+  "Jerseys",
+  "Helmets",
+  "Bats & Gloves",
+  "Photos & Prints",
+  "Tickets & Programs",
+  "Trading Card Games",
+  "Autographs",
+  "Memorabilia",
+  "Comics",
+  "Coins",
+  "Toys & Figures",
+]);
 
-const SPORTS_CARD_BRAND_PATTERN =
-  /\b(?:topps|panini|upper\s+deck|bowman|donruss|fleer|o-?pee-?chee|opc|parkhurst|artifacts|allure|prizm|select|spectra|chronicles|flawless|impeccable|national\s+treasures|contenders|mosaic|finest|stadium\s+club|sp\s+authentic|spx|sp\s+game\s+used|the\s+cup|black\s+diamond|ultimate\s+collection|credentials|trilogy|museum\s+collection|chrome|court\s+kings|noir|gala|luxe|totally\s+certified|limited|stature|score|leaf|razor)\b/i;
-
-const YEAR_PATTERN = /\b(?:(?:19|20)\d{2}(?:-\d{2})?|\d{2}-\d{2})\b/;
-const CARD_NUMBER_PATTERN = /(?:^|\s)#(?:[a-z0-9][a-z0-9-]*|nno)\b/i;
-const GRADED_CARD_PATTERN =
-  /\b(?:psa|bgs|sgc|cgc|ksa|hga)(?:\s*(?:authentic|\d+(?:\.\d+)?))?\b/i;
-const SERIAL_NUMBER_PATTERN = /(?:#\/|\/)\s*\d+\b|\b\d+\s*\/\s*\d+\b/i;
-const CARD_FEATURE_PATTERN =
-  /\b(?:rookie|rc|young\s+guns|refractor|prizm|parallel|insert|canvas|chrome|foil|autograph|autographs|auto|signatures?|relic|patch|memorabilia|swatch|jersey|materials?|rpa)\b/i;
-
-export function isLaunchSportsCard(candidate: SportsCardLaunchCandidate) {
-  const title = String(candidate.title || "").trim();
-  const sport = String(candidate.sport || "").trim();
-
-  if (!title || TCG_PATTERN.test(title) || RETAIL_NON_CARD_PATTERN.test(title)) {
-    return false;
-  }
-
-  const hasYear = YEAR_PATTERN.test(title);
-  const hasCardNumber = CARD_NUMBER_PATTERN.test(title);
-  const hasGrading = GRADED_CARD_PATTERN.test(title);
-  const hasSerialNumber = SERIAL_NUMBER_PATTERN.test(title);
-  const hasCardBrand = SPORTS_CARD_BRAND_PATTERN.test(title);
-  const hasCardFeature = CARD_FEATURE_PATTERN.test(title);
-
-  if (
-    SIGNED_OBJECT_PATTERN.test(title) &&
-    !hasCardNumber &&
-    !hasSerialNumber &&
-    !hasGrading
-  ) {
-    return false;
-  }
-
-  const evidenceScore =
-    (sport ? 1 : 0) +
-    (hasYear ? 1 : 0) +
-    (hasCardNumber ? 2 : 0) +
-    (hasGrading ? 2 : 0) +
-    (hasSerialNumber ? 1 : 0) +
-    (hasCardBrand ? 2 : 0) +
-    (hasCardFeature ? 1 : 0);
-
-  return evidenceScore >= 3;
+function normalized(value: unknown) {
+  return String(value || "").replace(/\s+/g, " ").trim();
 }
+
+export function isLaunchCollectible(candidate: CollectibleLaunchCandidate) {
+  const title = normalized(candidate.title);
+  const category = normalized(candidate.category).toLowerCase();
+  const section = normalized(candidate.storefrontSection || candidate.sport);
+  const searchable = `${title} ${category} ${section}`;
+  const isCardCategory = ["sports_cards", "trading_cards", "sealed_wax"].includes(
+    category,
+  );
+  const collectibleJersey =
+    JERSEY_PATTERN.test(searchable) && JERSEY_COLLECTIBLE_PATTERN.test(searchable);
+
+  if (!title || PARTS_PATTERN.test(searchable)) return false;
+  if (!isCardCategory && FOOTWEAR_PATTERN.test(searchable)) return false;
+  if (!isCardCategory && APPAREL_PATTERN.test(searchable)) return false;
+  if (!isCardCategory && JERSEY_PATTERN.test(searchable) && !collectibleJersey) {
+    return false;
+  }
+
+  if (ALLOWED_CATEGORIES.has(category)) return true;
+  if (ALLOWED_SECTIONS.has(section)) return true;
+
+  return COLLECTIBLE_EVIDENCE_PATTERN.test(searchable);
+}
+
+// Compatibility export for older callers while the public launch expands from
+// cards-only inventory to the full collectibles catalog.
+export const isLaunchSportsCard = isLaunchCollectible;
