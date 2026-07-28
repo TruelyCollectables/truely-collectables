@@ -1,0 +1,113 @@
+name: Diagnose Stable eBay Difference Writer 20260728
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/diagnose-stable-ebay-difference-writer-20260728.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'agent/diagnose-stable-ebay-differences-20260728'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/diagnose-stable-ebay-differences-20260728
+          fetch-depth: 1
+      - name: Count writer targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p diagnostics
+          python <<'PY'
+          from pathlib import Path
+          import json
+
+          source = Path('src/lib/ebay-authoritative-store-sync.ts').read_text()
+          route = Path('src/app/api/cron/ebay-store-fixed-price-sync/route.ts').read_text()
+          taxonomy_test = Path('scripts/run-storefront-taxonomy-regressions.ts').read_text()
+          image_test = Path('scripts/run-ebay-import-admin-client-simulations.ts').read_text()
+
+          targets = {
+            'import': 'import { getStoreSettings } from "./store-settings";\nimport { listingImageIdentity } from "./listing-image-utils";\nimport { InventoryRepository } from "../modules/inventory";',
+            'comparison': '''function normalizedNullableText(value: unknown) {
+            return String(value || "").trim();
+          }
+
+          function listingChanged(
+            local: LocalProduct,
+            remote: EbayStoreRemoteListing,
+          ) {
+            return (
+              local.title !== remote.title ||
+              Number(local.quantity) !== remote.quantity ||
+              Math.round(Number(local.price) * 100) !==
+                Math.round(remote.price * 100) ||
+              listingImageIdentity(local.image_url) !==
+                listingImageIdentity(remote.imageUrl) ||
+              normalizedNullableText(local.sport) !==
+                normalizedNullableText(remote.sport) ||
+              (!local.sku && Boolean(remote.sku))
+            );
+          }''',
+            'action': '''    (listing) => {
+                const local = localByItemId.get(listing.itemId) || null;
+                const action = !local
+                  ? "insert"
+                  : taxonomyRefreshRequired || listingChanged(local, listing)
+                    ? "update"
+                    : "unchanged";
+                return {''',
+            'reason': '''              ? taxonomyRefreshRequired
+                    ? "Storefront taxonomy version 4 eBay-category refresh is required."
+                    : "Local title, quantity, price, image identity, sport, or SKU differs from eBay."
+                  : "Local listing matches active eBay inventory.",''',
+            'route': '''        errorSample: sync.errors.slice(0, 5).map((entry) => ({
+                  itemId: entry.itemId,
+                  error: safeErrorMessage(entry.error, "Unknown listing sync error"),
+                })),''',
+            'taxonomy_test': '''assert.ok(
+            authoritativeSyncSource.includes(
+              'import { listingImageIdentity } from "./listing-image-utils";',
+            ),
+            "Authoritative convergence must compare stable eBay image identities.",
+          );
+          assert.match(
+            authoritativeSyncSource,
+            /listingImageIdentity\\(local\\.image_url\\) !==[\\s\\S]*listingImageIdentity\\(remote\\.imageUrl\\)/,
+            "Image resolution variants must not create endless inventory updates.",
+          );
+          assert.match(
+            authoritativeSyncSource,
+            /normalizedNullableText\\(local\\.sport\\) !==[\\s\\S]*normalizedNullableText\\(remote\\.sport\\)/,
+            "Null and empty storefront category values must compare consistently.",
+          );''',
+            'image_test': '''assert.match(
+            scheduledEbaySync,
+            /syncEbayAllListingImages/,
+            "The scheduled authoritative eBay job must run complete 1–20 image reconciliation.",
+          );''',
+          }
+          results = {
+            'import': source.count(targets['import']),
+            'comparison': source.count(targets['comparison']),
+            'action': source.count(targets['action']),
+            'reason': source.count(targets['reason']),
+            'route': route.count(targets['route']),
+            'taxonomy_test': taxonomy_test.count(targets['taxonomy_test']),
+            'image_test': image_test.count(targets['image_test']),
+          }
+          Path('diagnostics/counts.json').write_text(json.dumps(results, indent=2) + '\n')
+          print(json.dumps(results))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stable-ebay-difference-writer-diagnostics-${{ github.run_number }}
+          path: diagnostics
+          if-no-files-found: error
+          retention-days: 7
