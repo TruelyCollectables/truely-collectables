@@ -46,7 +46,7 @@ function listingChanged(
     '''function normalizedComparableText(value: unknown) {
   return String(value || "")
     .normalize("NFKC")
-    .replace(/\\s+/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
@@ -156,29 +156,45 @@ if count != 1:
     raise SystemExit(f"changed receipt sample: expected one match, found {count}")
 route_path.write_text(route)
 
-# Add temporary assertions for certification. Only the production files are
-# packaged for the final API commit.
+# Replace obsolete convergence assertions only in the temporary certification
+# workspace. The final API commit contains the two production files below.
 taxonomy_test = Path("scripts/run-storefront-taxonomy-regressions.ts")
 test = taxonomy_test.read_text()
-marker = 'assert.ok(\n  authoritativeSyncSource.includes("const MAX_ACTIVE_LISTINGS = 3000;"),'
-addition = '''assert.match(
+old_taxonomy = '''assert.ok(
+  authoritativeSyncSource.includes(
+    'import { listingImageIdentity } from "./listing-image-utils";',
+  ),
+  "Authoritative convergence must compare stable eBay image identities.",
+);
+assert.match(
   authoritativeSyncSource,
-  /function normalizedComparableText[\\s\\S]*\\.normalize\\("NFKC"\\)/,
+  /listingImageIdentity\(local\.image_url\) !==[\s\S]*listingImageIdentity\(remote\.imageUrl\)/,
+  "Image resolution variants must not create endless inventory updates.",
+);
+assert.match(
+  authoritativeSyncSource,
+  /normalizedNullableText\(local\.sport\) !==[\s\S]*normalizedNullableText\(remote\.sport\)/,
+  "Null and empty storefront category values must compare consistently.",
+);'''
+new_taxonomy = '''assert.match(
+  authoritativeSyncSource,
+  /function normalizedComparableText[\s\S]*\.normalize\("NFKC"\)/,
   "Equivalent Unicode title text must compare consistently.",
 );
 assert.match(
   authoritativeSyncSource,
-  /function listingDifferences[\\s\\S]*differences\\.push\\("title"\\)[\\s\\S]*differences\\.push\\("quantity"\\)[\\s\\S]*differences\\.push\\("price"\\)[\\s\\S]*differences\\.push\\("sport"\\)/,
+  /function listingDifferences[\s\S]*differences\.push\("title"\)[\s\S]*differences\.push\("quantity"\)[\s\S]*differences\.push\("price"\)[\s\S]*differences\.push\("sport"\)/,
   "Field-level convergence diagnostics must remain deterministic.",
 );
 assert.ok(
   !authoritativeSyncSource.includes("listingImageIdentity(local.image_url)"),
   "Authoritative inventory and complete image reconciliation must not fight.",
-);
-''' + marker
-if test.count(marker) != 1:
-    raise SystemExit("taxonomy certification marker was not unique")
-taxonomy_test.write_text(test.replace(marker, addition, 1))
+);'''
+if test.count(old_taxonomy) != 1:
+    raise SystemExit(
+        f"obsolete taxonomy assertions: expected one match, found {test.count(old_taxonomy)}"
+    )
+taxonomy_test.write_text(test.replace(old_taxonomy, new_taxonomy, 1))
 
 image_test = Path("scripts/run-ebay-import-admin-client-simulations.ts")
 test = image_test.read_text()
@@ -189,7 +205,7 @@ marker = '''assert.match(
 );'''
 addition = '''assert.match(
   scheduledEbaySync,
-  /changedSample: sync\\.actions[\\s\\S]*entry\\.itemId[\\s\\S]*entry\\.reason/,
+  /changedSample: sync\.actions[\s\S]*entry\.itemId[\s\S]*entry\.reason/,
   "Production receipts must expose a bounded changed-listing sample.",
 );
 ''' + marker
