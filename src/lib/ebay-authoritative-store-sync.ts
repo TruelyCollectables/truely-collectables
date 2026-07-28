@@ -8,6 +8,7 @@ const TRADING_API_VERSION = "1409";
 const PAGE_SIZE = 200;
 const MAX_PAGES = 25;
 const APPLY_CONCURRENCY = 8;
+const LOCAL_LINKED_PAGE_SIZE = 1000;
 const STOREFRONT_TAXONOMY_VERSION = 4;
 
 export type EbayStoreSyncMode = "preview" | "apply";
@@ -545,6 +546,22 @@ async function getTradingPage(params: {
   };
 }
 
+export async function collectPaginatedRows<T>(params: {
+  pageSize?: number;
+  fetchPage: (from: number, to: number) => Promise<T[]>;
+}) {
+  const pageSize = params.pageSize || LOCAL_LINKED_PAGE_SIZE;
+  const rows: T[] = [];
+
+  for (let from = 0; ; from += pageSize) {
+    const page = await params.fetchPage(from, from + pageSize - 1);
+    rows.push(...page);
+    if (page.length < pageSize) break;
+  }
+
+  return rows;
+}
+
 async function readAllRemoteListings(params: {
   environment: string;
   accessToken: string;
@@ -571,6 +588,37 @@ async function readAllRemoteListings(params: {
     remoteItemsRead,
     cycleComplete: pagesRead >= totalPages,
   };
+}
+
+async function readAllLocalLinkedProducts(params: {
+  supabase: SupabaseClient;
+  storeId: string;
+}) {
+  return collectPaginatedRows<LocalProduct>({
+    fetchPage: async (from, to) => {
+      const { data, error } = await params.supabase
+        .from("products")
+        .select(
+          "id,seller_account_id,sku,title,description,price,quantity,image_url,ebay_item_id,sport,last_seen_at",
+        )
+        .eq("store_id", params.storeId)
+        .not("ebay_item_id", "is", null)
+        .order("id", { ascending: true })
+        .range(from, to);
+      if (error) throw error;
+      return (data || []) as LocalProduct[];
+    },
+  });
+}
+
+function syncErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) return error.message.slice(0, 500);
+  if (error && typeof error === "object") {
+    const record = error as Record<string, unknown>;
+    const detail = record.message || record.details || record.hint || record.code;
+    if (detail) return String(detail).replace(/\s+/g, " ").slice(0, 500);
+  }
+  return fallback;
 }
 
 function listingChanged(
@@ -811,6 +859,7 @@ async function runWorkers<T>(
 }
 
 export const ebayAuthoritativeStoreSyncTestHelpers = {
+  collectPaginatedRows,
   parseRemoteListing,
   authoritativeMappedCategory,
   isCollectibleListing,
@@ -845,16 +894,7 @@ export async function runEbayAuthoritativeStoreSync(params: {
     environment: settings.ebayEnvironment,
     accessToken,
   });
-  const { data: localRows, error: localError } = await params.supabase
-    .from("products")
-    .select(
-      "id,seller_account_id,sku,title,description,price,quantity,image_url,ebay_item_id,sport,last_seen_at",
-    )
-    .eq("store_id", params.storeId)
-    .not("ebay_item_id", "is", null);
-  if (localError) throw localError;
-
-  const locals = (localRows || []) as LocalProduct[];
+  const locals = await readAllLocalLinkedProducts(params);
   const taxonomyRefreshRequired =
     Number(
       recordValue(connection.import_cursor).storefront_taxonomy_version || 0,
@@ -955,10 +995,7 @@ export async function runEbayAuthoritativeStoreSync(params: {
         errors.push({
           itemId: listing.itemId,
           title: listing.title,
-          error:
-            error instanceof Error
-              ? error.message
-              : "Unknown sync failure.",
+          error: syncErrorMessage(error, "Unknown sync failure."),
         });
       }
     });
@@ -1009,10 +1046,7 @@ export async function runEbayAuthoritativeStoreSync(params: {
           errors.push({
             itemId: String(local.ebay_item_id || ""),
             title: local.title,
-            error:
-              error instanceof Error
-                ? error.message
-                : "Unknown deactivate failure.",
+            error: syncErrorMessage(error, "Unknown deactivate failure."),
           });
         }
       });
