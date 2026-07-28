@@ -232,4 +232,13 @@ assert.equal(
   false,
 );
 
+assert.equal(
+  isLaunchCollectible({ title: "Oakley Sports Sunglasses Black", sport: null }),
+  true,
+);
+assert.equal(
+  isLaunchCollectible({ title: "Collectible Wristwatch", sport: null }),
+  true,
+);
+
 console.log("Storefront taxonomy regressions passed.");

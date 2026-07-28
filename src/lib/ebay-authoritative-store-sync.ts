@@ -258,20 +258,10 @@ function isCollectibleListing(input: {
     return true;
   }
 
-  const collectibleObject =
-    /\b(pucks?|baseballs?|footballs?|basketballs?|soccer balls?|softballs?|golf balls?|bats?|baseball gloves?|helmets?|photos?|photographs?|prints?|posters?|tickets?|programs?|media guides?)\b/.test(
-      searchable,
-    );
-  const collectibleEvidence =
-    /\b(signed|autographed|authenticated|authentication|coa|jsa|beckett|psa dna|game used|game worn|game issued|player worn|memorabilia|collectible)\b/.test(
-      searchable,
-    );
-  const sportSignal =
-    /\b(baseball|basketball|football|hockey|soccer|golf|tennis|wrestling|racing|nascar|formula 1|f1|ufc|mma|wnba|nba|nfl|nhl|mlb|mls|ncaa)\b/.test(
-      searchable,
-    );
-
-  return collectibleObject && (collectibleEvidence || sportSignal);
+  // Explicit catalog policy: every active fixed-price eBay item is eligible
+  // unless it matched the hard exclusions above for parts, ordinary clothing,
+  // footwear, or a non-collectible jersey.
+  return true;
 }
 
 function parseRemoteListing(itemXml: string): EbayStoreRemoteListing | null {

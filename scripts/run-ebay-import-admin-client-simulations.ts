@@ -8,7 +8,7 @@ import {
   preferHighResolutionListingImage,
   selectFrontBackListingImages,
 } from "../src/lib/listing-image-utils";
-import { isLaunchSportsCard } from "../src/lib/sports-card-launch-scope";
+import { isLaunchCollectible } from "../src/lib/sports-card-launch-scope";
 
 const adminEngine = fs.readFileSync(
   "src/modules/inventory/admin-engine.ts",
@@ -116,8 +116,8 @@ assert.match(
 
 assert.match(
   publicInventoryEngine,
-  /items\.filter\(isLaunchSportsCard\)/,
-  "Every public inventory feed must enforce the sports-card launch scope.",
+  /items\.filter\(isLaunchCollectible\)/,
+  "Every public inventory feed must enforce the approved catalog exclusions.",
 );
 assert.match(
   publicInventoryEngine,
@@ -126,19 +126,19 @@ assert.match(
 );
 assert.match(
   publicInventoryEngine,
-  /async getByLegacyProductId\([\s\S]*return item && isLaunchSportsCard\(item\) \? item : null;/,
-  "Direct product URLs must return no product when launch scope rejects the item.",
+  /async getByLegacyProductId\([\s\S]*return item && isLaunchCollectible\(item\) \? item : null;/,
+  "Direct product URLs must return no product when catalog exclusions reject the item.",
 );
 assert.match(
   publicInventoryEngine,
-  /async getByLegacyProductIds\([\s\S]*return items\.filter\(isLaunchSportsCard\);/,
-  "Bulk public product lookups must enforce the same launch scope.",
+  /async getByLegacyProductIds\([\s\S]*return items\.filter\(isLaunchCollectible\);/,
+  "Bulk public product lookups must enforce the same catalog exclusions.",
 );
 
 assert.match(
   productImageRoute,
   /createServerInventoryEngine\(\)\.getByLegacyProductId/,
-  "The public product-image endpoint must reuse the sports-card scope guard.",
+  "The public product-image endpoint must reuse the catalog exclusion guard.",
 );
 assert.match(
   productImageRoute,
@@ -290,34 +290,34 @@ const launchScopeCases = [
     expected: true,
   },
   {
-    title: "2025-26 SP Game Used #115 Dustin Byfuglien Red Jersey",
-    sport: "HOCKEY",
-    expected: true,
-  },
-  {
-    title: "2014-15 Flawless Nick Van Exel Momentous Autographed Memorabilia /20",
-    sport: "BASKETBALL",
-    expected: true,
-  },
-  {
-    title: "2017-18 SP Authentic #188 Cole Sillinger #/999",
-    sport: "HOCKEY",
-    expected: true,
-  },
-  {
-    title: "18-19 Contenders Nick Van Exel Legendary Auto /99",
-    sport: "BASKETBALL",
-    expected: true,
-  },
-  {
     title: "Wailord ex 016/084 Double Rare Pokemon Pitch Black 2026 NM",
     sport: null,
-    expected: false,
+    expected: true,
   },
   {
     title: "Prize Pack Series Cards #005 Basic Psychic Energy",
     sport: null,
-    expected: false,
+    expected: true,
+  },
+  {
+    title: "Upper Deck Authenticated Wayne Gretzky Signed Puck",
+    sport: "Pucks",
+    expected: true,
+  },
+  {
+    title: "Connor McDavid Autographed Edmonton Oilers Jersey",
+    sport: "Jerseys",
+    expected: true,
+  },
+  {
+    title: "Oakley Sports Sunglasses Black",
+    sport: null,
+    expected: true,
+  },
+  {
+    title: "Rolex Oyster Perpetual Collectible Wristwatch",
+    sport: null,
+    expected: true,
   },
   {
     title: "Adidas Ultraboost Men's Running Shoes Size 11",
@@ -325,17 +325,17 @@ const launchScopeCases = [
     expected: false,
   },
   {
-    title: "Upper Deck Authenticated Wayne Gretzky Signed Puck",
-    sport: "HOCKEY",
+    title: "Denver Broncos Nike T-Shirt Men's XL",
+    sport: "Football",
     expected: false,
   },
   {
-    title: "Connor McDavid Autographed Edmonton Oilers Jersey",
-    sport: "HOCKEY",
+    title: "Denver Broncos Nike Jersey Men's XL",
+    sport: "Football",
     expected: false,
   },
   {
-    title: "Oakley Sports Sunglasses Black",
+    title: "Mass Air Flow Fuel Sensor Replacement Auto Part",
     sport: null,
     expected: false,
   },
@@ -343,12 +343,12 @@ const launchScopeCases = [
 
 for (const testCase of launchScopeCases) {
   assert.equal(
-    isLaunchSportsCard(testCase),
+    isLaunchCollectible(testCase),
     testCase.expected,
     `Unexpected launch scope decision for: ${testCase.title}`,
   );
 }
 
 console.log(
-  "eBay import, sports-card scope, and complete 1–20 image simulations passed: 48/48",
+  "eBay import, catalog exclusion, and complete 1–20 image simulations passed",
 );
