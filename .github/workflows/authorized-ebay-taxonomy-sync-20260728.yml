@@ -1,0 +1,255 @@
+name: Authorized Production eBay Taxonomy Sync 20260728
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/authorized-ebay-taxonomy-sync-20260728.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: authorized-production-ebay-taxonomy-sync
+  cancel-in-progress: false
+
+jobs:
+  sync-and-verify:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ops/ebay-taxonomy-sync-20260728')
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      PRODUCTION_ORIGIN: https://truelycollectables.com
+      EBAY_IMPORT_LIMIT: "100"
+      EBAY_IMPORT_MAX_PAGES: "25"
+    steps:
+      - name: Run complete paged eBay taxonomy sync
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ebay-taxonomy-sync/pages ebay-taxonomy-sync/storefront
+          node <<'NODE'
+          const fs = require("node:fs");
+          const path = require("node:path");
+
+          const origin = process.env.PRODUCTION_ORIGIN;
+          const limit = Number(process.env.EBAY_IMPORT_LIMIT || 100);
+          const maxPages = Number(process.env.EBAY_IMPORT_MAX_PAGES || 25);
+          const runId = `storefront-taxonomy-${process.env.GITHUB_RUN_ID}-${Date.now()}`;
+          const pageDir = path.join("ebay-taxonomy-sync", "pages");
+          const totals = {
+            imported: 0,
+            markedSold: 0,
+            skipped: 0,
+            policyAllowed: 0,
+            policyNeedsReview: 0,
+            policyBlocked: 0,
+            received: 0,
+          };
+          const pages = [];
+          let offset = 0;
+          let finalImageSync = null;
+
+          function addTotal(key, value) {
+            totals[key] += Number(value || 0);
+          }
+
+          for (let page = 1; page <= maxPages; page += 1) {
+            const url = new URL("/api/ebay/import-listings", origin);
+            url.searchParams.set("offset", String(offset));
+            url.searchParams.set("limit", String(limit));
+            url.searchParams.set("runId", runId);
+            console.log(`Import page ${page}: offset=${offset}, limit=${limit}`);
+
+            let response;
+            let text = "";
+            try {
+              response = await fetch(url, {
+                headers: {
+                  accept: "application/json",
+                  "cache-control": "no-cache",
+                  "user-agent": "TCOS-Authorized-Ebay-Taxonomy-Sync/1.0",
+                },
+                signal: AbortSignal.timeout(295_000),
+              });
+              text = await response.text();
+            } catch (error) {
+              fs.writeFileSync(
+                path.join(pageDir, `page-${String(page).padStart(2, "0")}-transport-error.txt`),
+                `${error instanceof Error ? error.stack || error.message : String(error)}\n`,
+              );
+              throw error;
+            }
+
+            const rawPath = path.join(
+              pageDir,
+              `page-${String(page).padStart(2, "0")}-offset-${offset}.json`,
+            );
+            fs.writeFileSync(rawPath, `${text}\n`);
+
+            let payload;
+            try {
+              payload = JSON.parse(text);
+            } catch {
+              throw new Error(`eBay import page ${page} returned HTTP ${response.status} without valid JSON.`);
+            }
+
+            if (!response.ok || payload?.success === false) {
+              const detail = String(payload?.error || payload?.message || "unknown import failure")
+                .replace(/\s+/g, " ")
+                .slice(0, 500);
+              throw new Error(`eBay import page ${page} failed with HTTP ${response.status}: ${detail}`);
+            }
+
+            if (Number(payload.offset) !== offset) {
+              throw new Error(`eBay import page ${page} reported offset ${payload.offset}; expected ${offset}.`);
+            }
+
+            for (const key of Object.keys(totals)) addTotal(key, payload[key]);
+
+            const pageSummary = {
+              page,
+              offset,
+              limit: Number(payload.limit || limit),
+              received: Number(payload.received || 0),
+              imported: Number(payload.imported || 0),
+              markedSold: Number(payload.markedSold || 0),
+              skipped: Number(payload.skipped || 0),
+              policyAllowed: Number(payload.policyAllowed || 0),
+              policyNeedsReview: Number(payload.policyNeedsReview || 0),
+              policyBlocked: Number(payload.policyBlocked || 0),
+              nextOffset: payload.nextOffset ?? null,
+              debugReasons: Array.isArray(payload.debugSamples)
+                ? payload.debugSamples.map((sample) => String(sample?.reason || "unknown")).slice(0, 10)
+                : [],
+            };
+            pages.push(pageSummary);
+            console.log(JSON.stringify(pageSummary));
+
+            if (payload.nextOffset === null || payload.nextOffset === undefined) {
+              finalImageSync = payload.imageSync ?? null;
+              break;
+            }
+
+            const nextOffset = Number(payload.nextOffset);
+            if (!Number.isInteger(nextOffset) || nextOffset <= offset) {
+              throw new Error(`eBay import did not advance: offset=${offset}, nextOffset=${payload.nextOffset}.`);
+            }
+            offset = nextOffset;
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+          }
+
+          if (!pages.length) throw new Error("eBay import produced no page receipts.");
+          if (pages.at(-1)?.nextOffset !== null) {
+            throw new Error(`eBay import exceeded the ${maxPages}-page safety cap before completion.`);
+          }
+
+          const summary = {
+            schema: "truelycollectables.ebayTaxonomySync.v1",
+            generatedAt: new Date().toISOString(),
+            origin,
+            runId,
+            pageCount: pages.length,
+            totals,
+            finalImageSync,
+            pages,
+            success: true,
+          };
+          fs.writeFileSync(
+            path.join("ebay-taxonomy-sync", "summary.json"),
+            `${JSON.stringify(summary, null, 2)}\n`,
+          );
+          fs.writeFileSync(
+            path.join("ebay-taxonomy-sync", "summary.md"),
+            [
+              "# Production eBay taxonomy sync",
+              "",
+              `- Run ID: ${runId}`,
+              `- Pages: ${pages.length}`,
+              `- Received: ${totals.received}`,
+              `- Imported: ${totals.imported}`,
+              `- Marked sold/inactive: ${totals.markedSold}`,
+              `- Skipped: ${totals.skipped}`,
+              `- Policy allowed: ${totals.policyAllowed}`,
+              `- Policy review: ${totals.policyNeedsReview}`,
+              `- Policy blocked: ${totals.policyBlocked}`,
+              `- Final image sync: ${finalImageSync ? "reported" : "not reported"}`,
+              "",
+            ].join("\n"),
+          );
+          console.log(`Completed ${pages.length} import page(s).`);
+          console.log(JSON.stringify(totals));
+          NODE
+
+      - name: Verify WNBA Baseball and Autographs storefronts
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require("node:fs");
+          const path = require("node:path");
+          const origin = process.env.PRODUCTION_ORIGIN;
+          const marker = "Sports stay in their correct section.";
+          const checks = [
+            { key: "all", path: "/shop", expected: "Shop Sports Cards", requireItems: true },
+            { key: "wnba", path: "/shop?section=WNBA", expected: "WNBA", requireItems: true },
+            { key: "baseball", path: "/shop?section=Baseball", expected: "Baseball", requireItems: true },
+            { key: "autographs", path: "/shop?feature=autograph", expected: "Autographs", requireItems: true },
+            { key: "legacy-autos-link", path: "/shop?q=autograph", expected: "Shop Sports Cards", requireItems: true },
+          ];
+          const results = [];
+
+          for (const check of checks) {
+            const url = new URL(check.path, origin);
+            const response = await fetch(url, {
+              headers: {
+                "cache-control": "no-cache",
+                "user-agent": "TCOS-Storefront-Taxonomy-Verification/1.0",
+              },
+              redirect: "follow",
+              signal: AbortSignal.timeout(60_000),
+            });
+            const html = await response.text();
+            fs.writeFileSync(path.join("ebay-taxonomy-sync", "storefront", `${check.key}.html`), html);
+            const countMatch = html.match(/>([\d,]+) active cards</i);
+            const activeCards = countMatch ? Number(countMatch[1].replaceAll(",", "")) : null;
+            const result = {
+              key: check.key,
+              url: url.toString(),
+              status: response.status,
+              markerPresent: html.includes(marker),
+              expectedPresent: html.includes(check.expected),
+              activeCards,
+            };
+            results.push(result);
+            console.log(JSON.stringify(result));
+
+            if (!response.ok) throw new Error(`${check.key} returned HTTP ${response.status}.`);
+            if (!result.markerPresent) throw new Error(`${check.key} did not show the deployed taxonomy marker.`);
+            if (!result.expectedPresent) throw new Error(`${check.key} did not show expected heading/text ${check.expected}.`);
+            if (check.requireItems && (!Number.isInteger(activeCards) || activeCards < 1)) {
+              throw new Error(`${check.key} returned no active storefront items after sync.`);
+            }
+          }
+
+          const wnba = results.find((row) => row.key === "wnba");
+          const baseball = results.find((row) => row.key === "baseball");
+          const autographs = results.find((row) => row.key === "autographs");
+          if (!wnba || !baseball || !autographs) throw new Error("Missing required storefront verification result.");
+
+          fs.writeFileSync(
+            path.join("ebay-taxonomy-sync", "storefront-verification.json"),
+            `${JSON.stringify({ generatedAt: new Date().toISOString(), success: true, results }, null, 2)}\n`,
+          );
+          NODE
+
+      - name: Upload complete eBay sync evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-ebay-taxonomy-sync-${{ github.run_number }}
+          path: ebay-taxonomy-sync
+          if-no-files-found: error
+          retention-days: 30
