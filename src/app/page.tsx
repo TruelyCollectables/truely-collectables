@@ -8,8 +8,8 @@ import type { UniversalInventoryItem } from "../modules/inventory";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-function sportHref(sport: string) {
-  return `/shop?sport=${encodeURIComponent(sport)}`;
+function sportHref(section: string) {
+  return `/shop?section=${encodeURIComponent(section)}`;
 }
 
 function CardImage({ card, sizes }: { card: UniversalInventoryItem; sizes: string }) {
@@ -40,7 +40,7 @@ export default async function Home() {
   const heroCards = featured.slice(0, 4);
   const sportCounts = Array.from(
     products.reduce((counts, product) => {
-      const sport = product.sport?.trim();
+      const sport = product.storefrontSection?.trim();
       if (sport) counts.set(sport, (counts.get(sport) || 0) + 1);
       return counts;
     }, new Map<string, number>()),
@@ -92,10 +92,10 @@ export default async function Home() {
             <div className="mt-5 flex flex-wrap gap-2">
               {[
                 ["Shop All", "/shop"],
-                ["Rookie Cards", "/shop?q=rookie"],
-                ["Autographs", "/shop?q=autograph"],
-                ["Numbered", "/shop?q=%2F"],
-                ["Graded", "/shop?q=PSA"],
+                ["Rookie Cards", "/shop?feature=rookie"],
+                ["Autographs", "/shop?feature=autograph"],
+                ["Numbered", "/shop?feature=numbered"],
+                ["Graded", "/shop?feature=graded"],
               ].map(([label, href]) => (
                 <Link
                   key={label}
@@ -185,7 +185,7 @@ export default async function Home() {
                   </div>
                   <div className="p-3">
                     <p className="text-[11px] font-black uppercase tracking-[0.14em] text-blue-700">
-                      {card.sport || "Sports Card"}
+                      {card.storefrontSection || "Sports Card"}
                     </p>
                     <h3 className="mt-2 line-clamp-2 min-h-12 font-black leading-6">{card.title}</h3>
                     <div className="mt-4 flex items-center justify-between gap-3 border-t-2 border-neutral-950 pt-3">

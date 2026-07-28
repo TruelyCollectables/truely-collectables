@@ -131,6 +131,10 @@ export class InventoryRepository {
         ? await this.getByLegacyProductId(input.legacy_product_id)
         : null;
     const existing = existingByLegacyProductId ?? (await this.getBySku(input.sku));
+    const mergedMetadata =
+      input.metadata === undefined
+        ? undefined
+        : { ...(existing?.metadata || {}), ...(input.metadata || {}) };
     const payload = {
       seller_account_id: input.seller_account_id ?? null,
       legacy_product_id: input.legacy_product_id ?? null,
@@ -148,8 +152,8 @@ export class InventoryRepository {
       notes: input.notes ?? null,
     };
 
-    if (input.metadata !== undefined) {
-      Object.assign(payload, { metadata: input.metadata ?? {} });
+    if (mergedMetadata !== undefined) {
+      Object.assign(payload, { metadata: mergedMetadata });
     }
 
     if (existing) {

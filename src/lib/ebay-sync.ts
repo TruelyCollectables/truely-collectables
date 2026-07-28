@@ -1,5 +1,6 @@
 import { inventoryEngine } from "../modules/inventory";
 import { mapEbayInventoryCategory } from "./ebay-category-mapper";
+import { classifyStorefrontItem } from "./storefront-taxonomy";
 import { getActiveStoreId } from "./stores";
 import { getStoreSettings } from "./store-settings";
 import { createSupabaseServerClient } from "./supabase-server";
@@ -529,10 +530,17 @@ export async function importEbayListingsPage(params: {
       first(aspects.Player) ||
       first(aspects.Athlete) ||
       first(aspects["Player/Athlete"]);
-    const sport = first(aspects.Sport);
+    const rawSport = first(aspects.Sport);
     const categoryMapping = mapEbayInventoryCategory({
       title: product.title || "Untitled",
       description: product.description || offer.listingDescription || "",
+      aspects,
+    });
+    const storefront = classifyStorefrontItem({
+      title: product.title || "Untitled",
+      description: product.description || offer.listingDescription || "",
+      rawSport,
+      primaryCategory: categoryMapping.category,
       aspects,
     });
 
@@ -542,7 +550,7 @@ export async function importEbayListingsPage(params: {
       description: product.description || offer.listingDescription || "",
       price,
       player,
-      sport,
+      sport: storefront.section,
       quantity,
       image_url: product.imageUrls?.[0] || null,
       ebay_item_id: listingId,
@@ -604,7 +612,11 @@ export async function importEbayListingsPage(params: {
         categoryConfidence: categoryMapping.confidence,
         reviewRequired:
           categoryMapping.reviewRequired || decision.decision === "needs_review",
-        attributes: categoryMapping.attributes,
+        attributes: {
+          ...categoryMapping.attributes,
+          ...storefront.attributes,
+        },
+        metadata: storefront.metadata,
       });
     } catch (upsertError) {
       skipped++;

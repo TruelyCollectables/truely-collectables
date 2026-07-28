@@ -12,6 +12,13 @@ import {
   adminProductStatusNormalizedQuantity,
 } from "../../lib/admin-product-status";
 import { getStoreSettings } from "../../lib/store-settings";
+import {
+  classifyStorefrontItem,
+  matchesStorefrontFilters,
+  sortStorefrontItems,
+  sortStorefrontSections,
+  type StorefrontSort,
+} from "../../lib/storefront-taxonomy";
 import { getActiveStoreId } from "../../lib/stores";
 import { eventBus } from "../../core/events/event-bus";
 import { InventoryRepository, inventoryRepository } from "./repository";
@@ -57,6 +64,7 @@ type EbayImportInput = {
   categoryConfidence?: string | null;
   reviewRequired?: boolean;
   attributes?: Record<string, string | null>;
+  metadata?: Record<string, unknown>;
 };
 
 type ManualProductInput = {
@@ -129,6 +137,16 @@ function mapUniversal(
   product: LegacyProductSnapshot,
   inventoryItem: InventoryItem | null
 ): UniversalInventoryItem {
+  const title = inventoryItem?.title ?? product.title;
+  const description = inventoryItem?.description ?? product.description;
+  const classification = classifyStorefrontItem({
+    title,
+    description,
+    rawSport: product.sport,
+    primaryCategory: inventoryItem?.category ?? null,
+    metadata: inventoryItem?.metadata ?? null,
+  });
+
   if (inventoryItem) {
     const authenticity = extractAuthenticityProfile(inventoryItem.metadata);
 
@@ -138,10 +156,14 @@ function mapUniversal(
       sellerAccountId:
         inventoryItem.seller_account_id ?? product.seller_account_id ?? null,
       sku: inventoryItem.sku ?? product.sku,
-      title: inventoryItem.title,
-      description: inventoryItem.description ?? product.description,
+      title,
+      description,
       player: product.player ?? null,
-      sport: product.sport ?? null,
+      sport: classification.section,
+      category: inventoryItem.category,
+      storefrontSection: classification.section,
+      league: classification.league,
+      features: classification.features,
       price: toNumber(inventoryItem.price),
       quantity: toNumber(inventoryItem.quantity),
       imageUrl: product.image_url,
@@ -157,10 +179,14 @@ function mapUniversal(
     legacyProductId: product.id,
     sellerAccountId: product.seller_account_id ?? null,
     sku: product.sku,
-    title: product.title,
-    description: product.description,
+    title,
+    description,
     player: product.player ?? null,
-    sport: product.sport ?? null,
+    sport: classification.section,
+    category: null,
+    storefrontSection: classification.section,
+    league: classification.league,
+    features: classification.features,
     price: product.price,
     quantity: product.quantity,
     imageUrl: product.image_url,
@@ -344,34 +370,22 @@ export class InventoryEngine {
     params: {
       query?: string;
       sport?: string;
+      section?: string;
+      feature?: string;
+      category?: string;
+      sort?: StorefrontSort;
     } = {}
   ): Promise<UniversalInventoryItem[]> {
-    let query = this.database
-      .from("products")
-      .select("*")
-      .eq("store_id", this.storeId)
-      .gt("price", 0)
-      .order("created_at", { ascending: false });
-
-    if (params.query) {
-      const safeQuery = params.query.replaceAll(",", " ").replaceAll("%", "").trim();
-
-      if (safeQuery) {
-        query = query.or(
-          `title.ilike.%${safeQuery}%,player.ilike.%${safeQuery}%,sport.ilike.%${safeQuery}%`
-        );
-      }
-    }
-
-    if (params.sport) {
-      query = query.eq("sport", params.sport);
-    }
-
     const [
       { data: products, error },
       { data: inventoryItems, error: inventoryError },
     ] = await Promise.all([
-      query,
+      this.database
+        .from("products")
+        .select("*")
+        .eq("store_id", this.storeId)
+        .gt("price", 0)
+        .order("created_at", { ascending: false }),
       this.database
         .from("inventory_items")
         .select("*")
@@ -381,21 +395,34 @@ export class InventoryEngine {
     if (error) throw error;
     if (inventoryError) throw inventoryError;
 
-    return this.mapProductsWithInventory(products ?? [], inventoryItems ?? []).filter(
-      (item) =>
-        item.inventoryItemId &&
-        item.imageUrl &&
-        item.quantity > 0 &&
-        item.status === "active",
-    );
+    const section = params.section || params.sport;
+    const available = this.mapProductsWithInventory(products ?? [], inventoryItems ?? [])
+      .filter(
+        (item) =>
+          item.inventoryItemId &&
+          item.imageUrl &&
+          item.quantity > 0 &&
+          item.status === "active",
+      )
+      .filter((item) =>
+        matchesStorefrontFilters(item, {
+          query: params.query,
+          section,
+          feature: params.feature,
+          category: params.category,
+        }),
+      );
+
+    return sortStorefrontItems(available, params.sort || "section");
+  }
+
+  async listAvailableSections(): Promise<string[]> {
+    const items = await this.listAvailable({ sort: "newest" });
+    return sortStorefrontSections(items.map((item) => item.storefrontSection));
   }
 
   async listAvailableSports(): Promise<string[]> {
-    const items = await this.listAvailable();
-
-    return Array.from(
-      new Set(items.map((item) => item.sport).filter(Boolean) as string[])
-    ).sort();
+    return this.listAvailableSections();
   }
 
   async listAll(): Promise<UniversalInventoryItem[]> {
@@ -1052,6 +1079,7 @@ export class InventoryEngine {
       price: input.price,
       currency: "USD",
       notes: notes || null,
+      metadata: input.metadata,
     });
 
     try {
