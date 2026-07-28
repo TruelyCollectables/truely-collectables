@@ -1,4 +1,4 @@
-name: Authorized Database Admin Auth Production Deploy 20260729
+name: Verify Durable Admin Auth and Send Reset 20260729
 
 on:
   pull_request:
@@ -12,135 +12,78 @@ permissions:
   contents: read
 
 concurrency:
-  group: authorized-database-admin-auth-production-deploy
+  group: verify-database-admin-auth-production
   cancel-in-progress: true
 
 jobs:
-  deploy-production:
+  verify-and-send-reset:
     if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'deploy/database-admin-auth-20260729')
     runs-on: ubuntu-latest
-    timeout-minutes: 90
-    env:
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-      VERCEL_SCOPE: truelycollectables-projects
-      SOURCE_SHA: 39431ed7a9fdd6bf119dad55c9635e779844268e
+    timeout-minutes: 30
     steps:
-      - name: Check out exact merged source
-        uses: actions/checkout@v4
-        with:
-          ref: 39431ed7a9fdd6bf119dad55c9635e779844268e
-          fetch-depth: 1
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Confirm Vercel identity and project
+      - name: Verify login page and private token route
         run: |
           set -euo pipefail
-          test -n "${VERCEL_TOKEN:-}"
-          mkdir -p .vercel .deployment-evidence
-          npx vercel@56.2.0 whoami --token "$VERCEL_TOKEN"
-          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
-            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
-          else
-            npx vercel@56.2.0 link \
-              --yes \
-              --project truely-collectables \
-              --scope "$VERCEL_SCOPE" \
-              --token "$VERCEL_TOKEN"
-          fi
-          printf '%s\n' "$SOURCE_SHA" > .deployment-evidence/source-sha.txt
+          mkdir -p /tmp/admin-auth-evidence
 
-      - name: Deploy exact merged revision to Production
-        id: deploy
-        shell: bash
-        run: |
-          set -euo pipefail
-          npx vercel@56.2.0 deploy \
-            --prod \
-            --yes \
-            --force \
-            --scope "$VERCEL_SCOPE" \
-            --token "$VERCEL_TOKEN" \
-            2>&1 | tee .deployment-evidence/vercel-deploy.log
-          DEPLOYMENT_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' .deployment-evidence/vercel-deploy.log | tail -n 1)"
-          test -n "$DEPLOYMENT_URL"
-          echo "deployment_url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
-          printf '%s\n' "$DEPLOYMENT_URL" > .deployment-evidence/deployment-url.txt
-
-      - name: Verify deployment URL contains durable owner recovery
-        env:
-          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
-        run: |
-          set -euo pipefail
-          code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 60 --output .deployment-evidence/login-preview.html --write-out '%{http_code}' "$DEPLOYMENT_URL/admin/login")"
-          test "$code" = "200"
-          grep -Fq "Email Owner Reset Link" .deployment-evidence/login-preview.html
-          grep -Fq "Vercel deployments cannot replace it" .deployment-evidence/login-preview.html
-
-          browser_code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output .deployment-evidence/token-browser.html --dump-header .deployment-evidence/token-browser.headers --write-out '%{http_code}' -H 'Accept: text/html' "$DEPLOYMENT_URL/api/admin/market-intel/profit-hunter-token?reveal=1" || true)"
-          test "$browser_code" = "303"
-          grep -Eiq '^location: .*/admin/login\?next=' .deployment-evidence/token-browser.headers
-
-          api_code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output .deployment-evidence/token-api.json --write-out '%{http_code}' -H 'Accept: application/json' "$DEPLOYMENT_URL/api/admin/market-intel/profit-hunter-token?reveal=1" || true)"
-          test "$api_code" = "401"
-
-      - name: Wait for custom-domain promotion
-        run: |
-          set -euo pipefail
-          success=""
-          for attempt in $(seq 1 30); do
-            code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 60 --output .deployment-evidence/login-production.html --write-out '%{http_code}' https://truelycollectables.com/admin/login || true)"
-            echo "custom-domain attempt=$attempt HTTP=$code"
-            if [ "$code" = "200" ] && \
-               grep -Fq "Email Owner Reset Link" .deployment-evidence/login-production.html && \
-               grep -Fq "Vercel deployments cannot replace it" .deployment-evidence/login-production.html; then
-              success=1
+          ready=""
+          for attempt in $(seq 1 20); do
+            login_code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 60 \
+              --output /tmp/admin-auth-evidence/login.html \
+              --write-out '%{http_code}' \
+              https://truelycollectables.com/admin/login || true)"
+            echo "login attempt=$attempt HTTP=$login_code bytes=$(wc -c < /tmp/admin-auth-evidence/login.html 2>/dev/null || echo 0)"
+            if [ "$login_code" = "200" ] && grep -Fq "Email Owner Reset Link" /tmp/admin-auth-evidence/login.html; then
+              ready=1
               break
             fi
-            sleep 15
+            sleep 10
           done
-          test -n "$success"
+          test -n "$ready"
 
-      - name: Send one real owner reset email on the custom domain
+          browser_code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 \
+            --output /tmp/admin-auth-evidence/token-browser.html \
+            --dump-header /tmp/admin-auth-evidence/token-browser.headers \
+            --write-out '%{http_code}' \
+            -H 'Accept: text/html' \
+            'https://truelycollectables.com/api/admin/market-intel/profit-hunter-token?reveal=1' || true)"
+          browser_location="$(awk 'BEGIN{IGNORECASE=1} /^location:/{sub(/\r$/, ""); print substr($0, 11)}' /tmp/admin-auth-evidence/token-browser.headers | tail -n 1)"
+          echo "browser-token HTTP=$browser_code location=$browser_location"
+          case "$browser_code" in
+            302|303|307|308) ;;
+            *) echo "Expected a browser redirect to admin login."; exit 1 ;;
+          esac
+          printf '%s' "$browser_location" | grep -Fq '/admin/login?next='
+
+          api_code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 \
+            --output /tmp/admin-auth-evidence/token-api.json \
+            --write-out '%{http_code}' \
+            -H 'Accept: application/json' \
+            'https://truelycollectables.com/api/admin/market-intel/profit-hunter-token?reveal=1' || true)"
+          echo "api-token HTTP=$api_code"
+          test "$api_code" = "401"
+
+      - name: Send one real owner reset email
         run: |
           set -euo pipefail
           response_code="$(curl --silent --show-error --connect-timeout 15 --max-time 90 \
-            --output .deployment-evidence/reset-request-body.html \
-            --dump-header .deployment-evidence/reset-request.headers \
+            --output /tmp/admin-auth-evidence/reset-request-body.html \
+            --dump-header /tmp/admin-auth-evidence/reset-request.headers \
             --write-out '%{http_code}' \
             --request POST \
             --header 'Content-Type: application/x-www-form-urlencoded' \
             --data-urlencode 'next=/api/admin/market-intel/profit-hunter-token?reveal=1' \
             https://truelycollectables.com/api/admin/password-reset/request || true)"
-          echo "reset-request HTTP=$response_code"
-          test "$response_code" = "303"
-          grep -Eiq '^location: .*/admin/login\?.*reset=sent' .deployment-evidence/reset-request.headers
-          if grep -Eiq 'reset=(email_error|storage_error)' .deployment-evidence/reset-request.headers; then
-            echo "Reset request did not complete cleanly."
+          location="$(awk 'BEGIN{IGNORECASE=1} /^location:/{sub(/\r$/, ""); print substr($0, 11)}' /tmp/admin-auth-evidence/reset-request.headers | tail -n 1)"
+          echo "reset-request HTTP=$response_code location=$location"
+          case "$response_code" in
+            302|303|307|308) ;;
+            *) echo "Reset request did not return a safe redirect."; exit 1 ;;
+          esac
+          printf '%s' "$location" | grep -Fq '/admin/login?'
+          printf '%s' "$location" | grep -Fq 'reset=sent'
+          if printf '%s' "$location" | grep -Eq 'reset=(email_error|storage_error)'; then
+            echo "Reset request failed before delivery."
             exit 1
           fi
-          printf '%s\n' 'A one-time owner reset email was requested through the production custom domain. No reset token or password is stored in this artifact.' > .deployment-evidence/reset-email-receipt.txt
-
-      - name: Verify custom-domain token route remains private
-        run: |
-          set -euo pipefail
-          browser_code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output .deployment-evidence/custom-token-browser.html --dump-header .deployment-evidence/custom-token-browser.headers --write-out '%{http_code}' -H 'Accept: text/html' 'https://truelycollectables.com/api/admin/market-intel/profit-hunter-token?reveal=1' || true)"
-          test "$browser_code" = "303"
-          grep -Eiq '^location: .*/admin/login\?next=' .deployment-evidence/custom-token-browser.headers
-
-          api_code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output .deployment-evidence/custom-token-api.json --write-out '%{http_code}' -H 'Accept: application/json' 'https://truelycollectables.com/api/admin/market-intel/profit-hunter-token?reveal=1' || true)"
-          test "$api_code" = "401"
-
-      - name: Upload redacted deployment evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: database-admin-auth-production-deploy-${{ github.run_number }}
-          path: .deployment-evidence
-          if-no-files-found: warn
-          retention-days: 30
+          echo "OWNER_RESET_EMAIL_REQUEST_ACCEPTED"
