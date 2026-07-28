@@ -1,1 +1,1 @@
-Retrigger the structural merged-alias finalization runner.
+Retrigger structural merged-alias stderr capture.
