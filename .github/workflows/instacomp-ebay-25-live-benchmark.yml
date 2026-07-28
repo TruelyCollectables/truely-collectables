@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - fix/instacomp-ebay-25-live-benchmark-20260727
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
