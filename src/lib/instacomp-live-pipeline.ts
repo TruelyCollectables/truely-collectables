@@ -18,7 +18,12 @@ export type InstaCompTrustedMarketSummary = {
   active: InstaCompComp[];
   pricing: InstaCompSweetSpot;
   trustedSuggestedPrice: number | null;
-  status: "ready" | "no_exact_sold" | "provider_error";
+  status:
+    | "ready"
+    | "active_only"
+    | "partial_provider_error"
+    | "no_exact_sold"
+    | "provider_error";
 };
 
 function clean(value: string | null | undefined) {
@@ -175,6 +180,7 @@ export function mergeExactMarketSources(
       source?.sold?.status === "not_configured" ||
       source?.active?.status === "not_configured",
   );
+  const hasActiveEvidence = active.length > 0;
 
   return {
     sold,
@@ -183,9 +189,13 @@ export function mergeExactMarketSources(
     trustedSuggestedPrice: pricingSold.length ? pricing.suggestedPrice : null,
     status: pricingSold.length
       ? "ready"
-      : providerUnavailable
-        ? "provider_error"
-        : "no_exact_sold",
+      : hasActiveEvidence
+        ? providerUnavailable
+          ? "partial_provider_error"
+          : "active_only"
+        : providerUnavailable
+          ? "provider_error"
+          : "no_exact_sold",
   };
 }
 

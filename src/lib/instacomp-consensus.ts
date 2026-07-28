@@ -253,10 +253,30 @@ function isUncertain(value: string | boolean | null | undefined) {
   );
 }
 
+function hasPositiveEvidenceSignal(value: string | null | undefined, pattern: RegExp) {
+  const clauses = String(value || "")
+    .split(/(?:[.!?;]+|\n+)/g)
+    .map((clause) => clause.trim())
+    .filter(Boolean);
+  const negation =
+    /\b(?:no|not|without|absent|none|neither|cannot|can't|did\s+not|does\s+not|is\s+not|was\s+not|were\s+not|lacks?|lacking)\b/i;
+
+  return clauses.some((clause) => {
+    const safePattern = new RegExp(pattern.source, pattern.flags.replace("g", ""));
+    const match = safePattern.exec(clause);
+    if (!match) return false;
+    const prefix = clause.slice(Math.max(0, match.index - 56), match.index);
+    return !negation.test(prefix);
+  });
+}
+
 function containsPrintedVariantSignal(value: string | null | undefined) {
-  return /\b(limited\s+(?:red|blue|green|gold|orange|purple|black|silver)|clear\s*cut|acetate|transparent|translucent|clear[-\s]*stock|canvas|dazzlers?|young\s+guns?|portraits?|rookie\s+materials?|honou?r\s+roll|outliers|spectrum\s+fx|future\s+watch|insert|subset|parallel|refractor|prizm|prism|holo|foil|wave|shimmer|ice|laser|scope|pulsar|mojo|mosaic|sparkle|atomic|x-fractor|sepia|numbered\s+(?:to|\/))\b/i.test(
-    String(value || ""),
-  ) || hasNumberedSignal(value);
+  return (
+    hasPositiveEvidenceSignal(
+      value,
+      /\b(limited\s+(?:red|blue|green|gold|orange|purple|black|silver)|clear\s*cut|acetate|transparent|translucent|clear[-\s]*stock|canvas|dazzlers?|young\s+guns?|portraits?|rookie\s+materials?|honou?r\s+roll|outliers|spectrum\s+fx|future\s+watch|insert|subset|parallel|refractor|prizm|prism|holo|foil|wave|shimmer|ice|laser|scope|pulsar|mojo|mosaic|sparkle|atomic|x-fractor|sepia|numbered\s+(?:to|\/))\b/i,
+    ) || hasNumberedSignal(value)
+  );
 }
 
 function hasAutographOrRelicSignal(params: {

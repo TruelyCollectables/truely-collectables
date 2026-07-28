@@ -20,13 +20,14 @@ import {
   benchmarkTitleEligible,
   benchmarkTitleHasExpectedYear,
 } from "../../../../../lib/instacomp-benchmark-title";
+import { gradeInstaCompBenchmarkParallel } from "../../../../../lib/instacomp-benchmark-grading";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-const MAX_EBAY_RESULTS = 50;
-const MAX_CANDIDATES_TO_HYDRATE = 12;
+const MAX_EBAY_RESULTS = 100;
+const MAX_CANDIDATES_TO_HYDRATE = 30;
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
@@ -248,29 +249,50 @@ function titleScore(title: string, expected: InstaCompEbayBenchmarkExpectedIdent
 
 async function searchEbay(testCase: InstaCompEbayBenchmarkCase) {
   const token = await getEbayApplicationToken();
-  const url = new URL(`${ebayApiBase()}/buy/browse/v1/item_summary/search`);
-  url.searchParams.set("q", testCase.searchQuery);
-  url.searchParams.set("category_ids", "261328");
-  url.searchParams.set("limit", String(MAX_EBAY_RESULTS));
-  url.searchParams.set("fieldgroups", "EXTENDED");
+  const queryVariants = Array.from(
+    new Set([
+      testCase.searchQuery,
+      `${testCase.expected.year} ${testCase.expected.brand} ${testCase.expected.player} #${testCase.expected.cardNumber}`,
+      `${testCase.expected.player} ${testCase.expected.setName} #${testCase.expected.cardNumber}`,
+    ]),
+  );
+  const summariesById = new Map<string, EbayItemSummary>();
+  let rawCount = 0;
 
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
-      "X-EBAY-C-ENDUSERCTX": "contextualLocation=country=US,zip=80014",
-    },
-    cache: "no-store",
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(
-      `eBay Browse search failed (${response.status}): ${clean(payload?.errors?.[0]?.message || payload?.error || response.statusText)}`,
-    );
+  for (const query of queryVariants) {
+    const url = new URL(`${ebayApiBase()}/buy/browse/v1/item_summary/search`);
+    url.searchParams.set("q", query);
+    url.searchParams.set("category_ids", "261328");
+    url.searchParams.set("limit", String(MAX_EBAY_RESULTS));
+    url.searchParams.set("fieldgroups", "EXTENDED");
+
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
+        "X-EBAY-C-ENDUSERCTX": "contextualLocation=country=US,zip=80014",
+      },
+      cache: "no-store",
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(
+        `eBay Browse search failed (${response.status}): ${clean(payload?.errors?.[0]?.message || payload?.error || response.statusText)}`,
+      );
+    }
+
+    const summaries = (Array.isArray(payload?.itemSummaries)
+      ? payload.itemSummaries
+      : []) as EbayItemSummary[];
+    rawCount += summaries.length;
+    for (const item of summaries) {
+      if (item.itemId && !summariesById.has(item.itemId)) {
+        summariesById.set(item.itemId, item);
+      }
+    }
   }
 
-  const summaries = (Array.isArray(payload?.itemSummaries) ? payload.itemSummaries : []) as EbayItemSummary[];
-  const ranked = summaries
+  const ranked = Array.from(summariesById.values())
     .map((item) => ({
       item,
       title: clean(item.title),
@@ -310,19 +332,89 @@ async function searchEbay(testCase: InstaCompEbayBenchmarkCase) {
       }
     }
 
-    attempts.push({
-      itemId: item.itemId || null,
-      title: clean(item.title),
-      titleScore: candidate.score,
-      imageCount: urls.length,
-    });
+    if (urls.length < 2) {
+      attempts.push({
+        itemId: item.itemId || null,
+        title: clean(item.title),
+        titleScore: candidate.score,
+        imageCount: urls.length,
+        rejected: "fewer than two listing images",
+      });
+      continue;
+    }
 
-    if (urls.length >= 2) {
-      return { item, urls: urls.slice(0, 6), attempts, rawCount: summaries.length };
+    const selectedUrls = urls.slice(0, 8);
+    const roles = await selectImageRoles(selectedUrls);
+    const rolesValid =
+      roles.method === "openai" &&
+      roles.confidence >= 0.72 &&
+      roles.frontIndex >= 0 &&
+      roles.backIndex >= 0 &&
+      roles.frontIndex !== roles.backIndex &&
+      roles.frontIndex < selectedUrls.length &&
+      roles.backIndex < selectedUrls.length;
+
+    if (!rolesValid) {
+      attempts.push({
+        itemId: item.itemId || null,
+        title: clean(item.title),
+        titleScore: candidate.score,
+        imageCount: selectedUrls.length,
+        rejected: "no clear same-card front/back pair",
+        imageRoles: roles,
+      });
+      continue;
+    }
+
+    const frontUrl = selectedUrls[roles.frontIndex];
+    const backUrl = selectedUrls[roles.backIndex];
+    try {
+      const [frontFile, backFile] = await Promise.all([
+        downloadImage(frontUrl, `${testCase.id}-front.jpg`),
+        downloadImage(backUrl, `${testCase.id}-back.jpg`),
+      ]);
+      attempts.push({
+        itemId: item.itemId || null,
+        title: clean(item.title),
+        titleScore: candidate.score,
+        imageCount: selectedUrls.length,
+        accepted: true,
+        imageRoles: roles,
+      });
+      return {
+        item,
+        urls: selectedUrls,
+        roles,
+        frontUrl,
+        backUrl,
+        frontFile,
+        backFile,
+        attempts,
+        rawCount,
+      };
+    } catch (error) {
+      attempts.push({
+        itemId: item.itemId || null,
+        title: clean(item.title),
+        titleScore: candidate.score,
+        imageCount: selectedUrls.length,
+        rejected: error instanceof Error ? error.message : "image download failed",
+        imageRoles: roles,
+      });
     }
   }
 
-  return { item: null, urls: [] as string[], attempts, rawCount: summaries.length };
+  return {
+    item: null,
+    urls: [] as string[],
+    roles: null,
+    frontUrl: null,
+    backUrl: null,
+    frontFile: null,
+    backFile: null,
+    attempts,
+    rawCount,
+  };
 }
 
 function outputText(payload: any) {
@@ -334,10 +426,10 @@ function outputText(payload: any) {
 
 async function selectImageRoles(urls: string[]): Promise<ImageRoleSelection> {
   const fallback: ImageRoleSelection = {
-    frontIndex: 0,
-    backIndex: 1,
+    frontIndex: -1,
+    backIndex: -1,
     confidence: 0,
-    notes: "OpenAI image-role selection was unavailable; used eBay primary image then first additional image.",
+    notes: "No defensible clear front/back pair was confirmed for this seller listing.",
     method: "fallback",
   };
   const apiKey = clean(process.env.OPENAI_API_KEY);
@@ -346,7 +438,7 @@ async function selectImageRoles(urls: string[]): Promise<ImageRoleSelection> {
   const content: any[] = [
     {
       type: "text",
-      text: "Select one clear FRONT and one clear BACK image of the same physical sports card from these eBay listing images. Do not select duplicate fronts, closeups, shipping photos, slabs, or unrelated bonus cards. Return zero-based indices. Use null only when no defensible pair exists.",
+      text: "Select one clear, readable FRONT and one clear, readable BACK image of the same physical sports card from these eBay listing images. Reject duplicate fronts, closeups that omit most of the card, shipping photos, slabs, unrelated bonus cards, blurry images, glare-obscured images, and images that cannot prove front versus back. Return zero-based indices and confidence. Return null indices whenever the pair is not defensible.",
     },
   ];
   urls.slice(0, 6).forEach((url, index) => {
@@ -389,6 +481,7 @@ async function selectImageRoles(urls: string[]): Promise<ImageRoleSelection> {
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) return fallback;
     const parsed = JSON.parse(outputText(payload));
+    if (parsed.frontIndex === null || parsed.backIndex === null) return fallback;
     const frontIndex = Number(parsed.frontIndex);
     const backIndex = Number(parsed.backIndex);
     const confidence = Number(parsed.confidence);
@@ -522,15 +615,11 @@ function gradeScan(
   const actualIdentityText = [ai.setName, ai.parallel, ai.notes].filter(Boolean).join(" ");
   const expectedPlayerOptions = [expected.player, ...(expected.playerAliases || [])];
   const expectedSetOptions = [expected.setName, ...(expected.setAliases || [])];
-  const expectedParallelOptions = [expected.parallel, ...(expected.parallelAliases || [])];
-  const expectedBase = normalized(expected.parallel) === "base" || !normalized(expected.parallel);
-  const actualParallelText = normalized([ai.parallel, ai.setName].filter(Boolean).join(" "));
-  const baseParallelPass =
-    expectedBase &&
-    (!normalized(ai.parallel) ||
-      ["base", "base card", "standard", "regular", "young guns", "city satellites", "gaming xp", "checkpoint", "gaming pvp"].includes(
-        normalized(ai.parallel),
-      ));
+  const parallelGrade = gradeInstaCompBenchmarkParallel({
+    expected,
+    actualParallel: ai.parallel,
+    actualSetName: ai.setName,
+  });
 
   const checks: FieldCheck[] = [
     check({
@@ -574,12 +663,10 @@ function gradeScan(
       field: "parallel/variation",
       expected: expected.parallel || "Base",
       actual: ai.parallel,
-      pass:
-        baseParallelPass ||
-        tokenPhrasePass(actualParallelText, expectedParallelOptions) ||
-        tokenPhrasePass(actualIdentityText, expectedParallelOptions),
-      partial: expectedBase && !normalized(ai.parallel),
+      pass: parallelGrade.status === "pass",
+      partial: parallelGrade.status === "partial",
       weight: 14,
+      note: parallelGrade.note,
     }),
     check({
       field: "serial denominator",
@@ -654,13 +741,13 @@ function gradeScan(
         )
           ? "critical"
           : "major",
-        detail: `${fieldCheck.field}: expected ${clean(fieldCheck.expected) || "none"}; got ${clean(fieldCheck.actual) || "none"}.`,
+        detail: `${fieldCheck.field}: expected ${clean(fieldCheck.expected) || "none"}; got ${clean(fieldCheck.actual) || "none"}.${fieldCheck.note ? ` ${fieldCheck.note}` : ""}`,
       });
     } else if (fieldCheck.status === "partial") {
       weirdErrors.push({
         code: `${codeByField[fieldCheck.field] || "IDENTITY_FIELD"}_PARTIAL`,
         severity: "minor",
-        detail: `${fieldCheck.field} was only a partial match.`,
+        detail: `${fieldCheck.field} was only a partial match.${fieldCheck.note ? ` ${fieldCheck.note}` : ""}`,
       });
     }
   }
@@ -701,7 +788,13 @@ function gradeScan(
     weirdErrors.push({
       code: "EXACT_MARKET_PROVIDER_ERROR",
       severity: "major",
-      detail: "One or more exact sold/active providers failed during the real scan.",
+      detail: "No usable exact-market lane completed because required providers failed or were unavailable.",
+    });
+  } else if (scan?.exactMarket?.status === "partial_provider_error") {
+    weirdErrors.push({
+      code: "EXACT_MARKET_PARTIAL_PROVIDER_ERROR",
+      severity: "minor",
+      detail: "Exact active evidence completed, but one or more sold/active provider lanes failed or were unavailable.",
     });
   } else if (
     !Number(
@@ -813,7 +906,14 @@ export async function POST(request: NextRequest) {
 
   try {
     const discovery = await searchEbay(testCase);
-    if (!discovery.item || discovery.urls.length < 2) {
+    if (
+      !discovery.item ||
+      !discovery.roles ||
+      !discovery.frontFile ||
+      !discovery.backFile ||
+      !discovery.frontUrl ||
+      !discovery.backUrl
+    ) {
       return json(
         {
           ok: false,
@@ -826,20 +926,18 @@ export async function POST(request: NextRequest) {
             rawResultCount: discovery.rawCount,
             attempts: discovery.attempts,
           },
-          error: "No defensible active eBay listing with at least two images was found for this official checklist case.",
+          error: "No seller listing with a clear, readable, same-card front/back pair passed validation for this official checklist case.",
           durationMs: Date.now() - startedAt,
         },
         422,
       );
     }
 
-    const roles = await selectImageRoles(discovery.urls);
-    const frontUrl = discovery.urls[roles.frontIndex];
-    const backUrl = discovery.urls[roles.backIndex];
-    const [frontFile, backFile] = await Promise.all([
-      downloadImage(frontUrl, `${caseId}-front.jpg`),
-      downloadImage(backUrl, `${caseId}-back.jpg`),
-    ]);
+    const roles = discovery.roles;
+    const frontUrl = discovery.frontUrl;
+    const backUrl = discovery.backUrl;
+    const frontFile = discovery.frontFile;
+    const backFile = discovery.backFile;
 
     const formData = new FormData();
     formData.append("frontImage", frontFile);
