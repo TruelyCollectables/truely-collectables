@@ -26,11 +26,15 @@ scenario("admin login page labels native submits while posting", () => {
     "Expected admin login page to import the shared admin submit button.",
   );
   assert(
-    (loginPageSource.match(/<AdminSubmitButton/g) || []).length >= 2,
-    "Expected password and local rescue login forms to use pending-aware submit buttons.",
+    (loginPageSource.match(/<AdminSubmitButton/g) || []).length >= 3,
+    "Expected password, owner-reset, and local-rescue forms to use pending-aware submit buttons.",
   );
 
-  for (const label of ["Signing in...", "Opening admin..."]) {
+  for (const label of [
+    "Signing in...",
+    "Sending private reset link...",
+    "Opening admin...",
+  ]) {
     assert(
       loginPageSource.includes(label),
       `Expected admin login pending label ${label}.`,
@@ -38,9 +42,10 @@ scenario("admin login page labels native submits while posting", () => {
   }
 
   for (const fragment of [
-    "Submit the typed ADMIN_PASSWORD and create the admin session cookie for this browser.",
-    "Uses the password box above. If accepted, TCOS refreshes the admin cookie",
-    "sends this browser to the destination shown on the left.",
+    "Submit the permanent database owner password and create the admin session cookie for this browser.",
+    "Once the permanent database password exists, deployments cannot replace",
+    "If the password is uncertain, reset it instead of retrying guesses.",
+    "Email Owner Reset Link",
     "Open the admin locally without the password box; this route is accepted only on localhost in non-production.",
     "It does not use the typed password field.",
   ]) {
@@ -78,6 +83,8 @@ scenario("admin login route keeps password paste and local rescue guards", () =>
   for (const fragment of [
     "password.trim()",
     "safeAdminLoginNextPath",
+    "verifyDatabaseAdminPasswordCandidates",
+    "getDatabaseAdminCredentialStatus",
     "verifyLocalDevelopmentAdminPassword",
     "localDevelopmentLogin",
     "jsonBodyNextPath",
@@ -91,6 +98,12 @@ scenario("admin login route keeps password paste and local rescue guards", () =>
       `Expected admin login route guard fragment ${fragment}.`,
     );
   }
+
+  assert(
+    loginRouteSource.indexOf("verifyDatabaseAdminPasswordCandidates") <
+      loginRouteSource.indexOf("verifyAdminPassword(candidate)"),
+    "Expected durable database credentials to be authoritative before the emergency environment fallback.",
+  );
 });
 
 scenario("admin local rescue login stays localhost-only and non-production", () => {
@@ -150,8 +163,8 @@ scenario("admin login destination guard prevents login and logout loops", () => 
 scenario("admin login shows operator-readable failure guidance", () => {
   for (const message of [
     "Invalid admin password.",
-    "Admin password is not configured.",
-    "Admin password was accepted, but the server could not create an admin session.",
+    "No permanent database password or emergency fallback is configured.",
+    "The password was accepted, but the secure admin session could not be created.",
     "Too many failed attempts were recorded.",
     "Admin login request was not readable.",
   ]) {

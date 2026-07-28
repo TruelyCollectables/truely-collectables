@@ -34,6 +34,17 @@ function response(payload: unknown, status = 200) {
 
 export async function GET(request: NextRequest) {
   if (!(await requireAdmin(request))) {
+    const acceptsHtml = String(request.headers.get("accept") || "").includes(
+      "text/html",
+    );
+    if (acceptsHtml) {
+      const loginUrl = new URL("/admin/login", request.nextUrl.origin);
+      loginUrl.searchParams.set(
+        "next",
+        `${request.nextUrl.pathname}${request.nextUrl.search}`,
+      );
+      return NextResponse.redirect(loginUrl, 303);
+    }
     return response({ error: "Unauthorized" }, 401);
   }
 
