@@ -49,8 +49,8 @@ export async function GET(request: Request) {
       supabase,
       storeId,
       mode: "apply",
-      // Launch safety: import/update every active fixed-price sports card, but do
-      // not automatically deactivate historical rows until the first audit is reviewed.
+      // Launch safety: import/update every active fixed-price collectible, but do
+      // not automatically deactivate historical rows until an audit is reviewed.
       deactivateEnded: false,
     });
 
@@ -109,11 +109,66 @@ export async function GET(request: Request) {
     });
   }
 
+  const durationMs = Date.now() - startedAt;
+  const receipt = {
+    event: "ebay_store_fixed_price_sync_completed",
+    success: errors.length === 0,
+    storeId,
+    durationMs,
+    authoritative: authoritativeSync
+      ? {
+          remoteFixedPriceTotal: authoritativeSync.remoteFixedPriceTotal,
+          pagesRead: authoritativeSync.pagesRead,
+          cycleComplete: authoritativeSync.cycleComplete,
+          eligibleCollectibles: authoritativeSync.eligibleCollectibles,
+          skippedNonCollectibles: authoritativeSync.skippedNonCollectibles,
+          inserted: authoritativeSync.inserted,
+          updated: authoritativeSync.updated,
+          unchanged: authoritativeSync.unchanged,
+          deactivated: authoritativeSync.deactivated,
+          failed: authoritativeSync.failed,
+          localLinkedBefore: authoritativeSync.localLinkedBefore,
+          localLinkedAfter: authoritativeSync.localLinkedAfter,
+          errorSample: authoritativeSync.errors.slice(0, 5).map((entry) => ({
+            itemId: entry.itemId,
+            error: entry.error,
+          })),
+        }
+      : null,
+    images: imageSync
+      ? {
+          checked: imageSync.checked,
+          updated: imageSync.updated,
+          imagesAdded: imageSync.imagesAdded,
+          imagesRemoved: imageSync.imagesRemoved,
+          pagesRead: imageSync.pagesRead,
+          cycleComplete: imageSync.cycleComplete,
+          remainingCandidates: imageSync.remainingCandidates,
+          failed: imageSync.errors.length,
+          errorSample: imageSync.errors.slice(0, 5),
+        }
+      : null,
+    quantities: quantitySync
+      ? {
+          checked: quantitySync.checked,
+          pushedToEbay: quantitySync.pushedToEbay,
+          endedOnEbay: quantitySync.endedOnEbay,
+          reducedLocally: quantitySync.reducedLocally,
+          unchanged: quantitySync.unchanged,
+          failed: quantitySync.failed,
+          errorSample: quantitySync.errors.slice(0, 5),
+        }
+      : null,
+    errors,
+  };
+
+  console.info(`[ebay-store-fixed-price-sync] ${JSON.stringify(receipt)}`);
+
   return Response.json(
     {
       success: errors.length === 0,
       storeId,
-      durationMs: Date.now() - startedAt,
+      durationMs,
       authoritativeSync,
       imageSync,
       quantitySync,
