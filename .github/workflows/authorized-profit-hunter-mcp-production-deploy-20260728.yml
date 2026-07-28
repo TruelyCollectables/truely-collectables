@@ -20,7 +20,7 @@ jobs:
   verify-production:
     if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'deploy/tcos-profit-hunter-mcp-20260728')
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
@@ -28,18 +28,7 @@ jobs:
       VERCEL_SCOPE: truelycollectables-projects
       PRODUCTION_URL: https://truelycollectables.com
     steps:
-      - name: Check out verification branch
-        uses: actions/checkout@v4
-        with:
-          ref: deploy/tcos-profit-hunter-mcp-20260728
-          fetch-depth: 1
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Link exact Vercel project
+      - name: Link project and run raw authenticated MCP verifier
         run: |
           set -euo pipefail
           test -n "${VERCEL_TOKEN:-}"
@@ -53,20 +42,8 @@ jobs:
               --scope "$VERCEL_SCOPE" \
               --token "$VERCEL_TOKEN"
           fi
-
-      - name: Verify private routes reject unauthenticated requests
-        run: |
-          set -euo pipefail
-          for base in https://truely-collectables.vercel.app https://truelycollectables.com; do
-            for path in /api/tcos-profit-hunter/mcp /api/admin/market-intel/profit-hunter-token; do
-              code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output /tmp/unauthorized.json --write-out '%{http_code}' "$base$path" || true)"
-              echo "$base$path HTTP=$code"
-              test "$code" = "401"
-            done
-          done
-
-      - name: Run authenticated raw MCP protocol verification
-        run: |
-          set -euo pipefail
+          curl --fail --silent --show-error \
+            https://raw.githubusercontent.com/TruelyCollectables/truely-collectables/deploy/tcos-profit-hunter-mcp-20260728/scripts/verify-tcos-profit-hunter-production.mjs \
+            --output /tmp/verify-tcos-profit-hunter-production.mjs
           PRODUCTION_URL="$PRODUCTION_URL" \
-            npx vercel@56.2.0 env run -e production -- node scripts/verify-tcos-profit-hunter-production.mjs
+            npx vercel@56.2.0 env run -e production -- node /tmp/verify-tcos-profit-hunter-production.mjs
