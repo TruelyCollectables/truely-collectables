@@ -77,14 +77,20 @@ const derivedSecret = (explicitName, purpose) => {
     text = replace_once(text, anchor, derived, "connector derived secret helper")
     text = replace_once(
         text,
-        'instacompBaseUrl: String(process.env.INSTACOMP_BASE_URL || "").trim().replace(/\\\/+$/, ""),',
-        'instacompBaseUrl: String(process.env.INSTACOMP_BASE_URL || process.env.NEXT_PUBLIC_SITE_URL || "").trim().replace(/\\\/+$/, ""),',
+        '  connectorToken: process.env.TCOS_CONNECTOR_TOKEN || "",',
+        '  connectorToken: derivedSecret("TCOS_CONNECTOR_TOKEN", "connector bearer"),',
+        "connector bearer fallback",
+    )
+    text = replace_once(
+        text,
+        '  instacompBaseUrl: String(process.env.INSTACOMP_BASE_URL || "").trim().replace(/\\/+$/, ""),',
+        '  instacompBaseUrl: String(process.env.INSTACOMP_BASE_URL || process.env.NEXT_PUBLIC_SITE_URL || "").trim().replace(/\\/+$/, ""),',
         "connector base URL fallback",
     )
     text = replace_once(
         text,
-        'instacompServiceToken: String(process.env.INSTACOMP_SERVICE_TOKEN || "").trim(),',
-        'instacompServiceToken: derivedSecret("INSTACOMP_SERVICE_TOKEN", "InstaComp service bearer"),',
+        '  instacompServiceToken: String(process.env.INSTACOMP_SERVICE_TOKEN || "").trim(),',
+        '  instacompServiceToken: derivedSecret("INSTACOMP_SERVICE_TOKEN", "InstaComp service bearer"),',
         "connector service token fallback",
     )
     path.write_text(text, encoding="utf-8")
