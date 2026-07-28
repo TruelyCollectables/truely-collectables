@@ -102,13 +102,22 @@ jobs:
             scripts/run-storefront-taxonomy-regressions.ts
           if-no-files-found: warn
           retention-days: 14
-      - name: Commit verified patch and remove one-time writer
+      - name: Commit verified storefront source
         run: |
-          rm scripts/apply-storefront-taxonomy-fix.py
-          rm scripts/fix-storefront-taxonomy-generated.py
-          rm .github/workflows/temporary-storefront-taxonomy-writer.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
+          git add \
+            .github/workflows/storefront-taxonomy.yml \
+            scripts/run-storefront-taxonomy-regressions.ts \
+            src/lib/storefront-taxonomy.ts \
+            src/lib/ebay-category-mapper.ts \
+            src/lib/ebay-sync.ts \
+            src/lib/server-inventory-engine.ts \
+            src/modules/inventory/types.ts \
+            src/modules/inventory/repository.ts \
+            src/modules/inventory/engine.ts \
+            src/app/shop/page.tsx \
+            src/app/page.tsx \
+            src/app/components/Navbar.tsx
           git commit -m "Normalize eBay storefront sections and feature filters"
           git push origin HEAD:agent/storefront-taxonomy-ebay-sync-20260727
