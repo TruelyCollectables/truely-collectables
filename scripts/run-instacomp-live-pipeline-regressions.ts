@@ -86,7 +86,7 @@ const exactCard = card();
 assert.deepEqual(missingExactIdentityFields(exactCard), []);
 assert.equal(
   buildExactIdentityTitle(exactCard),
-  "2023-24 Upper Deck Upper Deck Series 2 Hockey Connor Bedard RC Young Guns #451 Raw",
+  "2023-24 Upper Deck Upper Deck Series 2 Hockey Connor Bedard RC Young Guns #451",
 );
 
 const missing = card({ cardNumber: null, year: null });
