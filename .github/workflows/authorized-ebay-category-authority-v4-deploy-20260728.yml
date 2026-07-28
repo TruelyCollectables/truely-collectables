@@ -1,4 +1,4 @@
-name: Authorized eBay Category Authority V4 Production Deploy 20260728
+name: Authorized Fresh eBay Sync Production Deploy 20260728
 
 on:
   pull_request:
@@ -25,12 +25,12 @@ jobs:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_SCOPE: truelycollectables-projects
-      DEPLOY_SOURCE_SHA: 46317364f71c46ca4ae17fa1625cf1d7d3229ac7
+      DEPLOY_SOURCE_SHA: c806829b3a8c61a346c8c1e05ce82fe4821e4ccc
     steps:
       - name: Check out exact merged source
         uses: actions/checkout@v4
         with:
-          ref: 46317364f71c46ca4ae17fa1625cf1d7d3229ac7
+          ref: c806829b3a8c61a346c8c1e05ce82fe4821e4ccc
           fetch-depth: 1
 
       - name: Set up Node.js
@@ -60,11 +60,12 @@ jobs:
           fi
           node -e 'const p=require("./.vercel/project.json"); if(!p.orgId||!p.projectId) process.exit(1); console.log(JSON.stringify({orgIdPresent:true,projectIdPresent:true}))'
 
-      - name: Deploy exact main revision to Production
+      - name: Deploy exact merged revision to Production
         id: deploy
         shell: bash
         run: |
           set -euo pipefail
+          printf '%s\n' "$DEPLOY_SOURCE_SHA" > .deployment-evidence/source-sha.txt
           npx vercel@56.2.0 deploy \
             --prod \
             --yes \
@@ -77,7 +78,7 @@ jobs:
           echo "deployment_url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
           printf '%s\n' "$DEPLOYMENT_URL" > .deployment-evidence/deployment-url.txt
 
-      - name: Verify v4 storefront release is live
+      - name: Verify production storefront is live
         env:
           DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
         shell: bash
@@ -106,13 +107,13 @@ jobs:
             sleep 15
           done
           test -n "$success"
-          echo "Verified v4 storefront deployment at $success"
+          echo "Verified fresh-sync production deployment at $success"
 
       - name: Upload deployment evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ebay-category-authority-v4-production-deploy-${{ github.run_number }}
+          name: fresh-ebay-sync-production-deploy-${{ github.run_number }}
           path: .deployment-evidence
           if-no-files-found: warn
           retention-days: 30
