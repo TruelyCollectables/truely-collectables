@@ -51,11 +51,23 @@ jobs:
         working-directory: connectors/tcos-market-intel-mcp
         run: npm install
       - name: Validate connector
+        id: validate
+        continue-on-error: true
         working-directory: connectors/tcos-market-intel-mcp
         env:
           TCOS_CONNECTOR_TOKEN: test-connector-token
           TCOS_REQUIRE_INSTACOMP: "false"
-        run: npm run check
+        run: npm run check 2>&1 | tee connector-check.log
+      - name: Upload connector diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tcos-market-intel-connector-diagnostics-${{ github.run_number }}
+          path: connectors/tcos-market-intel-mcp/connector-check.log
+          if-no-files-found: error
+          retention-days: 14
+      - name: Enforce connector validation
+        run: test "${{ steps.validate.outcome }}" = "success"
       - name: Build connector Docker image
         working-directory: connectors/tcos-market-intel-mcp
         run: docker build -t tcos-market-intel-connector:test .
