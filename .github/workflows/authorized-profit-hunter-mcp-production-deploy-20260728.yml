@@ -19,36 +19,24 @@ jobs:
   verify-production:
     if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'deploy/tcos-profit-hunter-mcp-20260728')
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_SCOPE: truelycollectables-projects
-      DEPLOY_SOURCE_SHA: 203168cf1a4825d7772a9f21044d407035c1595b
       PRODUCTION_URL: https://truelycollectables.com
     steps:
-      - name: Check out exact deployed source
-        uses: actions/checkout@v4
-        with:
-          ref: 203168cf1a4825d7772a9f21044d407035c1595b
-          fetch-depth: 1
-
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
 
-      - name: Install exact MCP client dependencies
-        run: npm ci
-
-      - name: Confirm Vercel identity and project
+      - name: Link exact Vercel project
         run: |
           set -euo pipefail
           test -n "${VERCEL_TOKEN:-}"
-          npx vercel@56.2.0 whoami --token "$VERCEL_TOKEN"
-          mkdir -p .vercel .verification-evidence
+          mkdir -p .vercel
           if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
             printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
           else
@@ -64,18 +52,16 @@ jobs:
           set -euo pipefail
           for base in https://truely-collectables.vercel.app https://truelycollectables.com; do
             for path in /api/tcos-profit-hunter/mcp /api/admin/market-intel/profit-hunter-token; do
-              code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output .verification-evidence/unauthorized-response.json --write-out '%{http_code}' "$base$path" || true)"
+              code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output /tmp/unauthorized.json --write-out '%{http_code}' "$base$path" || true)"
               echo "$base$path HTTP=$code"
               test "$code" = "401"
             done
           done
 
-      - name: Create authenticated MCP verification client
+      - name: Create raw MCP protocol verifier
         run: |
-          cat > .verification-evidence/verify-profit-hunter.mjs <<'NODE'
+          cat > /tmp/verify-profit-hunter.mjs <<'NODE'
           import { createHmac } from "node:crypto";
-          import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-          import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
           const root = String(process.env.ADMIN_SESSION_SECRET || "").trim();
           const explicit = String(process.env.TCOS_CONNECTOR_TOKEN || "").trim();
@@ -90,82 +76,120 @@ jobs:
             "/api/tcos-profit-hunter/mcp",
             String(process.env.PRODUCTION_URL || "https://truelycollectables.com"),
           );
-          const transport = new StreamableHTTPClientTransport(endpoint, {
-            requestInit: {
-              headers: {
-                Authorization: `Bearer ${token}`,
-              },
-            },
-          });
-          const client = new Client({ name: "tcos-production-verifier", version: "1.0.0" });
-          client.onerror = (error) => {
-            console.error(`MCP transport error: ${error.message}`);
-          };
+          let sessionId = null;
 
-          await client.connect(transport);
-          const listed = await client.listTools();
-          const names = listed.tools.map((tool) => tool.name).sort();
+          function parseResponse(contentType, text) {
+            if (!text.trim()) return [];
+            if (contentType.includes("application/json")) {
+              const value = JSON.parse(text);
+              return Array.isArray(value) ? value : [value];
+            }
+            if (contentType.includes("text/event-stream")) {
+              return text
+                .split(/\r?\n/)
+                .filter((line) => line.startsWith("data:"))
+                .map((line) => line.slice(5).trim())
+                .filter(Boolean)
+                .map((line) => JSON.parse(line));
+            }
+            throw new Error(`Unexpected MCP content type: ${contentType || "NONE"}; body=${text.slice(0, 800)}`);
+          }
+
+          async function post(message, label) {
+            const headers = {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+              Accept: "application/json, text/event-stream",
+            };
+            if (sessionId) headers["mcp-session-id"] = sessionId;
+            const response = await fetch(endpoint, {
+              method: "POST",
+              headers,
+              body: JSON.stringify(message),
+              redirect: "error",
+            });
+            const text = await response.text();
+            const contentType = String(response.headers.get("content-type") || "");
+            const returnedSession = response.headers.get("mcp-session-id");
+            if (returnedSession) sessionId = returnedSession;
+            console.log(`${label}: HTTP=${response.status} type=${contentType.split(";")[0]} session=${Boolean(sessionId)}`);
+            if (!response.ok) {
+              throw new Error(`${label} failed: HTTP ${response.status}; body=${text.slice(0, 1200)}`);
+            }
+            return parseResponse(contentType, text);
+          }
+
+          const initialized = await post({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: {
+              protocolVersion: "2025-03-26",
+              capabilities: {},
+              clientInfo: { name: "tcos-production-verifier", version: "1.0.0" },
+            },
+          }, "initialize");
+          const initResult = initialized.find((message) => message.id === 1);
+          if (!initResult?.result) throw new Error(`Initialize returned no result: ${JSON.stringify(initialized).slice(0, 1200)}`);
+
+          await post({
+            jsonrpc: "2.0",
+            method: "notifications/initialized",
+            params: {},
+          }, "initialized-notification");
+
+          const toolMessages = await post({
+            jsonrpc: "2.0",
+            id: 2,
+            method: "tools/list",
+            params: {},
+          }, "tools-list");
+          const toolResult = toolMessages.find((message) => message.id === 2)?.result;
+          const names = (toolResult?.tools || []).map((tool) => tool.name).sort();
           const expected = [
             "profit_hunter_status",
             "search_profit_hunter_candidates",
             "verify_profit_hunter_listing",
           ].sort();
           for (const name of expected) {
-            if (!names.includes(name)) throw new Error(`Missing MCP tool: ${name}`);
+            if (!names.includes(name)) throw new Error(`Missing MCP tool: ${name}; found=${names.join(",")}`);
           }
 
-          const result = await client.callTool({
-            name: "profit_hunter_status",
-            arguments: {},
-          });
-          if (result.isError) {
-            throw new Error(`Profit Hunter status tool failed: ${JSON.stringify(result.content)}`);
-          }
-          const text = result.content?.find((entry) => entry.type === "text")?.text;
-          if (!text) throw new Error("Profit Hunter status returned no text payload.");
-          const payload = JSON.parse(text);
+          const statusMessages = await post({
+            jsonrpc: "2.0",
+            id: 3,
+            method: "tools/call",
+            params: { name: "profit_hunter_status", arguments: {} },
+          }, "profit-hunter-status");
+          const statusResult = statusMessages.find((message) => message.id === 3)?.result;
+          const textPayload = statusResult?.content?.find((entry) => entry.type === "text")?.text;
+          if (!textPayload) throw new Error(`Status tool returned no text: ${JSON.stringify(statusResult).slice(0, 1200)}`);
+          const payload = JSON.parse(textPayload);
           if (payload?.hardenedInstaComp?.configured !== true) {
-            throw new Error("Hardened InstaComp is not configured in Production.");
+            throw new Error(`Hardened InstaComp is not configured: ${JSON.stringify(payload?.hardenedInstaComp)}`);
           }
           if (payload?.purchaseWritesEnabled !== false) {
-            throw new Error("Profit Hunter MCP unexpectedly exposes purchase writes.");
+            throw new Error("Profit Hunter unexpectedly exposes purchase writes.");
           }
           if (
             !payload?.discovery?.openAiPublicWeb &&
             !payload?.discovery?.ebayBrowse &&
             !payload?.discovery?.xRecentSearch
           ) {
-            throw new Error("No automatic public discovery provider is configured in Production.");
+            throw new Error(`No automatic discovery provider is configured: ${JSON.stringify(payload?.discovery)}`);
           }
 
           console.log(JSON.stringify({
             connected: true,
-            sourceSha: process.env.DEPLOY_SOURCE_SHA,
-            toolCount: names.length,
             tools: names,
             hardenedInstaCompConfigured: true,
             automaticDiscoveryConfigured: true,
             purchaseWritesEnabled: false,
           }));
-          await client.close();
           NODE
 
-      - name: Run authenticated MCP verification with Production environment
+      - name: Run authenticated raw MCP protocol verification
         run: |
           set -euo pipefail
-          PRODUCTION_URL="$PRODUCTION_URL" DEPLOY_SOURCE_SHA="$DEPLOY_SOURCE_SHA" \
-            npx vercel@56.2.0 env run -e production -- node .verification-evidence/verify-profit-hunter.mjs \
-            2>&1 | tee .verification-evidence/authenticated-mcp-verification.log
-          grep -Fq '"connected":true' .verification-evidence/authenticated-mcp-verification.log
-          grep -Fq '"hardenedInstaCompConfigured":true' .verification-evidence/authenticated-mcp-verification.log
-          grep -Fq '"automaticDiscoveryConfigured":true' .verification-evidence/authenticated-mcp-verification.log
-          grep -Fq '"purchaseWritesEnabled":false' .verification-evidence/authenticated-mcp-verification.log
-
-      - name: Upload verification evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: tcos-profit-hunter-mcp-production-verification-${{ github.run_number }}
-          path: .verification-evidence
-          if-no-files-found: warn
-          retention-days: 30
+          PRODUCTION_URL="$PRODUCTION_URL" \
+            npx vercel@56.2.0 env run -e production -- node /tmp/verify-profit-hunter.mjs
