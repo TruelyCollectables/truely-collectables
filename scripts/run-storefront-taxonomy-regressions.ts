@@ -289,6 +289,26 @@ const authoritativeSyncSource = fs.readFileSync(
   "src/lib/ebay-authoritative-store-sync.ts",
   "utf8",
 );
+assert.ok(
+  authoritativeSyncSource.includes("const MAX_ACTIVE_LISTINGS = 3000;"),
+  "Authoritative eBay inventory reads must stop at the approved 3,000-active-listing ceiling.",
+);
+assert.ok(
+  authoritativeSyncSource.includes(
+    "const MAX_PAGES = Math.ceil(MAX_ACTIVE_LISTINGS / PAGE_SIZE);",
+  ),
+  "The authoritative page limit must derive from the 3,000-listing ceiling.",
+);
+assert.match(
+  authoritativeSyncSource,
+  /<ActiveList>[\s\S]*<Include>true<\/Include>/,
+  "The authoritative pull must request eBay's active-listing collection only.",
+);
+assert.match(
+  authoritativeSyncSource,
+  /if \(params\.deactivateEnded && remote\.cycleComplete\)/,
+  "Ended or sold listings may be zeroed only after every capped active page was read.",
+);
 assert.ok(authoritativeSyncSource.includes("const LOCAL_PAGE_SIZE = 1000;"));
 assert.ok(
   authoritativeSyncSource.includes(

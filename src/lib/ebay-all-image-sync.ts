@@ -9,7 +9,8 @@ import { getStoreSettings } from "./store-settings";
 
 const TRADING_API_VERSION = "1409";
 const PAGE_SIZE = 200;
-const MAX_PAGES = 25;
+const MAX_ACTIVE_LISTINGS = 3000;
+const MAX_PAGES = Math.ceil(MAX_ACTIVE_LISTINGS / PAGE_SIZE);
 const APPLY_CONCURRENCY = 8;
 const DATABASE_PAGE_SIZE = 1000;
 const MAX_DATABASE_PAGES = 50;
