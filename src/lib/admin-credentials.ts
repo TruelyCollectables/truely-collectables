@@ -121,10 +121,13 @@ async function writeCredential(
     [ADMIN_AUTH_METADATA_KEY]: credential,
   };
 
+  // The Production store_settings contract owns its timestamp behavior. Write
+  // only the existing metadata column; injecting an assumed updated_at column
+  // caused the recovery flow to fail closed with storage_error.
   if (state.row) {
     const { error } = await state.supabase
       .from("store_settings")
-      .update({ metadata, updated_at: new Date().toISOString() })
+      .update({ metadata })
       .eq("store_id", state.storeId);
     if (error) {
       throw new Error(`Admin credential could not be saved: ${error.message}`);
@@ -136,7 +139,6 @@ async function writeCredential(
     {
       store_id: state.storeId,
       metadata,
-      updated_at: new Date().toISOString(),
     },
     { onConflict: "store_id" },
   );
