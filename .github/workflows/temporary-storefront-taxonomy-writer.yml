@@ -72,6 +72,7 @@ jobs:
             src/lib/storefront-taxonomy.ts \
             src/lib/ebay-category-mapper.ts \
             src/lib/ebay-sync.ts \
+            src/lib/server-inventory-engine.ts \
             src/modules/inventory/types.ts \
             src/modules/inventory/repository.ts \
             src/modules/inventory/engine.ts \
@@ -96,6 +97,7 @@ jobs:
             storefront-taxonomy-build.log
             src/lib/storefront-taxonomy.ts
             src/lib/ebay-category-mapper.ts
+            src/lib/server-inventory-engine.ts
             src/modules/inventory/types.ts
             scripts/run-storefront-taxonomy-regressions.ts
           if-no-files-found: warn
