@@ -6,12 +6,14 @@ on:
       - agent/collectibles-catalog-sync-20260728
     paths:
       - "scripts/apply-collectibles-catalog-expansion.py"
+      - "scripts/preapply-collectibles-catalog-fixes.py"
       - ".github/workflows/temporary-collectibles-catalog-writer.yml"
   pull_request:
     branches:
       - main
     paths:
       - "scripts/apply-collectibles-catalog-expansion.py"
+      - "scripts/preapply-collectibles-catalog-fixes.py"
       - ".github/workflows/temporary-collectibles-catalog-writer.yml"
   workflow_dispatch:
 
@@ -55,6 +57,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
+          python scripts/preapply-collectibles-catalog-fixes.py
           python scripts/apply-collectibles-catalog-expansion.py 2>&1 | tee collectibles-catalog-patch.log
           sed -i 's/isLaunchSportsCard/isLaunchCollectible/g' src/lib/server-inventory-engine.ts
       - name: Install exact dependencies
