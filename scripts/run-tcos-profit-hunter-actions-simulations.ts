@@ -46,15 +46,15 @@ assert.match(service, /purchaseReady: false/);
 assert.doesNotMatch(service, /recordPurchase|purchaseItem|checkout|buyNow/i);
 
 assert.match(openapiSource, /openapi: "3\.0\.3"/);
+assert.match(openapiSource, /serverUrl = "https:\/\/truelycollectables\.com"/);
 assert.match(openapiSource, /scheme: "bearer"/);
 assert.match(openapiSource, /operationId: "getProfitHunterStatus"/);
 assert.match(openapiSource, /operationId: "searchProfitHunterCandidates"/);
 assert.match(openapiSource, /operationId: "verifyProfitHunterListing"/);
 assert.match(openapiSource, /"x-openai-isConsequential": false/g);
-assert.match(
-  openapiSource,
-  /https:\/\/truelycollectables\.com\/api\/tcos-profit-hunter\/actions/,
-);
+assert.match(openapiSource, /\/api\/tcos-profit-hunter\/actions\/status/);
+assert.match(openapiSource, /\/api\/tcos-profit-hunter\/actions\/search/);
+assert.match(openapiSource, /\/api\/tcos-profit-hunter\/actions\/verify/);
 assert.match(openapiSource, /It never purchases items/);
 
 console.log(
