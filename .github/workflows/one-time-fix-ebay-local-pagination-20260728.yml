@@ -257,12 +257,32 @@ jobs:
           PY
 
       - name: Verify patch before commit
+        shell: bash
         run: |
           set -euo pipefail
-          npm ci
-          node --import tsx scripts/run-storefront-taxonomy-regressions.ts
-          npx eslint src/lib/ebay-authoritative-store-sync.ts scripts/run-storefront-taxonomy-regressions.ts
-          npm run build
+          mkdir -p pagination-fix-validation
+          npm ci --silent > pagination-fix-validation/npm-ci.log 2>&1 || {
+            echo 'npm ci failed'; tail -n 120 pagination-fix-validation/npm-ci.log; exit 1;
+          }
+          node --import tsx scripts/run-storefront-taxonomy-regressions.ts > pagination-fix-validation/regressions.log 2>&1 || {
+            echo 'regressions failed'; cat pagination-fix-validation/regressions.log; exit 1;
+          }
+          npx eslint src/lib/ebay-authoritative-store-sync.ts scripts/run-storefront-taxonomy-regressions.ts > pagination-fix-validation/eslint.log 2>&1 || {
+            echo 'eslint failed'; cat pagination-fix-validation/eslint.log; exit 1;
+          }
+          npm run build > pagination-fix-validation/build.log 2>&1 || {
+            echo 'build failed'; tail -n 160 pagination-fix-validation/build.log; exit 1;
+          }
+          printf 'all validation passed\n' > pagination-fix-validation/result.txt
+
+      - name: Upload validation diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ebay-local-pagination-validation-${{ github.run_number }}
+          path: pagination-fix-validation
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Commit patched sync engine
         shell: bash
