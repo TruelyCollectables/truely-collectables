@@ -4,6 +4,7 @@ import path from "node:path";
 const origin = process.env.PRODUCTION_ORIGIN || "https://truelycollectables.com";
 const limit = Number(process.env.EBAY_IMPORT_LIMIT || 100);
 const maxPages = Number(process.env.EBAY_IMPORT_MAX_PAGES || 25);
+const adminSessionValue = String(process.env.ADMIN_SESSION_VALUE || "").trim();
 const runId = `storefront-taxonomy-${process.env.GITHUB_RUN_ID || "manual"}-${Date.now()}`;
 const outputDir = path.resolve("ebay-taxonomy-sync");
 const pageDir = path.join(outputDir, "pages");
@@ -22,12 +23,13 @@ function cleanError(error) {
     .slice(0, 1000);
 }
 
-async function fetchText(url, timeoutMs) {
+async function fetchText(url, timeoutMs, additionalHeaders = {}) {
   const response = await fetch(url, {
     headers: {
       accept: "application/json,text/html;q=0.9,*/*;q=0.8",
       "cache-control": "no-cache",
-      "user-agent": "TCOS-Authorized-Ebay-Taxonomy-Sync/2.0",
+      "user-agent": "TCOS-Authorized-Ebay-Taxonomy-Sync/3.0",
+      ...additionalHeaders,
     },
     redirect: "follow",
     signal: AbortSignal.timeout(timeoutMs),
@@ -36,6 +38,13 @@ async function fetchText(url, timeoutMs) {
 }
 
 async function runImport() {
+  if (!adminSessionValue) {
+    throw new Error("The one-run admin session was not generated; refusing to call the protected import endpoint.");
+  }
+
+  const adminHeaders = {
+    cookie: `tcos_admin_auth_v3=${adminSessionValue}`,
+  };
   const totals = {
     imported: 0,
     markedSold: 0,
@@ -56,7 +65,7 @@ async function runImport() {
     url.searchParams.set("runId", runId);
     console.log(`[import] page=${page} offset=${offset} limit=${limit}`);
 
-    const { response, text } = await fetchText(url, 295_000);
+    const { response, text } = await fetchText(url, 295_000, adminHeaders);
     const receiptPath = path.join(
       pageDir,
       `page-${String(page).padStart(2, "0")}-offset-${offset}.json`,
@@ -135,7 +144,7 @@ async function runImport() {
   }
 
   const summary = {
-    schema: "truelycollectables.ebayTaxonomySync.v2",
+    schema: "truelycollectables.ebayTaxonomySync.v3",
     generatedAt: new Date().toISOString(),
     origin,
     runId,
