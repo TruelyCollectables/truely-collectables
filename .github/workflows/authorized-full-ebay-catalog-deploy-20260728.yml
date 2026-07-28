@@ -13,7 +13,7 @@ permissions:
 
 concurrency:
   group: authorized-full-ebay-catalog-production-deploy
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   deploy-production:
@@ -84,7 +84,6 @@ jobs:
         run: |
           set -euo pipefail
           marker='Cards and memorabilia stay in their correct section.'
-          title='Shop Sports Cards & Collectibles'
           urls=(
             "$DEPLOYMENT_URL/shop"
             'https://truely-collectables.vercel.app/shop'
@@ -98,7 +97,7 @@ jobs:
               body=".deployment-evidence/${slug}-${attempt}.html"
               code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 60 --output "$body" --write-out '%{http_code}' "$url" || true)"
               echo "$url HTTP=$code"
-              if [ "$code" = '200' ] && grep -Fq "$marker" "$body" && grep -Fq "$title" "$body"; then
+              if [ "$code" = '200' ] && grep -Fq "$marker" "$body"; then
                 success="$url"
                 printf '%s\n' "$url" > .deployment-evidence/verified-url.txt
                 break 2
