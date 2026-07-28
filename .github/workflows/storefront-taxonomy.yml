@@ -1,0 +1,84 @@
+name: Storefront Taxonomy and Filters
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "src/lib/storefront-taxonomy.ts"
+      - "src/lib/ebay-category-mapper.ts"
+      - "src/lib/ebay-sync.ts"
+      - "src/lib/server-inventory-engine.ts"
+      - "src/modules/inventory/**"
+      - "src/app/shop/**"
+      - "src/app/page.tsx"
+      - "src/app/components/Navbar.tsx"
+      - "scripts/run-storefront-taxonomy-regressions.ts"
+      - ".github/workflows/storefront-taxonomy.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "src/lib/storefront-taxonomy.ts"
+      - "src/lib/ebay-category-mapper.ts"
+      - "src/lib/ebay-sync.ts"
+      - "src/lib/server-inventory-engine.ts"
+      - "src/modules/inventory/**"
+      - "src/app/shop/**"
+      - "src/app/page.tsx"
+      - "src/app/components/Navbar.tsx"
+      - "scripts/run-storefront-taxonomy-regressions.ts"
+      - ".github/workflows/storefront-taxonomy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: storefront-taxonomy-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  storefront-taxonomy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+      ADMIN_SESSION_SECRET: build-only-placeholder-session-secret
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+      EBAY_CLIENT_ID: build-only-placeholder-client-id
+      EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+      EBAY_ENVIRONMENT: production
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Run storefront taxonomy regressions
+        run: node --import tsx scripts/run-storefront-taxonomy-regressions.ts
+      - name: Lint storefront taxonomy paths
+        run: >-
+          npx eslint
+          src/lib/storefront-taxonomy.ts
+          src/lib/ebay-category-mapper.ts
+          src/lib/ebay-sync.ts
+          src/lib/server-inventory-engine.ts
+          src/modules/inventory/types.ts
+          src/modules/inventory/repository.ts
+          src/modules/inventory/engine.ts
+          src/app/shop/page.tsx
+          src/app/page.tsx
+          src/app/components/Navbar.tsx
+          scripts/run-storefront-taxonomy-regressions.ts
+      - name: Build production application
+        run: npm run build
