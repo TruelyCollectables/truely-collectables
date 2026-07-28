@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { mapEbayInventoryCategory } from "../src/lib/ebay-category-mapper";
+import { ebayAuthoritativeStoreSyncTestHelpers } from "../src/lib/ebay-authoritative-store-sync";
 import {
   classifyStorefrontItem,
   matchesStorefrontFilters,
@@ -50,6 +51,35 @@ const hockey = classifyStorefrontItem({
 });
 assert.equal(hockey.section, "Hockey");
 assert.equal(hockey.features.rookie, true);
+
+const authoritativeWnba = ebayAuthoritativeStoreSyncTestHelpers.parseRemoteListing(`
+<Item>
+  <ItemID>1234567890</ItemID>
+  <ListingType>FixedPriceItem</ListingType>
+  <Title>2024 Panini Prizm WNBA Caitlin Clark Rookie Autograph /25</Title>
+  <StartPrice>199.99</StartPrice>
+  <Quantity>1</Quantity>
+  <PictureDetails>
+    <GalleryURL>https://i.ebayimg.com/images/g/example/s-l1600.jpg</GalleryURL>
+  </PictureDetails>
+  <PrimaryCategory>
+    <CategoryID>261328</CategoryID>
+    <CategoryName>Sports Trading Cards</CategoryName>
+  </PrimaryCategory>
+  <ItemSpecifics>
+    <NameValueList><Name>Sport</Name><Value>Basketball</Value></NameValueList>
+    <NameValueList><Name>League</Name><Value>Women's National Basketball Association (WNBA)</Value></NameValueList>
+    <NameValueList><Name>Autographed</Name><Value>Yes</Value></NameValueList>
+    <NameValueList><Name>Features</Name><Value>Rookie, Serial Numbered</Value></NameValueList>
+  </ItemSpecifics>
+</Item>`);
+assert.ok(authoritativeWnba);
+assert.equal(authoritativeWnba.sport, "WNBA");
+assert.equal(authoritativeWnba.mappedCategory, "sports_cards");
+assert.equal(authoritativeWnba.storefrontMetadata.tcos_is_autograph, true);
+assert.equal(authoritativeWnba.storefrontMetadata.tcos_is_rookie, true);
+assert.equal(authoritativeWnba.storefrontMetadata.tcos_is_numbered, true);
+assert.equal(authoritativeWnba.storefrontAttributes.tcos_storefront_section, "WNBA");
 
 const inventory = [
   {
