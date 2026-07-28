@@ -19,13 +19,15 @@ jobs:
   verify-production-sync:
     if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ops/verify-full-ebay-catalog-sync-20260728')
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_SCOPE: truelycollectables-projects
       PRODUCTION_ORIGIN: https://truelycollectables.com
+      CRON_NOT_BEFORE_UTC: 2026-07-28T05:31:30Z
+      CRON_COMPLETION_TARGET_UTC: 2026-07-28T05:38:00Z
     steps:
       - name: Check out verification runner
         uses: actions/checkout@v4
@@ -54,34 +56,106 @@ jobs:
               --token "$VERCEL_TOKEN"
           fi
 
-      - name: Capture raw production runtime logs
+      - name: Wait for v4 protected cron completion window
         shell: bash
         run: |
-          set +e
-          npx vercel@56.2.0 logs \
-            --project truely-collectables \
-            --environment production \
-            --since 90m \
-            --no-branch \
-            --json \
-            --limit 1000 \
-            --scope "$VERCEL_SCOPE" \
-            --token "$VERCEL_TOKEN" \
-            > sync-verification/logs/runtime.jsonl \
-            2> sync-verification/logs/runtime.stderr
-          printf '%s\n' "$?" > sync-verification/logs/runtime.exit-code
-          grep -F 'ebay-store-fixed-price-sync' sync-verification/logs/runtime.jsonl \
-            > sync-verification/logs/ebay-cron-lines.jsonl || true
-          wc -l sync-verification/logs/runtime.jsonl sync-verification/logs/ebay-cron-lines.jsonl \
-            > sync-verification/logs/line-counts.txt
-          cat sync-verification/logs/line-counts.txt
-          cat sync-verification/logs/runtime.stderr
-          exit 0
+          set -euo pipefail
+          target="$(date -u -d "$CRON_COMPLETION_TARGET_UTC" +%s)"
+          now="$(date -u +%s)"
+          if [ "$target" -gt "$now" ]; then
+            delay="$((target - now))"
+            echo "Waiting ${delay}s for the v4 cron completion window."
+            sleep "$delay"
+          fi
 
-      - name: Capture raw live storefront pages
+      - name: Capture sanitized v4 cron completion receipt
         shell: bash
         run: |
-          set +e
+          set -euo pipefail
+          found=''
+          for attempt in $(seq 1 12); do
+            raw="sync-verification/logs/runtime-${attempt}.jsonl"
+            echo "Receipt query ${attempt}/12"
+            npx vercel@56.2.0 logs \
+              --project truely-collectables \
+              --environment production \
+              --since 45m \
+              --no-branch \
+              --json \
+              --limit 1000 \
+              --scope "$VERCEL_SCOPE" \
+              --token "$VERCEL_TOKEN" \
+              > "$raw" \
+              2> "sync-verification/logs/runtime-${attempt}.stderr" || true
+            ATTEMPT="$attempt" RAW_FILE="$raw" node <<'NODE'
+            const fs = require('node:fs');
+            const notBefore = Date.parse(process.env.CRON_NOT_BEFORE_UTC);
+            const prefix = '[ebay-store-fixed-price-sync] ';
+            const lines = fs.readFileSync(process.env.RAW_FILE, 'utf8').split(/\r?\n/).filter(Boolean);
+            const candidates = [];
+            for (const line of lines) {
+              try {
+                const row = JSON.parse(line);
+                if (Number(row.timestamp || 0) < notBefore) continue;
+                const serialized = JSON.stringify(row);
+                if (!serialized.includes('ebay_store_fixed_price_sync_completed') && !serialized.includes(prefix)) continue;
+                const message = String(row.message || row.msg || row.text || '');
+                let receipt = null;
+                const index = message.indexOf(prefix);
+                if (index >= 0) {
+                  try { receipt = JSON.parse(message.slice(index + prefix.length)); } catch {}
+                }
+                candidates.push({ row, receipt });
+              } catch {}
+            }
+            const withReceipt = candidates.filter((entry) => entry.receipt);
+            const latest = withReceipt.at(-1) || null;
+            const output = {
+              attempt: Number(process.env.ATTEMPT),
+              notBefore: process.env.CRON_NOT_BEFORE_UTC,
+              candidateCount: candidates.length,
+              parsedReceiptCount: withReceipt.length,
+              receipt: latest?.receipt || null,
+              matchedRows: candidates.map((entry) => entry.row),
+            };
+            fs.writeFileSync(
+              `sync-verification/logs/cron-receipt-${process.env.ATTEMPT}.json`,
+              JSON.stringify(output, null, 2) + '\n',
+            );
+            console.log(JSON.stringify({
+              attempt: output.attempt,
+              candidateCount: output.candidateCount,
+              parsedReceiptCount: output.parsedReceiptCount,
+              success: output.receipt?.success ?? null,
+              errors: output.receipt?.errors ?? null,
+            }));
+            NODE
+            receipt_file="sync-verification/logs/cron-receipt-${attempt}.json"
+            if grep -Fq '"receipt": {' "$receipt_file"; then
+              cp "$receipt_file" sync-verification/logs/cron-receipt-final.json
+              found="$attempt"
+              break
+            fi
+            sleep 30
+          done
+          test -n "$found"
+          node <<'NODE'
+          const fs = require('node:fs');
+          const result = JSON.parse(fs.readFileSync('sync-verification/logs/cron-receipt-final.json', 'utf8'));
+          const receipt = result.receipt;
+          console.log(JSON.stringify(receipt, null, 2));
+          if (!receipt) throw new Error('No sanitized eBay cron completion receipt was parsed.');
+          if (receipt.success !== true) {
+            throw new Error(`eBay cron completed with errors: ${JSON.stringify(receipt.errors || [])}`);
+          }
+          if (!receipt.authoritative?.cycleComplete) throw new Error('Authoritative eBay cycle was not complete.');
+          if (Number(receipt.authoritative?.failed || 0) !== 0) throw new Error('Authoritative listing failures remain.');
+          NODE
+
+      - name: Capture live v4 storefront pages
+        shell: bash
+        run: |
+          set -euo pipefail
           fetch_page() {
             key="$1"
             path="$2"
@@ -89,28 +163,97 @@ jobs:
             code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 90 \
               --header 'Cache-Control: no-cache' \
               --output "$body" --write-out '%{http_code}' \
-              "${PRODUCTION_ORIGIN}${path}")"
+              "${PRODUCTION_ORIGIN}${path}" || true)"
             printf '%s\n' "$code" > "sync-verification/storefront/${key}.status"
             printf '%s\n' "${PRODUCTION_ORIGIN}${path}" > "sync-verification/storefront/${key}.url"
             echo "$key HTTP=$code bytes=$(wc -c < "$body" 2>/dev/null || echo 0)"
+            test "$code" = '200'
           }
           fetch_page all '/shop'
           fetch_page pucks '/shop?section=Pucks'
-          fetch_page balls '/shop?section=Balls'
-          fetch_page jerseys '/shop?section=Jerseys'
           fetch_page autographs '/shop?feature=autograph'
+          fetch_page jerseys '/shop?section=Jerseys'
           fetch_page tcg '/shop?section=Trading%20Card%20Games'
           fetch_page other '/shop?section=Other%20Collectables'
+          fetch_page forsberg-hockey '/shop?section=Hockey&q=Peter%20Forsberg%20Red%20Jersey'
+          fetch_page forsberg-jerseys '/shop?section=Jerseys&q=Peter%20Forsberg%20Red%20Jersey'
+          fetch_page howe-hockey '/shop?section=Hockey&q=Gordie%20Howe%20Exquisite'
+          fetch_page howe-tcg '/shop?section=Trading%20Card%20Games&q=Gordie%20Howe%20Exquisite'
+          fetch_page wailord-tcg '/shop?section=Trading%20Card%20Games&q=Wailord'
           fetch_page shoes-blocked '/shop?q=shoes'
           fetch_page pants-blocked '/shop?q=pants'
           fetch_page parts-blocked '/shop?q=fuel%20sensor'
-          exit 0
 
-      - name: Upload raw full-catalog diagnostics
+      - name: Verify exact live v4 corrections and exclusions
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const checks = [
+            { key: 'all', min: 1 },
+            { key: 'pucks', min: 1 },
+            { key: 'autographs', min: 1 },
+            { key: 'jerseys' },
+            { key: 'tcg', min: 1 },
+            { key: 'other' },
+            { key: 'forsberg-hockey', min: 1 },
+            { key: 'forsberg-jerseys', exact: 0 },
+            { key: 'howe-hockey', min: 1 },
+            { key: 'howe-tcg', exact: 0 },
+            { key: 'wailord-tcg', min: 1 },
+            { key: 'shoes-blocked', exact: 0 },
+            { key: 'pants-blocked', exact: 0 },
+            { key: 'parts-blocked', exact: 0 },
+          ];
+          const decode = (value) => value
+            .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+            .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+            .replace(/<[^>]*>/g, ' ')
+            .replace(/&amp;/g, '&')
+            .replace(/&#39;/g, "'")
+            .replace(/&quot;/g, '"')
+            .replace(/&nbsp;/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+          const results = [];
+          for (const check of checks) {
+            const html = fs.readFileSync(`sync-verification/storefront/${check.key}.html`, 'utf8');
+            const plain = decode(html);
+            const countMatch = plain.match(/([\d,]+) active cards & collectibles/i);
+            const activeItems = countMatch ? Number(countMatch[1].replaceAll(',', '')) : null;
+            const titles = Array.from(html.matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/gi))
+              .map((match) => decode(match[1]))
+              .filter(Boolean)
+              .slice(0, 12);
+            const result = {
+              key: check.key,
+              activeItems,
+              sampleTitles: titles,
+              markerPresent: plain.includes('Cards and memorabilia stay in their correct section.'),
+            };
+            results.push(result);
+            console.log(JSON.stringify(result));
+            if (!result.markerPresent) throw new Error(`${check.key} does not show the deployed full-catalog marker.`);
+            if (!Number.isInteger(activeItems)) throw new Error(`${check.key} count could not be parsed.`);
+            if (Number.isInteger(check.exact) && activeItems !== check.exact) {
+              throw new Error(`${check.key} expected ${check.exact}; found ${activeItems}.`);
+            }
+            if (Number.isInteger(check.min) && activeItems < check.min) {
+              throw new Error(`${check.key} expected at least ${check.min}; found ${activeItems}.`);
+            }
+          }
+          fs.writeFileSync(
+            'sync-verification/storefront-v4-verification.json',
+            JSON.stringify({ generatedAt: new Date().toISOString(), success: true, results }, null, 2) + '\n',
+          );
+          NODE
+
+      - name: Upload v4 sync verification evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: full-ebay-catalog-sync-diagnostics-${{ github.run_number }}
+          name: ebay-category-authority-v4-sync-verification-${{ github.run_number }}
           path: sync-verification
           if-no-files-found: error
           retention-days: 30
