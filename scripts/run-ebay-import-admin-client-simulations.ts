@@ -38,6 +38,10 @@ const publicInventoryEngine = fs.readFileSync(
   "src/lib/server-inventory-engine.ts",
   "utf8",
 );
+const inventoryEngineSource = fs.readFileSync(
+  "src/modules/inventory/engine.ts",
+  "utf8",
+);
 const productImageRoute = fs.readFileSync(
   "src/app/api/storefront/product-images/[id]/route.ts",
   "utf8",
@@ -118,6 +122,26 @@ assert.match(
   publicInventoryEngine,
   /items\.filter\(isLaunchCollectible\)/,
   "Every public inventory feed must enforce the approved catalog exclusions.",
+);
+assert.match(
+  inventoryEngineSource,
+  /const DATABASE_PAGE_SIZE = 1000;/,
+  "Storefront inventory reads must use explicit database pagination.",
+);
+assert.match(
+  inventoryEngineSource,
+  /function readAllStoreProducts[\s\S]*\.range\(from, from \+ DATABASE_PAGE_SIZE - 1\)/,
+  "Product reads must continue beyond Supabase's default 1,000-row limit.",
+);
+assert.match(
+  inventoryEngineSource,
+  /function readAllStoreInventoryItems[\s\S]*\.range\(from, from \+ DATABASE_PAGE_SIZE - 1\)/,
+  "Inventory-item reads must continue beyond Supabase's default 1,000-row limit.",
+);
+assert.match(
+  inventoryEngineSource,
+  /async listAvailable[\s\S]*readAllStoreProducts[\s\S]*readAllStoreInventoryItems/,
+  "The public storefront must use the complete paginated product and inventory sets.",
 );
 assert.match(
   publicInventoryEngine,
