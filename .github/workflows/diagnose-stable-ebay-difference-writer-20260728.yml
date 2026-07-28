@@ -1,4 +1,4 @@
-name: Execute Stable eBay Difference Repair 20260728
+name: Certify Stable eBay Difference Repair 20260728
 
 on:
   pull_request:
@@ -8,10 +8,10 @@ on:
       - ".github/workflows/diagnose-stable-ebay-difference-writer-20260728.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: execute-stable-ebay-difference-repair-20260728
+  group: certify-stable-ebay-difference-repair-20260728
   cancel-in-progress: false
 
 jobs:
@@ -38,10 +38,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: agent/diagnose-stable-ebay-differences-20260728
-          fetch-depth: 0
-          token: ${{ github.token }}
+          fetch-depth: 1
 
-      - name: Apply stable field diagnostics
+      - name: Apply stable field diagnostics locally
         shell: bash
         run: |
           set -euo pipefail
@@ -249,14 +248,6 @@ jobs:
           if test.count(marker) != 1:
               raise SystemExit(f'changed-sample regression: expected one match, found {test.count(marker)}')
           image_test.write_text(test.replace(marker, addition, 1))
-
-          for workflow in [
-              '.github/workflows/one-time-diagnose-stable-ebay-differences-20260728.yml',
-              '.github/workflows/one-time-diagnose-stable-ebay-differences-v2-20260728.yml',
-              '.github/workflows/diagnose-stable-ebay-difference-writer-20260728.yml',
-          ]:
-              candidate = Path(workflow)
-              if candidate.exists(): candidate.unlink()
           PY
 
       - name: Validate stable comparison diagnostics
@@ -268,12 +259,20 @@ jobs:
           npx eslint src/lib/ebay-authoritative-store-sync.ts src/app/api/cron/ebay-store-fixed-price-sync/route.ts scripts/run-storefront-taxonomy-regressions.ts scripts/run-ebay-import-admin-client-simulations.ts
           npm run build
 
-      - name: Commit validated diagnostics
+      - name: Package certified files
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name "Truely Collectables Automation"
-          git config user.email "automation@truelycollectables.com"
-          git add src/lib/ebay-authoritative-store-sync.ts src/app/api/cron/ebay-store-fixed-price-sync/route.ts scripts/run-storefront-taxonomy-regressions.ts scripts/run-ebay-import-admin-client-simulations.ts .github/workflows/one-time-diagnose-stable-ebay-differences-20260728.yml .github/workflows/one-time-diagnose-stable-ebay-differences-v2-20260728.yml .github/workflows/diagnose-stable-ebay-difference-writer-20260728.yml
-          git commit -m "Diagnose and stabilize eBay inventory differences"
-          git push origin HEAD:agent/diagnose-stable-ebay-differences-20260728
+          mkdir -p certified/src/lib certified/src/app/api/cron/ebay-store-fixed-price-sync certified/scripts
+          cp src/lib/ebay-authoritative-store-sync.ts certified/src/lib/
+          cp src/app/api/cron/ebay-store-fixed-price-sync/route.ts certified/src/app/api/cron/ebay-store-fixed-price-sync/
+          cp scripts/run-storefront-taxonomy-regressions.ts certified/scripts/
+          cp scripts/run-ebay-import-admin-client-simulations.ts certified/scripts/
+          git diff -- src/lib/ebay-authoritative-store-sync.ts src/app/api/cron/ebay-store-fixed-price-sync/route.ts scripts/run-storefront-taxonomy-regressions.ts scripts/run-ebay-import-admin-client-simulations.ts > certified/certified.patch
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: certified-stable-ebay-difference-repair-${{ github.run_number }}
+          path: certified
+          if-no-files-found: error
+          retention-days: 7
