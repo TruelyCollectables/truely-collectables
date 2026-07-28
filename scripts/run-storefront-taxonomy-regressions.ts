@@ -284,4 +284,35 @@ assert.ok(authoritativePokemonCard);
 assert.equal(authoritativePokemonCard.mappedCategory, "trading_cards");
 assert.equal(authoritativePokemonCard.sport, "Trading Card Games");
 
-console.log("Storefront taxonomy regressions passed.");
+async function runLocalPaginationRegression() {
+  const paginationRequests: Array<[number, number]> = [];
+  const paginatedRows =
+    await ebayAuthoritativeStoreSyncTestHelpers.collectPaginatedRows<number>({
+      fetchPage: async (from, to) => {
+        paginationRequests.push([from, to]);
+        if (from === 0) return Array.from({ length: 1000 }, (_, index) => index);
+        if (from === 1000) {
+          return Array.from({ length: 1000 }, (_, index) => 1000 + index);
+        }
+        if (from === 2000) {
+          return Array.from({ length: 153 }, (_, index) => 2000 + index);
+        }
+        return [];
+      },
+    });
+  assert.equal(paginatedRows.length, 2153);
+  assert.deepEqual(paginationRequests, [
+    [0, 999],
+    [1000, 1999],
+    [2000, 2999],
+  ]);
+  assert.equal(paginatedRows[0], 0);
+  assert.equal(paginatedRows.at(-1), 2152);
+}
+
+runLocalPaginationRegression()
+  .then(() => console.log("Storefront taxonomy regressions passed."))
+  .catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
