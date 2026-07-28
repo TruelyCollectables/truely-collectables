@@ -913,9 +913,9 @@ export async function runEbayAuthoritativeStoreSync(params: {
     accessToken,
   });
   const locals = await readAllLocalProducts({
-  supabase: params.supabase,
-  storeId: params.storeId,
-});
+    supabase: params.supabase,
+    storeId: params.storeId,
+  });
   const taxonomyRefreshRequired =
     Number(
       recordValue(connection.import_cursor).storefront_taxonomy_version || 0,
@@ -1048,9 +1048,9 @@ export async function runEbayAuthoritativeStoreSync(params: {
         itemId: "bulk-touch",
         title: "Unchanged eBay listings",
         error: syncErrorMessage(
-        error,
-        "Could not refresh sync timestamps.",
-      ),
+          error,
+          "Could not refresh sync timestamps.",
+        ),
       });
     }
 
@@ -1062,15 +1062,15 @@ export async function runEbayAuthoritativeStoreSync(params: {
       await runWorkers(endedLocals, async (local) => {
         try {
           const changed = await deactivateLocalProduct({ ...params, local });
-        if (changed) deactivated += 1;
+          if (changed) deactivated += 1;
         } catch (error) {
           errors.push({
             itemId: String(local.ebay_item_id || ""),
             title: local.title,
             error: syncErrorMessage(
-            error,
-            "Unknown deactivate failure.",
-          ),
+              error,
+              "Unknown deactivate failure.",
+            ),
           });
         }
       });
