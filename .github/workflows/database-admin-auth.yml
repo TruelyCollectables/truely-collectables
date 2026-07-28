@@ -14,13 +14,12 @@ on:
       - "src/app/api/admin/login/route.ts"
       - "src/app/api/admin/password-reset/**"
       - "src/app/api/admin/market-intel/profit-hunter-token/route.ts"
-      - "scripts/apply-database-admin-auth.py"
       - "scripts/run-database-admin-auth-simulations.ts"
       - ".github/workflows/database-admin-auth.yml"
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   validate:
@@ -30,30 +29,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: agent/database-backed-admin-auth-20260729
-          fetch-depth: 0
+          fetch-depth: 1
 
-      - name: Materialize database-backed login changes
-        run: |
-          set -euo pipefail
-          python -m py_compile scripts/apply-database-admin-auth.py
-          python scripts/apply-database-admin-auth.py
-          git diff --check
-
-      - name: Commit materialized authentication source
-        run: |
-          git add \
-            src/app/api/admin/login/route.ts \
-            src/app/admin/login/page.tsx \
-            src/app/api/admin/market-intel/profit-hunter-token/route.ts \
-            src/app/api/admin/password-reset/request/route.ts
-          if git diff --cached --quiet; then
-            echo "Database-backed authentication source already materialized."
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git commit -m "Materialize database-backed admin authentication"
-            git push origin HEAD:agent/database-backed-admin-auth-20260729
-          fi
+      - name: Verify committed source is clean
+        run: git diff --check
 
       - uses: actions/setup-node@v4
         with:
