@@ -2,7 +2,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { mapEbayInventoryCategory } from "./ebay-category-mapper";
 import { classifyStorefrontItem } from "./storefront-taxonomy";
 import { getStoreSettings } from "./store-settings";
-import { listingImageIdentity } from "./listing-image-utils";
 import { InventoryRepository } from "../modules/inventory";
 
 const TRADING_API_VERSION = "1409";
@@ -599,25 +598,53 @@ async function readAllRemoteListings(params: {
   };
 }
 
-function normalizedNullableText(value: unknown) {
-  return String(value || "").trim();
+function normalizedComparableText(value: unknown) {
+  return String(value || "")
+    .normalize("NFKC")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function listingDifferences(
+  local: LocalProduct,
+  remote: EbayStoreRemoteListing,
+) {
+  const differences: string[] = [];
+  if (
+    normalizedComparableText(local.title) !==
+    normalizedComparableText(remote.title)
+  ) {
+    differences.push("title");
+  }
+  if (Number(local.quantity) !== remote.quantity) {
+    differences.push("quantity");
+  }
+  if (
+    Math.round(Number(local.price) * 100) !==
+    Math.round(remote.price * 100)
+  ) {
+    differences.push("price");
+  }
+  if (
+    normalizedComparableText(local.sport) !==
+    normalizedComparableText(remote.sport)
+  ) {
+    differences.push("sport");
+  }
+  if (!normalizedComparableText(local.sku) && remote.sku) {
+    differences.push("missing_sku");
+  }
+  return differences;
 }
 
 function listingChanged(
   local: LocalProduct,
   remote: EbayStoreRemoteListing,
 ) {
-  return (
-    local.title !== remote.title ||
-    Number(local.quantity) !== remote.quantity ||
-    Math.round(Number(local.price) * 100) !==
-      Math.round(remote.price * 100) ||
-    listingImageIdentity(local.image_url) !==
-      listingImageIdentity(remote.imageUrl) ||
-    normalizedNullableText(local.sport) !==
-      normalizedNullableText(remote.sport) ||
-    (!local.sku && Boolean(remote.sku))
-  );
+  // The complete image synchronizer owns image convergence. Keeping image
+  // URLs out of this comparison prevents the two stages from fighting over
+  // equivalent or intentionally preserved images.
+  return listingDifferences(local, remote).length > 0;
 }
 
 async function safeSku(params: {
@@ -939,9 +966,10 @@ export async function runEbayAuthoritativeStoreSync(params: {
   const actions: EbayStoreSyncAction[] = remote.listings.map(
     (listing) => {
       const local = localByItemId.get(listing.itemId) || null;
+      const differences = local ? listingDifferences(local, listing) : [];
       const action = !local
         ? "insert"
-        : taxonomyRefreshRequired || listingChanged(local, listing)
+        : taxonomyRefreshRequired || differences.length > 0
           ? "update"
           : "unchanged";
       return {
@@ -954,7 +982,7 @@ export async function runEbayAuthoritativeStoreSync(params: {
             : action === "update"
               ? taxonomyRefreshRequired
                 ? "Storefront taxonomy version 4 eBay-category refresh is required."
-                : "Local title, quantity, price, image identity, sport, or SKU differs from eBay."
+                : `Local differences: ${differences.join(", ")}.`
               : "Local listing matches active eBay inventory.",
         legacyProductId: local?.id || null,
         remoteQuantity: listing.quantity,

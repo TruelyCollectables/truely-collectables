@@ -63,6 +63,23 @@ function summarizeAuthoritative(sync: AuthoritativeSync | null) {
           itemId: entry.itemId,
           error: safeErrorMessage(entry.error, "Unknown listing sync error"),
         })),
+        changedSample: sync.actions
+          .filter((entry) =>
+            ["insert", "update", "deactivate", "error"].includes(entry.action),
+          )
+          .slice(0, 10)
+          .map((entry) => ({
+            itemId: entry.itemId,
+            title: entry.title.slice(0, 120),
+            action: entry.action,
+            reason: safeErrorMessage(entry.reason, "Listing changed"),
+            remoteQuantity: entry.remoteQuantity,
+            localQuantity: entry.localQuantity,
+            remotePrice: entry.remotePrice,
+            localPrice: entry.localPrice,
+            sku: entry.sku,
+            categoryName: entry.categoryName,
+          })),
       }
     : null;
 }
