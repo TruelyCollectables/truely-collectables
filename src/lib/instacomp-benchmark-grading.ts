@@ -115,8 +115,9 @@ export function gradeInstaCompBenchmarkParallel(params: {
   const expectedIdentity = clean(
     [expected.setName, ...(expected.setAliases || []), ...expectedParallelOptions].join(" "),
   );
-  const expectedIsBase =
-    !expectedParallelOptions.length || expectedParallelOptions.every((value) => isGenericBase(value));
+  // Aliases such as “Young Guns” describe the subset and must not make an
+  // explicitly base card look like a non-base parallel expectation.
+  const expectedIsBase = !clean(expected.parallel) || isGenericBase(expected.parallel);
 
   const unexpectedVariationTokens = tokens(actualParallel).filter(
     (token) => DISTINCTIVE_VARIATION_CUES.has(token) && !tokens(expectedIdentity).includes(token),
