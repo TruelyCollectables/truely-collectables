@@ -29,9 +29,9 @@ function ai(overrides: Partial<InstaCompAiResult>): InstaCompAiResult {
 const negatedAcetate = applyInstaCompIdentityGuard(
   ai({ notes: "No foil, color, clear-stock, or acetate cues are visible." }),
 );
-assert.notMatch(
-  String(negatedAcetate.parallel || ""),
-  /acetate|clear/i,
+assert.equal(
+  /acetate|clear/i.test(String(negatedAcetate.parallel || "")),
+  false,
   "A negated acetate observation must never manufacture an acetate parallel.",
 );
 
@@ -41,9 +41,9 @@ const positiveAcetate = applyInstaCompIdentityGuard(
     notes: "The card is printed on transparent acetate stock with a clear back.",
   }),
 );
-assert.match(
-  String(positiveAcetate.parallel || ""),
-  /acetate|clear cut/i,
+assert.equal(
+  /acetate|clear cut/i.test(String(positiveAcetate.parallel || "")),
+  true,
   "Positive clear-stock evidence should still trigger review or Clear Cut handling.",
 );
 
