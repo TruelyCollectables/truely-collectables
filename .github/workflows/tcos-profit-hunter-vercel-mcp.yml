@@ -32,13 +32,15 @@ jobs:
         with:
           ref: feature/tcos-profit-hunter-vercel-mcp-20260728
           fetch-depth: 0
-      - name: Materialize domain-separated token fallbacks
+      - name: Materialize and commit domain-separated token fallbacks
         run: |
+          set -euo pipefail
+          BRANCH=feature/tcos-profit-hunter-vercel-mcp-20260728
+          git fetch origin "$BRANCH"
+          git reset --hard "origin/$BRANCH"
           python -m py_compile scripts/apply-tcos-profit-hunter-derived-secrets.py
           python scripts/apply-tcos-profit-hunter-derived-secrets.py
           git diff --check
-      - name: Commit materialized token source
-        run: |
           git add src/lib/tcos-profit-hunter-policy.ts src/lib/instacomp-job-server.ts connectors/tcos-market-intel-mcp/src/config.mjs
           if git diff --cached --quiet; then
             echo "Derived token source already materialized."
@@ -46,7 +48,7 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git commit -m "Materialize domain-separated Profit Hunter tokens"
-            git push origin HEAD:feature/tcos-profit-hunter-vercel-mcp-20260728
+            git push origin HEAD:"$BRANCH"
           fi
       - uses: actions/setup-node@v4
         with:
