@@ -177,6 +177,21 @@ assert.match(
 );
 assert.match(
   imageSync,
+  /const MAX_ACTIVE_LISTINGS = 3000;/,
+  "Image synchronization must use the same 3,000-active-listing ceiling as inventory synchronization.",
+);
+assert.match(
+  imageSync,
+  /const MAX_PAGES = Math\.ceil\(MAX_ACTIVE_LISTINGS \/ PAGE_SIZE\);/,
+  "Image page coverage must derive from the approved active-listing ceiling.",
+);
+assert.match(
+  imageSync,
+  /<ActiveList>[\s\S]*<Include>true<\/Include>/,
+  "Image synchronization must read active eBay listings only.",
+);
+assert.match(
+  imageSync,
   /const PRODUCT_ID_CHUNK_SIZE = 100;/,
   "Image synchronization must chunk product-ID filters.",
 );
