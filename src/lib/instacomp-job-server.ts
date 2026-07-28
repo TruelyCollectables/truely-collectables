@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   ADMIN_SESSION_COOKIE_NAMES,
@@ -107,6 +108,30 @@ function bearerToken(request: Request) {
     : null;
 }
 
+function constantTimeSecretMatch(provided: string, expected: string) {
+  const providedBytes = Buffer.from(provided, "utf8");
+  const expectedBytes = Buffer.from(expected, "utf8");
+
+  return (
+    providedBytes.length === expectedBytes.length &&
+    timingSafeEqual(providedBytes, expectedBytes)
+  );
+}
+
+export function isValidInstaCompServiceRequest(
+  request: Request,
+  expectedToken = process.env.INSTACOMP_SERVICE_TOKEN,
+) {
+  const expected = String(expectedToken || "").trim();
+  const provided = String(
+    request.headers.get("x-tcos-instacomp-service-token") || "",
+  ).trim();
+
+  return Boolean(
+    expected && provided && constantTimeSecretMatch(provided, expected),
+  );
+}
+
 export function requireInstaCompJobSupabase(): SupabaseClient {
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()) {
     throw new InstaCompJobServerError(
@@ -135,6 +160,18 @@ export async function requireInstaCompJobActor(
   const supabase = requireInstaCompJobSupabase();
 
   const storeId = getActiveStoreId();
+
+  // Internal Profit Hunter / Market Intel workers authenticate with a dedicated
+  // service token. It is intentionally separate from seller JWTs and admin
+  // cookies so no reusable human session is stored in a background connector.
+  if (isValidInstaCompServiceRequest(request)) {
+    return {
+      type: "admin",
+      storeId,
+      sellerAccountId: null,
+    };
+  }
+
   const token = bearerToken(request);
   let validAccountId: string | null = null;
 
@@ -278,315 +315,32 @@ export function throwInstaCompDatabaseError(error: DatabaseError | unknown): nev
     databaseError.message || "InstaComp™ job database operation failed.",
     500,
     "INSTACOMP_JOB_DATABASE_ERROR",
-    process.env.NODE_ENV === "development" ? databaseError : undefined,
+    databaseError,
   );
-}
-
-export function throwInstaCompRpcError(error: DatabaseError | unknown): never {
-  if (isInstaCompMigrationMissing(error)) {
-    throwInstaCompDatabaseError(error);
-  }
-
-  const databaseError = (error || {}) as DatabaseError;
-  const code = String(databaseError.code || "").toUpperCase();
-  const message = databaseError.message || "InstaComp™ queue action failed.";
-
-  if (code === "P0002") {
-    throw new InstaCompJobServerError(
-      message,
-      404,
-      "INSTACOMP_QUEUE_ROW_NOT_FOUND",
-    );
-  }
-
-  if (code === "22023" || code === "22P02") {
-    throw new InstaCompJobServerError(
-      message,
-      400,
-      "INSTACOMP_QUEUE_INVALID_INPUT",
-    );
-  }
-
-  if (code === "55000" || code === "23514") {
-    throw new InstaCompJobServerError(
-      message,
-      409,
-      "INSTACOMP_QUEUE_STATE_CONFLICT",
-    );
-  }
-
-  throwInstaCompDatabaseError(error);
-}
-
-export function isUuid(value: unknown): value is string {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    String(value || ""),
-  );
-}
-
-export function requireUuid(value: unknown, label: string) {
-  const text = String(value || "").trim();
-
-  if (!isUuid(text)) {
-    throw new InstaCompJobServerError(
-      `${label} must be a valid UUID.`,
-      400,
-      "INSTACOMP_INVALID_UUID",
-    );
-  }
-
-  return text;
-}
-
-export function cleanInstaCompText(
-  value: unknown,
-  maxLength: number,
-  options?: { required?: boolean; label?: string },
-) {
-  const text = String(value ?? "").trim();
-
-  if (!text && options?.required) {
-    throw new InstaCompJobServerError(
-      `${options.label || "Value"} is required.`,
-      400,
-      "INSTACOMP_REQUIRED_VALUE",
-    );
-  }
-
-  return text ? text.slice(0, maxLength) : null;
-}
-
-export function boundedInstaCompInteger(params: {
-  value: unknown;
-  label: string;
-  minimum: number;
-  maximum: number;
-  fallback?: number;
-}) {
-  const raw =
-    params.value === null || params.value === undefined || params.value === ""
-      ? params.fallback
-      : Number(params.value);
-
-  if (
-    raw === undefined ||
-    !Number.isInteger(raw) ||
-    raw < params.minimum ||
-    raw > params.maximum
-  ) {
-    throw new InstaCompJobServerError(
-      `${params.label} must be a whole number from ${params.minimum} to ${params.maximum}.`,
-      400,
-      "INSTACOMP_INVALID_NUMBER",
-    );
-  }
-
-  return raw;
-}
-
-export function isAllowedInstaCompImageType(value: unknown) {
-  return ["image/jpeg", "image/png", "image/webp"].includes(
-    String(value || "").trim().toLowerCase(),
-  );
-}
-
-export function instaCompImageExtension(mimeType: string) {
-  if (mimeType === "image/png") return "png";
-  if (mimeType === "image/webp") return "webp";
-  return "jpg";
-}
-
-export function buildInstaCompJobImagePath(params: {
-  actor: InstaCompJobActor;
-  sellerAccountId?: string | null;
-  jobId: string;
-  itemId: string;
-  side: "front" | "back";
-  mimeType: string;
-}) {
-  const owner =
-    params.sellerAccountId ||
-    (params.actor.type === "seller" ? params.actor.sellerAccountId : "admin");
-
-  return [
-    "jobs",
-    params.actor.storeId,
-    owner,
-    params.jobId,
-    params.itemId,
-    `${params.side}.${instaCompImageExtension(params.mimeType)}`,
-  ].join("/");
-}
-
-export async function createInstaCompSignedUpload(params: {
-  supabase: SupabaseClient;
-  path: string;
-}) {
-  const { data, error } = await params.supabase.storage
-    .from(INSTACOMP_JOB_IMAGE_BUCKET)
-    .createSignedUploadUrl(params.path, { upsert: false });
-
-  if (error || !data?.token) {
-    const message = error?.message || "Could not authorize an image upload.";
-    const missingBucket = /bucket.*not found|not found.*bucket/i.test(message);
-
-    throw new InstaCompJobServerError(
-      missingBucket
-        ? "InstaComp™ image storage is unavailable until the private bucket migration is applied."
-        : message,
-      missingBucket ? 503 : 500,
-      missingBucket
-        ? "INSTACOMP_JOB_STORAGE_REQUIRED"
-        : "INSTACOMP_JOB_UPLOAD_SIGNING_FAILED",
-    );
-  }
-
-  return {
-    path: params.path,
-    token: data.token,
-  };
-}
-
-export async function createInstaCompSignedDownload(
-  supabase: SupabaseClient,
-  path: unknown,
-) {
-  const storagePath = String(path || "").trim();
-
-  if (!storagePath) return null;
-
-  const { data, error } = await supabase.storage
-    .from(INSTACOMP_JOB_IMAGE_BUCKET)
-    .createSignedUrl(storagePath, INSTACOMP_JOB_DOWNLOAD_TTL_SECONDS);
-
-  if (error || !data?.signedUrl) {
-    return {
-      path: storagePath,
-      downloadUrl: null,
-      error: error?.message || "Could not authorize image recovery.",
-    };
-  }
-
-  return {
-    path: storagePath,
-    downloadUrl: data.signedUrl,
-    expiresIn: INSTACOMP_JOB_DOWNLOAD_TTL_SECONDS,
-  };
-}
-
-export async function addInstaCompRecoveryUrls(
-  supabase: SupabaseClient,
-  items: Array<Record<string, any>>,
-) {
-  const paths = Array.from(
-    new Set(
-      items
-        .flatMap((item) => [item.front_storage_path, item.back_storage_path])
-        .map((path) => String(path || "").trim())
-        .filter(Boolean),
-    ),
-  );
-  const signedByPath = new Map<
-    string,
-    { path: string; downloadUrl: string | null; expiresIn: number; error?: string }
-  >();
-
-  for (let index = 0; index < paths.length; index += 100) {
-    const chunk = paths.slice(index, index + 100);
-    const { data, error } = await supabase.storage
-      .from(INSTACOMP_JOB_IMAGE_BUCKET)
-      .createSignedUrls(chunk, INSTACOMP_JOB_DOWNLOAD_TTL_SECONDS);
-
-    if (error || !data) {
-      chunk.forEach((path) =>
-        signedByPath.set(path, {
-          path,
-          downloadUrl: null,
-          expiresIn: INSTACOMP_JOB_DOWNLOAD_TTL_SECONDS,
-          error: error?.message || "Could not authorize image recovery.",
-        }),
-      );
-      continue;
-    }
-
-    data.forEach((entry) => {
-      const path = String(entry.path || "");
-
-      if (!path) return;
-
-      signedByPath.set(path, {
-        path,
-        downloadUrl: entry.signedUrl || null,
-        expiresIn: INSTACOMP_JOB_DOWNLOAD_TTL_SECONDS,
-        ...(entry.error ? { error: entry.error } : {}),
-      });
-    });
-  }
-
-  const recoveryEntry = (path: unknown) => {
-    const storagePath = String(path || "").trim();
-    return storagePath ? signedByPath.get(storagePath) || null : null;
-  };
-
-  return items.map((item) => ({
-    ...item,
-    recovery: {
-      front: recoveryEntry(item.front_storage_path),
-      back: recoveryEntry(item.back_storage_path),
-    },
-  }));
-}
-
-export async function readInstaCompJson(request: Request) {
-  try {
-    const body = await request.json();
-
-    if (!body || typeof body !== "object" || Array.isArray(body)) {
-      throw new Error("Body must be a JSON object.");
-    }
-
-    return body as Record<string, any>;
-  } catch (error) {
-    if (error instanceof InstaCompJobServerError) throw error;
-
-    throw new InstaCompJobServerError(
-      "Request body must be valid JSON.",
-      400,
-      "INSTACOMP_INVALID_JSON",
-    );
-  }
-}
-
-export async function refreshInstaCompJobCounts(
-  supabase: SupabaseClient,
-  jobId: string,
-) {
-  const { error } = await supabase.rpc("tcos_refresh_instacomp_scan_job_counts", {
-    p_job_id: jobId,
-  });
-
-  if (error) throwInstaCompDatabaseError(error);
 }
 
 export function instaCompJobErrorResponse(error: unknown) {
-  if (error instanceof InstaCompJobServerError) {
-    return Response.json(
-      {
-        error: error.message,
-        code: error.code,
-        ...(error.details === undefined ? {} : { details: error.details }),
-      },
-      { status: error.status },
-    );
-  }
-
-  const message = error instanceof Error ? error.message : "InstaComp™ job failed.";
+  const serverError =
+    error instanceof InstaCompJobServerError
+      ? error
+      : new InstaCompJobServerError(
+          error instanceof Error
+            ? error.message
+            : "InstaComp™ request failed.",
+          500,
+          "INSTACOMP_JOB_UNEXPECTED",
+        );
 
   return Response.json(
     {
-      error: message,
-      code: "INSTACOMP_JOB_INTERNAL_ERROR",
+      ok: false,
+      error: serverError.message,
+      code: serverError.code,
+      details: serverError.details,
     },
-    { status: 500 },
+    {
+      status: serverError.status,
+      headers: { "Cache-Control": "no-store, max-age=0" },
+    },
   );
 }
