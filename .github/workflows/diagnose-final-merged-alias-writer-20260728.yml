@@ -1,0 +1,120 @@
+name: Diagnose Final Merged Alias Writer 20260728
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/diagnose-final-merged-alias-writer-20260728.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'agent/finalize-merged-ebay-aliases-20260728'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/finalize-merged-ebay-aliases-20260728
+          fetch-depth: 1
+      - name: Count patch targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p diagnostics
+          python <<'PY'
+          from pathlib import Path
+          import json, re
+
+          sync = Path('src/lib/ebay-authoritative-store-sync.ts').read_text()
+          route = Path('src/app/api/cron/ebay-store-fixed-price-sync/route.ts').read_text()
+          backfill = Path('src/lib/ebay-fixed-price-backfill.ts').read_text()
+          test = Path('scripts/run-storefront-taxonomy-regressions.ts').read_text()
+
+          counts = {
+            'import': sync.count('import { getStoreSettings } from "./store-settings";\nimport { InventoryRepository } from "../modules/inventory";'),
+            'result_metrics': sync.count('  eligibleCollectibles: number;\n  skippedNonCollectibles: number;\n  eligibleSportsCards: number;'),
+            'listing_changed': sync.count('''function listingChanged(
+  local: LocalProduct,
+  remote: EbayStoreRemoteListing,
+) {
+  // The complete image synchronizer owns image convergence. Keeping image
+  // URLs out of this comparison prevents the two stages from fighting over
+  // equivalent or intentionally preserved images.
+  return listingDifferences(local, remote).length > 0;
+}
+'''),
+            'actions_regex': len(re.findall(r'  const localByItemId = new Map\([\s\S]*?  const actions: EbayStoreSyncAction\[] = remote\.listings\.map\([\s\S]*?\n  \);\n\n  if \(remote\.cycleComplete\) \{', sync)),
+            'ended_preview': sync.count('      if (!itemId || remoteByItemId.has(itemId)) continue;'),
+            'changed_listings': sync.count('''    const changedListings = remote.listings.filter((listing) => {
+      const local = localByItemId.get(listing.itemId) || null;
+      return !local || taxonomyRefreshRequired || listingChanged(local, listing);
+    });'''),
+            'unchanged_listings': sync.count('''      : remote.listings
+        .map((listing) => localByItemId.get(listing.itemId) || null)'''),
+            'remote_lookup': sync.count('remoteByItemId.get(String(local.ebay_item_id))!'),
+            'ended_apply': sync.count('''      const endedLocals = locals.filter(
+        (local) =>
+          !remoteByItemId.has(String(local.ebay_item_id || "")),
+      );'''),
+            'cursor_metrics': sync.count('''          authoritative_store_sync_last_eligible_cards:
+            remote.listings.length,
+          authoritative_store_sync_last_inserted: inserted,'''),
+            'provider_metrics': sync.count('''            eligible_cards: remote.listings.length,
+            inserted,'''),
+            'return_metrics': sync.count('''    skippedNonCollectibles: Math.max(
+      remote.remoteItemsRead - remote.listings.length,
+      0,
+    ),
+    // Backward-compatible aliases for existing admin receipts.'''),
+            'route_summary': route.count('''        skippedNonCollectibles: sync.skippedNonCollectibles,
+        inserted: sync.inserted,'''),
+            'route_converged': route.count('    sync.unchanged === sync.eligibleCollectibles'),
+            'route_reconcile_insert': route.count('''      errors.push({
+        step: "authoritative_full_store_sync",
+        error: "The active eBay total did not reconcile to eligible plus intentionally excluded listings.",
+      });
+    }
+'''),
+            'route_audit_condition': route.count('      if (activeLinkedProducts !== finalAuthoritative.eligibleCollectibles) {'),
+            'route_audit_error': route.count('          error: `Active linked database count ${activeLinkedProducts} does not equal current eligible eBay inventory ${finalAuthoritative.eligibleCollectibles}.`,'),
+            'route_database_audit': route.count('''      activeLinkedProducts,
+      matchesEligibleEbayInventory:
+        finalAuthoritative !== null &&
+        activeLinkedProducts === finalAuthoritative.eligibleCollectibles,'''),
+            'backfill_import': backfill.count('import { getStoreSettings } from "./store-settings";\nimport { InventoryRepository } from "../modules/inventory";'),
+            'backfill_upsert': backfill.count('''}) {
+  const { data: existing, error: existingError } = await params.supabase'''),
+            'backfill_loop': backfill.count('''  for (const listing of listings) {
+    counters.checked += 1;
+
+    try {'''),
+            'test_import': test.count('import { ebayAuthoritativeStoreSyncTestHelpers } from "../src/lib/ebay-authoritative-store-sync";\nimport { isLaunchCollectible } from "../src/lib/sports-card-launch-scope";'),
+            'old_assertions': test.count('''assert.ok(
+  authoritativeSyncSource.includes(
+    'import { listingImageIdentity } from "./listing-image-utils";',
+  ),
+  "Authoritative convergence must compare stable eBay image identities.",
+);
+assert.match(
+  authoritativeSyncSource,
+  /listingImageIdentity\(local\.image_url\) !==[\s\S]*listingImageIdentity\(remote\.imageUrl\)/,
+  "Image resolution variants must not create endless inventory updates.",
+);
+assert.match(
+  authoritativeSyncSource,
+  /normalizedNullableText\(local\.sport\) !==[\s\S]*normalizedNullableText\(remote\.sport\)/,
+  "Null and empty storefront category values must compare consistently.",
+);'''),
+          }
+          Path('diagnostics/counts.json').write_text(json.dumps(counts, indent=2) + '\n')
+          print(json.dumps(counts))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: final-merged-alias-writer-diagnostics-${{ github.run_number }}
+          path: diagnostics
+          if-no-files-found: error
+          retention-days: 7
