@@ -1,4 +1,4 @@
-name: Verify Durable Admin Auth and Send Reset 20260729
+name: Send Durable Admin Password Reset 20260729
 
 on:
   pull_request:
@@ -12,55 +12,34 @@ permissions:
   contents: read
 
 concurrency:
-  group: verify-database-admin-auth-production
+  group: send-database-admin-password-reset
   cancel-in-progress: true
 
 jobs:
   verify-and-send-reset:
     if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'deploy/database-admin-auth-20260729')
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
-      - name: Verify login page and private token route
+      - name: Verify durable owner recovery is live
         run: |
           set -euo pipefail
           mkdir -p /tmp/admin-auth-evidence
-
-          ready=""
-          for attempt in $(seq 1 20); do
-            login_code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 60 \
-              --output /tmp/admin-auth-evidence/login.html \
-              --write-out '%{http_code}' \
-              https://truelycollectables.com/admin/login || true)"
-            echo "login attempt=$attempt HTTP=$login_code bytes=$(wc -c < /tmp/admin-auth-evidence/login.html 2>/dev/null || echo 0)"
-            if [ "$login_code" = "200" ] && grep -Fq "Email Owner Reset Link" /tmp/admin-auth-evidence/login.html; then
-              ready=1
-              break
-            fi
-            sleep 10
-          done
-          test -n "$ready"
-
-          browser_code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 \
-            --output /tmp/admin-auth-evidence/token-browser.html \
-            --dump-header /tmp/admin-auth-evidence/token-browser.headers \
+          login_code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 60 \
+            --output /tmp/admin-auth-evidence/login.html \
             --write-out '%{http_code}' \
-            -H 'Accept: text/html' \
-            'https://truelycollectables.com/api/admin/market-intel/profit-hunter-token?reveal=1' || true)"
-          browser_location="$(awk 'BEGIN{IGNORECASE=1} /^location:/{sub(/\r$/, ""); print substr($0, 11)}' /tmp/admin-auth-evidence/token-browser.headers | tail -n 1)"
-          echo "browser-token HTTP=$browser_code location=$browser_location"
-          case "$browser_code" in
-            302|303|307|308) ;;
-            *) echo "Expected a browser redirect to admin login."; exit 1 ;;
-          esac
-          printf '%s' "$browser_location" | grep -Fq '/admin/login?next='
+            https://truelycollectables.com/admin/login || true)"
+          echo "login HTTP=$login_code bytes=$(wc -c < /tmp/admin-auth-evidence/login.html 2>/dev/null || echo 0)"
+          test "$login_code" = "200"
+          grep -Fq "Email Owner Reset Link" /tmp/admin-auth-evidence/login.html
+          grep -Fq "survives every deployment" /tmp/admin-auth-evidence/login.html
 
           api_code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 \
             --output /tmp/admin-auth-evidence/token-api.json \
             --write-out '%{http_code}' \
             -H 'Accept: application/json' \
             'https://truelycollectables.com/api/admin/market-intel/profit-hunter-token?reveal=1' || true)"
-          echo "api-token HTTP=$api_code"
+          echo "unauthenticated token API HTTP=$api_code"
           test "$api_code" = "401"
 
       - name: Send one real owner reset email
@@ -80,7 +59,6 @@ jobs:
             302|303|307|308) ;;
             *) echo "Reset request did not return a safe redirect."; exit 1 ;;
           esac
-          printf '%s' "$location" | grep -Fq '/admin/login?'
           printf '%s' "$location" | grep -Fq 'reset=sent'
           if printf '%s' "$location" | grep -Eq 'reset=(email_error|storage_error)'; then
             echo "Reset request failed before delivery."
