@@ -1,0 +1,317 @@
+name: One-Time Fix eBay Image Sync Chunking V2 20260728
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/one-time-fix-ebay-image-sync-chunking-v2-20260728.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: one-time-fix-ebay-image-sync-chunking-v2-20260728
+  cancel-in-progress: false
+
+jobs:
+  patch-branch:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'agent/fix-ebay-image-sync-chunking-20260728'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+      ADMIN_SESSION_SECRET: build-only-placeholder-session-secret
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+      EBAY_CLIENT_ID: build-only-placeholder-client-id
+      EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+      EBAY_ENVIRONMENT: production
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/fix-ebay-image-sync-chunking-20260728
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - name: Patch image sync with structural replacements
+        shell: bash
+        run: |
+          set -euo pipefail
+          python <<'PY'
+          from pathlib import Path
+          import re
+
+          source_path = Path('src/lib/ebay-all-image-sync.ts')
+          source = source_path.read_text()
+
+          def literal(old: str, new: str, label: str) -> None:
+              global source
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected one match, found {count}')
+              source = source.replace(old, new, 1)
+              print(f'patched: {label}')
+
+          def regex(pattern: str, replacement: str, label: str, flags=re.S) -> None:
+              global source
+              source, count = re.subn(pattern, replacement, source, count=1, flags=flags)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected one regex match, found {count}')
+              print(f'patched: {label}')
+
+          literal(
+              'const APPLY_CONCURRENCY = 8;\nconst MAX_ITEMS_PER_RUN = 250;',
+              'const APPLY_CONCURRENCY = 8;\nconst DATABASE_PAGE_SIZE = 1000;\nconst MAX_DATABASE_PAGES = 50;\nconst PRODUCT_ID_CHUNK_SIZE = 100;\nconst INVENTORY_ID_CHUNK_SIZE = 20;\nconst MAX_ITEMS_PER_RUN = 250;',
+              'database constants',
+          )
+
+          sync_error = '''function syncErrorMessage(error: unknown, fallback: string) {
+            if (error instanceof Error) return error.message.slice(0, 400);
+            if (typeof error === "string") return error.slice(0, 400);
+
+            const value = recordValue(error);
+            const parts = [
+              value.message ? String(value.message) : null,
+              value.code ? `code=${String(value.code)}` : null,
+              value.details ? `details=${String(value.details)}` : null,
+              value.hint ? `hint=${String(value.hint)}` : null,
+            ].filter((part): part is string => Boolean(part));
+            if (parts.length) return parts.join(" | ").slice(0, 400);
+
+            try {
+              const serialized = JSON.stringify(error);
+              if (serialized && serialized !== "{}") return serialized.slice(0, 400);
+            } catch {
+              // Fall through to the bounded generic message.
+            }
+            return fallback;
+          }
+
+          '''
+          if 'function syncErrorMessage(' not in source:
+              literal('function decodeXml(value: string) {', sync_error + 'function decodeXml(value: string) {', 'structured errors')
+
+          helpers = '''function chunkValues<T>(values: T[], size: number) {
+            const chunks: T[][] = [];
+            for (let index = 0; index < values.length; index += size) {
+              chunks.push(values.slice(index, index + size));
+            }
+            return chunks;
+          }
+
+          async function readActiveProducts(params: {
+            supabase: SupabaseClient;
+            storeId: string;
+          }) {
+            const rows: ProductRow[] = [];
+            for (let page = 0; page < MAX_DATABASE_PAGES; page += 1) {
+              const from = page * DATABASE_PAGE_SIZE;
+              const { data, error } = await params.supabase
+                .from("products")
+                .select("id,title,ebay_item_id,image_url")
+                .eq("store_id", params.storeId)
+                .gt("quantity", 0)
+                .not("ebay_item_id", "is", null)
+                .order("id", { ascending: true })
+                .range(from, from + DATABASE_PAGE_SIZE - 1);
+              if (error) throw error;
+              const batch = (data || []) as ProductRow[];
+              rows.push(...batch);
+              if (batch.length < DATABASE_PAGE_SIZE) return rows;
+            }
+            throw new Error(`Active eBay product pagination exceeded ${MAX_DATABASE_PAGES * DATABASE_PAGE_SIZE} rows.`);
+          }
+
+          async function readInventoriesByProductIds(params: {
+            supabase: SupabaseClient;
+            storeId: string;
+            productIds: number[];
+          }) {
+            const rows: InventoryRow[] = [];
+            for (const productIds of chunkValues(params.productIds, PRODUCT_ID_CHUNK_SIZE)) {
+              for (let page = 0; page < MAX_DATABASE_PAGES; page += 1) {
+                const from = page * DATABASE_PAGE_SIZE;
+                const { data, error } = await params.supabase
+                  .from("inventory_items")
+                  .select("id,legacy_product_id,title,metadata")
+                  .eq("store_id", params.storeId)
+                  .in("legacy_product_id", productIds)
+                  .order("legacy_product_id", { ascending: true })
+                  .range(from, from + DATABASE_PAGE_SIZE - 1);
+                if (error) throw error;
+                const batch = (data || []) as InventoryRow[];
+                rows.push(...batch);
+                if (batch.length < DATABASE_PAGE_SIZE) break;
+                if (page === MAX_DATABASE_PAGES - 1) throw new Error(`Inventory-item pagination exceeded ${MAX_DATABASE_PAGES * DATABASE_PAGE_SIZE} rows for one product chunk.`);
+              }
+            }
+            return rows;
+          }
+
+          async function readInventoryImagesByInventoryIds(params: {
+            supabase: SupabaseClient;
+            inventoryIds: string[];
+          }) {
+            const rows: InventoryImageRow[] = [];
+            for (const inventoryIds of chunkValues(params.inventoryIds, INVENTORY_ID_CHUNK_SIZE)) {
+              for (let page = 0; page < MAX_DATABASE_PAGES; page += 1) {
+                const from = page * DATABASE_PAGE_SIZE;
+                const { data, error } = await params.supabase
+                  .from("inventory_images")
+                  .select("id,inventory_item_id,image_url,alt_text,sort_order,is_primary")
+                  .in("inventory_item_id", inventoryIds)
+                  .order("inventory_item_id", { ascending: true })
+                  .order("sort_order", { ascending: true })
+                  .range(from, from + DATABASE_PAGE_SIZE - 1);
+                if (error) throw error;
+                const batch = (data || []) as InventoryImageRow[];
+                rows.push(...batch);
+                if (batch.length < DATABASE_PAGE_SIZE) break;
+                if (page === MAX_DATABASE_PAGES - 1) throw new Error(`Inventory-image pagination exceeded ${MAX_DATABASE_PAGES * DATABASE_PAGE_SIZE} rows for one inventory chunk.`);
+              }
+            }
+            return rows;
+          }
+
+          '''
+          if 'function chunkValues<T>' not in source:
+              literal('export async function syncEbayAllListingImages(params: {', helpers + 'export async function syncEbayAllListingImages(params: {', 'chunked read helpers')
+
+          regex(
+              r'  const \{ data: productRows, error: productError \} = await params\.supabase[\s\S]*?  const products = \(productRows \|\| \[\]\) as ProductRow\[\];\n  const productIds = products\.map\(\(product\) => Number\(product\.id\)\);',
+              '''  const products = await readActiveProducts({
+            supabase: params.supabase,
+            storeId: params.storeId,
+          });
+          const productIds = products.map((product) => Number(product.id));''',
+              'active product pagination',
+          )
+
+          regex(
+              r'  const \{ data: inventoryRows, error: inventoryError \} = await params\.supabase[\s\S]*?  if \(imageError\) throw imageError;',
+              '''  const inventories = await readInventoriesByProductIds({
+            supabase: params.supabase,
+            storeId: params.storeId,
+            productIds,
+          });
+          const inventoryIds = inventories.map((inventory) => inventory.id);
+          const imageRows = inventoryIds.length
+            ? await readInventoryImagesByInventoryIds({
+                supabase: params.supabase,
+                inventoryIds,
+              })
+            : [];''',
+              'chunked inventory and image reads',
+          )
+
+          regex(
+              r'        error:\n          error instanceof Error \? error\.message\.slice\(0, 400\) : "Unknown image sync error",',
+              '        error: syncErrorMessage(error, "Unknown image sync error"),',
+              'worker diagnostics',
+              flags=0,
+          )
+          source_path.write_text(source)
+
+          route_path = Path('src/app/api/cron/ebay-store-fixed-price-sync/route.ts')
+          route = route_path.read_text()
+          replacement = '''function safeErrorMessage(value: unknown, fallback: string) {
+            const objectValue = recordValue(value);
+            const message =
+              value instanceof Error
+                ? value.message
+                : typeof value === "string"
+                  ? value
+                  : [
+                      objectValue.message ? String(objectValue.message) : null,
+                      objectValue.code ? `code=${String(objectValue.code)}` : null,
+                      objectValue.details ? `details=${String(objectValue.details)}` : null,
+                      objectValue.hint ? `hint=${String(objectValue.hint)}` : null,
+                    ]
+                      .filter((part): part is string => Boolean(part))
+                      .join(" | ") || fallback;
+            return message
+              .replace(/Bearer\\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [REDACTED]")
+              .replace(
+                /(refresh_token|access_token|client_secret|service_role_key|anon_key)[=:]\\s*[^\\s,}]+/gi,
+                "$1=[REDACTED]",
+              )
+              .replace(/\\s+/g, " ")
+              .trim()
+              .slice(0, 500);
+          }
+
+          function summarizeAuthoritative'''
+          route, count = re.subn(
+              r'function safeErrorMessage\(value: unknown, fallback: string\) \{[\s\S]*?\n\}\n\nfunction summarizeAuthoritative',
+              replacement,
+              route,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit(f'route structured diagnostics: expected one match, found {count}')
+          print('patched: route structured diagnostics')
+          route_path.write_text(route)
+
+          test_path = Path('scripts/run-ebay-import-admin-client-simulations.ts')
+          test_source = test_path.read_text()
+          marker = 'assert.match(\n  scheduledEbaySync,\n  /syncEbayAllListingImages/,\n  "The scheduled authoritative eBay job must run complete 1–20 image reconciliation.",\n);'
+          assertions = '''assert.match(
+            imageSync,
+            /const PRODUCT_ID_CHUNK_SIZE = 100;/,
+            "Image synchronization must chunk product-ID filters.",
+          );
+          assert.match(
+            imageSync,
+            /const INVENTORY_ID_CHUNK_SIZE = 20;/,
+            "Image synchronization must bound inventory UUID filters.",
+          );
+          assert.match(
+            imageSync,
+            /readInventoryImagesByInventoryIds[\\s\\S]*\\.range\\(from, from \\+ DATABASE_PAGE_SIZE - 1\\)/,
+            "Image synchronization must paginate image rows beyond Supabase's default cap.",
+          );
+          assert.match(
+            scheduledEbaySync,
+            /objectValue\\.details[\\s\\S]*objectValue\\.hint/,
+            "The production receipt must preserve structured safe database diagnostics.",
+          );
+
+          ''' + marker
+          if test_source.count(marker) != 1:
+              raise SystemExit('permanent regression marker was not unique')
+          test_path.write_text(test_source.replace(marker, assertions, 1))
+
+          for workflow in [
+              '.github/workflows/one-time-fix-ebay-image-sync-chunking-20260728.yml',
+              '.github/workflows/one-time-fix-ebay-image-sync-chunking-v2-20260728.yml',
+          ]:
+              path = Path(workflow)
+              if path.exists(): path.unlink()
+          PY
+
+      - name: Validate complete repair
+        run: |
+          set -euo pipefail
+          npm ci
+          node --import tsx scripts/run-ebay-import-admin-client-simulations.ts
+          node --import tsx scripts/run-storefront-taxonomy-regressions.ts
+          npx eslint src/lib/ebay-all-image-sync.ts src/app/api/cron/ebay-store-fixed-price-sync/route.ts scripts/run-ebay-import-admin-client-simulations.ts
+          npm run build
+
+      - name: Commit complete repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Truely Collectables Automation"
+          git config user.email "automation@truelycollectables.com"
+          git add src/lib/ebay-all-image-sync.ts src/app/api/cron/ebay-store-fixed-price-sync/route.ts scripts/run-ebay-import-admin-client-simulations.ts .github/workflows/one-time-fix-ebay-image-sync-chunking-20260728.yml .github/workflows/one-time-fix-ebay-image-sync-chunking-v2-20260728.yml
+          git commit -m "Chunk and paginate complete eBay image synchronization"
+          git push origin HEAD:agent/fix-ebay-image-sync-chunking-20260728
