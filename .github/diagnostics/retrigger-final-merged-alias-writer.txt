@@ -1,1 +1,1 @@
-Retrigger corrected structural merged-alias finalization.
+Retrigger read-only merged-alias certification.
