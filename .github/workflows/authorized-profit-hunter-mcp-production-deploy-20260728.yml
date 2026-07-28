@@ -1,4 +1,4 @@
-name: Authorized TCOS Profit Hunter MCP Production Deploy 20260728
+name: Verify TCOS Profit Hunter MCP Production 20260728
 
 on:
   pull_request:
@@ -12,22 +12,23 @@ permissions:
   contents: read
 
 concurrency:
-  group: authorized-tcos-profit-hunter-mcp-production-deploy
+  group: verify-tcos-profit-hunter-mcp-production
   cancel-in-progress: true
 
 jobs:
-  deploy-production:
+  verify-production:
     if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'deploy/tcos-profit-hunter-mcp-20260728')
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 45
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_SCOPE: truelycollectables-projects
       DEPLOY_SOURCE_SHA: 203168cf1a4825d7772a9f21044d407035c1595b
+      PRODUCTION_URL: https://truelycollectables.com
     steps:
-      - name: Check out exact merged source
+      - name: Check out exact deployed source
         uses: actions/checkout@v4
         with:
           ref: 203168cf1a4825d7772a9f21044d407035c1595b
@@ -39,19 +40,15 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Install exact dependencies for MCP smoke client
+      - name: Install exact MCP client dependencies
         run: npm ci
 
-      - name: Confirm Vercel token identity
+      - name: Confirm Vercel identity and project
         run: |
           set -euo pipefail
           test -n "${VERCEL_TOKEN:-}"
           npx vercel@56.2.0 whoami --token "$VERCEL_TOKEN"
-
-      - name: Resolve exact Vercel project
-        run: |
-          set -euo pipefail
-          mkdir -p .vercel .deployment-evidence
+          mkdir -p .vercel .verification-evidence
           if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
             printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
           else
@@ -61,40 +58,21 @@ jobs:
               --scope "$VERCEL_SCOPE" \
               --token "$VERCEL_TOKEN"
           fi
-          node -e 'const p=require("./.vercel/project.json"); if(!p.orgId||!p.projectId) process.exit(1); console.log(JSON.stringify({orgIdPresent:true,projectIdPresent:true}))'
 
-      - name: Deploy exact merged revision to Production
-        id: deploy
-        shell: bash
+      - name: Verify private routes reject unauthenticated requests
         run: |
           set -euo pipefail
-          printf '%s\n' "$DEPLOY_SOURCE_SHA" > .deployment-evidence/source-sha.txt
-          npx vercel@56.2.0 deploy \
-            --prod \
-            --yes \
-            --force \
-            --scope "$VERCEL_SCOPE" \
-            --token "$VERCEL_TOKEN" \
-            2>&1 | tee .deployment-evidence/vercel-deploy.log
-          DEPLOYMENT_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' .deployment-evidence/vercel-deploy.log | tail -n 1)"
-          test -n "$DEPLOYMENT_URL"
-          echo "deployment_url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
-          printf '%s\n' "$DEPLOYMENT_URL" > .deployment-evidence/deployment-url.txt
-
-      - name: Verify private endpoints reject unauthenticated requests
-        env:
-          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
-        run: |
-          set -euo pipefail
-          for path in /api/tcos-profit-hunter/mcp /api/admin/market-intel/profit-hunter-token; do
-            code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output .deployment-evidence/unauthorized-response.json --write-out '%{http_code}' "$DEPLOYMENT_URL$path" || true)"
-            echo "$path HTTP=$code"
-            test "$code" = "401"
+          for base in https://truely-collectables.vercel.app https://truelycollectables.com; do
+            for path in /api/tcos-profit-hunter/mcp /api/admin/market-intel/profit-hunter-token; do
+              code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output .verification-evidence/unauthorized-response.json --write-out '%{http_code}' "$base$path" || true)"
+              echo "$base$path HTTP=$code"
+              test "$code" = "401"
+            done
           done
 
-      - name: Create authenticated MCP smoke client
+      - name: Create authenticated MCP verification client
         run: |
-          cat > .deployment-evidence/smoke-profit-hunter.mjs <<'NODE'
+          cat > .verification-evidence/verify-profit-hunter.mjs <<'NODE'
           import { createHmac } from "node:crypto";
           import { Client } from "@modelcontextprotocol/sdk/client/index.js";
           import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -108,12 +86,21 @@ jobs:
             : "");
           if (!token) throw new Error("Production connector token could not be derived.");
 
-          const deploymentUrl = String(process.env.DEPLOYMENT_URL || "").trim();
-          if (!deploymentUrl) throw new Error("DEPLOYMENT_URL is required.");
-          const endpoint = new URL("/api/tcos-profit-hunter/mcp", deploymentUrl);
-          const authProvider = { token: async () => token };
-          const transport = new StreamableHTTPClientTransport(endpoint, { authProvider });
-          const client = new Client({ name: "tcos-production-smoke", version: "1.0.0" });
+          const endpoint = new URL(
+            "/api/tcos-profit-hunter/mcp",
+            String(process.env.PRODUCTION_URL || "https://truelycollectables.com"),
+          );
+          const transport = new StreamableHTTPClientTransport(endpoint, {
+            requestInit: {
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            },
+          });
+          const client = new Client({ name: "tcos-production-verifier", version: "1.0.0" });
+          client.onerror = (error) => {
+            console.error(`MCP transport error: ${error.message}`);
+          };
 
           await client.connect(transport);
           const listed = await client.listTools();
@@ -131,6 +118,9 @@ jobs:
             name: "profit_hunter_status",
             arguments: {},
           });
+          if (result.isError) {
+            throw new Error(`Profit Hunter status tool failed: ${JSON.stringify(result.content)}`);
+          }
           const text = result.content?.find((entry) => entry.type === "text")?.text;
           if (!text) throw new Error("Profit Hunter status returned no text payload.");
           const payload = JSON.parse(text);
@@ -140,12 +130,17 @@ jobs:
           if (payload?.purchaseWritesEnabled !== false) {
             throw new Error("Profit Hunter MCP unexpectedly exposes purchase writes.");
           }
-          if (!payload?.discovery?.openAiPublicWeb && !payload?.discovery?.ebayBrowse && !payload?.discovery?.xRecentSearch) {
+          if (
+            !payload?.discovery?.openAiPublicWeb &&
+            !payload?.discovery?.ebayBrowse &&
+            !payload?.discovery?.xRecentSearch
+          ) {
             throw new Error("No automatic public discovery provider is configured in Production.");
           }
 
           console.log(JSON.stringify({
             connected: true,
+            sourceSha: process.env.DEPLOY_SOURCE_SHA,
             toolCount: names.length,
             tools: names,
             hardenedInstaCompConfigured: true,
@@ -155,39 +150,22 @@ jobs:
           await client.close();
           NODE
 
-      - name: Run authenticated MCP status smoke test with Production environment
-        env:
-          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
+      - name: Run authenticated MCP verification with Production environment
         run: |
           set -euo pipefail
-          DEPLOYMENT_URL="$DEPLOYMENT_URL" npx vercel@56.2.0 env run -e production -- node .deployment-evidence/smoke-profit-hunter.mjs \
-            2>&1 | tee .deployment-evidence/authenticated-mcp-smoke.log
-          grep -Fq '"connected":true' .deployment-evidence/authenticated-mcp-smoke.log
-          grep -Fq '"hardenedInstaCompConfigured":true' .deployment-evidence/authenticated-mcp-smoke.log
-          grep -Fq '"purchaseWritesEnabled":false' .deployment-evidence/authenticated-mcp-smoke.log
+          PRODUCTION_URL="$PRODUCTION_URL" DEPLOY_SOURCE_SHA="$DEPLOY_SOURCE_SHA" \
+            npx vercel@56.2.0 env run -e production -- node .verification-evidence/verify-profit-hunter.mjs \
+            2>&1 | tee .verification-evidence/authenticated-mcp-verification.log
+          grep -Fq '"connected":true' .verification-evidence/authenticated-mcp-verification.log
+          grep -Fq '"hardenedInstaCompConfigured":true' .verification-evidence/authenticated-mcp-verification.log
+          grep -Fq '"automaticDiscoveryConfigured":true' .verification-evidence/authenticated-mcp-verification.log
+          grep -Fq '"purchaseWritesEnabled":false' .verification-evidence/authenticated-mcp-verification.log
 
-      - name: Verify production aliases serve the private MCP endpoint
-        run: |
-          set -euo pipefail
-          for base in https://truely-collectables.vercel.app https://truelycollectables.com; do
-            success=""
-            for attempt in $(seq 1 24); do
-              code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output .deployment-evidence/alias-unauthorized.json --write-out '%{http_code}' "$base/api/tcos-profit-hunter/mcp" || true)"
-              echo "$base attempt=$attempt HTTP=$code"
-              if [ "$code" = "401" ]; then
-                success=1
-                break
-              fi
-              sleep 15
-            done
-            test -n "$success"
-          done
-
-      - name: Upload deployment evidence
+      - name: Upload verification evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: tcos-profit-hunter-mcp-production-deploy-${{ github.run_number }}
-          path: .deployment-evidence
+          name: tcos-profit-hunter-mcp-production-verification-${{ github.run_number }}
+          path: .verification-evidence
           if-no-files-found: warn
           retention-days: 30
