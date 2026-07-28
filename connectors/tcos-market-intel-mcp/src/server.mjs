@@ -16,6 +16,7 @@ import {
 } from "./logic.mjs";
 import { createRepository } from "./repository.mjs";
 import { publicSearchService } from "./public-search.mjs";
+import { classifyProfitHunterOutcome, hardenedInstaCompService } from "./instacomp-bridge.mjs";
 
 const repository = createRepository();
 const app = express();
@@ -128,7 +129,7 @@ const guarded = (handler) => async (input) => {
 };
 
 function buildMcpServer() {
-  const server = new McpServer({ name: "tcos-market-intel", version: "0.1.0" });
+  const server = new McpServer({ name: "tcos-market-intel", version: "0.2.0" });
   const register = (name, title, description, inputSchema, annotations, handler) =>
     server.registerTool(name, { title, description, inputSchema, annotations }, guarded(handler));
 
@@ -151,9 +152,10 @@ function buildMcpServer() {
       }
       return jsonResult({
         service: "TCOS Market Intel Connector",
-        version: "0.1.0",
+        version: "0.2.0",
         persistence,
         publicSearch: publicSearchService.status(),
+        hardenedInstaComp: hardenedInstaCompService.status(),
         privacy: {
           publicOrAuthorizedContentOnly: true,
           privateFacebookGroupAutomation: false,
@@ -254,6 +256,180 @@ function buildMcpServer() {
     z.object({ first: ListingSchema.omit({ allowDuplicate: true }), second: ListingSchema.omit({ allowDuplicate: true }) }),
     { readOnlyHint: true, openWorldHint: false },
     async ({ first, second }) => jsonResult(compareListingsForDuplicate(first, second)),
+  );
+
+  register(
+    "verify_listing_with_hardened_instacomp",
+    "Verify Listing with Hardened InstaComp",
+    "Download the exact listing front/back images, run the production hardened InstaComp exact-market pipeline, and calculate fail-closed Profit Hunter economics.",
+    z.object({
+      listing: ListingSchema,
+      frontImageUrl: z.string().url(),
+      backImageUrl: z.string().url(),
+      aiCouncilTier: z.string().default("adaptive"),
+      operatorSerialNumberOverride: z.string().nullable().optional(),
+      persistResult: z.boolean().default(true),
+      travelCost: z.number().nonnegative().default(0),
+      otherAcquisitionCosts: z.number().nonnegative().default(0),
+      buyerShipping: z.number().nonnegative().default(0),
+      buyerSalesTax: z.number().nonnegative().default(0),
+      sellingFeeRate: z.number().min(0).max(1).default(config.defaults.sellingFeeRate),
+      orderFee: z.number().nonnegative().default(config.defaults.orderFee),
+      paymentProcessingFees: z.number().nonnegative().default(0),
+      outboundShipping: z.number().nonnegative().default(config.defaults.outboundPostage),
+      supplies: z.number().nonnegative().default(config.defaults.supplies),
+      gradingAuthentication: z.number().nonnegative().default(0),
+      cleaningPreparation: z.number().nonnegative().default(0),
+      labor: z.number().nonnegative().default(0),
+      returnReserveRate: z.number().min(0).max(1).default(config.defaults.returnReserveRate),
+      minimumRoiPercent: z.number().min(0).max(1000).default(20),
+    }),
+    { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    async (input) => {
+      const scan = await hardenedInstaCompService.scanListing({
+        frontImageUrl: input.frontImageUrl,
+        backImageUrl: input.backImageUrl,
+        aiCouncilTier: input.aiCouncilTier,
+        operatorSerialNumberOverride: input.operatorSerialNumberOverride,
+      });
+      const exactMarket = scan.exactMarket || {};
+      const pricingEligibleSoldCount = Number(
+        exactMarket.pricingEligibleSoldCount ?? scan.soldComps?.length ?? 0,
+      );
+      const trustedResalePrice = Number(
+        exactMarket.trustedSuggestedPrice ?? scan.soldStats?.suggestedPrice ?? 0,
+      );
+      const acquisition = calculateDeliveredCost({
+        askingPrice: input.listing.askingPrice || 0,
+        shipping: input.listing.shipping || 0,
+        tax: input.listing.tax || 0,
+        paymentFees: input.listing.buyerFees || 0,
+        travelCost: input.travelCost,
+        otherAcquisitionCosts: input.otherAcquisitionCosts,
+      });
+
+      const resale = trustedResalePrice > 0 && pricingEligibleSoldCount > 0
+        ? calculateResaleOutcome({
+            deliveredCost: acquisition.deliveredCost,
+            resalePrice: trustedResalePrice,
+            buyerShipping: input.buyerShipping,
+            buyerSalesTax: input.buyerSalesTax,
+            sellingFeeRate: input.sellingFeeRate,
+            orderFee: input.orderFee,
+            paymentProcessingFees: input.paymentProcessingFees,
+            outboundShipping: input.outboundShipping,
+            supplies: input.supplies,
+            gradingAuthentication: input.gradingAuthentication,
+            cleaningPreparation: input.cleaningPreparation,
+            labor: input.labor,
+            returnReserveRate: input.returnReserveRate,
+          })
+        : null;
+      const offer = resale
+        ? calculateMaximumOffer({
+            resalePrice: trustedResalePrice,
+            buyerShipping: input.buyerShipping,
+            buyerSalesTax: input.buyerSalesTax,
+            sellingFeeRate: input.sellingFeeRate,
+            orderFee: input.orderFee,
+            paymentProcessingFees: input.paymentProcessingFees,
+            outboundShipping: input.outboundShipping,
+            supplies: input.supplies,
+            gradingAuthentication: input.gradingAuthentication,
+            cleaningPreparation: input.cleaningPreparation,
+            labor: input.labor,
+            returnReserveRate: input.returnReserveRate,
+            shipping: input.listing.shipping || 0,
+            paymentFees: input.listing.buyerFees || 0,
+            travelCost: input.travelCost,
+            otherAcquisitionCosts: input.otherAcquisitionCosts,
+            targetRoi: input.minimumRoiPercent / 100,
+          })
+        : null;
+      const outcome = classifyProfitHunterOutcome({
+        trustedResalePrice,
+        pricingEligibleSoldCount,
+        netProfit: resale?.netProfit ?? 0,
+        roiPercent: resale?.roiPercent ?? 0,
+        manualReviewRequired: input.listing.manualReviewRequired,
+        sellerRisk: input.listing.sellerRisk,
+      });
+
+      const ai = scan.ai || {};
+      const verifiedIdentity = Object.fromEntries(
+        Object.entries({
+          sport: ai.sport,
+          player: ai.player,
+          year: ai.year,
+          manufacturer: ai.manufacturer,
+          product: ai.product || ai.brand || ai.setName,
+          set: ai.set || ai.setName,
+          subset: ai.subset,
+          cardNumber: ai.cardNumber,
+          parallel: ai.parallel,
+          variation: ai.variation,
+          serialTier: ai.serialTier,
+          serialNumber: ai.serialNumber,
+          autograph: ai.autograph,
+          memorabilia: ai.memorabilia,
+          rawOrGraded: ai.rawOrGraded,
+          gradingCompany: ai.gradingCompany,
+          grade: ai.grade,
+          certificationNumber: ai.certificationNumber,
+          condition: ai.condition,
+        }).filter(([, value]) => value !== undefined && value !== null && value !== ""),
+      );
+
+      let persisted = null;
+      if (input.persistResult) {
+        persisted = await repository.ingestListing({
+          ...input.listing,
+          imageUrls: Array.from(
+            new Set([...(input.listing.imageUrls || []), input.frontImageUrl, input.backImageUrl]),
+          ),
+          identity: verifiedIdentity,
+          manualReviewRequired: !outcome.purchaseReady,
+          rawPayload: {
+            ...(input.listing.rawPayload || {}),
+            hardenedInstaComp: {
+              checkedAt: new Date().toISOString(),
+              exactMarketStatus: exactMarket.status || null,
+              pricingEligibleSoldCount,
+              activeCount: Number(exactMarket.activeCount || 0),
+              trustedResalePrice: trustedResalePrice || null,
+              label: outcome.label,
+              purchaseReady: outcome.purchaseReady,
+              netProfit: resale?.netProfit ?? null,
+              roiPercent: resale?.roiPercent ?? null,
+            },
+          },
+        });
+      }
+
+      return jsonResult({
+        listing: {
+          source: input.listing.source,
+          url: input.listing.url,
+          sellerName: input.listing.sellerName || null,
+          title: input.listing.title,
+        },
+        identity: verifiedIdentity,
+        exactMarket: {
+          status: exactMarket.status || null,
+          pricingEligibleSoldCount,
+          activeCount: Number(exactMarket.activeCount || 0),
+          trustedResalePrice: trustedResalePrice || null,
+          sold: (scan.soldComps || exactMarket.sold || []).slice(0, 25),
+          active: (scan.activeComps || exactMarket.active || []).slice(0, 25),
+        },
+        acquisition,
+        resale,
+        offer,
+        outcome,
+        persisted,
+        diagnostics: scan.pipelineDiagnostics || null,
+      });
+    },
   );
 
   register(
@@ -552,10 +728,11 @@ app.get("/health", async (_req, res) => {
   res.json({
     ok: true,
     name: "tcos-market-intel",
-    version: "0.1.0",
+    version: "0.2.0",
     persistence,
     publicSearchConfigured,
     publicSearch: publicSearchService.status(),
+    hardenedInstaComp: hardenedInstaCompService.status(),
   });
 });
 
