@@ -4,17 +4,21 @@ on:
   push:
     branches:
       - agent/database-backed-admin-auth-20260729
+      - fix/public-admin-password-recovery-20260729
   pull_request:
     branches:
       - main
     paths:
+      - "src/proxy.ts"
       - "src/lib/admin-credentials.ts"
       - "src/app/admin/login/page.tsx"
       - "src/app/admin/reset-password/**"
       - "src/app/api/admin/login/route.ts"
       - "src/app/api/admin/password-reset/**"
       - "src/app/api/admin/market-intel/profit-hunter-token/route.ts"
+      - "scripts/run-admin-login-simulations.mjs"
       - "scripts/run-database-admin-auth-simulations.ts"
+      - "scripts/run-admin-password-recovery-proxy-simulations.mjs"
       - ".github/workflows/database-admin-auth.yml"
   workflow_dispatch:
 
@@ -28,7 +32,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: agent/database-backed-admin-auth-20260729
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
           fetch-depth: 1
 
       - name: Verify committed source is clean
@@ -45,12 +49,16 @@ jobs:
       - name: Run permanent database-admin regressions
         run: node --import tsx scripts/run-database-admin-auth-simulations.ts
 
+      - name: Run exact public-recovery proxy regressions
+        run: node scripts/run-admin-password-recovery-proxy-simulations.mjs
+
       - name: Run existing admin-login simulations
         run: npm run simulate:admin-login
 
       - name: Lint authentication paths
         run: >-
           npx eslint
+          src/proxy.ts
           src/lib/admin-credentials.ts
           src/app/admin/login/page.tsx
           src/app/admin/reset-password/page.tsx
@@ -58,7 +66,9 @@ jobs:
           src/app/api/admin/password-reset/request/route.ts
           src/app/api/admin/password-reset/confirm/route.ts
           src/app/api/admin/market-intel/profit-hunter-token/route.ts
+          scripts/run-admin-login-simulations.mjs
           scripts/run-database-admin-auth-simulations.ts
+          scripts/run-admin-password-recovery-proxy-simulations.mjs
 
       - name: Build production application
         env:
