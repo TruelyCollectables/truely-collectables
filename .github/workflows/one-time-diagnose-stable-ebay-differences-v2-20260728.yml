@@ -1,0 +1,275 @@
+name: One-Time Diagnose Stable eBay Differences V2 20260728
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/one-time-diagnose-stable-ebay-differences-v2-20260728.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: one-time-diagnose-stable-ebay-differences-v2-20260728
+  cancel-in-progress: false
+
+jobs:
+  patch-and-validate:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'agent/diagnose-stable-ebay-differences-20260728'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+      ADMIN_SESSION_SECRET: build-only-placeholder-session-secret
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+      EBAY_CLIENT_ID: build-only-placeholder-client-id
+      EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+      EBAY_ENVIRONMENT: production
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/diagnose-stable-ebay-differences-20260728
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - name: Apply stable field diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python <<'PY'
+          from pathlib import Path
+          import re
+
+          sync_path = Path('src/lib/ebay-authoritative-store-sync.ts')
+          source = sync_path.read_text()
+
+          def replace_once(old: str, new: str, label: str) -> None:
+              global source
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected one match, found {count}')
+              source = source.replace(old, new, 1)
+
+          replace_once(
+              'import { getStoreSettings } from "./store-settings";\nimport { listingImageIdentity } from "./listing-image-utils";\nimport { InventoryRepository } from "../modules/inventory";',
+              'import { getStoreSettings } from "./store-settings";\nimport { InventoryRepository } from "../modules/inventory";',
+              'remove image comparison import',
+          )
+
+          replace_once(
+              '''function normalizedNullableText(value: unknown) {
+            return String(value || "").trim();
+          }
+
+          function listingChanged(
+            local: LocalProduct,
+            remote: EbayStoreRemoteListing,
+          ) {
+            return (
+              local.title !== remote.title ||
+              Number(local.quantity) !== remote.quantity ||
+              Math.round(Number(local.price) * 100) !==
+                Math.round(remote.price * 100) ||
+              listingImageIdentity(local.image_url) !==
+                listingImageIdentity(remote.imageUrl) ||
+              normalizedNullableText(local.sport) !==
+                normalizedNullableText(remote.sport) ||
+              (!local.sku && Boolean(remote.sku))
+            );
+          }''',
+              '''function normalizedComparableText(value: unknown) {
+            return String(value || "")
+              .normalize("NFKC")
+              .replace(/\\s+/g, " ")
+              .trim();
+          }
+
+          function listingDifferences(
+            local: LocalProduct,
+            remote: EbayStoreRemoteListing,
+          ) {
+            const differences: string[] = [];
+            if (
+              normalizedComparableText(local.title) !==
+              normalizedComparableText(remote.title)
+            ) {
+              differences.push("title");
+            }
+            if (Number(local.quantity) !== remote.quantity) {
+              differences.push("quantity");
+            }
+            if (
+              Math.round(Number(local.price) * 100) !==
+              Math.round(remote.price * 100)
+            ) {
+              differences.push("price");
+            }
+            if (
+              normalizedComparableText(local.sport) !==
+              normalizedComparableText(remote.sport)
+            ) {
+              differences.push("sport");
+            }
+            if (!normalizedComparableText(local.sku) && remote.sku) {
+              differences.push("missing_sku");
+            }
+            return differences;
+          }
+
+          function listingChanged(
+            local: LocalProduct,
+            remote: EbayStoreRemoteListing,
+          ) {
+            // The complete image synchronizer owns image convergence. Keeping
+            // image URLs out of this inventory comparison prevents the two
+            // stages from fighting over equivalent or preserved primary images.
+            return listingDifferences(local, remote).length > 0;
+          }''',
+              'stable field comparison',
+          )
+
+          replace_once(
+              '''    (listing) => {
+                const local = localByItemId.get(listing.itemId) || null;
+                const action = !local
+                  ? "insert"
+                  : taxonomyRefreshRequired || listingChanged(local, listing)
+                    ? "update"
+                    : "unchanged";
+                return {''',
+              '''    (listing) => {
+                const local = localByItemId.get(listing.itemId) || null;
+                const differences = local ? listingDifferences(local, listing) : [];
+                const action = !local
+                  ? "insert"
+                  : taxonomyRefreshRequired || differences.length > 0
+                    ? "update"
+                    : "unchanged";
+                return {''',
+              'action differences',
+          )
+
+          old_reason = '"Local title, quantity, price, image identity, sport, or SKU differs from eBay."'
+          if source.count(old_reason) != 1:
+              raise SystemExit(f'field-level reason: expected one match, found {source.count(old_reason)}')
+          source = source.replace(old_reason, '`Local differences: ${differences.join(", ")}.`', 1)
+          sync_path.write_text(source)
+
+          route_path = Path('src/app/api/cron/ebay-store-fixed-price-sync/route.ts')
+          route = route_path.read_text()
+          pattern = r'''        errorSample: sync\.errors\.slice\(0, 5\)\.map\(\(entry\) => \(\{\n          itemId: entry\.itemId,\n          error: safeErrorMessage\(entry\.error, "Unknown listing sync error"\),\n        \}\)\),'''
+          replacement = '''        errorSample: sync.errors.slice(0, 5).map((entry) => ({
+          itemId: entry.itemId,
+          error: safeErrorMessage(entry.error, "Unknown listing sync error"),
+        })),
+        changedSample: sync.actions
+          .filter((entry) =>
+            ["insert", "update", "deactivate", "error"].includes(entry.action),
+          )
+          .slice(0, 10)
+          .map((entry) => ({
+            itemId: entry.itemId,
+            title: entry.title.slice(0, 120),
+            action: entry.action,
+            reason: safeErrorMessage(entry.reason, "Listing changed"),
+            remoteQuantity: entry.remoteQuantity,
+            localQuantity: entry.localQuantity,
+            remotePrice: entry.remotePrice,
+            localPrice: entry.localPrice,
+            sku: entry.sku,
+            categoryName: entry.categoryName,
+          })),'''
+          route, count = re.subn(pattern, lambda _: replacement, route, count=1)
+          if count != 1:
+              raise SystemExit(f'changed receipt sample: expected one match, found {count}')
+          route_path.write_text(route)
+
+          taxonomy_test = Path('scripts/run-storefront-taxonomy-regressions.ts')
+          test = taxonomy_test.read_text()
+          old = '''assert.ok(
+            authoritativeSyncSource.includes(
+              'import { listingImageIdentity } from "./listing-image-utils";',
+            ),
+            "Authoritative convergence must compare stable eBay image identities.",
+          );
+          assert.match(
+            authoritativeSyncSource,
+            /listingImageIdentity\\(local\\.image_url\\) !==[\\s\\S]*listingImageIdentity\\(remote\\.imageUrl\\)/,
+            "Image resolution variants must not create endless inventory updates.",
+          );
+          assert.match(
+            authoritativeSyncSource,
+            /normalizedNullableText\\(local\\.sport\\) !==[\\s\\S]*normalizedNullableText\\(remote\\.sport\\)/,
+            "Null and empty storefront category values must compare consistently.",
+          );'''
+          new = '''assert.match(
+            authoritativeSyncSource,
+            /function normalizedComparableText[\\s\\S]*\\.normalize\\("NFKC"\\)[\\s\\S]*\\.replace\\(\\/\\\\s\\+\\/g, " "\\)/,
+            "Equivalent Unicode and whitespace title values must compare consistently.",
+          );
+          assert.match(
+            authoritativeSyncSource,
+            /function listingDifferences[\\s\\S]*differences\\.push\\("title"\\)[\\s\\S]*differences\\.push\\("quantity"\\)[\\s\\S]*differences\\.push\\("price"\\)[\\s\\S]*differences\\.push\\("sport"\\)/,
+            "Authoritative receipts must identify the exact inventory fields that differ.",
+          );
+          assert.ok(
+            !authoritativeSyncSource.includes("listingImageIdentity(local.image_url)"),
+            "The authoritative inventory stage must not fight the complete image synchronization stage.",
+          );'''
+          if test.count(old) != 1:
+              raise SystemExit(f'comparison regressions: expected one match, found {test.count(old)}')
+          taxonomy_test.write_text(test.replace(old, new, 1))
+
+          image_test = Path('scripts/run-ebay-import-admin-client-simulations.ts')
+          test = image_test.read_text()
+          marker = '''assert.match(
+            scheduledEbaySync,
+            /syncEbayAllListingImages/,
+            "The scheduled authoritative eBay job must run complete 1–20 image reconciliation.",
+          );'''
+          addition = '''assert.match(
+            scheduledEbaySync,
+            /changedSample: sync\\.actions[\\s\\S]*entry\\.itemId[\\s\\S]*entry\\.reason/,
+            "Production receipts must include a bounded sample of listings that still differ.",
+          );
+          ''' + marker
+          if test.count(marker) != 1:
+              raise SystemExit(f'changed-sample regression: expected one match, found {test.count(marker)}')
+          image_test.write_text(test.replace(marker, addition, 1))
+
+          for workflow in [
+              '.github/workflows/one-time-diagnose-stable-ebay-differences-20260728.yml',
+              '.github/workflows/one-time-diagnose-stable-ebay-differences-v2-20260728.yml',
+              '.github/workflows/diagnose-stable-ebay-difference-writer-20260728.yml',
+          ]:
+              candidate = Path(workflow)
+              if candidate.exists(): candidate.unlink()
+          PY
+
+      - name: Validate stable comparison diagnostics
+        run: |
+          set -euo pipefail
+          npm ci
+          node --import tsx scripts/run-storefront-taxonomy-regressions.ts
+          node --import tsx scripts/run-ebay-import-admin-client-simulations.ts
+          npx eslint src/lib/ebay-authoritative-store-sync.ts src/app/api/cron/ebay-store-fixed-price-sync/route.ts scripts/run-storefront-taxonomy-regressions.ts scripts/run-ebay-import-admin-client-simulations.ts
+          npm run build
+
+      - name: Commit validated diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Truely Collectables Automation"
+          git config user.email "automation@truelycollectables.com"
+          git add src/lib/ebay-authoritative-store-sync.ts src/app/api/cron/ebay-store-fixed-price-sync/route.ts scripts/run-storefront-taxonomy-regressions.ts scripts/run-ebay-import-admin-client-simulations.ts .github/workflows/one-time-diagnose-stable-ebay-differences-20260728.yml .github/workflows/one-time-diagnose-stable-ebay-differences-v2-20260728.yml .github/workflows/diagnose-stable-ebay-difference-writer-20260728.yml
+          git commit -m "Diagnose and stabilize eBay inventory differences"
+          git push origin HEAD:agent/diagnose-stable-ebay-differences-20260728
