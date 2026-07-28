@@ -6,7 +6,7 @@ on:
       - main
     paths:
       - ".github/workflows/authorized-ebay-taxonomy-sync-20260728.yml"
-      - "scripts/prepare-production-admin-session.sh"
+      - "scripts/run-production-ebay-taxonomy-direct.sh"
       - "scripts/run-production-ebay-taxonomy-sync.mjs"
   workflow_dispatch:
 
@@ -26,8 +26,6 @@ jobs:
       PRODUCTION_ORIGIN: https://truelycollectables.com
       EBAY_IMPORT_LIMIT: "100"
       EBAY_IMPORT_MAX_PAGES: "25"
-      ADMIN_SESSION_SECRET: ${{ secrets.ADMIN_SESSION_SECRET }}
-      ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
@@ -43,14 +41,15 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
 
-      - name: Create one-run protected admin session
-        run: bash scripts/prepare-production-admin-session.sh
+      - name: Install exact dependencies
+        run: npm ci
 
-      - name: Run complete paged eBay taxonomy sync and storefront verification
-        run: node scripts/run-production-ebay-taxonomy-sync.mjs
+      - name: Run direct production eBay taxonomy sync and storefront verification
+        run: bash scripts/run-production-ebay-taxonomy-direct.sh
 
-      - name: Remove ephemeral session material
+      - name: Remove ephemeral Production environment material
         if: always()
         run: rm -rf .vercel .sync-private
 
