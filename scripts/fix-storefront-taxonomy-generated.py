@@ -135,4 +135,62 @@ replace_once(
     "add Other Sports section order",
 )
 
+# The public storefront wrapper overrides listAvailable, so its parameter
+# contract must expose the expanded section/feature/sort filters too.
+replace_once(
+    "src/lib/server-inventory-engine.ts",
+    '''import { isLaunchSportsCard } from "./sports-card-launch-scope";
+''',
+    '''import { isLaunchSportsCard } from "./sports-card-launch-scope";
+import type { StorefrontSort } from "./storefront-taxonomy";
+''',
+    "public storefront sort type import",
+)
+replace_once(
+    "src/lib/server-inventory-engine.ts",
+    '''  async listAvailable(
+    params: {
+      query?: string;
+      sport?: string;
+    } = {},
+  ) {
+''',
+    '''  async listAvailable(
+    params: {
+      query?: string;
+      sport?: string;
+      section?: string;
+      feature?: string;
+      category?: string;
+      sort?: StorefrontSort;
+    } = {},
+  ) {
+''',
+    "public storefront expanded filter contract",
+)
+
+# Keep the permanent taxonomy gate watching/linting the public wrapper.
+replace_once(
+    ".github/workflows/storefront-taxonomy.yml",
+    '''      - "src/modules/inventory/**"
+      - "src/app/shop/**"
+''',
+    '''      - "src/modules/inventory/**"
+      - "src/lib/server-inventory-engine.ts"
+      - "src/app/shop/**"
+''',
+    "permanent gate public wrapper path",
+)
+replace_once(
+    ".github/workflows/storefront-taxonomy.yml",
+    '''          src/modules/inventory/engine.ts
+          src/app/shop/page.tsx
+''',
+    '''          src/modules/inventory/engine.ts
+          src/lib/server-inventory-engine.ts
+          src/app/shop/page.tsx
+''',
+    "permanent gate public wrapper lint",
+)
+
 print("Generated storefront taxonomy fixes complete.")
