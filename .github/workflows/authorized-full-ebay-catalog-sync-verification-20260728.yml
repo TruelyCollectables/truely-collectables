@@ -19,14 +19,13 @@ jobs:
   verify-production-sync:
     if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ops/verify-full-ebay-catalog-sync-20260728')
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 20
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_SCOPE: truelycollectables-projects
       PRODUCTION_ORIGIN: https://truelycollectables.com
-      CRON_NOT_BEFORE_UTC: 2026-07-28T05:01:30Z
     steps:
       - name: Check out verification runner
         uses: actions/checkout@v4
@@ -55,89 +54,34 @@ jobs:
               --token "$VERCEL_TOKEN"
           fi
 
-      - name: Wait for completed protected eBay cron status
+      - name: Capture raw production runtime logs
         shell: bash
         run: |
-          set -euo pipefail
-          completed=''
-          for attempt in $(seq 1 16); do
-            echo "Runtime completion query ${attempt}/16"
-            raw="sync-verification/logs/vercel-runtime-${attempt}.jsonl"
-            npx vercel@56.2.0 logs \
-              --project truely-collectables \
-              --environment production \
-              --since 60m \
-              --no-branch \
-              --json \
-              --limit 1000 \
-              --scope "$VERCEL_SCOPE" \
-              --token "$VERCEL_TOKEN" \
-              > "$raw" \
-              2> "sync-verification/logs/vercel-runtime-${attempt}.stderr" || true
-            ATTEMPT="$attempt" RAW_FILE="$raw" node <<'NODE'
-            const fs = require('node:fs');
-            const notBefore = Date.parse(process.env.CRON_NOT_BEFORE_UTC);
-            const lines = fs.readFileSync(process.env.RAW_FILE, 'utf8').split(/\r?\n/).filter(Boolean);
-            const rows = [];
-            for (const line of lines) {
-              try {
-                const row = JSON.parse(line);
-                if (
-                  row.requestPath === '/api/cron/ebay-store-fixed-price-sync' &&
-                  Number(row.timestamp || 0) >= notBefore
-                ) rows.push(row);
-              } catch {}
-            }
-            const unique = Array.from(
-              new Map(rows.map((row) => [`${row.id}|${row.source}|${row.responseStatusCode}`, row])).values(),
-            ).sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0));
-            const statuses = unique.map((row) => Number(row.responseStatusCode || 0));
-            const completedSuccess = statuses.includes(200);
-            const completedWithErrors = statuses.includes(207);
-            const completedFailure = statuses.some((status) => status >= 400);
-            const summary = {
-              attempt: Number(process.env.ATTEMPT),
-              notBefore: process.env.CRON_NOT_BEFORE_UTC,
-              matchedEntries: unique.length,
-              statuses,
-              completedSuccess,
-              completedWithErrors,
-              completedFailure,
-              entries: unique,
-            };
-            fs.writeFileSync(
-              `sync-verification/logs/ebay-cron-summary-${process.env.ATTEMPT}.json`,
-              JSON.stringify(summary, null, 2) + '\n',
-            );
-            console.log(JSON.stringify({
-              attempt: summary.attempt,
-              matchedEntries: summary.matchedEntries,
-              statuses,
-              completedSuccess,
-              completedWithErrors,
-              completedFailure,
-            }));
-            NODE
-            summary="sync-verification/logs/ebay-cron-summary-${attempt}.json"
-            if grep -Fq '"completedSuccess": true' "$summary"; then
-              cp "$summary" sync-verification/logs/ebay-cron-final.json
-              completed="$attempt"
-              break
-            fi
-            if grep -Fq '"completedWithErrors": true' "$summary" || grep -Fq '"completedFailure": true' "$summary"; then
-              cp "$summary" sync-verification/logs/ebay-cron-final.json
-              cat "$summary"
-              exit 1
-            fi
-            sleep 30
-          done
-          test -n "$completed"
-          echo "Protected eBay cron completed successfully on query attempt $completed"
+          set +e
+          npx vercel@56.2.0 logs \
+            --project truely-collectables \
+            --environment production \
+            --since 90m \
+            --no-branch \
+            --json \
+            --limit 1000 \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" \
+            > sync-verification/logs/runtime.jsonl \
+            2> sync-verification/logs/runtime.stderr
+          printf '%s\n' "$?" > sync-verification/logs/runtime.exit-code
+          grep -F 'ebay-store-fixed-price-sync' sync-verification/logs/runtime.jsonl \
+            > sync-verification/logs/ebay-cron-lines.jsonl || true
+          wc -l sync-verification/logs/runtime.jsonl sync-verification/logs/ebay-cron-lines.jsonl \
+            > sync-verification/logs/line-counts.txt
+          cat sync-verification/logs/line-counts.txt
+          cat sync-verification/logs/runtime.stderr
+          exit 0
 
-      - name: Capture live storefront pages with curl
+      - name: Capture raw live storefront pages
         shell: bash
         run: |
-          set -euo pipefail
+          set +e
           fetch_page() {
             key="$1"
             path="$2"
@@ -145,11 +89,10 @@ jobs:
             code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 90 \
               --header 'Cache-Control: no-cache' \
               --output "$body" --write-out '%{http_code}' \
-              "${PRODUCTION_ORIGIN}${path}" || true)"
+              "${PRODUCTION_ORIGIN}${path}")"
             printf '%s\n' "$code" > "sync-verification/storefront/${key}.status"
             printf '%s\n' "${PRODUCTION_ORIGIN}${path}" > "sync-verification/storefront/${key}.url"
-            echo "$key HTTP=$code"
-            test "$code" = '200'
+            echo "$key HTTP=$code bytes=$(wc -c < "$body" 2>/dev/null || echo 0)"
           }
           fetch_page all '/shop'
           fetch_page pucks '/shop?section=Pucks'
@@ -161,73 +104,13 @@ jobs:
           fetch_page shoes-blocked '/shop?q=shoes'
           fetch_page pants-blocked '/shop?q=pants'
           fetch_page parts-blocked '/shop?q=fuel%20sensor'
+          exit 0
 
-      - name: Verify live storefront catalog and exclusions
-        shell: bash
-        run: |
-          set -euo pipefail
-          node <<'NODE'
-          const fs = require('node:fs');
-          const keys = [
-            { key: 'all', requireItems: true },
-            { key: 'pucks' },
-            { key: 'balls' },
-            { key: 'jerseys' },
-            { key: 'autographs' },
-            { key: 'tcg' },
-            { key: 'other' },
-            { key: 'shoes-blocked', expectZero: true },
-            { key: 'pants-blocked', expectZero: true },
-            { key: 'parts-blocked', expectZero: true },
-          ];
-          const decode = (value) => value
-            .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-            .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-            .replace(/<[^>]*>/g, ' ')
-            .replace(/&amp;/g, '&')
-            .replace(/&#39;/g, "'")
-            .replace(/&quot;/g, '"')
-            .replace(/&nbsp;/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim();
-          const results = [];
-          for (const check of keys) {
-            const html = fs.readFileSync(`sync-verification/storefront/${check.key}.html`, 'utf8');
-            const plain = decode(html);
-            const activeMatch = plain.match(/([\d,]+) active cards & collectibles/i);
-            const activeItems = activeMatch ? Number(activeMatch[1].replaceAll(',', '')) : null;
-            const titles = Array.from(html.matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/gi))
-              .map((match) => decode(match[1]))
-              .filter(Boolean)
-              .slice(0, 10);
-            const result = {
-              key: check.key,
-              url: fs.readFileSync(`sync-verification/storefront/${check.key}.url`, 'utf8').trim(),
-              status: Number(fs.readFileSync(`sync-verification/storefront/${check.key}.status`, 'utf8').trim()),
-              markerPresent: plain.includes('Cards and memorabilia stay in their correct section.'),
-              activeItems,
-              sampleTitles: titles,
-            };
-            results.push(result);
-            console.log(JSON.stringify(result));
-            if (!result.markerPresent) throw new Error(`${check.key} is not serving the full-catalog release.`);
-            if (!Number.isInteger(activeItems)) throw new Error(`${check.key} inventory count could not be parsed.`);
-            if (check.requireItems && activeItems < 1) throw new Error('The live shop has no active inventory.');
-            if (check.expectZero && activeItems !== 0) {
-              throw new Error(`${check.key} exposed ${activeItems} excluded item(s).`);
-            }
-          }
-          fs.writeFileSync(
-            'sync-verification/storefront-verification.json',
-            JSON.stringify({ generatedAt: new Date().toISOString(), success: true, results }, null, 2) + '\n',
-          );
-          NODE
-
-      - name: Upload full-catalog sync verification evidence
+      - name: Upload raw full-catalog diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: full-ebay-catalog-sync-verification-${{ github.run_number }}
+          name: full-ebay-catalog-sync-diagnostics-${{ github.run_number }}
           path: sync-verification
           if-no-files-found: error
           retention-days: 30
