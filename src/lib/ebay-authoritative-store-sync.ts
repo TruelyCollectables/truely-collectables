@@ -8,6 +8,8 @@ const TRADING_API_VERSION = "1409";
 const PAGE_SIZE = 200;
 const MAX_PAGES = 25;
 const APPLY_CONCURRENCY = 8;
+const LOCAL_PAGE_SIZE = 1000;
+const MAX_LOCAL_PAGES = 50;
 const STOREFRONT_TAXONOMY_VERSION = 4;
 
 export type EbayStoreSyncMode = "preview" | "apply";
@@ -107,6 +109,28 @@ function nonNegativeInteger(value: unknown) {
 function positiveMoney(value: unknown) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function syncErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error) return error.message.slice(0, 500);
+  if (typeof error === "string") return error.slice(0, 500);
+
+  const value = recordValue(error);
+  const parts = [
+    value.message ? String(value.message) : null,
+    value.code ? `code=${String(value.code)}` : null,
+    value.details ? `details=${String(value.details)}` : null,
+    value.hint ? `hint=${String(value.hint)}` : null,
+  ].filter((part): part is string => Boolean(part));
+  if (parts.length) return parts.join(" | ").slice(0, 500);
+
+  try {
+    const serialized = JSON.stringify(error);
+    if (serialized && serialized !== "{}") return serialized.slice(0, 500);
+  } catch {
+    // Fall through to the bounded generic message.
+  }
+  return fallback;
 }
 
 function decodeXml(value: string) {
@@ -756,25 +780,65 @@ async function touchUnchanged(params: {
   }
 }
 
+async function readAllLocalProducts(params: {
+  supabase: SupabaseClient;
+  storeId: string;
+}) {
+  const rows: LocalProduct[] = [];
+
+  for (let page = 0; page < MAX_LOCAL_PAGES; page += 1) {
+    const from = page * LOCAL_PAGE_SIZE;
+    const { data, error } = await params.supabase
+      .from("products")
+      .select(
+        "id,seller_account_id,sku,title,description,price,quantity,image_url,ebay_item_id,sport,last_seen_at",
+      )
+      .eq("store_id", params.storeId)
+      .not("ebay_item_id", "is", null)
+      .order("id", { ascending: true })
+      .range(from, from + LOCAL_PAGE_SIZE - 1);
+    if (error) throw error;
+
+    const batch = (data || []) as LocalProduct[];
+    rows.push(...batch);
+    if (batch.length < LOCAL_PAGE_SIZE) return rows;
+  }
+
+  throw new Error(
+    `Local eBay-linked product pagination exceeded ${MAX_LOCAL_PAGES * LOCAL_PAGE_SIZE} rows.`,
+  );
+}
+
 async function deactivateLocalProduct(params: {
   supabase: SupabaseClient;
   storeId: string;
   local: LocalProduct;
 }) {
   const now = new Date().toISOString();
-  const { error } = await params.supabase
-    .from("products")
-    .update({ quantity: 0, last_seen_at: now })
-    .eq("id", params.local.id)
-    .eq("store_id", params.storeId);
-  if (error) throw error;
+  let changed = false;
+
+  if (Number(params.local.quantity) > 0) {
+    const { data, error } = await params.supabase
+      .from("products")
+      .update({ quantity: 0, last_seen_at: now })
+      .eq("id", params.local.id)
+      .eq("store_id", params.storeId)
+      .gt("quantity", 0)
+      .select("id")
+      .maybeSingle();
+    if (error) throw error;
+    changed = Boolean(data?.id);
+  }
 
   const repository = new InventoryRepository(
     params.storeId,
     params.supabase,
   );
   const inventory = await repository.getByLegacyProductId(params.local.id);
-  if (inventory) {
+  if (
+    inventory &&
+    (Number(inventory.quantity || 0) > 0 || inventory.status !== "sold")
+  ) {
     await repository.update(inventory.id, {
       quantity: 0,
       status: "sold",
@@ -783,7 +847,10 @@ async function deactivateLocalProduct(params: {
         ebay_not_active_at_last_full_sync: now,
       },
     });
+    changed = true;
   }
+
+  return changed;
 }
 
 async function runWorkers<T>(
@@ -845,16 +912,10 @@ export async function runEbayAuthoritativeStoreSync(params: {
     environment: settings.ebayEnvironment,
     accessToken,
   });
-  const { data: localRows, error: localError } = await params.supabase
-    .from("products")
-    .select(
-      "id,seller_account_id,sku,title,description,price,quantity,image_url,ebay_item_id,sport,last_seen_at",
-    )
-    .eq("store_id", params.storeId)
-    .not("ebay_item_id", "is", null);
-  if (localError) throw localError;
-
-  const locals = (localRows || []) as LocalProduct[];
+  const locals = await readAllLocalProducts({
+  supabase: params.supabase,
+  storeId: params.storeId,
+});
   const taxonomyRefreshRequired =
     Number(
       recordValue(connection.import_cursor).storefront_taxonomy_version || 0,
@@ -955,10 +1016,7 @@ export async function runEbayAuthoritativeStoreSync(params: {
         errors.push({
           itemId: listing.itemId,
           title: listing.title,
-          error:
-            error instanceof Error
-              ? error.message
-              : "Unknown sync failure.",
+          error: syncErrorMessage(error, "Unknown sync failure."),
         });
       }
     });
@@ -989,10 +1047,10 @@ export async function runEbayAuthoritativeStoreSync(params: {
       errors.push({
         itemId: "bulk-touch",
         title: "Unchanged eBay listings",
-        error:
-          error instanceof Error
-            ? error.message
-            : "Could not refresh sync timestamps.",
+        error: syncErrorMessage(
+        error,
+        "Could not refresh sync timestamps.",
+      ),
       });
     }
 
@@ -1003,16 +1061,16 @@ export async function runEbayAuthoritativeStoreSync(params: {
       );
       await runWorkers(endedLocals, async (local) => {
         try {
-          await deactivateLocalProduct({ ...params, local });
-          deactivated += 1;
+          const changed = await deactivateLocalProduct({ ...params, local });
+        if (changed) deactivated += 1;
         } catch (error) {
           errors.push({
             itemId: String(local.ebay_item_id || ""),
             title: local.title,
-            error:
-              error instanceof Error
-                ? error.message
-                : "Unknown deactivate failure.",
+            error: syncErrorMessage(
+            error,
+            "Unknown deactivate failure.",
+          ),
           });
         }
       });
