@@ -29,7 +29,7 @@ jobs:
       NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
       STRIPE_SECRET_KEY: sk_test_build_only_placeholder
       NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
-      STRIPE_WEBHOOK_SECRET: whsec_build_only-placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
       EBAY_CLIENT_ID: build-only-placeholder-client-id
       EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
       EBAY_ENVIRONMENT: production
@@ -82,9 +82,29 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
       - name: Commit verified source
+        id: commit_source
+        continue-on-error: true
+        shell: bash
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/lib/ebay-authoritative-store-sync.ts scripts/run-storefront-taxonomy-regressions.ts
-          git commit -m "Read all local eBay-linked products during sync"
-          git push origin HEAD:agent/paginate-ebay-linked-products-20260728
+          set -o pipefail
+          {
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            echo '--- status before add ---'
+            git status --short
+            git add src/lib/ebay-authoritative-store-sync.ts scripts/run-storefront-taxonomy-regressions.ts
+            echo '--- staged diff ---'
+            git diff --cached --stat
+            git commit -m "Read all local eBay-linked products during sync"
+            git push origin HEAD:agent/paginate-ebay-linked-products-20260728
+          } 2>&1 | tee ebay-local-pagination-commit.log
+      - name: Upload commit diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ebay-local-pagination-commit-${{ github.run_number }}
+          path: ebay-local-pagination-commit.log
+          if-no-files-found: error
+          retention-days: 14
+      - name: Enforce source commit
+        run: test "${{ steps.commit_source.outcome }}" = "success"
