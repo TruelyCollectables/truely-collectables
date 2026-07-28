@@ -1,5 +1,6 @@
 name: Temporary Storefront Taxonomy Writer
 
+# Registered one-time writer trigger.
 on:
   push:
     branches:
