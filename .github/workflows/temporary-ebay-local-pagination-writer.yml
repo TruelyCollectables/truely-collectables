@@ -1,12 +1,6 @@
 name: Temporary eBay Local Pagination Writer
 
 on:
-  push:
-    branches:
-      - agent/paginate-ebay-linked-products-20260728
-    paths:
-      - "scripts/apply-ebay-local-pagination-fix.py"
-      - ".github/workflows/temporary-ebay-local-pagination-writer.yml"
   pull_request:
     branches:
       - main
@@ -19,7 +13,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: ebay-local-pagination-writer
+  group: ebay-local-pagination-writer-pr-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -35,7 +29,7 @@ jobs:
       NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
       STRIPE_SECRET_KEY: sk_test_build_only_placeholder
       NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
-      STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_build_only-placeholder
       EBAY_CLIENT_ID: build-only-placeholder-client-id
       EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
       EBAY_ENVIRONMENT: production
