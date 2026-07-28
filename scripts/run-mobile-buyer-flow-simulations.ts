@@ -20,9 +20,9 @@ for (const path of ["/shop", "/shop?q=rookie", "/shop?q=autograph", "/shop?q=PSA
 assert.match(navbar, /min-h-11/, "Navigation and cart controls must meet the mobile touch-target contract.");
 
 assert.match(shop, /px-4 py-8 sm:px-6/, "The shop must use narrow phone gutters with larger-screen fallback.");
-assert.match(shop, /className="object-contain p-2"/, "Shop thumbnails must show the whole card instead of cropping it.");
+assert.match(shop, /className="object-contain p-2"/, "Shop thumbnails must show the whole item instead of cropping it.");
 assert.match(shop, /min-h-12[^"]*text-base/, "Shop search controls must be large enough for touch and avoid mobile input zoom.");
-assert.match(shop, /View Card/, "The shop card action must stay concise on small screens.");
+assert.match(shop, /View (?:Card|Item)/, "The shop item action must stay concise on small screens.");
 
 assert.doesNotMatch(productActions, /alert\("Added to cart!"\)/, "Add-to-cart confirmation must not use a blocking mobile alert.");
 assert.match(productActions, /aria-live="polite"/, "Add-to-cart confirmation must be announced without blocking navigation.");
@@ -34,7 +34,7 @@ assert.match(offerForm, /min-h-12 w-full[^"]*text-base/, "Offer controls must be
 assert.match(offerForm, /messageTone === "error" \? "text-red-700" : "text-emerald-700"/, "Only offer failures may render red; success must render green.");
 assert.match(offerForm, /disabled=\{submitting\}/, "Offer submission must block accidental mobile double taps.");
 
-assert.match(cart, /object-contain/, "Cart card images must not be cropped.");
+assert.match(cart, /object-contain/, "Cart item images must not be cropped.");
 assert.match(cart, /flex flex-wrap items-center gap-2/, "Cart quantity controls must wrap on narrow screens.");
 assert.match(cart, /min-h-11 min-w-11/, "Cart quantity controls must meet the mobile touch-target contract.");
 assert.match(cart, /h-5 w-5 shrink-0/, "Shipping and terms controls must remain easy to tap.");
