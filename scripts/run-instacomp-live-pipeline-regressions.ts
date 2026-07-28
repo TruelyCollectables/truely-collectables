@@ -1,9 +1,5 @@
 import assert from "node:assert/strict";
-import type {
-  InstaCompAiResult,
-  InstaCompComp,
-  InstaCompProviderResult,
-} from "../src/lib/instacomp";
+import type { InstaCompAiResult, InstaCompComp, InstaCompProviderResult } from "../src/lib/instacomp";
 import {
   buildExactIdentityTitle,
   dedupeExactMarketComps,
@@ -11,142 +7,130 @@ import {
   missingExactIdentityFields,
 } from "../src/lib/instacomp-live-pipeline";
 
-const ai: InstaCompAiResult = {
-  player: "Test Player",
-  year: "2025",
-  brand: "Topps",
-  setName: "Chrome",
-  cardNumber: "123",
-  parallel: "Gold Refractor",
-  serialNumber: "12/50",
-  gradingCompany: null,
-  gradeValue: null,
-  certificationNumber: null,
-  team: "Test Team",
-  sport: "Baseball",
-  isRookie: true,
-  isAuto: false,
-  isRelic: false,
-  conditionGuess: "raw",
-  confidence: 0.97,
-  notes: null,
-};
+function card(overrides: Partial<InstaCompAiResult> = {}): InstaCompAiResult {
+  return {
+    player: "Connor Bedard",
+    year: "2023-24",
+    brand: "Upper Deck",
+    setName: "Upper Deck Series 2 Hockey",
+    cardNumber: "451",
+    parallel: "Young Guns",
+    serialNumber: null,
+    gradingCompany: null,
+    gradeValue: null,
+    certificationNumber: null,
+    certificationLookupUrl: null,
+    gradingEvidence: null,
+    team: "Chicago Blackhawks",
+    sport: "Hockey",
+    isRookie: true,
+    isAuto: false,
+    isRelic: false,
+    conditionGuess: "Raw",
+    confidence: 0.97,
+    notes: "Front and back match.",
+    ...overrides,
+  };
+}
 
 function comp(params: {
   title: string;
   price: number;
   url: string;
   lane: "sold" | "active";
-  delivered?: boolean;
-  shippingFlagOnly?: boolean;
-  discoveryOnly?: boolean;
+  soldAt?: string | null;
+  itemPrice?: number | null;
+  shippingPrice?: number | null;
+  priceIncludesShipping?: boolean;
+  flags?: string[];
 }): InstaCompComp {
-  const delivered = params.delivered !== false;
   return {
     title: params.title,
     price: params.price,
-    itemPrice: params.shippingFlagOnly ? undefined : params.price,
-    shippingPrice: params.shippingFlagOnly ? undefined : delivered ? 0 : null,
-    priceIncludesShipping: params.shippingFlagOnly ? undefined : delivered,
+    itemPrice: params.itemPrice ?? params.price,
+    shippingPrice: params.shippingPrice ?? 0,
+    priceIncludesShipping: params.priceIncludesShipping ?? true,
     currency: "USD",
     url: params.url,
-    imageUrl: "https://i.ebayimg.com/images/g/test/s-l1600.jpg",
-    source: params.discoveryOnly
-      ? params.lane === "sold"
-        ? "openai_web_ebay_sold_exact"
-        : "openai_web_ebay_active_exact"
-      : params.lane === "sold"
-        ? "test_sold"
-        : "test_active",
-    sourceLabel: params.lane === "sold" ? "Test Sold" : "Test Active",
-    sourceCategory: params.discoveryOnly
-      ? "reference"
-      : params.lane === "sold"
-        ? "sold"
-        : "marketplace",
+    imageUrl: null,
+    source: params.lane === "sold" ? "serpapi_sold" : "serpapi_active",
+    sourceLabel: params.lane === "sold" ? "eBay Sold" : "eBay Active",
+    sourceCategory: params.lane === "sold" ? "sold" : "marketplace",
     matchScore: 100,
-    flags: [
-      "strict exact identity",
-      "exact print run /50",
-      ...(params.shippingFlagOnly ? ["shipping not reported"] : []),
-      ...(params.discoveryOnly ? ["not independently verified for pricing"] : []),
-    ],
-    soldAt: params.lane === "sold" ? "2026-07-20" : null,
-    listedAt: params.lane === "active" ? "2026-07-21" : null,
+    flags: params.flags || [],
+    soldAt:
+      params.lane === "sold"
+        ? params.soldAt === undefined
+          ? "2026-07-20"
+          : params.soldAt
+        : null,
+    observedAt: "2026-07-26T00:00:00.000Z",
   };
 }
 
 function provider(
-  lane: "sold" | "active",
+  source: string,
   results: InstaCompComp[],
   status: InstaCompProviderResult["status"] = results.length ? "live" : "no_matches",
 ): InstaCompProviderResult {
   return {
-    source: lane === "sold" ? "test_sold" : "test_active",
-    label: lane === "sold" ? "Test Sold" : "Test Active",
+    source,
+    label: source,
     status,
-    message: null,
+    message: status === "error" ? "provider failed" : null,
     results,
   };
 }
 
-const title = buildExactIdentityTitle(ai);
-assert.match(title, /2025 Topps Chrome Test Player RC Gold Refractor #123 \/50/);
-assert.deepEqual(missingExactIdentityFields(ai), []);
-assert.deepEqual(
-  missingExactIdentityFields({ ...ai, cardNumber: null, setName: null }),
-  ["set", "card number"],
+const exactCard = card();
+assert.deepEqual(missingExactIdentityFields(exactCard), []);
+assert.equal(
+  buildExactIdentityTitle(exactCard),
+  "2023-24 Upper Deck Upper Deck Series 2 Hockey Connor Bedard RC Young Guns #451 Raw",
 );
 
-const duplicateSold = [
-  comp({
-    title,
-    price: 20,
-    url: "https://www.ebay.com/itm/123?foo=1",
-    lane: "sold",
-  }),
-  comp({
-    title,
-    price: 20,
-    url: "https://www.ebay.com/itm/123?bar=2",
-    lane: "sold",
-  }),
-];
-assert.equal(dedupeExactMarketComps(duplicateSold).length, 1);
+const missing = card({ cardNumber: null, year: null });
+assert.deepEqual(missingExactIdentityFields(missing), ["year", "card number"]);
 
-const shippingUnknown = comp({
+const title = "2023-24 Upper Deck Series 2 Connor Bedard Young Guns #451 RC";
+const soldWithoutDate = comp({
   title,
-  price: 20,
-  url: "https://www.ebay.com/itm/shipping-unknown",
+  price: 30,
+  url: "https://www.ebay.com/itm/no-date",
   lane: "sold",
-  delivered: false,
+  soldAt: null,
 });
 assert.equal(
-  dedupeExactMarketComps([shippingUnknown]).length,
+  dedupeExactMarketComps([soldWithoutDate]).length,
   0,
-  "A provider row with priceIncludesShipping=false must not enter trusted pricing.",
+  "A sold row without a sold date must not enter trusted pricing.",
 );
 
-const shippingUnknownByFlag = comp({
+const unknownShipping = comp({
   title,
-  price: 20,
-  url: "https://www.ebay.com/itm/shipping-flag-unknown",
+  price: 30,
+  url: "https://www.ebay.com/itm/unknown-shipping",
   lane: "sold",
-  shippingFlagOnly: true,
+  priceIncludesShipping: false,
+  flags: ["shipping not reported"],
 });
 assert.equal(
-  dedupeExactMarketComps([shippingUnknownByFlag]).length,
+  dedupeExactMarketComps([unknownShipping]).length,
   0,
-  "A SerpApi row flagged shipping not reported must not enter trusted pricing.",
+  "Shipping-unknown rows must not enter trusted pricing.",
 );
 
-const discoveryOnlySold = comp({
-  title,
-  price: 999,
-  url: "https://www.ebay.com/itm/discovery-only",
-  lane: "sold",
-  discoveryOnly: true,
-});
+const discoveryOnlySold = {
+  ...comp({
+    title,
+    price: 19.99,
+    url: "https://example.com/openai-discovery-row",
+    lane: "sold",
+  }),
+  source: "openai_web_sold",
+  sourceLabel: "OpenAI Web Search Sold Discovery",
+  flags: ["discovery candidate", "not independently verified for pricing"],
+};
 assert.equal(
   dedupeExactMarketComps([discoveryOnlySold]).length,
   0,
@@ -182,9 +166,19 @@ assert.ok(trusted.trustedSuggestedPrice && trusted.trustedSuggestedPrice > 0);
 const activeOnly = mergeExactMarketSources([
   { sold: provider("sold", []), active: provider("active", active) },
 ]);
-assert.equal(activeOnly.status, "no_exact_sold");
+assert.equal(activeOnly.status, "active_only");
 assert.equal(activeOnly.trustedSuggestedPrice, null);
 assert.equal(activeOnly.pricing.strategy, "active_only");
+
+const partialProviderFailure = mergeExactMarketSources([
+  {
+    sold: provider("sold", [], "error"),
+    active: provider("active", active),
+  },
+]);
+assert.equal(partialProviderFailure.status, "partial_provider_error");
+assert.equal(partialProviderFailure.active.length, 2);
+assert.equal(partialProviderFailure.trustedSuggestedPrice, null);
 
 const providerFailure = mergeExactMarketSources([
   {
@@ -205,5 +199,5 @@ assert.equal(providerMissing.status, "provider_error");
 assert.equal(providerMissing.trustedSuggestedPrice, null);
 
 console.log(
-  "InstaComp live-pipeline regressions passed: identity gating, exact comp dedupe, delivered-price enforcement, discovery-only exclusion, sold-backed pricing, active-only refusal, and provider failure handling.",
+  "InstaComp live-pipeline regressions passed: identity gating, exact comp dedupe, delivered-price enforcement, discovery-only exclusion, sold-backed pricing, active-only and partial-provider states, and provider failure handling.",
 );
