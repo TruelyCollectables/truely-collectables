@@ -1,6 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { mapEbayInventoryCategory } from "./ebay-category-mapper";
 import { getStoreSettings } from "./store-settings";
+import {
+  isMergedEbayAliasItemId,
+  isMergedEbayListingMember,
+} from "./ebay-merged-listing-groups";
 import { InventoryRepository } from "../modules/inventory";
 
 const TRADING_API_VERSION = "1409";
@@ -362,6 +366,10 @@ async function upsertNewLegacyListing(params: {
   accountId: string;
   listing: TradingListing;
 }) {
+  if (isMergedEbayAliasItemId(params.listing.itemId)) {
+    return { inserted: false, reason: "merged_alias" };
+  }
+
   const { data: existing, error: existingError } = await params.supabase
     .from("products")
     .select("id")
@@ -706,6 +714,11 @@ export async function syncRecentLegacyEbayQuantities(params: {
 
   for (const listing of listings) {
     counters.checked += 1;
+
+    if (isMergedEbayListingMember(listing)) {
+      counters.unchanged += 1;
+      continue;
+    }
 
     try {
       const itemXml = await tradingCall({

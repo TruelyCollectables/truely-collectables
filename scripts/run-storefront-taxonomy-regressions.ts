@@ -2,6 +2,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { mapEbayInventoryCategory } from "../src/lib/ebay-category-mapper";
 import { ebayAuthoritativeStoreSyncTestHelpers } from "../src/lib/ebay-authoritative-store-sync";
+import {
+  EBAY_MERGED_LISTING_GROUPS,
+  isMergedEbayAliasItemId,
+  isMergedEbayCanonicalProductId,
+} from "../src/lib/ebay-merged-listing-groups";
 import { isLaunchCollectible } from "../src/lib/sports-card-launch-scope";
 import {
   classifyStorefrontItem,
@@ -289,22 +294,33 @@ const authoritativeSyncSource = fs.readFileSync(
   "src/lib/ebay-authoritative-store-sync.ts",
   "utf8",
 );
+assert.match(
+  authoritativeSyncSource,
+  /function normalizedComparableText[\s\S]*\.normalize\("NFKC"\)/,
+  "Equivalent Unicode and whitespace values must compare consistently.",
+);
+assert.match(
+  authoritativeSyncSource,
+  /function listingDifferences[\s\S]*differences\.push\("title"\)[\s\S]*differences\.push\("quantity"\)[\s\S]*differences\.push\("price"\)[\s\S]*differences\.push\("sport"\)/,
+  "Field-level convergence diagnostics must remain deterministic.",
+);
 assert.ok(
-  authoritativeSyncSource.includes(
-    'import { listingImageIdentity } from "./listing-image-utils";',
-  ),
-  "Authoritative convergence must compare stable eBay image identities.",
+  !authoritativeSyncSource.includes("listingImageIdentity(local.image_url)"),
+  "Authoritative inventory and complete image reconciliation must not fight.",
 );
+assert.equal(EBAY_MERGED_LISTING_GROUPS[0].canonicalLegacyProductId, 1991);
+assert.deepEqual([...EBAY_MERGED_LISTING_GROUPS[0].aliasItemIds], [
+  "317570836168",
+  "317570836334",
+]);
+assert.equal(isMergedEbayAliasItemId("317570836168"), true);
+assert.equal(isMergedEbayCanonicalProductId(1991), true);
 assert.match(
   authoritativeSyncSource,
-  /listingImageIdentity\(local\.image_url\) !==[\s\S]*listingImageIdentity\(remote\.imageUrl\)/,
-  "Image resolution variants must not create endless inventory updates.",
+  /function collapseMergedRemoteListings[\s\S]*mergedQuantity[\s\S]*mergedAliasListings/,
+  "Merged eBay listings must aggregate into their canonical website inventory row.",
 );
-assert.match(
-  authoritativeSyncSource,
-  /normalizedNullableText\(local\.sport\) !==[\s\S]*normalizedNullableText\(remote\.sport\)/,
-  "Null and empty storefront category values must compare consistently.",
-);
+assert.ok(authoritativeSyncSource.includes("representedInventoryRows"));
 assert.ok(
   authoritativeSyncSource.includes("const MAX_ACTIVE_LISTINGS = 3000;"),
   "Authoritative eBay inventory reads must stop at the approved 3,000-active-listing ceiling.",
@@ -350,3 +366,33 @@ assert.ok(
 );
 
 console.log("Storefront taxonomy regressions passed.");
+
+
+const scheduledSyncSource = fs.readFileSync(
+  "src/app/api/cron/ebay-store-fixed-price-sync/route.ts",
+  "utf8",
+);
+const fixedPriceBackfillSource = fs.readFileSync(
+  "src/lib/ebay-fixed-price-backfill.ts",
+  "utf8",
+);
+assert.match(
+  scheduledSyncSource,
+  /sync\.unchanged === sync\.representedInventoryRows/,
+  "Cron convergence must use represented website rows rather than raw alias listings.",
+);
+assert.match(
+  scheduledSyncSource,
+  /expectedActiveLinkedProducts[\s\S]*representedInventoryRows/,
+  "Database audit must expose the alias-aware expected row count.",
+);
+assert.match(
+  fixedPriceBackfillSource,
+  /isMergedEbayAliasItemId\(params\.listing\.itemId\)/,
+  "Backfill must not recreate merged aliases.",
+);
+assert.match(
+  fixedPriceBackfillSource,
+  /isMergedEbayListingMember\(listing\)/,
+  "Quantity reconciliation must leave merged listing groups to the authoritative aggregate sync.",
+);

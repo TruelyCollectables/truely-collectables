@@ -52,6 +52,8 @@ function summarizeAuthoritative(sync: AuthoritativeSync | null) {
         cycleComplete: sync.cycleComplete,
         eligibleCollectibles: sync.eligibleCollectibles,
         skippedNonCollectibles: sync.skippedNonCollectibles,
+        mergedAliasListings: sync.mergedAliasListings,
+        representedInventoryRows: sync.representedInventoryRows,
         inserted: sync.inserted,
         updated: sync.updated,
         unchanged: sync.unchanged,
@@ -109,7 +111,7 @@ function isConverged(sync: AuthoritativeSync) {
     sync.inserted === 0 &&
     sync.updated === 0 &&
     sync.deactivated === 0 &&
-    sync.unchanged === sync.eligibleCollectibles
+    sync.unchanged === sync.representedInventoryRows
   );
 }
 
@@ -173,6 +175,18 @@ export async function GET(request: Request) {
       errors.push({
         step: "authoritative_full_store_sync",
         error: "The active eBay total did not reconcile to eligible plus intentionally excluded listings.",
+      });
+    }
+
+    if (
+      firstAuthoritative.cycleComplete &&
+      firstAuthoritative.representedInventoryRows +
+        firstAuthoritative.mergedAliasListings !==
+        firstAuthoritative.eligibleCollectibles
+    ) {
+      errors.push({
+        step: "authoritative_full_store_sync",
+        error: "Represented inventory rows plus merged aliases did not reconcile to eligible eBay listings.",
       });
     }
   } catch (error) {
@@ -295,10 +309,10 @@ export async function GET(request: Request) {
         .not("ebay_item_id", "is", null);
       if (error) throw error;
       activeLinkedProducts = Number(count || 0);
-      if (activeLinkedProducts !== finalAuthoritative.eligibleCollectibles) {
+      if (activeLinkedProducts !== finalAuthoritative.representedInventoryRows) {
         errors.push({
           step: "database_inventory_audit",
-          error: `Active linked database count ${activeLinkedProducts} does not equal current eligible eBay inventory ${finalAuthoritative.eligibleCollectibles}.`,
+          error: `Active linked database count ${activeLinkedProducts} does not equal represented eBay inventory ${finalAuthoritative.representedInventoryRows}.`,
         });
       }
     } catch (error) {
@@ -342,9 +356,11 @@ export async function GET(request: Request) {
     finalAuthoritative: summarizeAuthoritative(finalAuthoritative),
     databaseAudit: {
       activeLinkedProducts,
+      expectedActiveLinkedProducts:
+        finalAuthoritative?.representedInventoryRows ?? null,
       matchesEligibleEbayInventory:
         finalAuthoritative !== null &&
-        activeLinkedProducts === finalAuthoritative.eligibleCollectibles,
+        activeLinkedProducts === finalAuthoritative.representedInventoryRows,
     },
     errors,
   };
