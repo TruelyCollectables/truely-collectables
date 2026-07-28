@@ -1,0 +1,102 @@
+name: Materialize Final Merged Alias Contract 20260728
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/materialize-final-merged-alias-contract-20260728.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  certify:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'agent/finalize-merged-ebay-aliases-20260728'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+      ADMIN_SESSION_SECRET: build-only-placeholder-session-secret
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+      EBAY_CLIENT_ID: build-only-placeholder-client-id
+      EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+      EBAY_ENVIRONMENT: production
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/finalize-merged-ebay-aliases-20260728
+          fetch-depth: 1
+
+      - name: Correct structural matcher
+        shell: bash
+        run: |
+          set -euo pipefail
+          python <<'PY'
+          from pathlib import Path
+          path = Path('scripts/temporary_finalize_merged_ebay_aliases.py')
+          text = path.read_text()
+          old = '''source = replace_once(
+              source,
+              "      : remote.listings\\n        .map((listing) => localByItemId.get(listing.itemId) || null)",
+              "      : effectiveRemoteListings\\n        .map((listing) => localByItemId.get(listing.itemId) || null)",
+              "effective unchanged listings",
+          )'''
+          new = '''pattern = re.compile(
+              r"      : remote\\.listings\\s+\\.map\\(\\(listing\\) => localByItemId\\.get\\(listing\\.itemId\\) \\|\\| null\\)",
+              re.S,
+          )
+          source, count = pattern.subn(
+              "      : effectiveRemoteListings\\n        .map((listing) => localByItemId.get(listing.itemId) || null)",
+              source,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit(f"effective unchanged listings: expected one match, found {count}")'''
+          if text.count(old) != 1:
+              raise SystemExit(f'unchanged matcher patch: found {text.count(old)}')
+          path.write_text(text.replace(old, new, 1))
+          PY
+
+      - name: Apply final merged-alias contract
+        run: python scripts/temporary_finalize_merged_ebay_aliases.py
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run certification gates
+        shell: bash
+        run: |
+          set +e
+          mkdir -p certification-logs certified/src/lib certified/src/app/api/cron/ebay-store-fixed-price-sync certified/scripts
+          status=0
+          node --import tsx scripts/run-storefront-taxonomy-regressions.ts > certification-logs/taxonomy.log 2>&1 || status=1
+          node --import tsx scripts/run-ebay-import-admin-client-simulations.ts > certification-logs/ebay-images.log 2>&1 || status=1
+          npx eslint src/lib/ebay-merged-listing-groups.ts src/lib/ebay-authoritative-store-sync.ts src/lib/ebay-fixed-price-backfill.ts src/app/api/cron/ebay-store-fixed-price-sync/route.ts scripts/run-storefront-taxonomy-regressions.ts > certification-logs/eslint.log 2>&1 || status=1
+          npm run build > certification-logs/build.log 2>&1 || status=1
+          printf '%s\n' "$status" > certification-logs/status.txt
+          cp src/lib/ebay-merged-listing-groups.ts certified/src/lib/
+          cp src/lib/ebay-authoritative-store-sync.ts certified/src/lib/
+          cp src/lib/ebay-fixed-price-backfill.ts certified/src/lib/
+          cp src/app/api/cron/ebay-store-fixed-price-sync/route.ts certified/src/app/api/cron/ebay-store-fixed-price-sync/
+          cp scripts/run-storefront-taxonomy-regressions.ts certified/scripts/
+          git diff -- src/lib/ebay-merged-listing-groups.ts src/lib/ebay-authoritative-store-sync.ts src/lib/ebay-fixed-price-backfill.ts src/app/api/cron/ebay-store-fixed-price-sync/route.ts scripts/run-storefront-taxonomy-regressions.ts > certified/certified.patch
+          exit "$status"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: final-merged-alias-contract-${{ github.run_number }}
+          path: |
+            certification-logs
+            certified
+          if-no-files-found: error
+          retention-days: 7
