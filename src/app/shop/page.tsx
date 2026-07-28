@@ -11,13 +11,24 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export const metadata: Metadata = {
-  title: "Shop Sports Cards",
+  title: "Shop Sports Cards & Collectibles",
   description:
-    "Shop live sports-card inventory from Truely Collectables by player, sport, league, rookie, autograph, grade, parallel, or card number.",
+    "Shop live sports cards, autographs, memorabilia, pucks, balls, jerseys, comics, coins, toys, and other collectibles from Truely Collectables.",
   alternates: { canonical: "/shop" },
 };
 
-const QUICK_SECTIONS = ["Baseball", "WNBA", "Basketball", "Football", "Hockey"];
+const QUICK_SECTIONS = [
+  "Baseball",
+  "WNBA",
+  "Basketball",
+  "Football",
+  "Hockey",
+  "Pucks",
+  "Balls",
+  "Jerseys",
+  "Photos & Prints",
+  "Memorabilia",
+];
 
 function shopHref(params: {
   section?: string;
@@ -37,7 +48,7 @@ function heading(params: { section: string; feature: string }) {
   if (params.feature === "rookie") return "Rookie Cards";
   if (params.feature === "graded") return "Graded Cards";
   if (params.feature === "numbered") return "Numbered Cards";
-  return params.section || "Shop Sports Cards";
+  return params.section || "Shop Sports Cards & Collectibles";
 }
 
 function FeatureBadges({ product }: { product: UniversalInventoryItem }) {
@@ -238,7 +249,7 @@ export default async function Shop({
                 </div>
 
                 <Link href={`/product/${product.legacyProductId}`} className="mt-4 flex min-h-11 w-full items-center justify-center rounded border border-neutral-950 px-4 py-2 text-center font-bold hover:bg-neutral-950 hover:text-white">
-                  View Item
+                  View Card / Item
                 </Link>
               </div>
             </article>
