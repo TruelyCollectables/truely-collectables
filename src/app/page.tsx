@@ -61,31 +61,31 @@ export default async function Home() {
         <div className="mx-auto grid max-w-7xl gap-10 px-6 py-12 lg:grid-cols-[1.08fr_0.92fr] lg:items-center lg:py-16">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.22em] text-blue-700 sm:text-sm">
-              Real cards · live inventory · ready to ship
+              Real cards & collectibles · live inventory · ready to ship
             </p>
             <h1 className="mt-4 max-w-4xl text-5xl font-black leading-[0.91] tracking-[-0.055em] sm:text-6xl lg:text-7xl">
-              Find the card your collection is missing.
+              Find the collectible your collection is missing.
             </h1>
             <p className="mt-6 max-w-2xl text-lg font-semibold leading-8 text-neutral-700">
-              Search {products.length.toLocaleString()} active sports cards from {storeSettings.displayName}. Buy securely, get careful packaging, and receive tracking when your order ships.
+              Search {products.length.toLocaleString()} active cards & collectibles from {storeSettings.displayName}. Buy securely, get careful packaging, and receive tracking when your order ships.
             </p>
 
             <form action="/shop" method="get" className="mt-8 flex max-w-2xl flex-col sm:flex-row">
               <label htmlFor="home-card-search" className="sr-only">
-                Search sports cards
+                Search cards and collectibles
               </label>
               <input
                 id="home-card-search"
                 name="q"
                 type="search"
-                placeholder="Search player, set, team, card number..."
+                placeholder="Search player, team, card, puck, jersey, autograph..."
                 className="min-w-0 flex-1 border-2 border-neutral-950 bg-white px-5 py-4 text-base font-bold text-neutral-950 outline-none placeholder:font-semibold placeholder:text-neutral-500 focus:ring-4 focus:ring-yellow-300"
               />
               <button
                 type="submit"
                 className="border-2 border-t-0 border-neutral-950 bg-yellow-300 px-7 py-4 font-black text-neutral-950 transition hover:bg-yellow-200 sm:border-l-0 sm:border-t-2"
               >
-                Search Cards
+                Search Inventory
               </button>
             </form>
 
@@ -165,13 +165,13 @@ export default async function Home() {
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-700">Fresh inventory</p>
-            <h2 className="mt-2 text-4xl font-black tracking-tight sm:text-5xl">New cards on the wall</h2>
+            <h2 className="mt-2 text-4xl font-black tracking-tight sm:text-5xl">New collectibles on the wall</h2>
           </div>
           <Link
             href="/shop"
             className="border-2 border-neutral-950 bg-neutral-950 px-5 py-3 text-sm font-black text-white shadow-[4px_4px_0_#ffd633] transition hover:-translate-y-0.5"
           >
-            Shop every card →
+            Shop every collectible →
           </Link>
         </div>
 
@@ -185,7 +185,7 @@ export default async function Home() {
                   </div>
                   <div className="p-3">
                     <p className="text-[11px] font-black uppercase tracking-[0.14em] text-blue-700">
-                      {card.storefrontSection || "Sports Card"}
+                      {card.storefrontSection || "Collectible"}
                     </p>
                     <h3 className="mt-2 line-clamp-2 min-h-12 font-black leading-6">{card.title}</h3>
                     <div className="mt-4 flex items-center justify-between gap-3 border-t-2 border-neutral-950 pt-3">
@@ -211,7 +211,7 @@ export default async function Home() {
             <div className="flex flex-wrap items-end justify-between gap-4">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-700">Browse the wall</p>
-                <h2 className="mt-2 text-4xl font-black tracking-tight">Shop by sport</h2>
+                <h2 className="mt-2 text-4xl font-black tracking-tight">Shop by section</h2>
               </div>
               <p className="max-w-xl text-sm font-bold leading-6 text-neutral-600">Jump straight into the largest sections of the live inventory.</p>
             </div>
@@ -224,7 +224,7 @@ export default async function Home() {
                 >
                   <div>
                     <h3 className="text-2xl font-black">{sport}</h3>
-                    <p className="mt-1 text-sm font-bold text-neutral-600">{count.toLocaleString()} active cards</p>
+                    <p className="mt-1 text-sm font-bold text-neutral-600">{count.toLocaleString()} active items</p>
                   </div>
                   <span className="text-3xl font-black transition group-hover:translate-x-1">→</span>
                 </Link>
@@ -237,7 +237,7 @@ export default async function Home() {
       <section className="bg-neutral-950 text-white">
         <div className="mx-auto flex max-w-7xl flex-col items-start justify-between gap-6 px-6 py-12 md:flex-row md:items-center">
           <div>
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-yellow-300">Built to sell cards</p>
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-yellow-300">Built to sell collectibles</p>
             <h2 className="mt-2 text-3xl font-black sm:text-4xl">Search it. Buy it. We’ll pack it and send the tracking.</h2>
             <p className="mt-3 max-w-2xl font-semibold leading-7 text-neutral-300">No marketplace maze—just live inventory, secure checkout, and a clear shipping trail.</p>
           </div>

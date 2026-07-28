@@ -298,7 +298,7 @@ function searchVisibilityChecks() {
   ]);
   contains("src/app/shop/page.tsx", [
     'canonical: "/shop"',
-    'title: "Shop Sports Cards"',
+    'title: "Shop Sports Cards & Collectibles"',
   ]);
   contains("src/app/product/[id]/page.tsx", [
     '"@type": "Product"',

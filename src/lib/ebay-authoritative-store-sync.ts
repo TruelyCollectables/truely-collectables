@@ -8,7 +8,7 @@ const TRADING_API_VERSION = "1409";
 const PAGE_SIZE = 200;
 const MAX_PAGES = 25;
 const APPLY_CONCURRENCY = 8;
-const STOREFRONT_TAXONOMY_VERSION = 2;
+const STOREFRONT_TAXONOMY_VERSION = 3;
 
 export type EbayStoreSyncMode = "preview" | "apply";
 
@@ -57,6 +57,8 @@ export type EbayStoreSyncResult = {
   remoteFixedPriceTotal: number;
   pagesRead: number;
   cycleComplete: boolean;
+  eligibleCollectibles: number;
+  skippedNonCollectibles: number;
   eligibleSportsCards: number;
   skippedNonCards: number;
   inserted: number;
@@ -184,63 +186,82 @@ function normalizedText(value: unknown) {
     .trim();
 }
 
-function isSportsCardListing(input: {
+function isCollectibleListing(input: {
   title: string;
   categoryName: string | null;
   mappedCategory: string;
   aspects: Record<string, string[]>;
 }) {
   const categoryName = normalizedText(input.categoryName);
-  const sport = firstAspect(input.aspects, ["Sport", "League"]);
+  const aspectText = Object.values(input.aspects).flat().join(" ");
   const searchable = normalizedText(
-    [
-      input.title,
-      input.categoryName,
-      sport,
-      firstAspect(input.aspects, ["Type", "Card Type", "Product"]),
-      firstAspect(input.aspects, ["Set"]),
-      firstAspect(input.aspects, ["Manufacturer", "Card Manufacturer"]),
-    ]
-      .filter(Boolean)
-      .join(" "),
+    [input.title, input.categoryName, aspectText].filter(Boolean).join(" "),
   );
+  const cardCategory = ["sports_cards", "trading_cards", "sealed_wax"].includes(
+    input.mappedCategory,
+  );
+  const partSignal =
+    /\b(auto parts?|automotive parts?|car parts?|truck parts?|air intake|fuel sensor|oxygen sensor|mass air flow|alternator|starter motor|spark plugs?|brake pads?|brake rotors?|wheel hubs?|ball bearings?|radiator|transmission|exhaust|muffler|bumper|headlights?|taillights?|engine parts?)\b/.test(
+      searchable,
+    );
+  if (partSignal) return false;
 
   if (
-    /\b(clothing|shoes|sneakers|pants|shorts|shirt|watch|watches|auto parts|automotive|fuel sensor|air intake)\b/.test(
+    cardCategory &&
+    /\b(?:sports )?trading card(s| singles| lots| boxes)?\b/.test(categoryName)
+  ) {
+    return true;
+  }
+
+  const footwearSignal =
+    input.mappedCategory === "shoes" ||
+    /\b(athletic shoes?|sneakers?|shoes?|boots?|cleats?|sandals?|slippers?|footwear)\b/.test(
+      searchable,
+    );
+  if (!cardCategory && footwearSignal) return false;
+
+  const jerseySignal = /\bjerseys?\b/.test(searchable);
+  const collectibleJersey =
+    jerseySignal &&
+    (/\bmemorabilia\b/.test(categoryName) ||
+      /\b(signed|autographed|inscribed|authenticated|authentication|coa|jsa|beckett|psa dna|game used|game worn|game issued|player worn|framed)\b/.test(
+        searchable,
+      ));
+  if (!cardCategory && jerseySignal && !collectibleJersey) return false;
+
+  const apparelSignal =
+    /\b(clothing|apparel|pants|shorts|shirts?|t shirts?|hoodies?|jackets?|coats?|sweaters?|sweatshirts?|socks?|hats?|caps?)\b/.test(
+      searchable,
+    );
+  if (!cardCategory && apparelSignal) return false;
+
+  if (
+    [
+      "sports_cards",
+      "trading_cards",
+      "sealed_wax",
+      "autographs",
+      "memorabilia",
+      "comics",
+      "coins",
+      "toys",
+    ].includes(input.mappedCategory)
+  ) {
+    return true;
+  }
+
+  if (
+    /\b(collectibles?|sports memorabilia|autographs?|photographs?|photos?|comics?|coins?|toys?|action figures?|diecast|trading cards?|pucks?|balls?|bats?|helmets?|tickets?|programs?)\b/.test(
       categoryName,
     )
   ) {
-    return false;
-  }
-
-  if (/\bsports trading card(s| singles| lots| boxes)?\b/.test(categoryName)) {
     return true;
   }
 
-  const sportSignal = Boolean(
-    sport ||
-      /\b(baseball|basketball|football|hockey|soccer|golf|tennis|wrestling|racing|nascar|formula 1|f1|ufc|mma|wnba|nba|nfl|nhl|mlb|mls|ncaa)\b/.test(
-        searchable,
-      ),
-  );
-  const cardSignal =
-    /\b(card|rookie|rc|auto|autograph|relic|patch|prizm|refractor|chrome|bowman|topps|panini|upper deck|donruss|select|optic|mosaic)\b/.test(
-      searchable,
-    );
-
-  if (
-    ["sports_cards", "trading_cards", "sealed_wax"].includes(
-      input.mappedCategory,
-    ) && sportSignal
-  ) {
-    return true;
-  }
-
-  if (/\btrading card(s| singles| lots| boxes)?\b/.test(categoryName)) {
-    return sportSignal;
-  }
-
-  return sportSignal && cardSignal;
+  // Explicit catalog policy: every active fixed-price eBay item is eligible
+  // unless it matched the hard exclusions above for parts, ordinary clothing,
+  // footwear, or a non-collectible jersey.
+  return true;
 }
 
 function parseRemoteListing(itemXml: string): EbayStoreRemoteListing | null {
@@ -296,7 +317,7 @@ function parseRemoteListing(itemXml: string): EbayStoreRemoteListing | null {
     price <= 0 ||
     quantity <= 0 ||
     !imageUrls[0] ||
-    !isSportsCardListing({
+    !isCollectibleListing({
       title,
       categoryName,
       mappedCategory: mapping.category,
@@ -743,7 +764,9 @@ async function runWorkers<T>(
 
 export const ebayAuthoritativeStoreSyncTestHelpers = {
   parseRemoteListing,
-  isSportsCardListing,
+  isCollectibleListing,
+  // Compatibility alias for existing diagnostics.
+  isSportsCardListing: isCollectibleListing,
   normalizedText,
 };
 
@@ -812,7 +835,7 @@ export async function runEbayAuthoritativeStoreSync(params: {
             ? "Active eBay sports-card listing is missing locally."
             : action === "update"
               ? taxonomyRefreshRequired
-                ? "Storefront taxonomy version 2 refresh is required."
+                ? "Storefront taxonomy version 3 collectibles refresh is required."
                 : "Local title, quantity, price, image, sport, or SKU differs from eBay."
               : "Local listing matches active eBay inventory.",
         legacyProductId: local?.id || null,
@@ -1004,6 +1027,12 @@ export async function runEbayAuthoritativeStoreSync(params: {
     remoteFixedPriceTotal: remote.totalEntries,
     pagesRead: remote.pagesRead,
     cycleComplete: remote.cycleComplete,
+    eligibleCollectibles: remote.listings.length,
+    skippedNonCollectibles: Math.max(
+      remote.remoteItemsRead - remote.listings.length,
+      0,
+    ),
+    // Backward-compatible aliases for existing admin receipts.
     eligibleSportsCards: remote.listings.length,
     skippedNonCards: Math.max(
       remote.remoteItemsRead - remote.listings.length,

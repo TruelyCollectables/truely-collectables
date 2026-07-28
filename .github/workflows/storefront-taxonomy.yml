@@ -9,12 +9,14 @@ on:
       - "src/lib/ebay-category-mapper.ts"
       - "src/lib/ebay-sync.ts"
       - "src/lib/ebay-authoritative-store-sync.ts"
+      - "src/lib/sports-card-launch-scope.ts"
       - "src/lib/server-inventory-engine.ts"
       - "src/modules/inventory/**"
       - "src/app/shop/**"
       - "src/app/page.tsx"
       - "src/app/components/Navbar.tsx"
       - "scripts/run-storefront-taxonomy-regressions.ts"
+      - "scripts/run-ebay-import-admin-client-simulations.ts"
       - ".github/workflows/storefront-taxonomy.yml"
   pull_request:
     branches:
@@ -24,12 +26,14 @@ on:
       - "src/lib/ebay-category-mapper.ts"
       - "src/lib/ebay-sync.ts"
       - "src/lib/ebay-authoritative-store-sync.ts"
+      - "src/lib/sports-card-launch-scope.ts"
       - "src/lib/server-inventory-engine.ts"
       - "src/modules/inventory/**"
       - "src/app/shop/**"
       - "src/app/page.tsx"
       - "src/app/components/Navbar.tsx"
       - "scripts/run-storefront-taxonomy-regressions.ts"
+      - "scripts/run-ebay-import-admin-client-simulations.ts"
       - ".github/workflows/storefront-taxonomy.yml"
   workflow_dispatch:
 
@@ -68,6 +72,8 @@ jobs:
       - run: npm ci
       - name: Run storefront taxonomy regressions
         run: node --import tsx scripts/run-storefront-taxonomy-regressions.ts
+      - name: Run eBay catalog exclusion regressions
+        run: node --import tsx scripts/run-ebay-import-admin-client-simulations.ts
       - name: Lint storefront taxonomy paths
         run: >-
           npx eslint
@@ -75,6 +81,7 @@ jobs:
           src/lib/ebay-category-mapper.ts
           src/lib/ebay-sync.ts
           src/lib/ebay-authoritative-store-sync.ts
+          src/lib/sports-card-launch-scope.ts
           src/lib/server-inventory-engine.ts
           src/modules/inventory/types.ts
           src/modules/inventory/repository.ts
@@ -83,5 +90,6 @@ jobs:
           src/app/page.tsx
           src/app/components/Navbar.tsx
           scripts/run-storefront-taxonomy-regressions.ts
+          scripts/run-ebay-import-admin-client-simulations.ts
       - name: Build production application
         run: npm run build
