@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import { mapEbayInventoryCategory } from "../src/lib/ebay-category-mapper";
 import { ebayAuthoritativeStoreSyncTestHelpers } from "../src/lib/ebay-authoritative-store-sync";
 import { isLaunchCollectible } from "../src/lib/sports-card-launch-scope";
@@ -283,5 +284,33 @@ const authoritativePokemonCard = ebayAuthoritativeStoreSyncTestHelpers.parseRemo
 assert.ok(authoritativePokemonCard);
 assert.equal(authoritativePokemonCard.mappedCategory, "trading_cards");
 assert.equal(authoritativePokemonCard.sport, "Trading Card Games");
+
+const authoritativeSyncSource = fs.readFileSync(
+  "src/lib/ebay-authoritative-store-sync.ts",
+  "utf8",
+);
+assert.ok(authoritativeSyncSource.includes("const LOCAL_PAGE_SIZE = 1000;"));
+assert.ok(
+  authoritativeSyncSource.includes(
+    ".range(from, from + LOCAL_PAGE_SIZE - 1);",
+  ),
+);
+assert.ok(
+  authoritativeSyncSource.includes(
+    "const locals = await readAllLocalProducts({",
+  ),
+);
+assert.ok(
+  authoritativeSyncSource.includes(
+    "const changed = await deactivateLocalProduct({ ...params, local });",
+  ),
+);
+assert.ok(authoritativeSyncSource.includes("if (changed) deactivated += 1;"));
+assert.ok(authoritativeSyncSource.includes("return changed;"));
+assert.ok(
+  authoritativeSyncSource.includes(
+    'syncErrorMessage(error, "Unknown sync failure.")',
+  ),
+);
 
 console.log("Storefront taxonomy regressions passed.");
