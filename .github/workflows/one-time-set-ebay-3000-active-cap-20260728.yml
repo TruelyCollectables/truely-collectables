@@ -1,0 +1,135 @@
+name: One-Time Set eBay 3000 Active Cap 20260728
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/one-time-set-ebay-3000-active-cap-20260728.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: one-time-set-ebay-3000-active-cap-20260728
+  cancel-in-progress: false
+
+jobs:
+  patch-and-validate:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'agent/ebay-3000-active-cap-20260728'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+      ADMIN_SESSION_SECRET: build-only-placeholder-session-secret
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+      EBAY_CLIENT_ID: build-only-placeholder-client-id
+      EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+      EBAY_ENVIRONMENT: production
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/ebay-3000-active-cap-20260728
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - name: Apply 3000-active-listing ceiling
+        shell: bash
+        run: |
+          set -euo pipefail
+          python <<'PY'
+          from pathlib import Path
+
+          files = [
+              Path('src/lib/ebay-authoritative-store-sync.ts'),
+              Path('src/lib/ebay-all-image-sync.ts'),
+          ]
+          old = 'const PAGE_SIZE = 200;\nconst MAX_PAGES = 25;'
+          new = 'const PAGE_SIZE = 200;\nconst MAX_ACTIVE_LISTINGS = 3000;\nconst MAX_PAGES = Math.ceil(MAX_ACTIVE_LISTINGS / PAGE_SIZE);'
+          for path in files:
+              source = path.read_text()
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected one page-cap block, found {count}')
+              path.write_text(source.replace(old, new, 1))
+
+          storefront_test = Path('scripts/run-storefront-taxonomy-regressions.ts')
+          source = storefront_test.read_text()
+          marker = 'assert.ok(authoritativeSyncSource.includes("const LOCAL_PAGE_SIZE = 1000;"));'
+          additions = '''assert.ok(
+            authoritativeSyncSource.includes("const MAX_ACTIVE_LISTINGS = 3000;"),
+            "Authoritative eBay inventory reads must stop at the approved 3,000-active-listing ceiling.",
+          );
+          assert.ok(
+            authoritativeSyncSource.includes(
+              "const MAX_PAGES = Math.ceil(MAX_ACTIVE_LISTINGS / PAGE_SIZE);",
+            ),
+            "The authoritative page limit must derive from the 3,000-listing ceiling.",
+          );
+          assert.match(
+            authoritativeSyncSource,
+            /<ActiveList>[\\s\\S]*<Include>true<\\/Include>/,
+            "The authoritative pull must request eBay's active-listing collection only.",
+          );
+          assert.match(
+            authoritativeSyncSource,
+            /if \\(params\\.deactivateEnded && remote\\.cycleComplete\\)/,
+            "Ended or sold listings may be zeroed only after every capped active page was read.",
+          );
+          ''' + marker
+          if source.count(marker) != 1:
+              raise SystemExit('authoritative regression marker was not unique')
+          storefront_test.write_text(source.replace(marker, additions, 1))
+
+          image_test = Path('scripts/run-ebay-import-admin-client-simulations.ts')
+          source = image_test.read_text()
+          marker = 'assert.match(\n  imageSync,\n  /const PRODUCT_ID_CHUNK_SIZE = 100;/,'
+          additions = '''assert.match(
+            imageSync,
+            /const MAX_ACTIVE_LISTINGS = 3000;/,
+            "Image synchronization must use the same 3,000-active-listing ceiling as inventory synchronization.",
+          );
+          assert.match(
+            imageSync,
+            /const MAX_PAGES = Math\\.ceil\\(MAX_ACTIVE_LISTINGS \\/ PAGE_SIZE\\);/,
+            "Image page coverage must derive from the approved active-listing ceiling.",
+          );
+          assert.match(
+            imageSync,
+            /<ActiveList>[\\s\\S]*<Include>true<\\/Include>/,
+            "Image synchronization must read active eBay listings only.",
+          );
+          ''' + marker
+          if source.count(marker) != 1:
+              raise SystemExit('image regression marker was not unique')
+          image_test.write_text(source.replace(marker, additions, 1))
+
+          Path('.github/workflows/one-time-set-ebay-3000-active-cap-20260728.yml').unlink()
+          PY
+
+      - name: Validate inventory contract
+        run: |
+          set -euo pipefail
+          npm ci
+          node --import tsx scripts/run-storefront-taxonomy-regressions.ts
+          node --import tsx scripts/run-ebay-import-admin-client-simulations.ts
+          npx eslint src/lib/ebay-authoritative-store-sync.ts src/lib/ebay-all-image-sync.ts scripts/run-storefront-taxonomy-regressions.ts scripts/run-ebay-import-admin-client-simulations.ts
+          npm run build
+
+      - name: Commit validated active-listing ceiling
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Truely Collectables Automation"
+          git config user.email "automation@truelycollectables.com"
+          git add src/lib/ebay-authoritative-store-sync.ts src/lib/ebay-all-image-sync.ts scripts/run-storefront-taxonomy-regressions.ts scripts/run-ebay-import-admin-client-simulations.ts .github/workflows/one-time-set-ebay-3000-active-cap-20260728.yml
+          git commit -m "Cap authoritative eBay reads at 3000 active listings"
+          git push origin HEAD:agent/ebay-3000-active-cap-20260728
