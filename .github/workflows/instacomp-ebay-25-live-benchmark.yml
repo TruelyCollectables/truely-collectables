@@ -79,10 +79,12 @@ jobs:
           --scope "$VERCEL_SCOPE"
           --token "$VERCEL_TOKEN"
 
-      - name: Generate one-run benchmark token
+      - name: Generate one-run benchmark credentials
         run: |
           BENCHMARK_TOKEN="$(openssl rand -hex 32)"
+          BENCHMARK_ADMIN_SECRET="$(openssl rand -hex 48)"
           echo "INSTACOMP_BENCHMARK_TOKEN=$BENCHMARK_TOKEN" >> "$GITHUB_ENV"
+          echo "BENCHMARK_ADMIN_SESSION_SECRET=$BENCHMARK_ADMIN_SECRET" >> "$GITHUB_ENV"
 
       - name: Deploy isolated preview benchmark
         id: deploy
@@ -96,6 +98,7 @@ jobs:
             --scope "$VERCEL_SCOPE" \
             --token "$VERCEL_TOKEN" \
             --env "INSTACOMP_BENCHMARK_TOKEN=$INSTACOMP_BENCHMARK_TOKEN" \
+            --env "ADMIN_SESSION_SECRET=$BENCHMARK_ADMIN_SESSION_SECRET" \
             > deployment-url.txt
           PREVIEW_URL="$(tail -n 1 deployment-url.txt | tr -d '\r\n')"
           test -n "$PREVIEW_URL"
@@ -107,9 +110,6 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
-          # Vercel CLI 57 forwards --scope/--token placed after the curl
-          # subcommand to system curl. Keep project authentication in the
-          # linked .vercel directory and VERCEL_TOKEN environment instead.
           npx vercel@latest curl \
             /api/instacomp/benchmark/ebay-25 \
             --deployment "$INSTACOMP_PREVIEW_DEPLOYMENT_URL" \
@@ -121,10 +121,10 @@ jobs:
           const raw = fs.readFileSync("benchmark-manifest.json", "utf8").trim();
           if (!raw) throw new Error("Protected-preview manifest response was empty.");
           const payload = JSON.parse(raw);
-          if (!payload.ok || !Array.isArray(payload.cases) || payload.cases.length < 25) {
-            throw new Error(`Benchmark manifest was not ready: ${raw.slice(0, 1200)}`);
+          if (!payload.ok || !Array.isArray(payload.cases) || payload.cases.length < 50) {
+            throw new Error(`Expanded benchmark manifest was not ready: ${raw.slice(0, 1200)}`);
           }
-          console.log(`Protected-preview transport verified with ${payload.cases.length} cases.`);
+          console.log(`Protected-preview transport verified with ${payload.cases.length} official cases.`);
           NODE
 
       - name: Run 25 real eBay cards through InstaComp
@@ -146,6 +146,7 @@ jobs:
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, [
             "# InstaComp eBay 25-Card Live Benchmark",
             "",
+            `Pool: ${report.poolSize || 0} official cards`,
             `Completed: ${summary.completedCards || 0}/${report.requestedTarget || 25}`,
             `Target met: ${Boolean(summary.targetMet)}`,
             `Average score: ${summary.averageScore ?? "n/a"}`,
