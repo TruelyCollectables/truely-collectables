@@ -1,0 +1,303 @@
+name: Authorized Fresh eBay Inventory Sync 20260728
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/authorized-fresh-ebay-sync-20260728.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: authorized-fresh-ebay-inventory-sync-20260728
+  cancel-in-progress: true
+
+jobs:
+  fresh-sync:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ops/verify-full-ebay-catalog-sync-20260728')
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      PRODUCTION_ORIGIN: https://truelycollectables.com
+      PRODUCTION_SOURCE_SHA: 46317364f71c46ca4ae17fa1625cf1d7d3229ac7
+    steps:
+      - name: Check out exact deployed source
+        uses: actions/checkout@v4
+        with:
+          ref: 46317364f71c46ca4ae17fa1625cf1d7d3229ac7
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Load secured Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p .vercel .sync-private sync-verification/storefront
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > .sync-private/link.log 2>&1
+          fi
+          npx vercel@56.2.0 pull --yes --environment=production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > .sync-private/pull.log 2>&1
+          env_file=''
+          for candidate in .vercel/.env.production.local .env.production.local .env.local; do
+            if [ -f "$candidate" ]; then env_file="$candidate"; break; fi
+          done
+          test -n "$env_file"
+          printf '%s\n' "$env_file" > .sync-private/env-file.txt
+
+      - name: Run fresh production eBay pull
+        id: direct_sync
+        shell: bash
+        run: |
+          set -uo pipefail
+          env_file="$(cat .sync-private/env-file.txt)"
+          set -a
+          # shellcheck disable=SC1090
+          . "$env_file"
+          set +a
+          mkdir -p sync-verification
+          missing=''
+          for key in NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY EBAY_CLIENT_ID EBAY_CLIENT_SECRET; do
+            if [ -z "${!key:-}" ]; then missing="${missing}${missing:+,}${key}"; fi
+          done
+          if [ -n "$missing" ]; then
+            printf '{"success":false,"stage":"environment","error":"Required Production variables missing","missing":"%s"}\n' "$missing" > sync-verification/failure.json
+            cat sync-verification/failure.json
+            exit 1
+          fi
+          set +e
+          node --import tsx --input-type=module > sync-verification/direct-sync.log 2>&1 <<'NODE'
+          import fs from 'node:fs';
+
+          const outputDir = 'sync-verification';
+          fs.mkdirSync(outputDir, { recursive: true });
+          const write = (name, value) => fs.writeFileSync(`${outputDir}/${name}`, `${JSON.stringify(value, null, 2)}\n`);
+          const cleanError = (error) => String(error instanceof Error ? (error.stack || error.message) : error)
+            .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [REDACTED]')
+            .replace(/(refresh_token|access_token|client_secret|service_role_key|anon_key)[=:]\s*[^\s,}]+/gi, '$1=[REDACTED]')
+            .slice(0, 8000);
+
+          try {
+            console.log('[stage] importing production sync modules');
+            const [authoritativeModule, imageModule, quantityModule, supabaseModule, storesModule] = await Promise.all([
+              import('./src/lib/ebay-authoritative-store-sync.ts'),
+              import('./src/lib/ebay-all-image-sync.ts'),
+              import('./src/lib/ebay-fixed-price-backfill.ts'),
+              import('./src/lib/supabase-server.ts'),
+              import('./src/lib/stores.ts'),
+            ]);
+            const { runEbayAuthoritativeStoreSync } = authoritativeModule;
+            const { syncEbayAllListingImages } = imageModule;
+            const { syncRecentLegacyEbayQuantities } = quantityModule;
+            const { createSupabaseServerClient } = supabaseModule;
+            const { getActiveStoreId } = storesModule;
+            for (const [name, value] of Object.entries({ runEbayAuthoritativeStoreSync, syncEbayAllListingImages, syncRecentLegacyEbayQuantities, createSupabaseServerClient, getActiveStoreId })) {
+              if (typeof value !== 'function') throw new Error(`Required module export ${name} is unavailable.`);
+            }
+
+            const supabase = createSupabaseServerClient({ admin: true });
+            const storeId = getActiveStoreId();
+            const compactAuthoritative = (value) => ({
+              remoteFixedPriceTotal: Number(value.remoteFixedPriceTotal || 0),
+              pagesRead: Number(value.pagesRead || 0),
+              cycleComplete: value.cycleComplete === true,
+              eligibleCollectibles: Number(value.eligibleCollectibles || 0),
+              skippedNonCollectibles: Number(value.skippedNonCollectibles || 0),
+              inserted: Number(value.inserted || 0),
+              updated: Number(value.updated || 0),
+              unchanged: Number(value.unchanged || 0),
+              deactivated: Number(value.deactivated || 0),
+              failed: Number(value.failed || 0),
+              localLinkedBefore: Number(value.localLinkedBefore || 0),
+              localLinkedAfter: Number(value.localLinkedAfter || 0),
+              errorSample: (value.errors || []).slice(0, 20),
+            });
+            const compactImages = (value) => ({
+              checked: Number(value.checked || 0),
+              updated: Number(value.updated || 0),
+              imagesAdded: Number(value.imagesAdded || 0),
+              imagesRemoved: Number(value.imagesRemoved || 0),
+              pagesRead: Number(value.pagesRead || 0),
+              cycleComplete: value.cycleComplete === true,
+              remainingCandidates: Number(value.remainingCandidates || 0),
+              failed: Number((value.errors || []).length),
+              errorSample: (value.errors || []).slice(0, 20),
+            });
+            const compactQuantities = (value) => ({
+              checked: Number(value.checked || 0),
+              pushedToEbay: Number(value.pushedToEbay || 0),
+              endedOnEbay: Number(value.endedOnEbay || 0),
+              reducedLocally: Number(value.reducedLocally || 0),
+              unchanged: Number(value.unchanged || 0),
+              failed: Number(value.failed || 0),
+              errorSample: (value.errors || []).slice(0, 20),
+            });
+
+            console.log('[stage] first authoritative eBay read/apply');
+            const firstRaw = await runEbayAuthoritativeStoreSync({ supabase, storeId, mode: 'apply', deactivateEnded: true });
+            const first = compactAuthoritative(firstRaw);
+            write('authoritative-first.json', first);
+            console.log(`[receipt:first] ${JSON.stringify(first)}`);
+            if (!first.cycleComplete) throw new Error('First authoritative page cycle incomplete.');
+            if (first.failed !== 0) throw new Error(`First authoritative pass failed for ${first.failed} listings.`);
+            if (first.remoteFixedPriceTotal < 1) throw new Error('eBay returned zero active fixed-price listings.');
+            if (first.eligibleCollectibles + first.skippedNonCollectibles !== first.remoteFixedPriceTotal) {
+              throw new Error(`Remote total mismatch: eligible=${first.eligibleCollectibles}, skipped=${first.skippedNonCollectibles}, total=${first.remoteFixedPriceTotal}.`);
+            }
+
+            console.log('[stage] complete image reconciliation');
+            const imagePasses = [];
+            for (let pass = 1; pass <= 10; pass += 1) {
+              const raw = await syncEbayAllListingImages({ supabase, storeId });
+              const receipt = compactImages(raw);
+              imagePasses.push({ pass, ...receipt });
+              write(`images-pass-${String(pass).padStart(2, '0')}.json`, receipt);
+              console.log(`[receipt:images:${pass}] ${JSON.stringify(receipt)}`);
+              if (!receipt.cycleComplete) throw new Error(`Image pass ${pass} did not read all eBay pages.`);
+              if (receipt.failed !== 0) throw new Error(`Image pass ${pass} failed for ${receipt.failed} listings.`);
+              if (receipt.remainingCandidates === 0) break;
+            }
+            const finalImagePass = imagePasses.at(-1);
+            if (!finalImagePass || finalImagePass.remainingCandidates !== 0) throw new Error('Image reconciliation did not converge to zero remaining candidates.');
+
+            console.log('[stage] legacy quantity reconciliation');
+            const quantitiesRaw = await syncRecentLegacyEbayQuantities({ supabase, storeId });
+            const quantities = compactQuantities(quantitiesRaw);
+            write('quantity-reconciliation.json', quantities);
+            console.log(`[receipt:quantities] ${JSON.stringify(quantities)}`);
+            if (quantities.failed !== 0) throw new Error(`Quantity reconciliation failed for ${quantities.failed} listings.`);
+
+            console.log('[stage] second authoritative read/apply for convergence');
+            const finalRaw = await runEbayAuthoritativeStoreSync({ supabase, storeId, mode: 'apply', deactivateEnded: true });
+            const final = compactAuthoritative(finalRaw);
+            write('authoritative-final.json', final);
+            console.log(`[receipt:final] ${JSON.stringify(final)}`);
+            if (!final.cycleComplete) throw new Error('Final authoritative page cycle incomplete.');
+            if (final.failed !== 0) throw new Error(`Final authoritative pass failed for ${final.failed} listings.`);
+            if (final.inserted !== 0 || final.updated !== 0 || final.deactivated !== 0) {
+              throw new Error(`Inventory did not converge: inserted=${final.inserted}, updated=${final.updated}, deactivated=${final.deactivated}.`);
+            }
+            if (final.unchanged !== final.eligibleCollectibles) throw new Error(`Final unchanged=${final.unchanged}; eligible=${final.eligibleCollectibles}.`);
+
+            console.log('[stage] database active-linked count audit');
+            const activeLinkedResult = await supabase.from('products').select('id', { count: 'exact', head: true }).eq('store_id', storeId).gt('quantity', 0).not('ebay_item_id', 'is', null);
+            if (activeLinkedResult.error) throw activeLinkedResult.error;
+            const activeLinkedProducts = Number(activeLinkedResult.count || 0);
+            if (activeLinkedProducts !== final.eligibleCollectibles) throw new Error(`Database active linked=${activeLinkedProducts}; eligible eBay=${final.eligibleCollectibles}.`);
+
+            const summary = {
+              schema: 'truelycollectables.freshEbayInventorySync.v1',
+              generatedAt: new Date().toISOString(),
+              productionSourceSha: process.env.PRODUCTION_SOURCE_SHA,
+              success: true,
+              first,
+              imagePasses,
+              quantities,
+              final,
+              databaseAudit: { activeLinkedProducts },
+            };
+            write('fresh-sync-summary.json', summary);
+            console.log(`[complete] ${JSON.stringify({ remoteFixedPriceTotal: final.remoteFixedPriceTotal, eligibleCollectibles: final.eligibleCollectibles, skippedNonCollectibles: final.skippedNonCollectibles, activeLinkedProducts, imagePasses: imagePasses.length })}`);
+          } catch (error) {
+            const failure = { success: false, generatedAt: new Date().toISOString(), error: cleanError(error) };
+            write('failure.json', failure);
+            console.error(`[failure] ${failure.error}`);
+            process.exitCode = 1;
+          }
+          NODE
+          status=$?
+          set -e
+          tail -n 120 sync-verification/direct-sync.log || true
+          if [ "$status" -ne 0 ]; then
+            echo "Direct production sync failed with status $status."
+            test -f sync-verification/failure.json && cat sync-verification/failure.json
+            exit "$status"
+          fi
+
+      - name: Verify live storefront totals and taxonomy
+        if: steps.direct_sync.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          fetch_page() {
+            key="$1"; path="$2"; body="sync-verification/storefront/${key}.html"
+            code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 90 --header 'Cache-Control: no-cache' --output "$body" --write-out '%{http_code}' "${PRODUCTION_ORIGIN}${path}" || true)"
+            printf '%s\n' "$code" > "sync-verification/storefront/${key}.status"
+            echo "$key HTTP=$code"
+            test "$code" = '200'
+          }
+          fetch_page all '/shop'
+          fetch_page pucks '/shop?section=Pucks'
+          fetch_page autographs '/shop?feature=autograph'
+          fetch_page forsberg-hockey '/shop?section=Hockey&q=Peter%20Forsberg%20Red%20Jersey'
+          fetch_page forsberg-jerseys '/shop?section=Jerseys&q=Peter%20Forsberg%20Red%20Jersey'
+          fetch_page howe-hockey '/shop?section=Hockey&q=Gordie%20Howe%20Exquisite'
+          fetch_page howe-tcg '/shop?section=Trading%20Card%20Games&q=Gordie%20Howe%20Exquisite'
+          fetch_page wailord-tcg '/shop?section=Trading%20Card%20Games&q=Wailord'
+          fetch_page shoes-blocked '/shop?q=shoes'
+          fetch_page pants-blocked '/shop?q=pants'
+          fetch_page parts-blocked '/shop?q=fuel%20sensor'
+          node <<'NODE'
+          const fs = require('node:fs');
+          const summary = JSON.parse(fs.readFileSync('sync-verification/fresh-sync-summary.json', 'utf8'));
+          const decode = (value) => value.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]*>/g, ' ').replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+          const checks = [
+            { key: 'all', exact: Number(summary.final.eligibleCollectibles) },
+            { key: 'pucks', min: 1 }, { key: 'autographs', min: 1 },
+            { key: 'forsberg-hockey', min: 1 }, { key: 'forsberg-jerseys', exact: 0 },
+            { key: 'howe-hockey', min: 1 }, { key: 'howe-tcg', exact: 0 },
+            { key: 'wailord-tcg', min: 1 }, { key: 'shoes-blocked', exact: 0 },
+            { key: 'pants-blocked', exact: 0 }, { key: 'parts-blocked', exact: 0 },
+          ];
+          const results = [];
+          for (const check of checks) {
+            const plain = decode(fs.readFileSync(`sync-verification/storefront/${check.key}.html`, 'utf8'));
+            const match = plain.match(/([\d,]+) active cards & collectibles/i);
+            const activeItems = match ? Number(match[1].replaceAll(',', '')) : null;
+            const result = { key: check.key, activeItems, markerPresent: plain.includes('Cards and memorabilia stay in their correct section.') };
+            results.push(result); console.log(JSON.stringify(result));
+            if (!result.markerPresent) throw new Error(`${check.key} missing v4 marker.`);
+            if (!Number.isInteger(activeItems)) throw new Error(`${check.key} count unavailable.`);
+            if (Number.isInteger(check.exact) && activeItems !== check.exact) throw new Error(`${check.key} expected ${check.exact}; found ${activeItems}.`);
+            if (Number.isInteger(check.min) && activeItems < check.min) throw new Error(`${check.key} expected at least ${check.min}; found ${activeItems}.`);
+          }
+          fs.writeFileSync('sync-verification/storefront-verification.json', `${JSON.stringify({ success: true, generatedAt: new Date().toISOString(), results }, null, 2)}\n`);
+          NODE
+
+      - name: Print captured failure
+        if: failure()
+        run: |
+          echo '--- captured sync failure ---'
+          cat sync-verification/failure.json 2>/dev/null || true
+          echo '--- direct sync log tail ---'
+          tail -n 160 sync-verification/direct-sync.log 2>/dev/null || true
+
+      - name: Remove secured Production material
+        if: always()
+        run: rm -rf .vercel .sync-private .env.production.local .env.local
+
+      - name: Upload fresh sync evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fresh-ebay-inventory-sync-${{ github.run_number }}
+          path: sync-verification
+          if-no-files-found: warn
+          retention-days: 30
