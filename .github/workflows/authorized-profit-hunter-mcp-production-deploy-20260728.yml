@@ -1,4 +1,4 @@
-name: Verify TCOS Profit Hunter MCP Production 20260728
+name: Provision and Verify TCOS Profit Hunter MCP Production 20260728
 
 on:
   pull_request:
@@ -6,33 +6,48 @@ on:
       - main
     paths:
       - ".github/workflows/authorized-profit-hunter-mcp-production-deploy-20260728.yml"
-      - "scripts/verify-tcos-profit-hunter-production.mjs"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: verify-tcos-profit-hunter-mcp-production
+  group: provision-tcos-profit-hunter-mcp-production
   cancel-in-progress: true
 
 jobs:
-  verify-production:
+  provision-deploy-verify:
     if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'deploy/tcos-profit-hunter-mcp-20260728')
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 90
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_SCOPE: truelycollectables-projects
+      SOURCE_SHA: 012471da826ca41c64baf29832a99776aafa5b4a
       PRODUCTION_URL: https://truelycollectables.com
     steps:
-      - name: Link project and run raw authenticated MCP verifier
+      - name: Check out exact current main source
+        uses: actions/checkout@v4
+        with:
+          ref: 012471da826ca41c64baf29832a99776aafa5b4a
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Link exact Vercel project
         run: |
           set -euo pipefail
           test -n "${VERCEL_TOKEN:-}"
-          mkdir -p .vercel
+          mkdir -p .vercel .deployment-evidence
           if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
             printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
           else
@@ -42,8 +57,109 @@ jobs:
               --scope "$VERCEL_SCOPE" \
               --token "$VERCEL_TOKEN"
           fi
+
+      - name: Generate dedicated masked Production credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          CONNECTOR_TOKEN="$(openssl rand -hex 48)"
+          SERVICE_TOKEN="$(openssl rand -hex 48)"
+          test "$CONNECTOR_TOKEN" != "$SERVICE_TOKEN"
+          echo "::add-mask::$CONNECTOR_TOKEN"
+          echo "::add-mask::$SERVICE_TOKEN"
+          printf 'TCOS_CONNECTOR_TOKEN=%s\n' "$CONNECTOR_TOKEN" >> "$GITHUB_ENV"
+          printf 'INSTACOMP_SERVICE_TOKEN=%s\n' "$SERVICE_TOKEN" >> "$GITHUB_ENV"
+          printf '%s\n' "$SOURCE_SHA" > .deployment-evidence/source-sha.txt
+          printf '%s\n' 'Generated two independent 96-character hexadecimal credentials; values masked and not stored in artifacts.' > .deployment-evidence/credential-receipt.txt
+
+      - name: Install sensitive Production environment variables
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$TCOS_CONNECTOR_TOKEN" | npx vercel@56.2.0 env add TCOS_CONNECTOR_TOKEN production \
+            --force \
+            --sensitive \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN"
+          printf '%s\n' "$INSTACOMP_SERVICE_TOKEN" | npx vercel@56.2.0 env add INSTACOMP_SERVICE_TOKEN production \
+            --force \
+            --sensitive \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN"
+
+      - name: Deploy exact current main revision to Production
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 deploy \
+            --prod \
+            --yes \
+            --force \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" \
+            2>&1 | tee .deployment-evidence/vercel-deploy.log
+          DEPLOYMENT_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' .deployment-evidence/vercel-deploy.log | tail -n 1)"
+          test -n "$DEPLOYMENT_URL"
+          echo "deployment_url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$DEPLOYMENT_URL" > .deployment-evidence/deployment-url.txt
+
+      - name: Verify unauthenticated access remains blocked
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in /api/tcos-profit-hunter/mcp /api/admin/market-intel/profit-hunter-token; do
+            code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output .deployment-evidence/unauthorized-response.json --write-out '%{http_code}' "$DEPLOYMENT_URL$path" || true)"
+            echo "$path HTTP=$code"
+            test "$code" = "401"
+          done
+
+      - name: Download raw MCP protocol verifier
+        run: |
           curl --fail --silent --show-error \
             https://raw.githubusercontent.com/TruelyCollectables/truely-collectables/deploy/tcos-profit-hunter-mcp-20260728/scripts/verify-tcos-profit-hunter-production.mjs \
             --output /tmp/verify-tcos-profit-hunter-production.mjs
-          PRODUCTION_URL="$PRODUCTION_URL" \
-            npx vercel@56.2.0 env run -e production -- node /tmp/verify-tcos-profit-hunter-production.mjs
+
+      - name: Run authenticated MCP initialize, tool-list, and status verification
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          PRODUCTION_URL="$DEPLOYMENT_URL" \
+          TCOS_CONNECTOR_TOKEN="$TCOS_CONNECTOR_TOKEN" \
+            node /tmp/verify-tcos-profit-hunter-production.mjs \
+            2>&1 | tee .deployment-evidence/authenticated-mcp-verification.log
+          grep -Fq '"connected":true' .deployment-evidence/authenticated-mcp-verification.log
+          grep -Fq '"hardenedInstaCompConfigured":true' .deployment-evidence/authenticated-mcp-verification.log
+          grep -Fq '"automaticDiscoveryConfigured":true' .deployment-evidence/authenticated-mcp-verification.log
+          grep -Fq '"purchaseWritesEnabled":false' .deployment-evidence/authenticated-mcp-verification.log
+
+      - name: Verify production aliases have promoted the private endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          for base in https://truely-collectables.vercel.app https://truelycollectables.com; do
+            success=""
+            for attempt in $(seq 1 24); do
+              code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output .deployment-evidence/alias-unauthorized.json --write-out '%{http_code}' "$base/api/tcos-profit-hunter/mcp" || true)"
+              echo "$base attempt=$attempt HTTP=$code"
+              if [ "$code" = "401" ]; then
+                success=1
+                break
+              fi
+              sleep 15
+            done
+            test -n "$success"
+          done
+
+      - name: Upload redacted deployment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tcos-profit-hunter-production-provision-${{ github.run_number }}
+          path: .deployment-evidence
+          if-no-files-found: warn
+          retention-days: 30
