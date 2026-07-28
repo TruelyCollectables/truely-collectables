@@ -1,0 +1,105 @@
+name: Database-Backed Admin Authentication
+
+on:
+  push:
+    branches:
+      - agent/database-backed-admin-auth-20260729
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "src/lib/admin-credentials.ts"
+      - "src/app/admin/login/page.tsx"
+      - "src/app/admin/reset-password/**"
+      - "src/app/api/admin/login/route.ts"
+      - "src/app/api/admin/password-reset/**"
+      - "src/app/api/admin/market-intel/profit-hunter-token/route.ts"
+      - "scripts/apply-database-admin-auth.py"
+      - "scripts/run-database-admin-auth-simulations.ts"
+      - ".github/workflows/database-admin-auth.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/database-backed-admin-auth-20260729
+          fetch-depth: 0
+
+      - name: Materialize database-backed login changes
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/apply-database-admin-auth.py
+          python scripts/apply-database-admin-auth.py
+          git diff --check
+
+      - name: Commit materialized authentication source
+        run: |
+          git add \
+            src/app/api/admin/login/route.ts \
+            src/app/admin/login/page.tsx \
+            src/app/api/admin/market-intel/profit-hunter-token/route.ts \
+            src/app/api/admin/password-reset/request/route.ts
+          if git diff --cached --quiet; then
+            echo "Database-backed authentication source already materialized."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "Materialize database-backed admin authentication"
+            git push origin HEAD:agent/database-backed-admin-auth-20260729
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Run permanent database-admin regressions
+        run: node --import tsx scripts/run-database-admin-auth-simulations.ts
+
+      - name: Run existing admin-login simulations
+        run: npm run simulate:admin-login
+
+      - name: Lint authentication paths
+        run: >-
+          npx eslint
+          src/lib/admin-credentials.ts
+          src/app/admin/login/page.tsx
+          src/app/admin/reset-password/page.tsx
+          src/app/api/admin/login/route.ts
+          src/app/api/admin/password-reset/request/route.ts
+          src/app/api/admin/password-reset/confirm/route.ts
+          src/app/api/admin/market-intel/profit-hunter-token/route.ts
+          scripts/run-database-admin-auth-simulations.ts
+
+      - name: Build production application
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+          ADMIN_PASSWORD: build-only-emergency-admin-password
+          ADMIN_SESSION_SECRET: build-only-admin-session-secret
+          ADMIN_RECOVERY_EMAIL: sales@truelycollectables.com
+          RESEND_API_KEY: re_build_only_placeholder
+          OPENAI_API_KEY: build-only-placeholder-openai-key
+          SERPAPI_API_KEY: build-only-placeholder-serpapi-key
+          NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+          STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+          STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+          EBAY_CLIENT_ID: build-only-placeholder-client-id
+          EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+          EBAY_ENVIRONMENT: production
+          TCOS_LIVE_PAYMENTS_ENABLED: "false"
+          TCOS_SHIPPING_PURCHASE_MODE: dry_run
+          TCOS_LIVE_SHIPPING_ENABLED: "false"
+        run: npm run build
