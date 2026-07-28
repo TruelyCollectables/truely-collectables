@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
+import { getProfitHunterConnectorToken } from "./tcos-profit-hunter-secrets";
 
 export const TCOS_WNBA_ROOKIE_PLAYERS = [
   "Caitlin Clark",
@@ -81,7 +82,7 @@ function recognizedCaseHitOrSsp(identity: InstaCompIdentity) {
 
 export function validateProfitHunterServiceBearer(
   authorizationHeader: string | null,
-  expectedToken = process.env.TCOS_CONNECTOR_TOKEN,
+  expectedToken = getProfitHunterConnectorToken(),
 ) {
   const expected = String(expectedToken || "").trim();
   const authorization = String(authorizationHeader || "").trim();
