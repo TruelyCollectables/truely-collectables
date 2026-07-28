@@ -1,0 +1,144 @@
+name: Authorized TCOS Profit Hunter GPT Actions Production Deploy 20260729
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/authorized-tcos-profit-hunter-gpt-actions-production-deploy-20260729.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: authorized-tcos-profit-hunter-gpt-actions-production-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy-production:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'deploy/tcos-profit-hunter-gpt-actions-20260729')
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      SOURCE_SHA: 8a4e1f66575650a63f2ec104312970552777864d
+    steps:
+      - name: Check out exact merged source
+        uses: actions/checkout@v4
+        with:
+          ref: 8a4e1f66575650a63f2ec104312970552777864d
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Link exact Vercel project
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p .vercel .deployment-evidence
+          npx vercel@56.2.0 whoami --token "$VERCEL_TOKEN"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link \
+              --yes \
+              --project truely-collectables \
+              --scope "$VERCEL_SCOPE" \
+              --token "$VERCEL_TOKEN"
+          fi
+          printf '%s\n' "$SOURCE_SHA" > .deployment-evidence/source-sha.txt
+
+      - name: Deploy exact merged GPT Actions source to Production
+        id: deploy
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 deploy \
+            --prod \
+            --yes \
+            --force \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" \
+            2>&1 | tee .deployment-evidence/vercel-deploy.log
+          DEPLOYMENT_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' .deployment-evidence/vercel-deploy.log | tail -n 1)"
+          test -n "$DEPLOYMENT_URL"
+          echo "deployment_url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$DEPLOYMENT_URL" > .deployment-evidence/deployment-url.txt
+
+      - name: Verify schema and bearer boundaries on deployment URL
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
+        run: |
+          set -euo pipefail
+          schema_code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 \
+            --output .deployment-evidence/openapi.json \
+            --write-out '%{http_code}' \
+            "$DEPLOYMENT_URL/api/tcos-profit-hunter/actions/openapi" || true)"
+          echo "openapi HTTP=$schema_code"
+          test "$schema_code" = "200"
+          grep -Fq '"operationId":"getProfitHunterStatus"' .deployment-evidence/openapi.json
+          grep -Fq '"operationId":"searchProfitHunterCandidates"' .deployment-evidence/openapi.json
+          grep -Fq '"operationId":"verifyProfitHunterListing"' .deployment-evidence/openapi.json
+          grep -Fq '"scheme":"bearer"' .deployment-evidence/openapi.json
+
+          for path in status search verify; do
+            if [ "$path" = "status" ]; then
+              code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 \
+                --output .deployment-evidence/$path-unauthorized.json \
+                --write-out '%{http_code}' \
+                "$DEPLOYMENT_URL/api/tcos-profit-hunter/actions/$path" || true)"
+            else
+              code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 \
+                --output .deployment-evidence/$path-unauthorized.json \
+                --write-out '%{http_code}' \
+                --request POST \
+                --header 'Content-Type: application/json' \
+                --data '{}' \
+                "$DEPLOYMENT_URL/api/tcos-profit-hunter/actions/$path" || true)"
+            fi
+            echo "$path unauthenticated HTTP=$code"
+            test "$code" = "401"
+            grep -Fq 'TCOS_PROFIT_HUNTER_UNAUTHORIZED' .deployment-evidence/$path-unauthorized.json
+          done
+
+      - name: Wait for custom-domain promotion and verify schema
+        run: |
+          set -euo pipefail
+          ready=""
+          for attempt in $(seq 1 30); do
+            code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 \
+              --output .deployment-evidence/custom-openapi.json \
+              --write-out '%{http_code}' \
+              https://truelycollectables.com/api/tcos-profit-hunter/actions/openapi || true)"
+            echo "custom-domain attempt=$attempt HTTP=$code"
+            if [ "$code" = "200" ] && \
+               grep -Fq '"operationId":"getProfitHunterStatus"' .deployment-evidence/custom-openapi.json && \
+               grep -Fq '"operationId":"searchProfitHunterCandidates"' .deployment-evidence/custom-openapi.json && \
+               grep -Fq '"operationId":"verifyProfitHunterListing"' .deployment-evidence/custom-openapi.json; then
+              ready=1
+              break
+            fi
+            sleep 10
+          done
+          test -n "$ready"
+          code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 \
+            --output .deployment-evidence/custom-status-unauthorized.json \
+            --write-out '%{http_code}' \
+            https://truelycollectables.com/api/tcos-profit-hunter/actions/status || true)"
+          echo "custom-domain status unauthenticated HTTP=$code"
+          test "$code" = "401"
+
+      - name: Upload redacted deployment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tcos-profit-hunter-gpt-actions-production-${{ github.run_number }}
+          path: .deployment-evidence
+          if-no-files-found: warn
+          retention-days: 30
