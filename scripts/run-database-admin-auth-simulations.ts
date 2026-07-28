@@ -26,6 +26,26 @@ assert.match(credentialSource, /randomBytes\(40\)/);
 assert.match(credentialSource, /RESET_TTL_MINUTES = 30/);
 assert.match(credentialSource, /resetTokenHash: tokenDigest\(token\)/);
 assert.doesNotMatch(credentialSource, /password:\s*password/);
+assert.match(
+  credentialSource,
+  /\.from\("store_settings"\)\s*\.update\(\{ metadata \}\)/,
+  "Existing store settings rows must update only the supported metadata column.",
+);
+assert.match(
+  credentialSource,
+  /store_id: state\.storeId,\s*metadata,/,
+  "Credential bootstrap must upsert the store id and metadata only.",
+);
+assert.doesNotMatch(
+  credentialSource,
+  /\.update\(\{ metadata, updated_at:/,
+  "Credential writes must never inject an assumed updated_at column.",
+);
+assert.doesNotMatch(
+  credentialSource,
+  /store_id: state\.storeId,\s*metadata,\s*updated_at:/,
+  "Credential upserts must never inject an assumed updated_at column.",
+);
 
 assert.match(loginRoute, /verifyDatabaseAdminPasswordCandidates/);
 assert.match(loginRoute, /if \(databaseCredential\.configured\)/);
@@ -61,5 +81,5 @@ assert.match(tokenRoute, /NextResponse\.redirect\(loginUrl, 303\)/);
 assert.match(tokenRoute, /response\(\{ error: "Unauthorized" \}, 401\)/);
 
 console.log(
-  "Database-backed admin auth passed structural verification: scrypt password hashing, one-time reset tokens, Resend recovery, database-first login, immediate session creation, and browser-safe token-page redirect are present.",
+  "Database-backed admin auth passed structural verification: scrypt password hashing, metadata-only Production writes, one-time reset tokens, Resend recovery, database-first login, immediate session creation, and browser-safe token-page redirect are present.",
 );
