@@ -25,6 +25,10 @@ jobs:
       PRODUCTION_ORIGIN: https://truelycollectables.com
       EBAY_IMPORT_LIMIT: "100"
       EBAY_IMPORT_MAX_PAGES: "25"
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
     steps:
       - name: Check out operations runner
         uses: actions/checkout@v4
@@ -37,8 +41,56 @@ jobs:
         with:
           node-version: 22
 
+      - name: Create one-run protected admin session
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p .vercel .sync-private
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link \
+              --yes \
+              --project truely-collectables \
+              --scope "$VERCEL_SCOPE" \
+              --token "$VERCEL_TOKEN" \
+              > .sync-private/vercel-link.log 2>&1
+          fi
+          npx vercel@56.2.0 pull \
+            --yes \
+            --environment=production \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" \
+            > .sync-private/vercel-pull.log 2>&1
+          ENV_FILE="$(find .vercel -maxdepth 1 -type f -name '.env.production.local' | head -n 1)"
+          test -n "$ENV_FILE"
+          set -a
+          . "$ENV_FILE"
+          set +a
+          test -n "${ADMIN_SESSION_SECRET:-}"
+          SESSION_VALUE="$(node <<'NODE'
+          const crypto = require('node:crypto');
+          const issuedAt = String(Math.floor(Date.now() / 1000));
+          const signature = crypto
+            .createHmac('sha256', process.env.ADMIN_SESSION_SECRET)
+            .update(issuedAt)
+            .digest('base64url');
+          process.stdout.write(`${issuedAt}.${signature}`);
+          NODE
+          )"
+          test -n "$SESSION_VALUE"
+          echo "::add-mask::$SESSION_VALUE"
+          printf 'ADMIN_SESSION_VALUE=%s\n' "$SESSION_VALUE" >> "$GITHUB_ENV"
+          rm -f "$ENV_FILE"
+          rm -f .sync-private/vercel-link.log .sync-private/vercel-pull.log
+
       - name: Run complete paged eBay taxonomy sync and storefront verification
         run: node scripts/run-production-ebay-taxonomy-sync.mjs
+
+      - name: Remove ephemeral session material
+        if: always()
+        run: rm -rf .vercel .sync-private
 
       - name: Upload complete eBay sync evidence
         if: always()
