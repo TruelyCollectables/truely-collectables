@@ -1,0 +1,82 @@
+name: Validate eBay Probe Import 20260729
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/validate-ebay-probe-import-20260729.yml"
+      - "src/app/api/internal/ebay-browse-probe/route.js"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-ebay-probe-import-20260729
+  cancel-in-progress: false
+
+jobs:
+  validate-exact-source:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ops/validate-ebay-probe-import-20260729'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SOURCE_SHA: 708b1e92a61d67e6c3df2a66e34636fd9cc37ff7
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+    steps:
+      - name: Check out exact source fix
+        uses: actions/checkout@v4
+        with:
+          ref: 708b1e92a61d67e6c3df2a66e34636fd9cc37ff7
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Run focused security and runtime regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/run-ebay-browse-runtime-contracts.mjs
+          npm run simulate:privileged-route-auth
+          node scripts/run-privileged-api-route-audit.mjs
+
+      - name: Run lint and standalone TypeScript
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run lint
+          npx tsc --noEmit --pretty false
+
+      - name: Link exact Vercel project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p .vercel
+          npx vercel@56.2.0 whoami --token "$VERCEL_TOKEN" >/dev/null
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link \
+              --yes \
+              --project truely-collectables \
+              --scope "$VERCEL_SCOPE" \
+              --token "$VERCEL_TOKEN"
+          fi
+          node -e 'const p=require("./.vercel/project.json"); if(!p.orgId||!p.projectId) process.exit(1);'
+
+      - name: Run full Production-environment build
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 env run -e production -- npm run build
