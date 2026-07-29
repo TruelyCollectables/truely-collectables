@@ -27,7 +27,7 @@ export type StorefrontFilterableItem = {
   price: number;
 };
 
-export const STOREFRONT_TAXONOMY_VERSION = 8;
+export const STOREFRONT_TAXONOMY_VERSION = 9;
 
 export const SPORT_SECTIONS = [
   "Baseball",
@@ -490,6 +490,12 @@ function detectSection(params: {
 }) {
   const storedSection = trustworthyStoredSection(params.metadata);
   if (storedSection) return storedSection;
+
+  const titleOnly = normalized(params.title);
+  const explicitAccessoryObject =
+    /\b(?:wristwatch|sunglasses|eyewear|oakley)\b/.test(titleOnly) ||
+    (/\bwatch\b/.test(titleOnly) && !/\bfuture watch\b/.test(titleOnly));
+  if (explicitAccessoryObject) return "Watches & Accessories";
 
   const context = cardContext(params);
   const focused = classificationText(params);

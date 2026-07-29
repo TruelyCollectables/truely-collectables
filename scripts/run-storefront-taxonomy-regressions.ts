@@ -820,3 +820,36 @@ const physicalBasketball = classifyStorefrontItem({
 });
 assert.equal(physicalBasketball.section, "Balls");
 assert.equal(physicalBasketball.features.memorabilia, false);
+
+const oakleyProductionOverride = classifyStorefrontItem({
+  title:
+    "Oakley Fuel Cell Desolve Bare Camo Prizm Tungsten Lens 9096 I760 60 90 130",
+  primaryCategory: "sports_cards",
+  metadata: {
+    tcos_storefront_section: "Needs Review",
+    tcos_taxonomy_version: 8,
+  },
+});
+assert.equal(oakleyProductionOverride.section, "Watches & Accessories");
+assert.equal(oakleyProductionOverride.features.autograph, false);
+assert.equal(oakleyProductionOverride.features.memorabilia, false);
+assert.equal(oakleyProductionOverride.features.graded, false);
+assert.equal(oakleyProductionOverride.features.rookie, false);
+
+const oakleyMapperOverride = mapEbayInventoryCategory({
+  title:
+    "Oakley Fuel Cell Desolve Bare Camo Prizm Tungsten Lens 9096 I760 60 90 130",
+});
+assert.equal(oakleyMapperOverride.category, "other_collectable");
+assert.equal(oakleyMapperOverride.confidence, "high");
+assert.equal(oakleyMapperOverride.reviewRequired, false);
+
+const futureWatchCardV9 = classifyStorefrontItem({
+  title:
+    "2024-25 SP Authentic Danil Gushchin Retro Autographed Future Watch /699",
+  primaryCategory: "sports_cards",
+  metadata: { tcos_taxonomy_version: 8 },
+});
+assert.equal(futureWatchCardV9.section, "Hockey");
+assert.equal(futureWatchCardV9.features.autograph, true);
+assert.equal(futureWatchCardV9.features.numbered, true);
