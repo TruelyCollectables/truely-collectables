@@ -45,7 +45,13 @@ assert.doesNotMatch(
 
 assert.match(probeRoute, /x-tcos-ebay-probe-token/);
 assert.match(probeRoute, /timingSafeEqual/);
-assert.match(probeRoute, /EBAY_PROBE_UNAUTHORIZED/);
+assert.match(probeRoute, /EBAY_PROBE_TOKEN_NOT_CONFIGURED/);
+assert.match(probeRoute, /EBAY_PROBE_TOKEN_MISSING/);
+assert.match(probeRoute, /EBAY_PROBE_TOKEN_MISMATCH/);
+assert.match(probeRoute, /EBAY_PROBE_AUTHORIZED/);
+assert.match(probeRoute, /authOnly/);
+assert.match(probeRoute, /VERCEL_GIT_COMMIT_SHA/);
+assert.match(probeRoute, /VERCEL_ENV/);
 assert.match(probeRoute, /withDeadline/);
 assert.match(probeRoute, /application_token/);
 assert.match(probeRoute, /browse_search/);
@@ -57,5 +63,5 @@ assert.match(probeRoute, /timings/);
 assert.doesNotMatch(probeRoute, /accessToken|clientSecret[^C]/);
 
 console.log(
-  "eBay Browse runtime contracts passed: automatic client credentials, cache/refresh, body-safe request deadlines, one-time 401 retry, fail-closed 403/429 behavior, stage-timed private diagnostics, and no token disclosure are present.",
+  "eBay Browse runtime contracts passed: automatic client credentials, cache/refresh, body-safe request deadlines, one-time 401 retry, fail-closed 403/429 behavior, explicit probe-secret diagnostics, deployment identity, auth-only verification, stage-timed private diagnostics, and no token disclosure are present.",
 );
