@@ -2,7 +2,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { mapEbayInventoryCategory } from "./ebay-category-mapper";
 import { classifyStorefrontItem } from "./storefront-taxonomy";
 import { getStoreSettings } from "./store-settings";
-import { EBAY_MERGED_LISTING_GROUPS } from "./ebay-merged-listing-groups";
+import {
+  EBAY_MERGED_LISTING_GROUPS,
+  isMergedEbayAliasItemId,
+} from "./ebay-merged-listing-groups";
 import { InventoryRepository } from "../modules/inventory";
 
 const TRADING_API_VERSION = "1409";
@@ -1136,6 +1139,26 @@ export async function runEbayAuthoritativeStoreSync(params: {
     updated = 0;
     unchanged = 0;
     deactivated = 0;
+
+    const mergedAliasLocals = locals.filter((local) =>
+      isMergedEbayAliasItemId(local.ebay_item_id),
+    );
+    await runWorkers(mergedAliasLocals, async (local) => {
+      try {
+        const changed = await deactivateLocalProduct({ ...params, local });
+        if (changed) deactivated += 1;
+      } catch (error) {
+        errors.push({
+          itemId: String(local.ebay_item_id || ""),
+          title: local.title,
+          error: syncErrorMessage(
+            error,
+            "Could not retire merged alias inventory.",
+          ),
+        });
+      }
+    });
+
     const changedListings = effectiveRemoteListings.filter((listing) => {
       const local = localByItemId.get(listing.itemId) || null;
       return !local || taxonomyRefreshRequired || listingChanged(local, listing);

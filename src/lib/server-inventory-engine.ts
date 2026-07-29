@@ -1,11 +1,20 @@
 import {
   InventoryEngine,
   InventoryRepository,
+  type UniversalInventoryItem,
 } from "../modules/inventory";
 import { isLaunchCollectible } from "./sports-card-launch-scope";
+import { isMergedEbayAliasItemId } from "./ebay-merged-listing-groups";
 import type { StorefrontSort } from "./storefront-taxonomy";
 import { getActiveStoreId } from "./stores";
 import { createSupabaseServerClient } from "./supabase-server";
+
+function isPublicStorefrontItem(item: UniversalInventoryItem) {
+  return (
+    isLaunchCollectible(item) &&
+    !isMergedEbayAliasItemId(item.ebayItemId)
+  );
+}
 
 class PublicStorefrontInventoryEngine extends InventoryEngine {
   async listAvailable(
@@ -19,7 +28,7 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
     } = {},
   ) {
     const items = await super.listAvailable(params);
-    return items.filter(isLaunchCollectible);
+    return items.filter(isPublicStorefrontItem);
   }
 
   async listAvailableSports(): Promise<string[]> {
@@ -32,12 +41,12 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
 
   async getByLegacyProductId(legacyProductId: number) {
     const item = await super.getByLegacyProductId(legacyProductId);
-    return item && isLaunchCollectible(item) ? item : null;
+    return item && isPublicStorefrontItem(item) ? item : null;
   }
 
   async getByLegacyProductIds(legacyProductIds: number[]) {
     const items = await super.getByLegacyProductIds(legacyProductIds);
-    return items.filter(isLaunchCollectible);
+    return items.filter(isPublicStorefrontItem);
   }
 }
 
