@@ -9,6 +9,9 @@ export const revalidate = 0;
 
 export const metadata: Metadata = {
   title: "Shopping Cart",
+  alternates: {
+    canonical: "/cart",
+  },
   robots: {
     index: false,
     follow: false,
