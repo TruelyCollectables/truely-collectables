@@ -1,5 +1,4 @@
 import { timingSafeEqual } from "node:crypto";
-import { config } from "../../../../../connectors/tcos-market-intel-mcp/src/config.mjs";
 import { EbayBrowseAdapter } from "../../../../../connectors/tcos-market-intel-mcp/src/public-search.mjs";
 import {
   ADMIN_SESSION_COOKIE_NAMES,
