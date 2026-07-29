@@ -1,18 +1,10 @@
 export type StorefrontFeatureKey =
-  | "autograph"
-  | "memorabilia"
-  | "rookie"
-  | "graded"
-  | "numbered";
+  "autograph" | "memorabilia" | "rookie" | "graded" | "numbered";
 
 export type StorefrontFeatureFlags = Record<StorefrontFeatureKey, boolean>;
 
 export type StorefrontSort =
-  | "section"
-  | "newest"
-  | "price_low"
-  | "price_high"
-  | "title";
+  "section" | "newest" | "price_low" | "price_high" | "title";
 
 export type StorefrontClassification = {
   section: string;
@@ -145,8 +137,7 @@ function recordValue(value: unknown): Record<string, unknown> {
 
 function currentTaxonomyMetadata(metadata: Record<string, unknown>) {
   return (
-    Number(metadata.tcos_taxonomy_version || 0) >=
-    STOREFRONT_TAXONOMY_VERSION
+    Number(metadata.tcos_taxonomy_version || 0) >= STOREFRONT_TAXONOMY_VERSION
   );
 }
 
@@ -314,7 +305,11 @@ function detectSportSection(focused: string, title: string) {
   ) {
     return "Hockey";
   }
-  if (/\b(?:soccer|association football|mls|premier league|tariq lamptey)\b/.test(focused)) {
+  if (
+    /\b(?:soccer|association football|mls|premier league|tariq lamptey)\b/.test(
+      focused,
+    )
+  ) {
     return "Soccer";
   }
   if (/\b(?:professional wrestling|wrestling|wwe|aew)\b/.test(focused)) {
@@ -332,7 +327,11 @@ function detectSportSection(focused: string, title: string) {
   if (/\b(?:olympics?|track and field|track & field)\b/.test(focused)) {
     return "Olympics / Track & Field";
   }
-  if (/\b(?:poker|wpt|wsop|world series of poker|hoyt corkins|scotty nguyen)\b/.test(focused)) {
+  if (
+    /\b(?:poker|wpt|wsop|world series of poker|hoyt corkins|scotty nguyen)\b/.test(
+      focused,
+    )
+  ) {
     return "Poker";
   }
   if (/\b(?:skateboard|skateboarding|bam margera)\b/.test(focused)) {
@@ -387,9 +386,7 @@ function detectObjectSection(params: {
     return "Music";
   }
   if (
-    /\b(?:16x20|8x10|photo|photograph|print|poster|lithograph)\b/.test(
-      focused,
-    )
+    /\b(?:16x20|8x10|photo|photograph|print|poster|lithograph)\b/.test(focused)
   ) {
     return "Photos & Prints";
   }
@@ -413,25 +410,46 @@ function detectObjectSection(params: {
   if (/\b(?:tickets?|programs?|media guides?)\b/.test(focused)) {
     return "Tickets & Programs";
   }
-  if (/\b(?:lapel pin|collector pin|souvenir pin|preseason pin|team pin)\b/.test(focused)) {
+  if (
+    /\b(?:lapel pin|collector pin|souvenir pin|preseason pin|team pin)\b/.test(
+      focused,
+    )
+  ) {
     return "Pins & Souvenirs";
   }
-  if (/\b(?:license plate|vanity plate|street sign|display sign|wall sign)\b/.test(focused)) {
+  if (
+    /\b(?:license plate|vanity plate|street sign|display sign|wall sign)\b/.test(
+      focused,
+    )
+  ) {
     return "Signs & Display";
   }
   if (/\b(?:wristwatch|watch|sunglasses|eyewear|oakley)\b/.test(focused)) {
     return "Watches & Accessories";
   }
-  if (/\b(?:comic book|comics?|graphic novel)\b/.test(focused) || primaryCategory === "comics") {
+  if (
+    /\b(?:comic book|comics?|graphic novel)\b/.test(focused) ||
+    primaryCategory === "comics"
+  ) {
     return "Comics";
   }
-  if (/\b(?:coins?|silver dollar|gold coin|bullion)\b/.test(focused) || primaryCategory === "coins") {
+  if (
+    /\b(?:coins?|silver dollar|gold coin|bullion)\b/.test(focused) ||
+    primaryCategory === "coins"
+  ) {
     return "Coins";
   }
-  if (/\b(?:action figure|funko|lego|toy|diecast)\b/.test(focused) || primaryCategory === "toys") {
+  if (
+    /\b(?:action figure|funko|lego|toy|diecast)\b/.test(focused) ||
+    primaryCategory === "toys"
+  ) {
     return "Toys & Figures";
   }
-  if (/\b(?:pop century|celebrity|movie|television|tv show|actor|actress|hill street blues)\b/.test(focused)) {
+  if (
+    /\b(?:pop century|celebrity|movie|television|tv show|actor|actress|hill street blues)\b/.test(
+      focused,
+    )
+  ) {
     return "Entertainment & Pop Culture";
   }
 
@@ -585,7 +603,7 @@ function detectFeatures(params: {
     params.isCardLike;
   const numbered =
     storedNumbered === true ||
-    /\b\d{1,5}\s*\/\s*\d{1,5}\b|serial numbered|\bnumbered\b|#'?d\b/.test(
+    /\b\d{1,5}\s*\/\s*\d{1,5}\b|(?:^|\s)\/\d{1,5}\b|serial numbered|\bnumbered\b|#'?d\b/.test(
       `${title} ${features} ${parallel}`,
     );
 
@@ -679,7 +697,9 @@ export function normalizeStorefrontFeature(value: string | null | undefined) {
   if (["rookie", "rookies", "rc"].includes(normalizedValue)) {
     return "rookie" as const;
   }
-  if (["graded", "grade", "graded card", "graded cards"].includes(normalizedValue)) {
+  if (
+    ["graded", "grade", "graded card", "graded cards"].includes(normalizedValue)
+  ) {
     return "graded" as const;
   }
   if (["numbered", "serial", "serial numbered"].includes(normalizedValue)) {

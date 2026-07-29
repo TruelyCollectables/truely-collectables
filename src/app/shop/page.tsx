@@ -5,6 +5,8 @@ import ClearCartOnSuccess from "../../components/ClearCartOnSuccess";
 import { preferHighResolutionListingImage } from "../../lib/listing-image-utils";
 import { createServerInventoryEngine } from "../../lib/server-inventory-engine";
 import {
+  COLLECTIBLE_SECTIONS,
+  SPORT_SECTIONS,
   sortStorefrontSections,
   type StorefrontSort,
 } from "../../lib/storefront-taxonomy";
@@ -20,20 +22,13 @@ export const metadata: Metadata = {
   alternates: { canonical: "/shop" },
 };
 
-const QUICK_SECTIONS = [
-  "Baseball",
-  "NBA",
-  "WNBA",
-  "Basketball",
-  "Football",
-  "Hockey",
-  "Soccer",
-  "Pucks",
-  "Jerseys",
-  "Music",
-  "Photos & Prints",
-  "Memorabilia",
-];
+const FEATURE_LINKS = [
+  { key: "autograph", label: "Autographs" },
+  { key: "memorabilia", label: "Memorabilia Cards" },
+  { key: "graded", label: "Graded Cards" },
+  { key: "rookie", label: "Rookie Cards" },
+  { key: "numbered", label: "Numbered Cards" },
+] as const;
 
 function shopHref(params: {
   section?: string;
@@ -50,6 +45,7 @@ function shopHref(params: {
 
 function heading(params: { section: string; feature: string }) {
   if (params.feature === "autograph") return "Autographed Items";
+  if (params.feature === "memorabilia") return "Memorabilia Cards";
   if (params.feature === "rookie") return "Rookie Cards";
   if (params.feature === "graded") return "Graded Cards";
   if (params.feature === "numbered") return "Numbered Cards";
@@ -59,8 +55,9 @@ function heading(params: { section: string; feature: string }) {
 function FeatureBadges({ product }: { product: UniversalInventoryItem }) {
   const badges = [
     product.features.autograph ? "Autograph" : null,
-    product.features.rookie ? "Rookie" : null,
-    product.features.graded ? "Graded" : null,
+    product.features.memorabilia ? "Memorabilia Card" : null,
+    product.features.graded ? "Graded Card" : null,
+    product.features.rookie ? "Rookie Card" : null,
     product.features.numbered ? "Numbered" : null,
   ].filter(Boolean) as string[];
 
@@ -124,9 +121,9 @@ export default async function Shop({
   }
 
   const activeFilters = Boolean(q || section || feature || sort !== "section");
-  const quickSections = QUICK_SECTIONS;
   const sectionOptions = sortStorefrontSections([
-    ...QUICK_SECTIONS,
+    ...SPORT_SECTIONS,
+    ...COLLECTIBLE_SECTIONS,
     ...sections,
   ]);
 
@@ -153,32 +150,64 @@ export default async function Shop({
         </p>
       </section>
 
-      <nav
-        className="mb-6 flex flex-wrap gap-2"
-        aria-label="Popular collectible sections"
-      >
-        <Link
-          href="/shop"
-          className="rounded-full border-2 border-neutral-950 bg-white px-4 py-2 text-sm font-black hover:bg-yellow-300"
-        >
-          All Cards & Collectibles
-        </Link>
-        {quickSections.map((name) => (
-          <Link
-            key={name}
-            href={shopHref({ section: name })}
-            className={`rounded-full border-2 border-neutral-950 px-4 py-2 text-sm font-black ${section === name && !feature ? "bg-yellow-300" : "bg-white hover:bg-yellow-300"}`}
-          >
-            {name}
-          </Link>
-        ))}
-        <Link
-          href={shopHref({ feature: "autograph" })}
-          className={`rounded-full border-2 border-neutral-950 px-4 py-2 text-sm font-black ${feature === "autograph" ? "bg-yellow-300" : "bg-white hover:bg-yellow-300"}`}
-        >
-          Autographs
-        </Link>
-      </nav>
+      <section className="mb-8 space-y-5">
+        <div>
+          <p className="mb-2 text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+            Shop by sport
+          </p>
+          <nav className="flex flex-wrap gap-2" aria-label="Shop by sport">
+            <Link
+              href="/shop"
+              className="rounded-full border-2 border-neutral-950 bg-white px-4 py-2 text-sm font-black hover:bg-yellow-300"
+            >
+              All Inventory
+            </Link>
+            {SPORT_SECTIONS.map((name) => (
+              <Link
+                key={name}
+                href={shopHref({ section: name })}
+                className={`rounded-full border-2 border-neutral-950 px-4 py-2 text-sm font-black ${section === name && !feature ? "bg-yellow-300" : "bg-white hover:bg-yellow-300"}`}
+              >
+                {name}
+              </Link>
+            ))}
+          </nav>
+        </div>
+
+        <div>
+          <p className="mb-2 text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+            Collectible types
+          </p>
+          <nav className="flex flex-wrap gap-2" aria-label="Collectible types">
+            {COLLECTIBLE_SECTIONS.map((name) => (
+              <Link
+                key={name}
+                href={shopHref({ section: name })}
+                className={`rounded-full border-2 border-neutral-950 px-4 py-2 text-sm font-black ${section === name && !feature ? "bg-yellow-300" : "bg-white hover:bg-yellow-300"}`}
+              >
+                {name}
+              </Link>
+            ))}
+          </nav>
+        </div>
+
+        <div>
+          <p className="mb-2 text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+            Card features
+          </p>
+          <nav className="flex flex-wrap gap-2" aria-label="Card features">
+            {FEATURE_LINKS.map((item) => (
+              <Link
+                key={item.key}
+                href={shopHref({ feature: item.key })}
+                className={`rounded-full border-2 border-neutral-950 px-4 py-2 text-sm font-black ${feature === item.key ? "bg-yellow-300" : "bg-white hover:bg-yellow-300"}`}
+              >
+                {item.label}
+              </Link>
+            ))}
+          </nav>
+        </div>
+      </section>
 
       <form className="mb-8 grid grid-cols-1 gap-3 rounded border bg-white p-3 sm:p-4 md:grid-cols-6">
         <input
@@ -209,9 +238,10 @@ export default async function Shop({
         >
           <option value="">All Features</option>
           <option value="autograph">Autographs</option>
-          <option value="rookie">Rookies</option>
-          <option value="graded">Graded</option>
-          <option value="numbered">Numbered</option>
+          <option value="memorabilia">Memorabilia Cards</option>
+          <option value="graded">Graded Cards</option>
+          <option value="rookie">Rookie Cards</option>
+          <option value="numbered">Numbered Cards</option>
         </select>
 
         <select

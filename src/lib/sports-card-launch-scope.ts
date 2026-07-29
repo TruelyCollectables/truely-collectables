@@ -44,8 +44,14 @@ const ALLOWED_SECTIONS = new Set([
   "Golf",
   "Tennis",
   "Racing / NASCAR",
+  "Cricket",
+  "Lacrosse",
+  "Volleyball",
+  "Rugby",
+  "Olympics / Track & Field",
+  "Poker",
+  "Skateboarding",
   "Multi-Sport",
-  "Other Sports",
   "Sealed Wax",
   "Pucks",
   "Balls",
@@ -54,16 +60,21 @@ const ALLOWED_SECTIONS = new Set([
   "Bats & Gloves",
   "Photos & Prints",
   "Tickets & Programs",
+  "Pins & Souvenirs",
+  "Signs & Display",
   "Music",
   "Trading Card Games",
-  "Memorabilia",
+  "Entertainment & Pop Culture",
   "Comics",
   "Coins",
   "Toys & Figures",
+  "Watches & Accessories",
 ]);
 
 function normalized(value: unknown) {
-  return String(value || "").replace(/\s+/g, " ").trim();
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export function isLaunchCollectible(candidate: CollectibleLaunchCandidate) {
@@ -71,26 +82,43 @@ export function isLaunchCollectible(candidate: CollectibleLaunchCandidate) {
   const category = normalized(candidate.category).toLowerCase();
   const section = normalized(candidate.storefrontSection || candidate.sport);
   const searchable = `${title} ${category} ${section}`;
-  const isCardCategory = ["sports_cards", "trading_cards", "sealed_wax"].includes(
-    category,
-  );
+  const isCardCategory = [
+    "sports_cards",
+    "trading_cards",
+    "sealed_wax",
+  ].includes(category);
   const collectibleJersey =
-    JERSEY_PATTERN.test(searchable) && JERSEY_COLLECTIBLE_PATTERN.test(searchable);
+    JERSEY_PATTERN.test(searchable) &&
+    JERSEY_COLLECTIBLE_PATTERN.test(searchable);
 
-  if (!title || PARTS_PATTERN.test(searchable)) return false;
+  if (
+    !title ||
+    section === "Needs Review" ||
+    [
+      "Other Sports",
+      "Other Collectables",
+      "Other Collectibles",
+      "Memorabilia",
+      "Autographs",
+    ].includes(section) ||
+    PARTS_PATTERN.test(searchable)
+  ) {
+    return false;
+  }
   if (!isCardCategory && FOOTWEAR_PATTERN.test(searchable)) return false;
   if (!isCardCategory && APPAREL_PATTERN.test(searchable)) return false;
-  if (!isCardCategory && JERSEY_PATTERN.test(searchable) && !collectibleJersey) {
+  if (
+    !isCardCategory &&
+    JERSEY_PATTERN.test(searchable) &&
+    !collectibleJersey
+  ) {
     return false;
   }
 
-  if (ALLOWED_CATEGORIES.has(category)) return true;
   if (ALLOWED_SECTIONS.has(section)) return true;
-
-  // The owner's explicit catalog policy is all active eBay inventory except
-  // parts, ordinary clothing, and footwear. Unrecognized allowed items remain
-  // sellable under Other Collectables instead of silently disappearing.
-  return true;
+  if (ALLOWED_CATEGORIES.has(category) && section !== "Needs Review")
+    return true;
+  return false;
 }
 
 // Compatibility export for older callers while the public launch expands from

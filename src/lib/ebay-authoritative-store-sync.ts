@@ -15,7 +15,7 @@ const MAX_PAGES = Math.ceil(MAX_ACTIVE_LISTINGS / PAGE_SIZE);
 const APPLY_CONCURRENCY = 8;
 const LOCAL_PAGE_SIZE = 1000;
 const MAX_LOCAL_PAGES = 50;
-const STOREFRONT_TAXONOMY_VERSION = 6;
+const STOREFRONT_TAXONOMY_VERSION = 7;
 
 export type EbayStoreSyncMode = "preview" | "apply";
 
@@ -160,20 +160,16 @@ function decodeXml(value: string) {
 
 function xmlBlock(xml: string, tag: string) {
   return (
-    new RegExp(
-      `<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`,
-      "i",
-    ).exec(xml)?.[1] || null
+    new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, "i").exec(
+      xml,
+    )?.[1] || null
   );
 }
 
 function xmlBlocks(xml: string, tag: string) {
   return Array.from(
     xml.matchAll(
-      new RegExp(
-        `<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`,
-        "gi",
-      ),
+      new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, "gi"),
     ),
     (match) => match[1],
   );
@@ -224,8 +220,12 @@ function authoritativeMappedCategory(params: {
   fallback: string;
 }) {
   const categoryName = normalizedText(params.categoryName);
-  const aspectText = normalizedText(Object.values(params.aspects).flat().join(" "));
-  const searchable = normalizedText(`${params.title} ${categoryName} ${aspectText}`);
+  const aspectText = normalizedText(
+    Object.values(params.aspects).flat().join(" "),
+  );
+  const searchable = normalizedText(
+    `${params.title} ${categoryName} ${aspectText}`,
+  );
   const sealedSignal =
     /\b(sealed|unopened|hobby box|blaster box|booster box|mega box|factory sealed|packs?)\b/.test(
       categoryName,
@@ -248,9 +248,9 @@ function authoritativeMappedCategory(params: {
   if (/\btrading cards?\b/.test(categoryName)) {
     const sportsSignal = Boolean(
       firstAspect(params.aspects, ["Sport", "League"]) ||
-        /\b(baseball|basketball|football|hockey|soccer|golf|tennis|wrestling|racing|nascar|formula 1|f1|ufc|mma|wnba|nba|nfl|nhl|mlb|mls|ncaa)\b/.test(
-          searchable,
-        ),
+      /\b(baseball|basketball|football|hockey|soccer|golf|tennis|wrestling|racing|nascar|formula 1|f1|ufc|mma|wnba|nba|nfl|nhl|mlb|mls|ncaa)\b/.test(
+        searchable,
+      ),
     );
     return sportsSignal ? "sports_cards" : "trading_cards";
   }
@@ -375,8 +375,7 @@ function parseRemoteListing(itemXml: string): EbayStoreRemoteListing | null {
   const aspects = parseAspects(itemXml);
   const primaryCategory = xmlBlock(itemXml, "PrimaryCategory") || "";
   const categoryId = xmlText(primaryCategory, "CategoryID")?.trim() || null;
-  const categoryName =
-    xmlText(primaryCategory, "CategoryName")?.trim() || null;
+  const categoryName = xmlText(primaryCategory, "CategoryName")?.trim() || null;
   const rawSport = firstAspect(aspects, ["Sport"]);
   const mapping = mapEbayInventoryCategory({ title, aspects });
   const mappedCategory = authoritativeMappedCategory({
@@ -556,10 +555,7 @@ async function getTradingPage(params: {
   }
 
   const activeList = xmlBlock(xml, "ActiveList") || "";
-  const itemBlocks = xmlBlocks(
-    xmlBlock(activeList, "ItemArray") || "",
-    "Item",
-  );
+  const itemBlocks = xmlBlocks(xmlBlock(activeList, "ItemArray") || "", "Item");
   return {
     totalPages: Math.max(
       nonNegativeInteger(xmlText(activeList, "TotalNumberOfPages")),
@@ -571,9 +567,7 @@ async function getTradingPage(params: {
     totalItemsOnPage: itemBlocks.length,
     listings: itemBlocks
       .map(parseRemoteListing)
-      .filter(
-        (listing): listing is EbayStoreRemoteListing => Boolean(listing),
-      ),
+      .filter((listing): listing is EbayStoreRemoteListing => Boolean(listing)),
   };
 }
 
@@ -627,8 +621,7 @@ function listingDifferences(
     differences.push("quantity");
   }
   if (
-    Math.round(Number(local.price) * 100) !==
-    Math.round(remote.price * 100)
+    Math.round(Number(local.price) * 100) !== Math.round(remote.price * 100)
   ) {
     differences.push("price");
   }
@@ -644,10 +637,7 @@ function listingDifferences(
   return differences;
 }
 
-function listingChanged(
-  local: LocalProduct,
-  remote: EbayStoreRemoteListing,
-) {
+function listingChanged(local: LocalProduct, remote: EbayStoreRemoteListing) {
   // The complete image synchronizer owns image convergence. Keeping image
   // URLs out of this comparison prevents the two stages from fighting over
   // equivalent or intentionally preserved images.
@@ -658,7 +648,9 @@ function collapseMergedRemoteListings(params: {
   remoteListings: EbayStoreRemoteListing[];
   locals: LocalProduct[];
 }) {
-  const localsById = new Map(params.locals.map((row) => [row.id, row] as const));
+  const localsById = new Map(
+    params.locals.map((row) => [row.id, row] as const),
+  );
   const localByItemId = new Map(
     params.locals.map((row) => [String(row.ebay_item_id || ""), row] as const),
   );
@@ -684,10 +676,7 @@ function collapseMergedRemoteListings(params: {
       continue;
     }
 
-    const memberIds = new Set<string>([
-      canonicalItemId,
-      ...group.aliasItemIds,
-    ]);
+    const memberIds = new Set<string>([canonicalItemId, ...group.aliasItemIds]);
     const activeMembers = params.remoteListings.filter((listing) =>
       memberIds.has(listing.itemId),
     );
@@ -780,8 +769,7 @@ async function upsertRemoteListing(params: {
   });
 
   const productPayload = {
-    seller_account_id:
-      params.local?.seller_account_id || params.accountId,
+    seller_account_id: params.local?.seller_account_id || params.accountId,
     sku: params.local?.sku || sku,
     title: params.remote.title,
     price: params.remote.price,
@@ -811,14 +799,13 @@ async function upsertRemoteListing(params: {
         .select("id")
         .single();
   if (productResult.error || !productResult.data?.id) {
-    throw productResult.error || new Error("Could not save local eBay product.");
+    throw (
+      productResult.error || new Error("Could not save local eBay product.")
+    );
   }
   const productId = Number(productResult.data.id);
 
-  const repository = new InventoryRepository(
-    params.storeId,
-    params.supabase,
-  );
+  const repository = new InventoryRepository(params.storeId, params.supabase);
   const existingInventory =
     (await repository.getByLegacyProductId(productId)) ||
     (await repository.getBySku(sku));
@@ -876,10 +863,9 @@ async function upsertRemoteListing(params: {
       ["ebay_source_item_id", params.remote.itemId],
       ["ebay_category_id", params.remote.categoryId],
       ["ebay_category_name", params.remote.categoryName],
-      ...Object.entries(params.remote.storefrontAttributes).map(([name, value]) => [
-        name,
-        value,
-      ]),
+      ...Object.entries(params.remote.storefrontAttributes).map(
+        ([name, value]) => [name, value],
+      ),
       ...Object.entries(params.remote.aspects).map(([name, values]) => [
         `ebay_${name.toLowerCase().replace(/[^a-z0-9]+/g, "_")}`,
         values.join(" | "),
@@ -959,10 +945,7 @@ async function deactivateLocalProduct(params: {
     changed = Boolean(data?.id);
   }
 
-  const repository = new InventoryRepository(
-    params.storeId,
-    params.supabase,
-  );
+  const repository = new InventoryRepository(params.storeId, params.supabase);
   const inventory = await repository.getByLegacyProductId(params.local.id);
   if (
     inventory &&
@@ -982,10 +965,7 @@ async function deactivateLocalProduct(params: {
   return changed;
 }
 
-async function runWorkers<T>(
-  items: T[],
-  worker: (item: T) => Promise<void>,
-) {
+async function runWorkers<T>(items: T[], worker: (item: T) => Promise<void>) {
   let cursor = 0;
   async function run() {
     while (cursor < items.length) {
@@ -996,10 +976,7 @@ async function runWorkers<T>(
   await Promise.all(
     Array.from(
       {
-        length: Math.min(
-          APPLY_CONCURRENCY,
-          Math.max(items.length, 1),
-        ),
+        length: Math.min(APPLY_CONCURRENCY, Math.max(items.length, 1)),
       },
       () => run(),
     ),
@@ -1025,10 +1002,7 @@ export async function runEbayAuthoritativeStoreSync(params: {
   const startedAt = new Date().toISOString();
   const startedMs = Date.now();
   const connection = await getConnectedSeller(params);
-  const settings = await getStoreSettings(
-    params.supabase,
-    params.storeId,
-  );
+  const settings = await getStoreSettings(params.supabase, params.storeId);
   if (!settings.ebaySyncEnabled) {
     throw new Error("eBay sync is disabled for this store.");
   }
@@ -1050,9 +1024,7 @@ export async function runEbayAuthoritativeStoreSync(params: {
       recordValue(connection.import_cursor).storefront_taxonomy_version || 0,
     ) < STOREFRONT_TAXONOMY_VERSION;
   const localByItemId = new Map(
-    locals.map(
-      (row) => [String(row.ebay_item_id || ""), row] as const,
-    ),
+    locals.map((row) => [String(row.ebay_item_id || ""), row] as const),
   );
   const rawRemoteByItemId = new Map(
     remote.listings.map((row) => [row.itemId, row] as const),
@@ -1128,12 +1100,8 @@ export async function runEbayAuthoritativeStoreSync(params: {
   const errors: EbayStoreSyncResult["errors"] = [];
   let inserted = actions.filter((row) => row.action === "insert").length;
   let updated = actions.filter((row) => row.action === "update").length;
-  let unchanged = actions.filter(
-    (row) => row.action === "unchanged",
-  ).length;
-  let deactivated = actions.filter(
-    (row) => row.action === "deactivate",
-  ).length;
+  let unchanged = actions.filter((row) => row.action === "unchanged").length;
+  let deactivated = actions.filter((row) => row.action === "deactivate").length;
 
   if (mode === "apply") {
     inserted = 0;
@@ -1162,7 +1130,9 @@ export async function runEbayAuthoritativeStoreSync(params: {
 
     const changedListings = effectiveRemoteListings.filter((listing) => {
       const local = localByItemId.get(listing.itemId) || null;
-      return !local || taxonomyRefreshRequired || listingChanged(local, listing);
+      return (
+        !local || taxonomyRefreshRequired || listingChanged(local, listing)
+      );
     });
 
     await runWorkers(changedListings, async (listing) => {
@@ -1188,18 +1158,17 @@ export async function runEbayAuthoritativeStoreSync(params: {
     const unchangedIds = taxonomyRefreshRequired
       ? []
       : effectiveRemoteListings
-        .map((listing) => localByItemId.get(listing.itemId) || null)
-      .filter(
-        (local): local is LocalProduct =>
-          Boolean(
-            local &&
+          .map((listing) => localByItemId.get(listing.itemId) || null)
+          .filter((local): local is LocalProduct =>
+            Boolean(
+              local &&
               !listingChanged(
                 local,
                 effectiveRemoteByItemId.get(String(local.ebay_item_id))!,
               ),
-          ),
-      )
-      .map((local) => local.id);
+            ),
+          )
+          .map((local) => local.id);
     try {
       await touchUnchanged({
         supabase: params.supabase,
@@ -1211,10 +1180,7 @@ export async function runEbayAuthoritativeStoreSync(params: {
       errors.push({
         itemId: "bulk-touch",
         title: "Unchanged eBay listings",
-        error: syncErrorMessage(
-          error,
-          "Could not refresh sync timestamps.",
-        ),
+        error: syncErrorMessage(error, "Could not refresh sync timestamps."),
       });
     }
 
@@ -1222,8 +1188,7 @@ export async function runEbayAuthoritativeStoreSync(params: {
       const endedLocals = locals.filter((local) => {
         const itemId = String(local.ebay_item_id || "");
         return (
-          !rawRemoteByItemId.has(itemId) &&
-          !effectiveRemoteByItemId.has(itemId)
+          !rawRemoteByItemId.has(itemId) && !effectiveRemoteByItemId.has(itemId)
         );
       });
       await runWorkers(endedLocals, async (local) => {
@@ -1234,10 +1199,7 @@ export async function runEbayAuthoritativeStoreSync(params: {
           errors.push({
             itemId: String(local.ebay_item_id || ""),
             title: local.title,
-            error: syncErrorMessage(
-              error,
-              "Unknown deactivate failure.",
-            ),
+            error: syncErrorMessage(error, "Unknown deactivate failure."),
           });
         }
       });
@@ -1256,8 +1218,7 @@ export async function runEbayAuthoritativeStoreSync(params: {
             : {}),
           authoritative_store_sync_last_completed_at: completedAt,
           authoritative_store_sync_last_remote_total: remote.totalEntries,
-          authoritative_store_sync_last_eligible_cards:
-            remote.listings.length,
+          authoritative_store_sync_last_eligible_cards: remote.listings.length,
           authoritative_store_sync_last_represented_inventory_rows:
             effectiveRemoteListings.length,
           authoritative_store_sync_last_merged_alias_listings:
@@ -1329,9 +1290,7 @@ export async function runEbayAuthoritativeStoreSync(params: {
     localLinkedAfter,
     actions: actions.map((action) => {
       if (mode !== "apply") return action;
-      const failed = errors.find(
-        (error) => error.itemId === action.itemId,
-      );
+      const failed = errors.find((error) => error.itemId === action.itemId);
       return failed
         ? { ...action, action: "error" as const, reason: failed.error }
         : action;
