@@ -1,0 +1,452 @@
+name: Authorized Launch Money and Inventory Safety Deploy 20260729
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/authorized-launch-money-inventory-safety-deploy-20260729.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: authorized-launch-money-inventory-safety-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy-production:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'deploy/launch-money-inventory-safety-20260729')
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      SOURCE_SHA: 392c967180d5ada94b88412292f951dd35ef41cf
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - name: Check out exact merged source
+        uses: actions/checkout@v4
+        with:
+          ref: 392c967180d5ada94b88412292f951dd35ef41cf
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Revalidate both launch-blocking safety repairs
+        run: |
+          npm run simulate:post-sale-ebay-sync
+          npm run simulate:accepted-offer-reservations
+          node --import tsx scripts/run-offer-checkout-idempotency-simulations.ts
+          node --import tsx scripts/run-checkout-webhook-idempotency-simulations.ts
+          node --import tsx scripts/run-buyer-protection-simulations.ts
+          node scripts/run-launch-database-migration-coverage.mjs
+          node scripts/run-privileged-api-route-audit.mjs
+          npx tsc --noEmit --pretty false
+          npm run build
+
+      - name: Link exact Vercel project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          mkdir -p .vercel .deployment-evidence .deployment-tools
+          npx vercel@56.2.0 whoami --token "$VERCEL_TOKEN" > .deployment-evidence/vercel-identity.txt
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link \
+              --yes \
+              --project truely-collectables \
+              --scope "$VERCEL_SCOPE" \
+              --token "$VERCEL_TOKEN"
+          fi
+          node -e 'const p=require("./.vercel/project.json"); if(!p.orgId||!p.projectId) process.exit(1);'
+
+      - name: Confirm staged Production and promotion commands exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 deploy --help > .deployment-evidence/vercel-deploy-help.txt
+          grep -Fq -- '--skip-domain' .deployment-evidence/vercel-deploy-help.txt
+          npx vercel@56.2.0 promote --help > .deployment-evidence/vercel-promote-help.txt
+
+      - name: Stage exact Production deployment without domain promotion
+        id: stage
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$SOURCE_SHA" > .deployment-evidence/source-sha.txt
+          npx vercel@56.2.0 deploy \
+            --prod \
+            --yes \
+            --force \
+            --skip-domain \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" \
+            2>&1 | tee .deployment-evidence/vercel-stage.log
+          DEPLOYMENT_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' .deployment-evidence/vercel-stage.log | tail -n 1)"
+          test -n "$DEPLOYMENT_URL"
+          echo "deployment_url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$DEPLOYMENT_URL" > .deployment-evidence/staged-deployment-url.txt
+
+      - name: Verify staged deployment before any Production mutation
+        env:
+          DEPLOYMENT_URL: ${{ steps.stage.outputs.deployment_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in / /shop /cart /account/signup /account/login /shipping /returns /buyer-protection; do
+            code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 90 --output ".deployment-evidence/staged-${path//\//-}.html" --write-out '%{http_code}' "$DEPLOYMENT_URL$path")"
+            test "$code" = "200"
+          done
+          grep -Fq 'No payment card is required to register' .deployment-evidence/staged--account-signup.html
+          code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output .deployment-evidence/staged-webhook-unsigned.json --write-out '%{http_code}' --request POST --header 'Content-Type: application/json' --data '{}' "$DEPLOYMENT_URL/api/webhook")"
+          test "$code" = "400"
+
+      - name: Create guarded runtime cutover tool
+        shell: bash
+        run: |
+          cat > .deployment-tools/runtime-cutover.mjs <<'NODE'
+          import fs from "node:fs";
+          import path from "node:path";
+          import Stripe from "stripe";
+
+          const mode = process.argv[2];
+          const evidenceDir = path.resolve(".deployment-evidence");
+          fs.mkdirSync(evidenceDir, { recursive: true });
+          const requiredEvents = [
+            "checkout.session.completed",
+            "checkout.session.expired",
+            "refund.created",
+            "refund.updated",
+            "refund.failed",
+            "charge.dispute.created",
+            "charge.dispute.updated",
+            "charge.dispute.closed",
+            "charge.dispute.funds_withdrawn",
+            "charge.dispute.funds_reinstated",
+            "account.updated",
+          ];
+
+          function write(name, value) {
+            fs.writeFileSync(path.join(evidenceDir, name), `${JSON.stringify(value, null, 2)}\n`);
+          }
+
+          function liveStripeKey() {
+            const dedicated = String(process.env.STRIPE_LIVE_SECRET_KEY || "");
+            const generic = String(process.env.STRIPE_SECRET_KEY || "");
+            const key = dedicated.startsWith("sk_live_")
+              ? dedicated
+              : generic.startsWith("sk_live_")
+                ? generic
+                : "";
+            if (!key) throw new Error("A live Stripe secret key is unavailable.");
+            return key;
+          }
+
+          function projectRef() {
+            const url = String(process.env.NEXT_PUBLIC_SUPABASE_URL || "");
+            if (!url) throw new Error("NEXT_PUBLIC_SUPABASE_URL is unavailable.");
+            const ref = new URL(url).hostname.split(".")[0];
+            if (!ref) throw new Error("Supabase project ref could not be derived.");
+            return ref;
+          }
+
+          async function databaseQuery(query, readOnly = false) {
+            const token = String(process.env.GH_SUPABASE_ACCESS_TOKEN || "");
+            if (!token) throw new Error("Supabase Management API token is unavailable.");
+            const response = await fetch(
+              `https://api.supabase.com/v1/projects/${projectRef()}/database/query`,
+              {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ query, parameters: [], read_only: readOnly }),
+              },
+            );
+            const text = await response.text();
+            if (!response.ok) {
+              throw new Error(`Supabase database query failed: HTTP ${response.status}; ${text.slice(0, 1200)}`);
+            }
+            return text ? JSON.parse(text) : [];
+          }
+
+          function migrationBody(file) {
+            return fs
+              .readFileSync(file, "utf8")
+              .replace(/^\s*begin;\s*/i, "")
+              .replace(/\s*commit;\s*$/i, "");
+          }
+
+          async function updateStripeWebhook() {
+            const stripe = new Stripe(liveStripeKey());
+            const endpoints = await stripe.webhookEndpoints.list({ limit: 100 });
+            const matches = endpoints.data.filter(
+              (endpoint) => endpoint.url === "https://truelycollectables.com/api/webhook",
+            );
+            if (matches.length !== 1) {
+              throw new Error(`Expected one custom-domain Stripe webhook endpoint; found ${matches.length}.`);
+            }
+            const endpoint = matches[0];
+            if (endpoint.status !== "enabled") {
+              throw new Error(`The custom-domain Stripe webhook is ${endpoint.status}, not enabled.`);
+            }
+            const existing = endpoint.enabled_events.includes("*")
+              ? ["*"]
+              : endpoint.enabled_events;
+            const enabledEvents = existing.includes("*")
+              ? existing
+              : [...new Set([...existing, ...requiredEvents])].sort();
+            const updated = existing.includes("*")
+              ? endpoint
+              : await stripe.webhookEndpoints.update(endpoint.id, {
+                  enabled_events: enabledEvents,
+                });
+            const missing = requiredEvents.filter(
+              (event) =>
+                !updated.enabled_events.includes("*") &&
+                !updated.enabled_events.includes(event),
+            );
+            if (missing.length) throw new Error(`Stripe webhook is missing: ${missing.join(", ")}`);
+            write("stripe-webhook-cutover.json", {
+              endpointCount: matches.length,
+              url: updated.url,
+              status: updated.status,
+              requiredEvents,
+              requiredEventsPresent: true,
+              enabledEventCount: updated.enabled_events.length,
+            });
+          }
+
+          async function applyMigrations() {
+            const files = [
+              "supabase/migrations/20260726233000_post_sale_ebay_quantity_sync_outbox.sql",
+              "supabase/migrations/20260727142000_harden_post_sale_outbox_constraints.sql",
+              "supabase/migrations/20260727143000_order_notification_retry_backoff.sql",
+              "supabase/migrations/20260726234000_consume_attached_offer_checkout_reservations.sql",
+              "supabase/migrations/20260727141000_hold_attached_checkout_reservations.sql",
+              "supabase/migrations/20260727144000_preserve_reserved_product_identity.sql",
+            ];
+            const combined = [
+              "begin;",
+              ...files.map((file) => `\n-- ${file}\n${migrationBody(file)}`),
+              "commit;",
+            ].join("\n");
+            await databaseQuery(combined, false);
+            const verification = await databaseQuery(
+              `
+                select
+                  to_regclass('public.ebay_quantity_sync_outbox') is not null as outbox_table,
+                  to_regprocedure('public.tcos_reserve_checkout_inventory(uuid,uuid,jsonb,integer)') is not null as reserve_function,
+                  to_regprocedure('public.tcos_decrement_order_inventory_once(uuid,bigint,bigint,integer)') is not null as decrement_function,
+                  to_regprocedure('public.tcos_consume_checkout_reservation_after_sale(uuid,uuid,bigint,integer,text)') is not null as consume_function,
+                  exists (
+                    select 1 from information_schema.columns
+                    where table_schema = 'public'
+                      and table_name = 'order_notification_outbox'
+                      and column_name = 'next_attempt_at'
+                  ) as notification_backoff_column,
+                  exists (
+                    select 1 from pg_class c
+                    join pg_namespace n on n.oid = c.relnamespace
+                    where n.nspname = 'public'
+                      and c.relname = 'ebay_quantity_sync_outbox'
+                      and c.relrowsecurity
+                  ) as outbox_rls,
+                  (
+                    select count(*) from pg_trigger
+                    where not tgisinternal
+                      and tgname in (
+                        'truely_enqueue_ebay_quantity_sync_from_reservation',
+                        'truely_enqueue_ebay_quantity_sync_from_order_consumption',
+                        'truely_protect_pending_ebay_product_quantity',
+                        'truely_protect_pending_ebay_inventory_quantity'
+                      )
+                  ) as safety_trigger_count,
+                  exists (
+                    select 1 from pg_constraint
+                    where conname = 'checkout_inventory_reservations_product_store_fkey'
+                      and convalidated
+                  ) as product_store_fk_validated,
+                  exists (
+                    select 1 from pg_constraint
+                    where conname = 'checkout_inventory_reservations_inventory_item_id_fkey'
+                      and confdeltype = 'r'
+                  ) as inventory_fk_restrict;
+              `,
+              true,
+            );
+            const row = Array.isArray(verification) ? verification[0] : verification;
+            for (const key of [
+              "outbox_table",
+              "reserve_function",
+              "decrement_function",
+              "consume_function",
+              "notification_backoff_column",
+              "outbox_rls",
+              "product_store_fk_validated",
+              "inventory_fk_restrict",
+            ]) {
+              if (row?.[key] !== true) throw new Error(`Database verification failed: ${key}`);
+            }
+            if (Number(row?.safety_trigger_count || 0) !== 4) {
+              throw new Error(`Expected four eBay quantity safety triggers; found ${row?.safety_trigger_count}.`);
+            }
+            write("database-migration-cutover.json", {
+              migrationFiles: files,
+              atomicTransaction: true,
+              verification: row,
+            });
+          }
+
+          async function verifyRuntimeData() {
+            const result = await databaseQuery(
+              `
+                select
+                  (select count(*) from public.ebay_quantity_sync_outbox where desired_quantity < 0) as invalid_outbox_quantity,
+                  (select count(*) from public.ebay_quantity_sync_outbox where status = 'pending' and next_attempt_at is null) as pending_without_retry_time,
+                  (select count(*) from public.checkout_inventory_reservations where quantity <= 0) as invalid_reservation_quantity,
+                  (select count(*) from public.checkout_inventory_reservations where status = 'active' and stripe_session_id is not null) as attached_active_reservations,
+                  (select count(*) from public.order_notification_outbox where status in ('failed','dead','exhausted')) as terminal_notification_failures;
+              `,
+              true,
+            );
+            const row = Array.isArray(result) ? result[0] : result;
+            if (Number(row?.invalid_outbox_quantity || 0) !== 0) throw new Error("Invalid eBay outbox quantity exists.");
+            if (Number(row?.pending_without_retry_time || 0) !== 0) throw new Error("A pending eBay outbox row has no retry time.");
+            if (Number(row?.invalid_reservation_quantity || 0) !== 0) throw new Error("Invalid checkout reservation quantity exists.");
+            write("database-runtime-safety.json", row || {});
+          }
+
+          if (mode === "stripe") await updateStripeWebhook();
+          else if (mode === "migrate") await applyMigrations();
+          else if (mode === "verify") await verifyRuntimeData();
+          else throw new Error(`Unknown cutover mode: ${mode}`);
+          NODE
+
+      - name: Add required Stripe expiration webhook event
+        shell: bash
+        run: |
+          set -euo pipefail
+          GH_SUPABASE_ACCESS_TOKEN="$GH_SUPABASE_ACCESS_TOKEN" \
+            npx vercel@56.2.0 env run -e production -- node .deployment-tools/runtime-cutover.mjs stripe
+
+      - name: Apply all six safety migrations atomically and verify them
+        shell: bash
+        run: |
+          set -euo pipefail
+          GH_SUPABASE_ACCESS_TOKEN="$GH_SUPABASE_ACCESS_TOKEN" \
+            npx vercel@56.2.0 env run -e production -- node .deployment-tools/runtime-cutover.mjs migrate
+
+      - name: Promote the preverified staged deployment
+        id: promote
+        env:
+          DEPLOYMENT_URL: ${{ steps.stage.outputs.deployment_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! npx vercel@56.2.0 promote "$DEPLOYMENT_URL" \
+            --yes \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" \
+            2>&1 | tee .deployment-evidence/vercel-promote.log
+          then
+            echo "Primary promotion command failed; assigning both known Production aliases directly."
+            npx vercel@56.2.0 alias set "$DEPLOYMENT_URL" truelycollectables.com \
+              --scope "$VERCEL_SCOPE" \
+              --token "$VERCEL_TOKEN"
+            npx vercel@56.2.0 alias set "$DEPLOYMENT_URL" truely-collectables.vercel.app \
+              --scope "$VERCEL_SCOPE" \
+              --token "$VERCEL_TOKEN"
+          fi
+
+      - name: Verify custom-domain promotion and account/checkout safety
+        shell: bash
+        run: |
+          set -euo pipefail
+          promoted=''
+          for attempt in $(seq 1 30); do
+            code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 90 --output .deployment-evidence/custom-signup.html --write-out '%{http_code}' https://truelycollectables.com/account/signup || true)"
+            if [ "$code" = '200' ] && grep -Fq 'No payment card is required to register' .deployment-evidence/custom-signup.html; then
+              promoted=1
+              break
+            fi
+            sleep 10
+          done
+          test -n "$promoted"
+          for path in / /shop /cart /account/login /shipping /returns /buyer-protection; do
+            code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 90 --output ".deployment-evidence/custom-${path//\//-}.html" --write-out '%{http_code}' "https://truelycollectables.com$path")"
+            test "$code" = '200'
+          done
+          code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output .deployment-evidence/custom-signup-probe.json --dump-header .deployment-evidence/custom-signup-probe.headers --write-out '%{http_code}' --request POST --header 'Content-Type: application/json' --data '{"email":"","password":"","tosAccepted":false}' https://truelycollectables.com/api/account/signup)"
+          test "$code" = '400'
+          grep -Eiq '^x-tcos-account-auth-card-verification: not_required' .deployment-evidence/custom-signup-probe.headers
+          code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output .deployment-evidence/custom-webhook-unsigned.json --write-out '%{http_code}' --request POST --header 'Content-Type: application/json' --data '{}' https://truelycollectables.com/api/webhook)"
+          test "$code" = '400'
+
+      - name: Run protected eBay convergence and verify v3 safety receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > .deployment-tools/run-protected-cron.mjs <<'NODE'
+          import fs from "node:fs";
+          const secret = String(process.env.CRON_SECRET || "");
+          if (secret.length < 16) throw new Error("CRON_SECRET is unavailable.");
+          const response = await fetch("https://truelycollectables.com/api/cron/ebay-store-fixed-price-sync", {
+            headers: { Authorization: `Bearer ${secret}` },
+          });
+          const text = await response.text();
+          fs.writeFileSync(".deployment-evidence/ebay-safety-receipt.json", text);
+          const receipt = JSON.parse(text);
+          if (response.status !== 200 || receipt.success !== true) {
+            throw new Error(`Protected eBay sync failed: HTTP ${response.status}`);
+          }
+          if (receipt.schema !== "truelycollectables.ebayStoreFixedPriceSyncReceipt.v3") {
+            throw new Error(`Unexpected eBay receipt schema: ${receipt.schema}`);
+          }
+          if (receipt.postSaleProtectionAvailable !== true) {
+            throw new Error("Post-sale eBay quantity protection was not available.");
+          }
+          if (receipt.databaseAudit?.matchesEligibleEbayInventory !== true) {
+            throw new Error("eBay inventory did not reconcile to the database.");
+          }
+          console.log(JSON.stringify({
+            schema: receipt.schema,
+            success: receipt.success,
+            postSaleProtectionAvailable: receipt.postSaleProtectionAvailable,
+            warnings: receipt.warnings?.length || 0,
+            representedInventoryRows: receipt.finalAuthoritative?.representedInventoryRows || null,
+          }));
+          NODE
+          npx vercel@56.2.0 env run -e production -- node .deployment-tools/run-protected-cron.mjs
+
+      - name: Verify post-cutover database state
+        shell: bash
+        run: |
+          set -euo pipefail
+          GH_SUPABASE_ACCESS_TOKEN="$GH_SUPABASE_ACCESS_TOKEN" \
+            npx vercel@56.2.0 env run -e production -- node .deployment-tools/runtime-cutover.mjs verify
+
+      - name: Upload sanitized deployment and migration evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launch-money-inventory-safety-production-${{ github.run_number }}
+          path: .deployment-evidence
+          if-no-files-found: error
+          retention-days: 30
