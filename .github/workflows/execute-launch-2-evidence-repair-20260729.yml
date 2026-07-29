@@ -1,0 +1,95 @@
+name: Execute Launch 2 Evidence Repair 20260729
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/execute-launch-2-evidence-repair-20260729.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: execute-launch-2-evidence-repair-20260729
+  cancel-in-progress: false
+
+env:
+  EXPECTED_MAIN_SHA: 7765f115d44e2629d47cc38871273dacdafcb8e7
+  EXPECTED_BRANCH: ops/launch-2-final-certificate-20260729
+
+jobs:
+  execute-repair:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ops/launch-2-final-certificate-20260729'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out guarded branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+
+      - name: Execute reviewed runtime repair and structural grader repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import textwrap
+
+          workflow = Path('.github/workflows/repair-launch-2-final-certificate-evidence-20260729.yml').read_text()
+          marker = "          python - <<'PY'\n"
+          start = workflow.index(marker) + len(marker)
+          end = workflow.index("\n          PY", start)
+          reviewed = textwrap.dedent(workflow[start:end])
+          route_only = reviewed.split("grader_path = Path('scripts/grade-launch-2-final-certificate-20260729.mjs')", 1)[0]
+          exec(compile(route_only, '<reviewed-runtime-repair>', 'exec'), {})
+
+          grader_path = Path('scripts/grade-launch-2-final-certificate-20260729.mjs')
+          grader = grader_path.read_text()
+          conditional = grader.index('  if (["home", "shop"].includes(name)) {')
+          block_start = grader.index('  } else {', conditional)
+          block_end = grader.index('\n  if (name === "shop"', block_start)
+          old_block = grader[block_start:block_end]
+          if 'is not proven intentionally noindex' not in old_block or 'sources.some' not in old_block:
+              raise SystemExit('Unexpected existing noindex evidence block.')
+          new_block = r'''  } else {
+            const htmlFile = name === "signup" ? "custom--account-signup.html" : "custom--cart.html";
+            const html = fs.readFileSync(path.join(evidence, htmlFile), "utf8");
+            const expectedCanonical = name === "signup" ? "/account/signup" : "/cart";
+            const hasNoindex = /<meta[^>]+name=["']robots["'][^>]+content=["'][^"']*noindex/i.test(html) ||
+              /<meta[^>]+content=["'][^"']*noindex[^"']*["'][^>]+name=["']robots["']/i.test(html);
+            const escapedCanonical = expectedCanonical.replaceAll("/", "\\/");
+            const hasSelfCanonical = new RegExp(`<link[^>]+rel=["']canonical["'][^>]+href=["']https://truelycollectables\\.com${escapedCanonical}["']`, "i").test(html) ||
+              new RegExp(`<link[^>]+href=["']https://truelycollectables\\.com${escapedCanonical}["'][^>]+rel=["']canonical["']`, "i").test(html);
+            if (row.crawlable !== 0 || !hasNoindex || !hasSelfCanonical) {
+              lighthouseBlockers.push(`${name} is not proven intentionally noindex with a self canonical`);
+            }
+          }'''
+          grader_path.write_text(grader[:block_start] + new_block + grader[block_end:])
+          PY
+          node --check src/app/api/internal/launch-audit-runtime-20260729/route.js
+          node --check scripts/grade-launch-2-final-certificate-20260729.mjs
+          git diff --check
+
+      - name: Commit only repaired evidence logic
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only | sort)
+          test "${#changed[@]}" -eq 2
+          test "${changed[0]}" = "scripts/grade-launch-2-final-certificate-20260729.mjs"
+          test "${changed[1]}" = "src/app/api/internal/launch-audit-runtime-20260729/route.js"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add "${changed[@]}"
+          git commit -m "Correct final certificate runtime evidence"
+          git push origin "HEAD:$EXPECTED_BRANCH"
