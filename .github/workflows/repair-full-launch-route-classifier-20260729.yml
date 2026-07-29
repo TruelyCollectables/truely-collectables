@@ -1,0 +1,134 @@
+name: Repair Full Launch Route Classifier 20260729
+# Operations-only guarded writer. Never merge this PR.
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/repair-full-launch-route-classifier-20260729.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: repair-full-launch-route-classifier-20260729
+  cancel-in-progress: false
+
+jobs:
+  repair-route-classifier:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ops/repair-full-launch-route-classifier-20260729'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      EXPECTED_MAIN_SHA: 8baee1bb26a17f974388b4d8e50b4321bbdfb685
+      EXPECTED_AUDIT_SHA: c28de6a8ede9d6ac3deaad6ad813b17f3e14e65c
+      AUDIT_BRANCH: ops/truely-full-launch-audit-20260729
+      AUDIT_SCRIPT: scripts/run-truely-launch-audit-20260729.mjs
+    steps:
+      - name: Check out guarded audit branch
+        uses: actions/checkout@v4
+        with:
+          ref: ops/truely-full-launch-audit-20260729
+          fetch-depth: 0
+
+      - name: Confirm exact source and audit revisions
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main "$AUDIT_BRANCH"
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          test "$(git rev-parse origin/$AUDIT_BRANCH)" = "$EXPECTED_AUDIT_SHA"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_AUDIT_SHA"
+
+      - name: Teach independent classifier existing auth boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('scripts/run-truely-launch-audit-20260729.mjs')
+          text = path.read_text(encoding='utf-8')
+
+          old_signal = '    ["seller-auth", /requireSeller|seller membership|role:\\s*["\']seller["\']/i],\n'
+          new_signal = old_signal + '    ["instacomp-actor", /requireInstaCompJobActor/],\n'
+          old_proxy = '    const protectedByProxy = url.startsWith("/api/admin/");\n'
+          new_proxy = '''    const proxyPublicExact = new Set([
+      "/api/ebay/callback",
+      "/api/ebay/notifications",
+    ]);
+    const protectedByProxy =
+      url.startsWith("/api/admin/") ||
+      (url.startsWith("/api/ebay") && !proxyPublicExact.has(url)) ||
+      url.startsWith("/api/orders") ||
+      url === "/api/offers/update-status" ||
+      url === "/api/offers/counter";
+'''
+
+          if text.count(old_signal) != 1:
+              raise SystemExit('Expected exactly one seller-auth classifier signal.')
+          if text.count('requireInstaCompJobActor') != 0:
+              raise SystemExit('InstaComp actor recognition already exists or audit script shape changed.')
+          if text.count(old_proxy) != 1:
+              raise SystemExit('Expected exactly one stale proxy classifier rule.')
+
+          text = text.replace(old_signal, new_signal, 1)
+          text = text.replace(old_proxy, new_proxy, 1)
+
+          required = [
+              '["instacomp-actor", /requireInstaCompJobActor/]',
+              'url.startsWith("/api/ebay") && !proxyPublicExact.has(url)',
+              'url.startsWith("/api/orders")',
+              'url === "/api/offers/update-status"',
+              'url === "/api/offers/counter"',
+          ]
+          for value in required:
+              if value not in text:
+                  raise SystemExit(f'Missing classifier protection rule: {value}')
+
+          path.write_text(text, encoding='utf-8')
+          PY
+          git diff --check -- "$AUDIT_SCRIPT"
+          mapfile -t changed < <(git diff --name-only | sort)
+          test "${#changed[@]}" -eq 1
+          test "${changed[0]}" = "$AUDIT_SCRIPT"
+
+      - name: Prove classifier now recognizes protected routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .audit/routes
+          node "$AUDIT_SCRIPT" routes
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const value = JSON.parse(fs.readFileSync('.audit/routes/api-route-audit.json', 'utf8'));
+          const suspicious = value.routes.filter((route) => route.suspicious);
+          if (suspicious.length !== 0) {
+            console.error(JSON.stringify(suspicious.map((route) => route.url)));
+            process.exit(1);
+          }
+          const required = new Map([
+            ['/api/account/seller/quick-list', 'instacomp-actor'],
+            ['/api/instacomp/jobs', 'instacomp-actor'],
+            ['/api/ebay/publish/images', 'proxy'],
+            ['/api/orders/mark-shipped', 'proxy'],
+            ['/api/orders/update-tracking', 'proxy'],
+          ]);
+          for (const [url, expected] of required) {
+            const route = value.routes.find((item) => item.url === url);
+            if (!route) throw new Error(`Missing audited route: ${url}`);
+            if (expected === 'proxy' && route.protectedByProxy !== true) throw new Error(`Proxy protection not recognized: ${url}`);
+            if (expected === 'instacomp-actor' && !route.protectionSignals.includes('instacomp-actor')) throw new Error(`Actor protection not recognized: ${url}`);
+          }
+          NODE
+
+      - name: Commit only the corrected audit classifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- "$AUDIT_SCRIPT"
+          git commit -m 'Recognize existing route authorization boundaries'
+          git push origin HEAD:"$AUDIT_BRANCH"
