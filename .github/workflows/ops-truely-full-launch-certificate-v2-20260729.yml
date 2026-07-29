@@ -1,0 +1,559 @@
+name: Truely Launch 2.0 Production Certificate v2
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/ops-truely-full-launch-certificate-v2-20260729.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: truely-launch-2-production-certificate-v2
+  cancel-in-progress: false
+
+env:
+  BASE_URL: https://truelycollectables.com
+
+jobs:
+  source-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Verify audit-only branch boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          allowed='^(\.github/workflows/ops-truely-full-launch-audit-20260729\.yml|\.github/workflows/ops-truely-full-launch-certificate-v2-20260729\.yml|scripts/run-truely-launch-audit-20260729\.mjs)$'
+          changed="$(git diff --name-only origin/main...HEAD)"
+          printf '%s\n' "$changed" | tee audit-branch-files.txt
+          test -n "$changed"
+          unexpected="$(printf '%s\n' "$changed" | grep -Ev "$allowed" || true)"
+          test -z "$unexpected"
+      - name: Scan current source for secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.28.0 dir /repo \
+            --no-banner --redact --report-format json --report-path /repo/evidence/gitleaks.json
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const cp = require('node:child_process');
+          const files = cp.execFileSync('git', ['ls-files'], { encoding: 'utf8' }).trim().split(/\r?\n/).filter(Boolean);
+          const patterns = [
+            /sk_(?:live|test)_[A-Za-z0-9]{16,}/,
+            /whsec_[A-Za-z0-9]{16,}/,
+            /re_[A-Za-z0-9]{16,}/,
+            /(?:ghp|github_pat)_[A-Za-z0-9_]{16,}/,
+            /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
+          ];
+          const hits = [];
+          for (const file of files) {
+            let text;
+            try { text = fs.readFileSync(file, 'utf8'); } catch { continue; }
+            for (const pattern of patterns) if (pattern.test(text)) hits.push({ file, pattern: String(pattern) });
+          }
+          if (hits.length) throw new Error(`Tracked-source secret scan found ${hits.length} match(es).`);
+          fs.writeFileSync('evidence/tracked-secret-scan.json', JSON.stringify({ ok: true, filesScanned: files.length }, null, 2));
+          NODE
+      - name: Prove privileged route protection
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/run-privileged-api-route-audit.mjs
+          npm run simulate:privileged-route-auth
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: launch-v2-source-security
+          path: |
+            evidence
+            audit-branch-files.txt
+          if-no-files-found: error
+
+  simulations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Run all six simulation shards
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          for shard in 1 2 3 4 5 6; do
+            node scripts/run-truely-launch-audit-20260729.mjs \
+              --mode simulations \
+              --shard "$shard" \
+              --total-shards 6 \
+              --out "evidence/shard-$shard"
+          done
+      - name: Dependency audit
+        shell: bash
+        run: |
+          set -o pipefail
+          npm audit --audit-level=high 2>&1 | tee evidence/npm-audit.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: launch-v2-simulations
+          path: evidence
+          if-no-files-found: error
+
+  quality-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: TypeScript
+        run: npx tsc --noEmit --pretty false
+      - name: Complete Production build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
+          NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee build.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: launch-v2-quality-build
+          path: build.log
+          if-no-files-found: error
+
+  live-production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Run live Production crawl and security audit
+        run: node scripts/run-truely-launch-audit-20260729.mjs --mode live-production --base-url "$BASE_URL" --out evidence
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: launch-v2-live-production
+          path: evidence
+          if-no-files-found: error
+
+  lighthouse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Run Lighthouse on launch-critical pages
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          npx --yes lighthouse@12.8.2 "$BASE_URL/" --output=json --output-path=evidence/home.json --chrome-flags='--headless --no-sandbox' --only-categories=performance,accessibility,best-practices,seo --quiet
+          npx --yes lighthouse@12.8.2 "$BASE_URL/shop" --output=json --output-path=evidence/shop.json --chrome-flags='--headless --no-sandbox' --only-categories=performance,accessibility,best-practices,seo --quiet
+          npx --yes lighthouse@12.8.2 "$BASE_URL/cart" --output=json --output-path=evidence/cart.json --chrome-flags='--headless --no-sandbox' --only-categories=performance,accessibility,best-practices,seo --quiet
+          npx --yes lighthouse@12.8.2 "$BASE_URL/account/signup" --output=json --output-path=evidence/signup.json --chrome-flags='--headless --no-sandbox' --only-categories=performance,accessibility,best-practices,seo --quiet
+      - name: Enforce real Lighthouse blockers
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const paths = [
+            ['home', '/', true],
+            ['shop', '/shop', true],
+            ['cart', '/cart', false],
+            ['signup', '/account/signup', false],
+          ];
+          const summary = {};
+          const failures = [];
+          for (const [name, route, indexable] of paths) {
+            const report = JSON.parse(fs.readFileSync(`evidence/${name}.json`, 'utf8'));
+            const categories = Object.fromEntries(Object.entries(report.categories).map(([key, value]) => [key, Math.round(value.score * 100)]));
+            const canonical = report.audits?.canonical?.score;
+            const crawlable = report.audits?.['is-crawlable']?.score;
+            summary[name] = { route, indexable, categories, canonical, crawlable };
+            if (categories.accessibility < 95) failures.push(`${route}: accessibility ${categories.accessibility}`);
+            if (categories['best-practices'] < 90) failures.push(`${route}: best-practices ${categories['best-practices']}`);
+            if (indexable && categories.seo < 95) failures.push(`${route}: SEO ${categories.seo}`);
+            if (canonical !== 1) failures.push(`${route}: canonical audit did not pass`);
+            if (indexable && crawlable !== 1) failures.push(`${route}: indexable page is not crawlable`);
+            if (!indexable && crawlable !== 0) failures.push(`${route}: transactional page is not intentionally noindex`);
+          }
+          fs.writeFileSync('evidence/lighthouse-summary.json', JSON.stringify({ ok: failures.length === 0, summary, failures }, null, 2));
+          if (failures.length) throw new Error(`Lighthouse blockers: ${failures.join('; ')}`);
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: launch-v2-lighthouse
+          path: evidence
+          if-no-files-found: error
+
+  hosted-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      EVIDENCE_DIR: /tmp/launch-v2-hosted-runtime
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Link Vercel and verify required Production variable names
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p .vercel "$EVIDENCE_DIR"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          npx vercel@56.2.0 env ls production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$EVIDENCE_DIR/production-env-names.txt" 2>&1
+          for key in NEXT_PUBLIC_SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY STRIPE_SECRET_KEY EBAY_CLIENT_ID EBAY_CLIENT_SECRET RESEND_API_KEY; do
+            grep -Fq "$key" "$EVIDENCE_DIR/production-env-names.txt"
+          done
+      - name: Create protected read-only hosted audit route
+        shell: bash
+        run: |
+          set -euo pipefail
+          AUDIT_TOKEN="$(openssl rand -hex 32)"
+          echo "::add-mask::$AUDIT_TOKEN"
+          echo "AUDIT_TOKEN=$AUDIT_TOKEN" >> "$GITHUB_ENV"
+          mkdir -p src/app/api/internal/launch-v2-runtime-audit
+          cat > src/app/api/internal/launch-v2-runtime-audit/route.js <<'ROUTE'
+          import { timingSafeEqual } from "node:crypto";
+          import Stripe from "stripe";
+          import { createClient } from "@supabase/supabase-js";
+          export const runtime = "nodejs";
+          export const dynamic = "force-dynamic";
+          export const revalidate = 0;
+          export const maxDuration = 120;
+          function equal(left, right) {
+            const a = Buffer.from(String(left || ""), "utf8");
+            const b = Buffer.from(String(right || ""), "utf8");
+            return a.length > 0 && a.length === b.length && timingSafeEqual(a, b);
+          }
+          function reply(body, status = 200) {
+            return Response.json(body, { status, headers: { "Cache-Control": "no-store, max-age=0", Pragma: "no-cache", "X-Content-Type-Options": "nosniff" } });
+          }
+          async function supabaseAudit() {
+            const url = String(process.env.NEXT_PUBLIC_SUPABASE_URL || "");
+            const key = String(process.env.SUPABASE_SERVICE_ROLE_KEY || "");
+            if (!url || !key) throw new Error("Supabase hosted credentials unavailable.");
+            const client = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+            const products = await client.from("products").select("id", { count: "exact", head: true });
+            const orders = await client.from("orders").select("id", { count: "exact", head: true });
+            if (products.error) throw new Error(`Supabase products failed: ${products.error.message}`);
+            if (orders.error) throw new Error(`Supabase orders failed: ${orders.error.message}`);
+            return { productsReadable: true, ordersReadable: true, productCount: products.count ?? null, orderCount: orders.count ?? null };
+          }
+          async function stripeAudit() {
+            const dedicated = String(process.env.STRIPE_LIVE_SECRET_KEY || "");
+            const generic = String(process.env.STRIPE_SECRET_KEY || "");
+            const key = dedicated.startsWith("sk_live_") ? dedicated : generic.startsWith("sk_live_") ? generic : "";
+            if (!key) throw new Error("Live Stripe credential unavailable.");
+            const stripe = new Stripe(key);
+            const balance = await stripe.balance.retrieve();
+            const endpoints = await stripe.webhookEndpoints.list({ limit: 100 });
+            const custom = endpoints.data.filter((entry) => entry.url === "https://truelycollectables.com/api/webhook");
+            if (balance.livemode !== true || custom.length !== 1 || custom[0].status !== "enabled") throw new Error("Live Stripe runtime contract failed.");
+            return { authenticated: true, liveMode: true, customWebhookEnabled: true, enabledEventCount: custom[0].enabled_events.length };
+          }
+          async function ebayAudit() {
+            const id = String(process.env.EBAY_CLIENT_ID || "");
+            const secret = String(process.env.EBAY_CLIENT_SECRET || "");
+            if (!id || !secret) throw new Error("eBay hosted credentials unavailable.");
+            const tokenResponse = await fetch("https://api.ebay.com/identity/v1/oauth2/token", {
+              method: "POST",
+              headers: { Authorization: `Basic ${Buffer.from(`${id}:${secret}`).toString("base64")}`, "Content-Type": "application/x-www-form-urlencoded" },
+              body: new URLSearchParams({ grant_type: "client_credentials", scope: "https://api.ebay.com/oauth/api_scope" }),
+            });
+            const token = await tokenResponse.json();
+            if (!tokenResponse.ok || !token.access_token) throw new Error(`eBay token failed: HTTP ${tokenResponse.status}`);
+            const search = await fetch("https://api.ebay.com/buy/browse/v1/item_summary/search?q=Ivan%20Demidov%20rookie%20card&limit=1", { headers: { Authorization: `Bearer ${token.access_token}` } });
+            const body = await search.json();
+            if (!search.ok) throw new Error(`eBay Browse failed: HTTP ${search.status}`);
+            return { applicationTokenAuthenticated: true, browseAuthenticated: true, resultCount: Array.isArray(body.itemSummaries) ? body.itemSummaries.length : 0 };
+          }
+          async function resendAudit() {
+            const key = String(process.env.RESEND_API_KEY || "");
+            if (!key) throw new Error("Resend hosted credential unavailable.");
+            const result = await fetch("https://api.resend.com/emails", {
+              method: "POST",
+              headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", "User-Agent": "truelycollectables-launch-certificate/2.0" },
+              body: "{}",
+            });
+            if (result.status === 401 || result.status === 403) throw new Error(`Resend authentication failed: HTTP ${result.status}`);
+            if (result.ok) throw new Error("Invalid Resend probe unexpectedly sent an email.");
+            return { authenticated: true, noEmailSent: true, validationStatus: result.status };
+          }
+          export async function POST(request) {
+            if (!equal(request.headers.get("x-tcos-runtime-audit-token"), process.env.TCOS_RUNTIME_AUDIT_TOKEN)) return reply({ ok: false, code: "UNAUTHORIZED" }, 401);
+            try {
+              const [supabase, stripe, ebay, resend] = await Promise.all([supabaseAudit(), stripeAudit(), ebayAudit(), resendAudit()]);
+              return reply({ ok: true, environment: process.env.VERCEL_ENV || null, supabase, stripe, ebay, resend });
+            } catch (error) {
+              return reply({ ok: false, code: "HOSTED_RUNTIME_AUDIT_FAILED", error: error instanceof Error ? error.message : String(error) }, 500);
+            }
+          }
+          ROUTE
+          git diff --check
+      - name: Deploy disposable Production-environment runtime audit
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 deploy --prod --yes --force --skip-domain \
+            --meta "launchPurpose=production-certificate-v2-runtime-audit" \
+            --env "TCOS_RUNTIME_AUDIT_TOKEN=$AUDIT_TOKEN" \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" \
+            2>&1 | tee "$EVIDENCE_DIR/vercel-deploy.log"
+          AUDIT_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$EVIDENCE_DIR/vercel-deploy.log" | head -n 1)"
+          test -n "$AUDIT_URL"
+          echo "audit_url=$AUDIT_URL" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$AUDIT_URL" > "$EVIDENCE_DIR/audit-url.txt"
+      - name: Verify hosted integrations without real-world transactions
+        env:
+          AUDIT_URL: ${{ steps.deploy.outputs.audit_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          unauthorized="$(curl --silent --show-error --output "$EVIDENCE_DIR/unauthorized.json" --write-out '%{http_code}' --request POST "$AUDIT_URL/api/internal/launch-v2-runtime-audit")"
+          test "$unauthorized" = "401"
+          code="$(curl --silent --show-error --connect-timeout 15 --max-time 180 --output "$EVIDENCE_DIR/hosted-runtime.json" --write-out '%{http_code}' \
+            --request POST --header 'Content-Type: application/json' --header "x-tcos-runtime-audit-token: $AUDIT_TOKEN" --data '{}' \
+            "$AUDIT_URL/api/internal/launch-v2-runtime-audit")"
+          test "$code" = "200"
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const v = JSON.parse(fs.readFileSync(process.env.EVIDENCE_DIR + '/hosted-runtime.json', 'utf8'));
+          if (v.ok !== true || v.environment !== 'production') throw new Error('Hosted runtime audit failed.');
+          if (!v.supabase?.productsReadable || !v.supabase?.ordersReadable) throw new Error('Supabase proof failed.');
+          if (!v.stripe?.authenticated || !v.stripe?.liveMode || !v.stripe?.customWebhookEnabled) throw new Error('Stripe proof failed.');
+          if (!v.ebay?.applicationTokenAuthenticated || !v.ebay?.browseAuthenticated) throw new Error('eBay proof failed.');
+          if (!v.resend?.authenticated || !v.resend?.noEmailSent) throw new Error('Resend proof failed.');
+          NODE
+      - name: Remove disposable runtime audit deployment
+        if: always()
+        env:
+          AUDIT_URL: ${{ steps.deploy.outputs.audit_url }}
+        shell: bash
+        run: |
+          set +e
+          if [ -n "${AUDIT_URL:-}" ]; then
+            npx vercel@56.2.0 remove "$AUDIT_URL" --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$EVIDENCE_DIR/vercel-remove.log" 2>&1
+          fi
+          exit 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: launch-v2-hosted-runtime
+          path: /tmp/launch-v2-hosted-runtime
+          if-no-files-found: error
+
+  exact-production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      EVIDENCE_DIR: /tmp/launch-v2-exact-production
+      DEPLOY_RUN_ID: "30495819472"
+      DEPLOY_ARTIFACT: launch-current-main-7765-production-1
+    outputs:
+      main_sha: ${{ steps.proof.outputs.main_sha }}
+      deployment_url: ${{ steps.proof.outputs.deployment_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify signed exact Production deployment evidence
+        id: proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE_DIR"
+          git fetch origin main
+          MAIN_SHA="$(git rev-parse origin/main)"
+          conclusion="$(gh run view "$DEPLOY_RUN_ID" --repo "$GITHUB_REPOSITORY" --json conclusion --jq .conclusion)"
+          test "$conclusion" = "success"
+          gh run download "$DEPLOY_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$DEPLOY_ARTIFACT" --dir "$EVIDENCE_DIR/deployment"
+          DEPLOYED_SHA="$(tr -d '\r\n' < "$EVIDENCE_DIR/deployment/source-sha.txt")"
+          test "$MAIN_SHA" = "$DEPLOYED_SHA"
+          DEPLOYMENT_URL="$(tr -d '\r\n' < "$EVIDENCE_DIR/deployment/staged-deployment-url.txt")"
+          test -n "$DEPLOYMENT_URL"
+          curl --location --silent --show-error --fail --connect-timeout 15 --max-time 90 https://truelycollectables.com/cart > "$EVIDENCE_DIR/production-cart.html"
+          grep -Fq 'rel="canonical" href="https://truelycollectables.com/cart"' "$EVIDENCE_DIR/production-cart.html"
+          curl --location --silent --show-error --fail --connect-timeout 15 --max-time 90 https://truelycollectables.com/account/signup > "$EVIDENCE_DIR/production-signup.html"
+          grep -Fq 'rel="canonical" href="https://truelycollectables.com/account/signup"' "$EVIDENCE_DIR/production-signup.html"
+          printf '%s\n' "$MAIN_SHA" > "$EVIDENCE_DIR/current-main-sha.txt"
+          printf '%s\n' "$DEPLOYMENT_URL" > "$EVIDENCE_DIR/current-deployment-url.txt"
+          echo "main_sha=$MAIN_SHA" >> "$GITHUB_OUTPUT"
+          echo "deployment_url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: launch-v2-exact-production
+          path: /tmp/launch-v2-exact-production
+          if-no-files-found: error
+
+  final-certificate:
+    needs:
+      - source-security
+      - simulations
+      - quality-build
+      - live-production
+      - lighthouse
+      - hosted-runtime
+      - exact-production
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Require every certificate gate to pass
+        env:
+          SOURCE_SECURITY: ${{ needs.source-security.result }}
+          SIMULATIONS: ${{ needs.simulations.result }}
+          QUALITY_BUILD: ${{ needs.quality-build.result }}
+          LIVE_PRODUCTION: ${{ needs.live-production.result }}
+          LIGHTHOUSE: ${{ needs.lighthouse.result }}
+          HOSTED_RUNTIME: ${{ needs.hosted-runtime.result }}
+          EXACT_PRODUCTION: ${{ needs.exact-production.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for value in "$SOURCE_SECURITY" "$SIMULATIONS" "$QUALITY_BUILD" "$LIVE_PRODUCTION" "$LIGHTHOUSE" "$HOSTED_RUNTIME" "$EXACT_PRODUCTION"; do
+            test "$value" = "success"
+          done
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: launch-v2-*
+          path: evidence
+          merge-multiple: true
+      - name: Write final Production certificate
+        env:
+          MAIN_SHA: ${{ needs.exact-production.outputs.main_sha }}
+          DEPLOYMENT_URL: ${{ needs.exact-production.outputs.deployment_url }}
+          GITHUB_RUN_ID_VALUE: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p certificate
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          function find(name) {
+            const queue = ['evidence'];
+            while (queue.length) {
+              const current = queue.shift();
+              for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+                const full = path.join(current, entry.name);
+                if (entry.isDirectory()) queue.push(full);
+                else if (entry.name === name) return full;
+              }
+            }
+            throw new Error(`Missing certificate evidence: ${name}`);
+          }
+          const lighthouse = JSON.parse(fs.readFileSync(find('lighthouse-summary.json'), 'utf8'));
+          const runtime = JSON.parse(fs.readFileSync(find('hosted-runtime.json'), 'utf8'));
+          const certificate = {
+            schema: 'truelycollectables.launch2.productionCertificate.v2',
+            result: 'PASS',
+            generatedAt: new Date().toISOString(),
+            githubRunId: process.env.GITHUB_RUN_ID_VALUE,
+            exactMainSha: process.env.MAIN_SHA,
+            exactProductionDeployment: process.env.DEPLOYMENT_URL,
+            gates: {
+              sourceSecretScan: 'PASS',
+              privilegedRouteProtection: 'PASS',
+              allSimulationShards: 'PASS',
+              dependencyAudit: 'PASS',
+              lint: 'PASS',
+              typeScript: 'PASS',
+              productionBuild: 'PASS',
+              liveProductionCrawlAndSecurity: 'PASS',
+              lighthouseBlockers: 'PASS',
+              hostedSupabase: runtime.supabase,
+              hostedStripe: runtime.stripe,
+              hostedEbay: runtime.ebay,
+              hostedResend: runtime.resend,
+            },
+            lighthouse: lighthouse.summary,
+            explicitlySeparateUnperformedProofs: {
+              controlledRealMoneyCharge: false,
+              physicalDelivery: false,
+              realRefund: false,
+              realDispute: false,
+              inboxReceipt: false,
+              note: 'No real-world transaction or receipt was manufactured. The Resend proof used a deliberately invalid payload and sent no email.',
+            },
+          };
+          fs.writeFileSync('certificate/launch-2-production-certificate.json', JSON.stringify(certificate, null, 2));
+          fs.writeFileSync('certificate/launch-2-production-certificate.md', [
+            '# TruelyCollectables.com Launch 2.0 Production Certificate v2',
+            '',
+            '**Result: PASS**',
+            '',
+            `- Exact main SHA: \`${certificate.exactMainSha}\``,
+            `- Exact Production deployment: ${certificate.exactProductionDeployment}`,
+            `- Certificate run: ${certificate.githubRunId}`,
+            '- Source secret scan: PASS',
+            '- Privileged routes: PASS',
+            '- All simulations: PASS',
+            '- Dependencies, lint, TypeScript, Production build: PASS',
+            '- Live Production crawl and security: PASS',
+            '- Lighthouse blockers: PASS',
+            '- Hosted Supabase, live Stripe, eBay Browse, and Resend authentication: PASS',
+            '',
+            'Real-money charge, physical delivery, refund, dispute, and inbox receipt proofs remain separate and were not claimed.',
+            '',
+          ].join('\n'));
+          NODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: truely-launch-2-production-certificate-v2
+          path: certificate
+          if-no-files-found: error
+          retention-days: 90
