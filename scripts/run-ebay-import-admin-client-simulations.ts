@@ -46,6 +46,7 @@ const productImageRoute = fs.readFileSync(
   "src/app/api/storefront/product-images/[id]/route.ts",
   "utf8",
 );
+const shopPageSource = fs.readFileSync("src/app/shop/page.tsx", "utf8");
 const productActions = fs.readFileSync(
   "src/app/product/[id]/ProductActions.tsx",
   "utf8",
@@ -169,6 +170,9 @@ assert.match(
   /selectFrontBackListingImages/,
   "Public product images must choose one complete front/back pair.",
 );
+assert.match(shopPageSource, /"NBA",[\s\S]*"WNBA",[\s\S]*"Basketball"/);
+assert.ok(!shopPageSource.includes('product.category?.replaceAll("_", " ")'));
+assert.ok(shopPageSource.includes("View Item"));
 assert.match(
   productActions,
   /\/api\/storefront\/product-images\/\$\{product\.id\}/,

@@ -85,16 +85,23 @@ const CATEGORY_RULES: CategoryRule[] = [
     mediumTerms: ["pack", "factory sealed", "sealed"],
   },
   {
-    category: "autographs",
+    category: "music",
     highTerms: [
-      "autograph",
-      "autographed",
-      "autographs",
-      "signature",
-      "signatures",
-      "signed",
-      "auto",
+      "cd booklet",
+      "signed cd",
+      "autographed cd",
+      "compact disc",
+      "music cd",
+      "album booklet",
+      "liner notes",
+      "cd insert",
+      "vinyl record",
     ],
+    mediumTerms: ["album", "record", "disc", "booklet"],
+  },
+  {
+    category: "autographs",
+    highTerms: ["autograph", "autographed", "autographs", "signed"],
     mediumTerms: ["coa", "jsa", "beckett authenticated", "psa dna"],
   },
   {
@@ -242,23 +249,38 @@ function hasAffirmativeAutographedAspect(aspects: EbayAspectMap) {
 }
 
 function hasStrongAutographEvidence(title: string, aspects: EbayAspectMap) {
+  const titleText = title.toLowerCase();
   const focused = [
     title,
     getAspectValue(aspects, "Features"),
-    getAspectValue(aspects, "Signed By"),
-    getAspectValue(aspects, "Autographed"),
     getAspectValue(aspects, "Parallel/Variety"),
   ]
     .join(" ")
     .toLowerCase();
+  const negative =
+    /\b(?:facsimile|pre[- ]?printed|printed signature|reproduction|reprint autograph|unsigned|not signed|not autographed)\b/.test(
+      focused,
+    );
+  const signedBy = getAspectValue(aspects, "Signed By");
+  const authentication = getAspectValue(aspects, "Autograph Authentication");
+  const meaningful = (value: string) =>
+    Boolean(
+      value &&
+        !/^(?:0|false|no|none|n\/a|na|not applicable|not authenticated|unsigned|not autographed|not signed)$/i.test(
+          value.trim(),
+        ),
+    );
+  const autoShorthand =
+    /\bauto\b/i.test(titleText) &&
+    !/\b(?:auto racing|automotive|automobile)\b/i.test(titleText);
 
   return (
-    hasAffirmativeAutographedAspect(aspects) ||
-    hasTerm(focused, "autograph") ||
-    hasTerm(focused, "autographed") ||
-    hasTerm(focused, "signed") ||
-    /\bauto\b/i.test(focused) ||
-    /\bau\b/i.test(focused)
+    !negative &&
+    (hasAffirmativeAutographedAspect(aspects) ||
+      meaningful(signedBy) ||
+      meaningful(authentication) ||
+      /\bautograph(?:ed)?\b|\bsigned\b/i.test(focused) ||
+      autoShorthand)
   );
 }
 
@@ -321,6 +343,9 @@ export function mapEbayInventoryCategory(input: {
   const sportsCardResult = focusedResults.find(
     (result) => result.category === "sports_cards",
   );
+  const musicResult = focusedResults.find(
+    (result) => result.category === "music",
+  );
 
   if (
     best?.category === "autographs" &&
@@ -339,6 +364,16 @@ export function mapEbayInventoryCategory(input: {
     })
   ) {
     best = focusedResults.find((result) => result.category === "sports_cards") ?? best;
+  }
+
+  if (
+    musicResult &&
+    musicResult.score >= 3 &&
+    /\b(?:music cd|compact disc|cd booklet|cd insert|album booklet|liner notes?|vinyl record|record album)\b/.test(
+      focusedSearchable,
+    )
+  ) {
+    best = musicResult;
   }
 
   const mappingConfidence = confidence(best?.score ?? 0);

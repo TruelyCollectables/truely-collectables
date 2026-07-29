@@ -25,6 +25,95 @@ const wnbaAuto = {
   },
 };
 
+const nba = classifyStorefrontItem({
+  title: "2024-25 Panini Prizm LeBron James",
+  rawSport: "Basketball",
+  primaryCategory: "sports_cards",
+  aspects: { League: ["National Basketball Association (NBA)"] },
+});
+assert.equal(nba.section, "NBA");
+
+const collegeBasketball = classifyStorefrontItem({
+  title: "2024 Bowman University Basketball Prospect",
+  rawSport: "Basketball",
+  primaryCategory: "sports_cards",
+  aspects: { League: ["NCAA"] },
+});
+assert.equal(collegeBasketball.section, "Basketball");
+
+const staleAutoRacing = classifyStorefrontItem({
+  title: "2024 Panini Prizm NASCAR Auto Racing Card",
+  rawSport: "Auto Racing",
+  primaryCategory: "sports_cards",
+  metadata: {
+    tcos_storefront_section: "Autographs",
+    tcos_is_autograph: true,
+    tcos_taxonomy_version: 4,
+    source_aspects: { Autographed: ["No"], Sport: ["Auto Racing"] },
+  },
+});
+assert.equal(staleAutoRacing.section, "Racing / NASCAR");
+assert.equal(staleAutoRacing.features.autograph, false);
+
+const facsimile = classifyStorefrontItem({
+  title: "Babe Ruth Facsimile Signature Reprint Photo",
+  primaryCategory: "autographs",
+  aspects: { Autographed: ["No"] },
+});
+assert.equal(facsimile.section, "Photos & Prints");
+assert.equal(facsimile.features.autograph, false);
+
+const musicBooklet = classifyStorefrontItem({
+  title: "Beastie Boys Signed CD Booklet JSA COA",
+  primaryCategory: "music",
+  aspects: { Autographed: ["Yes"], "Signed By": ["Beastie Boys"] },
+});
+assert.equal(musicBooklet.section, "Music");
+assert.equal(musicBooklet.features.autograph, true);
+
+const unsignedMusic = classifyStorefrontItem({
+  title: "Beastie Boys CD Booklet",
+  primaryCategory: "music",
+  aspects: { Autographed: ["No"] },
+});
+assert.equal(unsignedMusic.section, "Music");
+assert.equal(unsignedMusic.features.autograph, false);
+
+const puckRelicCard = classifyStorefrontItem({
+  title: "2024 Upper Deck Hockey Puck Relic Card",
+  rawSport: "Ice Hockey",
+  primaryCategory: "sports_cards",
+});
+assert.equal(puckRelicCard.section, "Hockey");
+
+const actualPuck = classifyStorefrontItem({
+  title: "Colorado Avalanche Official Hockey Puck",
+  rawSport: "Ice Hockey",
+  primaryCategory: "memorabilia",
+});
+assert.equal(actualPuck.section, "Pucks");
+
+const wearableJersey = classifyStorefrontItem({
+  title: "Peyton Manning Signed Denver Broncos Jersey Size XL",
+  rawSport: "Football",
+  primaryCategory: "memorabilia",
+  aspects: { Autographed: ["Yes"] },
+});
+assert.equal(wearableJersey.section, "Jerseys");
+
+const musicMapping = mapEbayInventoryCategory({
+  title: "Beastie Boys Signed CD Booklet JSA COA",
+  aspects: { Autographed: ["Yes"] },
+});
+assert.equal(musicMapping.category, "music");
+assert.equal(musicMapping.attributes.tcos_is_autograph, "true");
+
+const racingMapping = mapEbayInventoryCategory({
+  title: "2024 Panini NASCAR Auto Racing Card",
+  aspects: { Autographed: ["No"], Sport: ["Auto Racing"] },
+});
+assert.equal(racingMapping.attributes.tcos_is_autograph, "false");
+
 const wnba = classifyStorefrontItem(wnbaAuto);
 assert.equal(wnba.section, "WNBA");
 assert.equal(wnba.features.autograph, true);
@@ -91,10 +180,10 @@ assert.equal(authoritativeWnba.storefrontAttributes.tcos_storefront_section, "WN
 const inventory = [
   {
     legacyProductId: 1,
-    title: "Basketball Base",
+    title: "NBA Base",
     player: "Z Player",
     price: 5,
-    storefrontSection: "Basketball",
+    storefrontSection: "NBA",
     features: { autograph: false, rookie: false, graded: false, numbered: false },
   },
   {
@@ -129,7 +218,7 @@ assert.deepEqual(
 );
 assert.deepEqual(
   sortStorefrontItems(inventory, "section").map((item) => item.legacyProductId),
-  [2, 3, 1],
+  [2, 1, 3],
 );
 
 const signedPuck = ebayAuthoritativeStoreSyncTestHelpers.parseRemoteListing(`

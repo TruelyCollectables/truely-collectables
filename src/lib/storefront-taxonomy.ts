@@ -36,6 +36,7 @@ export type StorefrontFilterableItem = {
 
 const SECTION_ORDER = [
   "Baseball",
+  "NBA",
   "WNBA",
   "Basketball",
   "Football",
@@ -57,8 +58,8 @@ const SECTION_ORDER = [
   "Bats & Gloves",
   "Photos & Prints",
   "Tickets & Programs",
+  "Music",
   "Trading Card Games",
-  "Autographs",
   "Memorabilia",
   "Comics",
   "Coins",
@@ -100,6 +101,26 @@ function metadataBoolean(metadata: Record<string, unknown>, key: string) {
   return null;
 }
 
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function currentTaxonomyMetadata(metadata: Record<string, unknown>) {
+  return Number(metadata.tcos_taxonomy_version || 0) >= 5;
+}
+
+function meaningfulAutographAspect(value: unknown) {
+  const text = normalized(value);
+  return Boolean(
+    text &&
+      !/^(?:0|false|no|none|n\/a|na|not applicable|not authenticated|unsigned|not autographed|not signed)$/i.test(
+        text,
+      ),
+  );
+}
+
 function detectSection(params: {
   title: string;
   rawSport?: unknown;
@@ -107,7 +128,9 @@ function detectSection(params: {
   aspects: Record<string, unknown>;
   metadata: Record<string, unknown>;
 }) {
-  const storedSection = textValue(params.metadata.tcos_storefront_section);
+  const storedSection = currentTaxonomyMetadata(params.metadata)
+    ? textValue(params.metadata.tcos_storefront_section)
+    : null;
   if (storedSection) return storedSection;
 
   const league = normalized(aspectValue(params.aspects, "League"));
@@ -119,7 +142,7 @@ function detectSection(params: {
       aspectValue(params.aspects, "Type"),
       aspectValue(params.aspects, "Product"),
       aspectValue(params.aspects, "Item Type"),
-      aspectValue(params.aspects, "Autograph Format"),
+      aspectValue(params.aspects, "Format"),
     ].join(" "),
   );
   const focused = `${sport} ${league} ${title}`;
@@ -127,8 +150,20 @@ function detectSection(params: {
   const isCardPrimary = ["sports_cards", "trading_cards", "sealed_wax"].includes(
     primaryCategory,
   );
+  const isCardLike =
+    isCardPrimary ||
+    /\b(?:sports |trading |collectible )?cards?\b|\brookie card\b|\bcard #|\b(?:relic|patch|swatch|jersey|memorabilia) card\b/.test(
+      `${objectFocused} ${primaryCategory}`,
+    );
 
-  if (!isCardPrimary) {
+  if (!isCardLike) {
+    if (
+      /\b(?:music cd|compact disc|cd booklet|cd insert|album booklet|liner notes?|vinyl record|record album)\b/.test(
+        objectFocused,
+      )
+    ) {
+      return "Music";
+    }
     if (/\bpucks?\b/.test(objectFocused)) return "Pucks";
     if (/\bjerseys?\b/.test(objectFocused)) return "Jerseys";
     if (/\bhelmets?\b/.test(objectFocused)) return "Helmets";
@@ -153,12 +188,13 @@ function detectSection(params: {
   if (/\bwnba\b|women'?s national basketball association/.test(focused)) {
     return "WNBA";
   }
+  if (/\bnba\b|national basketball association/.test(focused)) {
+    return "NBA";
+  }
   if (/\bbaseball\b|\bmlb\b|major league baseball/.test(focused)) {
     return "Baseball";
   }
-  if (/\bbasketball\b|\bnba\b|national basketball association/.test(focused)) {
-    return "Basketball";
-  }
+  if (/\bbasketball\b/.test(focused)) return "Basketball";
   if (/american football|\bfootball\b|\bnfl\b/.test(focused)) {
     return "Football";
   }
@@ -182,15 +218,16 @@ function detectSection(params: {
   }
   if (/multi[- ]sport/.test(focused)) return "Multi-Sport";
 
-  switch (params.primaryCategory) {
+  switch (primaryCategory) {
     case "sports_cards":
       return "Other Sports";
     case "trading_cards":
       return "Trading Card Games";
     case "sealed_wax":
       return "Sealed Wax";
+    case "music":
+      return "Music";
     case "autographs":
-      return "Autographs";
     case "memorabilia":
       return "Memorabilia";
     case "comics":
@@ -210,41 +247,53 @@ function detectFeatures(params: {
   metadata: Record<string, unknown>;
 }) {
   const features = normalized(aspectValue(params.aspects, "Features"));
-  const signedBy = normalized(aspectValue(params.aspects, "Signed By"));
-  const autographAuthentication = normalized(
-    aspectValue(params.aspects, "Autograph Authentication"),
+  const signedBy = aspectValue(params.aspects, "Signed By");
+  const autographAuthentication = aspectValue(
+    params.aspects,
+    "Autograph Authentication",
   );
   const parallel = normalized(aspectValue(params.aspects, "Parallel/Variety"));
   const title = normalized(params.title);
-  const focused = `${title} ${features} ${signedBy} ${autographAuthentication} ${parallel}`;
-
-  const storedAutograph = metadataBoolean(params.metadata, "tcos_is_autograph");
-  const storedRookie = metadataBoolean(params.metadata, "tcos_is_rookie");
-  const storedGraded = metadataBoolean(params.metadata, "tcos_is_graded");
-  const storedNumbered = metadataBoolean(params.metadata, "tcos_is_numbered");
-
+  const autographFocused = `${title} ${features} ${parallel}`;
+  const negativeAutograph =
+    /\b(?:facsimile|pre[- ]?printed|printed signature|reproduction|reprint autograph|unsigned|not signed|not autographed)\b/.test(
+      autographFocused,
+    );
+  const autoShorthand =
+    /\bauto\b/.test(autographFocused) &&
+    !/\b(?:auto racing|automotive|automobile)\b/.test(autographFocused);
   const autograph =
-    storedAutograph ??
+    !negativeAutograph &&
     (affirmative(aspectValue(params.aspects, "Autographed")) ||
-      Boolean(signedBy) ||
-      Boolean(autographAuthentication) ||
-      /\bautograph(?:ed)?\b|\bsigned\b|\bsignature\b|\bauto\b/.test(focused));
+      meaningfulAutographAspect(signedBy) ||
+      meaningfulAutographAspect(autographAuthentication) ||
+      /\bautograph(?:ed)?\b|\bsigned\b/.test(autographFocused) ||
+      autoShorthand);
+
+  const useStored = currentTaxonomyMetadata(params.metadata);
+  const storedRookie = useStored
+    ? metadataBoolean(params.metadata, "tcos_is_rookie")
+    : null;
+  const storedGraded = useStored
+    ? metadataBoolean(params.metadata, "tcos_is_graded")
+    : null;
+  const storedNumbered = useStored
+    ? metadataBoolean(params.metadata, "tcos_is_numbered")
+    : null;
 
   const rookie =
     storedRookie ??
-    (/\brookie\b|\brc\b|rated rookie|young guns/.test(`${title} ${features}`));
-
+    /\brookie\b|\brc\b|rated rookie|young guns/.test(`${title} ${features}`);
   const graded =
     storedGraded ??
     (affirmative(aspectValue(params.aspects, "Graded")) ||
       Boolean(aspectValue(params.aspects, "Professional Grader")) ||
       /\b(?:psa|bgs|sgc|cgc|csg|hga)\s*(?:10|9\.5|9|8\.5|8)\b/.test(title));
-
   const numbered =
     storedNumbered ??
-    (/\b\d{1,5}\s*\/\s*\d{1,5}\b|serial numbered|\bnumbered\b|#'?d\b/.test(
+    /\b\d{1,5}\s*\/\s*\d{1,5}\b|serial numbered|\bnumbered\b|#'?d\b/.test(
       `${title} ${features} ${parallel}`,
-    ));
+    );
 
   return { autograph, rookie, graded, numbered };
 }
@@ -257,8 +306,8 @@ export function classifyStorefrontItem(input: {
   aspects?: Record<string, unknown> | null;
   metadata?: Record<string, unknown> | null;
 }): StorefrontClassification {
-  const aspects = input.aspects || {};
   const metadata = input.metadata || {};
+  const aspects = input.aspects || recordValue(metadata.source_aspects);
   const league =
     textValue(metadata.tcos_league) || aspectValue(aspects, "League") || null;
   const section = detectSection({
@@ -281,7 +330,7 @@ export function classifyStorefrontItem(input: {
       tcos_is_rookie: String(features.rookie),
       tcos_is_graded: String(features.graded),
       tcos_is_numbered: String(features.numbered),
-      tcos_taxonomy_version: "4",
+      tcos_taxonomy_version: "5",
     },
     metadata: {
       tcos_storefront_section: section,
@@ -290,7 +339,7 @@ export function classifyStorefrontItem(input: {
       tcos_is_rookie: features.rookie,
       tcos_is_graded: features.graded,
       tcos_is_numbered: features.numbered,
-      tcos_taxonomy_version: 4,
+      tcos_taxonomy_version: 5,
     },
   };
 }
