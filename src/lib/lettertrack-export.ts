@@ -152,7 +152,7 @@ export function buildLetterTrackExport(params: {
       skipped.push({
         orderId: label.order_id,
         labelId: label.id,
-        reason: "Order row was not found for this Tracked Card Letter label.",
+        reason: "Order row was not found for this Standard Envelope label.",
       });
       continue;
     }
@@ -181,7 +181,7 @@ export function buildLetterTrackExport(params: {
       "standard_envelope_estimated_oz",
     );
     const declaredValue = money(label.coverage_amount || order.subtotal || order.total);
-    const orderNumber = `TRUELY-${order.id}`;
+    const orderNumber = `TCOS-${order.id}`;
 
     rows.push({
       orderNumber,
@@ -203,18 +203,18 @@ export function buildLetterTrackExport(params: {
           : "USPS First-Class letter with LetterTrack IMb; weigh the sealed letter and apply current USPS metered postage.",
       trackingProvider: "LetterTrack / USPS Informed Visibility IMb",
       coverageInstruction:
-        "Truely Collectables under-$20 seller protection is internal and item-only when applicable; LetterTrack provides limited delivery evidence, not external insurance.",
-      sellerProtectionProgram: "Truely Collectables Under-$20 Seller Protection",
-      sellerProtectionOptInRequired: "store program rules apply",
+        "TCOS Under-$20 Seller Protection is an optional internal, item-only seller program; LetterTrack provides delivery evidence, not external insurance.",
+      sellerProtectionProgram: "TCOS Under-$20 Seller Protection",
+      sellerProtectionOptInRequired: "seller must opt in per shipment",
       sellerProtectionReserveRate: "2%",
       sellerProtectionMaxCoverage: "$20.00 item sale amount",
       sellerProtectionCoverageBasis: "item_sale_amount_excluding_shipping",
       sellerProtectionReimbursesShipping: "no",
       deliveryEvidenceRequirement:
-        "USPS IMb / LetterTrack scans are limited and may be incomplete. Record the available scan trail and any delivery-related status for support review.",
+        "Record the LetterTrack status and USPS IMb scan trail. Seller-protection review requires delivery evidence that does not show delivered status under TCOS rules.",
       fulfillmentStatus: label.label_status || "planned",
       notes:
-        "After LetterTrack prints or assigns the IMb, record the IMb reference in Truely Collectables before marking the order shipped.",
+        "After LetterTrack prints or assigns the IMb, record the IMb reference in TCOS before marking the order shipped.",
     });
   }
 

@@ -154,14 +154,16 @@ export async function runShippingSimulationSuite() {
 
   const overThreeOunces = resolveShippingMethod({
     requestedMethod: "STANDARD_ENVELOPE",
-    itemCount: 4,
+    itemCount: 5,
     subtotal: 19,
   });
   scenarios.push({
     scenario_key: "standard_envelope_over_3oz_forces_ground_advantage",
     scenario_status: pass(
       overThreeOunces.method === "GROUND_ADVANTAGE" &&
-        overThreeOunces.standardEnvelope.estimatedOunces === 4,
+      overThreeOunces.standardEnvelope.eligible === false &&
+      overThreeOunces.standardEnvelope.estimatedOunces === 4 &&
+      Boolean(overThreeOunces.reason),
     ),
     detail:
       "A raw-card order estimated above 3 oz is forced from Standard Envelope to Ground Advantage.",
