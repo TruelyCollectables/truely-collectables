@@ -21,9 +21,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      EXPECTED_SOURCE_SHA: 9b35f1990998bb0bd47394f19905fd9292c4c5bc
+      EXPECTED_SOURCE_SHA: c5cf45854c329771a2a541d2f7f75a631c491e16
       TARGET_WORKFLOW: .github/workflows/authorized-launch-money-inventory-safety-deploy-20260729.yml
-      WRITER_WORKFLOW: .github/workflows/repair-authorized-launch-money-inventory-safety-deploy-20260729.yml
     steps:
       - name: Check out guarded deployment branch
         uses: actions/checkout@v4
@@ -38,84 +37,42 @@ jobs:
           git fetch origin main --depth=1
           test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SOURCE_SHA"
 
-      - name: Repair exact-source validation ordering
+      - name: Remove invalid Vercel promote preflight
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
 
-          path = Path(".github/workflows/authorized-launch-money-inventory-safety-deploy-20260729.yml")
-          old_sha = "392c967180d5ada94b88412292f951dd35ef41cf"
-          new_sha = "9b35f1990998bb0bd47394f19905fd9292c4c5bc"
-          text = path.read_text(encoding="utf-8")
+          path = Path('.github/workflows/authorized-launch-money-inventory-safety-deploy-20260729.yml')
+          text = path.read_text(encoding='utf-8')
+          old_name = '      - name: Confirm staged Production and promotion commands exist\n'
+          new_name = '      - name: Confirm staged Production and safe promotion fallback\n'
+          old_line = '          npx vercel@56.2.0 promote --help > .deployment-evidence/vercel-promote-help.txt\n'
+          new_line = "          printf '%s\\n' 'alias-set-fallback' > .deployment-evidence/vercel-promotion-method.txt\n"
 
-          if text.count(old_sha) != 2:
-              raise SystemExit("Expected exactly two stale source SHA references.")
-          text = text.replace(old_sha, new_sha)
-
-          revalidate_marker = "      - name: Revalidate both launch-blocking safety repairs\n"
-          link_marker = "      - name: Link exact Vercel project\n"
-          confirm_marker = "      - name: Confirm staged Production and promotion commands exist\n"
-
-          revalidate_start = text.find(revalidate_marker)
-          link_start = text.find(link_marker)
-          confirm_start = text.find(confirm_marker)
-          if min(revalidate_start, link_start, confirm_start) < 0:
-              raise SystemExit("Expected deployment workflow markers were not found.")
-          if not (revalidate_start < link_start < confirm_start):
-              raise SystemExit("Deployment workflow ordering changed unexpectedly.")
-
-          old_revalidation = text[revalidate_start:link_start]
-          if "npm run build" not in old_revalidation:
-              raise SystemExit("Expected unguarded Production build command was not found.")
-          link_block = text[link_start:confirm_start]
-
-          new_revalidation = "\n".join([
-              "      - name: Revalidate current launch-blocking safety repairs",
-              "        shell: bash",
-              "        run: |",
-              "          set -euo pipefail",
-              "          npm run simulate:post-sale-ebay-sync",
-              "          npm run simulate:accepted-offer-reservations",
-              "          node --import tsx scripts/run-offer-checkout-idempotency-simulations.ts",
-              "          node --import tsx scripts/run-checkout-webhook-idempotency-simulations.ts",
-              "          node --import tsx scripts/run-buyer-protection-simulations.ts",
-              "          node scripts/run-launch-database-migration-coverage.mjs",
-              "          node scripts/run-privileged-api-route-audit.mjs",
-              "          npm run simulate:privileged-route-auth",
-              "          node scripts/run-ebay-browse-runtime-contracts.mjs",
-              "          npm run lint",
-              "          npx tsc --noEmit --pretty false",
-              "          npx vercel@56.2.0 env run -e production -- npm run build",
-              "",
-              "",
-          ])
-
-          text = text[:revalidate_start] + link_block + new_revalidation + text[confirm_start:]
+          if text.count(old_name) != 1:
+              raise SystemExit('Expected exactly one stale preflight step name.')
+          if text.count(old_line) != 1:
+              raise SystemExit('Expected exactly one invalid Vercel promote preflight command.')
+          text = text.replace(old_name, new_name).replace(old_line, new_line)
 
           required = [
-              f"SOURCE_SHA: {new_sha}",
-              f"ref: {new_sha}",
-              "npm run simulate:post-sale-ebay-sync",
-              "npm run simulate:accepted-offer-reservations",
-              "npm run simulate:privileged-route-auth",
-              "node scripts/run-ebay-browse-runtime-contracts.mjs",
-              "npm run lint",
-              "npx tsc --noEmit --pretty false",
-              "npx vercel@56.2.0 env run -e production -- npm run build",
+              f'SOURCE_SHA: {"c5cf45854c329771a2a541d2f7f75a631c491e16"}',
+              f'ref: {"c5cf45854c329771a2a541d2f7f75a631c491e16"}',
+              "grep -Fq -- '--skip-domain'",
+              'alias-set-fallback',
+              'npx vercel@56.2.0 promote "$DEPLOYMENT_URL"',
+              'npx vercel@56.2.0 alias set "$DEPLOYMENT_URL" truelycollectables.com',
           ]
           for value in required:
               if value not in text:
-                  raise SystemExit(f"Missing repaired workflow requirement: {value}")
-          if old_sha in text:
-              raise SystemExit("Stale source SHA remains after repair.")
-          if text.find(link_marker) > text.find("      - name: Revalidate current launch-blocking safety repairs\n"):
-              raise SystemExit("Vercel project linking must precede the environment-backed build.")
+                  raise SystemExit(f'Missing guarded workflow requirement: {value}')
+          if old_line in text:
+              raise SystemExit('Invalid promote preflight command remains.')
 
-          path.write_text(text, encoding="utf-8")
+          path.write_text(text, encoding='utf-8')
           PY
-          rm -- "$WRITER_WORKFLOW"
 
       - name: Validate narrow guarded diff
         shell: bash
@@ -123,12 +80,11 @@ jobs:
           set -euo pipefail
           git diff --check
           mapfile -t changed < <(git diff --name-only | sort)
-          test "${#changed[@]}" -eq 2
-          test "${changed[0]}" = ".github/workflows/authorized-launch-money-inventory-safety-deploy-20260729.yml"
-          test "${changed[1]}" = ".github/workflows/repair-authorized-launch-money-inventory-safety-deploy-20260729.yml"
-          grep -Fq "SOURCE_SHA: $EXPECTED_SOURCE_SHA" "$TARGET_WORKFLOW"
-          grep -Fq "ref: $EXPECTED_SOURCE_SHA" "$TARGET_WORKFLOW"
-          grep -Fq "npx vercel@56.2.0 env run -e production -- npm run build" "$TARGET_WORKFLOW"
+          test "${#changed[@]}" -eq 1
+          test "${changed[0]}" = "$TARGET_WORKFLOW"
+          grep -Fq 'Confirm staged Production and safe promotion fallback' "$TARGET_WORKFLOW"
+          grep -Fq "alias-set-fallback" "$TARGET_WORKFLOW"
+          ! grep -Fq 'promote --help' "$TARGET_WORKFLOW"
 
       - name: Prepare sanitized repaired workflow artifact
         shell: bash
