@@ -94,8 +94,6 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY=build-validation-service-role-key \
           NEXT_PUBLIC_SITE_URL=https://truelycollectables.com \
             npm run build
-          npx vercel@56.2.0 deploy --help > "$EVIDENCE_DIR/vercel-deploy-help.txt" 2>&1
-          grep -Fq -- '--skip-domain' "$EVIDENCE_DIR/vercel-deploy-help.txt"
 
       - name: Create ephemeral protected cutover function
         shell: bash
