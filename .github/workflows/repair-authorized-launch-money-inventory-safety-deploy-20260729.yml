@@ -107,4 +107,5 @@ jobs:
           name: repaired-launch-money-inventory-cutover-${{ github.run_number }}
           path: .repair-output
           if-no-files-found: error
+          include-hidden-files: true
           retention-days: 7
