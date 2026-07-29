@@ -1,0 +1,169 @@
+name: Authorized eBay Browse Auto Token Production Deploy 20260729
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/authorized-ebay-browse-auto-token-production-deploy-20260729.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: authorized-ebay-browse-auto-token-production
+  cancel-in-progress: true
+
+jobs:
+  deploy-and-probe:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'deploy/ebay-browse-auto-token-20260729')
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      SOURCE_SHA: bc8198de509c4a3bc9f44b1643265e0ae01d5d64
+    steps:
+      - name: Check out exact merged source
+        uses: actions/checkout@v4
+        with:
+          ref: bc8198de509c4a3bc9f44b1643265e0ae01d5d64
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Link exact Vercel project
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p .vercel .deployment-evidence
+          npx vercel@56.2.0 whoami --token "$VERCEL_TOKEN"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link \
+              --yes \
+              --project truely-collectables \
+              --scope "$VERCEL_SCOPE" \
+              --token "$VERCEL_TOKEN"
+          fi
+          printf '%s\n' "$SOURCE_SHA" > .deployment-evidence/source-sha.txt
+
+      - name: Generate and install masked probe credential
+        run: |
+          set -euo pipefail
+          TCOS_EBAY_PROBE_TOKEN="$(openssl rand -hex 48)"
+          echo "::add-mask::$TCOS_EBAY_PROBE_TOKEN"
+          printf 'TCOS_EBAY_PROBE_TOKEN=%s\n' "$TCOS_EBAY_PROBE_TOKEN" >> "$GITHUB_ENV"
+          printf '%s\n' "$TCOS_EBAY_PROBE_TOKEN" | npx vercel@56.2.0 env add TCOS_EBAY_PROBE_TOKEN production \
+            --force \
+            --sensitive \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN"
+          printf '%s\n' 'Generated and installed a masked one-time eBay runtime probe credential. The value is not stored in evidence.' > .deployment-evidence/probe-credential-receipt.txt
+
+      - name: Deploy exact merged revision to Production
+        id: deploy
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 deploy \
+            --prod \
+            --yes \
+            --force \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" \
+            2>&1 | tee .deployment-evidence/vercel-deploy.log
+          DEPLOYMENT_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' .deployment-evidence/vercel-deploy.log | tail -n 1)"
+          test -n "$DEPLOYMENT_URL"
+          echo "deployment_url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$DEPLOYMENT_URL" > .deployment-evidence/deployment-url.txt
+
+      - name: Confirm probe is private
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
+        run: |
+          set -euo pipefail
+          code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 \
+            --output .deployment-evidence/unauthorized-probe.json \
+            --write-out '%{http_code}' \
+            "$DEPLOYMENT_URL/api/internal/ebay-browse-probe" || true)"
+          echo "unauthenticated probe HTTP=$code"
+          test "$code" = "401"
+
+      - name: Run authenticated native eBay Browse probe
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
+        run: |
+          set -euo pipefail
+          code="$(curl --silent --show-error --connect-timeout 15 --max-time 90 \
+            --output .deployment-evidence/ebay-browse-probe.json \
+            --write-out '%{http_code}' \
+            --header "x-tcos-ebay-probe-token: $TCOS_EBAY_PROBE_TOKEN" \
+            --get \
+            --data-urlencode 'q=Ivan Demidov rookie card' \
+            "$DEPLOYMENT_URL/api/internal/ebay-browse-probe" || true)"
+          echo "authenticated probe HTTP=$code"
+          cat .deployment-evidence/ebay-browse-probe.json
+          test "$code" = "200"
+          node <<'NODE'
+          const fs = require('node:fs');
+          const payload = JSON.parse(fs.readFileSync('.deployment-evidence/ebay-browse-probe.json', 'utf8'));
+          if (payload.ok !== true) throw new Error(`Probe did not pass: ${payload.code || payload.error || 'unknown'}`);
+          if (payload.configured !== true) throw new Error('Native eBay Browse did not report configured=true.');
+          if (payload.token?.mode !== 'client_credentials') throw new Error(`Expected client_credentials mode, received ${payload.token?.mode}.`);
+          if (payload.token?.cached !== true) throw new Error('Minted eBay Application token was not cached.');
+          if (!(Number(payload.resultCount) > 0)) throw new Error(`Expected actual eBay results, received ${payload.resultCount}.`);
+          if (!Array.isArray(payload.sample) || !payload.sample.some((entry) => /^https:\/\/(www\.)?ebay\.com\//i.test(entry.url || ''))) {
+            throw new Error('Probe returned no direct eBay listing URL.');
+          }
+          console.log(JSON.stringify({
+            ok: true,
+            configured: payload.configured,
+            resultCount: payload.resultCount,
+            tokenMode: payload.token.mode,
+            tokenCached: payload.token.cached,
+            environment: payload.token.environment,
+            sampleUrls: payload.sample.map((entry) => entry.url),
+          }));
+          NODE
+
+      - name: Verify custom-domain promotion and live runtime
+        run: |
+          set -euo pipefail
+          ready=""
+          for attempt in $(seq 1 30); do
+            code="$(curl --silent --show-error --connect-timeout 15 --max-time 90 \
+              --output .deployment-evidence/custom-domain-probe.json \
+              --write-out '%{http_code}' \
+              --header "x-tcos-ebay-probe-token: $TCOS_EBAY_PROBE_TOKEN" \
+              --get \
+              --data-urlencode 'q=Ivan Demidov rookie card' \
+              https://truelycollectables.com/api/internal/ebay-browse-probe || true)"
+            echo "custom-domain attempt=$attempt HTTP=$code"
+            if [ "$code" = "200" ]; then
+              node <<'NODE'
+              const fs = require('node:fs');
+              const payload = JSON.parse(fs.readFileSync('.deployment-evidence/custom-domain-probe.json', 'utf8'));
+              if (payload.ok !== true || payload.token?.mode !== 'client_credentials' || !(Number(payload.resultCount) > 0)) process.exit(1);
+              NODE
+              ready=1
+              break
+            fi
+            sleep 10
+          done
+          test -n "$ready"
+
+      - name: Upload redacted deployment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ebay-browse-auto-token-production-${{ github.run_number }}
+          path: .deployment-evidence
+          if-no-files-found: warn
+          retention-days: 30
