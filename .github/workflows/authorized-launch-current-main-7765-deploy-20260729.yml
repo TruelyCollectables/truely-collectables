@@ -1,0 +1,162 @@
+name: Authorized Launch Current Main 7765 Deploy 20260729
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/authorized-launch-current-main-7765-deploy-20260729.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: authorized-launch-current-main-7765-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy-production:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'deploy/launch-current-main-7765-20260729')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      SOURCE_SHA: 7765f115d44e2629d47cc38871273dacdafcb8e7
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      EVIDENCE_DIR: /tmp/launch-current-main-7765-evidence
+    steps:
+      - name: Check out exact merged source
+        uses: actions/checkout@v4
+        with:
+          ref: 7765f115d44e2629d47cc38871273dacdafcb8e7
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Revalidate exact source and affected regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          mkdir -p "$EVIDENCE_DIR"
+          printf '%s\n' "$SOURCE_SHA" > "$EVIDENCE_DIR/source-sha.txt"
+          node scripts/simulate-transactional-canonical-metadata.mjs
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const navbar = fs.readFileSync('src/app/components/Navbar.tsx', 'utf8');
+          if (navbar.includes('aria-label={`${STORE_BRAND_NAME} home`}')) {
+            throw new Error('Navbar still overrides its visible accessible name.');
+          }
+          if (!navbar.includes('{STORE_BRAND_NAME}')) {
+            throw new Error('Visible navbar brand text is missing.');
+          }
+          NODE
+          npm run lint
+          npx tsc --noEmit --pretty false
+          NEXT_PUBLIC_SUPABASE_URL=https://build-validation.invalid \
+          NEXT_PUBLIC_SUPABASE_ANON_KEY=build-validation-anon-key \
+          SUPABASE_SERVICE_ROLE_KEY=build-validation-service-role-key \
+          NEXT_PUBLIC_SITE_URL=https://truelycollectables.com \
+            npm run build
+
+      - name: Link exact Vercel project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p .vercel "$EVIDENCE_DIR"
+          npx vercel@56.2.0 whoami --token "$VERCEL_TOKEN" > "$EVIDENCE_DIR/vercel-identity.txt" 2>&1
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          node -e 'const p=require("./.vercel/project.json"); if(!p.orgId||!p.projectId) process.exit(1);'
+
+      - name: Stage exact Production deployment without promotion
+        id: stage
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 deploy --prod --yes --force --skip-domain \
+            --meta "launchSourceSha=$SOURCE_SHA" \
+            --meta "launchPurpose=current-main-7765-production-candidate" \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" \
+            2>&1 | tee "$EVIDENCE_DIR/vercel-stage.log"
+          STAGED_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$EVIDENCE_DIR/vercel-stage.log" | head -n 1)"
+          test -n "$STAGED_URL"
+          echo "staged_url=$STAGED_URL" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$STAGED_URL" > "$EVIDENCE_DIR/staged-deployment-url.txt"
+
+      - name: Verify staged metadata and safety before promotion
+        env:
+          STAGED_URL: ${{ steps.stage.outputs.staged_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in / /shop /cart /account/signup; do
+            code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 90 --output "$EVIDENCE_DIR/staged-${path//\//-}.html" --write-out '%{http_code}' "$STAGED_URL$path")"
+            test "$code" = "200"
+          done
+          grep -Fq 'Truely Collectables' "$EVIDENCE_DIR/staged--.html"
+          grep -Fq 'rel="canonical" href="https://truelycollectables.com/cart"' "$EVIDENCE_DIR/staged--cart.html"
+          grep -Fq 'name="robots" content="noindex, nofollow"' "$EVIDENCE_DIR/staged--cart.html"
+          grep -Fq 'rel="canonical" href="https://truelycollectables.com/account/signup"' "$EVIDENCE_DIR/staged--account-signup.html"
+          grep -Fq 'name="robots" content="noindex, nofollow"' "$EVIDENCE_DIR/staged--account-signup.html"
+          webhook_code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output "$EVIDENCE_DIR/staged-webhook-unsigned.json" --write-out '%{http_code}' --request POST --header 'Content-Type: application/json' --data '{}' "$STAGED_URL/api/webhook")"
+          test "$webhook_code" = "400"
+          admin_code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output "$EVIDENCE_DIR/staged-admin.html" --write-out '%{http_code}' "$STAGED_URL/admin")"
+          test "$admin_code" != "200"
+
+      - name: Promote only the verified staged deployment
+        env:
+          STAGED_URL: ${{ steps.stage.outputs.staged_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! npx vercel@56.2.0 promote "$STAGED_URL" --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$EVIDENCE_DIR/vercel-promote.log" 2>&1; then
+            printf '%s\n' 'Promote command failed; assigning verified aliases.' >> "$EVIDENCE_DIR/vercel-promote.log"
+            npx vercel@56.2.0 alias set "$STAGED_URL" truelycollectables.com --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >> "$EVIDENCE_DIR/vercel-promote.log" 2>&1
+            npx vercel@56.2.0 alias set "$STAGED_URL" truely-collectables.vercel.app --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >> "$EVIDENCE_DIR/vercel-promote.log" 2>&1
+          fi
+
+      - name: Verify Production metadata and safety after promotion
+        shell: bash
+        run: |
+          set -euo pipefail
+          ready=''
+          for attempt in $(seq 1 30); do
+            code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 90 --output "$EVIDENCE_DIR/production-cart.html" --write-out '%{http_code}' https://truelycollectables.com/cart || true)"
+            if [ "$code" = "200" ] && grep -Fq 'rel="canonical" href="https://truelycollectables.com/cart"' "$EVIDENCE_DIR/production-cart.html"; then ready=1; break; fi
+            sleep 10
+          done
+          test -n "$ready"
+          signup_code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 90 --output "$EVIDENCE_DIR/production-signup.html" --write-out '%{http_code}' https://truelycollectables.com/account/signup)"
+          test "$signup_code" = "200"
+          grep -Fq 'rel="canonical" href="https://truelycollectables.com/account/signup"' "$EVIDENCE_DIR/production-signup.html"
+          home_code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 90 --output "$EVIDENCE_DIR/production-home.html" --write-out '%{http_code}' https://truelycollectables.com/)"
+          test "$home_code" = "200"
+          grep -Fq 'Truely Collectables' "$EVIDENCE_DIR/production-home.html"
+          webhook_code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output "$EVIDENCE_DIR/production-webhook-unsigned.json" --write-out '%{http_code}' --request POST --header 'Content-Type: application/json' --data '{}' https://truelycollectables.com/api/webhook)"
+          test "$webhook_code" = "400"
+          admin_code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output "$EVIDENCE_DIR/production-admin.html" --write-out '%{http_code}' https://truelycollectables.com/admin)"
+          test "$admin_code" != "200"
+
+      - name: Upload sanitized deployment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launch-current-main-7765-production-${{ github.run_number }}
+          path: /tmp/launch-current-main-7765-evidence
+          if-no-files-found: error
+          retention-days: 30
