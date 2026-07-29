@@ -119,7 +119,7 @@ export async function POST(request: Request) {
         typeof data.user.user_metadata?.display_name === "string"
           ? data.user.user_metadata.display_name
           : null,
-      defaultAccountType: "buyer",
+      preserveDefaultAccountType: true,
     });
 
     if (

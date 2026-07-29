@@ -157,6 +157,7 @@ export async function createOrUpdateAccountProfile(params: {
   email: string;
   displayName?: string | null;
   defaultAccountType?: "buyer" | "seller";
+  preserveDefaultAccountType?: boolean;
   accountStatus?: string | null;
   tosAccepted?: boolean;
   tosVersion?: string;
@@ -172,9 +173,12 @@ export async function createOrUpdateAccountProfile(params: {
     id: params.accountId,
     email: cleanEmail(params.email),
     display_name: cleanText(params.displayName),
-    default_account_type: params.defaultAccountType || "buyer",
     updated_at: new Date().toISOString(),
   };
+
+  if (!params.preserveDefaultAccountType) {
+    profilePayload.default_account_type = params.defaultAccountType || "buyer";
+  }
 
   if (tosAccepted) {
     profilePayload.tos_accepted = true;
@@ -269,7 +273,7 @@ export async function getAuthenticatedAccountFromRequest(
       typeof data.user.user_metadata?.display_name === "string"
         ? data.user.user_metadata.display_name
         : null,
-    defaultAccountType: "buyer",
+    preserveDefaultAccountType: true,
   });
 
   if (

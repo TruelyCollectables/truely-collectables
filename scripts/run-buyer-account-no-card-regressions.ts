@@ -4,6 +4,7 @@ import {
   BUYER_ACCOUNT_ACTIVE_STATUS,
   BUYER_CARD_VERIFICATION_REQUIRED,
   BUYER_MEMBERSHIP_ACTIVE_STATUS,
+  isBuyerAccountType,
   shouldActivateLegacyBuyerAccount,
 } from "../src/lib/buyer-account-policy";
 
@@ -40,6 +41,8 @@ assert.equal(
   }),
   false,
 );
+assert.equal(isBuyerAccountType("seller", "seller_owner"), false);
+assert.equal(isBuyerAccountType("buyer", "seller_owner"), true);
 
 assert.match(signupPage, /Truely Collectables Buyer Account/);
 assert.match(signupPage, /No payment card is required to register/);
@@ -70,6 +73,12 @@ assert.match(
 );
 assert.match(accountAuth, /shouldActivateLegacyBuyerAccount/);
 assert.match(accountAuth, /status: BUYER_MEMBERSHIP_ACTIVE_STATUS/);
+assert.match(accountAuth, /preserveDefaultAccountType\?: boolean/);
+assert.match(
+  accountAuth,
+  /if \(!params\.preserveDefaultAccountType\)[\s\S]*profilePayload\.default_account_type/,
+);
+assert.match(loginRoute, /preserveDefaultAccountType: true/);
 
 assert.match(
   checkoutRoute,
