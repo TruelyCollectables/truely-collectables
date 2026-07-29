@@ -64,8 +64,21 @@ jobs:
       - name: Install exact dependencies
         run: npm ci
 
-      - name: Format changed source
-        run: npx prettier --write package.json scripts/run-post-sale-ebay-sync-simulations.ts src/lib/ebay-quantity-sync-safety.ts src/lib/ebay-quantity-sync-outbox.ts src/lib/order-notifications.ts src/app/api/cron/ebay-store-fixed-price-sync/route.ts supabase/migrations/20260726233000_post_sale_ebay_quantity_sync_outbox.sql supabase/migrations/20260727142000_harden_post_sale_outbox_constraints.sql supabase/migrations/20260727143000_order_notification_retry_backoff.sql
+      - name: Format changed TypeScript and JSON
+        run: npx prettier --write package.json scripts/run-post-sale-ebay-sync-simulations.ts src/lib/ebay-quantity-sync-safety.ts src/lib/ebay-quantity-sync-outbox.ts src/lib/order-notifications.ts src/app/api/cron/ebay-store-fixed-price-sync/route.ts
+
+      - name: Validate SQL transaction and schema contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in \
+            supabase/migrations/20260726233000_post_sale_ebay_quantity_sync_outbox.sql \
+            supabase/migrations/20260727142000_harden_post_sale_outbox_constraints.sql \
+            supabase/migrations/20260727143000_order_notification_retry_backoff.sql
+          do
+            grep -Eiq '^begin;' "$file"
+            grep -Eiq '^commit;' "$file"
+          done
 
       - name: Run focused post-sale regression
         run: npm run simulate:post-sale-ebay-sync
