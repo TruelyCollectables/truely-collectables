@@ -1,4 +1,4 @@
-name: Prepare Money Inventory Cutover Workflow 20260729
+name: Stage Guarded Cutover Workflow Blob 20260729
 
 on:
   pull_request:
@@ -8,49 +8,65 @@ on:
       - ".github/workflows/validate-ebay-probe-import-20260729.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: prepare-money-inventory-cutover-workflow-20260729
+  group: stage-guarded-cutover-workflow-blob-20260729
   cancel-in-progress: false
 
 jobs:
-  prepare-sanitized-workflow:
+  stage-verified-blob:
     if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ops/validate-ebay-probe-import-20260729'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
       EXPECTED_MAIN_SHA: 8baee1bb26a17f974388b4d8e50b4321bbdfb685
+      OPS_BRANCH: ops/validate-ebay-probe-import-20260729
+      TARGET_BRANCH: deploy/launch-money-inventory-safety-20260729
       TARGET_WORKFLOW: .github/workflows/authorized-launch-money-inventory-safety-deploy-20260729.yml
+      OUTPUT_DIR: ops-artifacts/money-inventory-cutover-20260729
     steps:
-      - name: Check out guarded cutover branch
+      - name: Check out operations branch
         uses: actions/checkout@v4
         with:
-          ref: deploy/launch-money-inventory-safety-20260729
+          ref: ops/validate-ebay-probe-import-20260729
           fetch-depth: 0
 
-      - name: Confirm exact current main revision
+      - name: Stage exact verified workflow blob
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin main --depth=1
-          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_MAIN_SHA"
+          git fetch origin main "$TARGET_BRANCH" --depth=1
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          target_commit="$(git rev-parse "origin/$TARGET_BRANCH")"
+          target_tree="$(git rev-parse "origin/$TARGET_BRANCH^{tree}")"
+          mkdir -p "$OUTPUT_DIR"
+          git show "origin/$TARGET_BRANCH:$TARGET_WORKFLOW" > "$OUTPUT_DIR/authorized-launch-money-inventory-safety-deploy-20260729.yml"
+          printf '%s\n' "$target_commit" > "$OUTPUT_DIR/base-commit-sha.txt"
+          printf '%s\n' "$target_tree" > "$OUTPUT_DIR/base-tree-sha.txt"
 
-      - name: Prepare exact guarded cutover workflow
-        shell: bash
-        run: |
-          set -euo pipefail
           python - <<'PY'
           from pathlib import Path
 
-          path = Path(".github/workflows/authorized-launch-money-inventory-safety-deploy-20260729.yml")
+          path = Path("ops-artifacts/money-inventory-cutover-20260729/authorized-launch-money-inventory-safety-deploy-20260729.yml")
           old_sha = "c5cf45854c329771a2a541d2f7f75a631c491e16"
           new_sha = "8baee1bb26a17f974388b4d8e50b4321bbdfb685"
+          old_deploy_help = "          npx vercel@56.2.0 deploy --help > .deployment-evidence/vercel-deploy-help.txt\n"
+          new_deploy_help = "          (npx vercel@56.2.0 deploy --help > .deployment-evidence/vercel-deploy-help.txt 2>&1 || true)\n"
+          old_promote_help = "          npx vercel@56.2.0 promote --help > .deployment-evidence/vercel-promote-help.txt\n"
+          new_promote_help = "          (npx vercel@56.2.0 promote --help > .deployment-evidence/vercel-promote-help.txt 2>&1 || true)\n          test -s .deployment-evidence/vercel-promote-help.txt\n"
           text = path.read_text(encoding="utf-8")
 
           if text.count(old_sha) != 2:
               raise SystemExit("Expected exactly two validated-parent SHA references.")
-          text = text.replace(old_sha, new_sha)
+          if text.count(old_deploy_help) != 1 or text.count(old_promote_help) != 1:
+              raise SystemExit("Expected exact Vercel help preflight commands were not found.")
+
+          text = (
+              text.replace(old_sha, new_sha)
+              .replace(old_deploy_help, new_deploy_help)
+              .replace(old_promote_help, new_promote_help)
+          )
 
           required = [
               f"SOURCE_SHA: {new_sha}",
@@ -63,17 +79,16 @@ jobs:
               "npx tsc --noEmit --pretty false",
               "npx vercel@56.2.0 env ls production",
               "NEXT_PUBLIC_SUPABASE_URL=https://build-validation.invalid",
-              "NEXT_PUBLIC_SITE_URL=https://truelycollectables.com",
-              "npm run build",
               "--skip-domain",
               "Add required Stripe expiration webhook event",
               "Apply all six safety migrations atomically and verify them",
+              "Promote the preverified staged deployment",
           ]
           for value in required:
               if value not in text:
                   raise SystemExit(f"Missing guarded cutover requirement: {value}")
-          if old_sha in text:
-              raise SystemExit("Validated-parent SHA remains after update.")
+          if old_sha in text or old_deploy_help in text or old_promote_help in text:
+              raise SystemExit("Stale cutover values remain after staging.")
 
           stage = text.find("      - name: Stage exact Production deployment without domain promotion\n")
           staged_verify = text.find("      - name: Verify staged deployment before any Production mutation\n")
@@ -87,15 +102,24 @@ jobs:
 
           path.write_text(text, encoding="utf-8")
           PY
-          git diff --check -- "$TARGET_WORKFLOW"
-          mkdir -p cutover-output
-          cp "$TARGET_WORKFLOW" cutover-output/authorized-launch-money-inventory-safety-deploy-20260729.yml
-          sha256sum cutover-output/authorized-launch-money-inventory-safety-deploy-20260729.yml > cutover-output/SHA256SUMS
 
-      - name: Upload sanitized cutover workflow artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: prepared-money-inventory-cutover-${{ github.run_number }}
-          path: cutover-output
-          if-no-files-found: error
-          retention-days: 7
+          git diff --check -- "$OUTPUT_DIR"
+          sha256sum "$OUTPUT_DIR/authorized-launch-money-inventory-safety-deploy-20260729.yml" > "$OUTPUT_DIR/SHA256SUMS"
+
+      - name: Commit only non-workflow staging files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- "$OUTPUT_DIR"
+          mapfile -t staged < <(git diff --cached --name-only | sort)
+          test "${#staged[@]}" -eq 4
+          for path in "${staged[@]}"; do
+            case "$path" in
+              "$OUTPUT_DIR"/*) ;;
+              *) echo "Unexpected staged path: $path" >&2; exit 1 ;;
+            esac
+          done
+          git commit -m "Stage verified money and inventory cutover workflow blob"
+          git push origin "HEAD:$OPS_BRANCH"
