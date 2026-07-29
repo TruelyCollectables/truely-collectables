@@ -22,7 +22,7 @@ jobs:
       NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
       STRIPE_SECRET_KEY: sk_test_build_only_placeholder
       NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
-      STRIPE_WEBHOOK_SECRET: whsec_build_only-placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_build-only-placeholder
       EBAY_CLIENT_ID: build-only-placeholder-client-id
       EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
       EBAY_ENVIRONMENT: production
@@ -45,55 +45,143 @@ jobs:
 
           smoke = Path('scripts/smoke-admin-runtime.mjs')
           text = smoke.read_text()
-          accounts_anchor = '''  {
+
+          def add_after(anchor, addition, marker, label):
+              global text
+              if marker in text:
+                  return
+              if anchor not in text:
+                  raise SystemExit(f'{label} insertion anchor missing')
+              text = text.replace(anchor, anchor + addition, 1)
+
+          add_after(
+              '''  {
+              path: "/admin/login",
+              auth: false,
+              expectedText: "Admin password",
+            },
+          ''',
+              '''  {
+              path: "/admin/reset-password",
+              auth: false,
+              expectedText: "Choose a permanent admin password",
+            },
+          ''',
+              'path: "/admin/reset-password"',
+              'reset-password smoke',
+          )
+          add_after(
+              '''  {
+              path: "/admin/quick-list",
+              auth: true,
+              expectedText: "Accuracy Council + InstaComp™",
+            },
+          ''',
+              '''  {
+              path: "/admin/verified-reference-import",
+              auth: true,
+              expectedText: "Verified Reference → Pending Listings",
+            },
+          ''',
+              'path: "/admin/verified-reference-import"',
+              'verified-reference-import smoke',
+          )
+          add_after(
+              '''  {
+              path: "/admin/orders",
+              auth: true,
+              expectedText: "Orders",
+            },
+          ''',
+              '''  {
+              path: "/admin/order-notifications",
+              auth: true,
+              expectedText: "Order Notification Delivery",
+            },
+          ''',
+              'path: "/admin/order-notifications"',
+              'order-notifications smoke',
+          )
+          add_after(
+              '''  {
               path: "/admin/accounts",
               auth: true,
               expectedTexts: ["Customer Account Lookup", "Customer Accounts"],
             },
-          '''
-          buyer_addition = accounts_anchor + '''  {
+          ''',
+              '''  {
               path: "/admin/buyer-protection",
               auth: true,
               expectedText: "Buyer Protection Claims",
             },
-          '''
-          if '/admin/buyer-protection' not in text:
-              if accounts_anchor not in text:
-                  raise SystemExit('buyer-protection smoke insertion anchor missing')
-              text = text.replace(accounts_anchor, buyer_addition, 1)
-
-          sync_anchor = '''  {
+          ''',
+              'path: "/admin/buyer-protection"',
+              'buyer-protection smoke',
+          )
+          add_after(
+              '''  {
               path: "/admin/ebay/full-store-sync",
               auth: true,
               expectedText: "Full eBay Store Sync",
             },
-          '''
-          launch_sync_addition = sync_anchor + '''  {
+          ''',
+              '''  {
               path: "/admin/ebay/launch-ready-sync",
               auth: true,
               expectedText: "eBay Launch Readiness",
             },
-          '''
-          if '/admin/ebay/launch-ready-sync' not in text:
-              if sync_anchor not in text:
-                  raise SystemExit('launch-ready-sync smoke insertion anchor missing')
-              text = text.replace(sync_anchor, launch_sync_addition, 1)
+          ''',
+              'path: "/admin/ebay/launch-ready-sync"',
+              'launch-ready-sync smoke',
+          )
           smoke.write_text(text)
 
           admin_page = Path('src/app/admin/page.tsx')
           text = admin_page.read_text()
-          payment_link_anchor = '        { href: "/admin/live-payment-launch", label: "Payment Gate" },\n'
-          buyer_link = '        { href: "/admin/buyer-protection", label: "Buyer Protection" },\n'
-          if 'href: "/admin/buyer-protection"' not in text:
-              if payment_link_anchor not in text:
-                  raise SystemExit('admin buyer-protection link anchor missing')
-              text = text.replace(payment_link_anchor, payment_link_anchor + buyer_link, 1)
-          ebay_link_anchor = '        { href: "/admin/ebay/full-store-sync", label: "Full Store Sync" },\n'
-          launch_ready_link = '        { href: "/admin/ebay/launch-ready-sync", label: "Launch Ready Sync" },\n'
-          if 'href: "/admin/ebay/launch-ready-sync"' not in text:
-              if ebay_link_anchor not in text:
-                  raise SystemExit('admin launch-ready-sync link anchor missing')
-              text = text.replace(ebay_link_anchor, ebay_link_anchor + launch_ready_link, 1)
+
+          def add_admin_link(anchor, addition, marker, label):
+              global text
+              if marker in text:
+                  return
+              if anchor not in text:
+                  raise SystemExit(f'{label} link anchor missing')
+              text = text.replace(anchor, anchor + addition, 1)
+
+          add_admin_link(
+              '        { href: "/admin/live-payment-launch", label: "Payment Gate" },\n',
+              '        { href: "/admin/buyer-protection", label: "Buyer Protection" },\n',
+              'href: "/admin/buyer-protection"',
+              'buyer-protection',
+          )
+          add_admin_link(
+              '        { href: "/admin/ebay/full-store-sync", label: "Full Store Sync" },\n',
+              '        { href: "/admin/ebay/launch-ready-sync", label: "Launch Ready Sync" },\n',
+              'href: "/admin/ebay/launch-ready-sync"',
+              'launch-ready-sync',
+          )
+          add_admin_link(
+              '        { href: "/admin/quick-list", label: "Quick List" },\n',
+              '        { href: "/admin/verified-reference-import", label: "Verified Intake" },\n',
+              'href: "/admin/verified-reference-import"',
+              'verified-reference-import',
+          )
+          support_anchor = '''        { href: "/admin/orders", label: "Orders" },
+                { href: "/admin/order-review-cases", label: "Review Cases" },
+          '''
+          support_replacement = '''        { href: "/admin/orders", label: "Orders" },
+                { href: "/admin/order-notifications", label: "Order Notifications" },
+                { href: "/admin/order-review-cases", label: "Review Cases" },
+          '''
+          if 'href: "/admin/order-notifications"' not in text:
+              if support_anchor not in text:
+                  raise SystemExit('order-notifications link anchor missing')
+              text = text.replace(support_anchor, support_replacement, 1)
+          add_admin_link(
+              '        { href: "/admin/settings", label: "Settings" },\n',
+              '        { href: "/admin/reset-password", label: "Owner Recovery" },\n',
+              'href: "/admin/reset-password"',
+              'reset-password',
+          )
           scope_copy = 'Hides the alert only; the product record stays unchanged.'
           scope_expression = '{"Hides the alert only; the product record stays unchanged."}'
           if scope_expression not in text:
