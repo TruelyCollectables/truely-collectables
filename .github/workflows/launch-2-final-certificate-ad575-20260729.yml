@@ -138,9 +138,16 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$EVIDENCE_DIR/source-security"
-          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.28.0 dir /repo \
+          tracked="$RUNNER_TEMP/truely-tracked-source"
+          rm -rf "$tracked"
+          mkdir -p "$tracked"
+          git archive HEAD | tar -x -C "$tracked"
+          docker run --rm \
+            -v "$tracked:/repo:ro" \
+            -v "$PWD/$EVIDENCE_DIR/source-security:/evidence" \
+            zricethezav/gitleaks:v8.28.0 dir /repo \
             --no-banner --redact --report-format json \
-            --report-path /repo/.audit/launch-2-final-ad575/source-security/gitleaks.json
+            --report-path /evidence/gitleaks.json
           node - <<'NODE'
           const fs = require('node:fs');
           const cp = require('node:child_process');
