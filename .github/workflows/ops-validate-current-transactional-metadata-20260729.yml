@@ -1,4 +1,4 @@
-name: Validate Current Transactional Metadata 20260729
+name: Publish Corrected Full Launch Audit Workflow 20260729
 
 on:
   pull_request:
@@ -6,150 +6,220 @@ on:
       - main
     paths:
       - ".github/workflows/ops-validate-current-transactional-metadata-20260729.yml"
-  workflow_dispatch:
+      - "ops-output/ops-truely-full-launch-audit-20260729.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: validate-current-transactional-metadata-20260729
+  group: publish-corrected-full-launch-audit-workflow-20260729
   cancel-in-progress: false
 
 jobs:
-  validate-current-main:
-    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ops/validate-transactional-metadata-20260729')
+  publish-audit-workflow-blob:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ops/validate-transactional-metadata-20260729'
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 15
     env:
-      SOURCE_SHA: 7765f115d44e2629d47cc38871273dacdafcb8e7
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-      VERCEL_SCOPE: truelycollectables-projects
-      EVIDENCE_DIR: /tmp/current-transactional-metadata-evidence
+      EXPECTED_MAIN_SHA: 7765f115d44e2629d47cc38871273dacdafcb8e7
+      EXPECTED_AUDIT_SHA: 3417c615337436df896cfe9d3238f5d29ae33518
+      AUDIT_BRANCH: ops/truely-full-launch-audit-20260729
+      AUDIT_WORKFLOW: .github/workflows/ops-truely-full-launch-audit-20260729.yml
+      OUTPUT_FILE: ops-output/ops-truely-full-launch-audit-20260729.yml
     steps:
-      - name: Check out exact merged source
+      - name: Check out operations branch
         uses: actions/checkout@v4
         with:
-          ref: 7765f115d44e2629d47cc38871273dacdafcb8e7
-          fetch-depth: 1
+          ref: ops/validate-transactional-metadata-20260729
+          fetch-depth: 0
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install exact dependencies
-        run: npm ci
-
-      - name: Run canonical and accessibility regressions
+      - name: Confirm exact current source and audit revisions
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$EVIDENCE_DIR"
-          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
-          git diff --exit-code
-          node scripts/simulate-transactional-canonical-metadata.mjs | tee "$EVIDENCE_DIR/transactional-canonical.log"
-          node scripts/simulate-navbar-accessible-name.mjs | tee "$EVIDENCE_DIR/navbar-accessible-name.log"
+          git fetch origin main "$AUDIT_BRANCH"
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          test "$(git rev-parse origin/$AUDIT_BRANCH)" = "$EXPECTED_AUDIT_SHA"
+          git show "origin/$AUDIT_BRANCH:$AUDIT_WORKFLOW" > /tmp/full-launch-audit.yml
 
-      - name: Run lint TypeScript and full Production build
+      - name: Correct runtime environment and Lighthouse policy gates
         shell: bash
         run: |
           set -euo pipefail
-          npm run lint | tee "$EVIDENCE_DIR/lint.log"
-          npx tsc --noEmit --pretty false | tee "$EVIDENCE_DIR/typescript.log"
-          NEXT_PUBLIC_SUPABASE_URL=https://build-validation.invalid \
-          NEXT_PUBLIC_SUPABASE_ANON_KEY=build-validation-anon-key \
-          SUPABASE_SERVICE_ROLE_KEY=build-validation-service-role-key \
-          NEXT_PUBLIC_SITE_URL=https://truelycollectables.com \
-          STRIPE_SECRET_KEY=sk_test_build_only_placeholder \
-          STRIPE_WEBHOOK_SECRET=whsec_build_only_placeholder \
-          ADMIN_SESSION_SECRET=build-only-placeholder-session-secret-that-is-long-enough \
-          ADMIN_PASSWORD=build-only-placeholder-admin-password \
-            npm run build | tee "$EVIDENCE_DIR/production-build.log"
+          python - <<'PY'
+          from pathlib import Path
 
-      - name: Link exact Vercel project
+          source = Path('/tmp/full-launch-audit.yml')
+          output = Path('ops-output/ops-truely-full-launch-audit-20260729.yml')
+          text = source.read_text(encoding='utf-8')
+
+          old_runtime = '''      - name: Run read-only Production integration and data audit
         shell: bash
         run: |
-          set -euo pipefail
-          test -n "${VERCEL_TOKEN:-}"
-          mkdir -p .vercel
-          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
-            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
-          else
-            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
-          fi
-          node -e 'const p=require("./.vercel/project.json"); if(!p.orgId||!p.projectId) process.exit(1);'
+          set +e
+          node --env-file=.audit-production.env scripts/run-truely-launch-audit-20260729.mjs runtime
+          status=$?
+          set -e
+          rm -f .audit-production.env
+          exit "$status"
 
-      - name: Stage exact current source without domains
-        id: stage
+'''
+          new_runtime = '''      - name: Run read-only Production integration and data audit
         shell: bash
         run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
-          git diff --exit-code
-          npx vercel@56.2.0 deploy --prod --yes --force --skip-domain \
-            --meta "launchSourceSha=$SOURCE_SHA" \
-            --meta "launchPurpose=current-transactional-metadata-validation" \
-            --scope "$VERCEL_SCOPE" \
-            --token "$VERCEL_TOKEN" \
-            2>&1 | tee "$EVIDENCE_DIR/vercel-stage.log"
-          STAGE_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$EVIDENCE_DIR/vercel-stage.log" | tail -n 1)"
-          test -n "$STAGE_URL"
-          echo "stage_url=$STAGE_URL" >> "$GITHUB_OUTPUT"
-          printf '%s\n' "$STAGE_URL" > "$EVIDENCE_DIR/stage-url.txt"
-
-      - name: Verify rendered metadata and Lighthouse policy
-        env:
-          STAGE_URL: ${{ steps.stage.outputs.stage_url }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          for pair in 'cart:/cart' 'signup:/account/signup'; do
-            name="${pair%%:*}"
-            route="${pair#*:}"
-            code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 90 --output "$EVIDENCE_DIR/${name}.html" --write-out '%{http_code}' "$STAGE_URL$route")"
-            test "$code" = "200"
-            grep -Eiq '<meta[^>]+name="robots"[^>]+content="[^"]*noindex[^"]*nofollow|<meta[^>]+content="[^"]*noindex[^"]*nofollow[^"]*"[^>]+name="robots"' "$EVIDENCE_DIR/${name}.html"
-            grep -Eiq "<link[^>]+rel=\"canonical\"[^>]+href=\"https://truelycollectables.com${route}\"|<link[^>]+href=\"https://truelycollectables.com${route}\"[^>]+rel=\"canonical\"" "$EVIDENCE_DIR/${name}.html"
-            npx --yes lighthouse@12.8.2 "$STAGE_URL$route" \
-              --only-categories=performance,accessibility,best-practices,seo \
-              --output=json \
-              --output-path="$EVIDENCE_DIR/lighthouse-${name}.json" \
-              --chrome-flags="--headless --no-sandbox --disable-gpu" \
-              --quiet
+          set +e
+          unset_keys=(
+            NEXT_PUBLIC_SUPABASE_URL
+            NEXT_PUBLIC_SUPABASE_ANON_KEY
+            SUPABASE_SERVICE_ROLE_KEY
+            STRIPE_SECRET_KEY
+            NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+            STRIPE_WEBHOOK_SECRET
+            EBAY_CLIENT_ID
+            EBAY_CLIENT_SECRET
+            EBAY_ENVIRONMENT
+            TCOS_LIVE_PAYMENTS_ENABLED
+          )
+          unset_args=()
+          for key in "${unset_keys[@]}"; do
+            unset_args+=("-u" "$key")
           done
+          env "${unset_args[@]}" node --env-file=.audit-production.env - <<'NODE'
+          const fs = require('fs');
+          const required = ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'];
+          const presence = Object.fromEntries(required.map((key) => [key, Boolean(process.env[key])]));
+          fs.writeFileSync('.audit/runtime/runtime-env-presence.json', JSON.stringify(presence, null, 2));
+          if (required.some((key) => !process.env[key])) process.exit(1);
+          NODE
+          preflight_status=$?
+          if [ "$preflight_status" -eq 0 ]; then
+            env "${unset_args[@]}" node --env-file=.audit-production.env scripts/run-truely-launch-audit-20260729.mjs runtime
+            status=$?
+          else
+            status="$preflight_status"
+          fi
+          set -e
+          rm -f .audit-production.env
+          exit "$status"
+
+'''
+
+          old_lighthouse = '''      - name: Grade Lighthouse reports
+        shell: bash
+        run: |
           node - <<'NODE'
           const fs = require('fs');
-          const dir = process.env.EVIDENCE_DIR;
+          const path = require('path');
+          const dir = '.audit/lighthouse';
           const rows = [];
-          for (const name of ['cart', 'signup']) {
-            const report = JSON.parse(fs.readFileSync(`${dir}/lighthouse-${name}.json`, 'utf8'));
-            const row = {
-              page: name,
-              performance: Math.round((report.categories.performance?.score || 0) * 100),
-              accessibility: Math.round((report.categories.accessibility?.score || 0) * 100),
-              bestPractices: Math.round((report.categories['best-practices']?.score || 0) * 100),
-              seo: Math.round((report.categories.seo?.score || 0) * 100),
-              canonical: report.audits.canonical?.score,
-              crawlable: report.audits['is-crawlable']?.score,
-            };
-            if (row.canonical !== 1) throw new Error(`${name} canonical audit failed.`);
-            if (row.crawlable !== 0) throw new Error(`${name} must remain intentionally non-indexable.`);
-            if (row.accessibility < 90) throw new Error(`${name} accessibility below 90.`);
-            if (row.bestPractices < 85) throw new Error(`${name} best practices below 85.`);
+          let blocker = false;
+          for (const file of fs.readdirSync(dir).filter(name => name.endsWith('.json'))) {
+            const report = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'));
+            const row = { page: file.replace('.json', '') };
+            for (const key of ['performance', 'accessibility', 'best-practices', 'seo']) {
+              row[key] = Math.round((report.categories[key]?.score || 0) * 100);
+            }
+            if (row.accessibility < 90 || row.seo < 90 || row['best-practices'] < 85) blocker = true;
             rows.push(row);
           }
-          fs.writeFileSync(`${dir}/lighthouse-policy-summary.json`, JSON.stringify({ ok: true, rows }, null, 2));
+          fs.writeFileSync(path.join(dir, 'lighthouse-summary.json'), JSON.stringify({ rows, blocker }, null, 2));
+          fs.writeFileSync(path.join(dir, 'lighthouse-summary.md'), '# Lighthouse summary\\n\\n' + rows.map(row => `- ${row.page}: Performance ${row.performance}, Accessibility ${row.accessibility}, Best Practices ${row['best-practices']}, SEO ${row.seo}`).join('\\n') + '\\n');
           console.table(rows);
+          if (blocker) process.exit(1);
           NODE
 
-      - name: Upload sanitized evidence
+'''
+          new_lighthouse = '''      - name: Grade Lighthouse reports
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --silent --show-error --fail --location https://truelycollectables.com/cart > .audit/lighthouse/cart.html
+          curl --silent --show-error --fail --location https://truelycollectables.com/account/signup > .audit/lighthouse/signup.html
+          grep -Eiq '<link[^>]+rel="canonical"[^>]+href="https://truelycollectables.com/cart"|<link[^>]+href="https://truelycollectables.com/cart"[^>]+rel="canonical"' .audit/lighthouse/cart.html
+          grep -Eiq '<link[^>]+rel="canonical"[^>]+href="https://truelycollectables.com/account/signup"|<link[^>]+href="https://truelycollectables.com/account/signup"[^>]+rel="canonical"' .audit/lighthouse/signup.html
+          grep -Eiq '<meta[^>]+name="robots"[^>]+content="[^"]*noindex[^"]*nofollow|<meta[^>]+content="[^"]*noindex[^"]*nofollow[^"]*"[^>]+name="robots"' .audit/lighthouse/cart.html
+          grep -Eiq '<meta[^>]+name="robots"[^>]+content="[^"]*noindex[^"]*nofollow|<meta[^>]+content="[^"]*noindex[^"]*nofollow[^"]*"[^>]+name="robots"' .audit/lighthouse/signup.html
+          node - <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          const dir = '.audit/lighthouse';
+          const transactionalPages = new Set(['cart', 'signup']);
+          const rows = [];
+          let blocker = false;
+          for (const file of fs.readdirSync(dir).filter(name => name.endsWith('.json'))) {
+            const report = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'));
+            const row = { page: file.replace('.json', '') };
+            for (const key of ['performance', 'accessibility', 'best-practices', 'seo']) {
+              row[key] = Math.round((report.categories[key]?.score || 0) * 100);
+            }
+            row.canonical = report.audits.canonical?.score ?? null;
+            row.crawlable = report.audits['is-crawlable']?.score ?? null;
+            row.robots = report.audits['robots-txt']?.score ?? null;
+            row.title = report.audits['document-title']?.score ?? null;
+            row.description = report.audits['meta-description']?.score ?? null;
+            const commonFailure = row.accessibility < 90 || row['best-practices'] < 85 || row.canonical !== 1 || row.robots !== 1 || row.title !== 1 || row.description !== 1;
+            if (transactionalPages.has(row.page)) {
+              if (commonFailure || row.crawlable !== 0) blocker = true;
+            } else if (commonFailure || row.seo < 90 || row.crawlable !== 1) {
+              blocker = true;
+            }
+            rows.push(row);
+          }
+          fs.writeFileSync(path.join(dir, 'lighthouse-summary.json'), JSON.stringify({ rows, blocker }, null, 2));
+          fs.writeFileSync(path.join(dir, 'lighthouse-summary.md'), '# Lighthouse summary\\n\\n' + rows.map(row => `- ${row.page}: Performance ${row.performance}, Accessibility ${row.accessibility}, Best Practices ${row['best-practices']}, SEO ${row.seo}, Canonical ${row.canonical}, Crawlable ${row.crawlable}`).join('\\n') + '\\n');
+          console.table(rows);
+          if (blocker) process.exit(1);
+          NODE
+
+'''
+
+          if text.count(old_runtime) != 1:
+              raise SystemExit('Expected exactly one stale runtime audit invocation.')
+          if text.count(old_lighthouse) != 1:
+              raise SystemExit('Expected exactly one stale Lighthouse grader.')
+          text = text.replace(old_runtime, new_runtime)
+          text = text.replace(old_lighthouse, new_lighthouse)
+
+          required = [
+              'runtime-env-presence.json',
+              'env "${unset_args[@]}" node --env-file=.audit-production.env',
+              "const transactionalPages = new Set(['cart', 'signup']);",
+              'row.crawlable !== 0',
+              'row.seo < 90 || row.crawlable !== 1',
+              'https://truelycollectables.com/account/signup',
+          ]
+          for value in required:
+              if value not in text:
+                  raise SystemExit(f'Missing corrected audit requirement: {value}')
+
+          output.parent.mkdir(parents=True, exist_ok=True)
+          output.write_text(text, encoding='utf-8')
+          PY
+          git diff --check -- "$OUTPUT_FILE"
+          grep -Fq 'runtime-env-presence.json' "$OUTPUT_FILE"
+          grep -Fq "const transactionalPages = new Set(['cart', 'signup']);" "$OUTPUT_FILE"
+          grep -Fq 'row.crawlable !== 0' "$OUTPUT_FILE"
+          grep -Fq 'row.seo < 90 || row.crawlable !== 1' "$OUTPUT_FILE"
+
+      - name: Publish corrected audit workflow blob outside workflow directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add "$OUTPUT_FILE"
+          if git diff --cached --quiet; then
+            echo 'Corrected audit workflow blob is already published.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Publish corrected full launch audit workflow blob'
+          git push origin HEAD:ops/validate-transactional-metadata-20260729
+
+      - name: Upload corrected audit workflow evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: current-transactional-metadata-${{ github.run_number }}
-          path: /tmp/current-transactional-metadata-evidence
+          name: corrected-full-launch-audit-workflow-${{ github.run_number }}
+          path: ops-output/ops-truely-full-launch-audit-20260729.yml
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 7
