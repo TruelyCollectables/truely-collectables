@@ -61,6 +61,13 @@ jobs:
           fi
           node -e 'const p=require("./.vercel/project.json"); if(!p.orgId||!p.projectId) process.exit(1);'
 
+      - name: Remove prior disposable deployment if present
+        shell: bash
+        run: |
+          set +e
+          npx vercel@56.2.0 remove https://truely-collectables-mlp1vd0p3-truelycollectables-projects.vercel.app --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$EVIDENCE_DIR/prior-cutover-removal.txt" 2>&1
+          exit 0
+
       - name: Revalidate all affected safety gates
         shell: bash
         run: |
@@ -239,7 +246,7 @@ jobs:
             --env "SUPABASE_ACCESS_TOKEN=$GH_SUPABASE_ACCESS_TOKEN" \
             --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" \
             2>&1 | tee "$EVIDENCE_DIR/cutover-deployment.log"
-          CUTOVER_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$EVIDENCE_DIR/cutover-deployment.log" | tail -n 1)"
+          CUTOVER_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$EVIDENCE_DIR/cutover-deployment.log" | head -n 1)"
           test -n "$CUTOVER_URL"
           echo "cutover_url=$CUTOVER_URL" >> "$GITHUB_OUTPUT"
           printf '%s\n' "$CUTOVER_URL" > "$EVIDENCE_DIR/cutover-deployment-url.txt"
@@ -287,7 +294,7 @@ jobs:
             to_regprocedure('public.tcos_reserve_checkout_inventory(uuid,uuid,jsonb,integer)') is not null as reserve_function,
             to_regprocedure('public.tcos_decrement_order_inventory_once(uuid,bigint,bigint,integer)') is not null as decrement_function,
             to_regprocedure('public.tcos_consume_checkout_reservation_after_sale(uuid,uuid,bigint,integer,text)') is not null as consume_function,
-            exists (select 1 from information_schema.columns where table_schema='public' and table_name='order_notification_outbox' and column_name='next_attempt_at') as notification_backoff_column,
+            exists (select 1 from information_schema.columns where table_schema='public' and table_name='order_notification_deliveries' and column_name='next_attempt_at') as notification_backoff_column,
             exists (select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname='ebay_quantity_sync_outbox' and c.relrowsecurity) as outbox_rls,
             (select count(*) from pg_trigger where not tgisinternal and tgname in ('truely_enqueue_ebay_quantity_sync_from_reservation','truely_enqueue_ebay_quantity_sync_from_order_consumption','truely_protect_pending_ebay_product_quantity','truely_protect_pending_ebay_inventory_quantity')) as safety_trigger_count,
             exists (select 1 from pg_constraint where conname='checkout_inventory_reservations_product_store_fkey' and convalidated) as product_store_fk_validated,
@@ -297,7 +304,7 @@ jobs:
             (select count(*) from public.ebay_quantity_sync_outbox where status='pending' and next_attempt_at is null) as pending_without_retry_time,
             (select count(*) from public.checkout_inventory_reservations where quantity <= 0) as invalid_reservation_quantity,
             (select count(*) from public.checkout_inventory_reservations where status='active' and stripe_session_id is not null) as attached_active_reservations,
-            (select count(*) from public.order_notification_outbox where status in ('failed','dead','exhausted')) as terminal_notification_failures;`;
+            (select count(*) from public.order_notification_deliveries where status in ('failed','dead','exhausted')) as terminal_notification_failures;`;
           fs.mkdirSync(process.env.TOOLS_DIR, { recursive: true });
           fs.writeFileSync(path.join(process.env.TOOLS_DIR, 'migration.json'), JSON.stringify({ action: 'sql', query: migration }));
           fs.writeFileSync(path.join(process.env.TOOLS_DIR, 'verify.json'), JSON.stringify({ action: 'query', query: verify }));
@@ -342,7 +349,7 @@ jobs:
             --meta "launchSourceSha=$SOURCE_SHA" --meta "launchPurpose=clean-production-candidate" \
             --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" \
             2>&1 | tee "$EVIDENCE_DIR/clean-deployment.log"
-          CLEAN_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$EVIDENCE_DIR/clean-deployment.log" | tail -n 1)"
+          CLEAN_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$EVIDENCE_DIR/clean-deployment.log" | head -n 1)"
           test -n "$CLEAN_URL"
           echo "clean_url=$CLEAN_URL" >> "$GITHUB_OUTPUT"
           printf '%s\n' "$CLEAN_URL" > "$EVIDENCE_DIR/clean-deployment-url.txt"
