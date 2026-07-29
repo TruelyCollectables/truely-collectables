@@ -1,0 +1,129 @@
+name: One-Time Storefront Taxonomy V7 No Junk Buckets V5 20260728
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/one-time-storefront-taxonomy-v7-no-junk-buckets-v5-20260728.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: one-time-storefront-taxonomy-v7-no-junk-buckets-v5-20260728
+  cancel-in-progress: false
+
+jobs:
+  patch-and-validate:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'agent/storefront-taxonomy-v7-no-junk-buckets-20260728'
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+      ADMIN_SESSION_SECRET: build-only-placeholder-session-secret
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+      EBAY_CLIENT_ID: build-only-placeholder-client-id
+      EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+      EBAY_ENVIRONMENT: production
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/storefront-taxonomy-v7-no-junk-buckets-20260728
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - name: Apply direct final taxonomy v7 patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python <<'PY'
+          from pathlib import Path
+          import textwrap
+          workflow = Path('.github/workflows/one-time-storefront-taxonomy-v7-no-junk-buckets-v2-20260728.yml').read_text()
+          start_marker = "          python <<'PY'\n"
+          end_marker = "\n          PY\n\n      - name: Format and validate taxonomy v7"
+          start = workflow.index(start_marker) + len(start_marker)
+          end = workflow.index(end_marker, start)
+          Path('/tmp/taxonomy-v7-direct-patch.py').write_text(textwrap.dedent(workflow[start:end]))
+          PY
+          python /tmp/taxonomy-v7-direct-patch.py
+          python <<'PY'
+          from pathlib import Path
+
+          tests = Path('scripts/run-storefront-taxonomy-regressions.ts')
+          text = tests.read_text()
+          old = '''assert.equal(
+            isLaunchCollectible({ title: "Oakley Sports Sunglasses Black", sport: null }),
+            true,
+          );
+          assert.equal(
+            isLaunchCollectible({ title: "Collectible Wristwatch", sport: null }),
+            true,
+          );'''
+          new = '''assert.equal(
+            isLaunchCollectible({
+              title: "Oakley Sports Sunglasses Black",
+              sport: "Watches & Accessories",
+              storefrontSection: "Watches & Accessories",
+            }),
+            true,
+          );
+          assert.equal(
+            isLaunchCollectible({
+              title: "Collectible Wristwatch",
+              sport: "Watches & Accessories",
+              storefrontSection: "Watches & Accessories",
+            }),
+            true,
+          );'''
+          if text.count(old) != 1:
+              raise SystemExit(f'legacy watch tests: expected one match, found {text.count(old)}')
+          tests.write_text(text.replace(old, new, 1))
+
+          taxonomy = Path('src/lib/storefront-taxonomy.ts')
+          text = taxonomy.read_text()
+          old_fragment = '|serial numbered|'
+          new_fragment = '|(?:^|\\s)\\/\\d{1,5}\\b|serial numbered|'
+          if text.count(old_fragment) != 1:
+              raise SystemExit(f'numbered shorthand fragment: expected one match, found {text.count(old_fragment)}')
+          taxonomy.write_text(text.replace(old_fragment, new_fragment, 1))
+
+          for name in [
+              '.github/workflows/one-time-storefront-taxonomy-v7-no-junk-buckets-v3-20260728.yml',
+              '.github/workflows/one-time-storefront-taxonomy-v7-no-junk-buckets-v4-20260728.yml',
+              '.github/workflows/one-time-storefront-taxonomy-v7-no-junk-buckets-v5-20260728.yml',
+              '.github/workflows/diagnose-storefront-taxonomy-v7-features-20260728.yml',
+              'taxonomy-v7-diagnostic.ts',
+          ]:
+              path = Path(name)
+              if path.exists(): path.unlink()
+          PY
+
+      - name: Format and validate taxonomy v7
+        run: |
+          set -euo pipefail
+          npm ci
+          npx prettier --write src/lib/storefront-taxonomy.ts src/modules/inventory/types.ts src/app/shop/page.tsx src/lib/sports-card-launch-scope.ts src/lib/ebay-authoritative-store-sync.ts scripts/run-storefront-taxonomy-regressions.ts
+          node --import tsx scripts/run-storefront-taxonomy-regressions.ts
+          node --import tsx scripts/run-ebay-import-admin-client-simulations.ts
+          npx eslint src/lib/storefront-taxonomy.ts src/modules/inventory/types.ts src/app/shop/page.tsx src/lib/sports-card-launch-scope.ts src/lib/ebay-authoritative-store-sync.ts scripts/run-storefront-taxonomy-regressions.ts
+          npm run build
+
+      - name: Commit validated taxonomy v7
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Truely Collectables Automation"
+          git config user.email "automation@truelycollectables.com"
+          git add -A
+          git commit -m "Eliminate fallback storefront buckets"
+          git push origin HEAD:agent/storefront-taxonomy-v7-no-junk-buckets-20260728
