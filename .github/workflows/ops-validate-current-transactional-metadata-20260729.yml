@@ -22,7 +22,7 @@ jobs:
     timeout-minutes: 15
     env:
       EXPECTED_MAIN_SHA: 7765f115d44e2629d47cc38871273dacdafcb8e7
-      EXPECTED_AUDIT_SHA: b2d0dac988cee07ba38318d4b7f5db0119585eca
+      EXPECTED_AUDIT_WORKFLOW_BLOB: ae98844b75bb5a9cee161a91b69e4075f9234c1a
       AUDIT_BRANCH: ops/truely-full-launch-audit-20260729
       AUDIT_WORKFLOW: .github/workflows/ops-truely-full-launch-audit-20260729.yml
       OUTPUT_FILE: ops-output/ops-truely-full-launch-audit-20260729.yml
@@ -33,14 +33,15 @@ jobs:
           ref: ops/validate-transactional-metadata-20260729
           fetch-depth: 0
 
-      - name: Confirm exact current source and audit revisions
+      - name: Confirm exact current source and audit workflow shape
         shell: bash
         run: |
           set -euo pipefail
           git fetch origin main "$AUDIT_BRANCH"
           test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
-          test "$(git rev-parse origin/$AUDIT_BRANCH)" = "$EXPECTED_AUDIT_SHA"
+          test "$(git rev-parse "origin/$AUDIT_BRANCH:$AUDIT_WORKFLOW")" = "$EXPECTED_AUDIT_WORKFLOW_BLOB"
           git show "origin/$AUDIT_BRANCH:$AUDIT_WORKFLOW" > /tmp/full-launch-audit.yml
+          test "$(git hash-object /tmp/full-launch-audit.yml)" = "$EXPECTED_AUDIT_WORKFLOW_BLOB"
 
       - name: Generate and validate corrected audit workflow blob
         shell: bash
