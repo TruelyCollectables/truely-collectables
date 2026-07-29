@@ -51,32 +51,30 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
+          import re
 
           sim_path = Path("src/lib/shipping-simulations.ts")
           sim = sim_path.read_text()
-          old_fixture = '''  const overThreeOunces = resolveShippingMethod({
-            requestedMethod: "STANDARD_ENVELOPE",
-            itemCount: 4,
-            subtotal: 19,
-          });'''
-          new_fixture = '''  const overThreeOunces = resolveShippingMethod({
-            requestedMethod: "STANDARD_ENVELOPE",
-            itemCount: 5,
-            subtotal: 19,
-          });'''
-          if sim.count(old_fixture) != 1:
+          sim, fixture_count = re.subn(
+              r'(const overThreeOunces = resolveShippingMethod\(\{\s*requestedMethod: "STANDARD_ENVELOPE",\s*itemCount:\s*)4(,\s*subtotal:\s*19,\s*\}\);)',
+              r'\g<1>5\2',
+              sim,
+              count=1,
+          )
+          if fixture_count != 1:
               raise SystemExit("Expected one over-three-ounce fixture anchor")
-          sim = sim.replace(old_fixture, new_fixture)
 
-          old_assertion = '''      overThreeOunces.method === "GROUND_ADVANTAGE" &&
-                overThreeOunces.standardEnvelope.estimatedOunces === 4,'''
-          new_assertion = '''      overThreeOunces.method === "GROUND_ADVANTAGE" &&
+          sim, assertion_count = re.subn(
+              r'overThreeOunces\.method === "GROUND_ADVANTAGE" &&\s*overThreeOunces\.standardEnvelope\.estimatedOunces === 4,',
+              '''overThreeOunces.method === "GROUND_ADVANTAGE" &&
                 overThreeOunces.standardEnvelope.eligible === false &&
                 overThreeOunces.standardEnvelope.estimatedOunces === 4 &&
-                Boolean(overThreeOunces.reason),'''
-          if sim.count(old_assertion) != 1:
+                Boolean(overThreeOunces.reason),''',
+              sim,
+              count=1,
+          )
+          if assertion_count != 1:
               raise SystemExit("Expected one over-three-ounce assertion anchor")
-          sim = sim.replace(old_assertion, new_assertion)
           sim_path.write_text(sim)
 
           export_path = Path("src/lib/lettertrack-export.ts")
