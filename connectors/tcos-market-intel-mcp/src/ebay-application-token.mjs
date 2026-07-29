@@ -17,6 +17,9 @@ const ebayBaseUrl = () =>
 
 const tokenEndpoint = () => `${ebayBaseUrl()}/identity/v1/oauth2/token`;
 
+const hasClientCredentials = () =>
+  Boolean(config.ebayClientId && config.ebayClientSecret);
+
 const maskError = (error) => {
   const message = error instanceof Error ? error.message : String(error);
   return message
@@ -32,7 +35,7 @@ const parseEbayError = (payload, fallback) =>
   fallback;
 
 async function mintApplicationToken() {
-  if (!config.ebayClientId || !config.ebayClientSecret) {
+  if (!hasClientCredentials()) {
     throw new Error(
       "Native eBay Browse requires EBAY_CLIENT_ID and EBAY_CLIENT_SECRET when no static token override is configured.",
     );
@@ -65,7 +68,9 @@ async function mintApplicationToken() {
     try {
       payload = text ? JSON.parse(text) : {};
     } catch {
-      throw new Error(`eBay token endpoint returned unreadable JSON (HTTP ${response.status}).`);
+      throw new Error(
+        `eBay token endpoint returned unreadable JSON (HTTP ${response.status}).`,
+      );
     }
     if (!response.ok || !payload?.access_token) {
       throw new Error(
@@ -96,15 +101,15 @@ export const ebayApplicationTokenService = Object.freeze({
   },
 
   status() {
-    const usingStaticOverride = Boolean(config.ebayBrowseAccessToken);
+    const mode = hasClientCredentials()
+      ? "client_credentials"
+      : config.ebayBrowseAccessToken
+        ? "static_override"
+        : "unconfigured";
     return {
       configured: ebayBrowseConfigured,
       environment: config.ebayEnvironment,
-      mode: usingStaticOverride
-        ? "static_override"
-        : config.ebayClientId && config.ebayClientSecret
-          ? "client_credentials"
-          : "unconfigured",
+      mode,
       cached: Boolean(
         globalState.token &&
           Date.now() + config.ebayBrowseRefreshSkewMs < globalState.expiresAt,
@@ -128,12 +133,16 @@ export const ebayApplicationTokenService = Object.freeze({
   },
 
   async getAccessToken({ forceRefresh = false } = {}) {
-    if (config.ebayBrowseAccessToken && !forceRefresh) {
-      return config.ebayBrowseAccessToken;
-    }
     if (!ebayBrowseConfigured) {
       throw new Error(
         "Native eBay Browse is not configured. Set EBAY_CLIENT_ID and EBAY_CLIENT_SECRET.",
+      );
+    }
+
+    if (!hasClientCredentials()) {
+      if (config.ebayBrowseAccessToken) return config.ebayBrowseAccessToken;
+      throw new Error(
+        "Native eBay Browse is missing both client credentials and a static emergency token.",
       );
     }
 
