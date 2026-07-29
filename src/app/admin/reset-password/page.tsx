@@ -5,7 +5,8 @@ import { safeAdminLoginNextPath } from "../../../lib/admin-login-destination";
 function resetErrorMessage(value: string | string[] | undefined) {
   const code = Array.isArray(value) ? value[0] : value;
   if (code === "mismatch") return "The two password entries did not match.";
-  if (code === "policy") return "Use at least 12 characters for the new password.";
+  if (code === "policy")
+    return "Use at least 12 characters for the new password.";
   if (code === "storage_error") {
     return "The private credential store was unavailable. Try the reset link again in a moment.";
   }
@@ -21,7 +22,9 @@ export default async function AdminResetPasswordPage({
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
   const params = await searchParams;
-  const tokenValue = Array.isArray(params.token) ? params.token[0] : params.token;
+  const tokenValue = Array.isArray(params.token)
+    ? params.token[0]
+    : params.token;
   const token = String(tokenValue || "").trim();
   const nextPath = safeAdminLoginNextPath(params.next);
   const error = resetErrorMessage(params.error);
@@ -37,8 +40,9 @@ export default async function AdminResetPasswordPage({
             Choose a permanent admin password
           </h1>
           <p className="mt-3 text-sm font-semibold leading-6 text-neutral-600">
-            This password is stored as a private database hash. Vercel deployments,
-            environment refreshes, and code releases cannot replace it.
+            This password is stored as a private database hash. Vercel
+            deployments, environment refreshes, and code releases cannot replace
+            it.
           </p>
 
           {token ? (
@@ -87,8 +91,8 @@ export default async function AdminResetPasswordPage({
             </form>
           ) : (
             <p className="mt-7 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-black text-amber-950">
-              No reset token was provided. Request a fresh owner reset link from the
-              admin login page.
+              No reset token was provided. Request a fresh owner reset link from
+              the admin login page.
             </p>
           )}
 
@@ -99,7 +103,7 @@ export default async function AdminResetPasswordPage({
           ) : null}
 
           <p className="mt-6 text-center text-sm font-bold text-neutral-600">
-            <Link className="underline" href={`/admin/login?next=${encodeURIComponent(nextPath)}`}>
+            <Link className="underline" href="/admin/login">
               Return to admin login
             </Link>
           </p>

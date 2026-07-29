@@ -59,7 +59,9 @@ function summaryPanelClass(tone: GatePostureTone) {
   return "border-red-300 bg-red-50 text-red-950 ring-red-900/10";
 }
 
-function safeErrorMessage(error: { message?: string } | string | null | undefined) {
+function safeErrorMessage(
+  error: { message?: string } | string | null | undefined,
+) {
   const message =
     typeof error === "string"
       ? error
@@ -116,6 +118,8 @@ export default async function LivePaymentLaunchPage() {
       : databaseApproved
         ? "The current auditable database approval is recorded."
         : "All approval blockers are clear. Database approval can be recorded when you choose.";
+  const paymentApprovalPosture =
+    approvalBlockingCount > 0 ? "NOT APPROVABLE" : databaseApproval.status;
   const paymentNextStep =
     approvalBlockingCount > 0
       ? "Clear approval blockers"
@@ -179,7 +183,7 @@ export default async function LivePaymentLaunchPage() {
           <GatePostureCard
             detail={databaseApprovalDetail}
             label="Database approval"
-            status={databaseApproval.status}
+            status={paymentApprovalPosture}
             tone={databaseApproval.tone}
           />
           <GatePostureCard
@@ -236,9 +240,9 @@ export default async function LivePaymentLaunchPage() {
                 What remains before live money
               </h2>
               <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-neutral-600">
-                Approval blockers must be cleared before database approval can be
-                recorded. Launch locks are intentional final controls that keep live
-                Checkout closed until the go-live window.
+                Approval blockers must be cleared before database approval can
+                be recorded. Launch locks are intentional final controls that
+                keep live Checkout closed until the go-live window.
               </p>
             </div>
             <div className="rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm font-black">
@@ -260,14 +264,17 @@ export default async function LivePaymentLaunchPage() {
                     </span>
                   </div>
                   <p className="mt-2 text-sm leading-6">{item.detail}</p>
-                  <p className="mt-2 text-sm font-bold leading-6">Next: {item.action}</p>
+                  <p className="mt-2 text-sm font-bold leading-6">
+                    Next: {item.action}
+                  </p>
                 </li>
               ))}
             </ol>
           ) : (
             <p className="mt-5 rounded-2xl border border-green-200 bg-green-50 p-4 text-sm font-bold text-green-900">
-              No live-payment approval blockers or launch locks remain. Continue with final
-              operator approval, runtime switch review, and post-launch monitoring.
+              No live-payment approval blockers or launch locks remain. Continue
+              with final operator approval, runtime switch review, and
+              post-launch monitoring.
             </p>
           )}
         </section>
