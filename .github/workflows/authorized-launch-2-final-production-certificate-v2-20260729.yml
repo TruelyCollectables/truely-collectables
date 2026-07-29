@@ -1,0 +1,164 @@
+name: Authorized Launch 2 Final Production Certificate V2 20260729
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/authorized-launch-2-final-production-certificate-v2-20260729.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: authorized-launch-2-final-production-certificate-v2-20260729
+  cancel-in-progress: false
+
+jobs:
+  certify-and-deploy-v2:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'deploy/launch-2-final-production-certificate-20260729')
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      SOURCE_SHA: 7765f115d44e2629d47cc38871273dacdafcb8e7
+      FULL_AUDIT_RUN_ID: "30495983067"
+      HOSTED_RUNTIME_RUN_ID: "30496484637"
+      METADATA_VALIDATION_RUN_ID: "30495716130"
+      MONEY_INVENTORY_CUTOVER_RUN_ID: "30492028134"
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      EVIDENCE_DIR: /tmp/launch-2-final-certificate-v2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 7765f115d44e2629d47cc38871273dacdafcb8e7
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Verify current main and exact evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE_DIR"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git diff --exit-code
+          node - <<'NODE'
+          const fs = require('node:fs');
+          (async () => {
+            const repo = process.env.GITHUB_REPOSITORY;
+            const headers = { Authorization: `Bearer ${process.env.GITHUB_TOKEN}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
+            async function get(path) {
+              const response = await fetch(`https://api.github.com/repos/${repo}${path}`, { headers });
+              if (!response.ok) throw new Error(`${path} returned HTTP ${response.status}`);
+              return response.json();
+            }
+            async function run(id) {
+              return { value: await get(`/actions/runs/${id}`), jobs: (await get(`/actions/runs/${id}/jobs?per_page=100`)).jobs || [] };
+            }
+            const main = await get('/git/ref/heads/main');
+            if (main.object?.sha !== process.env.SOURCE_SHA) throw new Error(`main moved to ${main.object?.sha || 'unknown'}`);
+            const full = await run(process.env.FULL_AUDIT_RUN_ID);
+            const required = [
+              'API route and privilege audit',
+              'Lighthouse accessibility, SEO, performance, and best practices',
+              'Repository inventory and source security',
+              'Dependencies, lint, TypeScript, and production build',
+              'Simulation shard 0','Simulation shard 1','Simulation shard 2','Simulation shard 3','Simulation shard 4','Simulation shard 5',
+              'Live Production crawl and access checks',
+            ];
+            const map = Object.fromEntries(full.jobs.map((job) => [job.name, job.conclusion]));
+            for (const name of required) if (map[name] !== 'success') throw new Error(`${name}=${map[name] || 'missing'}`);
+            const hosted = await run(process.env.HOSTED_RUNTIME_RUN_ID);
+            if (!hosted.jobs.some((job) => job.name === 'hosted-runtime-audit-v2' && job.conclusion === 'success')) throw new Error('Hosted runtime V2 evidence failed.');
+            const metadata = await run(process.env.METADATA_VALIDATION_RUN_ID);
+            if (!metadata.jobs.some((job) => job.name === 'validate' && job.conclusion === 'success')) throw new Error('Metadata validation evidence failed.');
+            const cutover = await run(process.env.MONEY_INVENTORY_CUTOVER_RUN_ID);
+            if (cutover.value.conclusion !== 'success') throw new Error(`Cutover evidence=${cutover.value.conclusion}`);
+            fs.writeFileSync(process.env.EVIDENCE_DIR + '/prior-evidence.json', JSON.stringify({ ok:true, sourceSha:process.env.SOURCE_SHA, fullAuditRunId:Number(process.env.FULL_AUDIT_RUN_ID), hostedRuntimeRunId:Number(process.env.HOSTED_RUNTIME_RUN_ID), metadataValidationRunId:Number(process.env.METADATA_VALIDATION_RUN_ID), cutoverRunId:Number(process.env.MONEY_INVENTORY_CUTOVER_RUN_ID), requiredJobs:Object.fromEntries(required.map((name)=>[name,map[name]])) }, null, 2));
+          })().catch((error) => { console.error(error); process.exit(1); });
+          NODE
+      - name: Re-run exact regression lint TypeScript and Production build
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          node scripts/simulate-transactional-canonical-metadata.mjs | tee "$EVIDENCE_DIR/transactional-canonical.log"
+          npm run lint | tee "$EVIDENCE_DIR/lint.log"
+          npx tsc --noEmit --pretty false | tee "$EVIDENCE_DIR/typescript.log"
+          NEXT_PUBLIC_SUPABASE_URL=https://build-validation.invalid NEXT_PUBLIC_SUPABASE_ANON_KEY=build-validation-anon-key SUPABASE_SERVICE_ROLE_KEY=build-validation-service-role-key NEXT_PUBLIC_SITE_URL=https://truelycollectables.com STRIPE_SECRET_KEY=sk_test_build_only_placeholder STRIPE_WEBHOOK_SECRET=whsec_build_only_placeholder ADMIN_SESSION_SECRET=build-only-placeholder-session-secret-that-is-long-enough ADMIN_PASSWORD=build-only-placeholder-admin-password npm run build | tee "$EVIDENCE_DIR/production-build.log"
+      - name: Link exact Vercel project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p .vercel
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json; else npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"; fi
+          node -e 'const p=require("./.vercel/project.json"); if(!p.orgId||!p.projectId) process.exit(1);'
+      - name: Stage exact Production candidate without domains
+        id: stage
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git diff --exit-code
+          npx vercel@56.2.0 deploy --prod --yes --force --skip-domain --meta "launchSourceSha=$SOURCE_SHA" --meta "launchPurpose=launch-2-final-production-certificate-v2" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee "$EVIDENCE_DIR/vercel-stage.log"
+          URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$EVIDENCE_DIR/vercel-stage.log" | head -n 1)"
+          test -n "$URL"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "$URL" > "$EVIDENCE_DIR/stage-url.txt"
+          npx vercel@56.2.0 inspect "$URL" --json --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$EVIDENCE_DIR/stage-inspect.json"
+          grep -Fq "$SOURCE_SHA" "$EVIDENCE_DIR/stage-inspect.json"
+      - name: Smoke staged exact candidate
+        env:
+          STAGE_URL: ${{ steps.stage.outputs.url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in / /shop /cart /account/signup /account/login /shipping /returns /buyer-protection; do code="$(curl -L -sS --connect-timeout 15 --max-time 90 -o "$EVIDENCE_DIR/stage-${path//\//-}.html" -w '%{http_code}' "$STAGE_URL$path")"; test "$code" = 200; done
+          grep -Eiq 'rel="canonical"[^>]+href="https://truelycollectables.com/cart"|href="https://truelycollectables.com/cart"[^>]+rel="canonical"' "$EVIDENCE_DIR/stage--cart.html"
+          grep -Eiq 'name="robots"[^>]+noindex[^>]+nofollow|content="[^"]*noindex[^"]*nofollow[^"]*"[^>]+name="robots"' "$EVIDENCE_DIR/stage--cart.html"
+          grep -Eiq 'rel="canonical"[^>]+href="https://truelycollectables.com/account/signup"|href="https://truelycollectables.com/account/signup"[^>]+rel="canonical"' "$EVIDENCE_DIR/stage--account-signup.html"
+          admin="$(curl -sS --connect-timeout 15 --max-time 60 -o /dev/null -w '%{http_code}' "$STAGE_URL/admin")"; case "$admin" in 301|302|303|307|308|401|403) ;; *) exit 1;; esac
+          webhook="$(curl -sS --connect-timeout 15 --max-time 60 -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' --data '{}' "$STAGE_URL/api/webhook")"; test "$webhook" = 400
+      - name: Promote only the verified candidate
+        env:
+          STAGE_URL: ${{ steps.stage.outputs.url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! npx vercel@56.2.0 promote "$STAGE_URL" --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$EVIDENCE_DIR/promote.log" 2>&1; then
+            npx vercel@56.2.0 alias set "$STAGE_URL" truelycollectables.com --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >> "$EVIDENCE_DIR/promote.log" 2>&1
+            npx vercel@56.2.0 alias set "$STAGE_URL" www.truelycollectables.com --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >> "$EVIDENCE_DIR/promote.log" 2>&1
+            npx vercel@56.2.0 alias set "$STAGE_URL" truely-collectables.vercel.app --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >> "$EVIDENCE_DIR/promote.log" 2>&1
+          fi
+      - name: Verify exact live Production and write certificate
+        env:
+          STAGE_URL: ${{ steps.stage.outputs.url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ready=''; for attempt in $(seq 1 30); do code="$(curl -L -sS --connect-timeout 15 --max-time 90 -o "$EVIDENCE_DIR/live-signup.html" -w '%{http_code}' https://truelycollectables.com/account/signup || true)"; if [ "$code" = 200 ] && grep -Eiq 'href="https://truelycollectables.com/account/signup"' "$EVIDENCE_DIR/live-signup.html"; then ready=1; break; fi; sleep 10; done; test -n "$ready"
+          npx vercel@56.2.0 inspect https://truelycollectables.com --json --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$EVIDENCE_DIR/live-inspect.json"
+          grep -Fq "$SOURCE_SHA" "$EVIDENCE_DIR/live-inspect.json"
+          stage_id="$(node -e "const x=require(process.argv[1]);console.log(x.id||x.uid||'')" "$EVIDENCE_DIR/stage-inspect.json")"; live_id="$(node -e "const x=require(process.argv[1]);console.log(x.id||x.uid||'')" "$EVIDENCE_DIR/live-inspect.json")"; test -n "$stage_id"; test "$stage_id" = "$live_id"
+          for path in / /shop /cart /account/login /shipping /returns /buyer-protection; do test "$(curl -L -sS --connect-timeout 15 --max-time 90 -o /dev/null -w '%{http_code}' "https://truelycollectables.com$path")" = 200; done
+          admin="$(curl -sS --connect-timeout 15 --max-time 60 -o /dev/null -w '%{http_code}' https://truelycollectables.com/admin)"; case "$admin" in 301|302|303|307|308|401|403) ;; *) exit 1;; esac
+          webhook="$(curl -sS --connect-timeout 15 --max-time 60 -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' --data '{}' https://truelycollectables.com/api/webhook)"; test "$webhook" = 400
+          node - <<'NODE'
+          const fs=require('fs'); const stage=JSON.parse(fs.readFileSync(process.env.EVIDENCE_DIR+'/stage-inspect.json')); const live=JSON.parse(fs.readFileSync(process.env.EVIDENCE_DIR+'/live-inspect.json')); const id=x=>x.id||x.uid;
+          const value={status:'COMPLETE',launch:'TruelyCollectables.com Launch 2.0',certifiedAt:new Date().toISOString(),sourceSha:process.env.SOURCE_SHA,productionDeploymentId:id(live),exactDeploymentMatch:id(stage)===id(live),passed:['source-secret-scan','privileged-routes','all-applicable-simulations','lint','typescript','production-build','lighthouse','live-crawl','supabase','live-stripe','ebay','resend-no-send','money-inventory-safety','exact-production-deployment'],unclaimedRealWorldProofs:['real-money-charge','physical-delivery','refund','dispute','actual-inbox-receipt']}; if(!value.exactDeploymentMatch) throw new Error('Deployment mismatch'); fs.writeFileSync(process.env.EVIDENCE_DIR+'/launch-2-final-production-certificate.json',JSON.stringify(value,null,2));
+          NODE
+      - name: Upload final certificate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launch-2-final-production-certificate-v2-${{ github.run_number }}
+          path: /tmp/launch-2-final-certificate-v2
+          if-no-files-found: error
+          retention-days: 90
