@@ -30,8 +30,11 @@ assert.match(tokenService, /Date\.now\(\) \+ config\.ebayBrowseRefreshSkewMs/);
 assert.match(tokenService, /mode = hasClientCredentials\(\)/);
 
 assert.match(publicSearch, /ebayApplicationTokenService\.getAccessToken\(\)/);
-assert.match(publicSearch, /response\.status === 401/);
+assert.match(publicSearch, /exchange\.response\.status === 401/);
 assert.match(publicSearch, /forceRefresh: true/);
+assert.match(publicSearch, /const text = await response\.text\(\)/);
+assert.match(publicSearch, /return \{ response, text \}/);
+assert.match(publicSearch, /eBay Browse request timed out after/);
 assert.match(publicSearch, /HTTP 403/);
 assert.match(publicSearch, /HTTP 429/);
 assert.match(publicSearch, /ebayBrowseDetails: this\.ebay\.status\(\)/);
@@ -43,10 +46,16 @@ assert.doesNotMatch(
 assert.match(probeRoute, /x-tcos-ebay-probe-token/);
 assert.match(probeRoute, /timingSafeEqual/);
 assert.match(probeRoute, /EBAY_PROBE_UNAUTHORIZED/);
+assert.match(probeRoute, /withDeadline/);
+assert.match(probeRoute, /application_token/);
+assert.match(probeRoute, /browse_search/);
+assert.match(probeRoute, /EBAY_APPLICATION_TOKEN_TIMEOUT/);
+assert.match(probeRoute, /EBAY_BROWSE_TIMEOUT/);
 assert.match(probeRoute, /EBAY_BUY_API_ACCESS_DENIED/);
 assert.match(probeRoute, /resultCount/);
+assert.match(probeRoute, /timings/);
 assert.doesNotMatch(probeRoute, /accessToken|clientSecret[^C]/);
 
 console.log(
-  "eBay Browse runtime contracts passed: automatic client credentials, cache/refresh, one-time 401 retry, fail-closed 403/429 behavior, private diagnostic auth, and no token disclosure are present.",
+  "eBay Browse runtime contracts passed: automatic client credentials, cache/refresh, body-safe request deadlines, one-time 401 retry, fail-closed 403/429 behavior, stage-timed private diagnostics, and no token disclosure are present.",
 );
