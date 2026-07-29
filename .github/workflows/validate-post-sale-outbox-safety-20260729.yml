@@ -87,7 +87,7 @@ jobs:
         run: |
           node --import tsx scripts/run-checkout-webhook-idempotency-simulations.ts
           node --import tsx scripts/run-order-notification-hardening-simulations.ts
-          node scripts/run-ebay-import-admin-client-simulations.ts
+          node --import tsx scripts/run-ebay-import-admin-client-simulations.ts
 
       - name: Run migration coverage
         run: node scripts/run-launch-database-migration-coverage.mjs
