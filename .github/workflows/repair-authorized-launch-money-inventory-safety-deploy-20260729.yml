@@ -1,5 +1,5 @@
-name: Remove Orphaned Launch Cutover Deployment 20260729
-# Operations-only cleanup. Never merge this PR.
+name: Repair Launch Cutover Verification and Cleanup 20260729
+# Operations-only cleanup and safe-blob writer. Never merge this PR.
 
 on:
   pull_request:
@@ -9,20 +9,22 @@ on:
       - ".github/workflows/repair-authorized-launch-money-inventory-safety-deploy-20260729.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: remove-orphaned-launch-cutover-deployment-20260729
+  group: repair-launch-cutover-verification-and-cleanup-20260729
   cancel-in-progress: false
 
 jobs:
-  remove-orphaned-cutover:
+  repair-cutover:
     if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ops/repair-launch-money-inventory-cutover-20260729'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       EXPECTED_SOURCE_SHA: 8baee1bb26a17f974388b4d8e50b4321bbdfb685
-      EXPECTED_TARGET_SHA: 062e14057aaf584add9cd21a0171bb95887d5ef9
+      TARGET_BRANCH: deploy/launch-money-inventory-safety-20260729
+      TARGET_WORKFLOW: .github/workflows/authorized-launch-money-inventory-safety-deploy-20260729.yml
+      OUTPUT_FILE: ops-output/authorized-launch-money-inventory-safety-deploy-20260729.yml
       EPHEMERAL_URL: https://truely-collectables-mlp1vd0p3-truelycollectables-projects.vercel.app
       VERCEL_SCOPE: truelycollectables-projects
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -33,58 +35,161 @@ jobs:
           ref: ops/repair-launch-money-inventory-cutover-20260729
           fetch-depth: 0
 
-      - name: Confirm exact repository state
+      - name: Confirm exact main and capture current deployment branch
         shell: bash
         run: |
           set -euo pipefail
           test -n "${VERCEL_TOKEN:-}"
-          git fetch origin main deploy/launch-money-inventory-safety-20260729
+          git fetch origin main "$TARGET_BRANCH"
           test "$(git rev-parse origin/main)" = "$EXPECTED_SOURCE_SHA"
-          test "$(git rev-parse origin/deploy/launch-money-inventory-safety-20260729)" = "$EXPECTED_TARGET_SHA"
+          git rev-parse "origin/$TARGET_BRANCH" > target-head-sha.txt
+          git show "origin/$TARGET_BRANCH:$TARGET_WORKFLOW" > /tmp/authorized-cutover.yml
           case "$EPHEMERAL_URL" in
             https://truely-collectables-mlp1vd0p3-truelycollectables-projects.vercel.app) ;;
             *) exit 1 ;;
           esac
 
-      - name: Inspect exact orphaned deployment
+      - name: Remove exact orphaned credential-bound deployment
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p cleanup-evidence
-          npx vercel@56.2.0 inspect "$EPHEMERAL_URL" \
-            --scope "$VERCEL_SCOPE" \
-            --token "$VERCEL_TOKEN" \
-            > cleanup-evidence/inspect-before.txt 2>&1
-          grep -Fq 'truely-collectables-mlp1vd0p3-truelycollectables-projects.vercel.app' cleanup-evidence/inspect-before.txt
-
-      - name: Remove exact orphaned deployment
-        shell: bash
-        run: |
-          set -euo pipefail
-          npx vercel@56.2.0 remove "$EPHEMERAL_URL" \
-            --yes \
-            --scope "$VERCEL_SCOPE" \
-            --token "$VERCEL_TOKEN" \
-            > cleanup-evidence/remove.txt 2>&1
-
-      - name: Verify deployment is gone
-        shell: bash
-        run: |
-          set -euo pipefail
           if npx vercel@56.2.0 inspect "$EPHEMERAL_URL" \
             --scope "$VERCEL_SCOPE" \
             --token "$VERCEL_TOKEN" \
-            > cleanup-evidence/inspect-after.txt 2>&1; then
-            echo 'The exact ephemeral deployment still resolves.' >&2
-            exit 1
+            > cleanup-evidence/inspect-before.txt 2>&1; then
+            grep -Fq 'truely-collectables-mlp1vd0p3-truelycollectables-projects.vercel.app' cleanup-evidence/inspect-before.txt
+            npx vercel@56.2.0 remove "$EPHEMERAL_URL" \
+              --yes \
+              --scope "$VERCEL_SCOPE" \
+              --token "$VERCEL_TOKEN" \
+              > cleanup-evidence/remove.txt 2>&1
+            if npx vercel@56.2.0 inspect "$EPHEMERAL_URL" \
+              --scope "$VERCEL_SCOPE" \
+              --token "$VERCEL_TOKEN" \
+              > cleanup-evidence/inspect-after.txt 2>&1; then
+              echo 'The exact ephemeral deployment still resolves.' >&2
+              exit 1
+            fi
+            grep -Eiq 'not found|could not find|does not exist|no deployment' cleanup-evidence/inspect-after.txt
+          else
+            grep -Eiq 'not found|could not find|does not exist|no deployment' cleanup-evidence/inspect-before.txt
+            cp cleanup-evidence/inspect-before.txt cleanup-evidence/inspect-after.txt
+            printf '%s\n' 'already-absent' > cleanup-evidence/remove.txt
           fi
-          grep -Eiq 'not found|could not find|does not exist|no deployment' cleanup-evidence/inspect-after.txt
 
-      - name: Upload sanitized cleanup evidence
+      - name: Generate corrected and strengthened cutover workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          source = Path('/tmp/authorized-cutover.yml')
+          output = Path('ops-output/authorized-launch-money-inventory-safety-deploy-20260729.yml')
+          text = source.read_text(encoding='utf-8')
+          source_sha = '8baee1bb26a17f974388b4d8e50b4321bbdfb685'
+
+          if text.count(source_sha) != 2:
+              raise SystemExit('Expected exactly two exact-source SHA references.')
+          if 'deploy --help' in text or 'promote --help' in text:
+              raise SystemExit('A nonzero CLI help probe remains.')
+
+          stale_table = 'order_notification_outbox'
+          correct_table = 'order_notification_deliveries'
+          if text.count(stale_table) == 2:
+              text = text.replace(stale_table, correct_table)
+          elif text.count(stale_table) != 0 or text.count(correct_table) < 2:
+              raise SystemExit('Unexpected order notification table-reference shape.')
+
+          if text.count('| tail -n 1)') == 2:
+              text = text.replace('| tail -n 1)', '| head -n 1)')
+          elif text.count('| tail -n 1)') != 0 or text.count('| head -n 1)') < 2:
+              raise SystemExit('Unexpected deployment URL selector shape.')
+
+          old_column_check = "exists (select 1 from information_schema.columns where table_schema='public' and table_name='order_notification_deliveries' and column_name='next_attempt_at') as notification_backoff_column,"
+          new_column_check = "exists (select 1 from information_schema.columns where table_schema='public' and table_name='order_notification_deliveries' and column_name='next_attempt_at' and is_nullable='NO') as notification_backoff_column,\n            exists (select 1 from pg_indexes where schemaname='public' and tablename='order_notification_deliveries' and indexname='order_notification_deliveries_retry_idx' and indexdef ilike '%next_attempt_at%') as notification_retry_index,\n            to_regprocedure('public.truely_claim_order_notification(uuid,uuid)') is not null as notification_claim_function,"
+          if old_column_check in text:
+              text = text.replace(old_column_check, new_column_check, 1)
+          elif 'notification_retry_index' not in text or 'notification_claim_function' not in text:
+              raise SystemExit('Notification retry verification could not be strengthened.')
+
+          old_keys = "['outbox_table','reserve_function','decrement_function','consume_function','notification_backoff_column','outbox_rls','product_store_fk_validated','inventory_fk_restrict']"
+          new_keys = "['outbox_table','reserve_function','decrement_function','consume_function','notification_backoff_column','notification_retry_index','notification_claim_function','outbox_rls','product_store_fk_validated','inventory_fk_restrict']"
+          if old_keys in text:
+              text = text.replace(old_keys, new_keys, 1)
+          elif new_keys not in text:
+              raise SystemExit('Migration verification key list has an unexpected shape.')
+
+          old_terminal = "(select count(*) from public.order_notification_deliveries where status in ('failed','dead','exhausted')) as terminal_notification_failures;"
+          new_terminal = "(select count(*) from public.order_notification_deliveries where status='failed' and attempt_count >= 10) as terminal_notification_failures;"
+          if old_terminal in text:
+              text = text.replace(old_terminal, new_terminal, 1)
+          elif new_terminal not in text:
+              raise SystemExit('Runtime notification failure query has an unexpected shape.')
+
+          old_runtime_keys = "['invalid_outbox_quantity','pending_without_retry_time','invalid_reservation_quantity']"
+          new_runtime_keys = "['invalid_outbox_quantity','pending_without_retry_time','invalid_reservation_quantity','attached_active_reservations','terminal_notification_failures']"
+          if old_runtime_keys in text:
+              text = text.replace(old_runtime_keys, new_runtime_keys, 1)
+          elif new_runtime_keys not in text:
+              raise SystemExit('Runtime database safety key list has an unexpected shape.')
+
+          required = [
+              f'SOURCE_SHA: {source_sha}',
+              f'ref: {source_sha}',
+              correct_table,
+              'notification_retry_index',
+              'notification_claim_function',
+              'attached_active_reservations',
+              'terminal_notification_failures',
+              '| head -n 1)',
+              'Stage ephemeral credential-bound deployment',
+              'Verify ephemeral deployment before mutations',
+              'Apply six safety migrations atomically and verify',
+              'Stage clean exact-main Production deployment',
+              'Promote only the clean deployment',
+              'Remove ephemeral deployment',
+          ]
+          for value in required:
+              if value not in text:
+                  raise SystemExit(f'Missing guarded workflow requirement: {value}')
+          if stale_table in text or '| tail -n 1)' in text:
+              raise SystemExit('A stale verification or URL selector remains.')
+
+          output.parent.mkdir(parents=True, exist_ok=True)
+          output.write_text(text, encoding='utf-8')
+          PY
+          git diff --check -- "$OUTPUT_FILE"
+          grep -Fq 'notification_retry_index' "$OUTPUT_FILE"
+          grep -Fq 'notification_claim_function' "$OUTPUT_FILE"
+          grep -Fq "status='failed' and attempt_count >= 10" "$OUTPUT_FILE"
+          grep -Fq "'attached_active_reservations','terminal_notification_failures'" "$OUTPUT_FILE"
+          ! grep -Fq 'order_notification_outbox' "$OUTPUT_FILE"
+          ! grep -Fq '| tail -n 1)' "$OUTPUT_FILE"
+
+      - name: Publish sanitized corrected workflow blob
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add "$OUTPUT_FILE" target-head-sha.txt
+          if git diff --cached --quiet; then
+            echo 'Corrected workflow blob is already published.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Publish corrected launch cutover workflow blob'
+          git push origin HEAD:ops/repair-launch-money-inventory-cutover-20260729
+
+      - name: Upload sanitized repair and cleanup evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: orphaned-launch-cutover-cleanup-${{ github.run_number }}
-          path: cleanup-evidence
+          name: launch-cutover-repair-and-cleanup-${{ github.run_number }}
+          path: |
+            cleanup-evidence
+            target-head-sha.txt
+            ops-output/authorized-launch-money-inventory-safety-deploy-20260729.yml
           if-no-files-found: error
           retention-days: 30
