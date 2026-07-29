@@ -49,7 +49,7 @@ assert.match(body, /grant_type=client_credentials/);
 assert.match(body, /scope=https%3A%2F%2Fapi\.ebay\.com%2Foauth%2Fapi_scope/);
 assert.equal(ebayApplicationTokenService.status().cached, true);
 
- ebayApplicationTokenService.invalidate(first);
+ebayApplicationTokenService.invalidate(first);
 const refreshed = await ebayApplicationTokenService.getAccessToken();
 assert.equal(refreshed, "test-token-two");
 assert.equal(calls.length, 2, "Invalidated token must be minted again.");
