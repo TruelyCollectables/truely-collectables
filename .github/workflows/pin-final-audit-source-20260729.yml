@@ -105,4 +105,4 @@ jobs:
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add audit-staging-v2/ops-truely-full-launch-certificate-v2-20260729.yml audit-staging-v2/ops-truely-full-launch-certificate-v2-20260729.sha256
           git commit -m "Stage corrected Production certificate V2 workflow"
-          git push origin HEAD:ops/truqely-full-launch-audit-20260729
+          git push origin HEAD:ops/truely-full-launch-audit-20260729
