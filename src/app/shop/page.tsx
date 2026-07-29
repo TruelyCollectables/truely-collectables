@@ -219,6 +219,7 @@ export default async function Shop({
         />
 
         <select
+          aria-label="Filter by section"
           name="section"
           defaultValue={section}
           className="min-h-12 rounded border px-3 py-3 text-base"
@@ -232,6 +233,7 @@ export default async function Shop({
         </select>
 
         <select
+          aria-label="Filter by card feature"
           name="feature"
           defaultValue={feature}
           className="min-h-12 rounded border px-3 py-3 text-base"
@@ -245,6 +247,7 @@ export default async function Shop({
         </select>
 
         <select
+          aria-label="Sort inventory"
           name="sort"
           defaultValue={sort}
           className="min-h-12 rounded border px-3 py-3 text-base"
