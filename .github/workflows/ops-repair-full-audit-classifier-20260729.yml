@@ -1,4 +1,4 @@
-name: Repair Full Launch Audit Classifier 20260729
+name: Repair Full Launch Audit Runtime Environment 20260729
 
 on:
   pull_request:
@@ -12,7 +12,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: repair-full-launch-audit-classifier-20260729
+  group: repair-full-launch-audit-runtime-20260729
   cancel-in-progress: false
 
 jobs:
@@ -28,69 +28,49 @@ jobs:
           fetch-depth: 1
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Guard and repair audit semantics
+      - name: Guard and repair Production environment loading
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "c9c27334d8f257a9a2ca8ea5b120e38f8c2f1033"
-          test "$(sha256sum scripts/run-truely-launch-audit-20260729.mjs | awk '{print $1}')" = "c52319324def66af4f3d27c6683b028ffcf143a7c61a0046eefaf88c471c7bb1"
+          test "$(git rev-parse HEAD)" = "db4432ccea5e1b32520e2d254bdb85bb33b8137b"
+          test "$(sha256sum scripts/run-truely-launch-audit-20260729.mjs | awk '{print $1}')" = "7ed1f30fd3068dbfded37551309d57deda7f9d1f237714ff026587991fd8cced"
           python - <<'PY'
           from pathlib import Path
 
           path = Path("scripts/run-truely-launch-audit-20260729.mjs")
           source = path.read_text()
-
           replacements = [
               (
-                  '''const REQUIRED_STRIPE_EVENTS = [\n  "checkout.session.completed",\n  "refund.created",''',
-                  '''const REQUIRED_STRIPE_EVENTS = [\n  "checkout.session.completed",\n  "checkout.session.expired",\n  "refund.created",''',
+                  'import { execFileSync, spawnSync } from "node:child_process";\n',
+                  'import { execFileSync, spawnSync } from "node:child_process";\nimport { parseEnv } from "node:util";\n',
               ),
               (
-                  '''    ["account-auth", /getAuthenticatedAccountFromRequest|requireAuthenticated|requireAccount/],\n    ["seller-auth", /requireSeller|seller membership|role:\\s*["']seller["']/i],''',
-                  '''    ["account-auth", /getAuthenticatedAccountFromRequest|requireAuthenticated|requireAccount/],\n    ["instacomp-actor", /requireInstaCompJobActor/],\n    ["seller-auth", /requireSeller|seller membership|role:\\s*["']seller["']/i],''',
+                  '''    for (const match of text.matchAll(/\\.from\\(\\s*["'`]([^"'`]+)["'`]\\s*\\)/g)) tableNames.add(match[1]);''',
+                  '''    for (const match of text.matchAll(/\\.from\\(\\s*["'`]([^"'`]+)["'`]\\s*\\)/g)) {\n      if (/^[a-z][a-z0-9_]*$/.test(match[1])) tableNames.add(match[1]);\n    }''',
               ),
               (
-                  '''  const knownPublicPrefixes = [\n    "/api/account/login", "/api/account/signup", "/api/account/password", "/api/checkout",\n    "/api/offers", "/api/webhook", "/api/products", "/api/product", "/api/storefront",\n    "/api/health", "/api/tcos-profit-hunter/actions/openapi", "/api/ebay/oauth/callback",\n  ];\n  for (const file of files) {''',
-                  '''  const knownPublicPrefixes = [\n    "/api/account/login", "/api/account/signup", "/api/account/password", "/api/checkout",\n    "/api/offers", "/api/webhook", "/api/products", "/api/product", "/api/storefront",\n    "/api/health", "/api/tcos-profit-hunter/actions/openapi", "/api/ebay/oauth/callback",\n  ];\n  const proxy = safeRead("src/proxy.ts") || safeRead("src/middleware.ts") || "";\n  const proxyProtectedPrefixes = ["/api/admin", "/api/ebay", "/api/orders"].filter(\n    (prefix) =>\n      proxy.includes(`pathname.startsWith("${prefix}")`) ||\n      proxy.includes(`pathname.startsWith('${prefix}')`),\n  );\n  for (const file of files) {''',
-              ),
-              (
-                  '''    const publicKnown = knownPublicPrefixes.some((prefix) => url.startsWith(prefix));\n    const protectedByProxy = url.startsWith("/api/admin/");''',
-                  '''    const publicKnown = knownPublicPrefixes.some((prefix) => url.startsWith(prefix));\n    const protectedByProxy = proxyProtectedPrefixes.some(\n      (prefix) => url === prefix || url.startsWith(`${prefix}/`),\n    );''',
-              ),
-              (
-                  '''  const proxy = safeRead("src/proxy.ts") || safeRead("src/middleware.ts") || "";\n  const proxyChecks = ["/admin", "/api/admin", "/seller", "/api/cron"];\n  for (const prefix of proxyChecks) {\n    if (proxy.includes(prefix)) pushFinding(findings, "verified", "route-proxy", `Proxy source contains protection handling for ${prefix}.`);\n    else pushFinding(findings, prefix === "/seller" ? "warning" : "blocker", "route-proxy", `Proxy source does not visibly mention ${prefix}.`);\n  }''',
-                  '''  const proxyChecks = ["/admin", "/api/admin", "/api/ebay", "/api/orders", "/api/cron"];\n  for (const prefix of proxyChecks) {\n    if (proxy.includes(prefix)) pushFinding(findings, "verified", "route-proxy", `Proxy source contains security handling for ${prefix}.`);\n    else pushFinding(findings, "blocker", "route-proxy", `Proxy source does not visibly mention ${prefix}.`);\n  }''',
-              ),
-              (
-                  '''  const protectedPaths = [\n    ["/admin", [301, 302, 303, 307, 308, 401, 403]],\n    ["/admin/orders", [301, 302, 303, 307, 308, 401, 403]],\n    ["/seller", [301, 302, 303, 307, 308, 401, 403]],\n    ["/api/admin/orders", [401, 403, 404, 405]],''',
-                  '''  const protectedPaths = [\n    ["/admin", [301, 302, 303, 307, 308, 401, 403]],\n    ["/admin/orders", [301, 302, 303, 307, 308, 401, 403]],\n    ["/api/admin/orders", [401, 403, 404, 405]],''',
-              ),
-              (
-                  '''  for (const [pathname, accepted] of protectedPaths) {\n    const response = await fetchWithTimeout(`${base}${pathname}`);\n    protectedChecks.push({ pathname, status: response.status, location: response.headers.location || null });\n    if (accepted.includes(response.status)) pushFinding(findings, "verified", "unauthenticated-access", `${pathname} rejected or redirected unauthenticated access with HTTP ${response.status}.`);\n    else pushFinding(findings, "blocker", "unauthenticated-access", `${pathname} returned unexpected HTTP ${response.status} without authentication.`);\n  }\n\n  const apiChecks = [];''',
-                  '''  for (const [pathname, accepted] of protectedPaths) {\n    const response = await fetchWithTimeout(`${base}${pathname}`);\n    protectedChecks.push({ pathname, status: response.status, location: response.headers.location || null });\n    if (accepted.includes(response.status)) pushFinding(findings, "verified", "unauthenticated-access", `${pathname} rejected or redirected unauthenticated access with HTTP ${response.status}.`);\n    else pushFinding(findings, "blocker", "unauthenticated-access", `${pathname} returned unexpected HTTP ${response.status} without authentication.`);\n  }\n\n  const sellerShell = await fetchWithTimeout(`${base}/seller`);\n  const sellerGateVisible =\n    /Refreshing your TCOS account session|Log in through your TCOS account first/i.test(\n      sellerShell.body,\n    );\n  protectedChecks.push({\n    pathname: "/seller",\n    status: sellerShell.status,\n    location: sellerShell.headers.location || null,\n    clientGateVisible: sellerGateVisible,\n  });\n  if ([301, 302, 303, 307, 308, 401, 403].includes(sellerShell.status)) {\n    pushFinding(findings, "verified", "unauthenticated-access", `/seller rejected or redirected unauthenticated access with HTTP ${sellerShell.status}.`);\n  } else if (sellerShell.status === 200 && sellerGateVisible) {\n    pushFinding(findings, "verified", "unauthenticated-access", "/seller returned only its unauthenticated client gate; seller data APIs were independently required to reject unauthenticated access.");\n  } else {\n    pushFinding(findings, "blocker", "unauthenticated-access", `/seller returned HTTP ${sellerShell.status} without a visible login/session gate.`);\n  }\n\n  const apiChecks = [];''',
+                  '''async function runtimeAudit() {\n  const findings = [];''',
+                  '''function loadProductionAuditEnvironment() {\n  const envFile = path.join(ROOT, ".audit-production.env");\n  if (!fs.existsSync(envFile)) return;\n  Object.assign(process.env, parseEnv(fs.readFileSync(envFile, "utf8")));\n}\n\nasync function runtimeAudit() {\n  loadProductionAuditEnvironment();\n  const findings = [];''',
               ),
           ]
-
           for old, new in replacements:
               if source.count(old) != 1:
-                  raise SystemExit("Audit repair anchor mismatch")
+                  raise SystemExit("Runtime audit repair anchor mismatch")
               source = source.replace(old, new, 1)
-
           path.write_text(source)
           PY
           node --check scripts/run-truely-launch-audit-20260729.mjs
           test "$(git diff --name-only | tr -d '\r')" = "scripts/run-truely-launch-audit-20260729.mjs"
           git diff --check
-          grep -Fq 'requireInstaCompJobActor' scripts/run-truely-launch-audit-20260729.mjs
-          grep -Fq 'seller data APIs were independently required' scripts/run-truely-launch-audit-20260729.mjs
-          grep -Fq 'checkout.session.expired' scripts/run-truely-launch-audit-20260729.mjs
+          grep -Fq 'Object.assign(process.env, parseEnv' scripts/run-truely-launch-audit-20260729.mjs
+          grep -Fq '/^[a-z][a-z0-9_]*$/' scripts/run-truely-launch-audit-20260729.mjs
 
-      - name: Commit exact audit repair
+      - name: Commit exact runtime audit repair
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "truely-launch-audit-bot"
           git config user.email "actions@users.noreply.github.com"
           git add scripts/run-truely-launch-audit-20260729.mjs
-          git commit -m "Repair full launch audit security semantics"
+          git commit -m "Load exact Production env in full runtime audit"
           git push origin HEAD:ops/truely-full-launch-audit-20260729
