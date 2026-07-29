@@ -29,8 +29,8 @@ jobs:
           ref: ops/truely-full-launch-audit-20260729
           path: audit
           fetch-depth: 1
-      - name: Prepare exact guarded patch
-        run: python writer/scripts/ops-repair-full-audit-runtime-lighthouse.py audit
+      - name: Prepare exact guarded shell-source patch
+        run: python writer/scripts/ops-repair-full-audit-shell-source.py audit
       - name: Stage identical blob at non-workflow path
         shell: bash
         run: |
@@ -41,7 +41,7 @@ jobs:
           git -C writer config user.name "truely-launch-audit-bot"
           git -C writer config user.email "actions@users.noreply.github.com"
           git -C writer add ops/patched-full-audit-runtime-lighthouse.yml ops/patched-full-audit-runtime-lighthouse.sha256
-          git -C writer commit -m "Stage verified full-audit workflow blob"
+          git -C writer commit -m "Stage verified shell-source audit workflow blob"
           git -C writer push origin HEAD:ops/validate-transactional-metadata-20260729
       - name: Export sanitized evidence
         shell: bash
