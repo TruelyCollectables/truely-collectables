@@ -1,0 +1,691 @@
+name: Truely Collectables Final Launch Certificate v2 20260729
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/final-launch-certificate-v2-20260729.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: truely-final-launch-certificate-v2-20260729
+  cancel-in-progress: false
+
+env:
+  SOURCE_SHA: 7765f115d44e2629d47cc38871273dacdafcb8e7
+  PRIOR_AUDIT_RUN_ID: "30495185314"
+  PRIOR_AUDIT_HEAD_SHA: 3417c615337436df896cfe9d3238f5d29ae33518
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  VERCEL_SCOPE: truelycollectables-projects
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  EVIDENCE_DIR: /tmp/truely-final-certificate-v2
+
+jobs:
+  final-certificate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Check out exact current main
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+
+      - name: Fail closed if main moved
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$SOURCE_SHA"
+          git diff --quiet
+          mkdir -p "$EVIDENCE_DIR"
+          printf '%s\n' "$SOURCE_SHA" > "$EVIDENCE_DIR/source-sha.txt"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify immutable successful full-audit gates
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const headers = {
+            authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+            accept: 'application/vnd.github+json',
+            'x-github-api-version': '2022-11-28',
+          };
+          const api = async (path) => {
+            const response = await fetch(`https://api.github.com/repos/${process.env.GITHUB_REPOSITORY}${path}`, { headers });
+            if (!response.ok) throw new Error(`GitHub API ${path} returned ${response.status}`);
+            return response.json();
+          };
+          const run = await api(`/actions/runs/${process.env.PRIOR_AUDIT_RUN_ID}`);
+          if (run.head_sha !== process.env.PRIOR_AUDIT_HEAD_SHA) throw new Error('Prior audit head SHA changed.');
+          const pr = await api('/pulls/205');
+          if (pr.base.sha !== process.env.SOURCE_SHA || pr.head.sha !== process.env.PRIOR_AUDIT_HEAD_SHA) {
+            throw new Error('Prior audit PR is not pinned to the exact current source.');
+          }
+          const jobsResponse = await api(`/actions/runs/${process.env.PRIOR_AUDIT_RUN_ID}/jobs?per_page=100`);
+          const jobs = new Map(jobsResponse.jobs.map((job) => [job.name, job.conclusion]));
+          const required = [
+            'Repository inventory and source security',
+            'Dependencies, lint, TypeScript, and production build',
+            'API route and privilege audit',
+            'Live Production crawl and access checks',
+            ...Array.from({ length: 6 }, (_, index) => `Simulation shard ${index}`),
+          ];
+          for (const name of required) {
+            if (jobs.get(name) !== 'success') throw new Error(`Immutable prior gate is not successful: ${name} = ${jobs.get(name)}`);
+          }
+          const result = {
+            runId: Number(process.env.PRIOR_AUDIT_RUN_ID),
+            auditHeadSha: process.env.PRIOR_AUDIT_HEAD_SHA,
+            sourceSha: process.env.SOURCE_SHA,
+            requiredGates: Object.fromEntries(required.map((name) => [name, jobs.get(name)])),
+          };
+          fs.writeFileSync(`${process.env.EVIDENCE_DIR}/immutable-prior-gates.json`, JSON.stringify(result, null, 2));
+          NODE
+
+      - name: Resolve exact Vercel project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          mkdir -p .vercel
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          npx vercel@56.2.0 whoami --token "$VERCEL_TOKEN" > "$EVIDENCE_DIR/vercel-identity.txt"
+
+      - name: Deploy exact current source to Production
+        id: clean
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          npx vercel@56.2.0 deploy --prod --yes --force \
+            --meta "launchSourceSha=$SOURCE_SHA" \
+            --meta "launchPurpose=final-launch-certificate-v2" \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" \
+            2>&1 | tee "$EVIDENCE_DIR/clean-production-deploy.log"
+          CLEAN_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$EVIDENCE_DIR/clean-production-deploy.log" | tail -n 1)"
+          test -n "$CLEAN_URL"
+          printf '%s\n' "$CLEAN_URL" > "$EVIDENCE_DIR/clean-production-url.txt"
+          echo "clean_url=$CLEAN_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Verify exact Production deployment and privileged boundaries
+        env:
+          CLEAN_URL: ${{ steps.clean.outputs.clean_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for label in deployment custom; do
+            if [ "$label" = deployment ]; then base="$CLEAN_URL"; else base="https://truelycollectables.com"; fi
+            for path in / /shop /cart /account/signup /account/login /shipping /returns /buyer-protection; do
+              code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 90 --output "$EVIDENCE_DIR/${label}-${path//\//-}.html" --write-out '%{http_code}' "$base$path")"
+              test "$code" = "200"
+            done
+            admin_code="$(curl --silent --show-error --output "$EVIDENCE_DIR/${label}-admin.html" --write-out '%{http_code}' "$base/admin")"
+            login_code="$(curl --location --silent --show-error --output "$EVIDENCE_DIR/${label}-admin-login.html" --write-out '%{http_code}' "$base/admin/login")"
+            test "$admin_code" = "307"
+            test "$login_code" = "200"
+            grep -Fq 'Admin Login' "$EVIDENCE_DIR/${label}-admin-login.html"
+            grep -Fq 'id="shop-search"' "$EVIDENCE_DIR/${label}--shop.html"
+            grep -Fq 'for="shop-search"' "$EVIDENCE_DIR/${label}--shop.html"
+            if grep -Fq 'aria-label="Truely Collectables home"' "$EVIDENCE_DIR/${label}--shop.html"; then
+              echo "Stale navbar accessible name remains on $label" >&2
+              exit 1
+            fi
+          done
+          grep -Eiq '<link[^>]+rel="canonical"[^>]+href="https://truelycollectables.com/cart"' "$EVIDENCE_DIR/custom--cart.html"
+          grep -Eiq '<meta[^>]+name="robots"[^>]+content="noindex, nofollow"' "$EVIDENCE_DIR/custom--cart.html"
+          grep -Eiq '<link[^>]+rel="canonical"[^>]+href="https://truelycollectables.com/account/signup"' "$EVIDENCE_DIR/custom--account-signup.html"
+          grep -Eiq '<meta[^>]+name="robots"[^>]+content="noindex, nofollow"' "$EVIDENCE_DIR/custom--account-signup.html"
+
+      - name: Create ephemeral protected Production-runtime audit function
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUNTIME_TOKEN="$(openssl rand -hex 32)"
+          echo "::add-mask::$RUNTIME_TOKEN"
+          echo "RUNTIME_TOKEN=$RUNTIME_TOKEN" >> "$GITHUB_ENV"
+          mkdir -p src/app/api/internal/final-launch-audit-v2
+          cat > src/app/api/internal/final-launch-audit-v2/route.js <<'ROUTE'
+          import { timingSafeEqual } from "node:crypto";
+          import Stripe from "stripe";
+          import { createClient } from "@supabase/supabase-js";
+
+          export const runtime = "nodejs";
+          export const dynamic = "force-dynamic";
+          export const revalidate = 0;
+          export const maxDuration = 300;
+
+          const REQUIRED_STRIPE_EVENTS = [
+            "checkout.session.completed",
+            "checkout.session.expired",
+            "refund.created",
+            "refund.updated",
+            "refund.failed",
+            "charge.dispute.created",
+            "charge.dispute.updated",
+            "charge.dispute.closed",
+            "charge.dispute.funds_withdrawn",
+            "charge.dispute.funds_reinstated",
+            "account.updated",
+          ];
+
+          function equal(a, b) {
+            const left = Buffer.from(String(a || ""), "utf8");
+            const right = Buffer.from(String(b || ""), "utf8");
+            return left.length > 0 && left.length === right.length && timingSafeEqual(left, right);
+          }
+
+          function redact(value) {
+            return String(value || "")
+              .replace(/sk_(?:live|test)_[A-Za-z0-9_-]+/g, "[REDACTED_STRIPE_KEY]")
+              .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [REDACTED]")
+              .replace(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "[REDACTED_JWT]")
+              .slice(0, 4000);
+          }
+
+          function reply(body, status = 200) {
+            return Response.json(body, {
+              status,
+              headers: {
+                "Cache-Control": "no-store, max-age=0",
+                Pragma: "no-cache",
+                "X-Content-Type-Options": "nosniff",
+              },
+            });
+          }
+
+          function recursiveFind(value, matcher, depth = 0) {
+            if (depth > 7 || value === null || value === undefined) return null;
+            if (Array.isArray(value)) {
+              for (const item of value) {
+                const found = recursiveFind(item, matcher, depth + 1);
+                if (found) return found;
+              }
+              return null;
+            }
+            if (typeof value !== "object") return null;
+            for (const [key, child] of Object.entries(value)) {
+              if (matcher.test(key) && typeof child === "string" && child.length > 20) return child;
+              const found = recursiveFind(child, matcher, depth + 1);
+              if (found) return found;
+            }
+            return null;
+          }
+
+          function projectRef() {
+            const url = String(process.env.NEXT_PUBLIC_SUPABASE_URL || "");
+            if (!url) throw new Error("NEXT_PUBLIC_SUPABASE_URL is unavailable.");
+            return new URL(url).hostname.split(".")[0];
+          }
+
+          async function sql(query) {
+            const token = String(process.env.SUPABASE_ACCESS_TOKEN || "");
+            if (!token) throw new Error("SUPABASE_ACCESS_TOKEN is unavailable.");
+            const response = await fetch(`https://api.supabase.com/v1/projects/${projectRef()}/database/query`, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+              body: JSON.stringify({ query, parameters: [], read_only: true }),
+            });
+            const text = await response.text();
+            if (!response.ok) throw new Error(`Supabase read-only query returned HTTP ${response.status}.`);
+            return text ? JSON.parse(text) : [];
+          }
+
+          async function runAudit() {
+            const findings = [];
+            const add = (severity, area, message, evidence = null) => findings.push({ severity, area, message, evidence });
+            const requiredEnv = [
+              "NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "STRIPE_LIVE_SECRET_KEY",
+              "RESEND_API_KEY", "EBAY_CLIENT_ID", "EBAY_CLIENT_SECRET", "SUPABASE_ACCESS_TOKEN",
+            ];
+            for (const name of requiredEnv) {
+              if (!process.env[name]) add("blocker", "runtime-environment", `${name} is unavailable inside the Production runtime.`);
+            }
+            if (findings.some((finding) => finding.severity === "blocker")) return { findings };
+
+            const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
+              auth: { persistSession: false, autoRefreshToken: false },
+            });
+            async function fetchAll(table, pageSize = 1000, maxRows = 50000) {
+              const rows = [];
+              for (let from = 0; from < maxRows; from += pageSize) {
+                const { data, error } = await supabase.from(table).select("*").range(from, from + pageSize - 1);
+                if (error) return { rows: [], error: redact(error.message) };
+                rows.push(...(data || []));
+                if (!data || data.length < pageSize) break;
+              }
+              return { rows, error: null };
+            }
+
+            const keyTables = [
+              "products", "inventory_items", "inventory_images", "orders", "order_items", "offers",
+              "account_profiles", "account_store_memberships", "seller_profiles", "seller_payout_accounts",
+              "store_settings", "ebay_tokens", "connected_accounts", "store_accounts", "order_notification_outbox",
+              "checkout_attempts", "checkout_inventory_reservations", "stripe_webhook_events",
+            ];
+            const data = {};
+            const tableCoverage = [];
+            for (const table of keyTables) {
+              const { count, error } = await supabase.from(table).select("*", { count: "exact", head: true });
+              tableCoverage.push({ table, ok: !error, count: count ?? null, error: error ? redact(error.message) : null });
+              if (!error) {
+                const loaded = await fetchAll(table);
+                if (!loaded.error) data[table] = loaded.rows;
+              }
+            }
+            const requiredTables = ["products", "inventory_items", "orders", "order_items", "account_profiles", "account_store_memberships", "checkout_inventory_reservations"];
+            for (const table of requiredTables) {
+              if (!tableCoverage.find((row) => row.table === table)?.ok) add("blocker", "supabase-schema", `Required table could not be read: ${table}`);
+            }
+            add("verified", "supabase-schema", `${tableCoverage.filter((row) => row.ok).length} key Production tables responded to service-role checks.`);
+
+            const products = data.products || [];
+            const inventory = data.inventory_items || [];
+            const images = data.inventory_images || [];
+            const orders = data.orders || [];
+            const orderItems = data.order_items || [];
+            const profiles = data.account_profiles || [];
+            const memberships = data.account_store_memberships || [];
+            const activeProducts = products.filter((row) => Number(row.quantity) > 0 && Number(row.price) > 0 && !row.archived_at && !["sold", "archived", "inactive"].includes(String(row.status || "").toLowerCase()));
+
+            const duplicateEbay = new Map();
+            for (const row of products) if (row.ebay_item_id) duplicateEbay.set(String(row.ebay_item_id), (duplicateEbay.get(String(row.ebay_item_id)) || 0) + 1);
+            const duplicateEbayCount = [...duplicateEbay.values()].filter((count) => count > 1).length;
+            duplicateEbayCount ? add("blocker", "inventory", `${duplicateEbayCount} duplicate eBay item identities exist.`) : add("verified", "inventory", "No duplicate non-null eBay item identity exists.");
+            const invalidProducts = products.filter((row) => Number(row.price) < 0 || Number(row.quantity) < 0).length;
+            invalidProducts ? add("blocker", "inventory", `${invalidProducts} products have negative price or quantity.`) : add("verified", "inventory", "No product has a negative price or quantity.");
+            const activeMissingImage = activeProducts.filter((row) => !row.image_url).length;
+            activeMissingImage ? add("blocker", "inventory", `${activeMissingImage} active sellable products lack a primary image.`) : add("verified", "inventory", `${activeProducts.length} active sellable products have primary images.`);
+
+            const inventoryKeys = new Map();
+            for (const row of inventory) {
+              const key = `${row.store_id || ""}:${row.legacy_product_id || ""}`;
+              inventoryKeys.set(key, (inventoryKeys.get(key) || 0) + 1);
+            }
+            const duplicateInventory = [...inventoryKeys.entries()].filter(([key, count]) => !key.endsWith(":") && count > 1).length;
+            duplicateInventory ? add("blocker", "inventory", `${duplicateInventory} duplicate store/product inventory identities exist.`) : add("verified", "inventory", "No duplicate store/product inventory identity exists.");
+            const productIds = new Set(products.map((row) => String(row.id)));
+            const orphanInventory = inventory.filter((row) => row.legacy_product_id && !productIds.has(String(row.legacy_product_id))).length;
+            orphanInventory ? add("blocker", "inventory", `${orphanInventory} inventory rows reference missing products.`) : add("verified", "inventory", "No inventory row references a missing product.");
+
+            const imageGroups = new Map();
+            for (const row of images) {
+              const key = String(row.inventory_item_id || row.inventory_id || "");
+              imageGroups.set(key, [...(imageGroups.get(key) || []), row]);
+            }
+            const multiplePrimary = [...imageGroups.values()].filter((rows) => rows.filter((row) => row.is_primary === true).length > 1).length;
+            multiplePrimary ? add("blocker", "inventory-images", `${multiplePrimary} inventory rows have multiple primary images.`) : add("verified", "inventory-images", "No inventory row has multiple primary images.");
+
+            const orderIds = new Set(orders.map((row) => String(row.id)));
+            const orphanOrderItems = orderItems.filter((row) => row.order_id && !orderIds.has(String(row.order_id))).length;
+            orphanOrderItems ? add("blocker", "orders", `${orphanOrderItems} order items reference missing orders.`) : add("verified", "orders", "No order item references a missing order.");
+            const invalidOrderItems = orderItems.filter((row) => Number(row.quantity ?? 1) <= 0 || Number(row.price ?? row.unit_price ?? 0) < 0).length;
+            if (invalidOrderItems) add("blocker", "orders", `${invalidOrderItems} order items have invalid quantity or price.`);
+
+            const emails = new Map();
+            for (const row of profiles) if (row.email) emails.set(String(row.email).trim().toLowerCase(), (emails.get(String(row.email).trim().toLowerCase()) || 0) + 1);
+            const duplicateEmails = [...emails.values()].filter((count) => count > 1).length;
+            duplicateEmails ? add("blocker", "buyer-accounts", `${duplicateEmails} duplicate normalized buyer emails exist.`) : add("verified", "buyer-accounts", "No duplicate normalized buyer email exists.");
+            const pendingBuyers = profiles.filter((row) => String(row.account_status || "").toLowerCase() === "payment_verification_required" && String(row.default_account_type || "buyer").toLowerCase() === "buyer").length;
+            pendingBuyers ? add("warning", "buyer-accounts", `${pendingBuyers} legacy buyer profiles remain pending migration on next authenticated use.`) : add("verified", "buyer-accounts", "No buyer profile remains blocked by retired card verification.");
+            const membershipKeys = new Map();
+            for (const row of memberships) {
+              const key = `${row.account_id}:${row.store_id}:${row.role}`;
+              membershipKeys.set(key, (membershipKeys.get(key) || 0) + 1);
+            }
+            const duplicateMemberships = [...membershipKeys.values()].filter((count) => count > 1).length;
+            duplicateMemberships ? add("blocker", "accounts", `${duplicateMemberships} duplicate account/store/role memberships exist.`) : add("verified", "accounts", "No duplicate account/store/role membership exists.");
+
+            const verificationRows = await sql(`select
+              to_regclass('public.ebay_quantity_sync_outbox') is not null as outbox_table,
+              to_regprocedure('public.tcos_reserve_checkout_inventory(uuid,uuid,jsonb,integer)') is not null as reserve_function,
+              to_regprocedure('public.tcos_decrement_order_inventory_once(uuid,bigint,bigint,integer)') is not null as decrement_function,
+              to_regprocedure('public.tcos_consume_checkout_reservation_after_sale(uuid,uuid,bigint,integer,text)') is not null as consume_function,
+              exists (select 1 from information_schema.columns where table_schema='public' and table_name='order_notification_deliveries' and column_name='next_attempt_at') as notification_backoff_column,
+              exists (select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname='ebay_quantity_sync_outbox' and c.relrowsecurity) as outbox_rls,
+              (select count(*) from pg_trigger where not tgisinternal and tgname in ('truely_enqueue_ebay_quantity_sync_from_reservation','truely_enqueue_ebay_quantity_sync_from_order_consumption','truely_protect_pending_ebay_product_quantity','truely_protect_pending_ebay_inventory_quantity')) as safety_trigger_count,
+              exists (select 1 from pg_constraint where conname='checkout_inventory_reservations_product_store_fkey' and convalidated) as product_store_fk_validated,
+              exists (select 1 from pg_constraint where conname='checkout_inventory_reservations_inventory_item_id_fkey' and confdeltype='r') as inventory_fk_restrict;`);
+            const schemaSafety = Array.isArray(verificationRows) ? verificationRows[0] : verificationRows;
+            for (const key of ["outbox_table", "reserve_function", "decrement_function", "consume_function", "notification_backoff_column", "outbox_rls", "product_store_fk_validated", "inventory_fk_restrict"]) {
+              if (schemaSafety?.[key] !== true) add("blocker", "money-inventory-safety", `Database safety verification failed: ${key}`);
+            }
+            if (Number(schemaSafety?.safety_trigger_count || 0) !== 4) add("blocker", "money-inventory-safety", "Expected four eBay quantity safety triggers.");
+
+            const runtimeRows = await sql(`select
+              (select count(*) from public.ebay_quantity_sync_outbox where desired_quantity < 0) as invalid_outbox_quantity,
+              (select count(*) from public.ebay_quantity_sync_outbox where status='pending' and next_attempt_at is null) as pending_without_retry_time,
+              (select count(*) from public.checkout_inventory_reservations where quantity <= 0) as invalid_reservation_quantity,
+              (select count(*) from public.checkout_inventory_reservations where status='active' and stripe_session_id is not null) as attached_active_reservations,
+              (select count(*) from public.order_notification_deliveries where status in ('failed','dead','exhausted')) as terminal_notification_failures;`);
+            const databaseSafety = Array.isArray(runtimeRows) ? runtimeRows[0] : runtimeRows;
+            for (const key of ["invalid_outbox_quantity", "pending_without_retry_time", "invalid_reservation_quantity", "terminal_notification_failures"]) {
+              if (Number(databaseSafety?.[key] || 0) !== 0) add("blocker", "money-inventory-safety", `${key} is ${databaseSafety?.[key]}.`);
+            }
+            add("verified", "money-inventory-safety", "Production migration objects and invalid-state counts passed read-only verification.", { attachedActiveReservations: Number(databaseSafety?.attached_active_reservations || 0) });
+
+            const liveStripeKey = String(process.env.STRIPE_LIVE_SECRET_KEY || "").startsWith("sk_live_") ? process.env.STRIPE_LIVE_SECRET_KEY : String(process.env.STRIPE_SECRET_KEY || "").startsWith("sk_live_") ? process.env.STRIPE_SECRET_KEY : "";
+            const stripeSummary = { configured: Boolean(liveStripeKey), chargesEnabled: false, endpointCount: 0, requiredEventsPresent: false };
+            try {
+              const stripe = new Stripe(liveStripeKey);
+              const account = await stripe.accounts.retrieve();
+              stripeSummary.chargesEnabled = account.charges_enabled === true;
+              const endpoints = await stripe.webhookEndpoints.list({ limit: 100 });
+              const target = endpoints.data.filter((entry) => entry.url === "https://truelycollectables.com/api/webhook" && entry.status === "enabled");
+              stripeSummary.endpointCount = target.length;
+              const missing = target.length === 1 ? REQUIRED_STRIPE_EVENTS.filter((event) => !target[0].enabled_events.includes("*") && !target[0].enabled_events.includes(event)) : REQUIRED_STRIPE_EVENTS;
+              stripeSummary.requiredEventsPresent = missing.length === 0;
+              if (target.length !== 1) add("blocker", "stripe", `Expected one enabled custom-domain webhook; found ${target.length}.`);
+              else if (missing.length) add("blocker", "stripe", `Stripe webhook is missing ${missing.length} required events.`, missing);
+              else add("verified", "stripe", "Exactly one custom-domain webhook contains all 11 required events.");
+              account.charges_enabled ? add("verified", "stripe", "Stripe reports charges enabled.") : add("blocker", "stripe", "Stripe reports charges disabled.");
+            } catch (error) {
+              add("blocker", "stripe", "Stripe read-only verification failed.", redact(error?.message || error));
+            }
+
+            const resendSummary = { verifiedDomain: false };
+            try {
+              const response = await fetch("https://api.resend.com/domains", { headers: { authorization: `Bearer ${process.env.RESEND_API_KEY}` } });
+              const json = await response.json();
+              resendSummary.verifiedDomain = response.ok && (json.data || []).some((domain) => /truelycollectables\.com$/i.test(domain.name) && domain.status === "verified");
+              resendSummary.verifiedDomain ? add("verified", "resend", "Resend reports the sending domain verified.") : add("blocker", "resend", "Resend did not report a verified sending domain.");
+            } catch (error) {
+              add("blocker", "resend", "Resend verification failed.", redact(error?.message || error));
+            }
+
+            const ebaySummary = { appToken: false, browseSearch: false, sellerRefreshTokenPresent: false, sellerTradingRead: null };
+            try {
+              const basic = Buffer.from(`${process.env.EBAY_CLIENT_ID}:${process.env.EBAY_CLIENT_SECRET}`).toString("base64");
+              const tokenResponse = await fetch("https://api.ebay.com/identity/v1/oauth2/token", {
+                method: "POST",
+                headers: { authorization: `Basic ${basic}`, "content-type": "application/x-www-form-urlencoded" },
+                body: new URLSearchParams({ grant_type: "client_credentials", scope: "https://api.ebay.com/oauth/api_scope" }),
+              });
+              const tokenJson = await tokenResponse.json();
+              ebaySummary.appToken = tokenResponse.ok && Boolean(tokenJson.access_token);
+              if (!ebaySummary.appToken) throw new Error(`Application token returned HTTP ${tokenResponse.status}.`);
+              const browse = await fetch("https://api.ebay.com/buy/browse/v1/item_summary/search?q=sports%20card&limit=1", { headers: { authorization: `Bearer ${tokenJson.access_token}`, "x-ebay-c-marketplace-id": "EBAY_US" } });
+              ebaySummary.browseSearch = browse.ok;
+              browse.ok ? add("verified", "ebay", "Production application-token minting and Browse search succeeded.") : add("blocker", "ebay", `Browse search returned HTTP ${browse.status}.`);
+
+              const tokenRows = [...(data.ebay_tokens || []), ...(data.connected_accounts || []), ...(data.store_accounts || [])];
+              const refreshToken = recursiveFind(tokenRows, /refresh.*token|token.*refresh/i);
+              ebaySummary.sellerRefreshTokenPresent = Boolean(refreshToken);
+              if (!refreshToken) {
+                add("warning", "ebay", "No seller refresh token was discoverable for an independent Trading API read.");
+              } else {
+                const refreshResponse = await fetch("https://api.ebay.com/identity/v1/oauth2/token", {
+                  method: "POST",
+                  headers: { authorization: `Basic ${basic}`, "content-type": "application/x-www-form-urlencoded" },
+                  body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: refreshToken, scope: "https://api.ebay.com/oauth/api_scope" }),
+                });
+                const refreshJson = await refreshResponse.json();
+                if (!refreshResponse.ok || !refreshJson.access_token) throw new Error(`Seller token refresh returned HTTP ${refreshResponse.status}.`);
+                const xml = `<?xml version="1.0" encoding="utf-8"?><GetMyeBaySellingRequest xmlns="urn:ebay:apis:eBLBaseComponents"><RequesterCredentials><eBayAuthToken>${refreshJson.access_token}</eBayAuthToken></RequesterCredentials><ActiveList><Include>true</Include><Pagination><EntriesPerPage>1</EntriesPerPage><PageNumber>1</PageNumber></Pagination></ActiveList><DetailLevel>ReturnAll</DetailLevel></GetMyeBaySellingRequest>`;
+                const trading = await fetch("https://api.ebay.com/ws/api.dll", { method: "POST", headers: { "x-ebay-api-call-name": "GetMyeBaySelling", "x-ebay-api-compatibility-level": "1231", "x-ebay-api-siteid": "0", "content-type": "text/xml" }, body: xml });
+                const tradingText = await trading.text();
+                const ack = tradingText.match(/<Ack>([^<]+)<\/Ack>/)?.[1] || null;
+                const total = Number(tradingText.match(/<TotalNumberOfEntries>(\d+)<\/TotalNumberOfEntries>/)?.[1] || 0);
+                ebaySummary.sellerTradingRead = { httpStatus: trading.status, ack, activeEntries: total };
+                trading.ok && ["Success", "Warning"].includes(ack) ? add("verified", "ebay", `Seller-authorized Trading API read succeeded with ${total} active entries.`) : add("blocker", "ebay", `Trading API returned HTTP ${trading.status} / Ack ${ack}.`);
+              }
+            } catch (error) {
+              add("blocker", "ebay", "eBay Production verification failed.", redact(error?.message || error));
+            }
+
+            const outboxRows = data.order_notification_outbox || [];
+            const failedOutbox = outboxRows.filter((row) => ["failed", "dead", "exhausted"].includes(String(row.status || "").toLowerCase())).length;
+            const pendingOutbox = outboxRows.filter((row) => ["pending", "retry", "processing"].includes(String(row.status || "").toLowerCase())).length;
+            failedOutbox ? add("blocker", "notifications", `${failedOutbox} notification outbox rows are terminally failed.`) : add("verified", "notifications", "No notification outbox row is terminally failed.");
+            if (pendingOutbox) add("warning", "notifications", `${pendingOutbox} notification outbox rows are pending or processing.`);
+
+            return {
+              checkedAt: new Date().toISOString(),
+              sourceSha: process.env.TCOS_AUDIT_SOURCE_SHA || null,
+              environment: process.env.VERCEL_ENV || null,
+              tableCoverage,
+              keyTableCounts: Object.fromEntries(Object.entries(data).map(([key, rows]) => [key, rows.length])),
+              schemaSafety,
+              databaseSafety,
+              stripeSummary,
+              resendSummary,
+              ebaySummary,
+              findings,
+            };
+          }
+
+          export async function POST(request) {
+            if (!equal(request.headers.get("x-tcos-final-audit-token"), process.env.TCOS_FINAL_AUDIT_TOKEN)) {
+              return reply({ ok: false, code: "UNAUTHORIZED" }, 401);
+            }
+            try {
+              return reply({ ok: true, result: await runAudit() });
+            } catch (error) {
+              return reply({ ok: false, code: "AUDIT_FAILED", error: redact(error?.message || error) }, 500);
+            }
+          }
+          ROUTE
+          git diff --check
+
+      - name: Stage credential-bound Production-runtime audit deployment
+        id: runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 deploy --prod --yes --force --skip-domain \
+            --meta "launchSourceSha=$SOURCE_SHA" \
+            --meta "launchPurpose=final-certificate-runtime-audit" \
+            --env "TCOS_FINAL_AUDIT_TOKEN=$RUNTIME_TOKEN" \
+            --env "TCOS_AUDIT_SOURCE_SHA=$SOURCE_SHA" \
+            --env "SUPABASE_ACCESS_TOKEN=$GH_SUPABASE_ACCESS_TOKEN" \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" \
+            2>&1 | tee "$EVIDENCE_DIR/runtime-deployment.log"
+          RUNTIME_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$EVIDENCE_DIR/runtime-deployment.log" | head -n 1)"
+          test -n "$RUNTIME_URL"
+          printf '%s\n' "$RUNTIME_URL" > "$EVIDENCE_DIR/runtime-deployment-url.txt"
+          echo "runtime_url=$RUNTIME_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Execute sanitized read-only Production runtime audit
+        env:
+          RUNTIME_URL: ${{ steps.runtime.outputs.runtime_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="$RUNTIME_URL/api/internal/final-launch-audit-v2"
+          unauthorized="$(curl --silent --show-error --output "$EVIDENCE_DIR/runtime-unauthorized.json" --write-out '%{http_code}' --request POST --header 'Content-Type: application/json' --data '{}' "$endpoint")"
+          test "$unauthorized" = "401"
+          code="$(curl --silent --show-error --connect-timeout 15 --max-time 300 --output "$EVIDENCE_DIR/runtime-response.json" --write-out '%{http_code}' \
+            --request POST --header 'Content-Type: application/json' --header "x-tcos-final-audit-token: $RUNTIME_TOKEN" --data '{}' "$endpoint")"
+          test "$code" = "200"
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const response = JSON.parse(fs.readFileSync(`${process.env.EVIDENCE_DIR}/runtime-response.json`, 'utf8'));
+          if (response.ok !== true || !response.result) throw new Error('Production runtime audit did not return a result.');
+          if (response.result.sourceSha !== process.env.SOURCE_SHA) throw new Error('Runtime audit source SHA mismatch.');
+          if (response.result.environment !== 'production') throw new Error('Runtime audit was not Production-targeted.');
+          const blockers = (response.result.findings || []).filter((finding) => finding.severity === 'blocker');
+          fs.writeFileSync(`${process.env.EVIDENCE_DIR}/runtime-integrations-audit.json`, JSON.stringify(response.result, null, 2));
+          fs.writeFileSync(`${process.env.EVIDENCE_DIR}/runtime-integrations-audit.md`, '# Production runtime integrations\n\n' + (response.result.findings || []).map((finding) => `- **${finding.severity.toUpperCase()}** ${finding.area}: ${finding.message}`).join('\n') + '\n');
+          if (blockers.length) throw new Error(`Production runtime audit has ${blockers.length} blocker(s).`);
+          NODE
+
+      - name: Remove ephemeral route from working tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf src/app/api/internal/final-launch-audit-v2
+          git diff --exit-code
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+
+      - name: Rerun corrected customer-domain Lighthouse gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE_DIR/lighthouse"
+          urls=(
+            "https://truelycollectables.com/"
+            "https://truelycollectables.com/shop"
+            "https://truelycollectables.com/account/signup"
+            "https://truelycollectables.com/cart"
+          )
+          names=(home shop signup cart)
+          for index in "${!urls[@]}"; do
+            npx --yes lighthouse@12.8.2 "${urls[$index]}" \
+              --only-categories=performance,accessibility,best-practices,seo \
+              --output=json \
+              --output-path="$EVIDENCE_DIR/lighthouse/${names[$index]}.json" \
+              --chrome-flags="--headless --no-sandbox --disable-gpu" \
+              --quiet
+          done
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const dir = `${process.env.EVIDENCE_DIR}/lighthouse`;
+          const rows = [];
+          for (const page of ['home', 'shop', 'signup', 'cart']) {
+            const report = JSON.parse(fs.readFileSync(path.join(dir, `${page}.json`), 'utf8'));
+            const mismatch = report.audits['label-content-name-mismatch'];
+            const row = {
+              page,
+              performance: Math.round((report.categories.performance?.score || 0) * 100),
+              accessibility: Math.round((report.categories.accessibility?.score || 0) * 100),
+              bestPractices: Math.round((report.categories['best-practices']?.score || 0) * 100),
+              seo: Math.round((report.categories.seo?.score || 0) * 100),
+              canonical: report.audits.canonical?.score,
+              crawlable: report.audits['is-crawlable']?.score,
+              selectName: report.audits['select-name']?.score ?? null,
+              labelMismatchScore: mismatch?.score ?? null,
+              labelMismatchFindings: mismatch?.details?.items?.length ?? 0,
+            };
+            if (row.accessibility < 90) throw new Error(`${page} accessibility is ${row.accessibility}.`);
+            if (row.bestPractices < 85) throw new Error(`${page} best practices is ${row.bestPractices}.`);
+            if (row.canonical !== 1) throw new Error(`${page} canonical audit did not pass.`);
+            if (['home', 'shop'].includes(page)) {
+              if (row.seo < 90 || row.crawlable !== 1) throw new Error(`${page} public SEO/crawlability did not pass.`);
+            } else {
+              if (row.crawlable !== 0) throw new Error(`${page} must remain intentionally non-crawlable.`);
+            }
+            if (page === 'shop' && row.selectName !== 1) throw new Error('Shop select-name did not pass.');
+            const mismatchPassed = row.labelMismatchScore === 1 || (row.labelMismatchScore === null && row.labelMismatchFindings === 0);
+            if (!mismatchPassed) throw new Error(`${page} has ${row.labelMismatchFindings} visible-label mismatch finding(s).`);
+            rows.push(row);
+          }
+          fs.writeFileSync(path.join(dir, 'summary.json'), JSON.stringify({ rows }, null, 2));
+          fs.writeFileSync(path.join(dir, 'summary.md'), '# Corrected Lighthouse summary\n\n' + rows.map((row) => `- ${row.page}: Performance ${row.performance}, Accessibility ${row.accessibility}, Best Practices ${row.bestPractices}, SEO ${row.seo}, canonical ${row.canonical}, crawlable ${row.crawlable}`).join('\n') + '\n');
+          console.table(rows);
+          NODE
+
+      - name: Inspect exact live Production deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 inspect https://truelycollectables.com --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$EVIDENCE_DIR/vercel-production-inspect.txt"
+          grep -Fq 'target' "$EVIDENCE_DIR/vercel-production-inspect.txt"
+          grep -Fq 'production' "$EVIDENCE_DIR/vercel-production-inspect.txt"
+          grep -Fq 'Ready' "$EVIDENCE_DIR/vercel-production-inspect.txt"
+
+      - name: Remove credential-bound disposable deployment
+        if: always()
+        env:
+          RUNTIME_URL: ${{ steps.runtime.outputs.runtime_url }}
+        shell: bash
+        run: |
+          set +e
+          if [ -n "${RUNTIME_URL:-}" ]; then
+            npx vercel@56.2.0 remove "$RUNTIME_URL" --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$EVIDENCE_DIR/runtime-deployment-removal.txt" 2>&1
+          fi
+          exit 0
+
+      - name: Assemble final verified Production certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const prior = JSON.parse(fs.readFileSync(`${process.env.EVIDENCE_DIR}/immutable-prior-gates.json`, 'utf8'));
+          const runtime = JSON.parse(fs.readFileSync(`${process.env.EVIDENCE_DIR}/runtime-integrations-audit.json`, 'utf8'));
+          const lighthouse = JSON.parse(fs.readFileSync(`${process.env.EVIDENCE_DIR}/lighthouse/summary.json`, 'utf8'));
+          const blockers = runtime.findings.filter((finding) => finding.severity === 'blocker');
+          if (blockers.length) throw new Error('Cannot issue verified certificate with runtime blockers.');
+          const certificate = {
+            schema: 'truely.collectables.full-launch-audit.v2',
+            generatedAt: new Date().toISOString(),
+            sourceSha: process.env.SOURCE_SHA,
+            overall: 'verified',
+            exactProductionDeployment: true,
+            sourceSecretScan: 'passed',
+            dependencyLintTypeScriptBuild: 'passed',
+            privilegedRoutes: 'passed',
+            simulationShards: 6,
+            liveProductionCrawl: 'passed',
+            runtimeIntegrations: 'passed',
+            lighthouse: 'passed',
+            priorEvidence: prior,
+            runtimeSummary: {
+              findings: runtime.findings.length,
+              blockers: blockers.length,
+              warnings: runtime.findings.filter((finding) => finding.severity === 'warning').length,
+              stripe: runtime.stripeSummary,
+              resend: runtime.resendSummary,
+              ebay: runtime.ebaySummary,
+              databaseSafety: runtime.databaseSafety,
+            },
+            lighthouseSummary: lighthouse.rows,
+            unverifiedByDesign: [
+              'A controlled real-money charge has not been completed by this audit.',
+              'Physical postage purchase, carrier acceptance, and delivery have not been completed by this audit.',
+              'A real refund and dispute have not been manufactured by this audit.',
+              'Customer and owner inbox receipt has not been proven by this audit.',
+            ],
+          };
+          fs.writeFileSync(`${process.env.EVIDENCE_DIR}/final-audit-certificate-v2.json`, JSON.stringify(certificate, null, 2));
+          fs.writeFileSync(`${process.env.EVIDENCE_DIR}/final-audit-certificate-v2.md`, [
+            '# Truely Collectables Launch 2.0 final Production certificate',
+            '',
+            '- Overall: **VERIFIED**',
+            `- Source SHA: \`${certificate.sourceSha}\``,
+            '- Exact Production deployment: passed',
+            '- Source secret scan: passed',
+            '- Dependencies, lint, TypeScript, Production build: passed',
+            '- Privileged routes: passed',
+            '- All six simulation shards: passed',
+            '- Live Production crawl: passed',
+            '- Production runtime integrations: passed',
+            '- Corrected Lighthouse gates: passed',
+            '',
+            '## Kept separate from this certificate',
+            ...certificate.unverifiedByDesign.map((value) => `- ${value}`),
+          ].join('\n') + '\n');
+          NODE
+
+      - name: Upload final Production certificate and sanitized evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: truely-launch-2-final-production-certificate-v2
+          path: ${{ env.EVIDENCE_DIR }}
+          if-no-files-found: error
+          retention-days: 30
