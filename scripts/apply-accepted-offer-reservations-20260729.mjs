@@ -32,6 +32,7 @@ for (const filePath of [
   "src/lib/reserved-offer-checkout.ts",
   "src/lib/checkout-inventory-reservations.ts",
   "src/app/api/offers/buyer-checkout/route.ts",
+  "scripts/run-offer-checkout-idempotency-simulations.ts",
   "supabase/migrations/20260726234000_consume_attached_offer_checkout_reservations.sql",
   "supabase/migrations/20260727141000_hold_attached_checkout_reservations.sql",
   "supabase/migrations/20260727144000_preserve_reserved_product_identity.sql",
