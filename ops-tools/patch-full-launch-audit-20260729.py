@@ -101,12 +101,11 @@ new_runtime = '''      - name: Run read-only Production integration and data aud
           fi
 
           if [ "$service_status" -ne 0 ] || [ -z "$SERVICE_ROLE_KEY" ]; then
-            printf '%s\n' '{"NEXT_PUBLIC_SUPABASE_URL":true,"SUPABASE_SERVICE_ROLE_KEY":false,"serviceRoleSource":"unavailable"}' > .audit/runtime/runtime-env-presence.json
+            node -e 'require("node:fs").writeFileSync(".audit/runtime/runtime-env-presence.json", JSON.stringify({NEXT_PUBLIC_SUPABASE_URL:true,SUPABASE_SERVICE_ROLE_KEY:false,serviceRoleSource:"unavailable"}, null, 2))'
             status=1
           else
             echo "::add-mask::$SERVICE_ROLE_KEY"
-            SERVICE_ROLE_SOURCE="$SERVICE_ROLE_SOURCE" \
-            env "${unset_args[@]}" SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY" node --env-file=.audit-production.env - <<'NODE'
+            env "${unset_args[@]}" SERVICE_ROLE_SOURCE="$SERVICE_ROLE_SOURCE" SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY" node --env-file=.audit-production.env - <<'NODE'
           const fs = require('fs');
           const presence = {
             NEXT_PUBLIC_SUPABASE_URL: Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL),
@@ -145,7 +144,7 @@ required = [
     'GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}',
     '/v1/projects/${ref}/api-keys?reveal=true',
     "row.name === 'service_role'",
-    'serviceRoleSource: process.env.SERVICE_ROLE_SOURCE',
+    'SERVICE_ROLE_SOURCE="$SERVICE_ROLE_SOURCE" SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY" node --env-file=.audit-production.env',
     'echo "::add-mask::$SERVICE_ROLE_KEY"',
     'SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY" node --env-file=.audit-production.env scripts/run-truely-launch-audit-20260729.mjs runtime',
     "const transactionalPages = new Set(['cart', 'signup']);",
