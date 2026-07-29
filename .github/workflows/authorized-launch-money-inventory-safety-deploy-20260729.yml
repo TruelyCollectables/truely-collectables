@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
-      SOURCE_SHA: 9b35f1990998bb0bd47394f19905fd9292c4c5bc
+      SOURCE_SHA: c5cf45854c329771a2a541d2f7f75a631c491e16
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
@@ -31,7 +31,7 @@ jobs:
       - name: Check out exact merged source
         uses: actions/checkout@v4
         with:
-          ref: 9b35f1990998bb0bd47394f19905fd9292c4c5bc
+          ref: c5cf45854c329771a2a541d2f7f75a631c491e16
           fetch-depth: 1
 
       - name: Set up Node.js
