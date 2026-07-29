@@ -23,6 +23,7 @@ jobs:
     timeout-minutes: 15
     env:
       EXPECTED_SOURCE_SHA: 8baee1bb26a17f974388b4d8e50b4321bbdfb685
+      EXPECTED_TARGET_SHA: fa63d1a8a4355f6bf4b11bd86ed16f612835647b
       TARGET_BRANCH: deploy/launch-money-inventory-safety-20260729
       TARGET_WORKFLOW: .github/workflows/authorized-launch-money-inventory-safety-deploy-20260729.yml
       OUTPUT_FILE: ops-output/authorized-launch-money-inventory-safety-deploy-20260729.yml
@@ -39,9 +40,10 @@ jobs:
           set -euo pipefail
           git fetch origin main "$TARGET_BRANCH"
           test "$(git rev-parse origin/main)" = "$EXPECTED_SOURCE_SHA"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$EXPECTED_TARGET_SHA"
           git show "origin/$TARGET_BRANCH:$TARGET_WORKFLOW" > /tmp/authorized-cutover.yml
 
-      - name: Remove exact nonzero CLI help probe
+      - name: Remove branch-only paths filter while retaining job guard
         shell: bash
         run: |
           set -euo pipefail
@@ -52,36 +54,35 @@ jobs:
           output = Path('ops-output/authorized-launch-money-inventory-safety-deploy-20260729.yml')
           text = source.read_text(encoding='utf-8')
           source_sha = '8baee1bb26a17f974388b4d8e50b4321bbdfb685'
-          help_line = '          npx vercel@56.2.0 deploy --help > "$EVIDENCE_DIR/vercel-deploy-help.txt" 2>&1\n'
-          grep_line = "          grep -Fq -- '--skip-domain' \"$EVIDENCE_DIR/vercel-deploy-help.txt\"\n"
+          paths_block = '    paths:\n      - ".github/workflows/authorized-launch-money-inventory-safety-deploy-20260729.yml"\n'
+          branch_guard = "if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'deploy/launch-money-inventory-safety-20260729')"
 
+          if text.count(paths_block) != 1:
+              raise SystemExit('Expected exactly one branch-only paths filter.')
+          if text.count(branch_guard) != 1:
+              raise SystemExit('Expected exactly one deployment branch job guard.')
           if text.count(source_sha) != 2:
-              raise SystemExit('Expected exactly two current exact-source SHA references.')
-          if text.count(help_line) != 1:
-              raise SystemExit('Expected exactly one Vercel deploy help probe.')
-          if text.count(grep_line) != 1:
-              raise SystemExit('Expected exactly one skip-domain help assertion.')
+              raise SystemExit('Expected exactly two exact-source SHA references.')
+          if 'deploy --help' in text or 'promote --help' in text:
+              raise SystemExit('A nonzero CLI help probe remains.')
 
-          text = text.replace(help_line, '')
-          text = text.replace(grep_line, '')
+          text = text.replace(paths_block, '')
 
           required = [
+              '  pull_request:\n    branches:\n      - main\n',
+              branch_guard,
               f'SOURCE_SHA: {source_sha}',
               f'ref: {source_sha}',
-              'Create ephemeral protected cutover function',
               'Stage ephemeral credential-bound cutover deployment',
               'Verify ephemeral cutover deployment before mutations',
               'Apply all six safety migrations atomically and verify them',
               'Restore exact source and stage clean Production deployment',
               'Promote only the clean verified deployment',
-              'npx vercel@56.2.0 alias set "$CLEAN_URL" truelycollectables.com',
               'Remove ephemeral credential-bound deployment',
           ]
           for value in required:
               if value not in text:
                   raise SystemExit(f'Missing guarded workflow requirement: {value}')
-          if 'deploy --help' in text or 'promote --help' in text:
-              raise SystemExit('A nonzero CLI help probe remains.')
           if text.count('            --skip-domain \\') < 2:
               raise SystemExit('Both staged deployments must remain domain-isolated.')
 
@@ -89,8 +90,8 @@ jobs:
           output.write_text(text, encoding='utf-8')
           PY
           grep -Fq "SOURCE_SHA: $EXPECTED_SOURCE_SHA" "$OUTPUT_FILE"
-          grep -Fq 'Stage ephemeral credential-bound cutover deployment' "$OUTPUT_FILE"
-          grep -Fq 'Restore exact source and stage clean Production deployment' "$OUTPUT_FILE"
+          grep -Fq "head.ref == 'deploy/launch-money-inventory-safety-20260729'" "$OUTPUT_FILE"
+          ! grep -Fq '    paths:' "$OUTPUT_FILE"
           ! grep -Fq 'deploy --help' "$OUTPUT_FILE"
           ! grep -Fq 'promote --help' "$OUTPUT_FILE"
 
@@ -106,7 +107,7 @@ jobs:
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'Remove nonzero Vercel deployment help probe'
+          git commit -m 'Publish path-filter-free guarded cutover workflow'
           git push origin HEAD:ops/repair-launch-money-inventory-cutover-20260729
 
       - name: Upload sanitized repaired workflow artifact
