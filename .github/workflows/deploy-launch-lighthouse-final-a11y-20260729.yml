@@ -124,6 +124,8 @@ jobs:
           const rows = [];
           for (const label of ['deployment', 'custom']) {
             const report = JSON.parse(fs.readFileSync(`.audit/final-a11y/${label}-shop-lighthouse.json`, 'utf8'));
+            const mismatchAudit = report.audits['label-content-name-mismatch'];
+            const mismatchFindings = mismatchAudit?.details?.items?.length ?? 0;
             const row = {
               target: label,
               performance: Math.round((report.categories.performance?.score || 0) * 100),
@@ -131,12 +133,14 @@ jobs:
               bestPractices: Math.round((report.categories['best-practices']?.score || 0) * 100),
               seo: Math.round((report.categories.seo?.score || 0) * 100),
               selectName: report.audits['select-name']?.score,
-              labelContentNameMismatch: report.audits['label-content-name-mismatch']?.score,
+              labelContentNameMismatch: mismatchAudit?.score ?? null,
+              labelContentNameMismatchFindings: mismatchFindings,
             };
             if (row.accessibility !== 100) throw new Error(`${label} accessibility is ${row.accessibility}, not 100`);
             if (row.bestPractices < 85) throw new Error(`${label} best practices is ${row.bestPractices}`);
             if (row.selectName !== 1) throw new Error(`${label} select-name did not pass`);
-            if (row.labelContentNameMismatch !== 1) throw new Error(`${label} label-content-name-mismatch did not pass`);
+            const mismatchPassed = row.labelContentNameMismatch === 1 || (row.labelContentNameMismatch === null && row.labelContentNameMismatchFindings === 0);
+            if (!mismatchPassed) throw new Error(`${label} label-content-name-mismatch has score ${row.labelContentNameMismatch} and ${row.labelContentNameMismatchFindings} findings`);
             if (label === 'custom' && row.seo < 90) throw new Error(`custom-domain SEO is ${row.seo}`);
             rows.push(row);
           }
@@ -144,7 +148,7 @@ jobs:
           const generatedNoindex = /x-robots-tag:\s*noindex/i.test(deploymentHeaders);
           if (!generatedNoindex) throw new Error('Generated deployment SEO exception lacks x-robots-tag: noindex evidence');
           fs.writeFileSync('.audit/final-a11y/summary.json', JSON.stringify({ sourceSha: process.env.DEPLOY_SOURCE_SHA, generatedNoindex, rows }, null, 2));
-          fs.writeFileSync('.audit/final-a11y/summary.md', '# Final affected Lighthouse gate\n\n' + rows.map(row => `- ${row.target}: Performance ${row.performance}, Accessibility ${row.accessibility}, Best Practices ${row.bestPractices}, SEO ${row.seo}, select-name ${row.selectName}, label-content-name-mismatch ${row.labelContentNameMismatch}`).join('\n') + `\n- Generated deployment noindex evidence: ${generatedNoindex}\n`);
+          fs.writeFileSync('.audit/final-a11y/summary.md', '# Final affected Lighthouse gate\n\n' + rows.map(row => `- ${row.target}: Performance ${row.performance}, Accessibility ${row.accessibility}, Best Practices ${row.bestPractices}, SEO ${row.seo}, select-name ${row.selectName}, label-content-name-mismatch ${row.labelContentNameMismatch}, findings ${row.labelContentNameMismatchFindings}`).join('\n') + `\n- Generated deployment noindex evidence: ${generatedNoindex}\n`);
           console.table(rows);
           NODE
 
