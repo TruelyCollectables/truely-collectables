@@ -202,7 +202,7 @@ export class EbayBrowseAdapter {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), config.ebayBrowseTimeoutMs);
     try {
-      return await fetch(url, {
+      const response = await fetch(url, {
         headers: {
           Authorization: `Bearer ${accessToken}`,
           "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
@@ -210,7 +210,17 @@ export class EbayBrowseAdapter {
         },
         signal: controller.signal,
         redirect: "error",
+        cache: "no-store",
       });
+      const text = await response.text();
+      return { response, text };
+    } catch (error) {
+      if (controller.signal.aborted || error?.name === "AbortError") {
+        throw new Error(
+          `eBay Browse request timed out after ${config.ebayBrowseTimeoutMs}ms.`,
+        );
+      }
+      throw error;
     } finally {
       clearTimeout(timeout);
     }
@@ -239,19 +249,19 @@ export class EbayBrowseAdapter {
     }
 
     let accessToken = await ebayApplicationTokenService.getAccessToken();
-    let response = await this.requestSearch(url, accessToken);
+    let exchange = await this.requestSearch(url, accessToken);
     if (
-      response.status === 401 &&
+      exchange.response.status === 401 &&
       ebayApplicationTokenService.status().mode === "client_credentials"
     ) {
       ebayApplicationTokenService.invalidate(accessToken);
       accessToken = await ebayApplicationTokenService.getAccessToken({
         forceRefresh: true,
       });
-      response = await this.requestSearch(url, accessToken);
+      exchange = await this.requestSearch(url, accessToken);
     }
 
-    const text = await response.text();
+    const { response, text } = exchange;
     let payload = {};
     try {
       payload = text ? JSON.parse(text) : {};
