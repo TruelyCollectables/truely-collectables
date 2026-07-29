@@ -17,6 +17,10 @@ const probeRoute = readFileSync(
   "src/app/api/internal/ebay-browse-probe/route.js",
   "utf8",
 );
+const wnbaNativeRoute = readFileSync(
+  "src/app/api/internal/wnba-native-search/route.js",
+  "utf8",
+);
 
 assert.match(config, /ebayClientId: String\(process\.env\.EBAY_CLIENT_ID/);
 assert.match(config, /ebayClientSecret: String\(process\.env\.EBAY_CLIENT_SECRET/);
@@ -67,6 +71,24 @@ assert.match(probeRoute, /resultCount/);
 assert.match(probeRoute, /timings/);
 assert.doesNotMatch(probeRoute, /accessToken|clientSecret[^C]/);
 
+assert.match(wnbaNativeRoute, /TCOS_WNBA_ROOKIE_PLAYERS/);
+assert.match(wnbaNativeRoute, /Caitlin Clark|QUERY_FAMILIES/);
+assert.match(wnbaNativeRoute, /broad_rookie/);
+assert.match(wnbaNativeRoute, /parallel_numbered/);
+assert.match(wnbaNativeRoute, /auto_memorabilia/);
+assert.match(wnbaNativeRoute, /REJECTED_COLLEGE_TITLE/);
+assert.match(wnbaNativeRoute, /REJECTED_ORDINARY_BASE_TITLE/);
+assert.match(wnbaNativeRoute, /LIKELY_SCOPE_MATCH/);
+assert.match(wnbaNativeRoute, /POTENTIAL_SCOPE_MATCH/);
+assert.match(wnbaNativeRoute, /requiresHardenedVerification: true/);
+assert.match(wnbaNativeRoute, /purchaseReady: false/);
+assert.match(wnbaNativeRoute, /minimumNetRoiPercent: 20/);
+assert.match(wnbaNativeRoute, /format === "html"/);
+assert.match(wnbaNativeRoute, /ADMIN_SESSION_COOKIE_NAMES/);
+assert.match(wnbaNativeRoute, /x-tcos-ebay-probe-token/);
+assert.doesNotMatch(wnbaNativeRoute, /recordPurchase|checkout|buyNow/i);
+assert.doesNotMatch(wnbaNativeRoute, /accessToken|clientSecret[^C]/);
+
 console.log(
-  "eBay Browse runtime contracts passed: automatic client credentials, cache/refresh, body-safe request deadlines, one-time 401 retry, fail-closed 403/429 behavior, explicit probe-secret diagnostics, admin-session fallback, deployment identity, auth-only verification, stage-timed private diagnostics, and no token disclosure are present.",
+  "eBay Browse runtime contracts passed: automatic client credentials, cache/refresh, body-safe request deadlines, one-time 401 retry, fail-closed 403/429 behavior, explicit probe-secret diagnostics, admin-session fallback, deployment identity, auth-only verification, stage-timed private diagnostics, full five-player WNBA native discovery with title-scope screening, no purchase writes, and no token disclosure are present.",
 );
