@@ -1,0 +1,95 @@
+name: Validate Buyer Signup Without Card Verification 20260729
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/validate-buyer-signup-no-card-verification-20260729.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'agent/buyer-signup-no-card-verification-20260729'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+      ADMIN_SESSION_SECRET: build-only-placeholder-session-secret
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+      EBAY_CLIENT_ID: build-only-placeholder-client-id
+      EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+      EBAY_ENVIRONMENT: production
+      TCOS_LIVE_PAYMENTS_ENABLED: false
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/buyer-signup-no-card-verification-20260729
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Apply buyer account policy change
+        run: python scripts/apply-buyer-signup-no-card-verification-20260729.py
+
+      - name: Remove one-time writer and workflow
+        run: |
+          rm scripts/apply-buyer-signup-no-card-verification-20260729.py
+          rm .github/workflows/validate-buyer-signup-no-card-verification-20260729.yml
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Format buyer account changes
+        run: |
+          npx prettier --write \
+            src/lib/buyer-account-policy.ts \
+            src/lib/account-auth.ts \
+            src/app/account/signup/page.tsx \
+            src/app/account/login/page.tsx \
+            src/app/api/account/signup/route.ts \
+            src/app/api/account/login/route.ts \
+            src/app/api/webhook/route.ts \
+            scripts/run-buyer-account-no-card-regressions.ts
+
+      - name: Run buyer account regressions
+        run: npx tsx scripts/run-buyer-account-no-card-regressions.ts
+
+      - name: Run existing storefront and checkout regressions
+        run: |
+          npx tsx scripts/run-ebay-import-admin-client-simulations.ts
+          npx tsx scripts/run-storefront-taxonomy-regressions.ts
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Run full production build
+        run: npm run build
+
+      - name: Confirm clean patch
+        run: git diff --check
+
+      - name: Commit validated buyer account policy
+        run: |
+          git config user.name "Truely Collectables Automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add \
+            src/lib/buyer-account-policy.ts \
+            src/lib/account-auth.ts \
+            src/app/account/signup/page.tsx \
+            src/app/account/login/page.tsx \
+            src/app/api/account/signup/route.ts \
+            src/app/api/account/login/route.ts \
+            src/app/api/webhook/route.ts \
+            scripts/run-buyer-account-no-card-regressions.ts \
+            scripts/apply-buyer-signup-no-card-verification-20260729.py \
+            .github/workflows/validate-buyer-signup-no-card-verification-20260729.yml
+          git commit -m "Allow buyer accounts without card verification"
+          git push origin HEAD:agent/buyer-signup-no-card-verification-20260729
