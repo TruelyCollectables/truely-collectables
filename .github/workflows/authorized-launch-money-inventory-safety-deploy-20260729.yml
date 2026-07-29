@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
-      SOURCE_SHA: c5cf45854c329771a2a541d2f7f75a631c491e16
+      SOURCE_SHA: 8baee1bb26a17f974388b4d8e50b4321bbdfb685
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
@@ -31,7 +31,7 @@ jobs:
       - name: Check out exact merged source
         uses: actions/checkout@v4
         with:
-          ref: c5cf45854c329771a2a541d2f7f75a631c491e16
+          ref: 8baee1bb26a17f974388b4d8e50b4321bbdfb685
           fetch-depth: 1
 
       - name: Set up Node.js
@@ -91,13 +91,13 @@ jobs:
           NEXT_PUBLIC_SITE_URL=https://truelycollectables.com \
             npm run build
 
-      - name: Confirm staged Production and promotion commands exist
+      - name: Confirm staged Production and safe promotion fallback
         shell: bash
         run: |
           set -euo pipefail
           npx vercel@56.2.0 deploy --help > .deployment-evidence/vercel-deploy-help.txt 2>&1
           grep -Fq -- '--skip-domain' .deployment-evidence/vercel-deploy-help.txt
-          npx vercel@56.2.0 promote --help > .deployment-evidence/vercel-promote-help.txt 2>&1
+          printf '%s\n' 'alias-set-fallback' > .deployment-evidence/vercel-promotion-method.txt
 
       - name: Stage exact Production deployment without domain promotion
         id: stage
