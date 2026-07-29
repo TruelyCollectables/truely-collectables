@@ -51,7 +51,7 @@ jobs:
           test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
           echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
           mkdir -p .vercel .deployment-evidence .deployment-tools
-          npx vercel@56.2.0 whoami --token "$VERCEL_TOKEN" > .deployment-evidence/vercel-identity.txt
+          npx vercel@56.2.0 whoami --token "$VERCEL_TOKEN" > .deployment-evidence/vercel-identity.txt 2>&1
           if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
             printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
           else
@@ -81,7 +81,7 @@ jobs:
           npx vercel@56.2.0 env ls production \
             --scope "$VERCEL_SCOPE" \
             --token "$VERCEL_TOKEN" \
-            > .deployment-evidence/vercel-production-env-names.txt
+            > .deployment-evidence/vercel-production-env-names.txt 2>&1
           for key in NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET CRON_SECRET; do
             grep -Fq "$key" .deployment-evidence/vercel-production-env-names.txt
           done
@@ -95,9 +95,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npx vercel@56.2.0 deploy --help > .deployment-evidence/vercel-deploy-help.txt
+          npx vercel@56.2.0 deploy --help > .deployment-evidence/vercel-deploy-help.txt 2>&1
           grep -Fq -- '--skip-domain' .deployment-evidence/vercel-deploy-help.txt
-          npx vercel@56.2.0 promote --help > .deployment-evidence/vercel-promote-help.txt
+          npx vercel@56.2.0 promote --help > .deployment-evidence/vercel-promote-help.txt 2>&1
 
       - name: Stage exact Production deployment without domain promotion
         id: stage
