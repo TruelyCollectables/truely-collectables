@@ -9,6 +9,11 @@ export const revalidate = 0;
 
 export const metadata: Metadata = {
   title: "Shopping Cart",
+  description:
+    "Review the items in your Truely Collectables cart before secure checkout.",
+  alternates: {
+    canonical: "/cart",
+  },
   robots: {
     index: false,
     follow: false,
