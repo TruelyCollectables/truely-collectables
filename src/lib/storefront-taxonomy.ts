@@ -76,7 +76,9 @@ function textValue(value: unknown): string | null {
     return value.map(textValue).filter(Boolean).join(", ") || null;
   }
 
-  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  const text = String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
   return text || null;
 }
 
@@ -134,7 +136,9 @@ function detectSection(params: {
   if (storedSection) return storedSection;
 
   const league = normalized(aspectValue(params.aspects, "League"));
-  const sport = normalized(params.rawSport || aspectValue(params.aspects, "Sport"));
+  const sport = normalized(
+    params.rawSport || aspectValue(params.aspects, "Sport"),
+  );
   const title = normalized(params.title);
   const primaryCategory = normalized(params.primaryCategory);
   const objectType = normalized(
@@ -147,27 +151,29 @@ function detectSection(params: {
   );
   const focused = `${sport} ${league} ${title}`;
   const objectFocused = `${title} ${objectType}`;
-  const isCardPrimary = ["sports_cards", "trading_cards", "sealed_wax"].includes(
-  primaryCategory,
-);
-const explicitCardSignal =
-  /\b(?:sports |trading |collectible )?cards?\b|\brookie card\b|\bcard #|\b(?:relic|patch|swatch|jersey|memorabilia) card\b|\bsports trading card\b/.test(
-    `${objectFocused} ${primaryCategory}`,
-  );
-const cardBrandSignal =
-  /\b(?:topps|panini|upper deck|bowman|donruss|prizm|skybox|sky box|sp game used|sp authentic|select|national treasures|immaculate|flawless|chronicles|contenders|mosaic|optic|finest|heritage|stadium club|score|fleer|leaf|o pee chee|opc)\b/.test(
-    objectFocused,
-  );
-const cardCatalogSignal =
-  /(?:^|\s)#[a-z0-9-]+\b|\b(?:base|insert|parallel|refractor|rookie|rc|proof|relic|patch|swatch|jersey)\b/.test(
-    objectFocused,
-  );
-const isCardLike =
-  isCardPrimary ||
-  explicitCardSignal ||
-  (cardBrandSignal && cardCatalogSignal);
+  const isCardPrimary = [
+    "sports_cards",
+    "trading_cards",
+    "sealed_wax",
+  ].includes(primaryCategory);
+  const explicitCardSignal =
+    /\b(?:sports |trading |collectible )?cards?\b|\brookie card\b|\bcard #|\b(?:relic|patch|swatch|jersey|memorabilia) card\b|\bsports trading card\b/.test(
+      `${objectFocused} ${primaryCategory}`,
+    );
+  const cardBrandSignal =
+    /\b(?:topps|panini|upper deck|bowman|donruss|prizm|skybox|sky box|sp game used|sp authentic|select|national treasures|immaculate|flawless|chronicles|contenders|mosaic|optic|finest|heritage|stadium club|score|fleer|leaf|o pee chee|opc)\b/.test(
+      objectFocused,
+    );
+  const cardCatalogSignal =
+    /(?:^|\s)#[a-z0-9-]+\b|\b(?:base|insert|parallel|refractor|rookie|rc|proof|relic|patch|swatch|jersey)\b/.test(
+      objectFocused,
+    );
+  const isCardLike =
+    isCardPrimary ||
+    explicitCardSignal ||
+    (cardBrandSignal && cardCatalogSignal);
 
-if (!isCardLike) {
+  if (!isCardLike) {
     if (
       /\b(?:music cd|compact disc|cd booklet|cd insert|album booklet|liner notes?|vinyl record|record album)\b/.test(
         objectFocused,
@@ -178,10 +184,18 @@ if (!isCardLike) {
     if (/\bpucks?\b/.test(objectFocused)) return "Pucks";
     if (/\bjerseys?\b/.test(objectFocused)) return "Jerseys";
     if (/\bhelmets?\b/.test(objectFocused)) return "Helmets";
-    if (/\b(?:bats?|baseball gloves?|fielding gloves?|catcher'?s mitts?)\b/.test(objectFocused)) {
+    if (
+      /\b(?:bats?|baseball gloves?|fielding gloves?|catcher'?s mitts?)\b/.test(
+        objectFocused,
+      )
+    ) {
       return "Bats & Gloves";
     }
-    if (/\b(?:photos?|photographs?|prints?|posters?|lithographs?)\b/.test(objectFocused)) {
+    if (
+      /\b(?:photos?|photographs?|prints?|posters?|lithographs?)\b/.test(
+        objectFocused,
+      )
+    ) {
       return "Photos & Prints";
     }
     if (/\b(?:tickets?|programs?|media guides?)\b/.test(objectFocused)) {
@@ -357,10 +371,15 @@ export function classifyStorefrontItem(input: {
 
 export function normalizeStorefrontFeature(value: string | null | undefined) {
   const normalizedValue = normalized(value);
-  if (["auto", "autos", "autograph", "autographs", "signed"].includes(normalizedValue)) {
+  if (
+    ["auto", "autos", "autograph", "autographs", "signed"].includes(
+      normalizedValue,
+    )
+  ) {
     return "autograph" as const;
   }
-  if (["rookie", "rookies", "rc"].includes(normalizedValue)) return "rookie" as const;
+  if (["rookie", "rookies", "rc"].includes(normalizedValue))
+    return "rookie" as const;
   if (["graded", "grade"].includes(normalizedValue)) return "graded" as const;
   if (["numbered", "serial", "serial numbered"].includes(normalizedValue)) {
     return "numbered" as const;
@@ -382,18 +401,20 @@ export function matchesStorefrontFilters(
 
   if (
     filters.section &&
-    normalized(item.storefrontSection || item.sport) !== normalized(filters.section)
+    normalized(item.storefrontSection || item.sport) !==
+      normalized(filters.section)
   ) {
     return false;
   }
 
-  if (filters.category && normalized(item.category) !== normalized(filters.category)) {
+  if (
+    filters.category &&
+    normalized(item.category) !== normalized(filters.category)
+  ) {
     return false;
   }
 
-  const queryTokens = normalized(filters.query)
-    .split(" ")
-    .filter(Boolean);
+  const queryTokens = normalized(filters.query).split(" ").filter(Boolean);
   if (!queryTokens.length) return true;
 
   const enabledFeatures = Object.entries(item.features || {})

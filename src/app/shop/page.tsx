@@ -4,7 +4,10 @@ import Image from "next/image";
 import ClearCartOnSuccess from "../../components/ClearCartOnSuccess";
 import { preferHighResolutionListingImage } from "../../lib/listing-image-utils";
 import { createServerInventoryEngine } from "../../lib/server-inventory-engine";
-import { sortStorefrontSections, type StorefrontSort } from "../../lib/storefront-taxonomy";
+import {
+  sortStorefrontSections,
+  type StorefrontSort,
+} from "../../lib/storefront-taxonomy";
 import type { UniversalInventoryItem } from "../../modules/inventory";
 
 export const dynamic = "force-dynamic";
@@ -121,8 +124,11 @@ export default async function Shop({
   }
 
   const activeFilters = Boolean(q || section || feature || sort !== "section");
-const quickSections = QUICK_SECTIONS;
-const sectionOptions = sortStorefrontSections([...QUICK_SECTIONS, ...sections]);
+  const quickSections = QUICK_SECTIONS;
+  const sectionOptions = sortStorefrontSections([
+    ...QUICK_SECTIONS,
+    ...sections,
+  ]);
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
@@ -130,13 +136,16 @@ const sectionOptions = sortStorefrontSections([...QUICK_SECTIONS, ...sections]);
 
       <section className="mb-6 flex flex-wrap items-end justify-between gap-4 border-b border-neutral-200 pb-6">
         <div>
-          <p className="text-sm font-bold uppercase text-neutral-500">Active Inventory</p>
+          <p className="text-sm font-bold uppercase text-neutral-500">
+            Active Inventory
+          </p>
           <h1 className="mt-2 text-3xl font-black sm:text-4xl md:text-5xl">
             {heading({ section, feature })}
           </h1>
           <p className="mt-3 max-w-2xl text-neutral-600">
-            Browse cards by sport, with NBA and WNBA kept separate. Autographs are a
-            filter, while real pucks, wearable jerseys, and music items stay in their own sections.
+            Browse cards by sport, with NBA and WNBA kept separate. Autographs
+            are a filter, while real pucks, wearable jerseys, and music items
+            stay in their own sections.
           </p>
         </div>
         <p className="rounded bg-white px-4 py-2 text-sm font-bold text-neutral-700">
@@ -144,8 +153,14 @@ const sectionOptions = sortStorefrontSections([...QUICK_SECTIONS, ...sections]);
         </p>
       </section>
 
-      <nav className="mb-6 flex flex-wrap gap-2" aria-label="Popular collectible sections">
-        <Link href="/shop" className="rounded-full border-2 border-neutral-950 bg-white px-4 py-2 text-sm font-black hover:bg-yellow-300">
+      <nav
+        className="mb-6 flex flex-wrap gap-2"
+        aria-label="Popular collectible sections"
+      >
+        <Link
+          href="/shop"
+          className="rounded-full border-2 border-neutral-950 bg-white px-4 py-2 text-sm font-black hover:bg-yellow-300"
+        >
           All Cards & Collectibles
         </Link>
         {quickSections.map((name) => (
@@ -174,14 +189,24 @@ const sectionOptions = sortStorefrontSections([...QUICK_SECTIONS, ...sections]);
           className="min-h-12 rounded border px-4 py-3 text-base md:col-span-2"
         />
 
-        <select name="section" defaultValue={section} className="min-h-12 rounded border px-3 py-3 text-base">
+        <select
+          name="section"
+          defaultValue={section}
+          className="min-h-12 rounded border px-3 py-3 text-base"
+        >
           <option value="">All Sections</option>
           {sectionOptions.map((name) => (
-  <option key={name} value={name}>{name}</option>
-))}
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
         </select>
 
-        <select name="feature" defaultValue={feature} className="min-h-12 rounded border px-3 py-3 text-base">
+        <select
+          name="feature"
+          defaultValue={feature}
+          className="min-h-12 rounded border px-3 py-3 text-base"
+        >
           <option value="">All Features</option>
           <option value="autograph">Autographs</option>
           <option value="rookie">Rookies</option>
@@ -189,7 +214,11 @@ const sectionOptions = sortStorefrontSections([...QUICK_SECTIONS, ...sections]);
           <option value="numbered">Numbered</option>
         </select>
 
-        <select name="sort" defaultValue={sort} className="min-h-12 rounded border px-3 py-3 text-base">
+        <select
+          name="sort"
+          defaultValue={sort}
+          className="min-h-12 rounded border px-3 py-3 text-base"
+        >
           <option value="section">Section, Player, Title</option>
           <option value="newest">Newest First</option>
           <option value="price_low">Price: Low to High</option>
@@ -197,7 +226,10 @@ const sectionOptions = sortStorefrontSections([...QUICK_SECTIONS, ...sections]);
           <option value="title">Title A–Z</option>
         </select>
 
-        <button type="submit" className="min-h-12 rounded bg-neutral-950 px-4 py-3 font-bold text-white hover:bg-neutral-800">
+        <button
+          type="submit"
+          className="min-h-12 rounded bg-neutral-950 px-4 py-3 font-bold text-white hover:bg-neutral-800"
+        >
           Apply
         </button>
       </form>
@@ -205,22 +237,36 @@ const sectionOptions = sortStorefrontSections([...QUICK_SECTIONS, ...sections]);
       {activeFilters ? (
         <div className="mb-6 flex flex-wrap items-center gap-3 text-sm font-bold">
           <span>Filtered inventory</span>
-          <Link href="/shop" className="underline decoration-yellow-300 decoration-4 underline-offset-4">
+          <Link
+            href="/shop"
+            className="underline decoration-yellow-300 decoration-4 underline-offset-4"
+          >
             Clear all filters
           </Link>
         </div>
       ) : null}
 
-      {products.length === 0 ? <p className="text-gray-600">No cards or collectibles found.</p> : null}
+      {products.length === 0 ? (
+        <p className="text-gray-600">No cards or collectibles found.</p>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
         {products.map((product) => {
-          const storefrontImage = preferHighResolutionListingImage(product.imageUrl) || "/placeholder.png";
+          const storefrontImage =
+            preferHighResolutionListingImage(product.imageUrl) ||
+            "/placeholder.png";
           const subtitle = product.player || product.league;
 
           return (
-            <article key={product.legacyProductId} className="overflow-hidden rounded border bg-white">
-              <Link href={`/product/${product.legacyProductId}`} className="block" aria-label={`View ${product.title}`}>
+            <article
+              key={product.legacyProductId}
+              className="overflow-hidden rounded border bg-white"
+            >
+              <Link
+                href={`/product/${product.legacyProductId}`}
+                className="block"
+                aria-label={`View ${product.title}`}
+              >
                 <div className="relative aspect-[4/5] bg-neutral-100">
                   <Image
                     src={storefrontImage}
@@ -246,13 +292,18 @@ const sectionOptions = sortStorefrontSections([...QUICK_SECTIONS, ...sections]);
                 <FeatureBadges product={product} />
 
                 <div className="mt-4 flex items-center justify-between gap-3">
-                  <p className="text-2xl font-black">${Number(product.price).toFixed(2)}</p>
+                  <p className="text-2xl font-black">
+                    ${Number(product.price).toFixed(2)}
+                  </p>
                   <p className="rounded bg-neutral-100 px-2 py-1 text-xs font-bold text-neutral-600">
                     Qty {product.quantity}
                   </p>
                 </div>
 
-                <Link href={`/product/${product.legacyProductId}`} className="mt-4 flex min-h-11 w-full items-center justify-center rounded border border-neutral-950 px-4 py-2 text-center font-bold hover:bg-neutral-950 hover:text-white">
+                <Link
+                  href={`/product/${product.legacyProductId}`}
+                  className="mt-4 flex min-h-11 w-full items-center justify-center rounded border border-neutral-950 px-4 py-2 text-center font-bold hover:bg-neutral-950 hover:text-white"
+                >
                   View Item
                 </Link>
               </div>
