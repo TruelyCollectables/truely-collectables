@@ -1,0 +1,64 @@
+name: Run Final Launch Certificate v2 Script 20260729
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/run-final-launch-certificate-v2-script-20260729.yml"
+      - "scripts/run-final-launch-certificate-v2-continuation.sh"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: run-final-launch-certificate-v2-script-20260729
+  cancel-in-progress: false
+
+env:
+  SOURCE_SHA: 7765f115d44e2629d47cc38871273dacdafcb8e7
+  PRIOR_AUDIT_RUN_ID: "30495185314"
+  PRIOR_AUDIT_HEAD_SHA: 3417c615337436df896cfe9d3238f5d29ae33518
+  OPS_BRANCH: ops/final-launch-certificate-v2-20260729
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  VERCEL_SCOPE: truelycollectables-projects
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  EVIDENCE_DIR: /tmp/truely-final-certificate-v2-script
+
+jobs:
+  run-final-certificate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Check out operations branch
+        uses: actions/checkout@v4
+        with:
+          ref: ops/final-launch-certificate-v2-20260729
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate and execute guarded certificate runner
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/run-final-launch-certificate-v2-continuation.sh
+          bash scripts/run-final-launch-certificate-v2-continuation.sh
+
+      - name: Upload final certificate and sanitized evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: truely-launch-2-final-production-certificate-v2-script
+          path: ${{ env.EVIDENCE_DIR }}
+          if-no-files-found: error
+          retention-days: 30
