@@ -210,7 +210,11 @@ export default async function Shop({
       </section>
 
       <form className="mb-8 grid grid-cols-1 gap-3 rounded border bg-white p-3 sm:p-4 md:grid-cols-6">
+        <label htmlFor="shop-search" className="sr-only">
+          Search inventory
+        </label>
         <input
+          id="shop-search"
           type="search"
           name="q"
           placeholder="Player, team, set, item, card number..."
@@ -218,7 +222,11 @@ export default async function Shop({
           className="min-h-12 rounded border px-4 py-3 text-base md:col-span-2"
         />
 
+        <label htmlFor="shop-section" className="sr-only">
+          Filter by section
+        </label>
         <select
+          id="shop-section"
           name="section"
           defaultValue={section}
           className="min-h-12 rounded border px-3 py-3 text-base"
@@ -231,7 +239,11 @@ export default async function Shop({
           ))}
         </select>
 
+        <label htmlFor="shop-feature" className="sr-only">
+          Filter by card feature
+        </label>
         <select
+          id="shop-feature"
           name="feature"
           defaultValue={feature}
           className="min-h-12 rounded border px-3 py-3 text-base"
@@ -244,7 +256,11 @@ export default async function Shop({
           <option value="numbered">Numbered Cards</option>
         </select>
 
+        <label htmlFor="shop-sort" className="sr-only">
+          Sort inventory
+        </label>
         <select
+          id="shop-sort"
           name="sort"
           defaultValue={sort}
           className="min-h-12 rounded border px-3 py-3 text-base"
