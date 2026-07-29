@@ -1,4 +1,4 @@
-name: Authorized Complete Storefront Production Deploy 20260728
+name: Authorized Final Launch Production Deploy 20260728
 
 on:
   pull_request:
@@ -25,12 +25,12 @@ jobs:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_SCOPE: truelycollectables-projects
-      DEPLOY_SOURCE_SHA: 90158f4dfdd25f4901de487f7730c5a1f3e83021
+      DEPLOY_SOURCE_SHA: 9cb8239fb1c549f4fc50fcf3cbd035d9b78a5401
     steps:
       - name: Check out exact merged source
         uses: actions/checkout@v4
         with:
-          ref: 90158f4dfdd25f4901de487f7730c5a1f3e83021
+          ref: 9cb8239fb1c549f4fc50fcf3cbd035d9b78a5401
           fetch-depth: 1
 
       - name: Set up Node.js
@@ -107,13 +107,13 @@ jobs:
             sleep 15
           done
           test -n "$success"
-          echo "Verified complete storefront production deployment at $success"
+          echo "Verified final launch production deployment at $success"
 
       - name: Upload deployment evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: complete-storefront-production-deploy-${{ github.run_number }}
+          name: final-launch-production-deploy-${{ github.run_number }}
           path: .deployment-evidence
           if-no-files-found: warn
           retention-days: 30
