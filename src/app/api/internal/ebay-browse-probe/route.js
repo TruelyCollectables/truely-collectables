@@ -2,6 +2,10 @@ import { timingSafeEqual } from "node:crypto";
 import { config } from "../../../../../connectors/tcos-market-intel-mcp/src/config.mjs";
 import { ebayApplicationTokenService } from "../../../../../connectors/tcos-market-intel-mcp/src/ebay-application-token.mjs";
 import { EbayBrowseAdapter } from "../../../../../connectors/tcos-market-intel-mcp/src/public-search.mjs";
+import {
+  ADMIN_SESSION_COOKIE_NAMES,
+  isValidAdminSessionValue,
+} from "../../../../../lib/admin-session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,6 +20,14 @@ function safeEqual(left, right) {
     leftBytes.length === rightBytes.length &&
     timingSafeEqual(leftBytes, rightBytes)
   );
+}
+
+async function hasValidAdminSession(request) {
+  for (const cookieName of ADMIN_SESSION_COOKIE_NAMES) {
+    const value = request.cookies.get(cookieName)?.value;
+    if (await isValidAdminSessionValue(value)) return true;
+  }
+  return false;
 }
 
 function deploymentInfo() {
@@ -79,36 +91,40 @@ export async function GET(request) {
   const provided = String(
     request.headers.get("x-tcos-ebay-probe-token") || "",
   ).trim();
+  const adminAuthorized = await hasValidAdminSession(request);
+  const probeTokenAuthorized = Boolean(
+    expected && provided && safeEqual(provided, expected),
+  );
 
-  if (!expected) {
+  if (!adminAuthorized && !probeTokenAuthorized) {
+    if (!expected) {
+      return json(
+        {
+          ok: false,
+          error: "TCOS_EBAY_PROBE_TOKEN is not configured in this deployment, and no valid admin session was supplied.",
+          code: "EBAY_PROBE_TOKEN_NOT_CONFIGURED",
+          deployment,
+        },
+        503,
+      );
+    }
+
+    if (!provided) {
+      return json(
+        {
+          ok: false,
+          error: "Probe token header is missing and no valid admin session was supplied.",
+          code: "EBAY_PROBE_TOKEN_MISSING",
+          deployment,
+        },
+        401,
+      );
+    }
+
     return json(
       {
         ok: false,
-        error: "TCOS_EBAY_PROBE_TOKEN is not configured in this deployment.",
-        code: "EBAY_PROBE_TOKEN_NOT_CONFIGURED",
-        deployment,
-      },
-      503,
-    );
-  }
-
-  if (!provided) {
-    return json(
-      {
-        ok: false,
-        error: "Probe token header is missing.",
-        code: "EBAY_PROBE_TOKEN_MISSING",
-        deployment,
-      },
-      401,
-    );
-  }
-
-  if (!safeEqual(provided, expected)) {
-    return json(
-      {
-        ok: false,
-        error: "Probe token does not match this deployment.",
+        error: "Probe token does not match this deployment, and no valid admin session was supplied.",
         code: "EBAY_PROBE_TOKEN_MISMATCH",
         deployment,
       },
@@ -116,6 +132,7 @@ export async function GET(request) {
     );
   }
 
+  const authorization = adminAuthorized ? "admin_session" : "probe_token";
   const adapter = new EbayBrowseAdapter();
   const authOnly = ["1", "true", "yes"].includes(
     String(request.nextUrl?.searchParams?.get("authOnly") || "").toLowerCase(),
@@ -125,6 +142,7 @@ export async function GET(request) {
     return json({
       ok: true,
       code: "EBAY_PROBE_AUTHORIZED",
+      authorization,
       deployment,
       credentials: credentialStatus(),
       token: ebayApplicationTokenService.status(),
@@ -136,6 +154,7 @@ export async function GET(request) {
       {
         ok: false,
         code: "EBAY_BROWSE_NOT_CONFIGURED",
+        authorization,
         deployment,
         credentials: credentialStatus(),
         token: ebayApplicationTokenService.status(),
@@ -179,6 +198,7 @@ export async function GET(request) {
     return json({
       ok: true,
       stage: "complete",
+      authorization,
       deployment,
       adapter: result.source,
       configured: result.configured,
@@ -224,6 +244,7 @@ export async function GET(request) {
         ok: false,
         code,
         stage,
+        authorization,
         deployment,
         error: message,
         timings,
