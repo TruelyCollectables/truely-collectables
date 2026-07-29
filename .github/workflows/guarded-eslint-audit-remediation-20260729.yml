@@ -2,8 +2,7 @@ name: Guarded ESLint Audit Remediation 20260729
 
 on:
   pull_request:
-    branches:
-      - main
+    branches: [main]
     paths:
       - ".github/workflows/guarded-eslint-audit-remediation-20260729.yml"
       - "package.json"
@@ -42,8 +41,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 150
     steps:
-      - name: Check out guarded branch
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: ${{ env.EXPECTED_BRANCH }}
           fetch-depth: 0
@@ -58,19 +56,16 @@ jobs:
           unexpected="$(git diff --name-only "$EXPECTED_MAIN_SHA"...HEAD | grep -Ev '^(\.github/workflows/guarded-eslint-audit-remediation-20260729\.yml|package\.json|package-lock\.json|vendor/brace-expansion-compat/(package\.json|index\.cjs))$' || true)"
           test -z "$unexpected" || { printf 'Unexpected branch changes:\n%s\n' "$unexpected" >&2; exit 1; }
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
 
-      - name: Install current exact dependency tree
-        run: npm ci
-
-      - name: Apply patched brace-expansion compatibility repair
+      - name: Install current tree and apply patched compatibility package
         shell: bash
         run: |
           set -euo pipefail
+          npm ci
           mkdir -p vendor/brace-expansion-compat
           cat > vendor/brace-expansion-compat/package.json <<'JSON'
           {
@@ -86,60 +81,46 @@ jobs:
           JSON
           cat > vendor/brace-expansion-compat/index.cjs <<'CJS'
           'use strict';
-
           const secureCore = require('brace-expansion-safe-core');
           const expand = typeof secureCore === 'function' ? secureCore : secureCore.expand;
-
-          if (typeof expand !== 'function') {
-            throw new TypeError('The patched brace-expansion core did not expose expand().');
-          }
-
+          if (typeof expand !== 'function') throw new TypeError('Patched core did not expose expand().');
           module.exports = expand;
           module.exports.expand = expand;
           CJS
           node - <<'NODE'
           const fs = require('node:fs');
           const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-          if (pkg.devDependencies?.eslint !== '^9') {
-            throw new Error(`Expected the supported ESLint 9 line, found ${pkg.devDependencies?.eslint}`);
-          }
+          if (pkg.devDependencies?.eslint !== '^9') throw new Error(`Unsupported ESLint source range: ${pkg.devDependencies?.eslint}`);
           pkg.devDependencies['brace-expansion'] = 'file:vendor/brace-expansion-compat';
           pkg.overrides = { ...(pkg.overrides || {}), 'brace-expansion': '$brace-expansion' };
           fs.writeFileSync('package.json', `${JSON.stringify(pkg, null, 2)}\n`);
           NODE
           npm install
-          node - <<'NODE'
-          const fs = require('node:fs');
-          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-          if (pkg.devDependencies?.eslint !== '^9') throw new Error('The supported ESLint 9 range changed.');
-          if (pkg.devDependencies?.['eslint-config-next'] !== '16.2.12') throw new Error('eslint-config-next changed unexpectedly.');
-          if (pkg.devDependencies?.['brace-expansion'] !== 'file:vendor/brace-expansion-compat') throw new Error('Compatibility package is not pinned.');
-          if (pkg.overrides?.['brace-expansion'] !== '$brace-expansion') throw new Error('Transitive override is missing.');
-          const expand = require('brace-expansion');
-          if (typeof expand !== 'function') throw new Error('CommonJS callable compatibility was not preserved.');
-          const result = expand('card-{front,back}.jpg');
-          if (JSON.stringify(result) !== JSON.stringify(['card-front.jpg', 'card-back.jpg'])) {
-            throw new Error(`Unexpected brace expansion result: ${JSON.stringify(result)}`);
-          }
-          if (expand.expand !== expand) throw new Error('Named expand compatibility was not preserved.');
-          NODE
           git diff --check
-          git diff -- package.json package-lock.json vendor/brace-expansion-compat/package.json vendor/brace-expansion-compat/index.cjs
 
-      - name: Enforce zero high or critical npm advisories
+      - name: Prove compatibility and zero high or critical advisories
         shell: bash
         run: |
           set -euo pipefail
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          if (pkg.devDependencies?.eslint !== '^9') throw new Error('ESLint 9 support changed.');
+          if (pkg.devDependencies?.['eslint-config-next'] !== '16.2.12') throw new Error('eslint-config-next changed.');
+          if (pkg.devDependencies?.['brace-expansion'] !== 'file:vendor/brace-expansion-compat') throw new Error('Compatibility dependency missing.');
+          if (pkg.overrides?.['brace-expansion'] !== '$brace-expansion') throw new Error('Override missing.');
+          const expand = require('brace-expansion');
+          if (typeof expand !== 'function' || expand.expand !== expand) throw new Error('Legacy callable API not preserved.');
+          const actual = expand('card-{front,back}.jpg');
+          if (JSON.stringify(actual) !== JSON.stringify(['card-front.jpg', 'card-back.jpg'])) throw new Error(`Bad expansion: ${JSON.stringify(actual)}`);
+          NODE
           npm audit --json > npm-audit.json || audit_status=$?
           node - <<'NODE'
           const fs = require('node:fs');
           const report = JSON.parse(fs.readFileSync('npm-audit.json', 'utf8'));
           const counts = report.metadata?.vulnerabilities || {};
           console.log(JSON.stringify(counts));
-          if ((counts.high || 0) !== 0 || (counts.critical || 0) !== 0) {
-            console.log(JSON.stringify(report.vulnerabilities || {}, null, 2));
-            throw new Error(`High/critical advisories remain: ${JSON.stringify(counts)}`);
-          }
+          if ((counts.high || 0) !== 0 || (counts.critical || 0) !== 0) throw new Error(`High/critical advisories remain: ${JSON.stringify(counts)}`);
           NODE
           npm audit --audit-level=high
           npm ls eslint eslint-config-next minimatch brace-expansion brace-expansion-safe-core
@@ -148,7 +129,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git show origin/ops/truqely-full-launch-audit-20260729:scripts/run-truely-launch-audit-20260729.mjs > scripts/.guarded-launch-audit-runner-20260729.mjs
+          git show origin/ops/truely-full-launch-audit-20260729:scripts/run-truely-launch-audit-20260729.mjs > scripts/.guarded-launch-audit-runner-20260729.mjs
           rm -rf .audit/simulations
           for shard in 0 1 2 3 4 5; do
             node scripts/.guarded-launch-audit-runner-20260729.mjs simulations --shard="$shard" --shards=6
@@ -173,12 +154,7 @@ jobs:
           rm -f scripts/.guarded-launch-audit-runner-20260729.mjs
           git diff --check
           mapfile -t changed < <(git status --porcelain=v1 -uall | cut -c4-)
-          expected=(
-            package-lock.json
-            package.json
-            vendor/brace-expansion-compat/index.cjs
-            vendor/brace-expansion-compat/package.json
-          )
+          expected=(package-lock.json package.json vendor/brace-expansion-compat/index.cjs vendor/brace-expansion-compat/package.json)
           mapfile -t sorted_changed < <(printf '%s\n' "${changed[@]}" | sort)
           test "${#sorted_changed[@]}" -eq "${#expected[@]}"
           test "$(printf '%s\n' "${sorted_changed[@]}")" = "$(printf '%s\n' "${expected[@]}")"
