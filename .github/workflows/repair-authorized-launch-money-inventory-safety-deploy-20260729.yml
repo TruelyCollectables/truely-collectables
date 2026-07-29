@@ -52,20 +52,24 @@ jobs:
           output = Path('ops-output/authorized-launch-money-inventory-safety-deploy-20260729.yml')
           text = source.read_text(encoding='utf-8')
           source_sha = '8baee1bb26a17f974388b4d8e50b4321bbdfb685'
-          old_block = """      - name: Confirm staged Production and safe promotion fallback
-        shell: bash
-        run: |
-          set -euo pipefail
-          npx vercel@56.2.0 deploy --help > .deployment-evidence/vercel-deploy-help.txt 2>&1
-          grep -Fq -- '--skip-domain' .deployment-evidence/vercel-deploy-help.txt
-          printf '%s\\n' 'alias-set-fallback' > .deployment-evidence/vercel-promotion-method.txt
-"""
-          new_block = """      - name: Record staged Production and safe promotion contract
-        shell: bash
-        run: |
-          set -euo pipefail
-          printf '%s\\n' 'staged-deploy:--prod,--skip-domain;promotion:alias-set-fallback' > .deployment-evidence/vercel-promotion-method.txt
-"""
+          old_block = '\n'.join([
+              '      - name: Confirm staged Production and safe promotion fallback',
+              '        shell: bash',
+              '        run: |',
+              '          set -euo pipefail',
+              '          npx vercel@56.2.0 deploy --help > .deployment-evidence/vercel-deploy-help.txt 2>&1',
+              "          grep -Fq -- '--skip-domain' .deployment-evidence/vercel-deploy-help.txt",
+              "          printf '%s\\n' 'alias-set-fallback' > .deployment-evidence/vercel-promotion-method.txt",
+              '',
+          ])
+          new_block = '\n'.join([
+              '      - name: Record staged Production and safe promotion contract',
+              '        shell: bash',
+              '        run: |',
+              '          set -euo pipefail',
+              "          printf '%s\\n' 'staged-deploy:--prod,--skip-domain;promotion:alias-set-fallback' > .deployment-evidence/vercel-promotion-method.txt",
+              '',
+          ])
 
           if text.count(source_sha) != 2:
               raise SystemExit('Expected exactly two current exact-source SHA references.')
