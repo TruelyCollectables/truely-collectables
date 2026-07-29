@@ -20,9 +20,9 @@ for (const path of ["/shop", "/shop?q=rookie", "/shop?q=autograph", "/shop?q=PSA
 assert.match(navbar, /min-h-11/, "Navigation and cart controls must meet the mobile touch-target contract.");
 
 assert.match(shop, /px-4 py-8 sm:px-6/, "The shop must use narrow phone gutters with larger-screen fallback.");
-assert.match(shop, /className="object-contain p-2"/, "Shop thumbnails must show the whole card instead of cropping it.");
+assert.match(shop, /className="object-contain p-2"/, "Shop thumbnails must show the whole collectible instead of cropping it.");
 assert.match(shop, /min-h-12[^"]*text-base/, "Shop search controls must be large enough for touch and avoid mobile input zoom.");
-assert.match(shop, /View Card/, "The shop card action must stay concise on small screens.");
+assert.match(shop, /View Item/, "The universal-collectibles shop action must stay concise on small screens.");
 
 assert.doesNotMatch(productActions, /alert\("Added to cart!"\)/, "Add-to-cart confirmation must not use a blocking mobile alert.");
 assert.match(productActions, /aria-live="polite"/, "Add-to-cart confirmation must be announced without blocking navigation.");
