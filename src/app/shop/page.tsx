@@ -213,6 +213,7 @@ export default async function Shop({
         <input
           type="search"
           name="q"
+          aria-label="Search inventory"
           placeholder="Player, team, set, item, card number..."
           defaultValue={q}
           className="min-h-12 rounded border px-4 py-3 text-base md:col-span-2"
@@ -220,6 +221,7 @@ export default async function Shop({
 
         <select
           name="section"
+          aria-label="Filter by section"
           defaultValue={section}
           className="min-h-12 rounded border px-3 py-3 text-base"
         >
@@ -233,6 +235,7 @@ export default async function Shop({
 
         <select
           name="feature"
+          aria-label="Filter by feature"
           defaultValue={feature}
           className="min-h-12 rounded border px-3 py-3 text-base"
         >
@@ -246,6 +249,7 @@ export default async function Shop({
 
         <select
           name="sort"
+          aria-label="Sort inventory"
           defaultValue={sort}
           className="min-h-12 rounded border px-3 py-3 text-base"
         >
