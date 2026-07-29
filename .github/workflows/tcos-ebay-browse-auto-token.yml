@@ -1,0 +1,129 @@
+name: TCOS eBay Browse Auto Token
+
+on:
+  push:
+    branches:
+      - feature/ebay-browse-auto-token-20260729
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "connectors/tcos-market-intel-mcp/src/config.mjs"
+      - "connectors/tcos-market-intel-mcp/src/ebay-application-token.mjs"
+      - "connectors/tcos-market-intel-mcp/src/public-search.mjs"
+      - "scripts/apply-ebay-browse-auto-token.mjs"
+      - "scripts/run-ebay-browse-auto-token-simulations.mjs"
+      - "scripts/probe-ebay-browse-production.mjs"
+      - ".github/workflows/tcos-ebay-browse-auto-token.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tcos-ebay-browse-auto-token-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-and-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+    steps:
+      - name: Check out feature source
+        uses: actions/checkout@v4
+        with:
+          ref: feature/ebay-browse-auto-token-20260729
+          fetch-depth: 0
+
+      - name: Materialize automatic eBay Browse adapter
+        run: |
+          set -euo pipefail
+          node scripts/apply-ebay-browse-auto-token.mjs
+          git diff --check
+          git add connectors/tcos-market-intel-mcp/src/public-search.mjs
+          if git diff --cached --quiet; then
+            echo "eBay Browse adapter already materialized."
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "Materialize automatic eBay Browse token adapter"
+            git push origin HEAD:feature/ebay-browse-auto-token-20260729
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Run eBay token-manager simulation
+        run: node scripts/run-ebay-browse-auto-token-simulations.mjs
+
+      - name: Lint eBay Browse paths
+        run: npx eslint connectors/tcos-market-intel-mcp/src/config.mjs connectors/tcos-market-intel-mcp/src/ebay-application-token.mjs connectors/tcos-market-intel-mcp/src/public-search.mjs scripts/apply-ebay-browse-auto-token.mjs scripts/run-ebay-browse-auto-token-simulations.mjs scripts/probe-ebay-browse-production.mjs
+
+      - name: Build production application
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+          ADMIN_PASSWORD: build-only-placeholder-password
+          ADMIN_SESSION_SECRET: build-only-placeholder-admin-session-secret
+          INSTACOMP_SERVICE_TOKEN: build-only-placeholder-instacomp-service-token
+          TCOS_CONNECTOR_TOKEN: build-only-placeholder-connector-token
+          INSTACOMP_BASE_URL: https://truelycollectables.com
+          OPENAI_API_KEY: build-only-placeholder-openai-key
+          SERPAPI_API_KEY: build-only-placeholder-serpapi-key
+          NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+          STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+          STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+          EBAY_CLIENT_ID: build-only-placeholder-client-id
+          EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+          EBAY_ENVIRONMENT: production
+          TCOS_LIVE_PAYMENTS_ENABLED: "false"
+          TCOS_SHIPPING_PURCHASE_MODE: dry_run
+          TCOS_LIVE_SHIPPING_ENABLED: "false"
+        run: npm run build
+
+      - name: Link exact Vercel project
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p .vercel .probe-evidence
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link \
+              --yes \
+              --project truely-collectables \
+              --scope "$VERCEL_SCOPE" \
+              --token "$VERCEL_TOKEN"
+          fi
+
+      - name: Run real Production eBay token and Browse probe
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 env run -e production -- node scripts/probe-ebay-browse-production.mjs \
+            2>&1 | tee .probe-evidence/ebay-browse-production-probe.log
+          grep -Fq '"ok":true' .probe-evidence/ebay-browse-production-probe.log
+          grep -Fq '"adapter":"ebay_browse"' .probe-evidence/ebay-browse-production-probe.log
+          grep -Fq '"configured":true' .probe-evidence/ebay-browse-production-probe.log
+          grep -Fq '"mode":"client_credentials"' .probe-evidence/ebay-browse-production-probe.log
+
+      - name: Upload redacted probe evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tcos-ebay-browse-auto-token-${{ github.run_number }}
+          path: .probe-evidence
+          if-no-files-found: warn
+          retention-days: 30
