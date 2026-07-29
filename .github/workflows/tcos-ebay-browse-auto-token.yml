@@ -9,6 +9,7 @@ on:
       - "connectors/tcos-market-intel-mcp/src/ebay-application-token.mjs"
       - "connectors/tcos-market-intel-mcp/src/public-search.mjs"
       - "src/app/api/internal/ebay-browse-probe/route.js"
+      - "src/app/api/internal/wnba-native-search/route.js"
       - "scripts/apply-ebay-browse-auto-token.mjs"
       - "scripts/apply-ebay-browse-status-details.mjs"
       - "scripts/run-ebay-browse-auto-token-simulations.mjs"
@@ -22,6 +23,7 @@ on:
       - "connectors/tcos-market-intel-mcp/src/ebay-application-token.mjs"
       - "connectors/tcos-market-intel-mcp/src/public-search.mjs"
       - "src/app/api/internal/ebay-browse-probe/route.js"
+      - "src/app/api/internal/wnba-native-search/route.js"
       - "scripts/apply-ebay-browse-auto-token.mjs"
       - "scripts/apply-ebay-browse-status-details.mjs"
       - "scripts/run-ebay-browse-auto-token-simulations.mjs"
@@ -89,7 +91,17 @@ jobs:
         run: node scripts/run-ebay-browse-runtime-contracts.mjs
 
       - name: Lint eBay Browse paths
-        run: npx eslint connectors/tcos-market-intel-mcp/src/config.mjs connectors/tcos-market-intel-mcp/src/ebay-application-token.mjs connectors/tcos-market-intel-mcp/src/public-search.mjs src/app/api/internal/ebay-browse-probe/route.js scripts/apply-ebay-browse-auto-token.mjs scripts/apply-ebay-browse-status-details.mjs scripts/run-ebay-browse-auto-token-simulations.mjs scripts/run-ebay-browse-runtime-contracts.mjs
+        run: >-
+          npx eslint
+          connectors/tcos-market-intel-mcp/src/config.mjs
+          connectors/tcos-market-intel-mcp/src/ebay-application-token.mjs
+          connectors/tcos-market-intel-mcp/src/public-search.mjs
+          src/app/api/internal/ebay-browse-probe/route.js
+          src/app/api/internal/wnba-native-search/route.js
+          scripts/apply-ebay-browse-auto-token.mjs
+          scripts/apply-ebay-browse-status-details.mjs
+          scripts/run-ebay-browse-auto-token-simulations.mjs
+          scripts/run-ebay-browse-runtime-contracts.mjs
 
       - name: Build production application
         env:
