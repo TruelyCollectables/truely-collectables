@@ -48,7 +48,11 @@ jobs:
         run: git fetch origin pull/142/head:refs/remotes/origin/pr142
 
       - name: Apply accepted-offer reservation patch
-        run: node scripts/apply-accepted-offer-reservations-20260729.mjs
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/apply-accepted-offer-reservations-20260729.mjs
+          git show origin/pr142:scripts/run-buyer-protection-simulations.ts > scripts/run-buyer-protection-simulations.ts
 
       - name: Remove one-time writer and workflow
         run: |
@@ -65,7 +69,7 @@ jobs:
         run: npm ci
 
       - name: Format changed TypeScript and JSON
-        run: npx prettier --write package.json scripts/run-accepted-offer-reservation-simulations.ts scripts/run-offer-checkout-idempotency-simulations.ts src/lib/offer-checkout-attempt.ts src/lib/reserved-offer-checkout.ts src/lib/checkout-inventory-reservations.ts src/lib/checkout-order-finalization.ts src/lib/live-payment-launch-core.ts src/app/api/offers/buyer-checkout/route.ts src/app/api/webhook/route.ts
+        run: npx prettier --write package.json scripts/run-accepted-offer-reservation-simulations.ts scripts/run-offer-checkout-idempotency-simulations.ts scripts/run-buyer-protection-simulations.ts src/lib/offer-checkout-attempt.ts src/lib/reserved-offer-checkout.ts src/lib/checkout-inventory-reservations.ts src/lib/checkout-order-finalization.ts src/lib/live-payment-launch-core.ts src/app/api/offers/buyer-checkout/route.ts src/app/api/webhook/route.ts
 
       - name: Validate reservation SQL contracts
         shell: bash
@@ -96,7 +100,7 @@ jobs:
           node scripts/run-privileged-api-route-audit.mjs
 
       - name: Run targeted ESLint
-        run: npx eslint src/lib/offer-checkout-attempt.ts src/lib/reserved-offer-checkout.ts src/lib/checkout-inventory-reservations.ts src/lib/checkout-order-finalization.ts src/lib/live-payment-launch-core.ts src/app/api/offers/buyer-checkout/route.ts src/app/api/webhook/route.ts scripts/run-accepted-offer-reservation-simulations.ts scripts/run-offer-checkout-idempotency-simulations.ts
+        run: npx eslint src/lib/offer-checkout-attempt.ts src/lib/reserved-offer-checkout.ts src/lib/checkout-inventory-reservations.ts src/lib/checkout-order-finalization.ts src/lib/live-payment-launch-core.ts src/app/api/offers/buyer-checkout/route.ts src/app/api/webhook/route.ts scripts/run-accepted-offer-reservation-simulations.ts scripts/run-offer-checkout-idempotency-simulations.ts scripts/run-buyer-protection-simulations.ts
 
       - name: Run standalone TypeScript
         run: npx tsc --noEmit --pretty false
@@ -119,6 +123,6 @@ jobs:
           set -euo pipefail
           git config user.name "Truely Collectables Audit"
           git config user.email "audit@truelycollectables.com"
-          git add package.json scripts/run-accepted-offer-reservation-simulations.ts scripts/run-offer-checkout-idempotency-simulations.ts src/lib/offer-checkout-attempt.ts src/lib/reserved-offer-checkout.ts src/lib/checkout-inventory-reservations.ts src/lib/checkout-order-finalization.ts src/lib/live-payment-launch-core.ts src/app/api/offers/buyer-checkout/route.ts src/app/api/webhook/route.ts supabase/migrations/20260726234000_consume_attached_offer_checkout_reservations.sql supabase/migrations/20260727141000_hold_attached_checkout_reservations.sql supabase/migrations/20260727144000_preserve_reserved_product_identity.sql scripts/apply-accepted-offer-reservations-20260729.mjs .github/workflows/validate-accepted-offer-reservations-20260729.yml
+          git add package.json scripts/run-accepted-offer-reservation-simulations.ts scripts/run-offer-checkout-idempotency-simulations.ts scripts/run-buyer-protection-simulations.ts src/lib/offer-checkout-attempt.ts src/lib/reserved-offer-checkout.ts src/lib/checkout-inventory-reservations.ts src/lib/checkout-order-finalization.ts src/lib/live-payment-launch-core.ts src/app/api/offers/buyer-checkout/route.ts src/app/api/webhook/route.ts supabase/migrations/20260726234000_consume_attached_offer_checkout_reservations.sql supabase/migrations/20260727141000_hold_attached_checkout_reservations.sql supabase/migrations/20260727144000_preserve_reserved_product_identity.sql scripts/apply-accepted-offer-reservations-20260729.mjs .github/workflows/validate-accepted-offer-reservations-20260729.yml
           git commit -m "Reserve inventory during accepted-offer checkout"
           git push origin HEAD:fix/accepted-offer-inventory-reservations-20260729
