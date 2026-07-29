@@ -50,7 +50,7 @@ jobs:
           new_sha = '8baee1bb26a17f974388b4d8e50b4321bbdfb685'
           old_name = '      - name: Confirm staged Production and promotion commands exist\n'
           new_name = '      - name: Confirm staged Production and safe promotion fallback\n'
-          old_line = '          npx vercel@56.2.0 promote --help > .deployment-evidence/vercel-promote-help.txt\n'
+          old_line = '          npx vercel@56.2.0 promote --help > .deployment-evidence/vercel-promote-help.txt 2>&1\n'
           new_line = "          printf '%s\\n' 'alias-set-fallback' > .deployment-evidence/vercel-promotion-method.txt\n"
 
           if text.count(old_sha) != 2:
