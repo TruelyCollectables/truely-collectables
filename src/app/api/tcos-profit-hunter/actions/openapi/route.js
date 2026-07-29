@@ -1,67 +1,10 @@
 const serverUrl = "https://truelycollectables.com";
 
-const laneSchema = {
-  type: "string",
-  enum: [
-    "demidov",
-    "wnba",
-    "danny_norris",
-    "baseball_prospect",
-    "signed_baseball",
-  ],
-};
-
-const nullableString = {
-  type: "string",
-  nullable: true,
-};
-
-const listingSchema = {
-  type: "object",
-  additionalProperties: false,
-  required: [
-    "source",
-    "url",
-    "title",
-    "askingPrice",
-    "frontImageUrl",
-    "backImageUrl",
-  ],
-  properties: {
-    source: { type: "string", description: "Marketplace or public source name." },
-    url: { type: "string", format: "uri", description: "Exact live listing URL." },
-    sourceItemId: nullableString,
-    title: { type: "string", description: "Seller listing title, treated only as a claim." },
-    sellerName: nullableString,
-    askingPrice: { type: "number", minimum: 0 },
-    shipping: { type: "number", minimum: 0, default: 0 },
-    buyerFees: { type: "number", minimum: 0, default: 0 },
-    tax: { type: "number", minimum: 0, default: 0 },
-    frontImageUrl: { type: "string", format: "uri", description: "Direct HTTPS front-image URL." },
-    backImageUrl: { type: "string", format: "uri", description: "Direct HTTPS back-image URL." },
-  },
-};
-
-const errorResponse = {
-  description: "Request failed.",
-  content: {
-    "application/json": {
-      schema: {
-        type: "object",
-        properties: {
-          error: { type: "string" },
-          code: { type: "string" },
-        },
-      },
-    },
-  },
-};
-
 const schema = {
-  openapi: "3.0.3",
+  openapi: "3.1.0",
   info: {
     title: "TCOS Profit Hunter Actions",
-    version: "1.0.0",
+    version: "1.0.1",
     description:
       "Private read-and-analysis API for TCOS Deal Hunter / Profit Hunter. It discovers candidates, runs exact front/back InstaComp verification, applies owned-copy exclusions, and calculates fail-closed net ROI. It never purchases items.",
   },
@@ -84,11 +27,11 @@ const schema = {
             description: "Profit Hunter readiness and locked scope.",
             content: {
               "application/json": {
-                schema: { type: "object", additionalProperties: true },
+                schema: { $ref: "#/components/schemas/StatusResponse" },
               },
             },
           },
-          "401": errorResponse,
+          "401": { $ref: "#/components/responses/ErrorResponse" },
         },
       },
     },
@@ -103,29 +46,7 @@ const schema = {
           required: true,
           content: {
             "application/json": {
-              schema: {
-                type: "object",
-                additionalProperties: false,
-                required: ["lane"],
-                properties: {
-                  lane: laneSchema,
-                  player: {
-                    ...nullableString,
-                    description:
-                      "Optional exact player name. WNBA accepts only Caitlin Clark, Paige Bueckers, Dominique Malonga, Sonia Citron, or Kiki Iriafen.",
-                  },
-                  query: {
-                    ...nullableString,
-                    description: "Optional focused public-marketplace search phrase.",
-                  },
-                  maxResults: {
-                    type: "integer",
-                    minimum: 1,
-                    maximum: 50,
-                    default: 20,
-                  },
-                },
-              },
+              schema: { $ref: "#/components/schemas/SearchRequest" },
             },
           },
         },
@@ -134,13 +55,13 @@ const schema = {
             description: "Discovery candidates requiring hardened verification.",
             content: {
               "application/json": {
-                schema: { type: "object", additionalProperties: true },
+                schema: { $ref: "#/components/schemas/SearchResponse" },
               },
             },
           },
-          "400": errorResponse,
-          "401": errorResponse,
-          "500": errorResponse,
+          "400": { $ref: "#/components/responses/ErrorResponse" },
+          "401": { $ref: "#/components/responses/ErrorResponse" },
+          "500": { $ref: "#/components/responses/ErrorResponse" },
         },
       },
     },
@@ -155,58 +76,7 @@ const schema = {
           required: true,
           content: {
             "application/json": {
-              schema: {
-                type: "object",
-                additionalProperties: false,
-                required: ["lane", "listing"],
-                properties: {
-                  lane: laneSchema,
-                  expectedPlayer: {
-                    ...nullableString,
-                    description: "Expected exact player name for image-vs-listing verification.",
-                  },
-                  listing: listingSchema,
-                  trueFirstBowmanEvidence: {
-                    type: "object",
-                    nullable: true,
-                    additionalProperties: false,
-                    required: [
-                      "checklistSource",
-                      "checklistUrl",
-                      "exactCardNumber",
-                      "chronologyChecked",
-                      "noEarlierQualifyingIssue",
-                    ],
-                    properties: {
-                      checklistSource: { type: "string" },
-                      checklistUrl: { type: "string", format: "uri" },
-                      exactCardNumber: { type: "string" },
-                      chronologyChecked: { type: "boolean" },
-                      noEarlierQualifyingIssue: { type: "boolean" },
-                      notes: nullableString,
-                    },
-                    description:
-                      "Required for baseball_prospect verification. Must prove the exact 2021-present true 1st Bowman issue and that no earlier qualifying issue exists.",
-                  },
-                  sellerRisk: {
-                    type: "string",
-                    enum: ["low", "medium", "high", "unknown"],
-                    default: "unknown",
-                  },
-                  manualReviewRequired: { type: "boolean", default: false },
-                  aiCouncilTier: { type: "string", default: "adaptive" },
-                  operatorSerialNumberOverride: nullableString,
-                  sellingFeeRate: { type: "number", minimum: 0, maximum: 1, default: 0.1325 },
-                  orderFee: { type: "number", minimum: 0, default: 0.4 },
-                  paymentProcessingFees: { type: "number", minimum: 0, default: 0 },
-                  outboundShipping: { type: "number", minimum: 0, default: 0.78 },
-                  supplies: { type: "number", minimum: 0, default: 0.25 },
-                  gradingAuthentication: { type: "number", minimum: 0, default: 0 },
-                  cleaningPreparation: { type: "number", minimum: 0, default: 0 },
-                  labor: { type: "number", minimum: 0, default: 0 },
-                  returnReserveRate: { type: "number", minimum: 0, maximum: 1, default: 0.02 },
-                },
-              },
+              schema: { $ref: "#/components/schemas/VerifyRequest" },
             },
           },
         },
@@ -216,18 +86,300 @@ const schema = {
               "Fail-closed verification result with identity, exact-market evidence, economics, and final TCOS label.",
             content: {
               "application/json": {
-                schema: { type: "object", additionalProperties: true },
+                schema: { $ref: "#/components/schemas/VerifyResponse" },
               },
             },
           },
-          "400": errorResponse,
-          "401": errorResponse,
-          "500": errorResponse,
+          "400": { $ref: "#/components/responses/ErrorResponse" },
+          "401": { $ref: "#/components/responses/ErrorResponse" },
+          "500": { $ref: "#/components/responses/ErrorResponse" },
         },
       },
     },
   },
   components: {
+    schemas: {
+      Lane: {
+        type: "string",
+        enum: [
+          "demidov",
+          "wnba",
+          "danny_norris",
+          "baseball_prospect",
+          "signed_baseball",
+        ],
+      },
+      ErrorBody: {
+        type: "object",
+        properties: {
+          error: { type: "string" },
+          code: { type: "string" },
+        },
+        required: ["error"],
+      },
+      StatusResponse: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean" },
+          service: { type: "string" },
+          interface: { type: "string" },
+          version: { type: "string" },
+          purchaseWritesEnabled: { type: "boolean" },
+          scope: {
+            type: "object",
+            properties: {
+              minimumNetRoiPercent: { type: "number" },
+              demidov: { type: "object" },
+              wnba: { type: "object" },
+              baseballProspect: { type: "object" },
+              signedBaseball: { type: "object" },
+            },
+          },
+          discovery: {
+            type: "object",
+            properties: {
+              openAiPublicWeb: { type: "boolean" },
+              ebayBrowse: { type: "boolean" },
+              xRecentSearch: { type: "boolean" },
+            },
+          },
+          hardenedInstaComp: {
+            type: "object",
+            properties: {
+              configured: { type: "boolean" },
+              baseUrlConfigured: { type: "boolean" },
+              serviceTokenConfigured: { type: "boolean" },
+              endpoint: { type: "string" },
+            },
+          },
+        },
+        required: [
+          "ok",
+          "service",
+          "interface",
+          "version",
+          "scope",
+          "discovery",
+          "hardenedInstaComp",
+          "purchaseWritesEnabled",
+        ],
+      },
+      SearchRequest: {
+        type: "object",
+        properties: {
+          lane: { $ref: "#/components/schemas/Lane" },
+          player: {
+            type: "string",
+            description:
+              "Optional exact player name. WNBA accepts only Caitlin Clark, Paige Bueckers, Dominique Malonga, Sonia Citron, or Kiki Iriafen.",
+          },
+          query: {
+            type: "string",
+            description: "Optional focused public-marketplace search phrase.",
+          },
+          maxResults: {
+            type: "integer",
+            minimum: 1,
+            maximum: 50,
+            default: 20,
+          },
+        },
+        required: ["lane"],
+      },
+      Candidate: {
+        type: "object",
+        properties: {
+          source: { type: "string" },
+          url: { type: "string", format: "uri" },
+          sourceItemId: { type: "string" },
+          title: { type: "string" },
+          sellerName: { type: "string" },
+          askingPrice: { type: "number" },
+          shipping: { type: "number" },
+          buyerFees: { type: "number" },
+          tax: { type: "number" },
+          imageUrls: {
+            type: "array",
+            items: { type: "string", format: "uri" },
+          },
+          purchaseReady: { type: "boolean" },
+          requiresHardenedVerification: { type: "boolean" },
+          frontBackSelectionRequired: { type: "boolean" },
+        },
+      },
+      SearchResponse: {
+        type: "object",
+        properties: {
+          lane: { $ref: "#/components/schemas/Lane" },
+          count: { type: "integer" },
+          candidates: {
+            type: "array",
+            items: { $ref: "#/components/schemas/Candidate" },
+          },
+          sourceReports: {
+            type: "array",
+            items: { type: "object" },
+          },
+          warnings: {
+            type: "array",
+            items: { type: "string" },
+          },
+        },
+        required: ["lane", "count", "candidates"],
+      },
+      Listing: {
+        type: "object",
+        properties: {
+          source: {
+            type: "string",
+            description: "Marketplace or public source name.",
+          },
+          url: {
+            type: "string",
+            format: "uri",
+            description: "Exact live listing URL.",
+          },
+          sourceItemId: { type: "string" },
+          title: {
+            type: "string",
+            description: "Seller listing title, treated only as a claim.",
+          },
+          sellerName: { type: "string" },
+          askingPrice: { type: "number", minimum: 0 },
+          shipping: { type: "number", minimum: 0, default: 0 },
+          buyerFees: { type: "number", minimum: 0, default: 0 },
+          tax: { type: "number", minimum: 0, default: 0 },
+          frontImageUrl: {
+            type: "string",
+            format: "uri",
+            description: "Direct HTTPS front-image URL.",
+          },
+          backImageUrl: {
+            type: "string",
+            format: "uri",
+            description: "Direct HTTPS back-image URL.",
+          },
+        },
+        required: [
+          "source",
+          "url",
+          "title",
+          "askingPrice",
+          "frontImageUrl",
+          "backImageUrl",
+        ],
+      },
+      TrueFirstBowmanEvidence: {
+        type: "object",
+        description:
+          "Required for baseball_prospect verification. Must prove the exact 2021-present true 1st Bowman issue and that no earlier qualifying issue exists.",
+        properties: {
+          checklistSource: { type: "string" },
+          checklistUrl: { type: "string", format: "uri" },
+          exactCardNumber: { type: "string" },
+          chronologyChecked: { type: "boolean" },
+          noEarlierQualifyingIssue: { type: "boolean" },
+          notes: { type: "string" },
+        },
+        required: [
+          "checklistSource",
+          "checklistUrl",
+          "exactCardNumber",
+          "chronologyChecked",
+          "noEarlierQualifyingIssue",
+        ],
+      },
+      VerifyRequest: {
+        type: "object",
+        properties: {
+          lane: { $ref: "#/components/schemas/Lane" },
+          expectedPlayer: { type: "string" },
+          listing: { $ref: "#/components/schemas/Listing" },
+          trueFirstBowmanEvidence: {
+            $ref: "#/components/schemas/TrueFirstBowmanEvidence",
+          },
+          sellerRisk: {
+            type: "string",
+            enum: ["low", "medium", "high", "unknown"],
+            default: "unknown",
+          },
+          manualReviewRequired: { type: "boolean", default: false },
+          aiCouncilTier: { type: "string", default: "adaptive" },
+          operatorSerialNumberOverride: { type: "string" },
+          sellingFeeRate: {
+            type: "number",
+            minimum: 0,
+            maximum: 1,
+            default: 0.1325,
+          },
+          orderFee: { type: "number", minimum: 0, default: 0.4 },
+          paymentProcessingFees: {
+            type: "number",
+            minimum: 0,
+            default: 0,
+          },
+          outboundShipping: {
+            type: "number",
+            minimum: 0,
+            default: 0.78,
+          },
+          supplies: { type: "number", minimum: 0, default: 0.25 },
+          gradingAuthentication: {
+            type: "number",
+            minimum: 0,
+            default: 0,
+          },
+          cleaningPreparation: {
+            type: "number",
+            minimum: 0,
+            default: 0,
+          },
+          labor: { type: "number", minimum: 0, default: 0 },
+          returnReserveRate: {
+            type: "number",
+            minimum: 0,
+            maximum: 1,
+            default: 0.02,
+          },
+        },
+        required: ["lane", "listing"],
+      },
+      Outcome: {
+        type: "object",
+        properties: {
+          label: { type: "string" },
+          purchaseReady: { type: "boolean" },
+          reason: { type: "string" },
+        },
+        required: ["label", "purchaseReady", "reason"],
+      },
+      VerifyResponse: {
+        type: "object",
+        properties: {
+          listing: { $ref: "#/components/schemas/Listing" },
+          ownedPurchaseExclusion: { type: "object" },
+          identity: { type: "object" },
+          identityPolicy: { type: "object" },
+          exactMarket: { type: "object" },
+          acquisition: { type: "object" },
+          resale: { type: "object" },
+          offer: { type: "object" },
+          outcome: { $ref: "#/components/schemas/Outcome" },
+          diagnostics: { type: "object" },
+        },
+        required: ["listing", "outcome"],
+      },
+    },
+    responses: {
+      ErrorResponse: {
+        description: "Request failed.",
+        content: {
+          "application/json": {
+            schema: { $ref: "#/components/schemas/ErrorBody" },
+          },
+        },
+      },
+    },
     securitySchemes: {
       bearerAuth: {
         type: "http",
@@ -245,7 +397,7 @@ export async function GET() {
   return Response.json(schema, {
     headers: {
       "Access-Control-Allow-Origin": "*",
-      "Cache-Control": "public, max-age=300",
+      "Cache-Control": "no-store, max-age=0",
       "X-Content-Type-Options": "nosniff",
     },
   });
