@@ -129,6 +129,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # The audit branch spelling is intentionally exact; fail rather than fall back.
           git show origin/ops/truely-full-launch-audit-20260729:scripts/run-truely-launch-audit-20260729.mjs > scripts/.guarded-launch-audit-runner-20260729.mjs
           rm -rf .audit/simulations
           for shard in 0 1 2 3 4 5; do
