@@ -1,0 +1,708 @@
+name: One-Time Storefront Sport Taxonomy V5 20260728
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/one-time-storefront-sport-taxonomy-v5-20260728.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: one-time-storefront-sport-taxonomy-v5-20260728
+  cancel-in-progress: false
+
+jobs:
+  patch-and-validate:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'agent/storefront-sport-taxonomy-v5-20260728'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+      ADMIN_SESSION_SECRET: build-only-placeholder-session-secret
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+      EBAY_CLIENT_ID: build-only-placeholder-client-id
+      EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+      EBAY_ENVIRONMENT: production
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/storefront-sport-taxonomy-v5-20260728
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - name: Apply sport-first storefront taxonomy
+        shell: bash
+        run: |
+          set -euo pipefail
+          python <<'PY'
+          from pathlib import Path
+          import re
+
+          def regex_replace(path: Path, pattern: str, replacement: str, label: str, flags=re.S):
+              text = path.read_text()
+              updated, count = re.subn(pattern, lambda _: replacement, text, count=1, flags=flags)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected one match, found {count}")
+              path.write_text(updated)
+
+          def literal_replace(path: Path, old: str, new: str, label: str):
+              text = path.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected one match, found {count}")
+              path.write_text(text.replace(old, new, 1))
+
+          taxonomy_path = Path('src/lib/storefront-taxonomy.ts')
+          taxonomy = taxonomy_path.read_text()
+          taxonomy, count = re.subn(
+              r'const SECTION_ORDER = \[[\s\S]*?\] as const;',
+              '''const SECTION_ORDER = [
+            "Baseball",
+            "NBA",
+            "WNBA",
+            "Basketball",
+            "Football",
+            "Hockey",
+            "Soccer",
+            "Wrestling",
+            "MMA / UFC",
+            "Boxing",
+            "Golf",
+            "Tennis",
+            "Racing / NASCAR",
+            "Multi-Sport",
+            "Other Sports",
+            "Sealed Wax",
+            "Pucks",
+            "Balls",
+            "Jerseys",
+            "Helmets",
+            "Bats & Gloves",
+            "Photos & Prints",
+            "Tickets & Programs",
+            "Music",
+            "Trading Card Games",
+            "Memorabilia",
+            "Comics",
+            "Coins",
+            "Toys & Figures",
+            "Other Collectables",
+          ] as const;''',
+              taxonomy,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit('section order did not match exactly once')
+
+          helper_marker = '''function metadataBoolean(metadata: Record<string, unknown>, key: string) {
+            const value = metadata[key];
+            if (typeof value === "boolean") return value;
+            if (typeof value === "string") return value.toLowerCase() === "true";
+            return null;
+          }
+          '''
+          helpers = helper_marker + '''
+          function recordValue(value: unknown): Record<string, unknown> {
+            return value && typeof value === "object" && !Array.isArray(value)
+              ? (value as Record<string, unknown>)
+              : {};
+          }
+
+          function currentTaxonomyMetadata(metadata: Record<string, unknown>) {
+            return Number(metadata.tcos_taxonomy_version || 0) >= 5;
+          }
+
+          function meaningfulAutographAspect(value: unknown) {
+            const text = normalized(value);
+            return Boolean(
+              text &&
+                !/^(?:0|false|no|none|n\/a|na|not applicable|not authenticated|unsigned|not autographed|not signed)$/i.test(
+                  text,
+                ),
+            );
+          }
+          '''
+          if taxonomy.count(helper_marker) != 1:
+              raise SystemExit('taxonomy helper marker was not unique')
+          taxonomy = taxonomy.replace(helper_marker, helpers, 1)
+
+          detect_section = '''function detectSection(params: {
+            title: string;
+            rawSport?: unknown;
+            primaryCategory?: string | null;
+            aspects: Record<string, unknown>;
+            metadata: Record<string, unknown>;
+          }) {
+            const storedSection = currentTaxonomyMetadata(params.metadata)
+              ? textValue(params.metadata.tcos_storefront_section)
+              : null;
+            if (storedSection) return storedSection;
+
+            const league = normalized(aspectValue(params.aspects, "League"));
+            const sport = normalized(params.rawSport || aspectValue(params.aspects, "Sport"));
+            const title = normalized(params.title);
+            const primaryCategory = normalized(params.primaryCategory);
+            const objectType = normalized(
+              [
+                aspectValue(params.aspects, "Type"),
+                aspectValue(params.aspects, "Product"),
+                aspectValue(params.aspects, "Item Type"),
+                aspectValue(params.aspects, "Format"),
+              ].join(" "),
+            );
+            const focused = `${sport} ${league} ${title}`;
+            const objectFocused = `${title} ${objectType}`;
+            const isCardPrimary = ["sports_cards", "trading_cards", "sealed_wax"].includes(
+              primaryCategory,
+            );
+            const isCardLike =
+              isCardPrimary ||
+              /\\b(?:sports |trading |collectible )?cards?\\b|\\brookie card\\b|\\bcard #|\\b(?:relic|patch|swatch|jersey|memorabilia) card\\b/.test(
+                `${objectFocused} ${primaryCategory}`,
+              );
+
+            if (!isCardLike) {
+              if (
+                /\\b(?:music cd|compact disc|cd booklet|cd insert|album booklet|liner notes?|vinyl record|record album)\\b/.test(
+                  objectFocused,
+                )
+              ) {
+                return "Music";
+              }
+              if (/\\bpucks?\\b/.test(objectFocused)) return "Pucks";
+              if (/\\bjerseys?\\b/.test(objectFocused)) return "Jerseys";
+              if (/\\bhelmets?\\b/.test(objectFocused)) return "Helmets";
+              if (/\\b(?:bats?|baseball gloves?|fielding gloves?|catcher'?s mitts?)\\b/.test(objectFocused)) {
+                return "Bats & Gloves";
+              }
+              if (/\\b(?:photos?|photographs?|prints?|posters?|lithographs?)\\b/.test(objectFocused)) {
+                return "Photos & Prints";
+              }
+              if (/\\b(?:tickets?|programs?|media guides?)\\b/.test(objectFocused)) {
+                return "Tickets & Programs";
+              }
+              if (
+                /\\b(?:baseballs?|footballs?|basketballs?|soccer balls?|softballs?|volleyballs?|golf balls?|game balls?)\\b/.test(
+                  objectFocused,
+                )
+              ) {
+                return "Balls";
+              }
+            }
+
+            if (/\\bwnba\\b|women'?s national basketball association/.test(focused)) {
+              return "WNBA";
+            }
+            if (/\\bnba\\b|national basketball association/.test(focused)) {
+              return "NBA";
+            }
+            if (/\\bbaseball\\b|\\bmlb\\b|major league baseball/.test(focused)) {
+              return "Baseball";
+            }
+            if (/\\bbasketball\\b/.test(focused)) return "Basketball";
+            if (/american football|\\bfootball\\b|\\bnfl\\b/.test(focused)) {
+              return "Football";
+            }
+            if (/ice hockey|\\bhockey\\b|\\bnhl\\b/.test(focused)) {
+              return "Hockey";
+            }
+            if (/\\bsoccer\\b|association football|\\bmls\\b/.test(focused)) {
+              return "Soccer";
+            }
+            if (/professional wrestling|\\bwrestling\\b|\\bwwe\\b|\\baew\\b/.test(focused)) {
+              return "Wrestling";
+            }
+            if (/mixed martial arts|\\bmma\\b|\\bufc\\b/.test(focused)) {
+              return "MMA / UFC";
+            }
+            if (/\\bboxing\\b/.test(focused)) return "Boxing";
+            if (/\\bgolf\\b|\\bpga\\b/.test(focused)) return "Golf";
+            if (/\\btennis\\b|\\batp\\b|\\bwta\\b/.test(focused)) return "Tennis";
+            if (/\\bnascar\\b|auto racing|motorsport|\\bracing\\b/.test(focused)) {
+              return "Racing / NASCAR";
+            }
+            if (/multi[- ]sport/.test(focused)) return "Multi-Sport";
+
+            switch (primaryCategory) {
+              case "sports_cards":
+                return "Other Sports";
+              case "trading_cards":
+                return "Trading Card Games";
+              case "sealed_wax":
+                return "Sealed Wax";
+              case "music":
+                return "Music";
+              case "autographs":
+              case "memorabilia":
+                return "Memorabilia";
+              case "comics":
+                return "Comics";
+              case "coins":
+                return "Coins";
+              case "toys":
+                return "Toys & Figures";
+              default:
+                return "Other Collectables";
+            }
+          }
+          '''
+          taxonomy, count = re.subn(
+              r'function detectSection\(params: \{[\s\S]*?\n\}\n\nfunction detectFeatures',
+              detect_section + '\nfunction detectFeatures',
+              taxonomy,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit('detectSection replacement did not match')
+
+          detect_features = '''function detectFeatures(params: {
+            title: string;
+            aspects: Record<string, unknown>;
+            metadata: Record<string, unknown>;
+          }) {
+            const features = normalized(aspectValue(params.aspects, "Features"));
+            const signedBy = aspectValue(params.aspects, "Signed By");
+            const autographAuthentication = aspectValue(
+              params.aspects,
+              "Autograph Authentication",
+            );
+            const parallel = normalized(aspectValue(params.aspects, "Parallel/Variety"));
+            const title = normalized(params.title);
+            const autographFocused = `${title} ${features} ${parallel}`;
+            const negativeAutograph =
+              /\\b(?:facsimile|pre[- ]?printed|printed signature|reproduction|reprint autograph|unsigned|not signed|not autographed)\\b/.test(
+                autographFocused,
+              );
+            const autoShorthand =
+              /\\bauto\\b/.test(autographFocused) &&
+              !/\\b(?:auto racing|automotive|automobile)\\b/.test(autographFocused);
+            const autograph =
+              !negativeAutograph &&
+              (affirmative(aspectValue(params.aspects, "Autographed")) ||
+                meaningfulAutographAspect(signedBy) ||
+                meaningfulAutographAspect(autographAuthentication) ||
+                /\\bautograph(?:ed)?\\b|\\bsigned\\b/.test(autographFocused) ||
+                autoShorthand);
+
+            const useStored = currentTaxonomyMetadata(params.metadata);
+            const storedRookie = useStored
+              ? metadataBoolean(params.metadata, "tcos_is_rookie")
+              : null;
+            const storedGraded = useStored
+              ? metadataBoolean(params.metadata, "tcos_is_graded")
+              : null;
+            const storedNumbered = useStored
+              ? metadataBoolean(params.metadata, "tcos_is_numbered")
+              : null;
+
+            const rookie =
+              storedRookie ??
+              /\\brookie\\b|\\brc\\b|rated rookie|young guns/.test(`${title} ${features}`);
+            const graded =
+              storedGraded ??
+              (affirmative(aspectValue(params.aspects, "Graded")) ||
+                Boolean(aspectValue(params.aspects, "Professional Grader")) ||
+                /\\b(?:psa|bgs|sgc|cgc|csg|hga)\\s*(?:10|9\\.5|9|8\\.5|8)\\b/.test(title));
+            const numbered =
+              storedNumbered ??
+              /\\b\\d{1,5}\\s*\\/\\s*\\d{1,5}\\b|serial numbered|\\bnumbered\\b|#'?d\\b/.test(
+                `${title} ${features} ${parallel}`,
+              );
+
+            return { autograph, rookie, graded, numbered };
+          }
+          '''
+          taxonomy, count = re.subn(
+              r'function detectFeatures\(params: \{[\s\S]*?\n\}\n\nexport function classifyStorefrontItem',
+              detect_features + '\nexport function classifyStorefrontItem',
+              taxonomy,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit('detectFeatures replacement did not match')
+
+          taxonomy = taxonomy.replace(
+              '''  const aspects = input.aspects || {};
+            const metadata = input.metadata || {};''',
+              '''  const metadata = input.metadata || {};
+            const aspects =
+              input.aspects || recordValue(metadata.source_aspects);''',
+              1,
+          )
+          taxonomy = taxonomy.replace('tcos_taxonomy_version: "4"', 'tcos_taxonomy_version: "5"')
+          taxonomy = taxonomy.replace('tcos_taxonomy_version: 4', 'tcos_taxonomy_version: 5')
+          taxonomy_path.write_text(taxonomy)
+
+          mapper_path = Path('src/lib/ebay-category-mapper.ts')
+          mapper = mapper_path.read_text()
+          autograph_rule = '''  {
+            category: "autographs",
+            highTerms: [
+              "autograph",
+              "autographed",
+              "autographs",
+              "signature",
+              "signatures",
+              "signed",
+              "auto",
+            ],
+            mediumTerms: ["coa", "jsa", "beckett authenticated", "psa dna"],
+          },'''
+          music_and_autograph = '''  {
+            category: "music",
+            highTerms: [
+              "cd booklet",
+              "compact disc",
+              "music cd",
+              "album booklet",
+              "liner notes",
+              "cd insert",
+              "vinyl record",
+            ],
+            mediumTerms: ["album", "record", "disc", "booklet"],
+          },
+          {
+            category: "autographs",
+            highTerms: ["autograph", "autographed", "autographs", "signed"],
+            mediumTerms: ["coa", "jsa", "beckett authenticated", "psa dna"],
+          },'''
+          if mapper.count(autograph_rule) != 1:
+              raise SystemExit('mapper autograph rule was not unique')
+          mapper = mapper.replace(autograph_rule, music_and_autograph, 1)
+
+          strong_autograph = '''function hasStrongAutographEvidence(title: string, aspects: EbayAspectMap) {
+            const titleText = title.toLowerCase();
+            const focused = [
+              title,
+              getAspectValue(aspects, "Features"),
+              getAspectValue(aspects, "Parallel/Variety"),
+            ]
+              .join(" ")
+              .toLowerCase();
+            const negative =
+              /\\b(?:facsimile|pre[- ]?printed|printed signature|reproduction|reprint autograph|unsigned|not signed|not autographed)\\b/.test(
+                focused,
+              );
+            const signedBy = getAspectValue(aspects, "Signed By");
+            const authentication = getAspectValue(
+              aspects,
+              "Autograph Authentication",
+            );
+            const meaningful = (value: string) =>
+              Boolean(
+                value &&
+                  !/^(?:0|false|no|none|n\\/a|na|not applicable|not authenticated|unsigned|not autographed|not signed)$/i.test(
+                    value.trim(),
+                  ),
+              );
+            const autoShorthand =
+              /\\bauto\\b/i.test(titleText) &&
+              !/\\b(?:auto racing|automotive|automobile)\\b/i.test(titleText);
+
+            return (
+              !negative &&
+              (hasAffirmativeAutographedAspect(aspects) ||
+                meaningful(signedBy) ||
+                meaningful(authentication) ||
+                /\\bautograph(?:ed)?\\b|\\bsigned\\b/i.test(focused) ||
+                autoShorthand)
+            );
+          }
+          '''
+          mapper, count = re.subn(
+              r'function hasStrongAutographEvidence\(title: string, aspects: EbayAspectMap\) \{[\s\S]*?\n\}\n\nfunction preferSportsCardAsPrimaryCategory',
+              strong_autograph + '\nfunction preferSportsCardAsPrimaryCategory',
+              mapper,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit('strong autograph evidence replacement did not match')
+          mapper_path.write_text(mapper)
+
+          authoritative_path = Path('src/lib/ebay-authoritative-store-sync.ts')
+          authoritative = authoritative_path.read_text()
+          authoritative = authoritative.replace(
+              'const STOREFRONT_TAXONOMY_VERSION = 4;',
+              'const STOREFRONT_TAXONOMY_VERSION = 5;',
+              1,
+          )
+          authoritative = authoritative.replace(
+              '''      "autographs",
+                "memorabilia",''',
+              '''      "autographs",
+                "music",
+                "memorabilia",''',
+              1,
+          )
+          authoritative_path.write_text(authoritative)
+
+          launch_path = Path('src/lib/sports-card-launch-scope.ts')
+          launch = launch_path.read_text()
+          launch = launch.replace(
+              '''  "autographs",
+            "memorabilia",''',
+              '''  "autographs",
+            "music",
+            "memorabilia",''',
+              1,
+          )
+          launch = launch.replace(
+              '''  "Baseball",
+            "WNBA",
+            "Basketball",''',
+              '''  "Baseball",
+            "NBA",
+            "WNBA",
+            "Basketball",''',
+              1,
+          )
+          launch = launch.replace(
+              '''  "Tickets & Programs",
+            "Trading Card Games",
+            "Autographs",
+            "Memorabilia",''',
+              '''  "Tickets & Programs",
+            "Music",
+            "Trading Card Games",
+            "Memorabilia",''',
+              1,
+          )
+          launch_path.write_text(launch)
+
+          shop_path = Path('src/app/shop/page.tsx')
+          shop = shop_path.read_text()
+          shop, count = re.subn(
+              r'const QUICK_SECTIONS = \[[\s\S]*?\];',
+              '''const QUICK_SECTIONS = [
+            "Baseball",
+            "NBA",
+            "WNBA",
+            "Basketball",
+            "Football",
+            "Hockey",
+            "Soccer",
+            "Pucks",
+            "Jerseys",
+            "Music",
+            "Photos & Prints",
+            "Memorabilia",
+          ];''',
+              shop,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit('quick sections replacement did not match')
+          shop = shop.replace(
+              'if (params.feature === "autograph") return "Autographs";',
+              'if (params.feature === "autograph") return "Autographed Items";',
+              1,
+          )
+          shop = shop.replace(
+              '''            Cards and memorabilia stay in their correct section. Autographs can be
+            filtered across sports cards, pucks, balls, jerseys, photos, and more.''',
+              '''            Browse cards by sport, with NBA and WNBA kept separate. Autographs are a
+            filter, while real pucks, wearable jerseys, and music items stay in their own sections.''',
+              1,
+          )
+          shop = shop.replace(
+              '''          const storefrontImage = preferHighResolutionListingImage(product.imageUrl) || "/placeholder.png";
+
+          return (''',
+              '''          const storefrontImage = preferHighResolutionListingImage(product.imageUrl) || "/placeholder.png";
+          const subtitle = product.player || product.league;
+
+          return (''',
+              1,
+          )
+          shop = shop.replace(
+              '''                <p className="mt-2 text-sm text-neutral-500">
+                  {product.player || product.league || product.category?.replaceAll("_", " ") || "Collectible"}
+                </p>''',
+              '''                {subtitle ? (
+                  <p className="mt-2 text-sm text-neutral-500">{subtitle}</p>
+                ) : null}''',
+              1,
+          )
+          shop = shop.replace('View Card / Item', 'View Item', 1)
+          shop_path.write_text(shop)
+
+          product_path = Path('src/app/product/[id]/page.tsx')
+          product = product_path.read_text()
+          product = product.replace(
+              'This card may have been sold, removed, or no longer exists.',
+              'This item may have been sold, removed, or no longer exists.',
+              1,
+          )
+          product = product.replace(
+              'name: product.sport || "Sports Cards",',
+              'name: "Truely Collectables",',
+              1,
+          )
+          product_path.write_text(product)
+
+          tests_path = Path('scripts/run-storefront-taxonomy-regressions.ts')
+          tests = tests_path.read_text()
+          marker = 'const wnba = classifyStorefrontItem(wnbaAuto);'
+          additions = '''const nba = classifyStorefrontItem({
+            title: "2024-25 Panini Prizm LeBron James",
+            rawSport: "Basketball",
+            primaryCategory: "sports_cards",
+            aspects: { League: ["National Basketball Association (NBA)"] },
+          });
+          assert.equal(nba.section, "NBA");
+
+          const collegeBasketball = classifyStorefrontItem({
+            title: "2024 Bowman University Basketball Prospect",
+            rawSport: "Basketball",
+            primaryCategory: "sports_cards",
+            aspects: { League: ["NCAA"] },
+          });
+          assert.equal(collegeBasketball.section, "Basketball");
+
+          const staleAutoRacing = classifyStorefrontItem({
+            title: "2024 Panini Prizm NASCAR Auto Racing Card",
+            rawSport: "Auto Racing",
+            primaryCategory: "sports_cards",
+            metadata: {
+              tcos_storefront_section: "Autographs",
+              tcos_is_autograph: true,
+              tcos_taxonomy_version: 4,
+              source_aspects: { Autographed: ["No"], Sport: ["Auto Racing"] },
+            },
+          });
+          assert.equal(staleAutoRacing.section, "Racing / NASCAR");
+          assert.equal(staleAutoRacing.features.autograph, false);
+
+          const facsimile = classifyStorefrontItem({
+            title: "Babe Ruth Facsimile Signature Reprint Photo",
+            primaryCategory: "autographs",
+            aspects: { Autographed: ["No"] },
+          });
+          assert.equal(facsimile.section, "Photos & Prints");
+          assert.equal(facsimile.features.autograph, false);
+
+          const musicBooklet = classifyStorefrontItem({
+            title: "Beastie Boys Signed CD Booklet JSA COA",
+            primaryCategory: "music",
+            aspects: { Autographed: ["Yes"], "Signed By": ["Beastie Boys"] },
+          });
+          assert.equal(musicBooklet.section, "Music");
+          assert.equal(musicBooklet.features.autograph, true);
+
+          const unsignedMusic = classifyStorefrontItem({
+            title: "Beastie Boys CD Booklet",
+            primaryCategory: "music",
+            aspects: { Autographed: ["No"] },
+          });
+          assert.equal(unsignedMusic.section, "Music");
+          assert.equal(unsignedMusic.features.autograph, false);
+
+          const puckRelicCard = classifyStorefrontItem({
+            title: "2024 Upper Deck Hockey Puck Relic Card",
+            rawSport: "Ice Hockey",
+            primaryCategory: "sports_cards",
+          });
+          assert.equal(puckRelicCard.section, "Hockey");
+
+          const actualPuck = classifyStorefrontItem({
+            title: "Colorado Avalanche Official Hockey Puck",
+            rawSport: "Ice Hockey",
+            primaryCategory: "memorabilia",
+          });
+          assert.equal(actualPuck.section, "Pucks");
+
+          const wearableJersey = classifyStorefrontItem({
+            title: "Peyton Manning Signed Denver Broncos Jersey Size XL",
+            rawSport: "Football",
+            primaryCategory: "memorabilia",
+            aspects: { Autographed: ["Yes"] },
+          });
+          assert.equal(wearableJersey.section, "Jerseys");
+
+          const musicMapping = mapEbayInventoryCategory({
+            title: "Beastie Boys Signed CD Booklet JSA COA",
+            aspects: { Autographed: ["Yes"] },
+          });
+          assert.equal(musicMapping.category, "music");
+          assert.equal(musicMapping.attributes.tcos_is_autograph, "true");
+
+          const racingMapping = mapEbayInventoryCategory({
+            title: "2024 Panini NASCAR Auto Racing Card",
+            aspects: { Autographed: ["No"], Sport: ["Auto Racing"] },
+          });
+          assert.equal(racingMapping.attributes.tcos_is_autograph, "false");
+
+          ''' + marker
+          if tests.count(marker) != 1:
+              raise SystemExit('taxonomy test insertion marker was not unique')
+          tests = tests.replace(marker, additions, 1)
+          tests = tests.replace(
+              '''    title: "Basketball Base",
+              player: "Z Player",
+              price: 5,
+              storefrontSection: "Basketball",''',
+              '''    title: "NBA Base",
+              player: "Z Player",
+              price: 5,
+              storefrontSection: "NBA",''',
+              1,
+          )
+          tests_path.write_text(tests)
+
+          simulation_path = Path('scripts/run-ebay-import-admin-client-simulations.ts')
+          simulation = simulation_path.read_text()
+          read_marker = '''const productImageRoute = fs.readFileSync(
+            "src/app/api/storefront/product-images/[id]/route.ts",
+            "utf8",
+          );'''
+          read_addition = read_marker + '''
+          const shopPageSource = fs.readFileSync("src/app/shop/page.tsx", "utf8");'''
+          if simulation.count(read_marker) != 1:
+              raise SystemExit('shop source read marker was not unique')
+          simulation = simulation.replace(read_marker, read_addition, 1)
+          assertion_marker = '''assert.match(
+            productImageRoute,
+            /selectFrontBackListingImages/,
+            "Public product images must choose one complete front/back pair.",
+          );'''
+          assertions = assertion_marker + '''
+          assert.match(shopPageSource, /"NBA",[\s\S]*"WNBA",[\s\S]*"Basketball"/);
+          assert.ok(!shopPageSource.includes('product.category?.replaceAll("_", " ")'));
+          assert.ok(shopPageSource.includes("View Item"));'''
+          if simulation.count(assertion_marker) != 1:
+              raise SystemExit('shop UI assertion marker was not unique')
+          simulation = simulation.replace(assertion_marker, assertions, 1)
+          simulation_path.write_text(simulation)
+
+          Path('.github/workflows/one-time-storefront-sport-taxonomy-v5-20260728.yml').unlink()
+          PY
+
+      - name: Validate taxonomy and storefront changes
+        run: |
+          set -euo pipefail
+          npm ci
+          node --import tsx scripts/run-storefront-taxonomy-regressions.ts
+          node --import tsx scripts/run-ebay-import-admin-client-simulations.ts
+          npx eslint src/lib/storefront-taxonomy.ts src/lib/ebay-category-mapper.ts src/lib/ebay-authoritative-store-sync.ts src/lib/sports-card-launch-scope.ts src/app/shop/page.tsx 'src/app/product/[id]/page.tsx' scripts/run-storefront-taxonomy-regressions.ts scripts/run-ebay-import-admin-client-simulations.ts
+          npm run build
+
+      - name: Commit validated taxonomy v5
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Truely Collectables Automation"
+          git config user.email "automation@truelycollectables.com"
+          git add -A
+          git commit -m "Separate storefront sports and tighten autograph detection"
+          git push origin HEAD:agent/storefront-sport-taxonomy-v5-20260728
