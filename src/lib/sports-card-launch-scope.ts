@@ -23,6 +23,7 @@ const ALLOWED_CATEGORIES = new Set([
   "trading_cards",
   "sealed_wax",
   "autographs",
+  "music",
   "memorabilia",
   "comics",
   "coins",
@@ -31,6 +32,7 @@ const ALLOWED_CATEGORIES = new Set([
 
 const ALLOWED_SECTIONS = new Set([
   "Baseball",
+  "NBA",
   "WNBA",
   "Basketball",
   "Football",
@@ -52,8 +54,8 @@ const ALLOWED_SECTIONS = new Set([
   "Bats & Gloves",
   "Photos & Prints",
   "Tickets & Programs",
+  "Music",
   "Trading Card Games",
-  "Autographs",
   "Memorabilia",
   "Comics",
   "Coins",

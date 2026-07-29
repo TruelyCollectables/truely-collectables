@@ -19,13 +19,15 @@ export const metadata: Metadata = {
 
 const QUICK_SECTIONS = [
   "Baseball",
+  "NBA",
   "WNBA",
   "Basketball",
   "Football",
   "Hockey",
+  "Soccer",
   "Pucks",
-  "Balls",
   "Jerseys",
+  "Music",
   "Photos & Prints",
   "Memorabilia",
 ];
@@ -44,7 +46,7 @@ function shopHref(params: {
 }
 
 function heading(params: { section: string; feature: string }) {
-  if (params.feature === "autograph") return "Autographs";
+  if (params.feature === "autograph") return "Autographed Items";
   if (params.feature === "rookie") return "Rookie Cards";
   if (params.feature === "graded") return "Graded Cards";
   if (params.feature === "numbered") return "Numbered Cards";
@@ -132,8 +134,8 @@ export default async function Shop({
             {heading({ section, feature })}
           </h1>
           <p className="mt-3 max-w-2xl text-neutral-600">
-            Cards and memorabilia stay in their correct section. Autographs can be
-            filtered across sports cards, pucks, balls, jerseys, photos, and more.
+            Browse cards by sport, with NBA and WNBA kept separate. Autographs are a
+            filter, while real pucks, wearable jerseys, and music items stay in their own sections.
           </p>
         </div>
         <p className="rounded bg-white px-4 py-2 text-sm font-bold text-neutral-700">
@@ -213,6 +215,7 @@ export default async function Shop({
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
         {products.map((product) => {
           const storefrontImage = preferHighResolutionListingImage(product.imageUrl) || "/placeholder.png";
+          const subtitle = product.player || product.league;
 
           return (
             <article key={product.legacyProductId} className="overflow-hidden rounded border bg-white">
@@ -236,9 +239,9 @@ export default async function Shop({
                 <h2 className="mt-2 line-clamp-2 min-h-14 text-lg font-black leading-7">
                   {product.title}
                 </h2>
-                <p className="mt-2 text-sm text-neutral-500">
-                  {product.player || product.league || product.category?.replaceAll("_", " ") || "Collectible"}
-                </p>
+                {subtitle ? (
+                  <p className="mt-2 text-sm text-neutral-500">{subtitle}</p>
+                ) : null}
                 <FeatureBadges product={product} />
 
                 <div className="mt-4 flex items-center justify-between gap-3">
@@ -249,7 +252,7 @@ export default async function Shop({
                 </div>
 
                 <Link href={`/product/${product.legacyProductId}`} className="mt-4 flex min-h-11 w-full items-center justify-center rounded border border-neutral-950 px-4 py-2 text-center font-bold hover:bg-neutral-950 hover:text-white">
-                  View Card / Item
+                  View Item
                 </Link>
               </div>
             </article>

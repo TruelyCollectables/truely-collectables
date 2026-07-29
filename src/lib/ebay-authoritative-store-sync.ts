@@ -15,7 +15,7 @@ const MAX_PAGES = Math.ceil(MAX_ACTIVE_LISTINGS / PAGE_SIZE);
 const APPLY_CONCURRENCY = 8;
 const LOCAL_PAGE_SIZE = 1000;
 const MAX_LOCAL_PAGES = 50;
-const STOREFRONT_TAXONOMY_VERSION = 4;
+const STOREFRONT_TAXONOMY_VERSION = 5;
 
 export type EbayStoreSyncMode = "preview" | "apply";
 
@@ -313,6 +313,7 @@ function isCollectibleListing(input: {
       "trading_cards",
       "sealed_wax",
       "autographs",
+      "music",
       "memorabilia",
       "comics",
       "coins",

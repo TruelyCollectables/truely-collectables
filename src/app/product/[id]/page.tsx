@@ -162,7 +162,7 @@ export default async function ProductPage({
         </p>
 
         <p className="mb-6">
-          This card may have been sold, removed, or no longer exists.
+          This item may have been sold, removed, or no longer exists.
         </p>
 
         <Link href="/shop" className="inline-block border rounded px-4 py-2">
@@ -192,7 +192,7 @@ export default async function ProductPage({
     category: product.sport || "Collectibles",
     brand: {
       "@type": "Brand",
-      name: product.sport || "Sports Cards",
+      name: "Truely Collectables",
     },
     url: productUrl,
     offers: {
