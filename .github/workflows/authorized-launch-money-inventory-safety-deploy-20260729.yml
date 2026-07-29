@@ -78,7 +78,18 @@ jobs:
           node scripts/run-ebay-browse-runtime-contracts.mjs
           npm run lint
           npx tsc --noEmit --pretty false
-          npx vercel@56.2.0 env run -e production -- npm run build
+          npx vercel@56.2.0 env ls production \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" \
+            > .deployment-evidence/vercel-production-env-names.txt
+          for key in NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET CRON_SECRET; do
+            grep -Fq "$key" .deployment-evidence/vercel-production-env-names.txt
+          done
+          NEXT_PUBLIC_SUPABASE_URL=https://build-validation.invalid \
+          NEXT_PUBLIC_SUPABASE_ANON_KEY=build-validation-anon-key \
+          SUPABASE_SERVICE_ROLE_KEY=build-validation-service-role-key \
+          NEXT_PUBLIC_SITE_URL=https://truelycollectables.com \
+            npm run build
 
       - name: Confirm staged Production and promotion commands exist
         shell: bash
@@ -454,4 +465,5 @@ jobs:
           name: launch-money-inventory-safety-production-${{ github.run_number }}
           path: .deployment-evidence
           if-no-files-found: error
+          include-hidden-files: true
           retention-days: 30
