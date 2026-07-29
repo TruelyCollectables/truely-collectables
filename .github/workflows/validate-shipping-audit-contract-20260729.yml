@@ -55,25 +55,25 @@ jobs:
           sim_path = Path("src/lib/shipping-simulations.ts")
           sim = sim_path.read_text()
           old_fixture = '''  const overThreeOunces = resolveShippingMethod({
-              requestedMethod: "STANDARD_ENVELOPE",
-              itemCount: 4,
-              subtotal: 19,
-            });'''.replace("            ", "")
+            requestedMethod: "STANDARD_ENVELOPE",
+            itemCount: 4,
+            subtotal: 19,
+          });'''
           new_fixture = '''  const overThreeOunces = resolveShippingMethod({
-              requestedMethod: "STANDARD_ENVELOPE",
-              itemCount: 5,
-              subtotal: 19,
-            });'''.replace("            ", "")
+            requestedMethod: "STANDARD_ENVELOPE",
+            itemCount: 5,
+            subtotal: 19,
+          });'''
           if sim.count(old_fixture) != 1:
               raise SystemExit("Expected one over-three-ounce fixture anchor")
           sim = sim.replace(old_fixture, new_fixture)
 
           old_assertion = '''      overThreeOunces.method === "GROUND_ADVANTAGE" &&
-                  overThreeOunces.standardEnvelope.estimatedOunces === 4,'''.replace("        ", "")
+                overThreeOunces.standardEnvelope.estimatedOunces === 4,'''
           new_assertion = '''      overThreeOunces.method === "GROUND_ADVANTAGE" &&
-                  overThreeOunces.standardEnvelope.eligible === false &&
-                  overThreeOunces.standardEnvelope.estimatedOunces === 4 &&
-                  Boolean(overThreeOunces.reason),'''.replace("        ", "")
+                overThreeOunces.standardEnvelope.eligible === false &&
+                overThreeOunces.standardEnvelope.estimatedOunces === 4 &&
+                Boolean(overThreeOunces.reason),'''
           if sim.count(old_assertion) != 1:
               raise SystemExit("Expected one over-three-ounce assertion anchor")
           sim = sim.replace(old_assertion, new_assertion)
