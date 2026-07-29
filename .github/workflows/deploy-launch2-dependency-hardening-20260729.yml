@@ -1,0 +1,200 @@
+name: Deploy Launch 2 Dependency Hardening 20260729
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/deploy-launch2-dependency-hardening-20260729.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-launch2-dependency-hardening-20260729
+  cancel-in-progress: false
+
+jobs:
+  validate-deploy-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      DEPLOY_SOURCE_SHA: ad5758557e14f10ae9294a4a8de4dd69d188b58d
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      EVIDENCE_DIR: .audit/deploy-launch2-dependency-hardening
+    steps:
+      - name: Check out exact merged source
+        uses: actions/checkout@v4
+        with:
+          ref: ad5758557e14f10ae9294a4a8de4dd69d188b58d
+          fetch-depth: 0
+
+      - name: Fail closed if main moved
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$DEPLOY_SOURCE_SHA"
+          git fetch origin main ops/truely-full-launch-audit-20260729
+          test "$(git rev-parse origin/main)" = "$DEPLOY_SOURCE_SHA"
+          git diff --quiet
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install and prove dependency hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE_DIR"
+          npm ci
+          npm audit --json > "$EVIDENCE_DIR/npm-audit.json" || audit_status=$?
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const report = JSON.parse(fs.readFileSync(process.env.EVIDENCE_DIR + '/npm-audit.json', 'utf8'));
+          const counts = report.metadata?.vulnerabilities || {};
+          fs.writeFileSync(process.env.EVIDENCE_DIR + '/npm-audit-summary.json', JSON.stringify(counts, null, 2));
+          if ((counts.high || 0) !== 0 || (counts.critical || 0) !== 0) {
+            throw new Error(`High or critical advisories remain: ${JSON.stringify(counts)}`);
+          }
+          NODE
+          npm audit --audit-level=high
+          npm ls brace-expansion brace-expansion-safe-core minimatch > "$EVIDENCE_DIR/dependency-tree.txt"
+          node - <<'NODE'
+          const expand = require('brace-expansion');
+          if (typeof expand !== 'function' || expand.expand !== expand) throw new Error('Legacy callable brace-expansion API is not preserved.');
+          const actual = expand('card-{front,back}.jpg');
+          if (JSON.stringify(actual) !== JSON.stringify(['card-front.jpg', 'card-back.jpg'])) throw new Error(`Unexpected expansion: ${JSON.stringify(actual)}`);
+          NODE
+
+      - name: Run all six Launch 2 simulations
+        shell: bash
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
+          ADMIN_SESSION_SECRET: build-validation-session-secret-that-is-long-enough
+          ADMIN_PASSWORD: build-validation-admin-password
+          NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+          STRIPE_SECRET_KEY: sk_test_build_validation
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_validation
+          STRIPE_WEBHOOK_SECRET: whsec_build_validation
+          EBAY_CLIENT_ID: build-validation-client-id
+          EBAY_CLIENT_SECRET: build-validation-client-secret
+          EBAY_ENVIRONMENT: production
+          TCOS_LIVE_PAYMENTS_ENABLED: "false"
+          TCOS_SHIPPING_PURCHASE_MODE: dry_run
+          TCOS_LIVE_SHIPPING_ENABLED: "false"
+        run: |
+          set -euo pipefail
+          git show origin/ops/truely-full-launch-audit-20260729:scripts/run-truely-launch-audit-20260729.mjs > scripts/.deploy-launch-audit-runner-20260729.mjs
+          rm -rf .audit/simulations
+          for shard in 0 1 2 3 4 5; do
+            node scripts/.deploy-launch-audit-runner-20260729.mjs simulations --shard="$shard" --shards=6
+          done
+          rm -f scripts/.deploy-launch-audit-runner-20260729.mjs
+          cp -R .audit/simulations "$EVIDENCE_DIR/simulations"
+          test "$(find "$EVIDENCE_DIR/simulations" -name '*.json' -type f | wc -l | tr -d ' ')" -ge 6
+
+      - name: Run lint TypeScript and Production build
+        shell: bash
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
+          ADMIN_SESSION_SECRET: build-validation-session-secret-that-is-long-enough
+          ADMIN_PASSWORD: build-validation-admin-password
+          NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+          STRIPE_SECRET_KEY: sk_test_build_validation
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_validation
+          STRIPE_WEBHOOK_SECRET: whsec_build_validation
+          EBAY_CLIENT_ID: build-validation-client-id
+          EBAY_CLIENT_SECRET: build-validation-client-secret
+          EBAY_ENVIRONMENT: production
+          TCOS_LIVE_PAYMENTS_ENABLED: "false"
+          TCOS_SHIPPING_PURCHASE_MODE: dry_run
+          TCOS_LIVE_SHIPPING_ENABLED: "false"
+        run: |
+          set -euo pipefail
+          npm run lint
+          npx tsc --noEmit --pretty false
+          npm run build
+          printf '%s\n' "$DEPLOY_SOURCE_SHA" > "$EVIDENCE_DIR/source-sha.txt"
+
+      - name: Resolve exact Vercel project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p .vercel "$EVIDENCE_DIR"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          npx vercel@56.2.0 whoami --token "$VERCEL_TOKEN" > "$EVIDENCE_DIR/vercel-identity.txt"
+
+      - name: Deploy exact current main to Production
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 deploy --prod --yes --force \
+            --meta "launchPurpose=dependency-hardening-production" \
+            --meta "sourceSha=$DEPLOY_SOURCE_SHA" \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" \
+            2>&1 | tee "$EVIDENCE_DIR/vercel-deploy.log"
+          DEPLOYMENT_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$EVIDENCE_DIR/vercel-deploy.log" | tail -n 1)"
+          test -n "$DEPLOYMENT_URL"
+          printf '%s\n' "$DEPLOYMENT_URL" > "$EVIDENCE_DIR/staged-deployment-url.txt"
+          echo "deployment_url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+          npx vercel@56.2.0 inspect "$DEPLOYMENT_URL" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$EVIDENCE_DIR/vercel-deployment-inspect.txt" 2>&1
+
+      - name: Verify generated deployment and customer domain
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 18); do
+            if curl --silent --show-error --fail --max-time 45 https://truelycollectables.com/shop > "$EVIDENCE_DIR/custom-shop.html"; then
+              break
+            fi
+            sleep 5
+          done
+          for label in deployment custom; do
+            if [ "$label" = deployment ]; then base="$DEPLOYMENT_URL"; else base="https://truelycollectables.com"; fi
+            root_code="$(curl --location --silent --show-error --max-time 60 --output "$EVIDENCE_DIR/${label}-root.html" --write-out '%{http_code}' "$base/")"
+            shop_code="$(curl --location --silent --show-error --max-time 60 --output "$EVIDENCE_DIR/${label}-shop.html" --write-out '%{http_code}' "$base/shop")"
+            cart_code="$(curl --location --silent --show-error --max-time 60 --output "$EVIDENCE_DIR/${label}-cart.html" --write-out '%{http_code}' "$base/cart")"
+            signup_code="$(curl --location --silent --show-error --max-time 60 --output "$EVIDENCE_DIR/${label}-signup.html" --write-out '%{http_code}' "$base/account/signup")"
+            admin_code="$(curl --silent --show-error --max-time 60 --output "$EVIDENCE_DIR/${label}-admin.html" --write-out '%{http_code}' "$base/admin")"
+            login_code="$(curl --location --silent --show-error --max-time 60 --output "$EVIDENCE_DIR/${label}-admin-login.html" --write-out '%{http_code}' "$base/admin/login")"
+            webhook_code="$(curl --silent --show-error --max-time 60 --request POST --header 'Content-Type: application/json' --data '{}' --output "$EVIDENCE_DIR/${label}-webhook.json" --write-out '%{http_code}' "$base/api/webhook")"
+            test "$root_code" = "200"
+            test "$shop_code" = "200"
+            test "$cart_code" = "200"
+            test "$signup_code" = "200"
+            test "$admin_code" = "307"
+            test "$login_code" = "200"
+            test "$webhook_code" = "400" -o "$webhook_code" = "401"
+            grep -Fq 'Admin Login' "$EVIDENCE_DIR/${label}-admin-login.html"
+            grep -Fq 'rel="canonical" href="https://truelycollectables.com/cart"' "$EVIDENCE_DIR/${label}-cart.html"
+            grep -Fq 'rel="canonical" href="https://truelycollectables.com/account/signup"' "$EVIDENCE_DIR/${label}-signup.html"
+          done
+          npx vercel@56.2.0 inspect https://truelycollectables.com --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$EVIDENCE_DIR/vercel-custom-domain-inspect.txt" 2>&1
+          printf '%s\n' 'PASS' > "$EVIDENCE_DIR/production-verification.txt"
+
+      - name: Upload exact Production evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launch-current-main-ad575-production-1
+          path: .audit/deploy-launch2-dependency-hardening
+          if-no-files-found: error
+          retention-days: 90
