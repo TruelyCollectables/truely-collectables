@@ -12,15 +12,7 @@ export default function AccountSignupPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [tosAccepted, setTosAccepted] = useState(false);
-  const [error, setError] = useState(() => {
-    if (typeof window === "undefined") return "";
-
-    const params = new URLSearchParams(window.location.search);
-
-    return params.get("card_verification") === "canceled"
-      ? "Card and billing address verification was canceled. Account activation cannot finish until verification is completed."
-      : "";
-  });
+  const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -51,12 +43,6 @@ export default function AccountSignupPage() {
         return;
       }
 
-      if (data.cardVerificationUrl) {
-        setMessage("Account started. Opening secure card verification...");
-        window.location.href = data.cardVerificationUrl;
-        return;
-      }
-
       if (data.session) {
         saveAccountSession(data.session);
         router.push("/account");
@@ -64,7 +50,7 @@ export default function AccountSignupPage() {
       }
 
       setMessage(
-        "Account created. Check your email to confirm the account before logging in.",
+        "Buyer account created. Check your email to confirm the account before logging in.",
       );
     } finally {
       setIsSubmitting(false);
@@ -75,17 +61,20 @@ export default function AccountSignupPage() {
     <main className="mx-auto flex min-h-screen max-w-xl flex-col justify-center px-6 py-12">
       <section className="rounded-md border border-neutral-200 bg-white p-6 shadow-sm">
         <p className="text-sm font-bold uppercase text-neutral-500">
-          TCOS Account
+          Truely Collectables Buyer Account
         </p>
-        <h1 className="mt-2 text-3xl font-black">Create Account</h1>
+        <h1 className="mt-2 text-3xl font-black">Create Buyer Account</h1>
         <p className="mt-2 text-sm leading-6 text-neutral-600">
-          Buyer accounts use email, password, Terms acceptance, and secure card
-          verification. Seller and platform-admin access stay separate.
+          Create an account with your email and password to track purchases and
+          manage your collection. No payment card is required to register.
+          Payment details are entered only when you place an order.
         </p>
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
           <label className="block">
-            <span className="text-sm font-bold text-neutral-700">Display Name</span>
+            <span className="text-sm font-bold text-neutral-700">
+              Display Name
+            </span>
             <input
               value={displayName}
               onChange={(event) => setDisplayName(event.target.value)}
@@ -143,13 +132,13 @@ export default function AccountSignupPage() {
             disabled={isSubmitting}
             className="w-full rounded bg-neutral-950 px-4 py-3 font-bold text-white hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-500"
           >
-            {isSubmitting ? "Creating..." : "Create Account And Verify Card"}
+            {isSubmitting ? "Creating..." : "Create Buyer Account"}
           </button>
         </form>
 
         <p className="mt-3 text-xs leading-5 text-neutral-500">
-          Card verification is handled by Stripe. TCOS does not store raw card
-          numbers or CVV.
+          Buyer registration does not create a TCOS seller account. Seller
+          onboarding and its verification requirements remain separate.
         </p>
 
         {error ? (

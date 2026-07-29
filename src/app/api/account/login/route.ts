@@ -9,6 +9,12 @@ import {
   accountAuthBlockedResponse,
   checkAccountAuthAllowed,
 } from "../../../../lib/account-login-security";
+import {
+  BUYER_ACCOUNT_ACTIVE_STATUS,
+  BUYER_MEMBERSHIP_ACTIVE_STATUS,
+  isBuyerAccountType,
+  shouldActivateLegacyBuyerAccount,
+} from "../../../../lib/buyer-account-policy";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +28,9 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
-    email = String(body.email || "").trim().toLowerCase();
+    email = String(body.email || "")
+      .trim()
+      .toLowerCase();
     const password = String(body.password || "");
 
     if (!email || !password) {
@@ -33,7 +41,7 @@ export async function POST(request: Request) {
           headers: accountAuthResponseHeaders({
             action: "login",
             status: "missing_credentials",
-            cardVerification: "unknown",
+            cardVerification: "not_required",
             session: "not_issued",
             membership: "none",
           }),
@@ -65,7 +73,7 @@ export async function POST(request: Request) {
           headers: accountAuthResponseHeaders({
             action: "login",
             status: "blocked",
-            cardVerification: "unknown",
+            cardVerification: "not_required",
             session: "not_issued",
             membership: "none",
           }),
@@ -95,7 +103,7 @@ export async function POST(request: Request) {
           headers: accountAuthResponseHeaders({
             action: "login",
             status: "invalid_credentials",
-            cardVerification: "unknown",
+            cardVerification: "not_required",
             session: "not_issued",
             membership: "none",
           }),
@@ -103,15 +111,53 @@ export async function POST(request: Request) {
       );
     }
 
-    const profile = await createOrUpdateAccountProfile({
+    const authAccountType = data.user.user_metadata?.tcos_account_type;
+    let profile = await createOrUpdateAccountProfile({
       accountId: data.user.id,
       email,
       displayName:
         typeof data.user.user_metadata?.display_name === "string"
           ? data.user.user_metadata.display_name
           : null,
-      defaultAccountType: "buyer",
+      preserveDefaultAccountType: true,
     });
+
+    if (
+      shouldActivateLegacyBuyerAccount({
+        accountStatus: profile?.account_status,
+        defaultAccountType: profile?.default_account_type,
+        authAccountType,
+      })
+    ) {
+      profile = await createOrUpdateAccountProfile({
+        accountId: data.user.id,
+        email,
+        displayName: profile?.display_name || null,
+        defaultAccountType: "buyer",
+        accountStatus: BUYER_ACCOUNT_ACTIVE_STATUS,
+        cardVerified: false,
+        cardVerifiedAt: null,
+      });
+
+      await ensureAccountStoreMembership({
+        accountId: data.user.id,
+        role: "buyer",
+        status: BUYER_MEMBERSHIP_ACTIVE_STATUS,
+      });
+
+      await recordAccountAuthEvent({
+        request,
+        accountId: data.user.id,
+        email,
+        eventType: "buyer_card_verification_requirement_removed",
+        success: true,
+      });
+    }
+
+    const buyerAccount = isBuyerAccountType(
+      profile?.default_account_type,
+      authAccountType,
+    );
 
     if (profile?.account_status === "payment_verification_required") {
       await recordAccountAuthEvent({
@@ -120,22 +166,20 @@ export async function POST(request: Request) {
         email,
         eventType: "login",
         success: false,
-        failureReason: "payment_verification_required",
+        failureReason: "seller_payment_verification_required",
       });
 
       return NextResponse.json(
         {
           error:
-            profile.card_verification_failure_reason
-              ? "Card verification did not meet TCOS policy. Use a valid payment card with a complete US billing address before logging in."
-              : "Card and US billing address verification must be completed before this account can log in.",
+            "Seller verification must be completed through TCOS seller onboarding before seller access is activated.",
         },
         {
           status: 403,
           headers: accountAuthResponseHeaders({
             action: "login",
-            status: "payment_verification_required",
-            cardVerification: "required",
+            status: "seller_payment_verification_required",
+            cardVerification: "seller_only",
             session: "not_issued",
             membership: "none",
           }),
@@ -160,7 +204,7 @@ export async function POST(request: Request) {
           headers: accountAuthResponseHeaders({
             action: "login",
             status: "inactive",
-            cardVerification: "unknown",
+            cardVerification: buyerAccount ? "not_required" : "seller_only",
             session: "not_issued",
             membership: "none",
           }),
@@ -171,6 +215,7 @@ export async function POST(request: Request) {
     await ensureAccountStoreMembership({
       accountId: data.user.id,
       role: "buyer",
+      status: BUYER_MEMBERSHIP_ACTIVE_STATUS,
     });
 
     await recordAccountAuthEvent({
@@ -192,7 +237,7 @@ export async function POST(request: Request) {
         headers: accountAuthResponseHeaders({
           action: "login",
           status: "authenticated",
-          cardVerification: profile?.card_verified ? "verified" : "active",
+          cardVerification: buyerAccount ? "not_required" : "seller_only",
           session: "issued",
           membership: "buyer",
         }),
@@ -214,7 +259,7 @@ export async function POST(request: Request) {
         headers: accountAuthResponseHeaders({
           action: "login",
           status: "error",
-          cardVerification: "unknown",
+          cardVerification: "not_required",
           session: "not_issued",
           membership: "none",
         }),

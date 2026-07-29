@@ -1,10 +1,16 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getClientIdentity } from "./client-identity";
+import {
+  BUYER_ACCOUNT_ACTIVE_STATUS,
+  BUYER_MEMBERSHIP_ACTIVE_STATUS,
+  shouldActivateLegacyBuyerAccount,
+} from "./buyer-account-policy";
 import { getActiveStoreId } from "./stores";
 import { TERMS_OF_SERVICE_VERSION } from "./legal";
 import { createSupabaseServerClient } from "./supabase-server";
 
-export type AccountRole = "buyer" | "seller" | "store_operator" | "platform_admin";
+export type AccountRole =
+  "buyer" | "seller" | "store_operator" | "platform_admin";
 
 export type AccountProfile = {
   id: string;
@@ -52,7 +58,9 @@ function getSupabaseClient(): SupabaseClient {
 }
 
 function cleanEmail(value: unknown) {
-  return String(value || "").trim().toLowerCase();
+  return String(value || "")
+    .trim()
+    .toLowerCase();
 }
 
 function cleanText(value: unknown) {
@@ -69,7 +77,10 @@ function bearerToken(request: Request) {
   return token.trim();
 }
 
-function isMissingAccountTableError(error: { code?: string; message?: string }) {
+function isMissingAccountTableError(error: {
+  code?: string;
+  message?: string;
+}) {
   return (
     error.code === "42P01" ||
     error.message?.toLowerCase().includes("account_auth_events") === true ||
@@ -78,7 +89,10 @@ function isMissingAccountTableError(error: { code?: string; message?: string }) 
   );
 }
 
-function isMissingAccountAuthColumnError(error: { code?: string; message?: string }) {
+function isMissingAccountAuthColumnError(error: {
+  code?: string;
+  message?: string;
+}) {
   const message = error.message?.toLowerCase() || "";
 
   return (
@@ -143,6 +157,7 @@ export async function createOrUpdateAccountProfile(params: {
   email: string;
   displayName?: string | null;
   defaultAccountType?: "buyer" | "seller";
+  preserveDefaultAccountType?: boolean;
   accountStatus?: string | null;
   tosAccepted?: boolean;
   tosVersion?: string;
@@ -158,9 +173,12 @@ export async function createOrUpdateAccountProfile(params: {
     id: params.accountId,
     email: cleanEmail(params.email),
     display_name: cleanText(params.displayName),
-    default_account_type: params.defaultAccountType || "buyer",
     updated_at: new Date().toISOString(),
   };
+
+  if (!params.preserveDefaultAccountType) {
+    profilePayload.default_account_type = params.defaultAccountType || "buyer";
+  }
 
   if (tosAccepted) {
     profilePayload.tos_accepted = true;
@@ -247,23 +265,43 @@ export async function getAuthenticatedAccountFromRequest(
       ? data.user.email.toLowerCase()
       : null;
 
-  const profile = await createOrUpdateAccountProfile({
+  const authAccountType = data.user.user_metadata?.tcos_account_type;
+  let profile = await createOrUpdateAccountProfile({
     accountId: data.user.id,
     email: email || "",
     displayName:
       typeof data.user.user_metadata?.display_name === "string"
         ? data.user.user_metadata.display_name
         : null,
-    defaultAccountType: "buyer",
+    preserveDefaultAccountType: true,
   });
 
-  const accountStatus = profile?.account_status || "active";
+  if (
+    shouldActivateLegacyBuyerAccount({
+      accountStatus: profile?.account_status,
+      defaultAccountType: profile?.default_account_type,
+      authAccountType,
+    })
+  ) {
+    profile = await createOrUpdateAccountProfile({
+      accountId: data.user.id,
+      email: email || "",
+      displayName: profile?.display_name || null,
+      defaultAccountType: "buyer",
+      accountStatus: BUYER_ACCOUNT_ACTIVE_STATUS,
+      cardVerified: false,
+      cardVerifiedAt: null,
+    });
+  }
 
-  if (accountStatus !== "active") return null;
+  const accountStatus = profile?.account_status || BUYER_ACCOUNT_ACTIVE_STATUS;
+
+  if (accountStatus !== BUYER_ACCOUNT_ACTIVE_STATUS) return null;
 
   await ensureAccountStoreMembership({
     accountId: data.user.id,
     role: "buyer",
+    status: BUYER_MEMBERSHIP_ACTIVE_STATUS,
   });
 
   return {
