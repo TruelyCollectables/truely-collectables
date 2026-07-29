@@ -18,6 +18,24 @@ function safeEqual(left, right) {
   );
 }
 
+function deploymentInfo() {
+  return {
+    environment: process.env.VERCEL_ENV || process.env.NODE_ENV || null,
+    commitSha:
+      String(process.env.VERCEL_GIT_COMMIT_SHA || "").slice(0, 12) || null,
+    branch: process.env.VERCEL_GIT_COMMIT_REF || null,
+    region: process.env.VERCEL_REGION || null,
+  };
+}
+
+function credentialStatus() {
+  return {
+    clientIdConfigured: Boolean(config.ebayClientId),
+    clientSecretConfigured: Boolean(config.ebayClientSecret),
+    staticOverrideConfigured: Boolean(config.ebayBrowseAccessToken),
+  };
+}
+
 function json(payload, status = 200) {
   return Response.json(payload, {
     status,
@@ -56,25 +74,70 @@ async function withDeadline(promise, milliseconds, stage) {
 }
 
 export async function GET(request) {
+  const deployment = deploymentInfo();
   const expected = String(process.env.TCOS_EBAY_PROBE_TOKEN || "").trim();
   const provided = String(
     request.headers.get("x-tcos-ebay-probe-token") || "",
   ).trim();
+
+  if (!expected) {
+    return json(
+      {
+        ok: false,
+        error: "TCOS_EBAY_PROBE_TOKEN is not configured in this deployment.",
+        code: "EBAY_PROBE_TOKEN_NOT_CONFIGURED",
+        deployment,
+      },
+      503,
+    );
+  }
+
+  if (!provided) {
+    return json(
+      {
+        ok: false,
+        error: "Probe token header is missing.",
+        code: "EBAY_PROBE_TOKEN_MISSING",
+        deployment,
+      },
+      401,
+    );
+  }
+
   if (!safeEqual(provided, expected)) {
-    return json({ error: "Unauthorized", code: "EBAY_PROBE_UNAUTHORIZED" }, 401);
+    return json(
+      {
+        ok: false,
+        error: "Probe token does not match this deployment.",
+        code: "EBAY_PROBE_TOKEN_MISMATCH",
+        deployment,
+      },
+      401,
+    );
   }
 
   const adapter = new EbayBrowseAdapter();
+  const authOnly = ["1", "true", "yes"].includes(
+    String(request.nextUrl?.searchParams?.get("authOnly") || "").toLowerCase(),
+  );
+
+  if (authOnly) {
+    return json({
+      ok: true,
+      code: "EBAY_PROBE_AUTHORIZED",
+      deployment,
+      credentials: credentialStatus(),
+      token: ebayApplicationTokenService.status(),
+    });
+  }
+
   if (!adapter.configured) {
     return json(
       {
         ok: false,
         code: "EBAY_BROWSE_NOT_CONFIGURED",
-        credentials: {
-          clientIdConfigured: Boolean(config.ebayClientId),
-          clientSecretConfigured: Boolean(config.ebayClientSecret),
-          staticOverrideConfigured: Boolean(config.ebayBrowseAccessToken),
-        },
+        deployment,
+        credentials: credentialStatus(),
         token: ebayApplicationTokenService.status(),
       },
       503,
@@ -116,6 +179,7 @@ export async function GET(request) {
     return json({
       ok: true,
       stage: "complete",
+      deployment,
       adapter: result.source,
       configured: result.configured,
       resultCount: result.results.length,
@@ -160,13 +224,10 @@ export async function GET(request) {
         ok: false,
         code,
         stage,
+        deployment,
         error: message,
         timings,
-        credentials: {
-          clientIdConfigured: Boolean(config.ebayClientId),
-          clientSecretConfigured: Boolean(config.ebayClientSecret),
-          staticOverrideConfigured: Boolean(config.ebayBrowseAccessToken),
-        },
+        credentials: credentialStatus(),
         token: ebayApplicationTokenService.status(),
       },
       status,
