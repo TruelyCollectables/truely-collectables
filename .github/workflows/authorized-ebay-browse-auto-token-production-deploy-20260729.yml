@@ -147,11 +147,14 @@ jobs:
               https://truelycollectables.com/api/internal/ebay-browse-probe || true)"
             echo "custom-domain attempt=$attempt HTTP=$code"
             if [ "$code" = "200" ]; then
-              node <<'NODE'
-              const fs = require('node:fs');
-              const payload = JSON.parse(fs.readFileSync('.deployment-evidence/custom-domain-probe.json', 'utf8'));
-              if (payload.ok !== true || payload.token?.mode !== 'client_credentials' || !(Number(payload.resultCount) > 0)) process.exit(1);
-              NODE
+              CUSTOM_PROBE_PATH=.deployment-evidence/custom-domain-probe.json node -e '
+                const fs = require("node:fs");
+                const payload = JSON.parse(fs.readFileSync(process.env.CUSTOM_PROBE_PATH, "utf8"));
+                if (payload.ok !== true) process.exit(1);
+                if (payload.token?.mode !== "client_credentials") process.exit(1);
+                if (payload.token?.cached !== true) process.exit(1);
+                if (!(Number(payload.resultCount) > 0)) process.exit(1);
+              '
               ready=1
               break
             fi
