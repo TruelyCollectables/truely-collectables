@@ -1,0 +1,50 @@
+name: Validate Launch eBay Probe Import Fix 20260729
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "src/app/api/internal/ebay-browse-probe/route.js"
+      - ".github/workflows/validate-launch-ebay-probe-import-fix-20260729.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'fix/launch-ebay-probe-admin-session-import-20260729'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out exact guarded branch
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Run relevant regressions
+        run: |
+          set -euo pipefail
+          node scripts/run-ebay-browse-runtime-contracts.mjs
+          npm run simulate:privileged-route-auth
+
+      - name: Lint
+        run: npm run lint
+
+      - name: TypeScript
+        run: npx tsc --noEmit --pretty false
+
+      - name: Production build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key
+          NEXT_PUBLIC_SITE_URL: https://example.com
+        run: npm run build
