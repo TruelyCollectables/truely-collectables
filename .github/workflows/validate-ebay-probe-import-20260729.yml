@@ -19,7 +19,7 @@ jobs:
   validate-exact-source:
     if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ops/validate-ebay-probe-import-20260729'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     env:
       SOURCE_SHA: 708b1e92a61d67e6c3df2a66e34636fd9cc37ff7
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -62,7 +62,7 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${VERCEL_TOKEN:-}"
-          mkdir -p .vercel
+          mkdir -p .vercel .validation-evidence
           npx vercel@56.2.0 whoami --token "$VERCEL_TOKEN" >/dev/null
           if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
             printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
@@ -75,8 +75,34 @@ jobs:
           fi
           node -e 'const p=require("./.vercel/project.json"); if(!p.orgId||!p.projectId) process.exit(1);'
 
-      - name: Run full Production-environment build
+      - name: Stage exact Production build without domain promotion
+        id: stage
         shell: bash
         run: |
           set -euo pipefail
-          npx vercel@56.2.0 env run -e production -- npm run build
+          printf '%s\n' "$SOURCE_SHA" > .validation-evidence/source-sha.txt
+          npx vercel@56.2.0 deploy \
+            --prod \
+            --yes \
+            --force \
+            --skip-domain \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" \
+            2>&1 | tee .validation-evidence/vercel-stage.log
+          DEPLOYMENT_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' .validation-evidence/vercel-stage.log | tail -n 1)"
+          test -n "$DEPLOYMENT_URL"
+          echo "deployment_url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Verify staged build is healthy
+        env:
+          DEPLOYMENT_URL: ${{ steps.stage.outputs.deployment_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 90 --output .validation-evidence/staged-home.html --write-out '%{http_code}' "$DEPLOYMENT_URL/")"
+          test "$code" = "200"
+          probe_code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output .validation-evidence/staged-probe.json --write-out '%{http_code}' "$DEPLOYMENT_URL/api/internal/ebay-browse-probe?authOnly=1")"
+          case "$probe_code" in
+            401|503) ;;
+            *) echo "Unexpected unauthenticated probe status: $probe_code" >&2; exit 1 ;;
+          esac
