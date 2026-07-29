@@ -1,0 +1,43 @@
+name: Apply Full Audit Runtime and Lighthouse Repair 20260729
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/ops-apply-full-audit-runtime-lighthouse-20260729.yml"
+      - "scripts/ops-repair-full-audit-runtime-lighthouse.py"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ops/validate-transactional-metadata-20260729')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out writer branch
+        uses: actions/checkout@v4
+        with:
+          ref: ops/validate-transactional-metadata-20260729
+          path: writer
+          fetch-depth: 1
+      - name: Check out exact audit branch
+        uses: actions/checkout@v4
+        with:
+          ref: ops/truely-full-launch-audit-20260729
+          path: audit
+          fetch-depth: 1
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Apply guarded audit-only patch
+        run: python writer/scripts/ops-repair-full-audit-runtime-lighthouse.py audit
+      - name: Commit patched audit workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C audit config user.name "truely-launch-audit-bot"
+          git -C audit config user.email "actions@users.noreply.github.com"
+          git -C audit add .github/workflows/ops-truely-full-launch-audit-20260729.yml
+          git -C audit commit -m "Repair full audit runtime and Lighthouse policy"
+          git -C audit push origin HEAD:ops/truely-full-launch-audit-20260729
