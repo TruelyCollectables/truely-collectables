@@ -27,8 +27,8 @@ jobs:
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_SCOPE: truelycollectables-projects
       GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-      EVIDENCE_DIR: ${{ runner.temp }}/launch-money-inventory-evidence
-      TOOLS_DIR: ${{ runner.temp }}/launch-money-inventory-tools
+      EVIDENCE_DIR: /tmp/launch-money-inventory-evidence
+      TOOLS_DIR: /tmp/launch-money-inventory-tools
     steps:
       - name: Check out exact merged source
         uses: actions/checkout@v4
@@ -57,11 +57,7 @@ jobs:
           if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
             printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
           else
-            npx vercel@56.2.0 link \
-              --yes \
-              --project truely-collectables \
-              --scope "$VERCEL_SCOPE" \
-              --token "$VERCEL_TOKEN"
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
           fi
           node -e 'const p=require("./.vercel/project.json"); if(!p.orgId||!p.projectId) process.exit(1);'
 
@@ -82,10 +78,7 @@ jobs:
           node scripts/run-ebay-browse-runtime-contracts.mjs
           npm run lint
           npx tsc --noEmit --pretty false
-          npx vercel@56.2.0 env ls production \
-            --scope "$VERCEL_SCOPE" \
-            --token "$VERCEL_TOKEN" \
-            > "$EVIDENCE_DIR/vercel-production-env-names.txt" 2>&1
+          npx vercel@56.2.0 env ls production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$EVIDENCE_DIR/vercel-production-env-names.txt" 2>&1
           for key in NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET CRON_SECRET; do
             grep -Fq "$key" "$EVIDENCE_DIR/vercel-production-env-names.txt"
           done
@@ -112,7 +105,7 @@ jobs:
           export const revalidate = 0;
           export const maxDuration = 300;
 
-          const requiredEvents = [
+          const events = [
             "checkout.session.completed",
             "checkout.session.expired",
             "refund.created",
@@ -126,21 +119,14 @@ jobs:
             "account.updated",
           ];
 
-          function safeEqual(left, right) {
-            const a = Buffer.from(String(left || ""), "utf8");
-            const b = Buffer.from(String(right || ""), "utf8");
-            return a.length > 0 && a.length === b.length && timingSafeEqual(a, b);
+          function equal(a, b) {
+            const left = Buffer.from(String(a || ""), "utf8");
+            const right = Buffer.from(String(b || ""), "utf8");
+            return left.length > 0 && left.length === right.length && timingSafeEqual(left, right);
           }
 
-          function authorized(request) {
-            return safeEqual(
-              request.headers.get("x-tcos-launch-cutover-token"),
-              process.env.TCOS_LAUNCH_CUTOVER_TOKEN,
-            );
-          }
-
-          function json(payload, status = 200) {
-            return Response.json(payload, {
+          function reply(body, status = 200) {
+            return Response.json(body, {
               status,
               headers: {
                 "Cache-Control": "no-store, max-age=0",
@@ -150,14 +136,10 @@ jobs:
             });
           }
 
-          function liveStripeKey() {
+          function stripeKey() {
             const dedicated = String(process.env.STRIPE_LIVE_SECRET_KEY || "");
             const generic = String(process.env.STRIPE_SECRET_KEY || "");
-            const key = dedicated.startsWith("sk_live_")
-              ? dedicated
-              : generic.startsWith("sk_live_")
-                ? generic
-                : "";
+            const key = dedicated.startsWith("sk_live_") ? dedicated : generic.startsWith("sk_live_") ? generic : "";
             if (!key) throw new Error("A live Stripe secret key is unavailable.");
             return key;
           }
@@ -165,199 +147,114 @@ jobs:
           function projectRef() {
             const url = String(process.env.NEXT_PUBLIC_SUPABASE_URL || "");
             if (!url) throw new Error("NEXT_PUBLIC_SUPABASE_URL is unavailable.");
-            const ref = new URL(url).hostname.split(".")[0];
-            if (!ref) throw new Error("Supabase project ref could not be derived.");
-            return ref;
+            return new URL(url).hostname.split(".")[0];
           }
 
-          async function databaseQuery(query, readOnly) {
+          async function db(query, readOnly) {
             const token = String(process.env.SUPABASE_ACCESS_TOKEN || "");
             if (!token) throw new Error("Supabase Management API token is unavailable.");
-            const result = await fetch(
-              `https://api.supabase.com/v1/projects/${projectRef()}/database/query`,
-              {
-                method: "POST",
-                headers: {
-                  Authorization: `Bearer ${token}`,
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({ query, parameters: [], read_only: readOnly }),
-              },
-            );
+            const result = await fetch(`https://api.supabase.com/v1/projects/${projectRef()}/database/query`, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+              body: JSON.stringify({ query, parameters: [], read_only: readOnly }),
+            });
             const text = await result.text();
-            if (!result.ok) {
-              throw new Error(`Supabase database query failed with HTTP ${result.status}.`);
-            }
+            if (!result.ok) throw new Error(`Supabase database query failed with HTTP ${result.status}.`);
             return text ? JSON.parse(text) : [];
           }
 
-          async function updateStripeWebhook() {
-            const stripe = new Stripe(liveStripeKey());
+          async function stripeCutover() {
+            const stripe = new Stripe(stripeKey());
             const endpoints = await stripe.webhookEndpoints.list({ limit: 100 });
-            const matches = endpoints.data.filter(
-              (endpoint) => endpoint.url === "https://truelycollectables.com/api/webhook",
-            );
-            if (matches.length !== 1) {
-              throw new Error(`Expected one custom-domain Stripe webhook endpoint; found ${matches.length}.`);
+            const matches = endpoints.data.filter((entry) => entry.url === "https://truelycollectables.com/api/webhook");
+            if (matches.length !== 1 || matches[0].status !== "enabled") {
+              throw new Error(`Expected one enabled custom-domain Stripe endpoint; found ${matches.length}.`);
             }
-            const endpoint = matches[0];
-            if (endpoint.status !== "enabled") {
-              throw new Error(`The custom-domain Stripe webhook is ${endpoint.status}, not enabled.`);
-            }
-            const enabledEvents = endpoint.enabled_events.includes("*")
-              ? endpoint.enabled_events
-              : [...new Set([...endpoint.enabled_events, ...requiredEvents])].sort();
-            const updated = endpoint.enabled_events.includes("*")
-              ? endpoint
-              : await stripe.webhookEndpoints.update(endpoint.id, {
-                  enabled_events: enabledEvents,
-                });
-            const missing = requiredEvents.filter(
-              (event) =>
-                !updated.enabled_events.includes("*") &&
-                !updated.enabled_events.includes(event),
-            );
-            if (missing.length) {
-              throw new Error(`Stripe webhook is missing ${missing.length} required event(s).`);
-            }
-            return {
-              endpointCount: matches.length,
-              url: updated.url,
-              status: updated.status,
-              requiredEventsPresent: true,
-              enabledEventCount: updated.enabled_events.length,
-            };
+            const current = matches[0];
+            const enabled = current.enabled_events.includes("*") ? current.enabled_events : [...new Set([...current.enabled_events, ...events])].sort();
+            const updated = current.enabled_events.includes("*") ? current : await stripe.webhookEndpoints.update(current.id, { enabled_events: enabled });
+            const missing = events.filter((event) => !updated.enabled_events.includes("*") && !updated.enabled_events.includes(event));
+            if (missing.length) throw new Error(`Stripe webhook is missing ${missing.length} required event(s).`);
+            return { endpointCount: 1, status: updated.status, requiredEventsPresent: true, enabledEventCount: updated.enabled_events.length };
           }
 
-          async function runEbayConvergence() {
+          async function ebayCutover() {
             const secret = String(process.env.CRON_SECRET || "");
             if (secret.length < 16) throw new Error("CRON_SECRET is unavailable.");
-            const result = await fetch(
-              "https://truelycollectables.com/api/cron/ebay-store-fixed-price-sync",
-              { headers: { Authorization: `Bearer ${secret}` } },
-            );
+            const result = await fetch("https://truelycollectables.com/api/cron/ebay-store-fixed-price-sync", { headers: { Authorization: `Bearer ${secret}` } });
             const receipt = await result.json();
-            if (result.status !== 200 || receipt.success !== true) {
-              throw new Error(`Protected eBay sync failed with HTTP ${result.status}.`);
-            }
-            if (receipt.schema !== "truelycollectables.ebayStoreFixedPriceSyncReceipt.v3") {
-              throw new Error("Unexpected eBay safety receipt schema.");
-            }
-            if (receipt.postSaleProtectionAvailable !== true) {
-              throw new Error("Post-sale eBay quantity protection was unavailable.");
-            }
-            if (receipt.databaseAudit?.matchesEligibleEbayInventory !== true) {
-              throw new Error("eBay inventory did not reconcile to the database.");
-            }
-            return {
-              schema: receipt.schema,
-              success: receipt.success,
-              postSaleProtectionAvailable: receipt.postSaleProtectionAvailable,
-              warningCount: receipt.warnings?.length || 0,
-              representedInventoryRows:
-                receipt.finalAuthoritative?.representedInventoryRows || null,
-            };
+            if (result.status !== 200 || receipt.success !== true) throw new Error(`Protected eBay sync failed with HTTP ${result.status}.`);
+            if (receipt.schema !== "truelycollectables.ebayStoreFixedPriceSyncReceipt.v3") throw new Error("Unexpected eBay receipt schema.");
+            if (receipt.postSaleProtectionAvailable !== true || receipt.databaseAudit?.matchesEligibleEbayInventory !== true) throw new Error("eBay safety reconciliation failed.");
+            return { schema: receipt.schema, success: true, postSaleProtectionAvailable: true, warningCount: receipt.warnings?.length || 0 };
           }
 
           export async function POST(request) {
-            if (!authorized(request)) {
-              return json({ ok: false, code: "UNAUTHORIZED" }, 401);
+            if (!equal(request.headers.get("x-tcos-launch-cutover-token"), process.env.TCOS_LAUNCH_CUTOVER_TOKEN)) {
+              return reply({ ok: false, code: "UNAUTHORIZED" }, 401);
             }
             try {
               const body = await request.json();
               if (body.action === "status") {
-                return json({
+                return reply({
                   ok: true,
-                  action: "status",
                   environment: process.env.VERCEL_ENV || null,
-                  commitSha: process.env.VERCEL_GIT_COMMIT_SHA || null,
-                  stripeLiveConfigured: Boolean(liveStripeKey()),
+                  stripeLiveConfigured: Boolean(stripeKey()),
                   cronConfigured: String(process.env.CRON_SECRET || "").length >= 16,
                   supabaseUrlConfigured: Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL),
                   serviceRoleConfigured: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
                   managementTokenConfigured: Boolean(process.env.SUPABASE_ACCESS_TOKEN),
                 });
               }
-              if (body.action === "stripe") {
-                return json({ ok: true, action: "stripe", result: await updateStripeWebhook() });
-              }
+              if (body.action === "stripe") return reply({ ok: true, result: await stripeCutover() });
+              if (body.action === "ebay") return reply({ ok: true, result: await ebayCutover() });
               if (body.action === "sql") {
                 const query = String(body.query || "");
-                if (!query || query.length > 1500000) {
-                  throw new Error("Invalid SQL migration payload.");
-                }
-                await databaseQuery(query, false);
-                return json({ ok: true, action: "sql", applied: true });
+                if (!query || query.length > 1500000) throw new Error("Invalid SQL payload.");
+                await db(query, false);
+                return reply({ ok: true, applied: true });
               }
               if (body.action === "query") {
                 const query = String(body.query || "");
-                if (!query || query.length > 100000) {
-                  throw new Error("Invalid verification query.");
-                }
-                return json({
-                  ok: true,
-                  action: "query",
-                  rows: await databaseQuery(query, true),
-                });
+                if (!query || query.length > 100000) throw new Error("Invalid query payload.");
+                return reply({ ok: true, rows: await db(query, true) });
               }
-              if (body.action === "ebay") {
-                return json({ ok: true, action: "ebay", result: await runEbayConvergence() });
-              }
-              return json({ ok: false, code: "UNKNOWN_ACTION" }, 400);
+              return reply({ ok: false, code: "UNKNOWN_ACTION" }, 400);
             } catch (error) {
-              return json(
-                {
-                  ok: false,
-                  code: "CUTOVER_FAILED",
-                  error: error instanceof Error ? error.message : String(error),
-                },
-                500,
-              );
+              return reply({ ok: false, code: "CUTOVER_FAILED", error: error instanceof Error ? error.message : String(error) }, 500);
             }
           }
           ROUTE
           git diff --check
 
-      - name: Stage ephemeral credential-bound cutover deployment
+      - name: Stage ephemeral credential-bound deployment
         id: cutover
         shell: bash
         run: |
           set -euo pipefail
-          npx vercel@56.2.0 deploy \
-            --prod \
-            --yes \
-            --force \
-            --skip-domain \
+          npx vercel@56.2.0 deploy --prod --yes --force --skip-domain \
             --meta "launchSourceSha=$SOURCE_SHA" \
             --meta "launchPurpose=ephemeral-money-inventory-cutover" \
             --env "TCOS_LAUNCH_CUTOVER_TOKEN=$CUTOVER_TOKEN" \
             --env "SUPABASE_ACCESS_TOKEN=$GH_SUPABASE_ACCESS_TOKEN" \
-            --scope "$VERCEL_SCOPE" \
-            --token "$VERCEL_TOKEN" \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" \
             2>&1 | tee "$EVIDENCE_DIR/cutover-deployment.log"
           CUTOVER_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$EVIDENCE_DIR/cutover-deployment.log" | tail -n 1)"
           test -n "$CUTOVER_URL"
           echo "cutover_url=$CUTOVER_URL" >> "$GITHUB_OUTPUT"
           printf '%s\n' "$CUTOVER_URL" > "$EVIDENCE_DIR/cutover-deployment-url.txt"
 
-      - name: Verify ephemeral cutover deployment before mutations
+      - name: Verify ephemeral deployment before mutations
         env:
           CUTOVER_URL: ${{ steps.cutover.outputs.cutover_url }}
         shell: bash
         run: |
           set -euo pipefail
-          for path in / /shop /cart /account/signup /account/login /shipping /returns /buyer-protection; do
-            code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 90 --output "$EVIDENCE_DIR/cutover-${path//\//-}.html" --write-out '%{http_code}' "$CUTOVER_URL$path")"
-            test "$code" = "200"
-          done
-          code="$(curl --silent --show-error --connect-timeout 15 --max-time 90 \
-            --output "$EVIDENCE_DIR/cutover-status.json" \
-            --write-out '%{http_code}' \
-            --request POST \
-            --header 'Content-Type: application/json' \
-            --header "x-tcos-launch-cutover-token: $CUTOVER_TOKEN" \
-            --data '{"action":"status"}' \
-            "$CUTOVER_URL/api/internal/launch-cutover-20260729")"
+          code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 90 --output "$EVIDENCE_DIR/cutover-root.html" --write-out '%{http_code}' "$CUTOVER_URL/")"
+          test "$code" = "200"
+          code="$(curl --silent --show-error --connect-timeout 15 --max-time 90 --output "$EVIDENCE_DIR/cutover-status.json" --write-out '%{http_code}' \
+            --request POST --header 'Content-Type: application/json' --header "x-tcos-launch-cutover-token: $CUTOVER_TOKEN" \
+            --data '{"action":"status"}' "$CUTOVER_URL/api/internal/launch-cutover-20260729")"
           test "$code" = "200"
           node - <<'NODE'
           const fs = require('node:fs');
@@ -365,19 +262,16 @@ jobs:
           for (const key of ['ok','stripeLiveConfigured','cronConfigured','supabaseUrlConfigured','serviceRoleConfigured','managementTokenConfigured']) {
             if (value[key] !== true) throw new Error(`Cutover status failed: ${key}`);
           }
-          if (value.environment !== 'production') {
-            throw new Error('Cutover deployment is not using the Production environment.');
-          }
+          if (value.environment !== 'production') throw new Error('Cutover deployment is not Production-targeted.');
           NODE
 
-      - name: Build atomic migration and verification payloads
+      - name: Build migration and verification requests
         shell: bash
         run: |
           set -euo pipefail
           node - <<'NODE'
           const fs = require('node:fs');
           const path = require('node:path');
-          const tools = process.env.TOOLS_DIR;
           const files = [
             'supabase/migrations/20260726233000_post_sale_ebay_quantity_sync_outbox.sql',
             'supabase/migrations/20260727142000_harden_post_sale_outbox_constraints.sql',
@@ -386,130 +280,74 @@ jobs:
             'supabase/migrations/20260727141000_hold_attached_checkout_reservations.sql',
             'supabase/migrations/20260727144000_preserve_reserved_product_identity.sql',
           ];
-          const migrationBody = (file) => fs.readFileSync(file, 'utf8')
-            .replace(/^\s*begin;\s*/i, '')
-            .replace(/\s*commit;\s*$/i, '');
-          const combined = [
-            'begin;',
-            ...files.map((file) => `\n-- ${file}\n${migrationBody(file)}`),
-            'commit;',
-          ].join('\n');
-          const verification = `
-            select
-              to_regclass('public.ebay_quantity_sync_outbox') is not null as outbox_table,
-              to_regprocedure('public.tcos_reserve_checkout_inventory(uuid,uuid,jsonb,integer)') is not null as reserve_function,
-              to_regprocedure('public.tcos_decrement_order_inventory_once(uuid,bigint,bigint,integer)') is not null as decrement_function,
-              to_regprocedure('public.tcos_consume_checkout_reservation_after_sale(uuid,uuid,bigint,integer,text)') is not null as consume_function,
-              exists (
-                select 1 from information_schema.columns
-                where table_schema = 'public'
-                  and table_name = 'order_notification_outbox'
-                  and column_name = 'next_attempt_at'
-              ) as notification_backoff_column,
-              exists (
-                select 1 from pg_class c
-                join pg_namespace n on n.oid = c.relnamespace
-                where n.nspname = 'public'
-                  and c.relname = 'ebay_quantity_sync_outbox'
-                  and c.relrowsecurity
-              ) as outbox_rls,
-              (
-                select count(*) from pg_trigger
-                where not tgisinternal
-                  and tgname in (
-                    'truely_enqueue_ebay_quantity_sync_from_reservation',
-                    'truely_enqueue_ebay_quantity_sync_from_order_consumption',
-                    'truely_protect_pending_ebay_product_quantity',
-                    'truely_protect_pending_ebay_inventory_quantity'
-                  )
-              ) as safety_trigger_count,
-              exists (
-                select 1 from pg_constraint
-                where conname = 'checkout_inventory_reservations_product_store_fkey'
-                  and convalidated
-              ) as product_store_fk_validated,
-              exists (
-                select 1 from pg_constraint
-                where conname = 'checkout_inventory_reservations_inventory_item_id_fkey'
-                  and confdeltype = 'r'
-              ) as inventory_fk_restrict;
-          `;
-          const runtime = `
-            select
-              (select count(*) from public.ebay_quantity_sync_outbox where desired_quantity < 0) as invalid_outbox_quantity,
-              (select count(*) from public.ebay_quantity_sync_outbox where status = 'pending' and next_attempt_at is null) as pending_without_retry_time,
-              (select count(*) from public.checkout_inventory_reservations where quantity <= 0) as invalid_reservation_quantity,
-              (select count(*) from public.checkout_inventory_reservations where status = 'active' and stripe_session_id is not null) as attached_active_reservations,
-              (select count(*) from public.order_notification_outbox where status in ('failed','dead','exhausted')) as terminal_notification_failures;
-          `;
-          fs.mkdirSync(tools, { recursive: true });
-          fs.writeFileSync(path.join(tools, 'migration-request.json'), JSON.stringify({ action: 'sql', query: combined }));
-          fs.writeFileSync(path.join(tools, 'migration-verification-request.json'), JSON.stringify({ action: 'query', query: verification }));
-          fs.writeFileSync(path.join(tools, 'runtime-verification-request.json'), JSON.stringify({ action: 'query', query: runtime }));
+          const body = (file) => fs.readFileSync(file, 'utf8').replace(/^\s*begin;\s*/i, '').replace(/\s*commit;\s*$/i, '');
+          const migration = ['begin;', ...files.map((file) => `\n-- ${file}\n${body(file)}`), 'commit;'].join('\n');
+          const verify = `select
+            to_regclass('public.ebay_quantity_sync_outbox') is not null as outbox_table,
+            to_regprocedure('public.tcos_reserve_checkout_inventory(uuid,uuid,jsonb,integer)') is not null as reserve_function,
+            to_regprocedure('public.tcos_decrement_order_inventory_once(uuid,bigint,bigint,integer)') is not null as decrement_function,
+            to_regprocedure('public.tcos_consume_checkout_reservation_after_sale(uuid,uuid,bigint,integer,text)') is not null as consume_function,
+            exists (select 1 from information_schema.columns where table_schema='public' and table_name='order_notification_outbox' and column_name='next_attempt_at') as notification_backoff_column,
+            exists (select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname='ebay_quantity_sync_outbox' and c.relrowsecurity) as outbox_rls,
+            (select count(*) from pg_trigger where not tgisinternal and tgname in ('truely_enqueue_ebay_quantity_sync_from_reservation','truely_enqueue_ebay_quantity_sync_from_order_consumption','truely_protect_pending_ebay_product_quantity','truely_protect_pending_ebay_inventory_quantity')) as safety_trigger_count,
+            exists (select 1 from pg_constraint where conname='checkout_inventory_reservations_product_store_fkey' and convalidated) as product_store_fk_validated,
+            exists (select 1 from pg_constraint where conname='checkout_inventory_reservations_inventory_item_id_fkey' and confdeltype='r') as inventory_fk_restrict;`;
+          const runtime = `select
+            (select count(*) from public.ebay_quantity_sync_outbox where desired_quantity < 0) as invalid_outbox_quantity,
+            (select count(*) from public.ebay_quantity_sync_outbox where status='pending' and next_attempt_at is null) as pending_without_retry_time,
+            (select count(*) from public.checkout_inventory_reservations where quantity <= 0) as invalid_reservation_quantity,
+            (select count(*) from public.checkout_inventory_reservations where status='active' and stripe_session_id is not null) as attached_active_reservations,
+            (select count(*) from public.order_notification_outbox where status in ('failed','dead','exhausted')) as terminal_notification_failures;`;
+          fs.mkdirSync(process.env.TOOLS_DIR, { recursive: true });
+          fs.writeFileSync(path.join(process.env.TOOLS_DIR, 'migration.json'), JSON.stringify({ action: 'sql', query: migration }));
+          fs.writeFileSync(path.join(process.env.TOOLS_DIR, 'verify.json'), JSON.stringify({ action: 'query', query: verify }));
+          fs.writeFileSync(path.join(process.env.TOOLS_DIR, 'runtime.json'), JSON.stringify({ action: 'query', query: runtime }));
           NODE
 
-      - name: Apply all six safety migrations atomically and verify them
+      - name: Apply six safety migrations atomically and verify
         env:
           CUTOVER_URL: ${{ steps.cutover.outputs.cutover_url }}
         shell: bash
         run: |
           set -euo pipefail
-          code="$(curl --silent --show-error --connect-timeout 15 --max-time 300 \
-            --output "$EVIDENCE_DIR/database-migration-cutover.json" \
-            --write-out '%{http_code}' \
-            --request POST \
-            --header 'Content-Type: application/json' \
-            --header "x-tcos-launch-cutover-token: $CUTOVER_TOKEN" \
-            --data-binary "@$TOOLS_DIR/migration-request.json" \
-            "$CUTOVER_URL/api/internal/launch-cutover-20260729")"
+          endpoint="$CUTOVER_URL/api/internal/launch-cutover-20260729"
+          code="$(curl --silent --show-error --connect-timeout 15 --max-time 300 --output "$EVIDENCE_DIR/database-migration.json" --write-out '%{http_code}' \
+            --request POST --header 'Content-Type: application/json' --header "x-tcos-launch-cutover-token: $CUTOVER_TOKEN" \
+            --data-binary "@$TOOLS_DIR/migration.json" "$endpoint")"
           test "$code" = "200"
-          node -e 'const fs=require("node:fs"); const v=JSON.parse(fs.readFileSync(process.env.EVIDENCE_DIR+"/database-migration-cutover.json","utf8")); if(v.ok!==true||v.applied!==true) process.exit(1);'
-          code="$(curl --silent --show-error --connect-timeout 15 --max-time 120 \
-            --output "$EVIDENCE_DIR/database-migration-verification.json" \
-            --write-out '%{http_code}' \
-            --request POST \
-            --header 'Content-Type: application/json' \
-            --header "x-tcos-launch-cutover-token: $CUTOVER_TOKEN" \
-            --data-binary "@$TOOLS_DIR/migration-verification-request.json" \
-            "$CUTOVER_URL/api/internal/launch-cutover-20260729")"
+          node -e 'const fs=require("node:fs");const v=JSON.parse(fs.readFileSync(process.env.EVIDENCE_DIR+"/database-migration.json","utf8"));if(v.ok!==true||v.applied!==true)process.exit(1)'
+          code="$(curl --silent --show-error --connect-timeout 15 --max-time 120 --output "$EVIDENCE_DIR/database-migration-verification.json" --write-out '%{http_code}' \
+            --request POST --header 'Content-Type: application/json' --header "x-tcos-launch-cutover-token: $CUTOVER_TOKEN" \
+            --data-binary "@$TOOLS_DIR/verify.json" "$endpoint")"
           test "$code" = "200"
           node - <<'NODE'
           const fs = require('node:fs');
           const value = JSON.parse(fs.readFileSync(process.env.EVIDENCE_DIR + '/database-migration-verification.json', 'utf8'));
           const row = Array.isArray(value.rows) ? value.rows[0] : value.rows;
           for (const key of ['outbox_table','reserve_function','decrement_function','consume_function','notification_backoff_column','outbox_rls','product_store_fk_validated','inventory_fk_restrict']) {
-            if (row?.[key] !== true) throw new Error(`Database migration verification failed: ${key}`);
+            if (row?.[key] !== true) throw new Error(`Migration verification failed: ${key}`);
           }
-          if (Number(row?.safety_trigger_count || 0) !== 4) {
-            throw new Error('Expected four eBay safety triggers.');
-          }
+          if (Number(row?.safety_trigger_count || 0) !== 4) throw new Error('Expected four eBay safety triggers.');
           NODE
 
-      - name: Restore exact source and stage clean Production deployment
+      - name: Stage clean exact-main Production deployment
         id: clean
         shell: bash
         run: |
           set -euo pipefail
           rm -rf src/app/api/internal/launch-cutover-20260729
-          test ! -e src/app/api/internal/launch-cutover-20260729
           git diff --exit-code
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
-          npx vercel@56.2.0 deploy \
-            --prod \
-            --yes \
-            --force \
-            --skip-domain \
-            --meta "launchSourceSha=$SOURCE_SHA" \
-            --meta "launchPurpose=clean-production-candidate" \
-            --scope "$VERCEL_SCOPE" \
-            --token "$VERCEL_TOKEN" \
+          npx vercel@56.2.0 deploy --prod --yes --force --skip-domain \
+            --meta "launchSourceSha=$SOURCE_SHA" --meta "launchPurpose=clean-production-candidate" \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" \
             2>&1 | tee "$EVIDENCE_DIR/clean-deployment.log"
           CLEAN_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$EVIDENCE_DIR/clean-deployment.log" | tail -n 1)"
           test -n "$CLEAN_URL"
           echo "clean_url=$CLEAN_URL" >> "$GITHUB_OUTPUT"
           printf '%s\n' "$CLEAN_URL" > "$EVIDENCE_DIR/clean-deployment-url.txt"
 
-      - name: Verify clean staged deployment before promotion
+      - name: Verify clean staged deployment
         env:
           CLEAN_URL: ${{ steps.clean.outputs.clean_url }}
         shell: bash
@@ -523,43 +361,29 @@ jobs:
           code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output "$EVIDENCE_DIR/clean-webhook-unsigned.json" --write-out '%{http_code}' --request POST --header 'Content-Type: application/json' --data '{}' "$CLEAN_URL/api/webhook")"
           test "$code" = "400"
 
-      - name: Promote only the clean verified deployment
+      - name: Promote only the clean deployment
         env:
           CLEAN_URL: ${{ steps.clean.outputs.clean_url }}
         shell: bash
         run: |
           set -euo pipefail
-          if ! npx vercel@56.2.0 promote "$CLEAN_URL" \
-            --yes \
-            --scope "$VERCEL_SCOPE" \
-            --token "$VERCEL_TOKEN" \
-            > "$EVIDENCE_DIR/vercel-promote.log" 2>&1
-          then
-            printf '%s\n' 'Primary promotion command failed; applying the two known Production aliases.' >> "$EVIDENCE_DIR/vercel-promote.log"
-            npx vercel@56.2.0 alias set "$CLEAN_URL" truelycollectables.com \
-              --scope "$VERCEL_SCOPE" \
-              --token "$VERCEL_TOKEN" \
-              >> "$EVIDENCE_DIR/vercel-promote.log" 2>&1
-            npx vercel@56.2.0 alias set "$CLEAN_URL" truely-collectables.vercel.app \
-              --scope "$VERCEL_SCOPE" \
-              --token "$VERCEL_TOKEN" \
-              >> "$EVIDENCE_DIR/vercel-promote.log" 2>&1
+          if ! npx vercel@56.2.0 promote "$CLEAN_URL" --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$EVIDENCE_DIR/vercel-promote.log" 2>&1; then
+            printf '%s\n' 'Promote command failed; applying verified aliases.' >> "$EVIDENCE_DIR/vercel-promote.log"
+            npx vercel@56.2.0 alias set "$CLEAN_URL" truelycollectables.com --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >> "$EVIDENCE_DIR/vercel-promote.log" 2>&1
+            npx vercel@56.2.0 alias set "$CLEAN_URL" truely-collectables.vercel.app --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >> "$EVIDENCE_DIR/vercel-promote.log" 2>&1
           fi
 
-      - name: Verify exact Production deployment and public safety
+      - name: Verify Production public safety
         shell: bash
         run: |
           set -euo pipefail
-          promoted=''
+          ready=''
           for attempt in $(seq 1 30); do
             code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 90 --output "$EVIDENCE_DIR/custom-signup.html" --write-out '%{http_code}' https://truelycollectables.com/account/signup || true)"
-            if [ "$code" = '200' ] && grep -Fq 'No payment card is required to register' "$EVIDENCE_DIR/custom-signup.html"; then
-              promoted=1
-              break
-            fi
+            if [ "$code" = '200' ] && grep -Fq 'No payment card is required to register' "$EVIDENCE_DIR/custom-signup.html"; then ready=1; break; fi
             sleep 10
           done
-          test -n "$promoted"
+          test -n "$ready"
           for path in / /shop /cart /account/login /shipping /returns /buyer-protection; do
             code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 90 --output "$EVIDENCE_DIR/custom-${path//\//-}.html" --write-out '%{http_code}' "https://truelycollectables.com$path")"
             test "$code" = '200'
@@ -570,79 +394,50 @@ jobs:
           code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output "$EVIDENCE_DIR/custom-webhook-unsigned.json" --write-out '%{http_code}' --request POST --header 'Content-Type: application/json' --data '{}' https://truelycollectables.com/api/webhook)"
           test "$code" = '400'
 
-      - name: Add required Stripe webhook events after clean promotion
+      - name: Add required Stripe webhook events
         env:
           CUTOVER_URL: ${{ steps.cutover.outputs.cutover_url }}
         shell: bash
         run: |
           set -euo pipefail
-          code="$(curl --silent --show-error --connect-timeout 15 --max-time 120 \
-            --output "$EVIDENCE_DIR/stripe-webhook-cutover.json" \
-            --write-out '%{http_code}' \
-            --request POST \
-            --header 'Content-Type: application/json' \
-            --header "x-tcos-launch-cutover-token: $CUTOVER_TOKEN" \
-            --data '{"action":"stripe"}' \
-            "$CUTOVER_URL/api/internal/launch-cutover-20260729")"
+          code="$(curl --silent --show-error --connect-timeout 15 --max-time 120 --output "$EVIDENCE_DIR/stripe-webhook-cutover.json" --write-out '%{http_code}' \
+            --request POST --header 'Content-Type: application/json' --header "x-tcos-launch-cutover-token: $CUTOVER_TOKEN" \
+            --data '{"action":"stripe"}' "$CUTOVER_URL/api/internal/launch-cutover-20260729")"
           test "$code" = "200"
-          node - <<'NODE'
-          const fs = require('node:fs');
-          const value = JSON.parse(fs.readFileSync(process.env.EVIDENCE_DIR + '/stripe-webhook-cutover.json', 'utf8'));
-          if (value.ok !== true || value.result?.requiredEventsPresent !== true || value.result?.endpointCount !== 1) {
-            throw new Error('Stripe webhook cutover evidence failed.');
-          }
-          NODE
+          node -e 'const fs=require("node:fs");const v=JSON.parse(fs.readFileSync(process.env.EVIDENCE_DIR+"/stripe-webhook-cutover.json","utf8"));if(v.ok!==true||v.result?.requiredEventsPresent!==true||v.result?.endpointCount!==1)process.exit(1)'
 
-      - name: Run protected eBay convergence through ephemeral runtime
+      - name: Run protected eBay convergence
         env:
           CUTOVER_URL: ${{ steps.cutover.outputs.cutover_url }}
         shell: bash
         run: |
           set -euo pipefail
-          code="$(curl --silent --show-error --connect-timeout 15 --max-time 300 \
-            --output "$EVIDENCE_DIR/ebay-safety-receipt.json" \
-            --write-out '%{http_code}' \
-            --request POST \
-            --header 'Content-Type: application/json' \
-            --header "x-tcos-launch-cutover-token: $CUTOVER_TOKEN" \
-            --data '{"action":"ebay"}' \
-            "$CUTOVER_URL/api/internal/launch-cutover-20260729")"
+          code="$(curl --silent --show-error --connect-timeout 15 --max-time 300 --output "$EVIDENCE_DIR/ebay-safety-receipt.json" --write-out '%{http_code}' \
+            --request POST --header 'Content-Type: application/json' --header "x-tcos-launch-cutover-token: $CUTOVER_TOKEN" \
+            --data '{"action":"ebay"}' "$CUTOVER_URL/api/internal/launch-cutover-20260729")"
           test "$code" = "200"
-          node - <<'NODE'
-          const fs = require('node:fs');
-          const value = JSON.parse(fs.readFileSync(process.env.EVIDENCE_DIR + '/ebay-safety-receipt.json', 'utf8'));
-          if (value.ok !== true || value.result?.success !== true || value.result?.postSaleProtectionAvailable !== true) {
-            throw new Error('eBay safety convergence failed.');
-          }
-          NODE
+          node -e 'const fs=require("node:fs");const v=JSON.parse(fs.readFileSync(process.env.EVIDENCE_DIR+"/ebay-safety-receipt.json","utf8"));if(v.ok!==true||v.result?.success!==true||v.result?.postSaleProtectionAvailable!==true)process.exit(1)'
 
-      - name: Verify post-cutover database state through ephemeral runtime
+      - name: Verify post-cutover database safety
         env:
           CUTOVER_URL: ${{ steps.cutover.outputs.cutover_url }}
         shell: bash
         run: |
           set -euo pipefail
-          code="$(curl --silent --show-error --connect-timeout 15 --max-time 120 \
-            --output "$EVIDENCE_DIR/database-runtime-safety.json" \
-            --write-out '%{http_code}' \
-            --request POST \
-            --header 'Content-Type: application/json' \
-            --header "x-tcos-launch-cutover-token: $CUTOVER_TOKEN" \
-            --data-binary "@$TOOLS_DIR/runtime-verification-request.json" \
-            "$CUTOVER_URL/api/internal/launch-cutover-20260729")"
+          code="$(curl --silent --show-error --connect-timeout 15 --max-time 120 --output "$EVIDENCE_DIR/database-runtime-safety.json" --write-out '%{http_code}' \
+            --request POST --header 'Content-Type: application/json' --header "x-tcos-launch-cutover-token: $CUTOVER_TOKEN" \
+            --data-binary "@$TOOLS_DIR/runtime.json" "$CUTOVER_URL/api/internal/launch-cutover-20260729")"
           test "$code" = "200"
           node - <<'NODE'
           const fs = require('node:fs');
           const value = JSON.parse(fs.readFileSync(process.env.EVIDENCE_DIR + '/database-runtime-safety.json', 'utf8'));
           const row = Array.isArray(value.rows) ? value.rows[0] : value.rows;
           for (const key of ['invalid_outbox_quantity','pending_without_retry_time','invalid_reservation_quantity']) {
-            if (Number(row?.[key] || 0) !== 0) {
-              throw new Error(`Post-cutover database safety failed: ${key}`);
-            }
+            if (Number(row?.[key] || 0) !== 0) throw new Error(`Runtime database safety failed: ${key}`);
           }
           NODE
 
-      - name: Remove ephemeral credential-bound deployment
+      - name: Remove ephemeral deployment
         if: always()
         env:
           CUTOVER_URL: ${{ steps.cutover.outputs.cutover_url }}
@@ -650,19 +445,15 @@ jobs:
         run: |
           set +e
           if [ -n "${CUTOVER_URL:-}" ]; then
-            npx vercel@56.2.0 remove "$CUTOVER_URL" \
-              --yes \
-              --scope "$VERCEL_SCOPE" \
-              --token "$VERCEL_TOKEN" \
-              > "$EVIDENCE_DIR/cutover-deployment-removal.txt" 2>&1
+            npx vercel@56.2.0 remove "$CUTOVER_URL" --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$EVIDENCE_DIR/cutover-deployment-removal.txt" 2>&1
           fi
           exit 0
 
-      - name: Upload sanitized deployment and migration evidence
+      - name: Upload sanitized evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: launch-money-inventory-safety-production-${{ github.run_number }}
-          path: ${{ runner.temp }}/launch-money-inventory-evidence
+          path: /tmp/launch-money-inventory-evidence
           if-no-files-found: error
           retention-days: 30
