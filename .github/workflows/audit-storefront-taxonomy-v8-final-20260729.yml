@@ -1,0 +1,222 @@
+name: Audit Storefront Taxonomy V8 Final 20260729
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/audit-storefront-taxonomy-v8-final-20260729.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  audit-live-catalog:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ops/audit-storefront-taxonomy-v7-production-20260728'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      PRODUCTION_ORIGIN: https://truelycollectables.com
+      RECEIPT_NOT_BEFORE_UTC: 2026-07-29T03:30:00Z
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/audit-storefront-taxonomy-v7-production-20260728
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Link Vercel Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .vercel taxonomy-v8-final/logs taxonomy-v8-final/pages
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+
+      - name: Capture latest clean authoritative receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          raw='taxonomy-v8-final/logs/runtime.jsonl'
+          npx vercel@56.2.0 logs \
+            --project truely-collectables \
+            --environment production \
+            --since "$RECEIPT_NOT_BEFORE_UTC" \
+            --no-branch \
+            --json \
+            --expand \
+            --limit 1000 \
+            --query "ebay_store_fixed_price_sync_completed" \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" \
+            > "$raw"
+          RAW_FILE="$raw" node <<'NODE'
+          const fs = require('node:fs');
+          const rows = fs.readFileSync(process.env.RAW_FILE, 'utf8').split(/\r?\n/).filter(Boolean);
+          const receipts = [];
+          const inspect = (value) => {
+            if (!value) return;
+            if (typeof value === 'object') {
+              if (value.event === 'ebay_store_fixed_price_sync_completed') receipts.push(value);
+              for (const nested of Object.values(value)) inspect(nested);
+              return;
+            }
+            if (typeof value !== 'string') return;
+            const prefix = '[ebay-store-fixed-price-sync] ';
+            const index = value.indexOf(prefix);
+            if (index >= 0) {
+              try {
+                const parsed = JSON.parse(value.slice(index + prefix.length));
+                if (parsed?.event === 'ebay_store_fixed_price_sync_completed') receipts.push(parsed);
+              } catch {}
+            }
+          };
+          for (const line of rows) {
+            try { inspect(JSON.parse(line)); } catch {}
+          }
+          const receipt = receipts.sort((a,b) => Date.parse(a.completedAt || 0) - Date.parse(b.completedAt || 0)).at(-1);
+          if (!receipt) throw new Error('No production sync receipt was found.');
+          const final = receipt.finalAuthoritative || (receipt.convergencePasses || []).at(-1);
+          const audit = receipt.databaseAudit || {};
+          if (!receipt.success || (receipt.errors || []).length) throw new Error(`Receipt failed: ${JSON.stringify(receipt.errors || [])}`);
+          if (!final?.cycleComplete || Number(final.failed || 0) !== 0) throw new Error('Final authoritative cycle was incomplete.');
+          if (audit.matchesEligibleEbayInventory !== true) throw new Error('Receipt database audit did not match eBay.');
+          const summary = {
+            completedAt: receipt.completedAt,
+            remoteFixedPriceTotal: Number(final.remoteFixedPriceTotal || 0),
+            eligibleCollectibles: Number(final.eligibleCollectibles || 0),
+            mergedAliasListings: Number(final.mergedAliasListings || 0),
+            representedInventoryRows: Number(final.representedInventoryRows || 0),
+            activeLinkedProducts: Number(audit.activeLinkedProducts || 0),
+          };
+          fs.writeFileSync('taxonomy-v8-final/receipt-summary.json', `${JSON.stringify(summary, null, 2)}\n`);
+          NODE
+
+      - name: Fetch complete live storefront and filters
+        shell: bash
+        run: |
+          set -euo pipefail
+          fetch_page() {
+            key="$1"; path="$2"
+            curl --location --fail --silent --show-error \
+              --connect-timeout 15 --max-time 300 \
+              --header 'Cache-Control: no-cache' \
+              --output "taxonomy-v8-final/pages/${key}.html" \
+              "${PRODUCTION_ORIGIN}${path}"
+          }
+          fetch_page all '/shop'
+          fetch_page other_collectables '/shop?section=Other%20Collectables'
+          fetch_page other_sports '/shop?section=Other%20Sports'
+          fetch_page memorabilia '/shop?section=Memorabilia'
+          fetch_page needs_review '/shop?section=Needs%20Review'
+          fetch_page autographs '/shop?feature=autograph'
+          fetch_page memorabilia_cards '/shop?feature=memorabilia'
+          fetch_page graded_cards '/shop?feature=graded'
+          fetch_page rookie_cards '/shop?feature=rookie'
+          fetch_page numbered_cards '/shop?feature=numbered'
+          fetch_page jerseys '/shop?section=Jerseys'
+          fetch_page pucks '/shop?section=Pucks'
+          fetch_page balls '/shop?section=Balls'
+          fetch_page tickets '/shop?section=Tickets%20%26%20Programs'
+          fetch_page watches '/shop?section=Watches%20%26%20Accessories'
+          fetch_page coins '/shop?section=Coins'
+          fetch_page sealed '/shop?section=Sealed%20Wax'
+          fetch_page tcg '/shop?section=Trading%20Card%20Games'
+
+      - name: Certify all sections and card features
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const decode = (value) => value
+            .replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"')
+            .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ')
+            .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+          const html = (key) => fs.readFileSync(`taxonomy-v8-final/pages/${key}.html`, 'utf8');
+          const text = (key) => decode(html(key).replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' '));
+          const count = (key) => {
+            const match = text(key).match(/([\d,]+) active cards & collectibles/i);
+            return match ? Number(match[1].replaceAll(',', '')) : null;
+          };
+          const titles = (key) => Array.from(html(key).matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/gi), (m) => decode(m[1]));
+          const articles = Array.from(html('all').matchAll(/<article[^>]*>([\s\S]*?)<\/article>/gi), (m) => {
+            const body = m[1];
+            const title = decode((body.match(/<h2[^>]*>([\s\S]*?)<\/h2>/i) || [,''])[1]);
+            const section = decode((body.match(/text-blue-700[^>]*>([\s\S]*?)<\/p>/i) || [,''])[1]);
+            const badges = Array.from(body.matchAll(/text-\[10px\][^>]*>([\s\S]*?)<\/span>/gi), (b) => decode(b[1]));
+            return { title, section, badges };
+          }).filter((item) => item.title);
+          const receipt = JSON.parse(fs.readFileSync('taxonomy-v8-final/receipt-summary.json', 'utf8'));
+          const counts = {
+            all: count('all'), otherCollectables: count('other_collectables'), otherSports: count('other_sports'),
+            memorabilia: count('memorabilia'), needsReview: count('needs_review'), autographs: count('autographs'),
+            memorabiliaCards: count('memorabilia_cards'), gradedCards: count('graded_cards'), rookieCards: count('rookie_cards'),
+            numberedCards: count('numbered_cards'), jerseys: count('jerseys'), pucks: count('pucks'), balls: count('balls'),
+            tickets: count('tickets'), watches: count('watches'), coins: count('coins'), sealed: count('sealed'), tcg: count('tcg'),
+          };
+          const retired = new Set(['Other Collectables','Other Collectibles','Other Sports','Memorabilia','Autographs','Needs Review']);
+          const sportSections = new Set(['Baseball','NBA','WNBA','Basketball','Football','Hockey','Soccer','Wrestling','MMA / UFC','Boxing','Golf','Tennis','Racing / NASCAR','Cricket','Lacrosse','Volleyball','Rugby','Olympics / Track & Field','Poker','Skateboarding','Multi-Sport']);
+          const issues = {
+            retiredSections: articles.filter((a) => retired.has(a.section)),
+            missingSections: articles.filter((a) => !a.section),
+            missingAutograph: [], missingMemorabilia: [], missingGraded: [], missingRookie: [], missingNumbered: [],
+            falseAutograph: [], falseTcgNumbered: [],
+            jerseyCardLeaks: titles('jerseys').filter((t) => /\b(?:card|topps|panini|upper deck|donruss|prizm|bowman|skybox|sp game used|relic|patch|swatch|proof|materials)\b/i.test(t)),
+            puckCardLeaks: titles('pucks').filter((t) => /\b(?:card|topps|panini|upper deck|donruss|prizm|bowman|relic|patch|swatch)\b/i.test(t)),
+            ballCardLeaks: titles('balls').filter((t) => /\b(?:spectra|flawless|hoops|topps|panini|upper deck|donruss|prizm|bowman|card|relic|patch|autograph memorabilia)\b/i.test(t)),
+            ticketCardLeaks: titles('tickets').filter((t) => /\b(?:credentials|debut ticket|card|upper deck|panini|topps)\b/i.test(t)),
+            watchCardLeaks: titles('watches').filter((t) => /\b(?:future watch|sp authentic|card|upper deck|panini|topps)\b/i.test(t)),
+            coinCardLeaks: titles('coins').filter((t) => /\b(?:hoops|card|upper deck|panini|topps|donruss|prizm)\b/i.test(t)),
+            sealedSingleCards: titles('sealed').filter((t) => !/\b(?:sealed|unopened|hobby box|blaster box|mega box|booster box|factory sealed|wax box|sealed case)\b/i.test(t)),
+          };
+          for (const article of articles) {
+            const title = article.title.toLowerCase();
+            const badges = new Set(article.badges);
+            const negativeAuto = /\b(?:facsimile|pre[- ]?printed|printed signature|unsigned|not signed|not autographed|non[- ]?auto|auto racing)\b/.test(title);
+            const expectedAuto = !negativeAuto && /\b(?:autograph(?:ed|s)?|autos?|signed|signatures?|scripts?|chirography|fresh ink|treasured ink|inked|autofacts?|sign of the times|endorsements?|momentous material autos?)\b/.test(title);
+            const expectedMem = sportSections.has(article.section) && /\b(?:relics?|patch(?:es)?|swatch(?:es)?|jersey|materials?|fabrics?|memorabilia|rookie remembrance|rookie materials?|banner year|frameworks|microfibers|rpa|prime patch|logo jumbo|team logo jumbo|emblems?|stitchings?|momentous material)\b/.test(title.replace(/\bnew jersey\b/g,''));
+            const expectedGrade = sportSections.has(article.section) && /\b(?:psa|bgs|sgc|cgc|csg|hga|isa|ksa)\s*(?:authentic|a|\d{1,2}(?:\.\d)?)\b/.test(title);
+            const expectedRookie = sportSections.has(article.section) && /\b(?:rookie|rc)\b|young guns|rated rookie|rookie remembrance|ultimate introductions/.test(title);
+            const explicitSerial = /(?:^|\s)#\s*\/\s*\d{1,5}\b|(?:^|\s)\/\d{1,5}\b|serial numbered|\bnumbered\b|#'?d\b/.test(title);
+            const fractionSerial = article.section !== 'Trading Card Games' && /\b\d{1,5}\s*\/\s*\d{1,5}\b/.test(title);
+            const expectedNumbered = explicitSerial || fractionSerial;
+            if (expectedAuto && !badges.has('Autograph')) issues.missingAutograph.push(article);
+            if (expectedMem && !badges.has('Memorabilia Card')) issues.missingMemorabilia.push(article);
+            if (expectedGrade && !badges.has('Graded Card')) issues.missingGraded.push(article);
+            if (expectedRookie && !badges.has('Rookie Card')) issues.missingRookie.push(article);
+            if (expectedNumbered && !badges.has('Numbered')) issues.missingNumbered.push(article);
+            if (negativeAuto && badges.has('Autograph')) issues.falseAutograph.push(article);
+            if (article.section === 'Trading Card Games' && badges.has('Numbered') && !explicitSerial) issues.falseTcgNumbered.push(article);
+          }
+          if (counts.all !== receipt.representedInventoryRows) throw new Error(`Live total ${counts.all} != represented inventory ${receipt.representedInventoryRows}.`);
+          if (articles.length !== counts.all) throw new Error(`Parsed ${articles.length} cards but page reports ${counts.all}.`);
+          for (const key of ['otherCollectables','otherSports','memorabilia','needsReview']) if (counts[key] !== 0) throw new Error(`${key} contains ${counts[key]} items.`);
+          for (const [key, value] of Object.entries(issues)) if (value.length) throw new Error(`${key}: ${JSON.stringify(value.slice(0,25))}`);
+          const allText = text('all');
+          for (const label of ['Shop by sport','Collectible types','Card features','Memorabilia Cards','Graded Cards','NBA','WNBA']) if (!allText.includes(label)) throw new Error(`Missing control ${label}.`);
+          const sectionCounts = articles.reduce((result, item) => { result[item.section] = (result[item.section] || 0) + 1; return result; }, {});
+          const badgeCounts = articles.reduce((result, item) => { for (const badge of item.badges) result[badge] = (result[badge] || 0) + 1; return result; }, {});
+          const report = { success: true, auditedAt: new Date().toISOString(), receipt, counts, sectionCounts, badgeCounts, issues, articles };
+          fs.writeFileSync('taxonomy-v8-final/report.json', `${JSON.stringify(report, null, 2)}\n`);
+          fs.writeFileSync('taxonomy-v8-final/summary.json', `${JSON.stringify({ success: true, auditedAt: report.auditedAt, receipt, counts, sectionCounts, badgeCounts }, null, 2)}\n`);
+          console.log(JSON.stringify({ success: true, counts, sectionCounts, badgeCounts }));
+          NODE
+
+      - name: Upload final taxonomy v8 certificate
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: storefront-taxonomy-v8-final-certificate-${{ github.run_number }}
+          path: taxonomy-v8-final
+          if-no-files-found: error
+          retention-days: 30
