@@ -1,0 +1,94 @@
+name: One-Time Storefront Taxonomy V6 Live Corrections V4 20260728
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/one-time-storefront-taxonomy-v6-live-corrections-v4-20260728.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: one-time-storefront-taxonomy-v6-live-corrections-v4-20260728
+  cancel-in-progress: false
+
+jobs:
+  patch-and-validate:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'agent/storefront-taxonomy-v6-live-corrections-20260728'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+      ADMIN_SESSION_SECRET: build-only-placeholder-session-secret
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+      EBAY_CLIENT_ID: build-only-placeholder-client-id
+      EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+      EBAY_ENVIRONMENT: production
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/storefront-taxonomy-v6-live-corrections-20260728
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - name: Run whitespace-independent taxonomy v6 patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python <<'PY'
+          from pathlib import Path
+          import textwrap
+
+          workflow = Path('.github/workflows/one-time-storefront-taxonomy-v6-live-corrections-v2-20260728.yml').read_text()
+          start_marker = "          python <<'PY'\n"
+          end_marker = "\n          PY\n\n      - name: Validate taxonomy v6 corrections"
+          start = workflow.index(start_marker) + len(start_marker)
+          end = workflow.index(end_marker, start)
+          script = textwrap.dedent(workflow[start:end])
+
+          label = "'complete section dropdown'"
+          label_index = script.index(label)
+          call_start = script.rfind('replace_once(', 0, label_index)
+          call_end = script.index('\n)', label_index) + 2
+          corrected_call = '''regex_once(
+              shop,
+              r'\\{sections\\.map\\(\\(name\\) => \\(\\s*<option key=\\{name\\} value=\\{name\\}>\\{name\\}</option>\\s*\\)\\)\\}',
+              ''' + "'''" + '''{sectionOptions.map((name) => (
+            <option key={name} value={name}>{name}</option>
+          ))}''' + "'''" + ''',
+              'complete section dropdown',
+          )'''
+          script = script[:call_start] + corrected_call + script[call_end:]
+          Path('/tmp/taxonomy-v6-patch.py').write_text(script)
+          PY
+          python /tmp/taxonomy-v6-patch.py
+          rm -f .github/workflows/one-time-storefront-taxonomy-v6-live-corrections-v3-20260728.yml .github/workflows/one-time-storefront-taxonomy-v6-live-corrections-v4-20260728.yml
+
+      - name: Validate taxonomy v6 corrections
+        run: |
+          set -euo pipefail
+          npm ci
+          node --import tsx scripts/run-storefront-taxonomy-regressions.ts
+          node --import tsx scripts/run-ebay-import-admin-client-simulations.ts
+          npx eslint src/lib/storefront-taxonomy.ts src/lib/ebay-category-mapper.ts src/lib/ebay-authoritative-store-sync.ts src/app/shop/page.tsx scripts/run-storefront-taxonomy-regressions.ts scripts/run-ebay-import-admin-client-simulations.ts
+          npm run build
+
+      - name: Commit validated taxonomy v6
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Truely Collectables Automation"
+          git config user.email "automation@truelycollectables.com"
+          git add -A
+          git commit -m "Correct live autograph and jersey classification"
+          git push origin HEAD:agent/storefront-taxonomy-v6-live-corrections-20260728
