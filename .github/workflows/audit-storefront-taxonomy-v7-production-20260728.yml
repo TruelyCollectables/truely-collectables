@@ -1,0 +1,380 @@
+name: Audit Storefront Taxonomy V7 Production 20260728
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/audit-storefront-taxonomy-v7-production-20260728.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  audit-production-catalog:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ops/audit-storefront-taxonomy-v7-production-20260728'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/audit-storefront-taxonomy-v7-production-20260728
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies and pull production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          mkdir -p .vercel taxonomy-v7-production-audit
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          npx vercel@56.2.0 env pull .env.production.audit --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+
+      - name: Audit every active production item
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > taxonomy-v7-production-audit/audit.ts <<'TS'
+          import fs from "node:fs";
+          import { createClient } from "@supabase/supabase-js";
+          import {
+            classifyStorefrontItem,
+            SPORT_SECTIONS,
+          } from "../src/lib/storefront-taxonomy";
+          import { isLaunchCollectible } from "../src/lib/sports-card-launch-scope";
+          import { isMergedEbayAliasItemId } from "../src/lib/ebay-merged-listing-groups";
+
+          type ProductRow = {
+            id: number;
+            store_id: string | null;
+            sku: string | null;
+            title: string;
+            description: string | null;
+            price: number;
+            quantity: number;
+            image_url: string | null;
+            ebay_item_id: string | null;
+            sport: string | null;
+          };
+
+          type InventoryRow = {
+            id: string;
+            store_id: string | null;
+            legacy_product_id: number | null;
+            sku: string | null;
+            title: string;
+            description: string | null;
+            category: string | null;
+            status: string;
+            quantity: number;
+            price: number;
+            metadata: Record<string, unknown> | null;
+          };
+
+          const envText = fs.readFileSync(".env.production.audit", "utf8");
+          for (const rawLine of envText.split(/\r?\n/)) {
+            const line = rawLine.trim();
+            if (!line || line.startsWith("#")) continue;
+            const index = line.indexOf("=");
+            if (index < 1) continue;
+            const key = line.slice(0, index).trim();
+            let value = line.slice(index + 1).trim();
+            if (
+              (value.startsWith('"') && value.endsWith('"')) ||
+              (value.startsWith("'") && value.endsWith("'"))
+            ) {
+              value = value.slice(1, -1);
+            }
+            process.env[key] = value.replace(/\\n/g, "\n");
+          }
+
+          const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+          const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+          if (!url || !key) throw new Error("Production Supabase credentials were not pulled.");
+          const database = createClient(url, key, {
+            auth: { persistSession: false, autoRefreshToken: false },
+          });
+
+          async function readAll<T>(table: string, columns: string): Promise<T[]> {
+            const rows: T[] = [];
+            const pageSize = 1000;
+            for (let page = 0; page < 50; page += 1) {
+              const from = page * pageSize;
+              const { data, error } = await database
+                .from(table)
+                .select(columns)
+                .order("id", { ascending: true })
+                .range(from, from + pageSize - 1);
+              if (error) throw error;
+              const batch = (data || []) as T[];
+              rows.push(...batch);
+              if (batch.length < pageSize) return rows;
+            }
+            throw new Error(`${table} exceeded the bounded audit pagination ceiling.`);
+          }
+
+          const products = await readAll<ProductRow>(
+            "products",
+            "id,store_id,sku,title,description,price,quantity,image_url,ebay_item_id,sport",
+          );
+          const inventory = await readAll<InventoryRow>(
+            "inventory_items",
+            "id,store_id,legacy_product_id,sku,title,description,category,status,quantity,price,metadata",
+          );
+
+          const storeCounts = new Map<string, number>();
+          for (const product of products) {
+            if (!product.store_id || !product.ebay_item_id) continue;
+            storeCounts.set(product.store_id, (storeCounts.get(product.store_id) || 0) + 1);
+          }
+          const storeId = [...storeCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+          if (!storeId) throw new Error("No production store with eBay-linked products was found.");
+
+          const byLegacyId = new Map<number, InventoryRow>();
+          const bySku = new Map<string, InventoryRow>();
+          for (const row of inventory) {
+            if (row.store_id !== storeId) continue;
+            if (row.legacy_product_id) byLegacyId.set(Number(row.legacy_product_id), row);
+            if (row.sku) bySku.set(row.sku, row);
+          }
+
+          const deprecatedSections = new Set([
+            "Other Collectables",
+            "Other Collectibles",
+            "Other Sports",
+            "Memorabilia",
+            "Autographs",
+          ]);
+          const sportSections = new Set<string>(SPORT_SECTIONS);
+          const sectionCounts = new Map<string, number>();
+          const activeRows: Array<Record<string, unknown>> = [];
+          const unresolved: Array<Record<string, unknown>> = [];
+          const deprecated: Array<Record<string, unknown>> = [];
+          const sportsCardsWithoutSport: Array<Record<string, unknown>> = [];
+          const featureIssues: Array<Record<string, unknown>> = [];
+          const excludedByPolicy: Array<Record<string, unknown>> = [];
+
+          for (const product of products) {
+            if (product.store_id !== storeId || Number(product.price || 0) <= 0 || !product.image_url) {
+              continue;
+            }
+            if (isMergedEbayAliasItemId(product.ebay_item_id)) continue;
+            const item =
+              byLegacyId.get(Number(product.id)) ||
+              (product.sku ? bySku.get(product.sku) : undefined);
+            if (!item || item.status !== "active" || Number(item.quantity || 0) <= 0) continue;
+
+            const title = item.title || product.title;
+            const classification = classifyStorefrontItem({
+              title,
+              description: item.description || product.description,
+              rawSport: product.sport,
+              primaryCategory: item.category,
+              metadata: item.metadata,
+            });
+            const summary = {
+              productId: product.id,
+              ebayItemId: product.ebay_item_id,
+              sku: product.sku,
+              title,
+              sourceSport: product.sport,
+              sourceCategory: item.category,
+              section: classification.section,
+              features: classification.features,
+            };
+            activeRows.push(summary);
+            sectionCounts.set(
+              classification.section,
+              (sectionCounts.get(classification.section) || 0) + 1,
+            );
+
+            if (classification.section === "Needs Review") unresolved.push(summary);
+            if (deprecatedSections.has(classification.section)) deprecated.push(summary);
+
+            const category = String(item.category || "").toLowerCase();
+            const sportsCardCategory = category === "sports_cards";
+            const legitimateNonSportCardSection = [
+              "Trading Card Games",
+              "Entertainment & Pop Culture",
+              "Sealed Wax",
+            ].includes(classification.section);
+            if (
+              sportsCardCategory &&
+              !sportSections.has(classification.section) &&
+              !legitimateNonSportCardSection
+            ) {
+              sportsCardsWithoutSport.push(summary);
+            }
+
+            const normalizedTitle = title.toLowerCase();
+            const cardLike = ["sports_cards", "trading_cards"].includes(category);
+            const expectedMemorabilia =
+              cardLike &&
+              /\b(?:relic|patch|swatch|jersey|materials?|fabrics?|rpa|frameworks|microfibers|emblems?)\b/.test(
+                normalizedTitle.replace(/\bnew jersey\b/g, ""),
+              );
+            const expectedGraded =
+              cardLike &&
+              /\b(?:psa|bgs|sgc|cgc|csg|hga|isa|ksa)\s*(?:authentic|a|\d{1,2}(?:\.\d)?)\b/.test(
+                normalizedTitle,
+              );
+            const negativeAutograph =
+              /\b(?:facsimile|pre[- ]?printed|printed signature|unsigned|not signed|not autographed|non[- ]?auto|auto racing)\b/.test(
+                normalizedTitle,
+              );
+            if (expectedMemorabilia && !classification.features.memorabilia) {
+              featureIssues.push({ ...summary, issue: "missing_memorabilia_card" });
+            }
+            if (expectedGraded && !classification.features.graded) {
+              featureIssues.push({ ...summary, issue: "missing_graded_card" });
+            }
+            if (negativeAutograph && classification.features.autograph) {
+              featureIssues.push({ ...summary, issue: "false_autograph" });
+            }
+
+            const publicAllowed = isLaunchCollectible({
+              title,
+              sport: classification.section,
+              storefrontSection: classification.section,
+              category: item.category,
+              features: classification.features,
+            });
+            if (!publicAllowed) excludedByPolicy.push(summary);
+          }
+
+          const report = {
+            success:
+              unresolved.length === 0 &&
+              deprecated.length === 0 &&
+              sportsCardsWithoutSport.length === 0 &&
+              featureIssues.length === 0 &&
+              excludedByPolicy.length === 0,
+            auditedAt: new Date().toISOString(),
+            storeId,
+            counts: {
+              totalProducts: products.filter((row) => row.store_id === storeId).length,
+              totalInventoryItems: inventory.filter((row) => row.store_id === storeId).length,
+              activeRepresentedRows: activeRows.length,
+              publicAllowedRows: activeRows.length - excludedByPolicy.length,
+              unresolved: unresolved.length,
+              deprecated: deprecated.length,
+              sportsCardsWithoutSport: sportsCardsWithoutSport.length,
+              featureIssues: featureIssues.length,
+              excludedByPolicy: excludedByPolicy.length,
+            },
+            sectionCounts: Object.fromEntries(
+              [...sectionCounts.entries()].sort((a, b) => b[1] - a[1]),
+            ),
+            unresolved,
+            deprecated,
+            sportsCardsWithoutSport,
+            featureIssues,
+            excludedByPolicy,
+            activeRows,
+          };
+
+          fs.writeFileSync(
+            "taxonomy-v7-production-audit/report.json",
+            `${JSON.stringify(report, null, 2)}\n`,
+          );
+          fs.writeFileSync(
+            "taxonomy-v7-production-audit/summary.json",
+            `${JSON.stringify(
+              {
+                success: report.success,
+                auditedAt: report.auditedAt,
+                counts: report.counts,
+                sectionCounts: report.sectionCounts,
+              },
+              null,
+              2,
+            )}\n`,
+          );
+          console.log(JSON.stringify({ success: report.success, counts: report.counts, sectionCounts: report.sectionCounts }));
+          if (!report.success) {
+            throw new Error(`Taxonomy v7 production database audit failed: ${JSON.stringify(report.counts)}`);
+          }
+          TS
+          node --import tsx taxonomy-v7-production-audit/audit.ts
+
+      - name: Audit live storefront pages
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p taxonomy-v7-production-audit/pages
+          fetch_page() {
+            key="$1"; path="$2"
+            curl --location --fail --silent --show-error \
+              --connect-timeout 15 --max-time 180 \
+              --header 'Cache-Control: no-cache' \
+              --output "taxonomy-v7-production-audit/pages/${key}.html" \
+              "https://truelycollectables.com${path}"
+          }
+          fetch_page all '/shop'
+          fetch_page other_collectables '/shop?section=Other%20Collectables'
+          fetch_page other_sports '/shop?section=Other%20Sports'
+          fetch_page memorabilia '/shop?section=Memorabilia'
+          fetch_page needs_review '/shop?section=Needs%20Review'
+          fetch_page memorabilia_cards '/shop?feature=memorabilia'
+          fetch_page graded_cards '/shop?feature=graded'
+          fetch_page autographs '/shop?feature=autograph'
+          node <<'NODE'
+          const fs = require('node:fs');
+          const decode = (value) => value
+            .replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"')
+            .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ')
+            .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+          const html = (key) => fs.readFileSync(`taxonomy-v7-production-audit/pages/${key}.html`, 'utf8');
+          const text = (key) => decode(html(key).replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' '));
+          const count = (key) => {
+            const match = text(key).match(/([\d,]+) active cards & collectibles/i);
+            return match ? Number(match[1].replaceAll(',', '')) : null;
+          };
+          const db = JSON.parse(fs.readFileSync('taxonomy-v7-production-audit/report.json', 'utf8'));
+          const counts = {
+            all: count('all'),
+            otherCollectables: count('other_collectables'),
+            otherSports: count('other_sports'),
+            memorabilia: count('memorabilia'),
+            needsReview: count('needs_review'),
+            memorabiliaCards: count('memorabilia_cards'),
+            gradedCards: count('graded_cards'),
+            autographs: count('autographs'),
+          };
+          const allText = text('all');
+          if (counts.all !== db.counts.publicAllowedRows) {
+            throw new Error(`Live total ${counts.all} != audited public rows ${db.counts.publicAllowedRows}.`);
+          }
+          for (const key of ['otherCollectables', 'otherSports', 'memorabilia', 'needsReview']) {
+            if (counts[key] !== 0) throw new Error(`${key} still shows ${counts[key]} items.`);
+          }
+          for (const label of ['Shop by sport', 'Collectible types', 'Card features', 'Memorabilia Cards', 'Graded Cards', 'NBA', 'WNBA']) {
+            if (!allText.includes(label)) throw new Error(`Missing live storefront control: ${label}`);
+          }
+          fs.writeFileSync(
+            'taxonomy-v7-production-audit/live-summary.json',
+            `${JSON.stringify({ success: true, counts }, null, 2)}\n`,
+          );
+          NODE
+
+      - name: Upload complete taxonomy v7 audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: storefront-taxonomy-v7-production-audit-${{ github.run_number }}
+          path: taxonomy-v7-production-audit
+          if-no-files-found: error
+          retention-days: 30
