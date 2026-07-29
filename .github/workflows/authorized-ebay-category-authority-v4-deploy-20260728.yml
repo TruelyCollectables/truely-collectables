@@ -1,4 +1,4 @@
-name: Authorized Storefront Taxonomy V8 Production Deploy 20260729
+name: Authorized Storefront Taxonomy V9 Production Deploy 20260729
 
 on:
   pull_request:
@@ -25,12 +25,12 @@ jobs:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_SCOPE: truelycollectables-projects
-      DEPLOY_SOURCE_SHA: c7b190ede47d91008b9f759941f929622ca6d6b4
+      DEPLOY_SOURCE_SHA: 6fea59f3ee29ae51be743d10029f045b3066ca34
     steps:
       - name: Check out exact merged source
         uses: actions/checkout@v4
         with:
-          ref: c7b190ede47d91008b9f759941f929622ca6d6b4
+          ref: 6fea59f3ee29ae51be743d10029f045b3066ca34
           fetch-depth: 1
 
       - name: Set up Node.js
@@ -117,13 +117,13 @@ jobs:
             sleep 15
           done
           test -n "$success"
-          echo "Verified storefront taxonomy v8 deployment at $success"
+          echo "Verified storefront taxonomy v9 deployment at $success"
 
       - name: Upload deployment evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: storefront-taxonomy-v8-production-deploy-${{ github.run_number }}
+          name: storefront-taxonomy-v9-production-deploy-${{ github.run_number }}
           path: .deployment-evidence
           if-no-files-found: warn
           retention-days: 30
