@@ -1,0 +1,81 @@
+name: Patch Final Certificate Source Scan 20260729
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/patch-final-certificate-source-scan-20260729.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ops/launch-2-final-certificate-ad575-20260729')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/launch-2-final-certificate-ad575-20260729
+          fetch-depth: 0
+
+      - name: Guard exact certificate source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "ad5758557e14f10ae9294a4a8de4dd69d188b58d"
+          test "$(git hash-object .github/workflows/launch-2-final-certificate-ad575-20260729.yml)" = "5e0cb1ec39487ad8af7b16707c59812fd6cd3349"
+
+      - name: Patch source-only Gitleaks scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('.github/workflows/launch-2-final-certificate-ad575-20260729.yml')
+          text = path.read_text()
+          old = '''          mkdir -p "$EVIDENCE_DIR/source-security"
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.28.0 dir /repo \\
+            --no-banner --redact --report-format json \\
+            --report-path /repo/.audit/launch-2-final-ad575/source-security/gitleaks.json
+'''
+          new = '''          mkdir -p "$EVIDENCE_DIR/source-security"
+          tracked="$RUNNER_TEMP/truely-tracked-source"
+          rm -rf "$tracked"
+          mkdir -p "$tracked"
+          git archive HEAD | tar -x -C "$tracked"
+          docker run --rm \\
+            -v "$tracked:/repo:ro" \\
+            -v "$PWD/$EVIDENCE_DIR/source-security:/evidence" \\
+            zricethezav/gitleaks:v8.28.0 dir /repo \\
+            --no-banner --redact --report-format json \\
+            --report-path /evidence/gitleaks.json
+'''
+          if text.count(old) != 1:
+              raise SystemExit(f'Expected one Gitleaks source block, found {text.count(old)}.')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          git diff --check
+          grep -Fq 'git archive HEAD | tar -x -C "$tracked"' .github/workflows/launch-2-final-certificate-ad575-20260729.yml
+          if grep -Fq 'docker run --rm -v "$PWD:/repo"' .github/workflows/launch-2-final-certificate-ad575-20260729.yml; then exit 1; fi
+          ruby -e 'require "yaml"; YAML.load_file(".github/workflows/launch-2-final-certificate-ad575-20260729.yml"); puts "Certificate YAML parsed."'
+
+      - name: Stage validated workflow as ordinary data
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p certificate-staging
+          cp .github/workflows/launch-2-final-certificate-ad575-20260729.yml certificate-staging/launch-2-final-certificate-ad575-20260729.yml
+          sha256sum certificate-staging/launch-2-final-certificate-ad575-20260729.yml > certificate-staging/launch-2-final-certificate-ad575-20260729.sha256
+          git checkout -- .github/workflows/launch-2-final-certificate-ad575-20260729.yml
+          git diff --quiet
+          test -f certificate-staging/launch-2-final-certificate-ad575-20260729.yml
+          test -f certificate-staging/launch-2-final-certificate-ad575-20260729.sha256
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add certificate-staging/launch-2-final-certificate-ad575-20260729.yml certificate-staging/launch-2-final-certificate-ad575-20260729.sha256
+          git commit -m "Stage source-only final certificate scan"
+          git push origin HEAD:ops/launch-2-final-certificate-ad575-20260729
