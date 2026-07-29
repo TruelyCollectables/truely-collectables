@@ -1,4 +1,5 @@
 name: Patch Production Certificate V2 20260729
+# Guarded staging only; this workflow never changes Production.
 
 on:
   pull_request:
