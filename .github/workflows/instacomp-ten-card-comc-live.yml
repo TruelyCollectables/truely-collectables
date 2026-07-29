@@ -1,0 +1,100 @@
+name: InstaComp Ten Card COMC Front Back Live
+
+on:
+  push:
+    branches:
+      - agent/instacomp-live-torture-isolated-20260727
+    paths:
+      - "scripts/run-instacomp-ten-card-comc-live.ts"
+      - ".github/workflows/instacomp-ten-card-comc-live.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: instacomp-ten-card-comc-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  test-ten-cards:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+      NODE_ENV: development
+      VERCEL_ENV: preview
+      ADMIN_PASSWORD: ten-card-audit-password
+      ADMIN_SESSION_SECRET: ten-card-audit-session-secret-20260729
+      INSTACOMP_BENCHMARK_TOKEN: ten-card-audit-ephemeral-token-20260729-abcdef
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:9
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      INSTACOMP_AI_COUNCIL_TIER: adaptive
+      INSTACOMP_OPENAI_MODEL: gpt-4.1
+      INSTACOMP_OPENAI_FALLBACK_MODEL: gpt-4.1-mini
+      INSTACOMP_BYPASS_CACHE: "1"
+      INSTACOMP_EXTERNAL_SEARCH_LIMIT: "8"
+
+    steps:
+      - name: Open tracking issue
+        id: tracking
+        run: |
+          ISSUE_NUMBER="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/issues" \
+            -f title="InstaComp 10-card front/back live test ${GITHUB_RUN_ID}" \
+            -f body="Pinned to commit \`${GITHUB_SHA}\`. Running ten real public COMC front/back card scans through the production InstaComp live route with a card-by-card answer key." \
+            --jq .number)"
+          echo "issue_number=$ISSUE_NUMBER" >> "$GITHUB_OUTPUT"
+
+      - name: Check out pinned commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Lint ten-card runner and production scanner paths
+        run: >-
+          npx eslint
+          scripts/run-instacomp-ten-card-comc-live.ts
+          src/app/api/instacomp/live-scan/route.ts
+          src/app/api/instacomp/scan/route.ts
+          src/lib/instacomp.ts
+          src/lib/instacomp-live-pipeline.ts
+          src/lib/instacomp-exact-market-provider.ts
+
+      - name: Run ten live front/back scans
+        run: |
+          set -euo pipefail
+          node --import tsx scripts/run-instacomp-ten-card-comc-live.ts 2>&1 | tee instacomp-ten-card-live.log
+
+      - name: Upload card-by-card report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-ten-card-comc-live-${{ github.run_number }}
+          path: |
+            reports/instacomp-ten-card/instacomp-ten-card-live-report.json
+            reports/instacomp-ten-card/instacomp-ten-card-live-report.md
+            instacomp-ten-card-live.log
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Close tracking issue with result
+        if: always()
+        run: |
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${{ steps.tracking.outputs.issue_number }}/comments" \
+            -f body="Ten-card InstaComp live test completed with job status **${{ job.status }}**. Actions run: ${GITHUB_RUN_ID}. The complete JSON, Markdown, and execution log are attached to the workflow artifact."
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/issues/${{ steps.tracking.outputs.issue_number }}" -f state=closed
