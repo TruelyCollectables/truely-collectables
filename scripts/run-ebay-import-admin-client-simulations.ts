@@ -120,8 +120,8 @@ assert.match(
 
 assert.match(
   publicInventoryEngine,
-  /items\.filter\(isLaunchCollectible\)/,
-  "Every public inventory feed must enforce the approved catalog exclusions.",
+  /isPublicStorefrontItem[\s\S]*isLaunchCollectible[\s\S]*isMergedEbayAliasItemId/,
+  "Every public inventory feed must enforce catalog exclusions and hide merged aliases.",
 );
 assert.match(
   inventoryEngineSource,
@@ -150,13 +150,13 @@ assert.match(
 );
 assert.match(
   publicInventoryEngine,
-  /async getByLegacyProductId\([\s\S]*return item && isLaunchCollectible\(item\) \? item : null;/,
-  "Direct product URLs must return no product when catalog exclusions reject the item.",
+  /async getByLegacyProductId\([\s\S]*return item && isPublicStorefrontItem\(item\) \? item : null;/,
+  "Direct product URLs must reject catalog exclusions and merged aliases.",
 );
 assert.match(
   publicInventoryEngine,
-  /async getByLegacyProductIds\([\s\S]*return items\.filter\(isLaunchCollectible\);/,
-  "Bulk public product lookups must enforce the same catalog exclusions.",
+  /async getByLegacyProductIds\([\s\S]*return items\.filter\(isPublicStorefrontItem\);/,
+  "Bulk public product lookups must reject catalog exclusions and merged aliases.",
 );
 
 assert.match(

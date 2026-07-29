@@ -396,3 +396,8 @@ assert.match(
   /isMergedEbayListingMember\(listing\)/,
   "Quantity reconciliation must leave merged listing groups to the authoritative aggregate sync.",
 );
+assert.match(
+  authoritativeSyncSource,
+  /const mergedAliasLocals = locals\.filter[\s\S]*isMergedEbayAliasItemId[\s\S]*deactivateLocalProduct/,
+  "Authoritative sync must retire local rows for active merged aliases.",
+);
