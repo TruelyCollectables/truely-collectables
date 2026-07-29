@@ -1,0 +1,118 @@
+name: Trigger Taxonomy V9 Production Sync 20260729
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/trigger-taxonomy-v9-sync-20260729.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  trigger-production-sync:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ops/audit-storefront-taxonomy-v7-production-20260728'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      PRODUCTION_ORIGIN: https://truelycollectables.com
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/audit-storefront-taxonomy-v7-production-20260728
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Link Vercel Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .vercel taxonomy-v9-sync-trigger
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          npx vercel@56.2.0 env pull taxonomy-v9-sync-trigger/.env.production \
+            --yes \
+            --environment production \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN"
+
+      - name: Run protected full production sync
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = 'taxonomy-v9-sync-trigger/.env.production';
+          const text = fs.readFileSync(path, 'utf8');
+          const env = {};
+          for (const rawLine of text.split(/\r?\n/)) {
+            const line = rawLine.trim();
+            if (!line || line.startsWith('#')) continue;
+            const index = line.indexOf('=');
+            if (index < 1) continue;
+            const key = line.slice(0, index).trim();
+            let raw = line.slice(index + 1).trim();
+            let value = raw;
+            if (raw.startsWith('"') && raw.endsWith('"')) {
+              try { value = JSON.parse(raw); } catch { value = raw.slice(1, -1); }
+            } else if (raw.startsWith("'") && raw.endsWith("'")) {
+              value = raw.slice(1, -1);
+            }
+            env[key] = value;
+          }
+          const secret = env.CRON_SECRET;
+          if (!secret || secret.length < 16) {
+            throw new Error(`CRON_SECRET was not materialized. Available keys: ${Object.keys(env).sort().join(', ')}`);
+          }
+          const startedAt = new Date().toISOString();
+          const response = await fetch(`${process.env.PRODUCTION_ORIGIN}/api/cron/ebay-store-fixed-price-sync`, {
+            headers: { authorization: `Bearer ${secret}` },
+            signal: AbortSignal.timeout(420000),
+          });
+          const body = await response.text();
+          fs.writeFileSync('taxonomy-v9-sync-trigger/response.json', body);
+          fs.writeFileSync(
+            'taxonomy-v9-sync-trigger/summary.json',
+            `${JSON.stringify({ startedAt, completedAt: new Date().toISOString(), status: response.status }, null, 2)}\n`,
+          );
+          if (!response.ok) throw new Error(`Production sync returned HTTP ${response.status}.`);
+          let parsed;
+          try { parsed = JSON.parse(body); } catch { throw new Error('Production sync did not return JSON.'); }
+          if (parsed?.success !== true || (parsed?.errors || []).length) {
+            throw new Error(`Production sync failed: ${JSON.stringify(parsed?.errors || [])}`);
+          }
+          const final = parsed.finalAuthoritative || (parsed.convergencePasses || []).at(-1);
+          if (!final?.cycleComplete || Number(final.failed || 0) !== 0) {
+            throw new Error('Production sync final authoritative cycle was incomplete.');
+          }
+          if (parsed.databaseAudit?.matchesEligibleEbayInventory !== true) {
+            throw new Error('Production sync database audit did not match eBay inventory.');
+          }
+          console.log(JSON.stringify({
+            success: true,
+            representedInventoryRows: final.representedInventoryRows,
+            activeLinkedProducts: parsed.databaseAudit.activeLinkedProducts,
+            updated: parsed.authoritative?.updated,
+            finalUpdated: final.updated,
+          }));
+          NODE
+
+      - name: Upload protected sync receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: taxonomy-v9-production-sync-${{ github.run_number }}
+          path: taxonomy-v9-sync-trigger
+          if-no-files-found: error
+          retention-days: 30
