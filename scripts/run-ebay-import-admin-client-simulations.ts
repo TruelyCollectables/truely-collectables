@@ -173,6 +173,8 @@ assert.match(
 assert.match(shopPageSource, /"NBA",[\s\S]*"WNBA",[\s\S]*"Basketball"/);
 assert.ok(!shopPageSource.includes('product.category?.replaceAll("_", " ")'));
 assert.ok(shopPageSource.includes("View Item"));
+assert.match(shopPageSource, /const quickSections = QUICK_SECTIONS;/);
+assert.match(shopPageSource, /const sectionOptions = sortStorefrontSections/);
 assert.match(
   productActions,
   /\/api\/storefront\/product-images\/\$\{product\.id\}/,

@@ -258,7 +258,7 @@ function hasStrongAutographEvidence(title: string, aspects: EbayAspectMap) {
     .join(" ")
     .toLowerCase();
   const negative =
-    /\b(?:facsimile|pre[- ]?printed|printed signature|reproduction|reprint autograph|unsigned|not signed|not autographed)\b/.test(
+    /\b(?:facsimile|pre[- ]?printed|printed signature|reproduction|reprint autograph|unsigned|not signed|not autographed|non[- ]?auto)\b/.test(
       focused,
     );
   const signedBy = getAspectValue(aspects, "Signed By");
