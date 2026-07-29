@@ -10,21 +10,11 @@ export default function AccountLoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const [message, setMessage] = useState(() => {
-    if (typeof window === "undefined") return "";
-
-    const params = new URLSearchParams(window.location.search);
-
-    return params.get("card_verification") === "submitted"
-      ? "Card verification was submitted. You can log in after Stripe confirms the card and US billing address."
-      : "";
-  });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     setError("");
-    setMessage("");
     setIsSubmitting(true);
 
     try {
@@ -56,11 +46,13 @@ export default function AccountLoginPage() {
     <main className="mx-auto flex min-h-screen max-w-xl flex-col justify-center px-6 py-12">
       <section className="rounded-md border border-neutral-200 bg-white p-6 shadow-sm">
         <p className="text-sm font-bold uppercase text-neutral-500">
-          TCOS Account
+          Truely Collectables Buyer Account
         </p>
-        <h1 className="mt-2 text-3xl font-black">Account Login</h1>
+        <h1 className="mt-2 text-3xl font-black">Buyer Account Login</h1>
         <p className="mt-2 text-sm leading-6 text-neutral-600">
-          Customer account login is separate from TCOS admin access.
+          Log in to view linked orders and manage your buyer account. No card
+          verification is required. TCOS seller and admin access remain
+          separate.
         </p>
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
@@ -102,12 +94,6 @@ export default function AccountLoginPage() {
         {error ? (
           <p className="mt-4 rounded border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-bold text-rose-800">
             {error}
-          </p>
-        ) : null}
-
-        {message ? (
-          <p className="mt-4 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-800">
-            {message}
           </p>
         ) : null}
 

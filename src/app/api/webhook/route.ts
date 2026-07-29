@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
-import { InventoryEngine, InventoryRepository } from "../../../modules/inventory";
+import {
+  InventoryEngine,
+  InventoryRepository,
+} from "../../../modules/inventory";
 import { getActiveStoreId } from "../../../lib/stores";
 import { updateSellerPayoutAccountFromStripe } from "../../../lib/seller-payouts";
 import { evaluateAccountCardVerification } from "../../../lib/account-card-verification";
@@ -50,6 +53,55 @@ async function handleAccountCardVerification(params: {
   const { supabase, stripe, session, storeId } = params;
   const metadata = session.metadata || {};
   const accountId = metadata.account_id;
+
+  if (!accountId) {
+    throw new Error("Account card verification metadata is incomplete");
+  }
+
+  const { data: profile, error: profileLookupError } = await supabase
+    .from("account_profiles")
+    .select("default_account_type")
+    .eq("id", accountId)
+    .maybeSingle();
+  if (profileLookupError) throw profileLookupError;
+
+  const checkedAt = new Date().toISOString();
+  const sellerVerification =
+    String(profile?.default_account_type || "").toLowerCase() === "seller";
+
+  if (!sellerVerification) {
+    const { error: buyerProfileError } = await supabase
+      .from("account_profiles")
+      .update({
+        account_status: "active",
+        card_verified: false,
+        card_verified_at: null,
+        stripe_setup_intent_id: null,
+        stripe_payment_method_id: null,
+        card_verification_failure_reason: null,
+        card_verification_checked_at: checkedAt,
+        updated_at: checkedAt,
+      })
+      .eq("id", accountId);
+    if (buyerProfileError) throw buyerProfileError;
+
+    const { error: buyerMembershipError } = await supabase
+      .from("account_store_memberships")
+      .upsert(
+        {
+          account_id: accountId,
+          store_id: storeId,
+          role: "buyer",
+          status: "active",
+          updated_at: checkedAt,
+        },
+        { onConflict: "account_id,store_id,role" },
+      );
+    if (buyerMembershipError) throw buyerMembershipError;
+
+    return "buyer_card_verification_retired";
+  }
+
   const setupIntentId =
     typeof session.setup_intent === "string" ? session.setup_intent : null;
   const setupIntent = setupIntentId
@@ -70,11 +122,10 @@ async function handleAccountCardVerification(params: {
         ? paymentMethod.customer
         : null;
 
-  if (!accountId || !paymentMethodId) {
-    throw new Error("Account card verification metadata is incomplete");
+  if (!paymentMethodId) {
+    throw new Error("Seller card verification payment method is missing");
   }
 
-  const verifiedAt = new Date().toISOString();
   const accountStatus = cardEvidence.allowed
     ? "active"
     : "payment_verification_required";
@@ -83,7 +134,7 @@ async function handleAccountCardVerification(params: {
     .update({
       account_status: accountStatus,
       card_verified: cardEvidence.allowed,
-      card_verified_at: cardEvidence.allowed ? verifiedAt : null,
+      card_verified_at: cardEvidence.allowed ? checkedAt : null,
       stripe_customer_id: customerId,
       stripe_setup_intent_id: setupIntentId,
       stripe_payment_method_id: paymentMethodId,
@@ -100,19 +151,27 @@ async function handleAccountCardVerification(params: {
       billing_country: cardEvidence.billingCountry,
       billing_postal_code: cardEvidence.billingPostalCode,
       card_verification_failure_reason: cardEvidence.failureReason,
-      card_verification_checked_at: verifiedAt,
-      updated_at: verifiedAt,
+      card_verification_checked_at: checkedAt,
+      updated_at: checkedAt,
     })
     .eq("id", accountId);
   if (profileError) throw profileError;
 
   const { error: membershipError } = await supabase
     .from("account_store_memberships")
-    .update({ status: accountStatus, updated_at: verifiedAt })
-    .eq("account_id", accountId)
-    .eq("store_id", storeId)
-    .eq("role", "buyer");
+    .upsert(
+      {
+        account_id: accountId,
+        store_id: storeId,
+        role: "seller",
+        status: accountStatus,
+        updated_at: checkedAt,
+      },
+      { onConflict: "account_id,store_id,role" },
+    );
   if (membershipError) throw membershipError;
+
+  return "seller_card_verification_updated";
 }
 
 async function handleBindingOfferSetup(params: {
@@ -161,8 +220,7 @@ async function handleBindingOfferSetup(params: {
         store_id: storeId,
         sender_account_id: metadata.buyer_account_id,
         message_type: "system",
-        body:
-          "Payment method confirmed. The binding offer has been submitted for seller review.",
+        body: "Payment method confirmed. The binding offer has been submitted for seller review.",
         metadata: {
           binding_offer_id: bindingOfferId,
           stripe_setup_intent_id: setupIntentId,
@@ -183,9 +241,8 @@ async function handleBindingOfferSetup(params: {
 }
 
 export async function POST(req: Request) {
-  let journal:
-    | { supabase: SupabaseClient; webhookEventId: string }
-    | null = null;
+  let journal: { supabase: SupabaseClient; webhookEventId: string } | null =
+    null;
 
   try {
     const credentialCandidates = [
@@ -200,7 +257,9 @@ export async function POST(req: Request) {
         webhookSecret: getStripeLiveWebhookSecret(),
       },
     ].filter(
-      (candidate): candidate is {
+      (
+        candidate,
+      ): candidate is {
         livemode: boolean;
         stripeKey: string;
         webhookSecret: string;
@@ -244,7 +303,8 @@ export async function POST(req: Request) {
           candidate.webhookSecret,
         );
         if (candidateEvent.livemode !== candidate.livemode) {
-          signatureError = "Webhook signing secret and event mode do not match.";
+          signatureError =
+            "Webhook signing secret and event mode do not match.";
           continue;
         }
         event = candidateEvent;
@@ -381,8 +441,11 @@ export async function POST(req: Request) {
     const session = event.data.object as Stripe.Checkout.Session;
     const metadata = session.metadata || {};
 
-    if (metadata.type === "account_card_verification_setup") {
-      await handleAccountCardVerification({
+    if (
+      metadata.type === "account_card_verification_setup" ||
+      metadata.type === "seller_card_verification_setup"
+    ) {
+      const outcome = await handleAccountCardVerification({
         supabase,
         stripe,
         session,
@@ -391,7 +454,7 @@ export async function POST(req: Request) {
       await finishStripeWebhookEvent({
         ...journal,
         status: "processed",
-        metadata: { outcome: "account_card_verification_updated" },
+        metadata: { outcome },
       });
       return NextResponse.json({ received: true });
     }
