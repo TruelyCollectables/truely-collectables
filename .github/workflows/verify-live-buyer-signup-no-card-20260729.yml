@@ -1,0 +1,113 @@
+name: Verify Live Buyer Signup Without Card 20260729
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/verify-live-buyer-signup-no-card-20260729.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify-live-buyer-account:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ops/verify-live-buyer-signup-no-card-20260729'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: c5e35295ea17274a2e3d3ba8cc7d512f22d2f356
+          fetch-depth: 1
+
+      - name: Verify public buyer account pages
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p live-buyer-account-certificate
+          cache_bust="$(date +%s)"
+
+          curl --location --fail --silent --show-error \
+            --connect-timeout 15 --max-time 90 \
+            --header 'Cache-Control: no-cache' \
+            --output live-buyer-account-certificate/signup.html \
+            "https://truelycollectables.com/account/signup?verify=${cache_bust}"
+          grep -Fq 'Truely Collectables Buyer Account' live-buyer-account-certificate/signup.html
+          grep -Fq 'Create Buyer Account' live-buyer-account-certificate/signup.html
+          grep -Fq 'No payment card is required to register.' live-buyer-account-certificate/signup.html
+          ! grep -Fq 'Create Account And Verify Card' live-buyer-account-certificate/signup.html
+          ! grep -Fq 'secure card verification' live-buyer-account-certificate/signup.html
+
+          curl --location --fail --silent --show-error \
+            --connect-timeout 15 --max-time 90 \
+            --header 'Cache-Control: no-cache' \
+            --output live-buyer-account-certificate/login.html \
+            "https://truelycollectables.com/account/login?verify=${cache_bust}"
+          grep -Fq 'Buyer Account Login' live-buyer-account-certificate/login.html
+          grep -Fq 'No card verification is required.' live-buyer-account-certificate/login.html
+          ! grep -Fq 'Stripe confirms the card' live-buyer-account-certificate/login.html
+
+          curl --location --fail --silent --show-error \
+            --connect-timeout 15 --max-time 90 \
+            --header 'Cache-Control: no-cache' \
+            --output live-buyer-account-certificate/cart.html \
+            "https://truelycollectables.com/cart?verify=${cache_bust}"
+          grep -Fq 'Cart' live-buyer-account-certificate/cart.html
+
+      - name: Verify signup API policy without creating an account
+        shell: bash
+        run: |
+          set -euo pipefail
+          status="$(curl --silent --show-error \
+            --connect-timeout 15 --max-time 90 \
+            --request POST \
+            --header 'Content-Type: application/json' \
+            --header 'Cache-Control: no-cache' \
+            --data '{}' \
+            --dump-header live-buyer-account-certificate/signup-api-headers.txt \
+            --output live-buyer-account-certificate/signup-api-body.json \
+            --write-out '%{http_code}' \
+            'https://truelycollectables.com/api/account/signup')"
+          test "$status" = '400'
+          grep -Fiq 'x-tcos-account-auth-card-verification: not_required' live-buyer-account-certificate/signup-api-headers.txt
+          grep -Fq 'Email and password are required' live-buyer-account-certificate/signup-api-body.json
+          ! grep -Fq 'cardVerificationUrl' live-buyer-account-certificate/signup-api-body.json
+          ! grep -Fq 'stripeSessionId' live-buyer-account-certificate/signup-api-body.json
+
+          node <<'NODE'
+          const fs = require('node:fs');
+          const summary = {
+            success: true,
+            verifiedAt: new Date().toISOString(),
+            productionOrigin: 'https://truelycollectables.com',
+            signupPage: {
+              buyerBranding: true,
+              cardRequired: false,
+              createAccountLabel: 'Create Buyer Account',
+            },
+            loginPage: {
+              cardVerificationRequired: false,
+            },
+            signupApi: {
+              nonMutatingRequestStatus: 400,
+              cardVerificationHeader: 'not_required',
+              stripeRedirectReturned: false,
+            },
+            checkout: {
+              guestCartPageAvailable: true,
+            },
+          };
+          fs.writeFileSync(
+            'live-buyer-account-certificate/summary.json',
+            `${JSON.stringify(summary, null, 2)}\n`,
+          );
+          console.log(JSON.stringify(summary));
+          NODE
+
+      - name: Upload live buyer account certificate
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-buyer-account-no-card-certificate-${{ github.run_number }}
+          path: live-buyer-account-certificate
+          if-no-files-found: error
+          retention-days: 30
