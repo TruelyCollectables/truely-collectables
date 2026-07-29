@@ -82,12 +82,18 @@ jobs:
 
           admin_page = Path('src/app/admin/page.tsx')
           text = admin_page.read_text()
-          link_anchor = '        { href: "/admin/live-payment-launch", label: "Payment Gate" },\n'
+          payment_link_anchor = '        { href: "/admin/live-payment-launch", label: "Payment Gate" },\n'
           buyer_link = '        { href: "/admin/buyer-protection", label: "Buyer Protection" },\n'
           if 'href: "/admin/buyer-protection"' not in text:
-              if link_anchor not in text:
+              if payment_link_anchor not in text:
                   raise SystemExit('admin buyer-protection link anchor missing')
-              text = text.replace(link_anchor, link_anchor + buyer_link, 1)
+              text = text.replace(payment_link_anchor, payment_link_anchor + buyer_link, 1)
+          ebay_link_anchor = '        { href: "/admin/ebay/full-store-sync", label: "Full Store Sync" },\n'
+          launch_ready_link = '        { href: "/admin/ebay/launch-ready-sync", label: "Launch Ready Sync" },\n'
+          if 'href: "/admin/ebay/launch-ready-sync"' not in text:
+              if ebay_link_anchor not in text:
+                  raise SystemExit('admin launch-ready-sync link anchor missing')
+              text = text.replace(ebay_link_anchor, ebay_link_anchor + launch_ready_link, 1)
           scope_copy = 'Hides the alert only; the product record stays unchanged.'
           scope_expression = '{"Hides the alert only; the product record stays unchanged."}'
           if scope_expression not in text:
