@@ -1,0 +1,132 @@
+name: Authorized Fix GPT Action OpenAPI Deploy 20260729
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/authorized-fix-gpt-action-openapi-deploy-20260729.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: authorized-fix-gpt-action-openapi-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy-and-verify:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'deploy/fix-gpt-action-openapi-20260729')
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      SOURCE_SHA: b36fe8bc723d5a9aa3c9b4902dde0c71b60b2649
+    steps:
+      - name: Check out exact merged schema fix
+        uses: actions/checkout@v4
+        with:
+          ref: b36fe8bc723d5a9aa3c9b4902dde0c71b60b2649
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Link exact Vercel project
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p .vercel .deployment-evidence
+          npx vercel@56.2.0 whoami --token "$VERCEL_TOKEN"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link \
+              --yes \
+              --project truely-collectables \
+              --scope "$VERCEL_SCOPE" \
+              --token "$VERCEL_TOKEN"
+          fi
+          printf '%s\n' "$SOURCE_SHA" > .deployment-evidence/source-sha.txt
+
+      - name: Deploy exact merged schema fix to Production
+        id: deploy
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 deploy \
+            --prod \
+            --yes \
+            --force \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" \
+            2>&1 | tee .deployment-evidence/vercel-deploy.log
+          DEPLOYMENT_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' .deployment-evidence/vercel-deploy.log | tail -n 1)"
+          test -n "$DEPLOYMENT_URL"
+          echo "deployment_url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$DEPLOYMENT_URL" > .deployment-evidence/deployment-url.txt
+
+      - name: Verify corrected OpenAPI schema on deployment URL
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            "$DEPLOYMENT_URL/api/tcos-profit-hunter/actions/openapi" \
+            --output .deployment-evidence/openapi.json
+          node <<'NODE'
+          const fs = require('fs');
+          const schema = JSON.parse(fs.readFileSync('.deployment-evidence/openapi.json', 'utf8'));
+          if (schema.openapi !== '3.1.0') throw new Error('OpenAPI version is not 3.1.0');
+          if (!schema.components || typeof schema.components.schemas !== 'object' || Array.isArray(schema.components.schemas)) {
+            throw new Error('components.schemas is not an object');
+          }
+          const names = Object.keys(schema.components.schemas);
+          for (const required of ['StatusResponse','SearchRequest','SearchResponse','VerifyRequest','VerifyResponse','ErrorBody']) {
+            if (!names.includes(required)) throw new Error(`Missing component schema: ${required}`);
+          }
+          const operations = [
+            schema.paths?.['/api/tcos-profit-hunter/actions/status']?.get?.operationId,
+            schema.paths?.['/api/tcos-profit-hunter/actions/search']?.post?.operationId,
+            schema.paths?.['/api/tcos-profit-hunter/actions/verify']?.post?.operationId,
+          ];
+          for (const required of ['getProfitHunterStatus','searchProfitHunterCandidates','verifyProfitHunterListing']) {
+            if (!operations.includes(required)) throw new Error(`Missing operation: ${required}`);
+          }
+          console.log(JSON.stringify({ openapi: schema.openapi, schemaCount: names.length, operations }));
+          NODE
+          for path in status search verify; do
+            method=GET
+            if [ "$path" != "status" ]; then method=POST; fi
+            code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output .deployment-evidence/$path-unauthorized.json --write-out '%{http_code}' --request "$method" --header 'Content-Type: application/json' --data '{}' "$DEPLOYMENT_URL/api/tcos-profit-hunter/actions/$path" || true)"
+            echo "$path unauthenticated HTTP=$code"
+            test "$code" = "401"
+          done
+
+      - name: Wait for custom-domain promotion and verify corrected schema
+        run: |
+          set -euo pipefail
+          ready=""
+          for attempt in $(seq 1 30); do
+            code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output .deployment-evidence/custom-openapi.json --write-out '%{http_code}' https://truelycollectables.com/api/tcos-profit-hunter/actions/openapi || true)"
+            if [ "$code" = "200" ] && node -e 'const s=require("./.deployment-evidence/custom-openapi.json"); if(s.openapi!=="3.1.0"||!s.components||typeof s.components.schemas!=="object"||Array.isArray(s.components.schemas)) process.exit(1)'; then
+              ready=1
+              break
+            fi
+            sleep 10
+          done
+          test -n "$ready"
+
+      - name: Upload redacted deployment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fixed-gpt-action-openapi-${{ github.run_number }}
+          path: .deployment-evidence
+          if-no-files-found: warn
+          retention-days: 30
