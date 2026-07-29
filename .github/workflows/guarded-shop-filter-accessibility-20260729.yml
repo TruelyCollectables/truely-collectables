@@ -1,0 +1,165 @@
+name: Guarded shop filter accessibility remediation 20260729
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/guarded-shop-filter-accessibility-20260729.yml"
+      - "src/app/shop/page.tsx"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: guarded-shop-filter-accessibility-20260729
+  cancel-in-progress: false
+
+env:
+  EXPECTED_MAIN_SHA: 8baee1bb26a17f974388b4d8e50b4321bbdfb685
+  EXPECTED_BRANCH: fix/launch-lighthouse-shop-labels-20260729
+  NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+  SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+  ADMIN_SESSION_SECRET: build-only-placeholder-session-secret-that-is-long-enough
+  ADMIN_PASSWORD: build-only-placeholder-admin-password
+  NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+  STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+  STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+  EBAY_CLIENT_ID: build-only-placeholder-client-id
+  EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+  EBAY_ENVIRONMENT: production
+  TCOS_LIVE_PAYMENTS_ENABLED: "false"
+  TCOS_SHIPPING_PURCHASE_MODE: dry_run
+  TCOS_LIVE_SHIPPING_ENABLED: "false"
+
+jobs:
+  repair-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out guarded branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on branch or main drift
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          unexpected="$(git diff --name-only "$EXPECTED_MAIN_SHA"...HEAD | grep -Ev '^(\.github/workflows/guarded-shop-filter-accessibility-20260729\.yml|src/app/shop/page\.tsx)$' || true)"
+          test -z "$unexpected" || { printf 'Unexpected branch changes:\n%s\n' "$unexpected" >&2; exit 1; }
+
+      - name: Apply exact accessibility repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/app/shop/page.tsx')
+          text = path.read_text()
+
+          replacements = [
+              (
+                  '''        <input\n          type="search"\n          name="q"''',
+                  '''        <label htmlFor="shop-search" className="sr-only">\n          Search inventory\n        </label>\n        <input\n          id="shop-search"\n          type="search"\n          name="q"''',
+              ),
+              (
+                  '''        <select\n          name="section"''',
+                  '''        <label htmlFor="shop-section" className="sr-only">\n          Filter by section\n        </label>\n        <select\n          id="shop-section"\n          name="section"''',
+              ),
+              (
+                  '''        <select\n          name="feature"''',
+                  '''        <label htmlFor="shop-feature" className="sr-only">\n          Filter by card feature\n        </label>\n        <select\n          id="shop-feature"\n          name="feature"''',
+              ),
+              (
+                  '''        <select\n          name="sort"''',
+                  '''        <label htmlFor="shop-sort" className="sr-only">\n          Sort inventory\n        </label>\n        <select\n          id="shop-sort"\n          name="sort"''',
+              ),
+          ]
+
+          already = all(new in text for _, new in replacements)
+          if not already:
+              for old, new in replacements:
+                  count = text.count(old)
+                  if count != 1:
+                      raise SystemExit(f'Expected exactly one source anchor, found {count}: {old!r}')
+                  text = text.replace(old, new, 1)
+              path.write_text(text)
+
+          required = {
+              'shop-search': 'Search inventory',
+              'shop-section': 'Filter by section',
+              'shop-feature': 'Filter by card feature',
+              'shop-sort': 'Sort inventory',
+          }
+          final = path.read_text()
+          for control_id, label in required.items():
+              if final.count(f'htmlFor="{control_id}"') != 1:
+                  raise SystemExit(f'Missing unique label for {control_id}')
+              if final.count(f'id="{control_id}"') != 1:
+                  raise SystemExit(f'Missing unique control id for {control_id}')
+              if label not in final:
+                  raise SystemExit(f'Missing label text for {control_id}')
+          PY
+          git diff --check
+          git diff -- src/app/shop/page.tsx
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Verify shop accessibility contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('fs');
+          const source = fs.readFileSync('src/app/shop/page.tsx', 'utf8');
+          const controls = [
+            ['shop-search', 'Search inventory'],
+            ['shop-section', 'Filter by section'],
+            ['shop-feature', 'Filter by card feature'],
+            ['shop-sort', 'Sort inventory'],
+          ];
+          for (const [id, label] of controls) {
+            if ((source.match(new RegExp(`htmlFor="${id}"`, 'g')) || []).length !== 1) throw new Error(`Label contract failed for ${id}`);
+            if ((source.match(new RegExp(`id="${id}"`, 'g')) || []).length !== 1) throw new Error(`ID contract failed for ${id}`);
+            if (!source.includes(label)) throw new Error(`Label text missing for ${id}`);
+          }
+          console.log('Shop filter accessibility contract passed.');
+          NODE
+
+      - name: Run repository lint
+        run: npm run lint
+
+      - name: Run standalone TypeScript
+        run: npx tsc --noEmit --pretty false
+
+      - name: Run full Production build
+        run: npm run build
+
+      - name: Commit only the validated source repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          mapfile -t changed < <(git diff --name-only)
+          for file in "${changed[@]}"; do
+            test "$file" = "src/app/shop/page.tsx" || { echo "Unexpected changed file: $file" >&2; exit 1; }
+          done
+          if git diff --quiet; then
+            echo "Exact source repair already committed; validation-only pass."
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/app/shop/page.tsx
+          git commit -m "Label shop filter controls"
+          git push origin "HEAD:$EXPECTED_BRANCH"
