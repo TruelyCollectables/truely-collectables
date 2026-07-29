@@ -67,11 +67,10 @@ jobs:
       - name: Install current exact dependency tree
         run: npm ci
 
-      - name: Apply targeted ESLint and brace-expansion security repair
+      - name: Apply patched brace-expansion compatibility repair
         shell: bash
         run: |
           set -euo pipefail
-          npm install --save-dev --save-exact eslint@10.8.0
           mkdir -p vendor/brace-expansion-compat
           cat > vendor/brace-expansion-compat/package.json <<'JSON'
           {
@@ -101,7 +100,9 @@ jobs:
           node - <<'NODE'
           const fs = require('node:fs');
           const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-          pkg.devDependencies.eslint = '10.8.0';
+          if (pkg.devDependencies?.eslint !== '^9') {
+            throw new Error(`Expected the supported ESLint 9 line, found ${pkg.devDependencies?.eslint}`);
+          }
           pkg.devDependencies['brace-expansion'] = 'file:vendor/brace-expansion-compat';
           pkg.overrides = { ...(pkg.overrides || {}), 'brace-expansion': '$brace-expansion' };
           fs.writeFileSync('package.json', `${JSON.stringify(pkg, null, 2)}\n`);
@@ -110,7 +111,7 @@ jobs:
           node - <<'NODE'
           const fs = require('node:fs');
           const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-          if (pkg.devDependencies?.eslint !== '10.8.0') throw new Error('ESLint is not pinned to 10.8.0.');
+          if (pkg.devDependencies?.eslint !== '^9') throw new Error('The supported ESLint 9 range changed.');
           if (pkg.devDependencies?.['eslint-config-next'] !== '16.2.12') throw new Error('eslint-config-next changed unexpectedly.');
           if (pkg.devDependencies?.['brace-expansion'] !== 'file:vendor/brace-expansion-compat') throw new Error('Compatibility package is not pinned.');
           if (pkg.overrides?.['brace-expansion'] !== '$brace-expansion') throw new Error('Transitive override is missing.');
@@ -147,7 +148,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git show origin/ops/truely-full-launch-audit-20260729:scripts/run-truely-launch-audit-20260729.mjs > scripts/.guarded-launch-audit-runner-20260729.mjs
+          git show origin/ops/truqely-full-launch-audit-20260729:scripts/run-truely-launch-audit-20260729.mjs > scripts/.guarded-launch-audit-runner-20260729.mjs
           rm -rf .audit/simulations
           for shard in 0 1 2 3 4 5; do
             node scripts/.guarded-launch-audit-runner-20260729.mjs simulations --shard="$shard" --shards=6
