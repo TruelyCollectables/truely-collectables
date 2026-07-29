@@ -41,7 +41,8 @@ jobs:
         run: |
           set -euo pipefail
           npm ci
-          cat > /tmp/taxonomy-v7-diagnostic.ts <<'TS'
+          mkdir -p taxonomy-v7-diagnostic
+          cat > taxonomy-v7-diagnostic.ts <<'TS'
           import fs from "node:fs";
           import { classifyStorefrontItem, matchesStorefrontFilters } from "./src/lib/storefront-taxonomy";
           const cases = {
@@ -70,12 +71,11 @@ jobs:
               feature: "memorabilia cards",
             }),
           };
-          fs.mkdirSync("taxonomy-v7-diagnostic", { recursive: true });
           fs.writeFileSync("taxonomy-v7-diagnostic/result.json", `${JSON.stringify(output, null, 2)}\n`);
           console.log(JSON.stringify(output));
           TS
-          cp /tmp/taxonomy-v7-diagnostic.ts taxonomy-v7-diagnostic/diagnostic.ts
-          node --import tsx taxonomy-v7-diagnostic/diagnostic.ts
+          cp taxonomy-v7-diagnostic.ts taxonomy-v7-diagnostic/diagnostic.ts
+          node --import tsx taxonomy-v7-diagnostic.ts
           npx prettier --write scripts/run-storefront-taxonomy-regressions.ts
           cp scripts/run-storefront-taxonomy-regressions.ts taxonomy-v7-diagnostic/generated-regressions.ts
           set +e
@@ -84,6 +84,7 @@ jobs:
           set -e
 
       - name: Upload diagnostic
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: taxonomy-v7-feature-diagnostic-${{ github.run_number }}
