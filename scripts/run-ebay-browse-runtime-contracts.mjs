@@ -45,6 +45,11 @@ assert.doesNotMatch(
 
 assert.match(probeRoute, /x-tcos-ebay-probe-token/);
 assert.match(probeRoute, /timingSafeEqual/);
+assert.match(probeRoute, /ADMIN_SESSION_COOKIE_NAMES/);
+assert.match(probeRoute, /isValidAdminSessionValue/);
+assert.match(probeRoute, /hasValidAdminSession/);
+assert.match(probeRoute, /admin_session/);
+assert.match(probeRoute, /probe_token/);
 assert.match(probeRoute, /EBAY_PROBE_TOKEN_NOT_CONFIGURED/);
 assert.match(probeRoute, /EBAY_PROBE_TOKEN_MISSING/);
 assert.match(probeRoute, /EBAY_PROBE_TOKEN_MISMATCH/);
@@ -63,5 +68,5 @@ assert.match(probeRoute, /timings/);
 assert.doesNotMatch(probeRoute, /accessToken|clientSecret[^C]/);
 
 console.log(
-  "eBay Browse runtime contracts passed: automatic client credentials, cache/refresh, body-safe request deadlines, one-time 401 retry, fail-closed 403/429 behavior, explicit probe-secret diagnostics, deployment identity, auth-only verification, stage-timed private diagnostics, and no token disclosure are present.",
+  "eBay Browse runtime contracts passed: automatic client credentials, cache/refresh, body-safe request deadlines, one-time 401 retry, fail-closed 403/429 behavior, explicit probe-secret diagnostics, admin-session fallback, deployment identity, auth-only verification, stage-timed private diagnostics, and no token disclosure are present.",
 );
