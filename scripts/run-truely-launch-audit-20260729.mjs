@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
+import { parseEnv } from "node:util";
 
 const ROOT = process.cwd();
 const MODE = process.argv[2] || "inventory";
@@ -27,6 +28,7 @@ const CRITICAL_PUBLIC_PATHS = [
 ];
 const REQUIRED_STRIPE_EVENTS = [
   "checkout.session.completed",
+  "checkout.session.expired",
   "refund.created",
   "refund.updated",
   "refund.failed",
@@ -155,7 +157,9 @@ function extractRepositoryFacts(files) {
     if (/^\.github\/workflows\/.+\.ya?ml$/.test(file)) workflows.push(file);
     if (/^scripts\//.test(file)) scripts.push(file);
     if (!text) continue;
-    for (const match of text.matchAll(/\.from\(\s*["'`]([^"'`]+)["'`]\s*\)/g)) tableNames.add(match[1]);
+    for (const match of text.matchAll(/\.from\(\s*["'`]([^"'`]+)["'`]\s*\)/g)) {
+      if (/^[a-z][a-z0-9_]*$/.test(match[1])) tableNames.add(match[1]);
+    }
     for (const match of text.matchAll(/\.rpc\(\s*["'`]([^"'`]+)["'`]\s*[),]/g)) rpcNames.add(match[1]);
     for (const match of text.matchAll(/process\.env\.([A-Z0-9_]+)/g)) envNames.add(match[1]);
   }
@@ -276,6 +280,7 @@ function routeProtectionSignals(text) {
   const checks = [
     ["admin-session", /isValidAdminSessionValue|requireAdmin|ADMIN_SESSION_COOKIE/],
     ["account-auth", /getAuthenticatedAccountFromRequest|requireAuthenticated|requireAccount/],
+    ["instacomp-actor", /requireInstaCompJobActor/],
     ["seller-auth", /requireSeller|seller membership|role:\s*["']seller["']/i],
     ["cron-secret", /CRON_SECRET|x-cron|cron secret/i],
     ["bearer-token", /authorization|Bearer|bearerToken/i],
@@ -297,6 +302,12 @@ async function routeAudit() {
     "/api/offers", "/api/webhook", "/api/products", "/api/product", "/api/storefront",
     "/api/health", "/api/tcos-profit-hunter/actions/openapi", "/api/ebay/oauth/callback",
   ];
+  const proxy = safeRead("src/proxy.ts") || safeRead("src/middleware.ts") || "";
+  const proxyProtectedPrefixes = ["/api/admin", "/api/ebay", "/api/orders"].filter(
+    (prefix) =>
+      proxy.includes(`pathname.startsWith("${prefix}")`) ||
+      proxy.includes(`pathname.startsWith('${prefix}')`),
+  );
   for (const file of files) {
     const text = safeRead(file) || "";
     const url = routeUrlFromFile(file);
@@ -309,16 +320,17 @@ async function routeAudit() {
     ].filter((regex) => regex.test(text)).length;
     const protectionSignals = routeProtectionSignals(text);
     const publicKnown = knownPublicPrefixes.some((prefix) => url.startsWith(prefix));
-    const protectedByProxy = url.startsWith("/api/admin/");
+    const protectedByProxy = proxyProtectedPrefixes.some(
+      (prefix) => url === prefix || url.startsWith(`${prefix}/`),
+    );
     const suspicious = mutation && privilegedSignals > 0 && protectionSignals.length === 0 && !protectedByProxy && !publicKnown;
     routes.push({ file, url, methods, mutation, privilegedSignals, protectionSignals, publicKnown, protectedByProxy, suspicious });
     if (suspicious) pushFinding(findings, "blocker", "api-security", `Privileged mutation route has no recognized authentication or signature signal: ${url}`, { file, methods });
   }
-  const proxy = safeRead("src/proxy.ts") || safeRead("src/middleware.ts") || "";
-  const proxyChecks = ["/admin", "/api/admin", "/seller", "/api/cron"];
+  const proxyChecks = ["/admin", "/api/admin", "/api/ebay", "/api/orders", "/api/cron"];
   for (const prefix of proxyChecks) {
-    if (proxy.includes(prefix)) pushFinding(findings, "verified", "route-proxy", `Proxy source contains protection handling for ${prefix}.`);
-    else pushFinding(findings, prefix === "/seller" ? "warning" : "blocker", "route-proxy", `Proxy source does not visibly mention ${prefix}.`);
+    if (proxy.includes(prefix)) pushFinding(findings, "verified", "route-proxy", `Proxy source contains security handling for ${prefix}.`);
+    else pushFinding(findings, "blocker", "route-proxy", `Proxy source does not visibly mention ${prefix}.`);
   }
   const suspiciousRoutes = routes.filter((route) => route.suspicious);
   if (!suspiciousRoutes.length) pushFinding(findings, "verified", "api-security", `No unprotected privileged mutation was identified across ${routes.length} API route files by the independent route classifier.`);
@@ -491,7 +503,6 @@ async function liveAudit() {
   const protectedPaths = [
     ["/admin", [301, 302, 303, 307, 308, 401, 403]],
     ["/admin/orders", [301, 302, 303, 307, 308, 401, 403]],
-    ["/seller", [301, 302, 303, 307, 308, 401, 403]],
     ["/api/admin/orders", [401, 403, 404, 405]],
     ["/api/cron/ebay-store-fixed-price-sync", [401, 403, 405]],
     ["/api/account/seller/payout-onboarding", [401, 403, 405]],
@@ -502,6 +513,25 @@ async function liveAudit() {
     protectedChecks.push({ pathname, status: response.status, location: response.headers.location || null });
     if (accepted.includes(response.status)) pushFinding(findings, "verified", "unauthenticated-access", `${pathname} rejected or redirected unauthenticated access with HTTP ${response.status}.`);
     else pushFinding(findings, "blocker", "unauthenticated-access", `${pathname} returned unexpected HTTP ${response.status} without authentication.`);
+  }
+
+  const sellerShell = await fetchWithTimeout(`${base}/seller`);
+  const sellerGateVisible =
+    /Refreshing your TCOS account session|Log in through your TCOS account first/i.test(
+      sellerShell.body,
+    );
+  protectedChecks.push({
+    pathname: "/seller",
+    status: sellerShell.status,
+    location: sellerShell.headers.location || null,
+    clientGateVisible: sellerGateVisible,
+  });
+  if ([301, 302, 303, 307, 308, 401, 403].includes(sellerShell.status)) {
+    pushFinding(findings, "verified", "unauthenticated-access", `/seller rejected or redirected unauthenticated access with HTTP ${sellerShell.status}.`);
+  } else if (sellerShell.status === 200 && sellerGateVisible) {
+    pushFinding(findings, "verified", "unauthenticated-access", "/seller returned only its unauthenticated client gate; seller data APIs were independently required to reject unauthenticated access.");
+  } else {
+    pushFinding(findings, "blocker", "unauthenticated-access", `/seller returned HTTP ${sellerShell.status} without a visible login/session gate.`);
   }
 
   const apiChecks = [];
@@ -567,7 +597,14 @@ function recursiveFindSecretValue(value, keyMatcher, depth = 0) {
   return null;
 }
 
+function loadProductionAuditEnvironment() {
+  const envFile = path.join(ROOT, ".audit-production.env");
+  if (!fs.existsSync(envFile)) return;
+  Object.assign(process.env, parseEnv(fs.readFileSync(envFile, "utf8")));
+}
+
 async function runtimeAudit() {
+  loadProductionAuditEnvironment();
   const findings = [];
   const sourceFacts = extractRepositoryFacts(gitFiles());
   const { createClient } = await import("@supabase/supabase-js");
