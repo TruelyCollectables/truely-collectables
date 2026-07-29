@@ -4,18 +4,15 @@ source = Path('/tmp/full-launch-audit.yml')
 output = Path('ops-output/ops-truely-full-launch-audit-20260729.yml')
 text = source.read_text(encoding='utf-8')
 
-old_runtime = '''      - name: Run read-only Production integration and data audit
-        shell: bash
-        run: |
-          set +e
-          node --env-file=.audit-production.env scripts/run-truely-launch-audit-20260729.mjs runtime
-          status=$?
-          set -e
-          rm -f .audit-production.env
-          exit "$status"
-
+old_env = '''      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
 '''
-new_runtime = '''      - name: Run read-only Production integration and data audit
+new_env = '''      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+'''
+
+old_runtime = '''      - name: Run read-only Production integration and data audit
         shell: bash
         run: |
           set +e
@@ -55,94 +52,107 @@ new_runtime = '''      - name: Run read-only Production integration and data aud
 
 '''
 
-old_lighthouse = '''      - name: Grade Lighthouse reports
+new_runtime = '''      - name: Run read-only Production integration and data audit
         shell: bash
         run: |
-          node - <<'NODE'
-          const fs = require('fs');
-          const path = require('path');
-          const dir = '.audit/lighthouse';
-          const rows = [];
-          let blocker = false;
-          for (const file of fs.readdirSync(dir).filter(name => name.endsWith('.json'))) {
-            const report = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'));
-            const row = { page: file.replace('.json', '') };
-            for (const key of ['performance', 'accessibility', 'best-practices', 'seo']) {
-              row[key] = Math.round((report.categories[key]?.score || 0) * 100);
-            }
-            if (row.accessibility < 90 || row.seo < 90 || row['best-practices'] < 85) blocker = true;
-            rows.push(row);
-          }
-          fs.writeFileSync(path.join(dir, 'lighthouse-summary.json'), JSON.stringify({ rows, blocker }, null, 2));
-          fs.writeFileSync(path.join(dir, 'lighthouse-summary.md'), '# Lighthouse summary\\n\\n' + rows.map(row => `- ${row.page}: Performance ${row.performance}, Accessibility ${row.accessibility}, Best Practices ${row['best-practices']}, SEO ${row.seo}`).join('\\n') + '\\n');
-          console.table(rows);
-          if (blocker) process.exit(1);
+          set +e
+          unset_keys=(
+            NEXT_PUBLIC_SUPABASE_URL
+            NEXT_PUBLIC_SUPABASE_ANON_KEY
+            SUPABASE_SERVICE_ROLE_KEY
+            STRIPE_SECRET_KEY
+            NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+            STRIPE_WEBHOOK_SECRET
+            EBAY_CLIENT_ID
+            EBAY_CLIENT_SECRET
+            EBAY_ENVIRONMENT
+            TCOS_LIVE_PAYMENTS_ENABLED
+          )
+          unset_args=()
+          for key in "${unset_keys[@]}"; do
+            unset_args+=("-u" "$key")
+          done
+
+          SERVICE_ROLE_SOURCE=vercel-production-environment
+          SERVICE_ROLE_KEY="$(env "${unset_args[@]}" node --env-file=.audit-production.env -e 'process.stdout.write(process.env.SUPABASE_SERVICE_ROLE_KEY || "")')"
+          service_status=$?
+          if [ "$service_status" -ne 0 ] || [ -z "$SERVICE_ROLE_KEY" ]; then
+            SERVICE_ROLE_SOURCE=supabase-management-api
+            SERVICE_ROLE_KEY="$(env "${unset_args[@]}" node --env-file=.audit-production.env - <<'NODE'
+          const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+          const token = process.env.GH_SUPABASE_ACCESS_TOKEN;
+          if (!url || !token) process.exit(1);
+          const ref = new URL(url).hostname.split('.')[0];
+          const response = await fetch(`https://api.supabase.com/v1/projects/${ref}/api-keys?reveal=true`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (!response.ok) process.exit(1);
+          const rows = await response.json();
+          const key =
+            rows.find((row) => row.name === 'service_role' && row.api_key)?.api_key ||
+            rows.find((row) => row.type === 'secret' && row.api_key)?.api_key ||
+            rows.find((row) => /service|secret/i.test(String(row.name || '')) && row.api_key)?.api_key ||
+            '';
+          if (!key) process.exit(1);
+          process.stdout.write(key);
           NODE
+            )"
+            service_status=$?
+          fi
+
+          if [ "$service_status" -ne 0 ] || [ -z "$SERVICE_ROLE_KEY" ]; then
+            printf '%s\n' '{"NEXT_PUBLIC_SUPABASE_URL":true,"SUPABASE_SERVICE_ROLE_KEY":false,"serviceRoleSource":"unavailable"}' > .audit/runtime/runtime-env-presence.json
+            status=1
+          else
+            echo "::add-mask::$SERVICE_ROLE_KEY"
+            SERVICE_ROLE_SOURCE="$SERVICE_ROLE_SOURCE" \
+            env "${unset_args[@]}" SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY" node --env-file=.audit-production.env - <<'NODE'
+          const fs = require('fs');
+          const presence = {
+            NEXT_PUBLIC_SUPABASE_URL: Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL),
+            SUPABASE_SERVICE_ROLE_KEY: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
+            serviceRoleSource: process.env.SERVICE_ROLE_SOURCE || 'unknown',
+          };
+          fs.writeFileSync('.audit/runtime/runtime-env-presence.json', JSON.stringify(presence, null, 2));
+          if (!presence.NEXT_PUBLIC_SUPABASE_URL || !presence.SUPABASE_SERVICE_ROLE_KEY) process.exit(1);
+          NODE
+            preflight_status=$?
+            if [ "$preflight_status" -eq 0 ]; then
+              env "${unset_args[@]}" SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY" node --env-file=.audit-production.env scripts/run-truely-launch-audit-20260729.mjs runtime
+              status=$?
+            else
+              status="$preflight_status"
+            fi
+          fi
+          unset SERVICE_ROLE_KEY
+          set -e
+          rm -f .audit-production.env
+          exit "$status"
 
 '''
-new_lighthouse = '''      - name: Grade Lighthouse reports
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl --silent --show-error --fail --location https://truelycollectables.com/cart > .audit/lighthouse/cart.html
-          curl --silent --show-error --fail --location https://truelycollectables.com/account/signup > .audit/lighthouse/signup.html
-          grep -Eiq '<link[^>]+rel="canonical"[^>]+href="https://truelycollectables.com/cart"|<link[^>]+href="https://truelycollectables.com/cart"[^>]+rel="canonical"' .audit/lighthouse/cart.html
-          grep -Eiq '<link[^>]+rel="canonical"[^>]+href="https://truelycollectables.com/account/signup"|<link[^>]+href="https://truelycollectables.com/account/signup"[^>]+rel="canonical"' .audit/lighthouse/signup.html
-          grep -Eiq '<meta[^>]+name="robots"[^>]+content="[^"]*noindex[^"]*nofollow|<meta[^>]+content="[^"]*noindex[^"]*nofollow[^"]*"[^>]+name="robots"' .audit/lighthouse/cart.html
-          grep -Eiq '<meta[^>]+name="robots"[^>]+content="[^"]*noindex[^"]*nofollow|<meta[^>]+content="[^"]*noindex[^"]*nofollow[^"]*"[^>]+name="robots"' .audit/lighthouse/signup.html
-          node - <<'NODE'
-          const fs = require('fs');
-          const path = require('path');
-          const dir = '.audit/lighthouse';
-          const transactionalPages = new Set(['cart', 'signup']);
-          const rows = [];
-          let blocker = false;
-          for (const file of fs.readdirSync(dir).filter(name => name.endsWith('.json'))) {
-            const report = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'));
-            const row = { page: file.replace('.json', '') };
-            for (const key of ['performance', 'accessibility', 'best-practices', 'seo']) {
-              row[key] = Math.round((report.categories[key]?.score || 0) * 100);
-            }
-            row.canonical = report.audits.canonical?.score ?? null;
-            row.crawlable = report.audits['is-crawlable']?.score ?? null;
-            row.robots = report.audits['robots-txt']?.score ?? null;
-            row.title = report.audits['document-title']?.score ?? null;
-            row.description = report.audits['meta-description']?.score ?? null;
-            const commonFailure = row.accessibility < 90 || row['best-practices'] < 85 || row.canonical !== 1 || row.robots !== 1 || row.title !== 1 || row.description !== 1;
-            if (transactionalPages.has(row.page)) {
-              if (commonFailure || row.crawlable !== 0) blocker = true;
-            } else if (commonFailure || row.seo < 90 || row.crawlable !== 1) {
-              blocker = true;
-            }
-            rows.push(row);
-          }
-          fs.writeFileSync(path.join(dir, 'lighthouse-summary.json'), JSON.stringify({ rows, blocker }, null, 2));
-          fs.writeFileSync(path.join(dir, 'lighthouse-summary.md'), '# Lighthouse summary\\n\\n' + rows.map(row => `- ${row.page}: Performance ${row.performance}, Accessibility ${row.accessibility}, Best Practices ${row['best-practices']}, SEO ${row.seo}, Canonical ${row.canonical}, Crawlable ${row.crawlable}`).join('\\n') + '\\n');
-          console.table(rows);
-          if (blocker) process.exit(1);
-          NODE
 
-'''
-
+if text.count(old_env) != 1:
+    raise SystemExit('Expected exactly one runtime Vercel environment block.')
+if text.count('GH_SUPABASE_ACCESS_TOKEN:') != 0:
+    raise SystemExit('Supabase Management API token is already wired or audit shape changed.')
 if text.count(old_runtime) != 1:
-    raise SystemExit('Expected exactly one stale runtime audit invocation.')
-if text.count(old_lighthouse) != 1:
-    raise SystemExit('Expected exactly one stale Lighthouse grader.')
+    raise SystemExit('Expected exactly one current runtime audit block.')
 
-text = text.replace(old_runtime, new_runtime)
-text = text.replace(old_lighthouse, new_lighthouse)
+text = text.replace(old_env, new_env, 1)
+text = text.replace(old_runtime, new_runtime, 1)
 
 required = [
-    'runtime-env-presence.json',
-    'env "${unset_args[@]}" node --env-file=.audit-production.env',
+    'GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}',
+    '/v1/projects/${ref}/api-keys?reveal=true',
+    "row.name === 'service_role'",
+    'serviceRoleSource: process.env.SERVICE_ROLE_SOURCE',
+    'echo "::add-mask::$SERVICE_ROLE_KEY"',
+    'SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY" node --env-file=.audit-production.env scripts/run-truely-launch-audit-20260729.mjs runtime',
     "const transactionalPages = new Set(['cart', 'signup']);",
-    'row.crawlable !== 0',
-    'row.seo < 90 || row.crawlable !== 1',
-    'https://truelycollectables.com/account/signup',
 ]
 for value in required:
     if value not in text:
-        raise SystemExit(f'Missing corrected audit requirement: {value}')
+        raise SystemExit(f'Missing strengthened audit requirement: {value}')
 
 output.parent.mkdir(parents=True, exist_ok=True)
 output.write_text(text, encoding='utf-8')
