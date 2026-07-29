@@ -5,7 +5,7 @@ import { EbayBrowseAdapter } from "../../../../../connectors/tcos-market-intel-m
 import {
   ADMIN_SESSION_COOKIE_NAMES,
   isValidAdminSessionValue,
-} from "../../../../../lib/admin-session";
+} from "../../../../lib/admin-session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
