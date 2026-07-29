@@ -103,14 +103,14 @@ jobs:
             });
             const products = await client.from("products").select("id", { count: "exact", head: true });
             if (products.error) throw new Error(`Supabase products audit failed: ${products.error.message}`);
-            const sellers = await client.from("seller_profiles").select("id", { count: "exact", head: true });
-            if (sellers.error) throw new Error(`Supabase seller audit failed: ${sellers.error.message}`);
+            const orders = await client.from("orders").select("id", { count: "exact", head: true });
+            if (orders.error) throw new Error(`Supabase orders audit failed: ${orders.error.message}`);
             return {
               configured: true,
               productsReadable: true,
-              sellersReadable: true,
+              ordersReadable: true,
               productCount: products.count ?? null,
-              sellerCount: sellers.count ?? null,
+              orderCount: orders.count ?? null,
             };
           }
 
@@ -263,7 +263,7 @@ jobs:
           const fs = require('node:fs');
           const value = JSON.parse(fs.readFileSync(process.env.EVIDENCE_DIR + '/hosted-runtime-audit.json', 'utf8'));
           if (value.ok !== true || value.environment !== 'production') throw new Error('Hosted runtime audit did not pass in Production environment.');
-          if (value.supabase?.productsReadable !== true || value.supabase?.sellersReadable !== true) throw new Error('Supabase hosted proof failed.');
+          if (value.supabase?.productsReadable !== true || value.supabase?.ordersReadable !== true) throw new Error('Supabase hosted proof failed.');
           if (value.stripe?.authenticated !== true || value.stripe?.liveMode !== true || value.stripe?.customWebhookEnabled !== true) throw new Error('Stripe hosted proof failed.');
           if (value.ebay?.applicationTokenAuthenticated !== true || value.ebay?.browseAuthenticated !== true) throw new Error('eBay hosted proof failed.');
           if (value.resend?.authenticated !== true || value.resend?.noEmailSent !== true) throw new Error('Resend hosted proof failed.');
