@@ -1,0 +1,158 @@
+name: Deploy Launch Lighthouse Final Accessibility 20260729
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/deploy-launch-lighthouse-final-a11y-20260729.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-launch-lighthouse-final-a11y-20260729
+  cancel-in-progress: false
+
+env:
+  DEPLOY_SOURCE_SHA: 329436ae4703c7dca00765373e249d59b50e8a2c
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  VERCEL_SCOPE: truelycollectables-projects
+
+jobs:
+  deploy-and-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Check out exact merged source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DEPLOY_SOURCE_SHA }}
+          fetch-depth: 0
+
+      - name: Fail closed if main moved
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$DEPLOY_SOURCE_SHA"
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$DEPLOY_SOURCE_SHA"
+          git diff --quiet
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Resolve exact Vercel project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p .vercel .audit/final-a11y
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          printf '%s\n' "$DEPLOY_SOURCE_SHA" > .audit/final-a11y/source-sha.txt
+
+      - name: Deploy exact current main to Production
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 deploy \
+            --prod \
+            --yes \
+            --force \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" 2>&1 | tee .audit/final-a11y/vercel-deploy.log
+          DEPLOYMENT_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' .audit/final-a11y/vercel-deploy.log | tail -n 1)"
+          test -n "$DEPLOYMENT_URL"
+          printf '%s\n' "$DEPLOYMENT_URL" > .audit/final-a11y/deployment-url.txt
+          echo "deployment_url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Verify live storefront and privileged boundary
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for label in deployment custom; do
+            if [ "$label" = deployment ]; then base="$DEPLOYMENT_URL"; else base="https://truelycollectables.com"; fi
+            root_code="$(curl --location --silent --show-error --output ".audit/final-a11y/${label}-root.html" --write-out '%{http_code}' "$base/")"
+            shop_code="$(curl --location --silent --show-error --output ".audit/final-a11y/${label}-shop.html" --write-out '%{http_code}' "$base/shop")"
+            admin_code="$(curl --silent --show-error --output ".audit/final-a11y/${label}-admin.html" --write-out '%{http_code}' "$base/admin")"
+            login_code="$(curl --location --silent --show-error --output ".audit/final-a11y/${label}-admin-login.html" --write-out '%{http_code}' "$base/admin/login")"
+            test "$root_code" = "200"
+            test "$shop_code" = "200"
+            test "$admin_code" = "307"
+            test "$login_code" = "200"
+            grep -Fq 'id="shop-search"' ".audit/final-a11y/${label}-shop.html"
+            grep -Fq 'for="shop-search"' ".audit/final-a11y/${label}-shop.html"
+            grep -Fq 'The Card Wall' ".audit/final-a11y/${label}-shop.html"
+            if grep -Fq 'aria-label="Truely Collectables home"' ".audit/final-a11y/${label}-shop.html"; then
+              echo "Overriding navbar accessible name remains on $label" >&2
+              exit 1
+            fi
+            grep -Fq 'Admin Login' ".audit/final-a11y/${label}-admin-login.html"
+          done
+          curl --silent --show-error --head "$DEPLOYMENT_URL/shop" > .audit/final-a11y/deployment-shop-head.txt
+          curl --silent --show-error --head https://truelycollectables.com/shop > .audit/final-a11y/custom-shop-head.txt
+
+      - name: Run exact affected Lighthouse gates
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for label in deployment custom; do
+            if [ "$label" = deployment ]; then url="$DEPLOYMENT_URL/shop"; else url="https://truelycollectables.com/shop"; fi
+            npx --yes lighthouse@12.8.2 "$url" \
+              --only-categories=performance,accessibility,best-practices,seo \
+              --output=json \
+              --output-path=".audit/final-a11y/${label}-shop-lighthouse.json" \
+              --chrome-flags="--headless --no-sandbox --disable-gpu" \
+              --quiet
+          done
+          node - <<'NODE'
+          const fs = require('fs');
+          const rows = [];
+          for (const label of ['deployment', 'custom']) {
+            const report = JSON.parse(fs.readFileSync(`.audit/final-a11y/${label}-shop-lighthouse.json`, 'utf8'));
+            const row = {
+              target: label,
+              performance: Math.round((report.categories.performance?.score || 0) * 100),
+              accessibility: Math.round((report.categories.accessibility?.score || 0) * 100),
+              bestPractices: Math.round((report.categories['best-practices']?.score || 0) * 100),
+              seo: Math.round((report.categories.seo?.score || 0) * 100),
+              selectName: report.audits['select-name']?.score,
+              labelContentNameMismatch: report.audits['label-content-name-mismatch']?.score,
+            };
+            if (row.accessibility !== 100) throw new Error(`${label} accessibility is ${row.accessibility}, not 100`);
+            if (row.bestPractices < 85) throw new Error(`${label} best practices is ${row.bestPractices}`);
+            if (row.selectName !== 1) throw new Error(`${label} select-name did not pass`);
+            if (row.labelContentNameMismatch !== 1) throw new Error(`${label} label-content-name-mismatch did not pass`);
+            if (label === 'custom' && row.seo < 90) throw new Error(`custom-domain SEO is ${row.seo}`);
+            rows.push(row);
+          }
+          const deploymentHeaders = fs.readFileSync('.audit/final-a11y/deployment-shop-head.txt', 'utf8');
+          const generatedNoindex = /x-robots-tag:\s*noindex/i.test(deploymentHeaders);
+          if (!generatedNoindex) throw new Error('Generated deployment SEO exception lacks x-robots-tag: noindex evidence');
+          fs.writeFileSync('.audit/final-a11y/summary.json', JSON.stringify({ sourceSha: process.env.DEPLOY_SOURCE_SHA, generatedNoindex, rows }, null, 2));
+          fs.writeFileSync('.audit/final-a11y/summary.md', '# Final affected Lighthouse gate\n\n' + rows.map(row => `- ${row.target}: Performance ${row.performance}, Accessibility ${row.accessibility}, Best Practices ${row.bestPractices}, SEO ${row.seo}, select-name ${row.selectName}, label-content-name-mismatch ${row.labelContentNameMismatch}`).join('\n') + `\n- Generated deployment noindex evidence: ${generatedNoindex}\n`);
+          console.table(rows);
+          NODE
+
+      - name: Upload sanitized Production and Lighthouse evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launch-lighthouse-final-a11y-production
+          path: .audit/final-a11y
+          if-no-files-found: error
+          retention-days: 30
