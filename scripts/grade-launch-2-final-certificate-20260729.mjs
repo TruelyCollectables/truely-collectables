@@ -59,11 +59,18 @@ for (const [name, report] of Object.entries(lighthouse)) {
     if (row.seo < 90) lighthouseBlockers.push(`${name} SEO ${row.seo}`);
     if (row.crawlable !== 1) lighthouseBlockers.push(`${name} is not crawlable`);
   } else {
-    const sources = audit("is-crawlable")?.details?.items?.map((item) => String(item.source || "")) || [];
-    if (row.crawlable !== 0 || !sources.some((source) => /noindex/i.test(source))) {
-      lighthouseBlockers.push(`${name} is not proven intentionally noindex`);
-    }
+  const htmlFile = name === "signup" ? "custom--account-signup.html" : "custom--cart.html";
+  const html = fs.readFileSync(path.join(evidence, htmlFile), "utf8");
+  const expectedCanonical = name === "signup" ? "/account/signup" : "/cart";
+  const hasNoindex = /<meta[^>]+name=["']robots["'][^>]+content=["'][^"']*noindex/i.test(html) ||
+    /<meta[^>]+content=["'][^"']*noindex[^"']*["'][^>]+name=["']robots["']/i.test(html);
+  const escapedCanonical = expectedCanonical.replaceAll("/", "\\/");
+  const hasSelfCanonical = new RegExp(`<link[^>]+rel=["']canonical["'][^>]+href=["']https://truelycollectables\\.com${escapedCanonical}["']`, "i").test(html) ||
+    new RegExp(`<link[^>]+href=["']https://truelycollectables\\.com${escapedCanonical}["'][^>]+rel=["']canonical["']`, "i").test(html);
+  if (row.crawlable !== 0 || !hasNoindex || !hasSelfCanonical) {
+    lighthouseBlockers.push(`${name} is not proven intentionally noindex with a self canonical`);
   }
+}
   if (name === "shop" && row.selectName !== 1) lighthouseBlockers.push("shop select-name did not pass");
   if (![1, null, undefined].includes(row.labelContentNameMismatch) || row.labelContentFailingNodes !== 0) {
     lighthouseBlockers.push(`${name} has a visible-label accessible-name failure`);

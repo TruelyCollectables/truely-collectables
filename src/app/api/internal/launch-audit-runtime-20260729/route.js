@@ -62,24 +62,18 @@ async function fetchRows(supabase, table, columns = "*", maxRows = 50000) {
   return { rows, error: null };
 }
 
-function recursiveSecret(value, keyPattern, depth = 0) {
-  if (depth > 6 || value == null) return null;
+function collectSecrets(value, keyPattern, output = new Set(), depth = 0) {
+  if (depth > 6 || value == null) return output;
   if (Array.isArray(value)) {
-    for (const item of value) {
-      const found = recursiveSecret(item, keyPattern, depth + 1);
-      if (found) return found;
-    }
-    return null;
+    for (const item of value) collectSecrets(item, keyPattern, output, depth + 1);
+    return output;
   }
-  if (typeof value !== "object") return null;
+  if (typeof value !== "object") return output;
   for (const [key, child] of Object.entries(value)) {
-    if (keyPattern.test(key) && typeof child === "string" && child.length > 20) {
-      return child;
-    }
-    const found = recursiveSecret(child, keyPattern, depth + 1);
-    if (found) return found;
+    if (keyPattern.test(key) && typeof child === "string" && child.length > 20) output.add(child);
+    collectSecrets(child, keyPattern, output, depth + 1);
   }
-  return null;
+  return output;
 }
 
 async function auditSupabase(findings) {
@@ -275,24 +269,73 @@ async function auditStripe(findings) {
 }
 
 async function auditResend(findings) {
-  const summary = { configured: Boolean(process.env.RESEND_API_KEY), verifiedDomain: false };
-  if (!process.env.RESEND_API_KEY) {
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.MARKET_INTEL_FROM_EMAIL;
+  const summary = {
+    configured: Boolean(apiKey), fromConfigured: Boolean(from), fromDomainMatches: false,
+    domainListStatus: null, domainListErrorType: null, domains: [], verifiedDomain: false,
+    testSendAccepted: false,
+  };
+  if (!apiKey) {
     add(findings, "blocker", "resend", "RESEND_API_KEY is unavailable in Production runtime.");
+    return summary;
+  }
+  const emailMatch = String(from || "").match(/<?([^<>\s]+@[^<>\s]+)>?$/);
+  const fromEmail = emailMatch?.[1] || null;
+  summary.fromDomainMatches = Boolean(fromEmail && /@(?:[a-z0-9-]+\.)*truelycollectables\.com$/i.test(fromEmail));
+  if (!fromEmail || !summary.fromDomainMatches) {
+    add(findings, "blocker", "resend", "The configured Production sender is missing or is not on truelycollectables.com.");
     return summary;
   }
   try {
     const result = await fetch("https://api.resend.com/domains", {
-      headers: { authorization: `Bearer ${process.env.RESEND_API_KEY}` },
+      headers: { authorization: `Bearer ${apiKey}`, "user-agent": "TruelyCollectables-LaunchAudit/2.0" },
       cache: "no-store",
     });
-    const value = await result.json();
-    summary.verifiedDomain = result.ok && (value.data || []).some((domain) =>
-      /truelycollectables\.com$/i.test(String(domain.name || "")) && domain.status === "verified",
+    const value = await result.json().catch(() => ({}));
+    summary.domainListStatus = result.status;
+    summary.domainListErrorType = value.name || value.type || null;
+    summary.domains = (value.data || []).map((domain) => ({
+      name: String(domain.name || ""), status: String(domain.status || ""),
+      sending: domain.capabilities?.sending || null,
+    }));
+    summary.verifiedDomain = result.ok && summary.domains.some((domain) =>
+      /(?:^|\.)truelycollectables\.com$/i.test(domain.name) && domain.status === "verified",
     );
-    if (!summary.verifiedDomain) add(findings, "blocker", "resend", "Resend did not return a verified Truely Collectables sending domain.");
-    else add(findings, "verified", "resend", "Resend reports the Truely Collectables sending domain verified.");
+    if (summary.verifiedDomain) {
+      add(findings, "verified", "resend", "Resend reports a verified Truely Collectables sending domain.");
+      return summary;
+    }
+    if (result.status === 401 && /restricted_api_key/i.test(String(summary.domainListErrorType || value.message || ""))) {
+      add(findings, "warning", "resend", "The Production Resend key is sending-only; a controlled Resend test address will verify sending capability.");
+    }
   } catch (error) {
-    add(findings, "blocker", "resend", "Resend domain verification failed.", sanitizeError(error));
+    add(findings, "warning", "resend", "Resend domain-list inspection was unavailable; a controlled test address will verify sending capability.", sanitizeError(error));
+  }
+  try {
+    const idempotencyKey = `launch2-final-${process.env.VERCEL_GIT_COMMIT_SHA || "20260729"}`.slice(0, 200);
+    const result = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${apiKey}`, "content-type": "application/json",
+        "user-agent": "TruelyCollectables-LaunchAudit/2.0", "idempotency-key": idempotencyKey,
+      },
+      body: JSON.stringify({
+        from, to: ["delivered+truely-launch-2@resend.dev"],
+        subject: "Truely Collectables Launch 2 integration verification",
+        html: "<p>Controlled Resend integration verification. No customer inbox receipt is claimed.</p>",
+      }),
+      cache: "no-store",
+    });
+    const value = await result.json().catch(() => ({}));
+    summary.testSendAccepted = result.ok && Boolean(value.id);
+    if (summary.testSendAccepted) {
+      add(findings, "verified", "resend", "Resend accepted a controlled delivery to its designated test address from the configured Truely Collectables sender. This is API/send proof, not customer inbox-receipt proof.");
+    } else {
+      add(findings, "blocker", "resend", `Resend rejected the controlled test delivery with HTTP ${result.status}.`, sanitizeError(value.message || value.name || "unknown error"));
+    }
+  } catch (error) {
+    add(findings, "blocker", "resend", "Resend controlled test delivery failed.", sanitizeError(error));
   }
   return summary;
 }
@@ -327,42 +370,50 @@ async function auditEbay(findings, tokenRows) {
     add(findings, "blocker", "ebay", "eBay application-token verification failed.", sanitizeError(error));
   }
 
-  const refreshToken = recursiveSecret(tokenRows, /refresh.*token|token.*refresh/i);
-  summary.sellerTokenPresent = Boolean(refreshToken);
-  if (!refreshToken) {
+  const refreshTokens = [...collectSecrets(tokenRows, /refresh.*token|token.*refresh/i)];
+  summary.sellerTokenPresent = refreshTokens.length > 0;
+  if (!refreshTokens.length) {
     add(findings, "warning", "ebay", "No seller refresh token was discoverable in known account tables; direct Trading proof is unavailable as credentials permit.");
     return summary;
   }
-  try {
-    const refreshResult = await fetch("https://api.ebay.com/identity/v1/oauth2/token", {
-      method: "POST",
-      headers: { authorization: `Basic ${basic}`, "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: refreshToken, scope: "https://api.ebay.com/oauth/api_scope" }),
-      cache: "no-store",
-    });
-    const refreshed = await refreshResult.json();
-    if (!refreshResult.ok || !refreshed.access_token) throw new Error(`seller refresh HTTP ${refreshResult.status}`);
-    const xml = `<?xml version="1.0" encoding="utf-8"?><GetMyeBaySellingRequest xmlns="urn:ebay:apis:eBLBaseComponents"><RequesterCredentials><eBayAuthToken>${refreshed.access_token}</eBayAuthToken></RequesterCredentials><ActiveList><Include>true</Include><Pagination><EntriesPerPage>1</EntriesPerPage><PageNumber>1</PageNumber></Pagination></ActiveList><DetailLevel>ReturnAll</DetailLevel></GetMyeBaySellingRequest>`;
-    const trading = await fetch("https://api.ebay.com/ws/api.dll", {
-      method: "POST",
-      headers: {
-        "x-ebay-api-call-name": "GetMyeBaySelling",
-        "x-ebay-api-compatibility-level": "1231",
-        "x-ebay-api-siteid": "0",
-        "content-type": "text/xml",
-      },
-      body: xml,
-      cache: "no-store",
-    });
-    const text = await trading.text();
-    const ack = text.match(/<Ack>([^<]+)<\/Ack>/)?.[1] || null;
-    summary.activeEntries = Number(text.match(/<TotalNumberOfEntries>(\d+)<\/TotalNumberOfEntries>/)?.[1] || 0);
-    summary.tradingRead = trading.ok && ["Success", "Warning"].includes(ack);
-    if (!summary.tradingRead) add(findings, "blocker", "ebay", `Seller Trading read failed with HTTP ${trading.status} / Ack ${ack}.`);
-    else add(findings, "verified", "ebay", `Seller-authorized Trading read succeeded and reports ${summary.activeEntries} active entries.`);
-  } catch (error) {
-    add(findings, "blocker", "ebay", "Seller-authorized Trading proof failed.", sanitizeError(error));
+  const failures = [];
+  for (let index = 0; index < refreshTokens.length && !summary.tradingRead; index += 1) {
+    const refreshToken = refreshTokens[index];
+    for (const scope of [null, "https://api.ebay.com/oauth/api_scope"]) {
+      try {
+        const body = new URLSearchParams({ grant_type: "refresh_token", refresh_token: refreshToken });
+        if (scope) body.set("scope", scope);
+        const refreshResult = await fetch("https://api.ebay.com/identity/v1/oauth2/token", {
+          method: "POST",
+          headers: { authorization: `Basic ${basic}`, "content-type": "application/x-www-form-urlencoded" },
+          body, cache: "no-store",
+        });
+        const refreshed = await refreshResult.json().catch(() => ({}));
+        if (!refreshResult.ok || !refreshed.access_token) {
+          failures.push({ candidate: index + 1, scope: scope ? "base" : "default", status: refreshResult.status });
+          continue;
+        }
+        const xml = `<?xml version="1.0" encoding="utf-8"?><GetMyeBaySellingRequest xmlns="urn:ebay:apis:eBLBaseComponents"><ActiveList><Include>true</Include><Pagination><EntriesPerPage>1</EntriesPerPage><PageNumber>1</PageNumber></Pagination></ActiveList><DetailLevel>ReturnAll</DetailLevel></GetMyeBaySellingRequest>`;
+        const trading = await fetch("https://api.ebay.com/ws/api.dll", {
+          method: "POST",
+          headers: {
+            "x-ebay-api-call-name": "GetMyeBaySelling", "x-ebay-api-compatibility-level": "1231",
+            "x-ebay-api-siteid": "0", "x-ebay-api-iaf-token": refreshed.access_token,
+            "content-type": "text/xml",
+          }, body: xml, cache: "no-store",
+        });
+        const text = await trading.text();
+        const ack = text.match(/<Ack>([^<]+)<\/Ack>/)?.[1] || null;
+        summary.activeEntries = Number(text.match(/<TotalNumberOfEntries>(\d+)<\/TotalNumberOfEntries>/)?.[1] || 0);
+        summary.tradingRead = trading.ok && ["Success", "Warning"].includes(ack);
+        if (!summary.tradingRead) failures.push({ candidate: index + 1, scope: scope ? "base" : "default", status: trading.status, ack });
+      } catch (error) {
+        failures.push({ candidate: index + 1, scope: scope ? "base" : "default", error: sanitizeError(error) });
+      }
+    }
   }
+  if (!summary.tradingRead) add(findings, "blocker", "ebay", "Every discoverable seller refresh-token candidate failed read-only Trading verification.", failures);
+  else add(findings, "verified", "ebay", `Seller-authorized Trading read succeeded and reports ${summary.activeEntries} active entries.`);
   return summary;
 }
 
