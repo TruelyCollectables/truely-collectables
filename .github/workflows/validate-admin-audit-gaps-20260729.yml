@@ -71,20 +71,14 @@ jobs:
 
           payment = Path('src/app/admin/live-payment-launch/page.tsx')
           text = payment.read_text()
-          anchor = '''  const databaseApprovalDetail =
-            approvalBlockingCount > 0
-              ? `${approvalBlockingCount} approval blocker(s) must be cleared before recording a database approval.`
-              : databaseApproved
-                ? "The current auditable database approval is recorded."
-                : "All approval blockers are clear. Database approval can be recorded when you choose.";
-          '''
-          replacement = anchor + '''  const paymentApprovalPosture =
+          next_step_anchor = '  const paymentNextStep =\n'
+          if 'const paymentApprovalPosture =' not in text:
+              if next_step_anchor not in text:
+                  raise SystemExit('payment next-step anchor missing')
+              insertion = '''  const paymentApprovalPosture =
             approvalBlockingCount > 0 ? "NOT APPROVABLE" : databaseApproval.status;
           '''
-          if 'const paymentApprovalPosture =' not in text:
-              if anchor not in text:
-                  raise SystemExit('payment posture insertion anchor missing')
-              text = text.replace(anchor, replacement, 1)
+              text = text.replace(next_step_anchor, insertion + next_step_anchor, 1)
           old = '            status={databaseApproval.status}\n'
           new = '            status={paymentApprovalPosture}\n'
           if old not in text:
