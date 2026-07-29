@@ -44,25 +44,13 @@ jobs:
           from pathlib import Path
 
           path = Path(".github/workflows/authorized-launch-money-inventory-safety-deploy-20260729.yml")
-          old_sha = "9b35f1990998bb0bd47394f19905fd9292c4c5bc"
+          old_sha = "c5cf45854c329771a2a541d2f7f75a631c491e16"
           new_sha = "8baee1bb26a17f974388b4d8e50b4321bbdfb685"
-          old_build = "          npx vercel@56.2.0 env run -e production -- npm run build\n"
-          new_build = "\n".join([
-              "          NEXT_PUBLIC_SUPABASE_URL=https://example.supabase.co \\",
-              "          NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder-anon-key \\",
-              "          SUPABASE_SERVICE_ROLE_KEY=placeholder-service-role-key \\",
-              "          NEXT_PUBLIC_SITE_URL=https://example.com \\",
-              "          npm run build",
-              "",
-          ])
-
           text = path.read_text(encoding="utf-8")
-          if text.count(old_sha) != 2:
-              raise SystemExit("Expected exactly two prior source SHA references.")
-          if text.count(old_build) != 1:
-              raise SystemExit("Expected exactly one broken local env-wrapper build command.")
 
-          text = text.replace(old_sha, new_sha).replace(old_build, new_build)
+          if text.count(old_sha) != 2:
+              raise SystemExit("Expected exactly two validated-parent SHA references.")
+          text = text.replace(old_sha, new_sha)
 
           required = [
               f"SOURCE_SHA: {new_sha}",
@@ -73,7 +61,9 @@ jobs:
               "node scripts/run-ebay-browse-runtime-contracts.mjs",
               "npm run lint",
               "npx tsc --noEmit --pretty false",
-              "NEXT_PUBLIC_SUPABASE_URL=https://example.supabase.co",
+              "npx vercel@56.2.0 env ls production",
+              "NEXT_PUBLIC_SUPABASE_URL=https://build-validation.invalid",
+              "NEXT_PUBLIC_SITE_URL=https://truelycollectables.com",
               "npm run build",
               "--skip-domain",
               "Add required Stripe expiration webhook event",
@@ -82,8 +72,8 @@ jobs:
           for value in required:
               if value not in text:
                   raise SystemExit(f"Missing guarded cutover requirement: {value}")
-          if old_sha in text or old_build in text:
-              raise SystemExit("Stale cutover source or build wrapper remains.")
+          if old_sha in text:
+              raise SystemExit("Validated-parent SHA remains after update.")
 
           stage = text.find("      - name: Stage exact Production deployment without domain promotion\n")
           staged_verify = text.find("      - name: Verify staged deployment before any Production mutation\n")
