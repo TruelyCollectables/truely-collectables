@@ -1,0 +1,157 @@
+name: Validate Shipping Audit Contract 20260729
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/validate-shipping-audit-contract-20260729.yml"
+      - "src/lib/lettertrack-export.ts"
+      - "src/lib/shipping-simulations.ts"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: validate-shipping-audit-contract-20260729
+  cancel-in-progress: false
+
+env:
+  NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+  SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+  ADMIN_SESSION_SECRET: build-only-placeholder-session-secret-that-is-long-enough
+  ADMIN_PASSWORD: build-only-placeholder-admin-password
+  NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+  STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+  STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+  EBAY_CLIENT_ID: build-only-placeholder-client-id
+  EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+  EBAY_ENVIRONMENT: production
+  TCOS_LIVE_PAYMENTS_ENABLED: "false"
+  TCOS_SHIPPING_PURCHASE_MODE: dry_run
+  TCOS_LIVE_SHIPPING_ENABLED: "false"
+
+jobs:
+  patch-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out exact remediation branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/fix-shipping-audit-contract-20260729
+          fetch-depth: 0
+
+      - name: Apply shipping contract correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          sim_path = Path("src/lib/shipping-simulations.ts")
+          sim = sim_path.read_text()
+          old_fixture = '''  const overThreeOunces = resolveShippingMethod({
+              requestedMethod: "STANDARD_ENVELOPE",
+              itemCount: 4,
+              subtotal: 19,
+            });'''.replace("            ", "")
+          new_fixture = '''  const overThreeOunces = resolveShippingMethod({
+              requestedMethod: "STANDARD_ENVELOPE",
+              itemCount: 5,
+              subtotal: 19,
+            });'''.replace("            ", "")
+          if sim.count(old_fixture) != 1:
+              raise SystemExit("Expected one over-three-ounce fixture anchor")
+          sim = sim.replace(old_fixture, new_fixture)
+
+          old_assertion = '''      overThreeOunces.method === "GROUND_ADVANTAGE" &&
+                  overThreeOunces.standardEnvelope.estimatedOunces === 4,'''.replace("        ", "")
+          new_assertion = '''      overThreeOunces.method === "GROUND_ADVANTAGE" &&
+                  overThreeOunces.standardEnvelope.eligible === false &&
+                  overThreeOunces.standardEnvelope.estimatedOunces === 4 &&
+                  Boolean(overThreeOunces.reason),'''.replace("        ", "")
+          if sim.count(old_assertion) != 1:
+              raise SystemExit("Expected one over-three-ounce assertion anchor")
+          sim = sim.replace(old_assertion, new_assertion)
+          sim_path.write_text(sim)
+
+          export_path = Path("src/lib/lettertrack-export.ts")
+          export = export_path.read_text()
+          replacements = {
+              'reason: "Order row was not found for this Tracked Card Letter label.",':
+                  'reason: "Order row was not found for this Standard Envelope label.",',
+              'const orderNumber = `TRUELY-${order.id}`;':
+                  'const orderNumber = `TCOS-${order.id}`;',
+              '"Truely Collectables under-$20 seller protection is internal and item-only when applicable; LetterTrack provides limited delivery evidence, not external insurance.",':
+                  '"TCOS Under-$20 Seller Protection is an optional internal, item-only seller program; LetterTrack provides delivery evidence, not external insurance.",',
+              'sellerProtectionProgram: "Truely Collectables Under-$20 Seller Protection",':
+                  'sellerProtectionProgram: "TCOS Under-$20 Seller Protection",',
+              'sellerProtectionOptInRequired: "store program rules apply",':
+                  'sellerProtectionOptInRequired: "seller must opt in per shipment",',
+              '"USPS IMb / LetterTrack scans are limited and may be incomplete. Record the available scan trail and any delivery-related status for support review.",':
+                  '"Record the LetterTrack status and USPS IMb scan trail. Seller-protection review requires delivery evidence that does not show delivered status under TCOS rules.",',
+              '"After LetterTrack prints or assigns the IMb, record the IMb reference in Truely Collectables before marking the order shipped.",':
+                  '"After LetterTrack prints or assigns the IMb, record the IMb reference in TCOS before marking the order shipped.",',
+          }
+          for old, new in replacements.items():
+              if export.count(old) != 1:
+                  raise SystemExit(f"Expected one LetterTrack contract anchor: {old[:72]}")
+              export = export.replace(old, new)
+          export_path.write_text(export)
+          PY
+
+      - name: Remove one-time validation workflow
+        run: rm -f .github/workflows/validate-shipping-audit-contract-20260729.yml
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Run focused shipping regressions
+        run: |
+          npm run simulate:shipping
+          npm run simulate:lettertrack-evidence
+          npm run simulate:shipping-purchase-audit
+          npm run simulate:admin-shipping-actions
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Run standalone TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Run full Production build
+        run: npm run build
+
+      - name: Verify narrow source diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          mapfile -t changed < <(git status --short | awk '{print $2}')
+          printf '%s\n' "${changed[@]}"
+          for file in "${changed[@]}"; do
+            case "$file" in
+              src/lib/lettertrack-export.ts|src/lib/shipping-simulations.ts|.github/workflows/validate-shipping-audit-contract-20260729.yml) ;;
+              *) echo "Unexpected changed file: $file" >&2; exit 1 ;;
+            esac
+          done
+
+      - name: Commit validated shipping correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Truely Collectables Audit Bot"
+          git config user.email "sales@truelycollectables.com"
+          git add -A
+          git commit -m "Fix Standard Envelope and LetterTrack audit contract"
+          git push origin HEAD:agent/fix-shipping-audit-contract-20260729
