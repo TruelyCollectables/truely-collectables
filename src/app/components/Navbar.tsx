@@ -44,7 +44,6 @@ export default function Navbar() {
             <Link
               href="/"
               className="flex min-w-0 items-center gap-3"
-              aria-label={`${STORE_BRAND_NAME} home`}
             >
               <div className="flex h-11 w-11 shrink-0 items-center justify-center border-2 border-neutral-950 bg-yellow-300 text-sm font-black uppercase shadow-[3px_3px_0_#111318]">
                 {storeMark(STORE_BRAND_NAME)}
