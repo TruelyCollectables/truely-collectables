@@ -683,3 +683,140 @@ assert.deepEqual(
   ]),
   ["Baseball", "Hockey"],
 );
+
+const taxonomyV8Cases = [
+  ["2024-25 Artifacts Spectrum Jungle Seth Jones SSP /15 Blackhawks", "Hockey"],
+  [
+    "Oakley Fuel Cell Desolve Bare Camo Prizm Tungsten Lens 9096 I760 60 90 130",
+    "Watches & Accessories",
+  ],
+  [
+    "2023-24 Credentials #DTAA-MK Marco Kasper Debut Ticket Access Auto /199",
+    "Hockey",
+  ],
+  [
+    "2023-24 Credentials Connor Bedard RC Debut Ticket Blue Horizontal Variation /199",
+    "Hockey",
+  ],
+  [
+    "2024-25 SP Authentic Danil Gushchin Retro Autographed Future Watch /699",
+    "Hockey",
+  ],
+  [
+    "2022-23 SP Authentic Mads Sogaard Retro Future Watch Autographs /699",
+    "Hockey",
+  ],
+  ["18-19 Spectra Nick Van Exel Making it Rain Auto Neon Pink /25", "NBA"],
+  [
+    "2014-15 Flawless Nick Van Exel Momentous Autographed Memorabilia /20",
+    "NBA",
+  ],
+  [
+    "2019-20 O-Pee-Chee Platinum #R-91 Cody Glass Retro-Black-Pack-Wars",
+    "Hockey",
+  ],
+  ["Prize Pack Series Cards #005 Basic Psychic Energy", "Trading Card Games"],
+  ["2015-16 Hoops #54 Luol Deng Artist Proof #/99", "NBA"],
+] as const;
+
+for (const [title, expectedSection] of taxonomyV8Cases) {
+  const result = classifyStorefrontItem({
+    title,
+    primaryCategory: "other_collectable",
+    metadata: {
+      tcos_storefront_section: "Needs Review",
+      tcos_taxonomy_version: 7,
+    },
+  });
+  assert.equal(result.section, expectedSection, title);
+}
+
+const v8FeatureCases = [
+  {
+    title:
+      "2015 Topps Museum Collection Henderson Alvarez Momentous Material Autos /10",
+    section: "Baseball",
+    expected: { autograph: true, memorabilia: true, numbered: true },
+  },
+  {
+    title:
+      "2013-14 Panini Timeless Treasures #18 Nick Van Exel Treasured Ink /15",
+    section: "NBA",
+    expected: { autograph: true, numbered: true },
+  },
+  {
+    title:
+      "2017-18 OPC Platinum Rookie Autos Ivan Barbashev Orange Checkers /15 RC HGA 9",
+    section: "Hockey",
+    expected: { autograph: true, rookie: true, graded: true, numbered: true },
+  },
+  {
+    title:
+      "2007 Upper Deck Premier #PS-69 Maurice Jones-Drew Stitchings Variation /75",
+    section: "Football",
+    expected: { memorabilia: true, numbered: true },
+  },
+  {
+    title: "2023-24 SP Game Used #150 Nathan MacKinnon Jersey",
+    section: "Hockey",
+    expected: { memorabilia: true },
+  },
+  {
+    title:
+      "2012 SP Authentic #20 Paula Creamer Base Limited Auto & Swatch #/100",
+    section: "Golf",
+    expected: { autograph: true, memorabilia: true, numbered: true },
+  },
+  {
+    title:
+      "2008 RAFO WRESTLING KECERI STICKERS #137 Stone Cold Steve Austin CSG 5",
+    section: "Wrestling",
+    expected: { graded: true },
+  },
+  {
+    title: "2023-24 Hoops #RR-PAO Paolo Banchero Rookie Remembrance",
+    section: "NBA",
+    expected: { rookie: true, memorabilia: true },
+  },
+  {
+    title: "2013 Leaf Keeping It Real Autos Bam Margera RC SP /25",
+    section: "Skateboarding",
+    expected: { autograph: true, rookie: true, numbered: true },
+  },
+  {
+    title: "2011 Finest #44 Mike Stanton Orange Refractors #/99",
+    section: "Baseball",
+    expected: { numbered: true },
+  },
+] as const;
+
+for (const testCase of v8FeatureCases) {
+  const result = classifyStorefrontItem({
+    title: testCase.title,
+    rawSport: testCase.section,
+    primaryCategory: "sports_cards",
+    metadata: { tcos_taxonomy_version: 7 },
+  });
+  for (const [feature, expected] of Object.entries(testCase.expected)) {
+    assert.equal(
+      result.features[feature as keyof typeof result.features],
+      expected,
+      `${testCase.title} ${feature}`,
+    );
+  }
+}
+
+const pokemonSetNumber = classifyStorefrontItem({
+  title: "ME05: Pitch Black #001/084 Tropius",
+  primaryCategory: "trading_cards",
+});
+assert.equal(pokemonSetNumber.section, "Trading Card Games");
+assert.equal(pokemonSetNumber.features.numbered, false);
+
+const physicalBasketball = classifyStorefrontItem({
+  title:
+    "Michael Jordan Autographed Official NBA Basketball Upper Deck Authenticated",
+  primaryCategory: "memorabilia",
+});
+assert.equal(physicalBasketball.section, "Balls");
+assert.equal(physicalBasketball.features.memorabilia, false);
