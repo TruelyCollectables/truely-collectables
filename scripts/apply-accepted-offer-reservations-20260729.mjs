@@ -63,9 +63,7 @@ webhook = replaceOrThrow(
 );
 webhook = replaceOrThrow(
   webhook,
-  [
-    "    if (event.type === \"account.updated\") {",
-  ].join("\n"),
+  '    if (event.type === "account.updated") {',
   [
     '    if (event.type === "checkout.session.expired") {',
     "      const session = event.data.object as Stripe.Checkout.Session;",
@@ -133,50 +131,68 @@ const identityMigration = source(
   "supabase/migrations/20260727144000_preserve_reserved_product_identity.sql",
 );
 
-assert.match(offerRoute, /startReservedOfferCheckout\(\{/);
-assert.doesNotMatch(offerRoute, /checkout\.sessions\.create\(/);
-assert.match(offerRoute, /reservationExpiresAt/);
-assert.match(offerRoute, /ReservedOfferCheckoutError/);
+for (const contract of [
+  "startReservedOfferCheckout({",
+  "reservationExpiresAt",
+  "ReservedOfferCheckoutError",
+]) {
+  assert.ok(offerRoute.includes(contract), contract);
+}
+assert.equal(offerRoute.includes("checkout.sessions.create("), false);
 
 const reserveIndex = helper.indexOf("reserveCheckoutInventory({");
 const stripeIndex = helper.indexOf("checkout.sessions.create(");
 assert.ok(reserveIndex >= 0 && stripeIndex > reserveIndex);
-assert.match(helper, /stripeExpiresAt >= reservation\.expiresAtUnix/);
-assert.match(helper, /attachStripeSessionToCheckoutReservation/);
-assert.match(helper, /expectedCount: reservation\.rows\.length/);
-assert.match(helper, /legacy\.status === "open" && legacyAttemptId/);
-assert.match(helper, /return replayResult\(legacy, legacyAttemptId\)/);
-assert.match(helper, /legacy\.status === "open" && !legacyAttemptId/);
-assert.match(helper, /checkout\.sessions\.expire\(legacy\.id\)/);
-assert.match(helper, /releaseCheckoutReservationForExpiredSession/);
-assert.match(helper, /generation < 5/);
+for (const contract of [
+  "stripeExpiresAt >= reservation.expiresAtUnix",
+  "attachStripeSessionToCheckoutReservation",
+  "expectedCount: reservation.rows.length",
+  'legacy.status === "open" && legacyAttemptId',
+  "return replayResult(legacy, legacyAttemptId)",
+  'legacy.status === "open" && !legacyAttemptId',
+  "checkout.sessions.expire(legacy.id)",
+  "releaseCheckoutReservationForExpiredSession",
+  "generation < 5",
+]) {
+  assert.ok(helper.includes(contract), contract);
+}
 
-assert.match(reservations, /releaseCheckoutReservationForExpiredSession/);
-assert.match(reservations, /expectedCount\?: number/);
-assert.match(reservations, /Checkout reservation returned the wrong products/);
-assert.match(finalization, /checkoutAttemptId\s*\? await consumeCheckoutReservationAfterSale/);
-assert.doesNotMatch(
-  finalization,
-  /checkoutType === "cart" && checkoutAttemptId/,
+for (const contract of [
+  "releaseCheckoutReservationForExpiredSession",
+  "expectedCount?: number",
+  "Checkout reservation returned the wrong products",
+]) {
+  assert.ok(reservations.includes(contract), contract);
+}
+assert.ok(finalization.includes("checkoutAttemptId"));
+assert.ok(finalization.includes("? await consumeCheckoutReservationAfterSale"));
+assert.equal(
+  finalization.includes('checkoutType === "cart" && checkoutAttemptId'),
+  false,
 );
 
-assert.match(webhook, /event\.type === "checkout\.session\.expired"/);
-assert.match(webhook, /metadata\.store_id !== storeId/);
-assert.match(webhook, /releaseCheckoutReservationForExpiredSession\(\{/);
-assert.match(webhook, /expired_checkout_reservation_released/);
-assert.match(livePayment, /"checkout\.session\.expired"/);
+for (const contract of [
+  'event.type === "checkout.session.expired"',
+  "metadata.store_id !== storeId",
+  "releaseCheckoutReservationForExpiredSession({",
+  "expired_checkout_reservation_released",
+]) {
+  assert.ok(webhook.includes(contract), contract);
+}
+assert.ok(livePayment.includes('"checkout.session.expired"'));
 
 for (const migration of [consumeMigration, holdMigration, identityMigration]) {
-  assert.match(migration, /^begin;/im);
-  assert.match(migration, /^commit;/im);
+  assert.ok(/^begin;/im.test(migration));
+  assert.ok(/^commit;/im.test(migration));
 }
-assert.match(
-  consumeMigration,
-  /reservation\.stripe_session_id = v_order_stripe_session_id[\s\S]*status = 'consumed'/,
+const reservationLookup = consumeMigration.indexOf(
+  "reservation.stripe_session_id = v_order_stripe_session_id",
 );
-assert.match(holdMigration, /stripe_session_id is not null/);
-assert.match(holdMigration, /reservation_cart_session_attached/);
-assert.match(identityMigration, /on delete restrict/);
+const consumptionUpdate = consumeMigration.indexOf("set status = 'consumed'");
+assert.ok(reservationLookup >= 0 && consumptionUpdate > reservationLookup);
+assert.ok(holdMigration.includes("stripe_session_id is not null"));
+assert.ok(holdMigration.includes("reservation_cart_session_attached"));
+assert.ok(identityMigration.includes("on delete restrict"));
 
 const storeId = "00000000-0000-0000-0000-000000000001";
 const initial = offerCheckoutAttemptId({ storeId, offerId: 55 });
@@ -188,9 +204,10 @@ const rotated = offerCheckoutAttemptId({
 });
 assert.equal(initial, replay);
 assert.notEqual(initial, rotated);
-assert.match(
-  initial,
-  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-8[0-9a-f]{3}-[0-9a-f]{12}$/,
+assert.ok(
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-8[0-9a-f]{3}-[0-9a-f]{12}$/.test(
+    initial,
+  ),
 );
 
 console.log(
