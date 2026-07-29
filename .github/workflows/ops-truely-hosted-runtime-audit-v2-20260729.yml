@@ -1,0 +1,187 @@
+name: Truely Hosted Runtime Audit V2 20260729
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/ops-truely-hosted-runtime-audit-v2-20260729.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: truely-hosted-runtime-audit-v2-20260729
+  cancel-in-progress: false
+
+jobs:
+  hosted-runtime-audit-v2:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ops/truely-full-launch-audit-20260729')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      EVIDENCE_DIR: /tmp/truely-hosted-runtime-audit-v2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install exact dependencies
+        run: npm ci
+      - name: Link exact Vercel project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p .vercel "$EVIDENCE_DIR"
+          npx vercel@56.2.0 whoami --token "$VERCEL_TOKEN" > "$EVIDENCE_DIR/vercel-identity.txt" 2>&1
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          node -e 'const p=require("./.vercel/project.json"); if(!p.orgId||!p.projectId) process.exit(1);'
+          npx vercel@56.2.0 env ls production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$EVIDENCE_DIR/production-env-names.txt" 2>&1
+          for key in NEXT_PUBLIC_SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY STRIPE_LIVE_SECRET_KEY EBAY_CLIENT_ID EBAY_CLIENT_SECRET RESEND_API_KEY; do
+            grep -Fq "$key" "$EVIDENCE_DIR/production-env-names.txt"
+          done
+      - name: Create protected read-only hosted audit route
+        shell: bash
+        run: |
+          set -euo pipefail
+          AUDIT_TOKEN="$(openssl rand -hex 32)"
+          echo "::add-mask::$AUDIT_TOKEN"
+          echo "AUDIT_TOKEN=$AUDIT_TOKEN" >> "$GITHUB_ENV"
+          mkdir -p src/app/api/internal/hosted-runtime-audit-v2-20260729
+          cat > src/app/api/internal/hosted-runtime-audit-v2-20260729/route.js <<'ROUTE'
+          import { timingSafeEqual } from "node:crypto";
+          import Stripe from "stripe";
+          import { createClient } from "@supabase/supabase-js";
+
+          export const runtime = "nodejs";
+          export const dynamic = "force-dynamic";
+          export const revalidate = 0;
+          export const maxDuration = 120;
+
+          function equal(left, right) {
+            const a = Buffer.from(String(left || ""), "utf8");
+            const b = Buffer.from(String(right || ""), "utf8");
+            return a.length > 0 && a.length === b.length && timingSafeEqual(a, b);
+          }
+          function json(body, status = 200) {
+            return Response.json(body, { status, headers: { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
+          }
+          async function countTable(client, table) {
+            const result = await client.from(table).select("*", { count: "exact", head: true });
+            if (result.error) {
+              throw new Error(`${table} read failed: ${result.error.code || "unknown"} ${result.error.message || ""}`.trim());
+            }
+            return result.count ?? null;
+          }
+          async function auditSupabase() {
+            const url = String(process.env.NEXT_PUBLIC_SUPABASE_URL || "");
+            const key = String(process.env.SUPABASE_SERVICE_ROLE_KEY || "");
+            if (!url || !key) throw new Error("Supabase hosted credentials are unavailable.");
+            const client = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+            const tables = {};
+            for (const table of ["products", "account_profiles", "account_store_memberships", "seller_payout_accounts"]) {
+              tables[table] = await countTable(client, table);
+            }
+            return { configured: true, authenticated: true, tables };
+          }
+          async function auditStripe() {
+            const dedicated = String(process.env.STRIPE_LIVE_SECRET_KEY || "");
+            const generic = String(process.env.STRIPE_SECRET_KEY || "");
+            const key = dedicated.startsWith("sk_live_") ? dedicated : generic.startsWith("sk_live_") ? generic : "";
+            if (!key) throw new Error("A live Stripe secret key is unavailable.");
+            const stripe = new Stripe(key);
+            const balance = await stripe.balance.retrieve();
+            const endpoints = await stripe.webhookEndpoints.list({ limit: 100 });
+            const custom = endpoints.data.filter((entry) => entry.url === "https://truelycollectables.com/api/webhook");
+            if (custom.length !== 1 || custom[0].status !== "enabled") throw new Error(`Expected one enabled custom-domain Stripe webhook; found ${custom.length}.`);
+            const required = ["checkout.session.completed", "checkout.session.expired", "refund.created", "refund.updated", "refund.failed", "charge.dispute.created", "charge.dispute.updated", "charge.dispute.closed", "charge.dispute.funds_withdrawn", "charge.dispute.funds_reinstated", "account.updated"];
+            const missing = required.filter((event) => !custom[0].enabled_events.includes("*") && !custom[0].enabled_events.includes(event));
+            if (missing.length) throw new Error(`Stripe webhook missing ${missing.length} required events.`);
+            return { configured: true, authenticated: true, liveMode: balance.livemode === true, customWebhookEnabled: true, requiredEventsPresent: true };
+          }
+          async function auditEbay() {
+            const clientId = String(process.env.EBAY_CLIENT_ID || "");
+            const clientSecret = String(process.env.EBAY_CLIENT_SECRET || "");
+            if (!clientId || !clientSecret) throw new Error("eBay hosted credentials are unavailable.");
+            const response = await fetch("https://api.ebay.com/identity/v1/oauth2/token", { method: "POST", headers: { Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`, "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ grant_type: "client_credentials", scope: "https://api.ebay.com/oauth/api_scope" }) });
+            const token = await response.json();
+            if (!response.ok || !token.access_token) throw new Error(`eBay application-token audit failed with HTTP ${response.status}.`);
+            const browse = await fetch("https://api.ebay.com/buy/browse/v1/item_summary/search?q=Ivan%20Demidov%20rookie%20card&limit=1", { headers: { Authorization: `Bearer ${token.access_token}` } });
+            if (!browse.ok) throw new Error(`eBay Browse audit failed with HTTP ${browse.status}.`);
+            return { configured: true, applicationTokenAuthenticated: true, browseAuthenticated: true };
+          }
+          async function auditResend() {
+            const key = String(process.env.RESEND_API_KEY || "");
+            if (!key) throw new Error("Resend hosted credential is unavailable.");
+            const result = await fetch("https://api.resend.com/emails", { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", "User-Agent": "truelycollectables-launch-audit/2.0" }, body: "{}" });
+            if (result.status === 401 || result.status === 403) throw new Error(`Resend authentication failed with HTTP ${result.status}.`);
+            if (result.ok) throw new Error("The deliberately invalid Resend request unexpectedly sent an email.");
+            return { configured: true, authenticated: true, noEmailSent: true, validationStatus: result.status };
+          }
+          export async function POST(request) {
+            if (!equal(request.headers.get("x-tcos-runtime-audit-token"), process.env.TCOS_RUNTIME_AUDIT_TOKEN)) return json({ ok: false, code: "UNAUTHORIZED" }, 401);
+            const services = {};
+            const errors = {};
+            for (const [name, fn] of Object.entries({ supabase: auditSupabase, stripe: auditStripe, ebay: auditEbay, resend: auditResend })) {
+              try { services[name] = await fn(); } catch (error) { errors[name] = error instanceof Error ? error.message : String(error); }
+            }
+            const ok = Object.keys(errors).length === 0;
+            return json({ ok, environment: process.env.VERCEL_ENV || null, services, errors }, ok ? 200 : 500);
+          }
+          ROUTE
+          git diff --check
+      - name: Stage disposable Production-environment audit deployment
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 deploy --prod --yes --force --skip-domain --meta "launchPurpose=hosted-runtime-read-only-audit-v2" --env "TCOS_RUNTIME_AUDIT_TOKEN=$AUDIT_TOKEN" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee "$EVIDENCE_DIR/vercel-deploy.log"
+          AUDIT_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$EVIDENCE_DIR/vercel-deploy.log" | head -n 1)"
+          test -n "$AUDIT_URL"
+          echo "audit_url=$AUDIT_URL" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$AUDIT_URL" > "$EVIDENCE_DIR/audit-deployment-url.txt"
+      - name: Run protected hosted runtime audit
+        env:
+          AUDIT_URL: ${{ steps.deploy.outputs.audit_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          unauthorized="$(curl -sS --connect-timeout 15 --max-time 60 -o "$EVIDENCE_DIR/unauthorized.json" -w '%{http_code}' -X POST "$AUDIT_URL/api/internal/hosted-runtime-audit-v2-20260729")"
+          test "$unauthorized" = "401"
+          code="$(curl -sS --connect-timeout 15 --max-time 180 -o "$EVIDENCE_DIR/hosted-runtime-audit.json" -w '%{http_code}' -X POST -H 'Content-Type: application/json' -H "x-tcos-runtime-audit-token: $AUDIT_TOKEN" --data '{}' "$AUDIT_URL/api/internal/hosted-runtime-audit-v2-20260729")"
+          cat "$EVIDENCE_DIR/hosted-runtime-audit.json"
+          test "$code" = "200"
+          node - <<'NODE'
+          const fs=require('fs'); const value=JSON.parse(fs.readFileSync(process.env.EVIDENCE_DIR+'/hosted-runtime-audit.json','utf8'));
+          if(value.ok!==true||value.environment!=='production') throw new Error('Hosted runtime V2 did not pass in Production environment.');
+          for(const name of ['supabase','stripe','ebay','resend']) if(!value.services?.[name]) throw new Error(`${name} proof missing`);
+          NODE
+      - name: Remove disposable audit deployment
+        if: always()
+        env:
+          AUDIT_URL: ${{ steps.deploy.outputs.audit_url }}
+        shell: bash
+        run: |
+          set +e
+          if [ -n "${AUDIT_URL:-}" ]; then npx vercel@56.2.0 remove "$AUDIT_URL" --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$EVIDENCE_DIR/vercel-remove.log" 2>&1; fi
+          exit 0
+      - name: Upload sanitized hosted runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-launch-hosted-runtime-integrations-v2
+          path: /tmp/truely-hosted-runtime-audit-v2
+          if-no-files-found: error
+          retention-days: 30
