@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   export:
@@ -16,19 +16,34 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out writer branch
+        uses: actions/checkout@v4
         with:
           ref: ops/validate-transactional-metadata-20260729
           path: writer
           fetch-depth: 1
-      - uses: actions/checkout@v4
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Check out exact audit branch
+        uses: actions/checkout@v4
         with:
           ref: ops/truely-full-launch-audit-20260729
           path: audit
           fetch-depth: 1
       - name: Prepare exact guarded patch
         run: python writer/scripts/ops-repair-full-audit-runtime-lighthouse.py audit
-      - name: Record checksum
+      - name: Stage identical blob at non-workflow path
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p writer/ops
+          cp audit/.github/workflows/ops-truely-full-launch-audit-20260729.yml writer/ops/patched-full-audit-runtime-lighthouse.yml
+          sha256sum writer/ops/patched-full-audit-runtime-lighthouse.yml > writer/ops/patched-full-audit-runtime-lighthouse.sha256
+          git -C writer config user.name "truely-launch-audit-bot"
+          git -C writer config user.email "actions@users.noreply.github.com"
+          git -C writer add ops/patched-full-audit-runtime-lighthouse.yml ops/patched-full-audit-runtime-lighthouse.sha256
+          git -C writer commit -m "Stage verified full-audit workflow blob"
+          git -C writer push origin HEAD:ops/validate-transactional-metadata-20260729
+      - name: Export sanitized evidence
         shell: bash
         run: |
           set -euo pipefail
