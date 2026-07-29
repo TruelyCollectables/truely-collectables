@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  EXPECTED_MAIN_SHA: e37dfc6792c22f6cf6acc78aba23f38815b9cf82
+  EXPECTED_MAIN_SHA: 9be5ed27f110b87535bd8b736ad3be2ca7e21244
   EXPECTED_BRANCH: fix/launch-navbar-accessible-name-20260729
   NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
   NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
