@@ -335,6 +335,34 @@ export function mapEbayInventoryCategory(input: {
   aspects?: EbayAspectMap | null;
 }): EbayCategoryMapping {
   const aspects = input.aspects ?? {};
+  const titleText = input.title.toLowerCase();
+  const explicitAccessoryObject =
+    /\b(?:wristwatch|sunglasses|eyewear|oakley)\b/.test(titleText) ||
+    (/\bwatch\b/.test(titleText) && !/\bfuture watch\b/.test(titleText));
+
+  if (explicitAccessoryObject) {
+    const category = "other_collectable";
+    const mappingConfidence = "high" as const;
+    const evidence = ["physical accessory title"];
+
+    return {
+      category,
+      confidence: mappingConfidence,
+      reviewRequired: false,
+      evidence,
+      attributes: {
+        tcos_category: category,
+        tcos_category_confidence: mappingConfidence,
+        tcos_review_required: "false",
+        tcos_category_evidence: evidence.join(", "),
+        tcos_is_autograph: String(
+          hasStrongAutographEvidence(input.title, aspects),
+        ),
+        ...usefulAspectAttributes(aspects),
+      },
+    };
+  }
+
   const focusedSearchable =
     `${input.title} ${aspectSearchText(aspects)}`.toLowerCase();
   const fallbackSearchable = [focusedSearchable, input.description ?? ""]

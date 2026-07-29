@@ -15,7 +15,7 @@ const MAX_PAGES = Math.ceil(MAX_ACTIVE_LISTINGS / PAGE_SIZE);
 const APPLY_CONCURRENCY = 8;
 const LOCAL_PAGE_SIZE = 1000;
 const MAX_LOCAL_PAGES = 50;
-const STOREFRONT_TAXONOMY_VERSION = 8;
+const STOREFRONT_TAXONOMY_VERSION = 9;
 
 export type EbayStoreSyncMode = "preview" | "apply";
 
