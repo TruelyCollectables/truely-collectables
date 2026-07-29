@@ -1,0 +1,43 @@
+name: Export Patched Full Audit 20260729
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/ops-export-patched-full-audit-20260729.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ops/validate-transactional-metadata-20260729')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/validate-transactional-metadata-20260729
+          path: writer
+          fetch-depth: 1
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/truely-full-launch-audit-20260729
+          path: audit
+          fetch-depth: 1
+      - name: Prepare exact guarded patch
+        run: python writer/scripts/ops-repair-full-audit-runtime-lighthouse.py audit
+      - name: Record checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p export
+          cp audit/.github/workflows/ops-truely-full-launch-audit-20260729.yml export/
+          sha256sum export/ops-truely-full-launch-audit-20260729.yml > export/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: patched-full-audit-runtime-lighthouse
+          path: export
+          if-no-files-found: error
+          retention-days: 30
