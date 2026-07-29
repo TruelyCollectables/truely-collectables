@@ -1,0 +1,297 @@
+name: Truely Launch 2.0 Final Production Certificate 20260729
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/launch-2-final-certificate-20260729.yml"
+      - "src/app/api/internal/launch-audit-runtime-20260729/route.js"
+      - "scripts/grade-launch-2-final-certificate-20260729.mjs"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: truely-launch-2-final-certificate-20260729
+  cancel-in-progress: false
+
+env:
+  EXPECTED_MAIN_SHA: 7765f115d44e2629d47cc38871273dacdafcb8e7
+  EXPECTED_BRANCH: ops/launch-2-final-certificate-20260729
+  PRIOR_AUDIT_RUN_ID: "30495185314"
+  PRIOR_AUDIT_HEAD_SHA: 3417c615337436df896cfe9d3238f5d29ae33518
+  VERCEL_SCOPE: truelycollectables-projects
+  NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+  SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+  ADMIN_SESSION_SECRET: build-only-placeholder-session-secret-that-is-long-enough
+  ADMIN_PASSWORD: build-only-placeholder-admin-password
+  NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+  STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+  STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+  EBAY_CLIENT_ID: build-only-placeholder-client-id
+  EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+  EBAY_ENVIRONMENT: production
+  TCOS_LIVE_PAYMENTS_ENABLED: "false"
+  TCOS_SHIPPING_PURCHASE_MODE: dry_run
+  TCOS_LIVE_SHIPPING_ENABLED: "false"
+
+jobs:
+  final-production-certificate:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ops/launch-2-final-certificate-20260729')
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out guarded certificate branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on exact source and branch scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          mapfile -t changed < <(git diff --name-only "$EXPECTED_MAIN_SHA"...HEAD | sort)
+          test "${#changed[@]}" -eq 3
+          expected=(
+            ".github/workflows/launch-2-final-certificate-20260729.yml"
+            "scripts/grade-launch-2-final-certificate-20260729.mjs"
+            "src/app/api/internal/launch-audit-runtime-20260729/route.js"
+          )
+          for index in 0 1 2; do test "${changed[$index]}" = "${expected[$index]}"; done
+          git diff --check "$EXPECTED_MAIN_SHA"...HEAD
+          mkdir -p .audit/launch-2-final
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Verify prior full-audit green jobs on the same main revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          api="$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/runs/$PRIOR_AUDIT_RUN_ID"
+          curl --fail --silent --show-error \
+            --header "Authorization: Bearer $GITHUB_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            "$api" > .audit/launch-2-final/prior-run.json
+          curl --fail --silent --show-error \
+            --header "Authorization: Bearer $GITHUB_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            "$api/jobs?per_page=100" > .audit/launch-2-final/prior-jobs-raw.json
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const run = JSON.parse(fs.readFileSync('.audit/launch-2-final/prior-run.json', 'utf8'));
+          const jobs = JSON.parse(fs.readFileSync('.audit/launch-2-final/prior-jobs-raw.json', 'utf8'));
+          const result = {
+            id: run.id,
+            head_sha: run.head_sha,
+            conclusion: run.conclusion,
+            jobs: (jobs.jobs || []).map(({ name, status, conclusion }) => ({ name, status, conclusion })),
+          };
+          fs.writeFileSync('.audit/launch-2-final/prior-audit-jobs.json', JSON.stringify(result, null, 2));
+          if (result.head_sha !== process.env.PRIOR_AUDIT_HEAD_SHA) throw new Error('Prior audit head SHA changed.');
+          NODE
+
+      - name: Run affected security and customer-flow regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run simulate:privileged-route-auth
+          node --import tsx scripts/run-mobile-buyer-flow-simulations.ts
+          node scripts/simulate-transactional-canonical-metadata.mjs
+          count=0
+          while IFS= read -r file; do
+            count=$((count + 1))
+            case "$file" in
+              *.ts) node --import tsx "$file" ;;
+              *) node "$file" ;;
+            esac
+          done < <(find scripts -maxdepth 1 -type f \( -iname '*privileged*route*' -o -iname '*api*route*audit*' -o -iname '*security*route*' \) | sort)
+          test "$count" -gt 0
+
+      - name: Run repository lint
+        run: npm run lint
+
+      - name: Run standalone TypeScript
+        run: npx tsc --noEmit --pretty false
+
+      - name: Run full Production build
+        run: npm run build
+
+      - name: Resolve exact Vercel project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p .vercel
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+
+      - name: Create masked runtime-audit credential
+        id: credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          token="$(openssl rand -hex 32)"
+          echo "::add-mask::$token"
+          echo "token=$token" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy isolated Production-runtime audit probe without domains
+        id: runtime
+        env:
+          AUDIT_TOKEN: ${{ steps.credential.outputs.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 deploy --prod --yes --force --skip-domain \
+            --meta "launchSourceSha=$EXPECTED_MAIN_SHA" \
+            --meta "launchPurpose=launch-2-final-runtime-audit" \
+            --env "TCOS_LAUNCH_AUDIT_TOKEN=$AUDIT_TOKEN" \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" \
+            2>&1 | tee .audit/launch-2-final/runtime-deployment.log
+          url="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' .audit/launch-2-final/runtime-deployment.log | head -n 1)"
+          test -n "$url"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$url" > .audit/launch-2-final/runtime-deployment-url.txt
+
+      - name: Verify Production-runtime integrations and data invariants
+        env:
+          AUDIT_URL: ${{ steps.runtime.outputs.url }}
+          AUDIT_TOKEN: ${{ steps.credential.outputs.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          root_code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 120 --output .audit/launch-2-final/runtime-root.html --write-out '%{http_code}' "$AUDIT_URL/")"
+          test "$root_code" = "200"
+          unauth_code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output .audit/launch-2-final/runtime-unauthorized.json --write-out '%{http_code}' --request POST "$AUDIT_URL/api/internal/launch-audit-runtime-20260729")"
+          test "$unauth_code" = "401"
+          auth_code="$(curl --silent --show-error --connect-timeout 15 --max-time 300 --output .audit/launch-2-final/runtime-integrations.json --write-out '%{http_code}' \
+            --request POST --header "x-tcos-launch-audit-token: $AUDIT_TOKEN" \
+            "$AUDIT_URL/api/internal/launch-audit-runtime-20260729")"
+          test "$auth_code" = "200"
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const value = JSON.parse(fs.readFileSync('.audit/launch-2-final/runtime-integrations.json', 'utf8'));
+          if (value.environment !== 'production') throw new Error('Runtime audit was not Production-targeted.');
+          if (!Array.isArray(value.findings)) throw new Error('Runtime findings are missing.');
+          if (value.blockerCount !== value.findings.filter((row) => row.severity === 'blocker').length) throw new Error('Runtime blocker count is inconsistent.');
+          NODE
+
+      - name: Deploy clean exact main revision to Production
+        id: production
+        shell: bash
+        run: |
+          set -euo pipefail
+          exact="$RUNNER_TEMP/truely-exact-main"
+          rm -rf "$exact"
+          git worktree add --detach "$exact" "$EXPECTED_MAIN_SHA"
+          test "$(git -C "$exact" rev-parse HEAD)" = "$EXPECTED_MAIN_SHA"
+          test -z "$(git -C "$exact" status --porcelain)"
+          mkdir -p "$exact/.vercel"
+          cp .vercel/project.json "$exact/.vercel/project.json"
+          cd "$exact"
+          npx vercel@56.2.0 deploy --prod --yes --force \
+            --meta "launchSourceSha=$EXPECTED_MAIN_SHA" \
+            --meta "launchPurpose=launch-2-final-production-certificate" \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" \
+            2>&1 | tee "$GITHUB_WORKSPACE/.audit/launch-2-final/production-deployment.log"
+          url="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$GITHUB_WORKSPACE/.audit/launch-2-final/production-deployment.log" | tail -n 1)"
+          test -n "$url"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$url" > "$GITHUB_WORKSPACE/.audit/launch-2-final/production-deployment-url.txt"
+
+      - name: Verify exact live Production source and privileged boundaries
+        env:
+          PRODUCTION_URL: ${{ steps.production.outputs.url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for label in deployment custom; do
+            if [ "$label" = deployment ]; then base="$PRODUCTION_URL"; else base="https://truelycollectables.com"; fi
+            for path in / /shop /cart /account/signup /account/login /shipping /returns /buyer-protection; do
+              code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 120 --output ".audit/launch-2-final/${label}-${path//\//-}.html" --write-out '%{http_code}' "$base$path")"
+              test "$code" = "200"
+            done
+            admin_code="$(curl --silent --show-error --output ".audit/launch-2-final/${label}-admin.html" --write-out '%{http_code}' "$base/admin")"
+            login_code="$(curl --location --silent --show-error --output ".audit/launch-2-final/${label}-admin-login.html" --write-out '%{http_code}' "$base/admin/login")"
+            test "$admin_code" = "307"
+            test "$login_code" = "200"
+            grep -Fq 'Admin Login' ".audit/launch-2-final/${label}-admin-login.html"
+            grep -Fq 'id="shop-search"' ".audit/launch-2-final/${label}--shop.html"
+            grep -Fq 'for="shop-search"' ".audit/launch-2-final/${label}--shop.html"
+            if grep -Fq 'aria-label="Truely Collectables home"' ".audit/launch-2-final/${label}--shop.html"; then exit 1; fi
+          done
+          node - <<'NODE'
+          const fs = require('node:fs');
+          fs.writeFileSync('.audit/launch-2-final/current-source.json', JSON.stringify({
+            mainSha: process.env.EXPECTED_MAIN_SHA,
+            productionDeploymentSourceSha: process.env.EXPECTED_MAIN_SHA,
+            verifiedAt: new Date().toISOString(),
+          }, null, 2));
+          NODE
+
+      - name: Run final custom-domain Lighthouse suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          urls=(
+            "https://truelycollectables.com/"
+            "https://truelycollectables.com/shop"
+            "https://truelycollectables.com/account/signup"
+            "https://truelycollectables.com/cart"
+          )
+          names=(home shop signup cart)
+          for index in "${!urls[@]}"; do
+            npx --yes lighthouse@12.8.2 "${urls[$index]}" \
+              --only-categories=performance,accessibility,best-practices,seo \
+              --output=json \
+              --output-path=".audit/launch-2-final/lighthouse-${names[$index]}.json" \
+              --chrome-flags="--headless --no-sandbox --disable-gpu" \
+              --quiet
+          done
+
+      - name: Assemble strict final Launch 2.0 certificate
+        run: node scripts/grade-launch-2-final-certificate-20260729.mjs
+
+      - name: Remove isolated credential-bound audit deployment
+        if: always()
+        env:
+          AUDIT_URL: ${{ steps.runtime.outputs.url }}
+        shell: bash
+        run: |
+          set +e
+          if [ -n "${AUDIT_URL:-}" ]; then
+            npx vercel@56.2.0 remove "$AUDIT_URL" --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > .audit/launch-2-final/runtime-deployment-removal.log 2>&1
+          fi
+          set -e
+
+      - name: Upload sanitized final certificate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: truely-launch-2-final-production-certificate
+          path: .audit/launch-2-final
+          if-no-files-found: error
+          retention-days: 30
