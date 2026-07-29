@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      EXPECTED_SOURCE_SHA: c5cf45854c329771a2a541d2f7f75a631c491e16
+      EXPECTED_SOURCE_SHA: 8baee1bb26a17f974388b4d8e50b4321bbdfb685
       TARGET_WORKFLOW: .github/workflows/authorized-launch-money-inventory-safety-deploy-20260729.yml
     steps:
       - name: Check out guarded deployment branch
@@ -37,7 +37,7 @@ jobs:
           git fetch origin main --depth=1
           test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SOURCE_SHA"
 
-      - name: Remove invalid Vercel promote preflight
+      - name: Refresh exact source and remove invalid Vercel promote preflight
         shell: bash
         run: |
           set -euo pipefail
@@ -46,20 +46,25 @@ jobs:
 
           path = Path('.github/workflows/authorized-launch-money-inventory-safety-deploy-20260729.yml')
           text = path.read_text(encoding='utf-8')
+          old_sha = 'c5cf45854c329771a2a541d2f7f75a631c491e16'
+          new_sha = '8baee1bb26a17f974388b4d8e50b4321bbdfb685'
           old_name = '      - name: Confirm staged Production and promotion commands exist\n'
           new_name = '      - name: Confirm staged Production and safe promotion fallback\n'
           old_line = '          npx vercel@56.2.0 promote --help > .deployment-evidence/vercel-promote-help.txt\n'
           new_line = "          printf '%s\\n' 'alias-set-fallback' > .deployment-evidence/vercel-promotion-method.txt\n"
 
+          if text.count(old_sha) != 2:
+              raise SystemExit('Expected exactly two stale exact-source SHA references.')
           if text.count(old_name) != 1:
               raise SystemExit('Expected exactly one stale preflight step name.')
           if text.count(old_line) != 1:
               raise SystemExit('Expected exactly one invalid Vercel promote preflight command.')
+          text = text.replace(old_sha, new_sha)
           text = text.replace(old_name, new_name).replace(old_line, new_line)
 
           required = [
-              f'SOURCE_SHA: {"c5cf45854c329771a2a541d2f7f75a631c491e16"}',
-              f'ref: {"c5cf45854c329771a2a541d2f7f75a631c491e16"}',
+              f'SOURCE_SHA: {new_sha}',
+              f'ref: {new_sha}',
               "grep -Fq -- '--skip-domain'",
               'alias-set-fallback',
               'npx vercel@56.2.0 promote "$DEPLOYMENT_URL"',
@@ -68,8 +73,8 @@ jobs:
           for value in required:
               if value not in text:
                   raise SystemExit(f'Missing guarded workflow requirement: {value}')
-          if old_line in text:
-              raise SystemExit('Invalid promote preflight command remains.')
+          if old_sha in text or old_line in text:
+              raise SystemExit('Stale source or invalid promote preflight remains.')
 
           path.write_text(text, encoding='utf-8')
           PY
@@ -82,8 +87,10 @@ jobs:
           mapfile -t changed < <(git diff --name-only | sort)
           test "${#changed[@]}" -eq 1
           test "${changed[0]}" = "$TARGET_WORKFLOW"
+          grep -Fq "SOURCE_SHA: $EXPECTED_SOURCE_SHA" "$TARGET_WORKFLOW"
+          grep -Fq "ref: $EXPECTED_SOURCE_SHA" "$TARGET_WORKFLOW"
           grep -Fq 'Confirm staged Production and safe promotion fallback' "$TARGET_WORKFLOW"
-          grep -Fq "alias-set-fallback" "$TARGET_WORKFLOW"
+          grep -Fq 'alias-set-fallback' "$TARGET_WORKFLOW"
           ! grep -Fq 'promote --help' "$TARGET_WORKFLOW"
 
       - name: Prepare sanitized repaired workflow artifact
