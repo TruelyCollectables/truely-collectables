@@ -120,3 +120,5 @@ jobs:
           git add .github/workflows/ops-truely-full-launch-audit-20260729.yml
           git commit -m "Repair full audit runtime and Lighthouse policy"
           git push origin HEAD:ops/truely-full-launch-audit-20260729
+
+# synchronization trigger: runtime-lighthouse repair
