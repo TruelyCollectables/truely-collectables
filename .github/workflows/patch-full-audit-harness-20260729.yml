@@ -46,33 +46,39 @@ jobs:
           path = Path('.github/workflows/ops-truely-full-launch-audit-20260729.yml')
           text = path.read_text()
 
-          anchors = []
+          anchors = [
+              (
+                  '''env:\n  AUDIT_BASE_URL: https://truelycollectables.com\n''',
+                  '''env:\n  AUDIT_BASE_URL: https://truelycollectables.com\n  EXPECTED_PRODUCTION_SHA: 7765f115d44e2629d47cc38871273dacdafcb8e7\n''',
+                  1,
+              ),
+              (
+                  '''          git fetch origin main\n          git diff --check origin/main...HEAD\n''',
+                  '''          git fetch origin main\n          test "$(git rev-parse origin/main)" = "$EXPECTED_PRODUCTION_SHA"\n          git diff --check origin/main...HEAD\n''',
+                  1,
+              ),
+              (
+                  '''            sourceSha: process.env.GITHUB_SHA,\n''',
+                  '''            sourceSha: process.env.EXPECTED_PRODUCTION_SHA,\n''',
+                  2,
+              ),
+              (
+                  '''          set +e\n          node --env-file=.audit-production.env scripts/run-truely-launch-audit-20260729.mjs runtime\n          status=$?\n          set -e\n          rm -f .audit-production.env\n          exit "$status"\n''',
+                  '''          set +e\n          node - <<'NODE'\n          const fs = require('node:fs');\n          const { parseEnv } = require('node:util');\n          const { spawnSync } = require('node:child_process');\n          const production = parseEnv(fs.readFileSync('.audit-production.env', 'utf8'));\n          const usable = (value) =>\n            typeof value === 'string' &&\n            value.trim().length > 0 &&\n            !/build-only-placeholder|127\\.0\\.0\\.1/i.test(value);\n          for (const key of ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'EBAY_CLIENT_ID', 'EBAY_CLIENT_SECRET', 'RESEND_API_KEY']) {\n            if (!usable(production[key])) throw new Error(`Production environment did not provide a usable ${key}.`);\n          }\n          const stripeKey = usable(production.STRIPE_LIVE_SECRET_KEY)\n            ? production.STRIPE_LIVE_SECRET_KEY\n            : production.STRIPE_SECRET_KEY;\n          if (!usable(stripeKey) || !String(stripeKey).startsWith('sk_live_')) {\n            throw new Error('Production environment did not provide a usable live Stripe secret key.');\n          }\n          const child = spawnSync(\n            process.execPath,\n            ['scripts/run-truely-launch-audit-20260729.mjs', 'runtime'],\n            { stdio: 'inherit', env: { ...process.env, ...production } },\n          );\n          process.exit(child.status ?? 1);\n          NODE\n          status=$?\n          set -e\n          rm -f .audit-production.env\n          exit "$status"\n''',
+                  1,
+              ),
+              (
+                  '''          const rows = [];\n          let blocker = false;\n          for (const file of fs.readdirSync(dir).filter(name => name.endsWith('.json'))) {\n            const report = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'));\n            const row = { page: file.replace('.json', '') };\n            for (const key of ['performance', 'accessibility', 'best-practices', 'seo']) {\n              row[key] = Math.round((report.categories[key]?.score || 0) * 100);\n            }\n            if (row.accessibility < 90 || row.seo < 90 || row['best-practices'] < 85) blocker = true;\n            rows.push(row);\n          }\n          fs.writeFileSync(path.join(dir, 'lighthouse-summary.json'), JSON.stringify({ rows, blocker }, null, 2));\n          fs.writeFileSync(path.join(dir, 'lighthouse-summary.md'), '# Lighthouse summary\\n\\n' + rows.map(row => `- ${row.page}: Performance ${row.performance}, Accessibility ${row.accessibility}, Best Practices ${row['best-practices']}, SEO ${row.seo}`).join('\\n') + '\\n');\n''',
+                  '''          const rows = [];\n          const blockerReasons = [];\n          const intentionallyNoindex = new Set(['cart', 'signup']);\n          for (const file of fs.readdirSync(dir).filter(name => name.endsWith('.json'))) {\n            const report = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'));\n            const page = file.replace('.json', '');\n            const crawlAudit = report.audits['is-crawlable'];\n            const canonicalAudit = report.audits.canonical;\n            const crawlEvidence = JSON.stringify(crawlAudit?.details?.items || []);\n            const row = {\n              page,\n              intentionallyNoindex: intentionallyNoindex.has(page),\n              crawlable: crawlAudit?.score ?? null,\n              canonical: canonicalAudit?.score ?? null,\n            };\n            for (const key of ['performance', 'accessibility', 'best-practices', 'seo']) {\n              row[key] = Math.round((report.categories[key]?.score || 0) * 100);\n            }\n            if (row.accessibility < 90) blockerReasons.push(`${page}: accessibility ${row.accessibility} is below 90.`);\n            if (row['best-practices'] < 85) blockerReasons.push(`${page}: best practices ${row['best-practices']} is below 85.`);\n            if (row.canonical !== 1) blockerReasons.push(`${page}: canonical audit did not pass.`);\n            if (row.intentionallyNoindex) {\n              if (row.crawlable !== 0 || !/noindex/i.test(crawlEvidence)) {\n                blockerReasons.push(`${page}: intentional noindex posture was not proven.`);\n              }\n            } else {\n              if (row.seo < 90) blockerReasons.push(`${page}: SEO ${row.seo} is below 90.`);\n              if (row.crawlable !== 1) blockerReasons.push(`${page}: public indexed page is not crawlable.`);\n            }\n            rows.push(row);\n          }\n          const blocker = blockerReasons.length > 0;\n          fs.writeFileSync(path.join(dir, 'lighthouse-summary.json'), JSON.stringify({ rows, blocker, blockerReasons }, null, 2));\n          fs.writeFileSync(path.join(dir, 'lighthouse-summary.md'), '# Lighthouse summary\\n\\n' + rows.map(row => `- ${row.page}: Performance ${row.performance}, Accessibility ${row.accessibility}, Best Practices ${row['best-practices']}, SEO ${row.seo}, Crawlable ${row.crawlable}, Canonical ${row.canonical}, Intentional noindex ${row.intentionallyNoindex}`).join('\\n') + (blockerReasons.length ? `\\n\\n## Blockers\\n${blockerReasons.map(reason => `- ${reason}`).join('\\n')}` : '') + '\\n');\n''',
+                  1,
+              ),
+          ]
 
-          anchors.append((
-          '''env:\n  AUDIT_BASE_URL: https://truelycollectables.com\n''',
-          '''env:\n  AUDIT_BASE_URL: https://truelycollectables.com\n  EXPECTED_PRODUCTION_SHA: 7765f115d44e2629d47cc38871273dacdafcb8e7\n'''))
-
-          anchors.append((
-          '''          git fetch origin main\n          git diff --check origin/main...HEAD\n''',
-          '''          git fetch origin main\n          test "$(git rev-parse origin/main)" = "$EXPECTED_PRODUCTION_SHA"\n          git diff --check origin/main...HEAD\n'''))
-
-          anchors.append((
-          '''            sourceSha: process.env.GITHUB_SHA,\n''',
-          '''            sourceSha: process.env.EXPECTED_PRODUCTION_SHA,\n'''))
-
-          anchors.append((
-          '''          set +e\n          node --env-file=.audit-production.env scripts/run-truely-launch-audit-20260729.mjs runtime\n          status=$?\n          set -e\n          rm -f .audit-production.env\n          exit "$status"\n''',
-          '''          set +e\n          node - <<'NODE'\n          const fs = require('node:fs');\n          const { parseEnv } = require('node:util');\n          const { spawnSync } = require('node:child_process');\n          const production = parseEnv(fs.readFileSync('.audit-production.env', 'utf8'));\n          const usable = (value) =>\n            typeof value === 'string' &&\n            value.trim().length > 0 &&\n            !/build-only-placeholder|127\\.0\\.0\\.1/i.test(value);\n          for (const key of ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'EBAY_CLIENT_ID', 'EBAY_CLIENT_SECRET', 'RESEND_API_KEY']) {\n            if (!usable(production[key])) throw new Error(`Production environment did not provide a usable ${key}.`);\n          }\n          const stripeKey = usable(production.STRIPE_LIVE_SECRET_KEY)\n            ? production.STRIPE_LIVE_SECRET_KEY\n            : production.STRIPE_SECRET_KEY;\n          if (!usable(stripeKey) || !String(stripeKey).startsWith('sk_live_')) {\n            throw new Error('Production environment did not provide a usable live Stripe secret key.');\n          }\n          const child = spawnSync(\n            process.execPath,\n            ['scripts/run-truely-launch-audit-20260729.mjs', 'runtime'],\n            { stdio: 'inherit', env: { ...process.env, ...production } },\n          );\n          process.exit(child.status ?? 1);\n          NODE\n          status=$?\n          set -e\n          rm -f .audit-production.env\n          exit "$status"\n'''))
-
-          anchors.append((
-          '''          const rows = [];\n          let blocker = false;\n          for (const file of fs.readdirSync(dir).filter(name => name.endsWith('.json'))) {\n            const report = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'));\n            const row = { page: file.replace('.json', '') };\n            for (const key of ['performance', 'accessibility', 'best-practices', 'seo']) {\n              row[key] = Math.round((report.categories[key]?.score || 0) * 100);\n            }\n            if (row.accessibility < 90 || row.seo < 90 || row['best-practices'] < 85) blocker = true;\n            rows.push(row);\n          }\n          fs.writeFileSync(path.join(dir, 'lighthouse-summary.json'), JSON.stringify({ rows, blocker }, null, 2));\n          fs.writeFileSync(path.join(dir, 'lighthouse-summary.md'), '# Lighthouse summary\\n\\n' + rows.map(row => `- ${row.page}: Performance ${row.performance}, Accessibility ${row.accessibility}, Best Practices ${row['best-practices']}, SEO ${row.seo}`).join('\\n') + '\\n');\n''',
-          '''          const rows = [];\n          const blockerReasons = [];\n          const intentionallyNoindex = new Set(['cart', 'signup']);\n          for (const file of fs.readdirSync(dir).filter(name => name.endsWith('.json'))) {\n            const report = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'));\n            const page = file.replace('.json', '');\n            const crawlAudit = report.audits['is-crawlable'];\n            const canonicalAudit = report.audits.canonical;\n            const crawlEvidence = JSON.stringify(crawlAudit?.details?.items || []);\n            const row = {\n              page,\n              intentionallyNoindex: intentionallyNoindex.has(page),\n              crawlable: crawlAudit?.score ?? null,\n              canonical: canonicalAudit?.score ?? null,\n            };\n            for (const key of ['performance', 'accessibility', 'best-practices', 'seo']) {\n              row[key] = Math.round((report.categories[key]?.score || 0) * 100);\n            }\n            if (row.accessibility < 90) blockerReasons.push(`${page}: accessibility ${row.accessibility} is below 90.`);\n            if (row['best-practices'] < 85) blockerReasons.push(`${page}: best practices ${row['best-practices']} is below 85.`);\n            if (row.canonical !== 1) blockerReasons.push(`${page}: canonical audit did not pass.`);\n            if (row.intentionallyNoindex) {\n              if (row.crawlable !== 0 || !/noindex/i.test(crawlEvidence)) {\n                blockerReasons.push(`${page}: intentional noindex posture was not proven.`);\n              }\n            } else {\n              if (row.seo < 90) blockerReasons.push(`${page}: SEO ${row.seo} is below 90.`);\n              if (row.crawlable !== 1) blockerReasons.push(`${page}: public indexed page is not crawlable.`);\n            }\n            rows.push(row);\n          }\n          const blocker = blockerReasons.length > 0;\n          fs.writeFileSync(path.join(dir, 'lighthouse-summary.json'), JSON.stringify({ rows, blocker, blockerReasons }, null, 2));\n          fs.writeFileSync(path.join(dir, 'lighthouse-summary.md'), '# Lighthouse summary\\n\\n' + rows.map(row => `- ${row.page}: Performance ${row.performance}, Accessibility ${row.accessibility}, Best Practices ${row['best-practices']}, SEO ${row.seo}, Crawlable ${row.crawlable}, Canonical ${row.canonical}, Intentional noindex ${row.intentionallyNoindex}`).join('\\n') + (blockerReasons.length ? `\\n\\n## Blockers\\n${blockerReasons.map(reason => `- ${reason}`).join('\\n')}` : '') + '\\n');\n'''))
-
-          for old, new in anchors:
+          for old, new, expected_count in anchors:
               count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f'Expected exactly one audit anchor, found {count}: {old[:120]!r}')
-              text = text.replace(old, new, 1)
+              if count != expected_count:
+                  raise SystemExit(f'Expected {expected_count} audit anchors, found {count}: {old[:120]!r}')
+              text = text.replace(old, new, expected_count)
 
           path.write_text(text)
           PY
@@ -86,13 +92,8 @@ jobs:
           grep -Fq 'EXPECTED_PRODUCTION_SHA: 7765f115d44e2629d47cc38871273dacdafcb8e7' .github/workflows/ops-truely-full-launch-audit-20260729.yml
           grep -Fq "env: { ...process.env, ...production }" .github/workflows/ops-truely-full-launch-audit-20260729.yml
           grep -Fq "const intentionallyNoindex = new Set(['cart', 'signup']);" .github/workflows/ops-truely-full-launch-audit-20260729.yml
-          grep -Fq 'sourceSha: process.env.EXPECTED_PRODUCTION_SHA' .github/workflows/ops-truely-full-launch-audit-20260729.yml
-          python - <<'PY'
-          from pathlib import Path
-          import yaml
-          yaml.safe_load(Path('.github/workflows/ops-truely-full-launch-audit-20260729.yml').read_text())
-          print('Repaired audit workflow YAML parsed successfully.')
-          PY
+          test "$(grep -Fc 'sourceSha: process.env.EXPECTED_PRODUCTION_SHA' .github/workflows/ops-truely-full-launch-audit-20260729.yml)" -eq 2
+          ruby -e 'require "yaml"; YAML.load_file(".github/workflows/ops-truely-full-launch-audit-20260729.yml"); puts "Repaired audit workflow YAML parsed successfully."'
 
       - name: Commit only the repaired audit workflow
         shell: bash
