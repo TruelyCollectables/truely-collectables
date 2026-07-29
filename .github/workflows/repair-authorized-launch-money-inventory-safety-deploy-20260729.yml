@@ -52,30 +52,29 @@ jobs:
           output = Path('ops-output/authorized-launch-money-inventory-safety-deploy-20260729.yml')
           text = source.read_text(encoding='utf-8')
           source_sha = '8baee1bb26a17f974388b4d8e50b4321bbdfb685'
-          old_block = '\n'.join([
-              '      - name: Confirm staged Production and safe promotion fallback',
-              '        shell: bash',
-              '        run: |',
-              '          set -euo pipefail',
-              '          npx vercel@56.2.0 deploy --help > .deployment-evidence/vercel-deploy-help.txt 2>&1',
-              "          grep -Fq -- '--skip-domain' .deployment-evidence/vercel-deploy-help.txt",
-              "          printf '%s\\n' 'alias-set-fallback' > .deployment-evidence/vercel-promotion-method.txt",
-              '',
-          ])
-          new_block = '\n'.join([
-              '      - name: Record staged Production and safe promotion contract',
-              '        shell: bash',
-              '        run: |',
-              '          set -euo pipefail',
-              "          printf '%s\\n' 'staged-deploy:--prod,--skip-domain;promotion:alias-set-fallback' > .deployment-evidence/vercel-promotion-method.txt",
-              '',
-          ])
+          old_name = '      - name: Confirm staged Production and safe promotion fallback\n'
+          new_name = '      - name: Record staged Production and safe promotion contract\n'
+          help_line = '          npx vercel@56.2.0 deploy --help > .deployment-evidence/vercel-deploy-help.txt 2>&1\n'
+          grep_line = "          grep -Fq -- '--skip-domain' .deployment-evidence/vercel-deploy-help.txt\n"
+          old_evidence = "          printf '%s\\n' 'alias-set-fallback' > .deployment-evidence/vercel-promotion-method.txt\n"
+          new_evidence = "          printf '%s\\n' 'staged-deploy:--prod,--skip-domain;promotion:alias-set-fallback' > .deployment-evidence/vercel-promotion-method.txt\n"
 
+          expected_once = {
+              'preflight step name': old_name,
+              'deploy help command': help_line,
+              'skip-domain help grep': grep_line,
+              'promotion evidence line': old_evidence,
+          }
+          for label, value in expected_once.items():
+              if text.count(value) != 1:
+                  raise SystemExit(f'Expected exactly one {label}.')
           if text.count(source_sha) != 2:
               raise SystemExit('Expected exactly two current exact-source SHA references.')
-          if text.count(old_block) != 1:
-              raise SystemExit('Expected exactly one nonzero CLI help preflight block.')
-          text = text.replace(old_block, new_block)
+
+          text = text.replace(old_name, new_name)
+          text = text.replace(help_line, '')
+          text = text.replace(grep_line, '')
+          text = text.replace(old_evidence, new_evidence)
 
           required = [
               f'SOURCE_SHA: {source_sha}',
