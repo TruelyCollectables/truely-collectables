@@ -24,12 +24,12 @@ jobs:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_SCOPE: truelycollectables-projects
-      DEPLOY_SOURCE_SHA: bea900cb243420c542cff0e31125be6bab49f4bb
+      DEPLOY_SOURCE_SHA: e37dfc6792c22f6cf6acc78aba23f38815b9cf82
     steps:
       - name: Check out exact merged source
         uses: actions/checkout@v4
         with:
-          ref: bea900cb243420c542cff0e31125be6bab49f4bb
+          ref: e37dfc6792c22f6cf6acc78aba23f38815b9cf82
           fetch-depth: 0
 
       - name: Fail closed if main moved
