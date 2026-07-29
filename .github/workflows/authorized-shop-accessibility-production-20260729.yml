@@ -1,0 +1,208 @@
+name: Authorized Shop Accessibility Production 20260729
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/authorized-shop-accessibility-production-20260729.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: authorized-shop-accessibility-production
+  cancel-in-progress: false
+
+jobs:
+  deploy-and-prove:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'deploy/shop-accessibility-production-20260729'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      SOURCE_SHA: e37dfc6792c22f6cf6acc78aba23f38815b9cf82
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      EVIDENCE_DIR: /tmp/shop-accessibility-production-evidence
+      NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      ADMIN_SESSION_SECRET: build-validation-admin-session-secret-that-is-long-enough
+      ADMIN_PASSWORD: build-validation-admin-password
+      STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+      EBAY_CLIENT_ID: build-only-placeholder-client-id
+      EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+      EBAY_ENVIRONMENT: production
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+    steps:
+      - name: Check out exact merged source
+        uses: actions/checkout@v4
+        with:
+          ref: e37dfc6792c22f6cf6acc78aba23f38815b9cf82
+          fetch-depth: 1
+
+      - name: Guard exact source and merged accessibility contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git diff --exit-code
+          mkdir -p "$EVIDENCE_DIR"
+          printf '%s\n' "$SOURCE_SHA" > "$EVIDENCE_DIR/source-sha.txt"
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const source = fs.readFileSync('src/app/shop/page.tsx', 'utf8');
+          const controls = [
+            ['shop-search', 'Search inventory', 'input'],
+            ['shop-section', 'Filter by section', 'select'],
+            ['shop-feature', 'Filter by card feature', 'select'],
+            ['shop-sort', 'Sort inventory', 'select'],
+          ];
+          for (const [id, label, tag] of controls) {
+            if (!source.includes(`<label htmlFor="${id}" className="sr-only">`)) throw new Error(`Missing label binding for ${id}`);
+            if (!source.includes(label)) throw new Error(`Missing label text for ${id}`);
+            if (!new RegExp(`<${tag}\\s+id="${id}"`).test(source)) throw new Error(`Missing control id for ${id}`);
+          }
+          fs.writeFileSync(process.env.EVIDENCE_DIR + '/source-accessibility-contract.json', JSON.stringify({ ok: true, controls: controls.map(([id, label]) => ({ id, label })) }, null, 2));
+          NODE
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Run standalone TypeScript
+        run: npx tsc --noEmit --pretty false
+
+      - name: Run full Production build
+        run: npm run build
+
+      - name: Link exact Vercel project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p .vercel
+          npx vercel@56.2.0 whoami --token "$VERCEL_TOKEN" > "$EVIDENCE_DIR/vercel-identity.txt" 2>&1
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          node -e 'const p=require("./.vercel/project.json"); if(!p.orgId||!p.projectId) process.exit(1);'
+
+      - name: Stage exact Production candidate without domains
+        id: staged
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git diff --exit-code
+          npx vercel@56.2.0 deploy --prod --yes --force --skip-domain \
+            --meta "launchSourceSha=$SOURCE_SHA" \
+            --meta "launchPurpose=shop-accessibility-candidate" \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" \
+            2>&1 | tee "$EVIDENCE_DIR/staged-deployment.log"
+          STAGED_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$EVIDENCE_DIR/staged-deployment.log" | head -n 1)"
+          test -n "$STAGED_URL"
+          echo "staged_url=$STAGED_URL" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$STAGED_URL" > "$EVIDENCE_DIR/staged-url.txt"
+
+      - name: Verify staged shop accessibility and safety
+        env:
+          STAGED_URL: ${{ steps.staged.outputs.staged_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 120 --output "$EVIDENCE_DIR/staged-shop.html" --write-out '%{http_code}' "$STAGED_URL/shop")"
+          test "$code" = "200"
+          for token in 'id="shop-search"' '>Search inventory<' 'id="shop-section"' '>Filter by section<' 'id="shop-feature"' '>Filter by card feature<' 'id="shop-sort"' '>Sort inventory<'; do
+            grep -Fq "$token" "$EVIDENCE_DIR/staged-shop.html"
+          done
+          code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output "$EVIDENCE_DIR/staged-webhook.json" --write-out '%{http_code}' --request POST --header 'Content-Type: application/json' --data '{}' "$STAGED_URL/api/webhook")"
+          test "$code" = "400"
+
+      - name: Run staged Lighthouse accessibility gate
+        env:
+          STAGED_URL: ${{ steps.staged.outputs.staged_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes lighthouse@12.8.2 "$STAGED_URL/shop" \
+            --quiet --chrome-flags="--headless --no-sandbox --disable-dev-shm-usage" \
+            --only-categories=accessibility,best-practices,seo,performance \
+            --output=json --output-path="$EVIDENCE_DIR/staged-shop-lighthouse.json"
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const report = JSON.parse(fs.readFileSync(process.env.EVIDENCE_DIR + '/staged-shop-lighthouse.json', 'utf8'));
+          const scores = Object.fromEntries(Object.entries(report.categories).map(([key, value]) => [key, value.score]));
+          fs.writeFileSync(process.env.EVIDENCE_DIR + '/staged-shop-lighthouse-summary.json', JSON.stringify(scores, null, 2));
+          if ((scores.accessibility ?? 0) < 0.99) throw new Error(`Staged accessibility score ${scores.accessibility}`);
+          if ((scores['best-practices'] ?? 0) < 0.95) throw new Error(`Staged best-practices score ${scores['best-practices']}`);
+          if ((scores.seo ?? 0) < 0.95) throw new Error(`Staged SEO score ${scores.seo}`);
+          if ((scores.performance ?? 0) < 0.75) throw new Error(`Staged performance score ${scores.performance}`);
+          NODE
+
+      - name: Promote only the verified candidate
+        env:
+          STAGED_URL: ${{ steps.staged.outputs.staged_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! npx vercel@56.2.0 promote "$STAGED_URL" --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$EVIDENCE_DIR/vercel-promote.log" 2>&1; then
+            printf '%s\n' 'Promote command failed; applying verified aliases.' >> "$EVIDENCE_DIR/vercel-promote.log"
+            npx vercel@56.2.0 alias set "$STAGED_URL" truelycollectables.com --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >> "$EVIDENCE_DIR/vercel-promote.log" 2>&1
+            npx vercel@56.2.0 alias set "$STAGED_URL" truely-collectables.vercel.app --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >> "$EVIDENCE_DIR/vercel-promote.log" 2>&1
+          fi
+
+      - name: Verify live shop and Lighthouse
+        shell: bash
+        run: |
+          set -euo pipefail
+          ready=''
+          for attempt in $(seq 1 30); do
+            code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 120 --output "$EVIDENCE_DIR/live-shop.html" --write-out '%{http_code}' https://truelycollectables.com/shop || true)"
+            if [ "$code" = "200" ] && grep -Fq 'id="shop-section"' "$EVIDENCE_DIR/live-shop.html" && grep -Fq '>Filter by section<' "$EVIDENCE_DIR/live-shop.html"; then ready=1; break; fi
+            sleep 10
+          done
+          test -n "$ready"
+          for token in 'id="shop-search"' '>Search inventory<' 'id="shop-section"' '>Filter by section<' 'id="shop-feature"' '>Filter by card feature<' 'id="shop-sort"' '>Sort inventory<'; do
+            grep -Fq "$token" "$EVIDENCE_DIR/live-shop.html"
+          done
+          npx --yes lighthouse@12.8.2 https://truelycollectables.com/shop \
+            --quiet --chrome-flags="--headless --no-sandbox --disable-dev-shm-usage" \
+            --only-categories=accessibility,best-practices,seo,performance \
+            --output=json --output-path="$EVIDENCE_DIR/live-shop-lighthouse.json"
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const report = JSON.parse(fs.readFileSync(process.env.EVIDENCE_DIR + '/live-shop-lighthouse.json', 'utf8'));
+          const scores = Object.fromEntries(Object.entries(report.categories).map(([key, value]) => [key, value.score]));
+          fs.writeFileSync(process.env.EVIDENCE_DIR + '/live-shop-lighthouse-summary.json', JSON.stringify(scores, null, 2));
+          if ((scores.accessibility ?? 0) < 0.99) throw new Error(`Live accessibility score ${scores.accessibility}`);
+          if ((scores['best-practices'] ?? 0) < 0.95) throw new Error(`Live best-practices score ${scores['best-practices']}`);
+          if ((scores.seo ?? 0) < 0.95) throw new Error(`Live SEO score ${scores.seo}`);
+          if ((scores.performance ?? 0) < 0.75) throw new Error(`Live performance score ${scores.performance}`);
+          NODE
+
+      - name: Upload sanitized evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shop-accessibility-production-${{ github.run_number }}
+          path: /tmp/shop-accessibility-production-evidence
+          if-no-files-found: error
+          retention-days: 30
