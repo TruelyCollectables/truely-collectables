@@ -1,0 +1,112 @@
+name: Validate Current Transactional Metadata V2 20260729
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/ops-validate-current-transactional-metadata-v2-20260729.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ops/validate-transactional-metadata-20260729')
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      SOURCE_SHA: 7765f115d44e2629d47cc38871273dacdafcb8e7
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      EVIDENCE_DIR: /tmp/metadata-v2-evidence
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 7765f115d44e2629d47cc38871273dacdafcb8e7
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install and validate source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE_DIR"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git diff --exit-code
+          npm ci
+          node scripts/simulate-transactional-canonical-metadata.mjs | tee "$EVIDENCE_DIR/contract.log"
+          npm run lint | tee "$EVIDENCE_DIR/lint.log"
+          npx tsc --noEmit --pretty false | tee "$EVIDENCE_DIR/typescript.log"
+          NEXT_PUBLIC_SUPABASE_URL=https://build-validation.invalid \
+          NEXT_PUBLIC_SUPABASE_ANON_KEY=build-validation-anon-key \
+          SUPABASE_SERVICE_ROLE_KEY=build-validation-service-role-key \
+          NEXT_PUBLIC_SITE_URL=https://truelycollectables.com \
+          STRIPE_SECRET_KEY=sk_test_build_only_placeholder \
+          STRIPE_WEBHOOK_SECRET=whsec_build_only_placeholder \
+          ADMIN_SESSION_SECRET=build-only-placeholder-session-secret-that-is-long-enough \
+          ADMIN_PASSWORD=build-only-placeholder-admin-password \
+            npm run build | tee "$EVIDENCE_DIR/build.log"
+      - name: Link Vercel project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p .vercel
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+      - name: Stage exact source without domain promotion
+        id: stage
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 deploy --prod --yes --force --skip-domain \
+            --meta "launchSourceSha=$SOURCE_SHA" \
+            --meta "launchPurpose=metadata-v2-validation" \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" \
+            2>&1 | tee "$EVIDENCE_DIR/vercel.log"
+          URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$EVIDENCE_DIR/vercel.log" | tail -n 1)"
+          test -n "$URL"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "$URL" > "$EVIDENCE_DIR/url.txt"
+      - name: Verify rendered policy and Lighthouse
+        env:
+          STAGE_URL: ${{ steps.stage.outputs.url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for pair in 'cart:/cart' 'signup:/account/signup'; do
+            name="${pair%%:*}"; route="${pair#*:}"
+            code="$(curl -L -sS --connect-timeout 15 --max-time 90 -o "$EVIDENCE_DIR/${name}.html" -w '%{http_code}' "$STAGE_URL$route")"
+            test "$code" = 200
+            grep -Eiq 'name="robots"[^>]+noindex[^>]+nofollow|content="[^"]*noindex[^"]*nofollow[^"]*"[^>]+name="robots"' "$EVIDENCE_DIR/${name}.html"
+            grep -Eiq "rel=\"canonical\"[^>]+href=\"https://truelycollectables.com${route}\"|href=\"https://truelycollectables.com${route}\"[^>]+rel=\"canonical\"" "$EVIDENCE_DIR/${name}.html"
+            npx --yes lighthouse@12.8.2 "$STAGE_URL$route" --only-categories=performance,accessibility,best-practices,seo --output=json --output-path="$EVIDENCE_DIR/${name}-lh.json" --chrome-flags="--headless --no-sandbox --disable-gpu" --quiet
+          done
+          node - <<'NODE'
+          const fs=require('fs'); const dir=process.env.EVIDENCE_DIR; const rows=[];
+          for(const name of ['cart','signup']){
+            const r=JSON.parse(fs.readFileSync(`${dir}/${name}-lh.json`,'utf8'));
+            const row={page:name,performance:Math.round((r.categories.performance?.score||0)*100),accessibility:Math.round((r.categories.accessibility?.score||0)*100),bestPractices:Math.round((r.categories['best-practices']?.score||0)*100),seo:Math.round((r.categories.seo?.score||0)*100),canonical:r.audits.canonical?.score,crawlable:r.audits['is-crawlable']?.score};
+            if(row.canonical!==1) throw new Error(`${name} canonical failed`);
+            if(row.crawlable!==0) throw new Error(`${name} must remain noindex`);
+            if(row.accessibility<90||row.bestPractices<85) throw new Error(`${name} category threshold failed`);
+            rows.push(row);
+          }
+          fs.writeFileSync(`${dir}/summary.json`,JSON.stringify({ok:true,sourceSha:process.env.SOURCE_SHA,rows},null,2)); console.table(rows);
+          NODE
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: metadata-v2-${{ github.run_number }}
+          path: /tmp/metadata-v2-evidence
+          if-no-files-found: error
+          retention-days: 30
