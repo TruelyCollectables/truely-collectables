@@ -1,0 +1,152 @@
+name: Deploy Launch Lighthouse Shop Labels 20260729
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/deploy-launch-lighthouse-shop-labels-20260729.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-launch-lighthouse-shop-labels-20260729
+  cancel-in-progress: false
+
+jobs:
+  deploy-and-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      DEPLOY_SOURCE_SHA: 59e2bf8994eff926f9e17ab02e1b1d63b7e8cd08
+    steps:
+      - name: Check out exact merged source
+        uses: actions/checkout@v4
+        with:
+          ref: 59e2bf8994eff926f9e17ab02e1b1d63b7e8cd08
+          fetch-depth: 0
+
+      - name: Fail closed if main moved
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$DEPLOY_SOURCE_SHA"
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$DEPLOY_SOURCE_SHA"
+          git diff --quiet
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Resolve exact Vercel project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p .vercel .audit/lighthouse-shop
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          printf '%s\n' "$DEPLOY_SOURCE_SHA" > .audit/lighthouse-shop/source-sha.txt
+
+      - name: Deploy exact merged revision to Production
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 deploy \
+            --prod \
+            --yes \
+            --force \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" 2>&1 | tee .audit/lighthouse-shop/vercel-deploy.log
+          DEPLOYMENT_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' .audit/lighthouse-shop/vercel-deploy.log | tail -n 1)"
+          test -n "$DEPLOYMENT_URL"
+          printf '%s\n' "$DEPLOYMENT_URL" > .audit/lighthouse-shop/deployment-url.txt
+          echo "deployment_url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Verify live storefront and protected admin boundary
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for label in deployment custom; do
+            if [ "$label" = deployment ]; then base="$DEPLOYMENT_URL"; else base="https://truelycollectables.com"; fi
+            root_code="$(curl --location --silent --show-error --output ".audit/lighthouse-shop/${label}-root.html" --write-out '%{http_code}' "$base/")"
+            shop_code="$(curl --location --silent --show-error --output ".audit/lighthouse-shop/${label}-shop.html" --write-out '%{http_code}' "$base/shop")"
+            admin_code="$(curl --silent --show-error --output ".audit/lighthouse-shop/${label}-admin.html" --write-out '%{http_code}' "$base/admin")"
+            login_code="$(curl --location --silent --show-error --output ".audit/lighthouse-shop/${label}-admin-login.html" --write-out '%{http_code}' "$base/admin/login")"
+            test "$root_code" = "200"
+            test "$shop_code" = "200"
+            test "$admin_code" = "307"
+            test "$login_code" = "200"
+            grep -Fq 'id="shop-search"' ".audit/lighthouse-shop/${label}-shop.html"
+            grep -Fq 'id="shop-section"' ".audit/lighthouse-shop/${label}-shop.html"
+            grep -Fq 'id="shop-feature"' ".audit/lighthouse-shop/${label}-shop.html"
+            grep -Fq 'id="shop-sort"' ".audit/lighthouse-shop/${label}-shop.html"
+            grep -Fq 'for="shop-search"' ".audit/lighthouse-shop/${label}-shop.html"
+            grep -Fq 'for="shop-section"' ".audit/lighthouse-shop/${label}-shop.html"
+            grep -Fq 'for="shop-feature"' ".audit/lighthouse-shop/${label}-shop.html"
+            grep -Fq 'for="shop-sort"' ".audit/lighthouse-shop/${label}-shop.html"
+            grep -Fq 'Admin Login' ".audit/lighthouse-shop/${label}-admin-login.html"
+          done
+
+      - name: Rerun affected Lighthouse gate
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for label in deployment custom; do
+            if [ "$label" = deployment ]; then url="$DEPLOYMENT_URL/shop"; else url="https://truelycollectables.com/shop"; fi
+            npx --yes lighthouse@12.8.2 "$url" \
+              --only-categories=performance,accessibility,best-practices,seo \
+              --output=json \
+              --output-path=".audit/lighthouse-shop/${label}-shop-lighthouse.json" \
+              --chrome-flags="--headless --no-sandbox --disable-gpu" \
+              --quiet
+          done
+          node - <<'NODE'
+          const fs = require('fs');
+          const rows = [];
+          for (const label of ['deployment', 'custom']) {
+            const report = JSON.parse(fs.readFileSync(`.audit/lighthouse-shop/${label}-shop-lighthouse.json`, 'utf8'));
+            const row = {
+              target: label,
+              performance: Math.round((report.categories.performance?.score || 0) * 100),
+              accessibility: Math.round((report.categories.accessibility?.score || 0) * 100),
+              bestPractices: Math.round((report.categories['best-practices']?.score || 0) * 100),
+              seo: Math.round((report.categories.seo?.score || 0) * 100),
+              selectNameScore: report.audits['select-name']?.score,
+            };
+            if (row.accessibility < 100) throw new Error(`${label} accessibility remained ${row.accessibility}`);
+            if (row.bestPractices < 85) throw new Error(`${label} best practices remained ${row.bestPractices}`);
+            if (row.seo < 90) throw new Error(`${label} SEO remained ${row.seo}`);
+            if (row.selectNameScore !== 1) throw new Error(`${label} select-name audit did not pass`);
+            rows.push(row);
+          }
+          fs.writeFileSync('.audit/lighthouse-shop/summary.json', JSON.stringify({ sourceSha: process.env.DEPLOY_SOURCE_SHA, rows }, null, 2));
+          fs.writeFileSync('.audit/lighthouse-shop/summary.md', '# Shop Lighthouse remediation\n\n' + rows.map(row => `- ${row.target}: Performance ${row.performance}, Accessibility ${row.accessibility}, Best Practices ${row.bestPractices}, SEO ${row.seo}, select-name ${row.selectNameScore}`).join('\n') + '\n');
+          console.table(rows);
+          NODE
+
+      - name: Upload sanitized deployment and Lighthouse evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launch-lighthouse-shop-labels-production
+          path: .audit/lighthouse-shop
+          if-no-files-found: error
+          retention-days: 30
