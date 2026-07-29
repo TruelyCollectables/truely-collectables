@@ -4,7 +4,7 @@ import Image from "next/image";
 import ClearCartOnSuccess from "../../components/ClearCartOnSuccess";
 import { preferHighResolutionListingImage } from "../../lib/listing-image-utils";
 import { createServerInventoryEngine } from "../../lib/server-inventory-engine";
-import type { StorefrontSort } from "../../lib/storefront-taxonomy";
+import { sortStorefrontSections, type StorefrontSort } from "../../lib/storefront-taxonomy";
 import type { UniversalInventoryItem } from "../../modules/inventory";
 
 export const dynamic = "force-dynamic";
@@ -121,7 +121,8 @@ export default async function Shop({
   }
 
   const activeFilters = Boolean(q || section || feature || sort !== "section");
-  const quickSections = QUICK_SECTIONS.filter((name) => sections.includes(name));
+const quickSections = QUICK_SECTIONS;
+const sectionOptions = sortStorefrontSections([...QUICK_SECTIONS, ...sections]);
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
@@ -175,9 +176,9 @@ export default async function Shop({
 
         <select name="section" defaultValue={section} className="min-h-12 rounded border px-3 py-3 text-base">
           <option value="">All Sections</option>
-          {sections.map((name) => (
-            <option key={name} value={name}>{name}</option>
-          ))}
+          {sectionOptions.map((name) => (
+  <option key={name} value={name}>{name}</option>
+))}
         </select>
 
         <select name="feature" defaultValue={feature} className="min-h-12 rounded border px-3 py-3 text-base">

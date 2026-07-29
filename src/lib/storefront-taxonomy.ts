@@ -108,7 +108,7 @@ function recordValue(value: unknown): Record<string, unknown> {
 }
 
 function currentTaxonomyMetadata(metadata: Record<string, unknown>) {
-  return Number(metadata.tcos_taxonomy_version || 0) >= 5;
+  return Number(metadata.tcos_taxonomy_version || 0) >= 6;
 }
 
 function meaningfulAutographAspect(value: unknown) {
@@ -148,15 +148,26 @@ function detectSection(params: {
   const focused = `${sport} ${league} ${title}`;
   const objectFocused = `${title} ${objectType}`;
   const isCardPrimary = ["sports_cards", "trading_cards", "sealed_wax"].includes(
-    primaryCategory,
+  primaryCategory,
+);
+const explicitCardSignal =
+  /\b(?:sports |trading |collectible )?cards?\b|\brookie card\b|\bcard #|\b(?:relic|patch|swatch|jersey|memorabilia) card\b|\bsports trading card\b/.test(
+    `${objectFocused} ${primaryCategory}`,
   );
-  const isCardLike =
-    isCardPrimary ||
-    /\b(?:sports |trading |collectible )?cards?\b|\brookie card\b|\bcard #|\b(?:relic|patch|swatch|jersey|memorabilia) card\b/.test(
-      `${objectFocused} ${primaryCategory}`,
-    );
+const cardBrandSignal =
+  /\b(?:topps|panini|upper deck|bowman|donruss|prizm|skybox|sky box|sp game used|sp authentic|select|national treasures|immaculate|flawless|chronicles|contenders|mosaic|optic|finest|heritage|stadium club|score|fleer|leaf|o pee chee|opc)\b/.test(
+    objectFocused,
+  );
+const cardCatalogSignal =
+  /(?:^|\s)#[a-z0-9-]+\b|\b(?:base|insert|parallel|refractor|rookie|rc|proof|relic|patch|swatch|jersey)\b/.test(
+    objectFocused,
+  );
+const isCardLike =
+  isCardPrimary ||
+  explicitCardSignal ||
+  (cardBrandSignal && cardCatalogSignal);
 
-  if (!isCardLike) {
+if (!isCardLike) {
     if (
       /\b(?:music cd|compact disc|cd booklet|cd insert|album booklet|liner notes?|vinyl record|record album)\b/.test(
         objectFocused,
@@ -256,7 +267,7 @@ function detectFeatures(params: {
   const title = normalized(params.title);
   const autographFocused = `${title} ${features} ${parallel}`;
   const negativeAutograph =
-    /\b(?:facsimile|pre[- ]?printed|printed signature|reproduction|reprint autograph|unsigned|not signed|not autographed)\b/.test(
+    /\b(?:facsimile|pre[- ]?printed|printed signature|reproduction|reprint autograph|unsigned|not signed|not autographed|non[- ]?auto)\b/.test(
       autographFocused,
     );
   const autoShorthand =
@@ -330,7 +341,7 @@ export function classifyStorefrontItem(input: {
       tcos_is_rookie: String(features.rookie),
       tcos_is_graded: String(features.graded),
       tcos_is_numbered: String(features.numbered),
-      tcos_taxonomy_version: "5",
+      tcos_taxonomy_version: "6",
     },
     metadata: {
       tcos_storefront_section: section,
@@ -339,7 +350,7 @@ export function classifyStorefrontItem(input: {
       tcos_is_rookie: features.rookie,
       tcos_is_graded: features.graded,
       tcos_is_numbered: features.numbered,
-      tcos_taxonomy_version: 5,
+      tcos_taxonomy_version: 6,
     },
   };
 }

@@ -86,6 +86,37 @@ const puckRelicCard = classifyStorefrontItem({
 });
 assert.equal(puckRelicCard.section, "Hockey");
 
+const nonAutoSuperfractor = classifyStorefrontItem({
+  title: "2013 Bowman Platinum Prospects Justin Nicolino Superfractor /1 BGS 9.5 Non Auto",
+  rawSport: "Baseball",
+  primaryCategory: "sports_cards",
+  aspects: { Autographed: ["No"] },
+});
+assert.equal(nonAutoSuperfractor.section, "Baseball");
+assert.equal(nonAutoSuperfractor.features.autograph, false);
+
+const skyboxJerseyCard = classifyStorefrontItem({
+  title: "2004 SkyBox LE #20 Josh Beckett PINSTRIPE Jersey Proof /299",
+  rawSport: "Baseball",
+  primaryCategory: "memorabilia",
+});
+assert.equal(skyboxJerseyCard.section, "Baseball");
+
+const spGameUsedJerseyCard = classifyStorefrontItem({
+  title: "2017-18 SP Game Used #FW-JQ Jonathan Quick Frameworks Jumbo Jersey Relic",
+  rawSport: "Ice Hockey",
+  primaryCategory: "memorabilia",
+});
+assert.equal(spGameUsedJerseyCard.section, "Hockey");
+
+const staleV5JerseyCard = classifyStorefrontItem({
+  title: "2025-26 SP Game Used #100 Peter Forsberg Red Jersey",
+  rawSport: "Ice Hockey",
+  primaryCategory: "memorabilia",
+  metadata: { tcos_storefront_section: "Jerseys", tcos_taxonomy_version: 5 },
+});
+assert.equal(staleV5JerseyCard.section, "Hockey");
+
 const actualPuck = classifyStorefrontItem({
   title: "Colorado Avalanche Official Hockey Puck",
   rawSport: "Ice Hockey",
