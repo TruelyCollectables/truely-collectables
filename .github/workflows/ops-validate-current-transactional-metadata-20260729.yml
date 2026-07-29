@@ -22,7 +22,7 @@ jobs:
     timeout-minutes: 15
     env:
       EXPECTED_MAIN_SHA: 7765f115d44e2629d47cc38871273dacdafcb8e7
-      EXPECTED_AUDIT_SHA: 7ecba5b5444730793df45a6d64498a227bff7b96
+      EXPECTED_AUDIT_SHA: b2d0dac988cee07ba38318d4b7f5db0119585eca
       AUDIT_BRANCH: ops/truely-full-launch-audit-20260729
       AUDIT_WORKFLOW: .github/workflows/ops-truely-full-launch-audit-20260729.yml
       OUTPUT_FILE: ops-output/ops-truely-full-launch-audit-20260729.yml
