@@ -30,7 +30,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: tcos-ebay-browse-auto-token-${{ github.ref }}
@@ -43,6 +43,8 @@ jobs:
     steps:
       - name: Check out current source
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -53,11 +55,30 @@ jobs:
       - name: Install exact dependencies
         run: npm ci
 
-      - name: Verify generated eBay Browse adapter is committed
+      - name: Materialize hardened eBay Browse adapter
         run: |
           set -euo pipefail
           node scripts/apply-ebay-browse-auto-token.mjs
           node scripts/apply-ebay-browse-status-details.mjs
+          git diff --check
+
+      - name: Commit generated adapter on main
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- connectors/tcos-market-intel-mcp/src/public-search.mjs; then
+            echo "Hardened eBay Browse adapter is already committed."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add connectors/tcos-market-intel-mcp/src/public-search.mjs
+            git commit -m "Materialize hardened eBay Browse request deadlines"
+            git push origin HEAD:main
+          fi
+
+      - name: Verify generated adapter is clean
+        run: |
+          set -euo pipefail
           git diff --check
           git diff --exit-code -- connectors/tcos-market-intel-mcp/src/public-search.mjs
 
