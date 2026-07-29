@@ -1,4 +1,4 @@
-name: Validate eBay Probe Import 20260729
+name: Prepare Money Inventory Cutover Workflow 20260729
 
 on:
   pull_request:
@@ -6,103 +6,106 @@ on:
       - main
     paths:
       - ".github/workflows/validate-ebay-probe-import-20260729.yml"
-      - "src/app/api/internal/ebay-browse-probe/route.js"
 
 permissions:
   contents: read
 
 concurrency:
-  group: validate-ebay-probe-import-20260729
+  group: prepare-money-inventory-cutover-workflow-20260729
   cancel-in-progress: false
 
 jobs:
-  validate-exact-source:
+  prepare-sanitized-workflow:
     if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ops/validate-ebay-probe-import-20260729'
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 15
     env:
-      SOURCE_SHA: 708b1e92a61d67e6c3df2a66e34636fd9cc37ff7
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-      VERCEL_SCOPE: truelycollectables-projects
+      EXPECTED_MAIN_SHA: 8baee1bb26a17f974388b4d8e50b4321bbdfb685
+      TARGET_WORKFLOW: .github/workflows/authorized-launch-money-inventory-safety-deploy-20260729.yml
     steps:
-      - name: Check out exact source fix
+      - name: Check out guarded cutover branch
         uses: actions/checkout@v4
         with:
-          ref: 708b1e92a61d67e6c3df2a66e34636fd9cc37ff7
-          fetch-depth: 1
+          ref: deploy/launch-money-inventory-safety-20260729
+          fetch-depth: 0
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - name: Confirm exact current main revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --depth=1
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_MAIN_SHA"
+
+      - name: Prepare exact guarded cutover workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path(".github/workflows/authorized-launch-money-inventory-safety-deploy-20260729.yml")
+          old_sha = "9b35f1990998bb0bd47394f19905fd9292c4c5bc"
+          new_sha = "8baee1bb26a17f974388b4d8e50b4321bbdfb685"
+          old_build = "          npx vercel@56.2.0 env run -e production -- npm run build\n"
+          new_build = "\n".join([
+              "          NEXT_PUBLIC_SUPABASE_URL=https://example.supabase.co \\",
+              "          NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder-anon-key \\",
+              "          SUPABASE_SERVICE_ROLE_KEY=placeholder-service-role-key \\",
+              "          NEXT_PUBLIC_SITE_URL=https://example.com \\",
+              "          npm run build",
+              "",
+          ])
+
+          text = path.read_text(encoding="utf-8")
+          if text.count(old_sha) != 2:
+              raise SystemExit("Expected exactly two prior source SHA references.")
+          if text.count(old_build) != 1:
+              raise SystemExit("Expected exactly one broken local env-wrapper build command.")
+
+          text = text.replace(old_sha, new_sha).replace(old_build, new_build)
+
+          required = [
+              f"SOURCE_SHA: {new_sha}",
+              f"ref: {new_sha}",
+              "npm run simulate:post-sale-ebay-sync",
+              "npm run simulate:accepted-offer-reservations",
+              "npm run simulate:privileged-route-auth",
+              "node scripts/run-ebay-browse-runtime-contracts.mjs",
+              "npm run lint",
+              "npx tsc --noEmit --pretty false",
+              "NEXT_PUBLIC_SUPABASE_URL=https://example.supabase.co",
+              "npm run build",
+              "--skip-domain",
+              "Add required Stripe expiration webhook event",
+              "Apply all six safety migrations atomically and verify them",
+          ]
+          for value in required:
+              if value not in text:
+                  raise SystemExit(f"Missing guarded cutover requirement: {value}")
+          if old_sha in text or old_build in text:
+              raise SystemExit("Stale cutover source or build wrapper remains.")
+
+          stage = text.find("      - name: Stage exact Production deployment without domain promotion\n")
+          staged_verify = text.find("      - name: Verify staged deployment before any Production mutation\n")
+          stripe = text.find("      - name: Add required Stripe expiration webhook event\n")
+          migrate = text.find("      - name: Apply all six safety migrations atomically and verify them\n")
+          promote = text.find("      - name: Promote the preverified staged deployment\n")
+          if min(stage, staged_verify, stripe, migrate, promote) < 0:
+              raise SystemExit("Required cutover ordering markers are missing.")
+          if not (stage < staged_verify < stripe < migrate < promote):
+              raise SystemExit("Cutover ordering no longer protects Production mutations.")
+
+          path.write_text(text, encoding="utf-8")
+          PY
+          git diff --check -- "$TARGET_WORKFLOW"
+          mkdir -p .cutover-output
+          cp "$TARGET_WORKFLOW" .cutover-output/authorized-launch-money-inventory-safety-deploy-20260729.yml
+          sha256sum .cutover-output/authorized-launch-money-inventory-safety-deploy-20260729.yml > .cutover-output/SHA256SUMS
+
+      - name: Upload sanitized cutover workflow artifact
+        uses: actions/upload-artifact@v4
         with:
-          node-version: 22
-          cache: npm
-
-      - name: Install exact dependencies
-        run: npm ci
-
-      - name: Run focused security and runtime regressions
-        shell: bash
-        run: |
-          set -euo pipefail
-          node scripts/run-ebay-browse-runtime-contracts.mjs
-          npm run simulate:privileged-route-auth
-          node scripts/run-privileged-api-route-audit.mjs
-
-      - name: Run lint and standalone TypeScript
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm run lint
-          npx tsc --noEmit --pretty false
-
-      - name: Link exact Vercel project
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -n "${VERCEL_TOKEN:-}"
-          mkdir -p .vercel .validation-evidence
-          npx vercel@56.2.0 whoami --token "$VERCEL_TOKEN" >/dev/null
-          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
-            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
-          else
-            npx vercel@56.2.0 link \
-              --yes \
-              --project truely-collectables \
-              --scope "$VERCEL_SCOPE" \
-              --token "$VERCEL_TOKEN"
-          fi
-          node -e 'const p=require("./.vercel/project.json"); if(!p.orgId||!p.projectId) process.exit(1);'
-
-      - name: Stage exact Production build without domain promotion
-        id: stage
-        shell: bash
-        run: |
-          set -euo pipefail
-          printf '%s\n' "$SOURCE_SHA" > .validation-evidence/source-sha.txt
-          npx vercel@56.2.0 deploy \
-            --prod \
-            --yes \
-            --force \
-            --skip-domain \
-            --scope "$VERCEL_SCOPE" \
-            --token "$VERCEL_TOKEN" \
-            2>&1 | tee .validation-evidence/vercel-stage.log
-          DEPLOYMENT_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' .validation-evidence/vercel-stage.log | tail -n 1)"
-          test -n "$DEPLOYMENT_URL"
-          echo "deployment_url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
-
-      - name: Verify staged build is healthy
-        env:
-          DEPLOYMENT_URL: ${{ steps.stage.outputs.deployment_url }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 90 --output .validation-evidence/staged-home.html --write-out '%{http_code}' "$DEPLOYMENT_URL/")"
-          test "$code" = "200"
-          probe_code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output .validation-evidence/staged-probe.json --write-out '%{http_code}' "$DEPLOYMENT_URL/api/internal/ebay-browse-probe?authOnly=1")"
-          case "$probe_code" in
-            401|503) ;;
-            *) echo "Unexpected unauthenticated probe status: $probe_code" >&2; exit 1 ;;
-          esac
+          name: prepared-money-inventory-cutover-${{ github.run_number }}
+          path: .cutover-output
+          if-no-files-found: error
+          retention-days: 7
