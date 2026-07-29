@@ -1,4 +1,5 @@
 name: Deploy Launch Lighthouse Shop Labels 20260729
+# Operations-only exact-main Production verification. Never merge this workflow.
 
 on:
   pull_request:
