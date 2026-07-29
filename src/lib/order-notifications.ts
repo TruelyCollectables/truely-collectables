@@ -3,9 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getStoreSettings } from "./store-settings";
 
 export type OrderNotificationType =
-  | "payment_confirmation"
-  | "shipment_confirmation"
-  | "tracking_updated";
+  "payment_confirmation" | "shipment_confirmation" | "tracking_updated";
 
 export type OrderNotificationItem = {
   title: string;
@@ -93,7 +91,9 @@ function trackingUrl(carrierValue: unknown, trackingValue: unknown) {
 
 function stableTrackingFingerprint(carrier: string, trackingNumber: string) {
   return createHash("sha256")
-    .update(`${cleanInline(carrier).toUpperCase()}\n${cleanInline(trackingNumber)}`)
+    .update(
+      `${cleanInline(carrier).toUpperCase()}\n${cleanInline(trackingNumber)}`,
+    )
     .digest("hex")
     .slice(0, 24);
 }
@@ -155,7 +155,8 @@ function renderOrderNotification(params: {
   storeName: string;
 }) {
   const { row } = params;
-  const payload = row.payload || ({ orderId: row.order_id } as OrderNotificationPayload);
+  const payload =
+    row.payload || ({ orderId: row.order_id } as OrderNotificationPayload);
   const orderId = Number(payload.orderId || row.order_id);
   const name = cleanInline(payload.customerName || row.recipient_name, "there");
   const safeName = escapeOrderNotificationHtml(name);
@@ -240,7 +241,9 @@ export async function enqueueOrderNotification(params: {
     payload: {
       ...params.payload,
       orderId: params.orderId,
-      customerName: cleanInline(params.payload.customerName || params.recipientName) || null,
+      customerName:
+        cleanInline(params.payload.customerName || params.recipientName) ||
+        null,
     },
     idempotency_key: idempotencyKey,
   };
@@ -271,7 +274,10 @@ async function markNotificationFailed(params: {
   row: OrderNotificationRow;
   error: string;
 }) {
-  const safeError = cleanInline(params.error, "Email delivery failed").slice(0, 2000);
+  const safeError = cleanInline(params.error, "Email delivery failed").slice(
+    0,
+    2000,
+  );
   await params.supabase
     .from("order_notification_deliveries")
     .update({ status: "failed", last_error: safeError })
@@ -302,8 +308,7 @@ export async function deliverOrderNotification(params: {
   if (claimError) throw claimError;
 
   const row = (Array.isArray(claimedRows) ? claimedRows[0] : claimedRows) as
-    | OrderNotificationRow
-    | undefined;
+    OrderNotificationRow | undefined;
   if (!row) {
     const { data: current, error: currentError } = await params.supabase
       .from("order_notification_deliveries")
@@ -359,7 +364,11 @@ export async function deliverOrderNotification(params: {
       return markNotificationFailed({
         supabase: params.supabase,
         row,
-        error: data?.message || data?.error || JSON.stringify(data) || `Resend returned ${response.status}.`,
+        error:
+          data?.message ||
+          data?.error ||
+          JSON.stringify(data) ||
+          `Resend returned ${response.status}.`,
       });
     }
 
@@ -392,7 +401,9 @@ export async function deliverOrderNotification(params: {
   }
 }
 
-export async function enqueueAndAttemptOrderNotification(params: Parameters<typeof enqueueOrderNotification>[0]) {
+export async function enqueueAndAttemptOrderNotification(
+  params: Parameters<typeof enqueueOrderNotification>[0],
+) {
   const row = await enqueueOrderNotification(params);
   if (!row) return null;
   return deliverOrderNotification({
@@ -408,12 +419,15 @@ export async function retryOrderNotifications(params: {
   limit?: number;
 }) {
   const limit = Math.min(Math.max(Math.floor(params.limit || 25), 1), 100);
+  const now = new Date().toISOString();
   const { data, error } = await params.supabase
     .from("order_notification_deliveries")
     .select("id")
     .eq("store_id", params.storeId)
     .in("status", ["pending", "failed", "sending"])
     .lt("attempt_count", 10)
+    .lte("next_attempt_at", now)
+    .order("next_attempt_at", { ascending: true })
     .order("created_at", { ascending: true })
     .limit(limit);
   if (error) throw error;

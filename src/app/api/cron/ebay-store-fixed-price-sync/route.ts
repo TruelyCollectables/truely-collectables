@@ -2,6 +2,8 @@ import { timingSafeEqual } from "node:crypto";
 import { runEbayAuthoritativeStoreSync } from "../../../../lib/ebay-authoritative-store-sync";
 import { syncEbayAllListingImages } from "../../../../lib/ebay-all-image-sync";
 import { syncRecentLegacyEbayQuantities } from "../../../../lib/ebay-fixed-price-backfill";
+import { retryPendingEbayQuantitySyncs } from "../../../../lib/ebay-quantity-sync-outbox";
+import { retryOrderNotifications } from "../../../../lib/order-notifications";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 
@@ -13,7 +15,9 @@ const MAX_CONVERGENCE_PASSES = 3;
 
 type SyncError = { step: string; error: string };
 type ImageSync = Awaited<ReturnType<typeof syncEbayAllListingImages>>;
-type AuthoritativeSync = Awaited<ReturnType<typeof runEbayAuthoritativeStoreSync>>;
+type AuthoritativeSync = Awaited<
+  ReturnType<typeof runEbayAuthoritativeStoreSync>
+>;
 
 function validCronAuthorization(request: Request, secret: string) {
   const supplied = Buffer.from(request.headers.get("authorization") || "");
@@ -134,6 +138,7 @@ export async function GET(request: Request) {
   const storeId = getActiveStoreId();
   const supabase = createSupabaseServerClient({ admin: true });
   const errors: SyncError[] = [];
+  const warnings: SyncError[] = [];
   let firstAuthoritative: AuthoritativeSync | null = null;
   const convergencePasses: AuthoritativeSync[] = [];
   const imagePasses: Array<ReturnType<typeof summarizeImagePass>> = [];
@@ -141,58 +146,125 @@ export async function GET(request: Request) {
     ReturnType<typeof syncRecentLegacyEbayQuantities>
   > | null = null;
   let activeLinkedProducts: number | null = null;
+  let postSaleProtectionAvailable = true;
+  let postSaleQuantitySync: Awaited<
+    ReturnType<typeof retryPendingEbayQuantitySyncs>
+  > | null = null;
+  let notificationRetry: Awaited<
+    ReturnType<typeof retryOrderNotifications>
+  > | null = null;
 
   try {
-    firstAuthoritative = await runEbayAuthoritativeStoreSync({
+    postSaleQuantitySync = await retryPendingEbayQuantitySyncs({
       supabase,
       storeId,
-      mode: "apply",
-      // Current eBay is authoritative: active eligible listings are inserted or
-      // updated and eBay-linked rows absent from a complete result are set to zero.
-      deactivateEnded: true,
+      limit: 100,
     });
-
-    if (!firstAuthoritative.cycleComplete) {
-      errors.push({
-        step: "authoritative_full_store_sync",
-        error: "The complete active eBay page cycle was not read.",
-      });
-    }
-    if (firstAuthoritative.failed > 0) {
-      errors.push({
-        step: "authoritative_full_store_sync",
-        error: `${firstAuthoritative.failed} listing${
-          firstAuthoritative.failed === 1 ? "" : "s"
-        } failed during the full-store sync.`,
-      });
-    }
-    if (
-      firstAuthoritative.cycleComplete &&
-      firstAuthoritative.eligibleCollectibles +
-        firstAuthoritative.skippedNonCollectibles !==
-        firstAuthoritative.remoteFixedPriceTotal
-    ) {
-      errors.push({
-        step: "authoritative_full_store_sync",
-        error: "The active eBay total did not reconcile to eligible plus intentionally excluded listings.",
-      });
-    }
-
-    if (
-      firstAuthoritative.cycleComplete &&
-      firstAuthoritative.representedInventoryRows +
-        firstAuthoritative.mergedAliasListings !==
-        firstAuthoritative.eligibleCollectibles
-    ) {
-      errors.push({
-        step: "authoritative_full_store_sync",
-        error: "Represented inventory rows plus merged aliases did not reconcile to eligible eBay listings.",
+    if (postSaleQuantitySync.deferredProducts > 0) {
+      warnings.push({
+        step: "post_sale_ebay_quantity_retry",
+        error:
+          String(postSaleQuantitySync.deferredProducts) +
+          " sold product" +
+          (postSaleQuantitySync.deferredProducts === 1 ? "" : "s") +
+          " remain protected locally and queued for another outbound eBay quantity retry.",
       });
     }
   } catch (error) {
+    postSaleProtectionAvailable = false;
+    errors.push({
+      step: "post_sale_ebay_quantity_retry",
+      error: safeErrorMessage(
+        error,
+        "Durable post-sale eBay quantity protection is unavailable",
+      ),
+    });
+  }
+
+  try {
+    notificationRetry = await retryOrderNotifications({
+      supabase,
+      storeId,
+      limit: 25,
+    });
+    if (notificationRetry.failed > 0) {
+      warnings.push({
+        step: "order_notification_retry",
+        error:
+          String(notificationRetry.failed) +
+          " customer notification" +
+          (notificationRetry.failed === 1 ? "" : "s") +
+          " remain queued after this retry pass.",
+      });
+    }
+  } catch (error) {
+    warnings.push({
+      step: "order_notification_retry",
+      error: safeErrorMessage(error, "Order notification retry failed"),
+    });
+  }
+
+  if (postSaleProtectionAvailable) {
+    try {
+      firstAuthoritative = await runEbayAuthoritativeStoreSync({
+        supabase,
+        storeId,
+        mode: "apply",
+        // Current eBay is authoritative: active eligible listings are inserted or
+        // updated and eBay-linked rows absent from a complete result are set to zero.
+        deactivateEnded: true,
+      });
+
+      if (!firstAuthoritative.cycleComplete) {
+        errors.push({
+          step: "authoritative_full_store_sync",
+          error: "The complete active eBay page cycle was not read.",
+        });
+      }
+      if (firstAuthoritative.failed > 0) {
+        errors.push({
+          step: "authoritative_full_store_sync",
+          error: `${firstAuthoritative.failed} listing${
+            firstAuthoritative.failed === 1 ? "" : "s"
+          } failed during the full-store sync.`,
+        });
+      }
+      if (
+        firstAuthoritative.cycleComplete &&
+        firstAuthoritative.eligibleCollectibles +
+          firstAuthoritative.skippedNonCollectibles !==
+          firstAuthoritative.remoteFixedPriceTotal
+      ) {
+        errors.push({
+          step: "authoritative_full_store_sync",
+          error:
+            "The active eBay total did not reconcile to eligible plus intentionally excluded listings.",
+        });
+      }
+
+      if (
+        firstAuthoritative.cycleComplete &&
+        firstAuthoritative.representedInventoryRows +
+          firstAuthoritative.mergedAliasListings !==
+          firstAuthoritative.eligibleCollectibles
+      ) {
+        errors.push({
+          step: "authoritative_full_store_sync",
+          error:
+            "Represented inventory rows plus merged aliases did not reconcile to eligible eBay listings.",
+        });
+      }
+    } catch (error) {
+      errors.push({
+        step: "authoritative_full_store_sync",
+        error: safeErrorMessage(error, "Full eBay store sync failed"),
+      });
+    }
+  } else {
     errors.push({
       step: "authoritative_full_store_sync",
-      error: safeErrorMessage(error, "Full eBay store sync failed"),
+      error:
+        "Inbound eBay reconciliation was skipped because durable post-sale quantity protection could not be verified.",
     });
   }
 
@@ -234,7 +306,8 @@ export async function GET(request: Request) {
     ) {
       errors.push({
         step: "ebay_all_image_sync",
-        error: "Image reconciliation did not converge to zero remaining candidates.",
+        error:
+          "Image reconciliation did not converge to zero remaining candidates.",
       });
     }
   }
@@ -309,7 +382,9 @@ export async function GET(request: Request) {
         .not("ebay_item_id", "is", null);
       if (error) throw error;
       activeLinkedProducts = Number(count || 0);
-      if (activeLinkedProducts !== finalAuthoritative.representedInventoryRows) {
+      if (
+        activeLinkedProducts !== finalAuthoritative.representedInventoryRows
+      ) {
         errors.push({
           step: "database_inventory_audit",
           error: `Active linked database count ${activeLinkedProducts} does not equal represented eBay inventory ${finalAuthoritative.representedInventoryRows}.`,
@@ -326,13 +401,17 @@ export async function GET(request: Request) {
   const completedAt = new Date().toISOString();
   const durationMs = Date.now() - startedMs;
   const receipt = {
-    schema: "truelycollectables.ebayStoreFixedPriceSyncReceipt.v2",
+    schema: "truelycollectables.ebayStoreFixedPriceSyncReceipt.v3",
     event: "ebay_store_fixed_price_sync_completed",
     startedAt,
     completedAt,
     success: errors.length === 0,
     storeId,
     durationMs,
+    postSaleProtectionAvailable,
+    postSaleQuantitySync,
+    notificationRetry,
+    warnings,
     authoritative: summarizeAuthoritative(firstAuthoritative),
     imagePasses,
     quantities: quantitySync
@@ -376,9 +455,14 @@ export async function GET(request: Request) {
       .limit(1)
       .maybeSingle();
     if (connectionResult.error || !connectionResult.data?.id) {
-      throw connectionResult.error || new Error("Connected eBay account was not found.");
+      throw (
+        connectionResult.error ||
+        new Error("Connected eBay account was not found.")
+      );
     }
-    const providerMetadata = recordValue(connectionResult.data.provider_metadata);
+    const providerMetadata = recordValue(
+      connectionResult.data.provider_metadata,
+    );
     const updateResult = await supabase
       .from("seller_marketplace_connections")
       .update({

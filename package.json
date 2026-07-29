@@ -159,7 +159,8 @@
     "check:admin-copy": "node scripts/check-admin-copy.mjs",
     "check:admin-controls": "node scripts/check-admin-controls.mjs",
     "check:admin-live-regions": "node scripts/check-admin-live-regions.mjs",
-    "check:admin-routes": "node scripts/check-admin-routes.mjs"
+    "check:admin-routes": "node scripts/check-admin-routes.mjs",
+    "simulate:post-sale-ebay-sync": "node --import tsx scripts/run-post-sale-ebay-sync-simulations.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.26.0",
