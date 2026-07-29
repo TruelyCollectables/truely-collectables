@@ -1,0 +1,153 @@
+name: Run Final Storefront Taxonomy V7 V5 20260728
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/run-final-storefront-taxonomy-v7-v5-20260728.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'agent/storefront-taxonomy-v7-no-junk-buckets-20260728'
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+      ADMIN_SESSION_SECRET: build-only-placeholder-session-secret
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+      EBAY_CLIENT_ID: build-only-placeholder-client-id
+      EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+      EBAY_ENVIRONMENT: production
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/storefront-taxonomy-v7-no-junk-buckets-20260728
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - name: Apply standalone taxonomy v7 patch
+        run: python scripts/apply-taxonomy-v7-final.py
+
+      - name: Align simulations and typed fixtures with v7
+        shell: bash
+        run: |
+          set -euo pipefail
+          python <<'PY'
+          from pathlib import Path
+          import re
+
+          simulation = Path('scripts/run-ebay-import-admin-client-simulations.ts')
+          text = simulation.read_text()
+          old_order = r'/SPORT_SECTIONS[\s\S]*COLLECTIBLE_SECTIONS[\s\S]*sortStorefrontSections/'
+          new_order = r'/COLLECTIBLE_SECTIONS[\s\S]*SPORT_SECTIONS[\s\S]*sortStorefrontSections/'
+          if text.count(old_order) != 1:
+              raise SystemExit(f'central taxonomy import assertion: expected one match, found {text.count(old_order)}')
+          text = text.replace(old_order, new_order, 1)
+
+          launch_cases = '''const launchScopeCases = [
+            { title: "2025-26 Upper Deck #702 Florian Xhekaj", sport: "Hockey", storefrontSection: "Hockey", category: "sports_cards", expected: true },
+            { title: "2023 Topps Max Meyer 1988 35th Chrome RC Auto /249 PSA 8", sport: "Baseball", storefrontSection: "Baseball", category: "sports_cards", expected: true },
+            { title: "Wailord ex 016/084 Double Rare Pokemon Pitch Black 2026 NM", sport: "Trading Card Games", storefrontSection: "Trading Card Games", category: "trading_cards", expected: true },
+            { title: "Prize Pack Series Cards #005 Basic Psychic Energy", sport: "Trading Card Games", storefrontSection: "Trading Card Games", category: "trading_cards", expected: true },
+            { title: "Upper Deck Authenticated Wayne Gretzky Signed Puck", sport: "Pucks", storefrontSection: "Pucks", category: "memorabilia", expected: true },
+            { title: "Connor McDavid Autographed Edmonton Oilers Jersey", sport: "Jerseys", storefrontSection: "Jerseys", category: "memorabilia", expected: true },
+            { title: "Oakley Sports Sunglasses Black", sport: "Watches & Accessories", storefrontSection: "Watches & Accessories", category: "other_collectable", expected: true },
+            { title: "Rolex Oyster Perpetual Collectible Wristwatch", sport: "Watches & Accessories", storefrontSection: "Watches & Accessories", category: "other_collectable", expected: true },
+            { title: "Adidas Ultraboost Men's Running Shoes Size 11", sport: null, expected: false },
+            { title: "Denver Broncos Nike T-Shirt Men's XL", sport: "Football", expected: false },
+            { title: "Denver Broncos Nike Jersey Men's XL", sport: "Football", expected: false },
+            { title: "Mass Air Flow Fuel Sensor Replacement Auto Part", sport: null, expected: false },
+          ] as const;'''
+          text, count = re.subn(
+              r'const launchScopeCases = \[[\s\S]*?\] as const;',
+              lambda _: launch_cases,
+              text,
+              count=1,
+              flags=re.S,
+          )
+          if count != 1:
+              raise SystemExit(f'launch scope cases: expected one match, found {count}')
+          simulation.write_text(text)
+
+          fixtures = Path('scripts/run-storefront-taxonomy-regressions.ts')
+          source = fixtures.read_text()
+          source, count = re.subn(
+              r'features:\s*\{\s*autograph:\s*(true|false),\s*(?!memorabilia:)(rookie:)',
+              lambda match: f'features: {{\n      autograph: {match.group(1)},\n      memorabilia: false,\n      {match.group(2)}',
+              source,
+          )
+          if count < 1:
+              raise SystemExit('No legacy StorefrontFeatureFlags fixtures were updated.')
+
+          old_filter_test = '''assert.equal(
+            matchesStorefrontFilters(baseballJerseyCard, {
+              feature: "memorabilia cards",
+            }),
+            true,
+          );'''
+          new_filter_test = '''assert.equal(
+            matchesStorefrontFilters(
+              {
+                legacyProductId: 900001,
+                title: "2004 SkyBox LE #20 Josh Beckett PINSTRIPE Jersey Proof /299",
+                price: 1,
+                storefrontSection: baseballJerseyCard.section,
+                features: baseballJerseyCard.features,
+              },
+              { feature: "memorabilia cards" },
+            ),
+            true,
+          );'''
+          if source.count(old_filter_test) != 1:
+              raise SystemExit(f'typed memorabilia filter fixture: expected one match, found {source.count(old_filter_test)}')
+          fixtures.write_text(source.replace(old_filter_test, new_filter_test, 1))
+
+          for workflow in Path('.github/workflows').glob('run-final-storefront-taxonomy-v7*.yml'):
+              workflow.unlink()
+          PY
+
+      - name: Format and validate taxonomy v7
+        run: |
+          set -euo pipefail
+          npm ci
+          npx prettier --write \
+            src/lib/storefront-taxonomy.ts \
+            src/modules/inventory/types.ts \
+            src/app/shop/page.tsx \
+            src/lib/sports-card-launch-scope.ts \
+            src/lib/ebay-authoritative-store-sync.ts \
+            scripts/run-storefront-taxonomy-regressions.ts \
+            scripts/run-ebay-import-admin-client-simulations.ts
+          node --import tsx scripts/run-storefront-taxonomy-regressions.ts
+          node --import tsx scripts/run-ebay-import-admin-client-simulations.ts
+          npx eslint \
+            src/lib/storefront-taxonomy.ts \
+            src/modules/inventory/types.ts \
+            src/app/shop/page.tsx \
+            src/lib/sports-card-launch-scope.ts \
+            src/lib/ebay-authoritative-store-sync.ts \
+            scripts/run-storefront-taxonomy-regressions.ts \
+            scripts/run-ebay-import-admin-client-simulations.ts
+          npm run build
+
+      - name: Commit validated taxonomy v7
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Truely Collectables Automation"
+          git config user.email "automation@truelycollectables.com"
+          git add -A
+          git commit -m "Eliminate fallback storefront buckets"
+          git push origin HEAD:agent/storefront-taxonomy-v7-no-junk-buckets-20260728
