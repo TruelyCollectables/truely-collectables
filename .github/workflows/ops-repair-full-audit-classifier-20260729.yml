@@ -32,7 +32,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "c28de6a8ede9d6ac3deaad6ad813b17f3e14e65c"
+          test "$(git rev-parse HEAD)" = "c9c27334d8f257a9a2ca8ea5b120e38f8c2f1033"
           test "$(sha256sum scripts/run-truely-launch-audit-20260729.mjs | awk '{print $1}')" = "c52319324def66af4f3d27c6683b028ffcf143a7c61a0046eefaf88c471c7bb1"
           python - <<'PY'
           from pathlib import Path
@@ -82,7 +82,7 @@ jobs:
           test "$(git diff --name-only | tr -d '\r')" = "scripts/run-truely-launch-audit-20260729.mjs"
           git diff --check
           grep -Fq 'requireInstaCompJobActor' scripts/run-truely-launch-audit-20260729.mjs
-          grep -Fq 'order data APIs were independently required' scripts/run-truely-launch-audit-20260729.mjs
+          grep -Fq 'seller data APIs were independently required' scripts/run-truely-launch-audit-20260729.mjs
           grep -Fq 'checkout.session.expired' scripts/run-truely-launch-audit-20260729.mjs
 
       - name: Commit exact audit repair
