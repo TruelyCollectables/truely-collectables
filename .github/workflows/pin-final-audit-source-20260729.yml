@@ -1,0 +1,68 @@
+name: Pin Final Audit Production Source 20260729
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/pin-final-audit-source-20260729.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  pin:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ops/truely-full-launch-audit-20260729')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/truely-full-launch-audit-20260729
+          fetch-depth: 0
+      - name: Guard exact source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "7765f115d44e2629d47cc38871273dacdafcb8e7"
+          test "$(git hash-object .github/workflows/ops-truely-full-launch-audit-20260729.yml)" = "ae98844b75bb5a9cee161a91b69e4075f9234c1a"
+      - name: Pin exact Production source in audit certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('.github/workflows/ops-truely-full-launch-audit-20260729.yml')
+          text = path.read_text()
+          env_anchor = 'env:\n  AUDIT_BASE_URL: https://truelycollectables.com\n'
+          env_replacement = 'env:\n  AUDIT_BASE_URL: https://truelycollectables.com\n  EXPECTED_PRODUCTION_SHA: 7765f115d44e2629d47cc38871273dacdafcb8e7\n'
+          if text.count(env_anchor) != 1:
+              raise SystemExit('Expected one global environment anchor.')
+          text = text.replace(env_anchor, env_replacement, 1)
+          guard_anchor = '          git fetch origin main\n          git diff --check origin/main...HEAD\n'
+          guard_replacement = '          git fetch origin main\n          test "$(git rev-parse origin/main)" = "$EXPECTED_PRODUCTION_SHA"\n          git diff --check origin/main...HEAD\n'
+          if text.count(guard_anchor) != 1:
+              raise SystemExit('Expected one main-branch guard anchor.')
+          text = text.replace(guard_anchor, guard_replacement, 1)
+          source_anchor = '            sourceSha: process.env.GITHUB_SHA,\n'
+          if text.count(source_anchor) != 2:
+              raise SystemExit(f'Expected two certificate source anchors, found {text.count(source_anchor)}.')
+          text = text.replace(source_anchor, '            sourceSha: process.env.EXPECTED_PRODUCTION_SHA,\n', 2)
+          path.write_text(text)
+          PY
+          git diff --check
+          grep -Fq 'EXPECTED_PRODUCTION_SHA: 7765f115d44e2629d47cc38871273dacdafcb8e7' .github/workflows/ops-truely-full-launch-audit-20260729.yml
+          test "$(grep -Fc 'sourceSha: process.env.EXPECTED_PRODUCTION_SHA' .github/workflows/ops-truely-full-launch-audit-20260729.yml)" -eq 2
+      - name: Commit only the audit workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only)
+          test "${#changed[@]}" -eq 1
+          test "${changed[0]}" = ".github/workflows/ops-truely-full-launch-audit-20260729.yml"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .github/workflows/ops-truely-full-launch-audit-20260729.yml
+          git commit -m "Pin final audit certificate to exact Production source"
+          git push origin HEAD:ops/truely-full-launch-audit-20260729
