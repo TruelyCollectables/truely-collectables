@@ -1,4 +1,4 @@
-name: Authorized Final Launch Production Deploy 20260728
+name: Authorized Storefront Sport Taxonomy V5 Production Deploy 20260728
 
 on:
   pull_request:
@@ -25,12 +25,12 @@ jobs:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_SCOPE: truelycollectables-projects
-      DEPLOY_SOURCE_SHA: 9cb8239fb1c549f4fc50fcf3cbd035d9b78a5401
+      DEPLOY_SOURCE_SHA: 6496cf2fe1f31409ee18b9d464c35655458b30cd
     steps:
       - name: Check out exact merged source
         uses: actions/checkout@v4
         with:
-          ref: 9cb8239fb1c549f4fc50fcf3cbd035d9b78a5401
+          ref: 6496cf2fe1f31409ee18b9d464c35655458b30cd
           fetch-depth: 1
 
       - name: Set up Node.js
@@ -84,7 +84,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          marker='Cards and memorabilia stay in their correct section.'
+          marker='Browse cards by sport, with NBA and WNBA kept separate.'
           urls=(
             "$DEPLOYMENT_URL/shop"
             'https://truely-collectables.vercel.app/shop'
@@ -107,13 +107,13 @@ jobs:
             sleep 15
           done
           test -n "$success"
-          echo "Verified final launch production deployment at $success"
+          echo "Verified storefront sport taxonomy v5 deployment at $success"
 
       - name: Upload deployment evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: final-launch-production-deploy-${{ github.run_number }}
+          name: storefront-sport-taxonomy-v5-production-deploy-${{ github.run_number }}
           path: .deployment-evidence
           if-no-files-found: warn
           retention-days: 30
