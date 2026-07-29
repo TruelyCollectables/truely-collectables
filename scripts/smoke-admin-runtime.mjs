@@ -14,6 +14,11 @@ const smokeRoutes = [
     expectedText: "Admin password",
   },
   {
+    path: "/admin/reset-password",
+    auth: false,
+    expectedText: "Choose a permanent admin password",
+  },
+  {
     path: "/admin",
     auth: true,
     expectedText: "Command Center",
@@ -39,9 +44,19 @@ const smokeRoutes = [
     expectedText: "Accuracy Council + InstaComp™",
   },
   {
+    path: "/admin/verified-reference-import",
+    auth: true,
+    expectedText: "Verified Reference → Pending Listings",
+  },
+  {
     path: "/admin/orders",
     auth: true,
     expectedText: "Orders",
+  },
+  {
+    path: "/admin/order-notifications",
+    auth: true,
+    expectedText: "Order Notification Delivery",
   },
   {
     path: "/admin/offers",
@@ -99,6 +114,11 @@ const smokeRoutes = [
     expectedTexts: ["Customer Account Lookup", "Customer Accounts"],
   },
   {
+    path: "/admin/buyer-protection",
+    auth: true,
+    expectedText: "Buyer Protection Claims",
+  },
+  {
     path: "/admin/owner-seller-account",
     auth: true,
     expectedText: "Activate the owner seller account",
@@ -117,6 +137,11 @@ const smokeRoutes = [
     path: "/admin/ebay/full-store-sync",
     auth: true,
     expectedText: "Full eBay Store Sync",
+  },
+  {
+    path: "/admin/ebay/launch-ready-sync",
+    auth: true,
+    expectedText: "eBay Launch Readiness",
   },
   {
     path: "/admin/ebay/publish",
@@ -305,31 +330,31 @@ const authBoundaryChecks = [
 const authenticatedApiChecks = [
   {
     path: "/api/admin/ebay-duplicates",
-    expectedText: "\"success\":true",
+    expectedText: '"success":true',
   },
   {
     path: "/api/admin/ebay-inventory-intake",
-    expectedText: "\"success\":true",
+    expectedText: '"success":true',
   },
   {
     path: "/api/admin/launch-readiness",
-    expectedText: "\"success\":true",
+    expectedText: '"success":true',
   },
   {
     path: "/api/admin/launch-gate-drill",
-    expectedText: "\"success\":true",
+    expectedText: '"success":true',
   },
   {
     path: "/api/admin/live-payment-launch",
-    expectedText: "\"success\":true",
+    expectedText: '"success":true',
   },
   {
     path: "/api/admin/live-shipping-launch",
-    expectedText: "\"success\":true",
+    expectedText: '"success":true',
   },
   {
     path: "/api/admin/shipping/provider-setup",
-    expectedText: "\"exports\":",
+    expectedText: '"exports":',
   },
 ];
 
@@ -469,10 +494,14 @@ async function adminCookieHeader() {
     );
   }
 
-  const cookieHeader = cookieHeaderFromSetCookies(setCookieHeaders(response.headers));
+  const cookieHeader = cookieHeaderFromSetCookies(
+    setCookieHeaders(response.headers),
+  );
 
   if (!cookieHeader.includes("tcos_admin_auth_v3=")) {
-    throw new Error("Local admin smoke login did not return an admin session cookie.");
+    throw new Error(
+      "Local admin smoke login did not return an admin session cookie.",
+    );
   }
 
   return cookieHeader;
@@ -495,15 +524,20 @@ async function smokeRoute(route, cookieHeader) {
     failures.push(`unexpected redirect to ${location || "unknown location"}`);
   }
 
-  const expectedTexts = route.expectedTexts || [route.expectedText].filter(Boolean);
+  const expectedTexts =
+    route.expectedTexts || [route.expectedText].filter(Boolean);
   if (
     expectedTexts.length > 0 &&
     !expectedTexts.some((expectedText) => body.includes(expectedText))
   ) {
-    failures.push(`missing expected text ${expectedTexts.map((text) => JSON.stringify(text)).join(" or ")}`);
+    failures.push(
+      `missing expected text ${expectedTexts.map((text) => JSON.stringify(text)).join(" or ")}`,
+    );
   }
 
-  const redBoxFragment = redBoxFragments.find((fragment) => body.includes(fragment));
+  const redBoxFragment = redBoxFragments.find((fragment) =>
+    body.includes(fragment),
+  );
 
   if (redBoxFragment) {
     failures.push(`rendered error fragment ${JSON.stringify(redBoxFragment)}`);
@@ -533,7 +567,9 @@ async function smokeFirstProductDetail(cookieHeader) {
     };
   }
 
-  const productDetailMatch = body.match(/href="(\/admin\/products\/\d+(?:\?[^"]*)?)"/);
+  const productDetailMatch = body.match(
+    /href="(\/admin\/products\/\d+(?:\?[^"]*)?)"/,
+  );
 
   if (!productDetailMatch) {
     return null;
@@ -567,7 +603,9 @@ async function smokeFirstOrderDetail(cookieHeader) {
     };
   }
 
-  const orderDetailMatch = body.match(/href="(\/admin\/orders\/\d+(?:\?[^"]*)?)"/);
+  const orderDetailMatch = body.match(
+    /href="(\/admin\/orders\/\d+(?:\?[^"]*)?)"/,
+  );
 
   if (!orderDetailMatch) {
     return null;
@@ -611,15 +649,24 @@ async function smokeAuthBoundary(check) {
       );
     }
   } else if (response.status !== check.expectedStatus) {
-    failures.push(`expected HTTP ${check.expectedStatus}, received HTTP ${response.status}`);
+    failures.push(
+      `expected HTTP ${check.expectedStatus}, received HTTP ${response.status}`,
+    );
   }
 
   if (check.expectedText && !body.includes(check.expectedText)) {
-    failures.push(`missing expected text ${JSON.stringify(check.expectedText)}`);
+    failures.push(
+      `missing expected text ${JSON.stringify(check.expectedText)}`,
+    );
   }
 
-  if (check.path.startsWith("/api/") && !contentType.includes("application/json")) {
-    failures.push(`expected JSON response, received ${contentType || "missing content-type"}`);
+  if (
+    check.path.startsWith("/api/") &&
+    !contentType.includes("application/json")
+  ) {
+    failures.push(
+      `expected JSON response, received ${contentType || "missing content-type"}`,
+    );
   }
 
   if (!cacheControl.includes("no-store")) {
@@ -655,7 +702,9 @@ async function smokeAuthenticatedApi(check, cookieHeader) {
   }
 
   if (!contentType.includes("application/json")) {
-    failures.push(`expected JSON response, received ${contentType || "missing content-type"}`);
+    failures.push(
+      `expected JSON response, received ${contentType || "missing content-type"}`,
+    );
   }
 
   if (!cacheControl.includes("no-store")) {
@@ -663,10 +712,14 @@ async function smokeAuthenticatedApi(check, cookieHeader) {
   }
 
   if (check.expectedText && !body.includes(check.expectedText)) {
-    failures.push(`missing expected text ${JSON.stringify(check.expectedText)}`);
+    failures.push(
+      `missing expected text ${JSON.stringify(check.expectedText)}`,
+    );
   }
 
-  const redBoxFragment = redBoxFragments.find((fragment) => body.includes(fragment));
+  const redBoxFragment = redBoxFragments.find((fragment) =>
+    body.includes(fragment),
+  );
 
   if (redBoxFragment) {
     failures.push(`rendered error fragment ${JSON.stringify(redBoxFragment)}`);
@@ -719,7 +772,9 @@ try {
       ? ` - ${result.failures.join("; ")}`
       : "";
 
-    console.log(`${prefix} ${result.label} HTTP ${result.status}${locationDetail}${detail}`);
+    console.log(
+      `${prefix} ${result.label} HTTP ${result.status}${locationDetail}${detail}`,
+    );
   }
 
   for (const result of apiResults) {

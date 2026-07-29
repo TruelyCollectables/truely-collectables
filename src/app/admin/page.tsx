@@ -225,7 +225,9 @@ function shippingSetupTone(status: string): "green" | "amber" | "rose" {
   return "amber";
 }
 
-function launchPostureTone(status: LaunchGatePostureStatus): "green" | "amber" | "rose" {
+function launchPostureTone(
+  status: LaunchGatePostureStatus,
+): "green" | "amber" | "rose" {
   if (status === "ready") return "green";
   if (status === "locked") return "amber";
   return "rose";
@@ -314,7 +316,8 @@ export default async function AdminDashboard() {
   const shippingProviderSetup = buildShippingProviderSetupPacket();
   const shippingDecision = shippingProviderSetup.decision;
   const adminDashboardHandoff = await createAdminSessionValue();
-  const adminHref = (href: string) => addAdminHandoff(href, adminDashboardHandoff);
+  const adminHref = (href: string) =>
+    addAdminHandoff(href, adminDashboardHandoff);
 
   const now = new Date();
   const today = new Date(now);
@@ -336,115 +339,118 @@ export default async function AdminDashboard() {
     priceRadarIgnoresResult,
     marketIntelResult,
   ] = await Promise.all([
-      supabase
-        .from("products")
-        .select("id,title,price,quantity,sport,ebay_item_id,last_seen_at,created_at")
-        .eq("store_id", storeId)
-        .order("created_at", { ascending: false }),
-      supabase
-        .from("offers")
-        .select(
-          "id,status,offer_amount,customer_name,customer_email,created_at,products(title,price)",
-        )
-        .eq("store_id", storeId)
-        .order("created_at", { ascending: false }),
-      supabase
-        .from("orders")
-        .select(
-          "id,customer_email,total,status,fulfillment_status,shipping_name,tracking_number,carrier,item_count,created_at",
-        )
-        .eq("store_id", storeId)
-        .order("created_at", { ascending: false }),
-      supabase
-        .from("order_review_cases")
-        .select("id,order_id,status,severity,case_type,title,updated_at")
-        .eq("store_id", storeId)
-        .order("updated_at", { ascending: false })
-        .limit(25),
-      supabase
-        .from("transaction_evidence_reports")
-        .select("id,order_id,status,email_sent_at,email_error,created_at")
-        .eq("store_id", storeId)
-        .order("created_at", { ascending: false })
-        .limit(6),
-      supabase
-        .from("ebay_sync_decision_events")
-        .select("decision,action,reason,product_title,sku,created_at")
-        .eq("store_id", storeId)
-        .order("created_at", { ascending: false })
-        .limit(8),
-      supabase
-        .from("tcos_ebay_missing_sync_decision_summary")
-        .select("reason,decision_count,latest_decision_at")
-        .eq("store_id", storeId)
-        .order("decision_count", { ascending: false })
-        .limit(5),
-      supabase
-        .from("tcos_public_inventory_stats")
-        .select(
-          "total_products,in_stock_products,sold_out_products,ebay_linked_products,missing_sku_products,latest_ebay_seen_at",
-        )
-        .eq("store_id", storeId)
-        .maybeSingle(),
-      supabase
-        .from("stripe_reconciliation_items")
-        .select("id,title,severity,mismatch_type,difference_amount")
-        .eq("store_id", storeId)
-        .eq("item_status", "open")
-        .order("created_at", { ascending: false })
-        .limit(5),
-      supabase
-        .from("seller_payout_accounts")
-        .select(
-          "id,account_id,provider_account_id,onboarding_status,payouts_enabled,details_submitted,requirements_currently_due,requirements_past_due,disabled_reason",
-        )
-        .eq("store_id", storeId)
-        .eq("provider", "stripe_connect")
-        .order("updated_at", { ascending: false })
-        .limit(25),
-      supabase
-        .from("sales_comp_snapshots")
-        .select(
-          "id,legacy_product_id,query,suggested_price,suggested_price_method,average_price,median_price,comp_count,recent_comp_count,source_status,created_at",
-        )
-        .eq("store_id", storeId)
-        .not("suggested_price", "is", null)
-        .gt("suggested_price", 0)
-        .order("created_at", { ascending: false })
-        .limit(300),
-      supabase
-        .from("instacomp_price_radar_ignores")
-        .select("legacy_product_id,ignore_until,ignore_forever,updated_at")
-        .eq("store_id", storeId),
-      getMarketIntelPurchaseLedger()
-        .then((data) => ({ data, error: null as Error | null }))
-        .catch((error: unknown) => ({
-          data: [],
-          error:
-            error instanceof Error
-              ? error
-              : new Error("Unable to load Market Intel purchases."),
-        })),
-    ]);
+    supabase
+      .from("products")
+      .select(
+        "id,title,price,quantity,sport,ebay_item_id,last_seen_at,created_at",
+      )
+      .eq("store_id", storeId)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("offers")
+      .select(
+        "id,status,offer_amount,customer_name,customer_email,created_at,products(title,price)",
+      )
+      .eq("store_id", storeId)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("orders")
+      .select(
+        "id,customer_email,total,status,fulfillment_status,shipping_name,tracking_number,carrier,item_count,created_at",
+      )
+      .eq("store_id", storeId)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("order_review_cases")
+      .select("id,order_id,status,severity,case_type,title,updated_at")
+      .eq("store_id", storeId)
+      .order("updated_at", { ascending: false })
+      .limit(25),
+    supabase
+      .from("transaction_evidence_reports")
+      .select("id,order_id,status,email_sent_at,email_error,created_at")
+      .eq("store_id", storeId)
+      .order("created_at", { ascending: false })
+      .limit(6),
+    supabase
+      .from("ebay_sync_decision_events")
+      .select("decision,action,reason,product_title,sku,created_at")
+      .eq("store_id", storeId)
+      .order("created_at", { ascending: false })
+      .limit(8),
+    supabase
+      .from("tcos_ebay_missing_sync_decision_summary")
+      .select("reason,decision_count,latest_decision_at")
+      .eq("store_id", storeId)
+      .order("decision_count", { ascending: false })
+      .limit(5),
+    supabase
+      .from("tcos_public_inventory_stats")
+      .select(
+        "total_products,in_stock_products,sold_out_products,ebay_linked_products,missing_sku_products,latest_ebay_seen_at",
+      )
+      .eq("store_id", storeId)
+      .maybeSingle(),
+    supabase
+      .from("stripe_reconciliation_items")
+      .select("id,title,severity,mismatch_type,difference_amount")
+      .eq("store_id", storeId)
+      .eq("item_status", "open")
+      .order("created_at", { ascending: false })
+      .limit(5),
+    supabase
+      .from("seller_payout_accounts")
+      .select(
+        "id,account_id,provider_account_id,onboarding_status,payouts_enabled,details_submitted,requirements_currently_due,requirements_past_due,disabled_reason",
+      )
+      .eq("store_id", storeId)
+      .eq("provider", "stripe_connect")
+      .order("updated_at", { ascending: false })
+      .limit(25),
+    supabase
+      .from("sales_comp_snapshots")
+      .select(
+        "id,legacy_product_id,query,suggested_price,suggested_price_method,average_price,median_price,comp_count,recent_comp_count,source_status,created_at",
+      )
+      .eq("store_id", storeId)
+      .not("suggested_price", "is", null)
+      .gt("suggested_price", 0)
+      .order("created_at", { ascending: false })
+      .limit(300),
+    supabase
+      .from("instacomp_price_radar_ignores")
+      .select("legacy_product_id,ignore_until,ignore_forever,updated_at")
+      .eq("store_id", storeId),
+    getMarketIntelPurchaseLedger()
+      .then((data) => ({ data, error: null as Error | null }))
+      .catch((error: unknown) => ({
+        data: [],
+        error:
+          error instanceof Error
+            ? error
+            : new Error("Unable to load Market Intel purchases."),
+      })),
+  ]);
 
   const products = (productsResult.data || []) as ProductRow[];
   const offers = (offersResult.data || []) as OfferRow[];
   const orders = (ordersResult.data || []) as OrderRow[];
-  const orderReviewCases =
-    (orderReviewCasesResult.data || []) as OrderReviewCaseRow[];
+  const orderReviewCases = (orderReviewCasesResult.data ||
+    []) as OrderReviewCaseRow[];
   const evidenceReports = (evidenceResult.data || []) as EvidenceRow[];
   const syncDecisions = (syncDecisionsResult.data || []) as SyncDecisionRow[];
-  const blockedSyncRows = (blockedSyncResult.data || []) as BlockedSyncSummaryRow[];
+  const blockedSyncRows = (blockedSyncResult.data ||
+    []) as BlockedSyncSummaryRow[];
   const inventoryStats =
     (inventoryStatsResult.data as PublicInventoryStatsRow | null) ?? null;
-  const reconciliationAlerts =
-    (reconciliationAlertsResult.data || []) as ReconciliationAlertRow[];
-  const sellerConnectAccounts =
-    (sellerConnectResult.data || []) as SellerConnectRow[];
-  const salesCompSnapshots =
-    (salesCompSnapshotsResult.data || []) as SalesCompSnapshotRow[];
-  const priceRadarIgnores =
-    (priceRadarIgnoresResult.data || []) as InstaCompPriceRadarIgnoreRow[];
+  const reconciliationAlerts = (reconciliationAlertsResult.data ||
+    []) as ReconciliationAlertRow[];
+  const sellerConnectAccounts = (sellerConnectResult.data ||
+    []) as SellerConnectRow[];
+  const salesCompSnapshots = (salesCompSnapshotsResult.data ||
+    []) as SalesCompSnapshotRow[];
+  const priceRadarIgnores = (priceRadarIgnoresResult.data ||
+    []) as InstaCompPriceRadarIgnoreRow[];
   const marketIntelRows = marketIntelResult.data;
   const syncPolicyAvailable =
     !syncDecisionsResult.error &&
@@ -468,9 +474,15 @@ export default async function AdminDashboard() {
     isDryRunShippingReference(order.tracking_number),
   );
   const pendingOffers = offers.filter((offer) => offer.status === "pending");
-  const counteredOffers = offers.filter((offer) => offer.status === "countered");
-  const activeProducts = products.filter((product) => Number(product.quantity || 0) > 0);
-  const soldOutProducts = products.filter((product) => Number(product.quantity || 0) <= 0);
+  const counteredOffers = offers.filter(
+    (offer) => offer.status === "countered",
+  );
+  const activeProducts = products.filter(
+    (product) => Number(product.quantity || 0) > 0,
+  );
+  const soldOutProducts = products.filter(
+    (product) => Number(product.quantity || 0) <= 0,
+  );
   const lowInventory = activeProducts.filter(
     (product) => Number(product.quantity || 0) <= 1,
   );
@@ -540,7 +552,9 @@ export default async function AdminDashboard() {
       const currentPrice = Number(product?.price || 0);
       const marketPrice = Number(snapshot.suggested_price || 0);
       const deltaPercent =
-        marketPrice > 0 ? ((currentPrice - marketPrice) / marketPrice) * 100 : 0;
+        marketPrice > 0
+          ? ((currentPrice - marketPrice) / marketPrice) * 100
+          : 0;
 
       return {
         product,
@@ -567,7 +581,12 @@ export default async function AdminDashboard() {
   const priceRadarIgnoreAvailable = !priceRadarIgnoresResult.error;
   const marketIntelAvailable = !marketIntelResult.error;
   const adminDataHealthIssues = [
-    adminDataIssue("products", "Products", productsResult.error, "/admin/products"),
+    adminDataIssue(
+      "products",
+      "Products",
+      productsResult.error,
+      "/admin/products",
+    ),
     adminDataIssue("offers", "Offers", offersResult.error, "/admin/offers"),
     adminDataIssue("orders", "Orders", ordersResult.error, "/admin/orders"),
     adminDataIssue(
@@ -796,6 +815,7 @@ export default async function AdminDashboard() {
         { href: "/admin/ebay/inventory-intake", label: "Inventory Intake" },
         { href: "/admin/ebay/import-runner", label: "Import Runner" },
         { href: "/admin/ebay/full-store-sync", label: "Full Store Sync" },
+        { href: "/admin/ebay/launch-ready-sync", label: "Launch Ready Sync" },
         { href: "/admin/ebay/publish", label: "Listing Launcher" },
         { href: "/admin/ebay/sync-control", label: "Sync Control" },
         { href: "/admin/ebay/duplicates", label: "Duplicate Cleanup" },
@@ -808,6 +828,7 @@ export default async function AdminDashboard() {
         { href: "/admin/instacomp-direct", label: "Direct Scan Lab" },
         { href: "/admin/instacomp", label: "Scan Lab" },
         { href: "/admin/quick-list", label: "Quick List" },
+        { href: "/admin/verified-reference-import", label: "Verified Intake" },
         { href: "/admin/products", label: "Products" },
         { href: "/admin/products/new", label: "New Product" },
         { href: "/admin/inventory", label: "Inventory Bridge" },
@@ -860,6 +881,7 @@ export default async function AdminDashboard() {
         { href: "/admin/launch-readiness", label: "Launch Readiness" },
         { href: "/admin/launch-gate-drill", label: "Gate Drill" },
         { href: "/admin/live-payment-launch", label: "Payment Gate" },
+        { href: "/admin/buyer-protection", label: "Buyer Protection" },
         { href: "/admin/live-shipping-launch", label: "Shipping Gate" },
         { href: "/admin/payment-simulations", label: "Payment Simulations" },
         { href: "/admin/shipping", label: "Shipping Control" },
@@ -869,15 +891,18 @@ export default async function AdminDashboard() {
     },
     {
       title: "Orders, accounts, and admin support",
-      detail: "Resolve buyer work, account status, files, settings, and security.",
+      detail:
+        "Resolve buyer work, account status, files, settings, and security.",
       links: [
         { href: "/admin/orders", label: "Orders" },
         { href: "/admin/order-review-cases", label: "Review Cases" },
+        { href: "/admin/order-notifications", label: "Order Notifications" },
         { href: "/admin/offers", label: "Offers" },
         { href: "/admin/accounts", label: "Accounts" },
         { href: "/admin/owner-seller-account", label: "Owner Seller Login" },
         { href: "/admin/files", label: "Files" },
         { href: "/admin/settings", label: "Settings" },
+        { href: "/admin/reset-password", label: "Owner Recovery" },
         { href: "/admin/security", label: "Security" },
         { href: "/admin/production-smoke", label: "Production Smoke" },
       ],
@@ -925,22 +950,22 @@ export default async function AdminDashboard() {
     !syncPolicyAvailable
       ? "eBay sync policy summary is not available"
       : blockedSyncTotal > 0
-      ? `${blockedSyncTotal} eBay sync policy block${blockedSyncTotal === 1 ? "" : "s"} need review`
-      : "eBay sync policy blocks are clear",
+        ? `${blockedSyncTotal} eBay sync policy block${blockedSyncTotal === 1 ? "" : "s"} need review`
+        : "eBay sync policy blocks are clear",
     sellerConnectUnavailable
       ? "Seller Connect readiness is not available"
       : sellerConnectNeedsAction.length > 0
-      ? `${sellerConnectNeedsAction.length} seller Connect account${
-          sellerConnectNeedsAction.length === 1 ? "" : "s"
-        } need onboarding action`
-      : "Seller Connect onboarding is clear",
+        ? `${sellerConnectNeedsAction.length} seller Connect account${
+            sellerConnectNeedsAction.length === 1 ? "" : "s"
+          } need onboarding action`
+        : "Seller Connect onboarding is clear",
     !marketIntelAvailable
       ? "Market Intel purchase ledger is not available"
       : marketIntelTotals.awaitingReceipt > 0
-      ? `${marketIntelTotals.awaitingReceipt} Market Intel purchase lot${
-          marketIntelTotals.awaitingReceipt === 1 ? "" : "s"
-        } waiting to be received`
-      : "Market Intel receipt queue is clear",
+        ? `${marketIntelTotals.awaitingReceipt} Market Intel purchase lot${
+            marketIntelTotals.awaitingReceipt === 1 ? "" : "s"
+          } waiting to be received`
+        : "Market Intel receipt queue is clear",
     `Shipping setup verdict: ${label(shippingDecision.status)} - ${shippingDecision.summary}`,
   ];
   const adminAttentionRows: AttentionPanelRow[] = [
@@ -994,7 +1019,12 @@ export default async function AdminDashboard() {
           : "Ready queue and dry-run tracking references are visible from Orders.",
       value: String(readyOrders.length),
       href: "/admin/orders",
-      tone: dryRunShippingOrders.length > 0 ? "rose" : readyOrders.length > 0 ? "amber" : "green",
+      tone:
+        dryRunShippingOrders.length > 0
+          ? "rose"
+          : readyOrders.length > 0
+            ? "amber"
+            : "green",
     },
     {
       key: "offers",
@@ -1053,19 +1083,19 @@ export default async function AdminDashboard() {
     {
       key: "seller-connect",
       eyebrow: "Payouts",
-      title:
-        sellerConnectUnavailable
-          ? "Seller Connect status unavailable"
-          : sellerConnectNeedsAction.length > 0
+      title: sellerConnectUnavailable
+        ? "Seller Connect status unavailable"
+        : sellerConnectNeedsAction.length > 0
           ? "Seller payouts need onboarding"
           : "Seller payouts clear",
-      detail:
-        sellerConnectUnavailable
-          ? "Open Payouts to inspect the Stripe Connect readiness table."
-          : sellerConnectNeedsAction.length > 0
+      detail: sellerConnectUnavailable
+        ? "Open Payouts to inspect the Stripe Connect readiness table."
+        : sellerConnectNeedsAction.length > 0
           ? "Stripe requirements, disabled reasons, and payout readiness are one click away."
           : "No seller Connect account currently needs onboarding action.",
-      value: sellerConnectUnavailable ? "!" : String(sellerConnectNeedsAction.length),
+      value: sellerConnectUnavailable
+        ? "!"
+        : String(sellerConnectNeedsAction.length),
       href: "/admin/seller-payouts",
       tone:
         sellerConnectUnavailable || sellerConnectNeedsAction.length > 0
@@ -1075,18 +1105,16 @@ export default async function AdminDashboard() {
     {
       key: "market-intel-receiving",
       eyebrow: "Buying",
-      title:
-        !marketIntelAvailable
-          ? "Market Intel ledger unavailable"
-          : marketIntelTotals.awaitingReceipt > 0
+      title: !marketIntelAvailable
+        ? "Market Intel ledger unavailable"
+        : marketIntelTotals.awaitingReceipt > 0
           ? "Purchased lots need receiving"
           : "Market Intel receiving clear",
-      detail:
-        marketIntelAvailable
-          ? `${marketIntelTotals.remainingUnits} unit${
-              marketIntelTotals.remainingUnits === 1 ? "" : "s"
-            } remain across purchase lots.`
-          : "Open Market Intel to inspect purchase-ledger availability.",
+      detail: marketIntelAvailable
+        ? `${marketIntelTotals.remainingUnits} unit${
+            marketIntelTotals.remainingUnits === 1 ? "" : "s"
+          } remain across purchase lots.`
+        : "Open Market Intel to inspect purchase-ledger availability.",
       value: marketIntelAvailable
         ? String(marketIntelTotals.awaitingReceipt)
         : "!",
@@ -1132,7 +1160,8 @@ export default async function AdminDashboard() {
               urgentAttentionCount === 1 ? "" : "s"
             } need action before routine work.`
           : "No red blockers are visible; keep the attention strip green before release work.",
-      href: adminAttentionRows.find((row) => row.tone === "rose")?.href ||
+      href:
+        adminAttentionRows.find((row) => row.tone === "rose")?.href ||
         "/admin/production-smoke",
       tone: urgentAttentionCount > 0 ? "rose" : "green",
     },
@@ -1145,7 +1174,8 @@ export default async function AdminDashboard() {
               watchlistAttentionCount === 1 ? "" : "s"
             } should be cleaned before adding more inventory.`
           : "Offer, pricing, receiving, payout, and launch watchlists are calm.",
-      href: adminAttentionRows.find((row) => row.tone === "amber")?.href ||
+      href:
+        adminAttentionRows.find((row) => row.tone === "amber")?.href ||
         "/admin",
       tone: watchlistAttentionCount > 0 ? "amber" : "green",
     },
@@ -1193,20 +1223,38 @@ export default async function AdminDashboard() {
               href={adminHref("/admin/instacomp-direct")}
               label="InstaComp Direct"
             />
-            <BaseCommandButton href={adminHref("/admin/orders")} label="Orders" />
-            <BaseCommandButton href={adminHref("/admin/offers")} label="Offers" />
-            <BaseCommandButton href={adminHref("/admin/inventory")} label="Inventory Control" />
+            <BaseCommandButton
+              href={adminHref("/admin/orders")}
+              label="Orders"
+            />
+            <BaseCommandButton
+              href={adminHref("/admin/offers")}
+              label="Offers"
+            />
+            <BaseCommandButton
+              href={adminHref("/admin/inventory")}
+              label="Inventory Control"
+            />
             <BaseCommandButton
               href={adminHref("/admin/ebay/inventory-intake")}
               label="eBay Intake"
             />
-            <BaseCommandButton href={adminHref("/admin/accounts")} label="Accounts" />
+            <BaseCommandButton
+              href={adminHref("/admin/accounts")}
+              label="Accounts"
+            />
             <BaseCommandButton
               href={adminHref("/admin/order-review-cases")}
               label="Cases"
             />
-            <BaseCommandButton href={adminHref("/admin/shipping")} label="Shipping" />
-            <BaseCommandButton href={adminHref("/admin/seller-payouts")} label="Payouts" />
+            <BaseCommandButton
+              href={adminHref("/admin/shipping")}
+              label="Shipping"
+            />
+            <BaseCommandButton
+              href={adminHref("/admin/seller-payouts")}
+              label="Payouts"
+            />
             <BaseCommandButton
               href={adminHref("/admin/financial-reconciliation")}
               label="Money Audit"
@@ -1219,9 +1267,18 @@ export default async function AdminDashboard() {
               href={adminHref("/admin/payment-simulations")}
               label="Payment Tests"
             />
-            <BaseCommandButton href={adminHref("/admin/ebay")} label="eBay Health" />
-            <BaseCommandButton href={adminHref("/admin/settings")} label="Settings" />
-            <BaseCommandButton href={adminHref("/admin/security")} label="Security" />
+            <BaseCommandButton
+              href={adminHref("/admin/ebay")}
+              label="eBay Health"
+            />
+            <BaseCommandButton
+              href={adminHref("/admin/settings")}
+              label="Settings"
+            />
+            <BaseCommandButton
+              href={adminHref("/admin/security")}
+              label="Security"
+            />
             <BaseCommandButton
               href={adminHref("/admin/ebay/sync-control")}
               label="Sync Control"
@@ -1234,7 +1291,11 @@ export default async function AdminDashboard() {
               href={adminHref("/admin/launch-gate-drill")}
               label="Gate Drill"
             />
-            <BaseCommandButton href={adminHref("/admin/logout")} label="Logout" danger />
+            <BaseCommandButton
+              href={adminHref("/admin/logout")}
+              label="Logout"
+              danger
+            />
           </div>
         </div>
       </section>
@@ -1293,7 +1354,8 @@ export default async function AdminDashboard() {
                 </p>
                 <p className="mt-2 font-black">Open Production Smoke →</p>
                 <p className="mt-2 text-rose-900">
-                  Run the smoke report before deciding an empty queue is truly clear.
+                  Run the smoke report before deciding an empty queue is truly
+                  clear.
                 </p>
               </Link>
             </div>
@@ -1319,15 +1381,15 @@ export default async function AdminDashboard() {
                 adminAttentionRows.some((row) => row.tone === "rose")
                   ? "ACTION REQUIRED"
                   : adminAttentionRows.some((row) => row.tone === "amber")
-                  ? "WATCHLIST"
-                  : "ALL CLEAR"
+                    ? "WATCHLIST"
+                    : "ALL CLEAR"
               }
               tone={
                 adminAttentionRows.some((row) => row.tone === "rose")
                   ? "rose"
                   : adminAttentionRows.some((row) => row.tone === "amber")
-                  ? "amber"
-                  : "green"
+                    ? "amber"
+                    : "green"
               }
             />
           </div>
@@ -1480,9 +1542,10 @@ export default async function AdminDashboard() {
                   No pricing alerts need review right now.
                 </h3>
                 <p className="mt-2 text-sm font-semibold text-emerald-800">
-                  Either your active cards are close to InstaComp™ market, or the
-                  comp history needs fresh scans. Run InstaComp™ on questionable
-                  listings and they will show up here automatically.
+                  Either your active cards are close to InstaComp™ market, or
+                  the comp history needs fresh scans. Run InstaComp™ on
+                  questionable listings and they will show up here
+                  automatically.
                 </p>
               </div>
             </div>
@@ -1526,7 +1589,9 @@ export default async function AdminDashboard() {
                         <p className="text-[11px] font-black uppercase text-neutral-500">
                           Your price
                         </p>
-                        <p className="text-xl font-black">{money(row.currentPrice)}</p>
+                        <p className="text-xl font-black">
+                          {money(row.currentPrice)}
+                        </p>
                       </div>
                       <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
                         <p className="text-[11px] font-black uppercase text-blue-700">
@@ -1554,7 +1619,9 @@ export default async function AdminDashboard() {
                         {priceAdjustmentMultipliers.map((multiplier) => (
                           <form
                             key={`${product.id}-${multiplier.value}`}
-                            action={adminHref("/api/admin/instacomp-price-radar/adjust")}
+                            action={adminHref(
+                              "/api/admin/instacomp-price-radar/adjust",
+                            )}
                             method="post"
                           >
                             <input
@@ -1593,7 +1660,9 @@ export default async function AdminDashboard() {
                         ].map(([duration, labelText]) => (
                           <form
                             key={`${product.id}-${duration}`}
-                            action={adminHref("/api/admin/instacomp-price-radar/ignore")}
+                            action={adminHref(
+                              "/api/admin/instacomp-price-radar/ignore",
+                            )}
                             method="post"
                           >
                             <input
@@ -1614,7 +1683,9 @@ export default async function AdminDashboard() {
                               Ignore {labelText}
                             </AdminSubmitButton>
                             <p className="mt-1 text-xs font-bold text-neutral-600">
-                              Hides the alert only; the product record stays unchanged.
+                              {
+                                "Hides the alert only; the product record stays unchanged."
+                              }
                             </p>
                           </form>
                         ))}
@@ -1658,10 +1729,26 @@ export default async function AdminDashboard() {
         </section>
 
         <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <MetricTile label="Revenue Today" value={money(revenueToday)} detail="Paid orders since midnight" />
-          <MetricTile label="Revenue Month" value={money(revenueMonth)} detail="Paid orders this month" />
-          <MetricTile label="Inventory Value" value={money(inventoryValue)} detail={`${activeProducts.length} active products`} />
-          <MetricTile label="Average Order" value={money(averageOrder)} detail={`${paidOrders.length} paid orders tracked`} />
+          <MetricTile
+            label="Revenue Today"
+            value={money(revenueToday)}
+            detail="Paid orders since midnight"
+          />
+          <MetricTile
+            label="Revenue Month"
+            value={money(revenueMonth)}
+            detail="Paid orders this month"
+          />
+          <MetricTile
+            label="Inventory Value"
+            value={money(inventoryValue)}
+            detail={`${activeProducts.length} active products`}
+          />
+          <MetricTile
+            label="Average Order"
+            value={money(averageOrder)}
+            detail={`${paidOrders.length} paid orders tracked`}
+          />
         </section>
 
         <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.35fr_0.65fr]">
@@ -1678,7 +1765,10 @@ export default async function AdminDashboard() {
                 <Pill label={`${readyOrders.length} ready`} tone="amber" />
                 <Pill label={`${reviewOrders.length} review`} tone="amber" />
                 {dryRunShippingOrders.length > 0 ? (
-                  <Pill label={`${dryRunShippingOrders.length} dry-run ship`} tone="rose" />
+                  <Pill
+                    label={`${dryRunShippingOrders.length} dry-run ship`}
+                    tone="rose"
+                  />
                 ) : null}
                 <Pill label={`${pendingOffers.length} offers`} tone="amber" />
                 <Pill label={`${lowInventory.length} low stock`} tone="rose" />
@@ -1733,12 +1823,17 @@ export default async function AdminDashboard() {
                 title="Offer Desk"
                 href={adminHref("/admin/offers")}
                 empty="No pending offers."
-                rows={[...pendingOffers, ...counteredOffers].slice(0, 5).map((offer) => ({
-                  key: String(offer.id),
-                  title: offer.products?.title || "Unknown product",
-                  meta: offer.customer_name || offer.customer_email || "No customer",
-                  value: money(offer.offer_amount),
-                }))}
+                rows={[...pendingOffers, ...counteredOffers]
+                  .slice(0, 5)
+                  .map((offer) => ({
+                    key: String(offer.id),
+                    title: offer.products?.title || "Unknown product",
+                    meta:
+                      offer.customer_name ||
+                      offer.customer_email ||
+                      "No customer",
+                    value: money(offer.offer_amount),
+                  }))}
               />
               <BaseQueuePanel
                 title="Inventory Watch"
@@ -1811,12 +1906,19 @@ export default async function AdminDashboard() {
                   </p>
                 </div>
                 <Pill
-                  label={storeSettings.source === "database" ? "DB settings" : "fallback"}
+                  label={
+                    storeSettings.source === "database"
+                      ? "DB settings"
+                      : "fallback"
+                  }
                   tone={storeSettings.source === "database" ? "green" : "amber"}
                 />
               </div>
               <dl className="mt-5 space-y-3 text-sm">
-                <InfoLine label="Legal" value={storeSettings.legalName || "Not set"} />
+                <InfoLine
+                  label="Legal"
+                  value={storeSettings.legalName || "Not set"}
+                />
                 <InfoLine label="Status" value={label(storeSettings.status)} />
                 <InfoLine label="eBay" value={storeSettings.ebayEnvironment} />
                 <InfoLine label="Stripe" value={storeSettings.stripeMode} />
@@ -1939,8 +2041,7 @@ export default async function AdminDashboard() {
                       .
                     </p>
                     <p className="mt-1 font-semibold">
-                      Schema:{" "}
-                      <code>{LIVE_MONEY_JSON_EVIDENCE.schema}</code>.{" "}
+                      Schema: <code>{LIVE_MONEY_JSON_EVIDENCE.schema}</code>.{" "}
                       Archive directory:{" "}
                       <code>{LIVE_MONEY_JSON_EVIDENCE.archiveDirectory}</code>.{" "}
                       {LIVE_MONEY_JSON_EVIDENCE.readOnlyGuarantee}
@@ -1970,9 +2071,13 @@ export default async function AdminDashboard() {
                     </p>
                     <p className="mt-1 font-semibold">
                       Preserve backup proof with{" "}
-                      <code>{EMERGENCY_BACKUP_EVIDENCE.runwayArchiveCommand}</code>;
-                      drill the lane directly with{" "}
-                      <code>{EMERGENCY_BACKUP_EVIDENCE.statusArchiveCommand}</code>{" "}
+                      <code>
+                        {EMERGENCY_BACKUP_EVIDENCE.runwayArchiveCommand}
+                      </code>
+                      ; drill the lane directly with{" "}
+                      <code>
+                        {EMERGENCY_BACKUP_EVIDENCE.statusArchiveCommand}
+                      </code>{" "}
                       and{" "}
                       <code>
                         {EMERGENCY_BACKUP_EVIDENCE.verificationArchiveCommand}
@@ -1986,8 +2091,11 @@ export default async function AdminDashboard() {
                     <p className="mt-1 font-semibold">
                       Schemas:{" "}
                       <code>{EMERGENCY_BACKUP_EVIDENCE.statusSchema}</code>,{" "}
-                      <code>{EMERGENCY_BACKUP_EVIDENCE.verificationSchema}</code>,
-                      and <code>{EMERGENCY_BACKUP_EVIDENCE.runwaySchema}</code>.
+                      <code>
+                        {EMERGENCY_BACKUP_EVIDENCE.verificationSchema}
+                      </code>
+                      , and{" "}
+                      <code>{EMERGENCY_BACKUP_EVIDENCE.runwaySchema}</code>.
                       Evidence directories:{" "}
                       <code>
                         {EMERGENCY_BACKUP_EVIDENCE.statusArchiveDirectory}
@@ -2037,7 +2145,8 @@ export default async function AdminDashboard() {
                   </p>
                   <p className="mt-1 text-xs font-black text-neutral-700">
                     Standard Envelope evidence validator is{" "}
-                    {launchGateDrill.shipping.standardEnvelopeEvidenceContractReady
+                    {launchGateDrill.shipping
+                      .standardEnvelopeEvidenceContractReady
                       ? "ready"
                       : "blocked"}
                     .
@@ -2080,11 +2189,15 @@ export default async function AdminDashboard() {
                   label="Brief JSON"
                 />
                 <BaseLinkButton
-                  href={adminHref("/api/admin/launch-readiness?format=markdown")}
+                  href={adminHref(
+                    "/api/admin/launch-readiness?format=markdown",
+                  )}
                   label="Brief MD"
                 />
                 <BaseLinkButton
-                  href={adminHref("/api/admin/launch-readiness?format=handoff-bundle")}
+                  href={adminHref(
+                    "/api/admin/launch-readiness?format=handoff-bundle",
+                  )}
                   label="Hand-off Bundle"
                 />
                 <BaseLinkButton
@@ -2097,17 +2210,35 @@ export default async function AdminDashboard() {
             <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm ring-1 ring-black/[0.02]">
               <h2 className="text-xl font-black">Command Links</h2>
               <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
-                <BaseLinkButton href={adminHref("/admin/products")} label="Products" />
-                <BaseLinkButton href={adminHref("/admin/inventory")} label="Inventory Control" />
+                <BaseLinkButton
+                  href={adminHref("/admin/products")}
+                  label="Products"
+                />
+                <BaseLinkButton
+                  href={adminHref("/admin/inventory")}
+                  label="Inventory Control"
+                />
                 <BaseLinkButton href={adminHref("/admin/ebay")} label="eBay" />
-                <BaseLinkButton href={adminHref("/admin/settings")} label="Settings" />
-                <BaseLinkButton href={adminHref("/admin/security")} label="Security" />
-                <BaseLinkButton href={adminHref("/admin/accounts")} label="Accounts" />
+                <BaseLinkButton
+                  href={adminHref("/admin/settings")}
+                  label="Settings"
+                />
+                <BaseLinkButton
+                  href={adminHref("/admin/security")}
+                  label="Security"
+                />
+                <BaseLinkButton
+                  href={adminHref("/admin/accounts")}
+                  label="Accounts"
+                />
                 <BaseLinkButton
                   href={adminHref("/admin/order-review-cases")}
                   label="Cases"
                 />
-                <BaseLinkButton href={adminHref("/admin/shipping")} label="Shipping" />
+                <BaseLinkButton
+                  href={adminHref("/admin/shipping")}
+                  label="Shipping"
+                />
                 <BaseLinkButton
                   href={adminHref("/admin/seller-payouts")}
                   label="Payouts"
@@ -2128,9 +2259,18 @@ export default async function AdminDashboard() {
                   href={adminHref("/admin/production-smoke")}
                   label="Prod Smoke"
                 />
-                <BaseLinkButton href={adminHref("/admin/orders")} label="Orders" />
-                <BaseLinkButton href={adminHref("/admin/offers")} label="Offers" />
-                <BaseLinkButton href={adminHref("/admin/files")} label="Files" />
+                <BaseLinkButton
+                  href={adminHref("/admin/orders")}
+                  label="Orders"
+                />
+                <BaseLinkButton
+                  href={adminHref("/admin/offers")}
+                  label="Offers"
+                />
+                <BaseLinkButton
+                  href={adminHref("/admin/files")}
+                  label="Files"
+                />
                 <BaseLinkButton
                   href={adminHref("/admin/launch-readiness")}
                   label="Launch"
@@ -2235,14 +2375,27 @@ export default async function AdminDashboard() {
               ["Ready to ship", String(readyOrders.length)],
               ["Needs review", String(reviewOrders.length)],
               ["Shipped", String(shippedOrders.length)],
-              ["Fulfillment rate", percent(shippedOrders.length, paidOrders.length)],
+              [
+                "Fulfillment rate",
+                percent(shippedOrders.length, paidOrders.length),
+              ],
             ]}
           />
           <StatusPanel
             title="Inventory Pulse"
             rows={[
-              ["Active products", String(inventoryStats?.in_stock_products ?? activeProducts.length)],
-              ["Sold out / zero", String(inventoryStats?.sold_out_products ?? soldOutProducts.length)],
+              [
+                "Active products",
+                String(
+                  inventoryStats?.in_stock_products ?? activeProducts.length,
+                ),
+              ],
+              [
+                "Sold out / zero",
+                String(
+                  inventoryStats?.sold_out_products ?? soldOutProducts.length,
+                ),
+              ],
               [
                 "eBay linked",
                 `${inventoryStats?.ebay_linked_products ?? ebayLinked.length} (${percent(
@@ -2250,14 +2403,22 @@ export default async function AdminDashboard() {
                   inventoryStats?.total_products ?? products.length,
                 )})`,
               ],
-              ["Last eBay seen", shortDate(inventoryStats?.latest_ebay_seen_at || latestEbaySeen || null)],
+              [
+                "Last eBay seen",
+                shortDate(
+                  inventoryStats?.latest_ebay_seen_at || latestEbaySeen || null,
+                ),
+              ],
             ]}
           />
           <StatusPanel
             title="eBay Sync Policy"
             rows={[
               ["Status", syncPolicyAvailable ? "Available" : "Not available"],
-              ["Missing SKU", String(inventoryStats?.missing_sku_products ?? 0)],
+              [
+                "Missing SKU",
+                String(inventoryStats?.missing_sku_products ?? 0),
+              ],
               ["Recent blocked", String(recentPolicyBlocked.length)],
               ["Recent needs review", String(recentNeedsReview.length)],
             ]}
@@ -2268,7 +2429,10 @@ export default async function AdminDashboard() {
               marketIntelAvailable
                 ? [
                     ["Purchase lots", String(marketIntelRows.length)],
-                    ["Units remaining", String(marketIntelTotals.remainingUnits)],
+                    [
+                      "Units remaining",
+                      String(marketIntelTotals.remainingUnits),
+                    ],
                     ["Net proceeds", money(marketIntelTotals.netProceeds)],
                     ["Realized GP", money(marketIntelTotals.grossProfit)],
                     ["Cash break-even", `${marketIntelBreakEven.toFixed(1)}%`],
@@ -2281,7 +2445,10 @@ export default async function AdminDashboard() {
             rows={[
               ["Evidence reports", String(evidenceReports.length)],
               ["Recent email errors", String(evidenceErrors.length)],
-              ["Evidence inbox", storeSettings.evidenceEmail || "Not configured"],
+              [
+                "Evidence inbox",
+                storeSettings.evidenceEmail || "Not configured",
+              ],
               ["Settings source", storeSettings.source],
             ]}
           />
@@ -2322,7 +2489,9 @@ export default async function AdminDashboard() {
                         {order.customer_email || "No customer email"}
                       </p>
                     </div>
-                    <span className={`w-fit rounded border px-2 py-1 text-xs font-bold ${statusTone(order.fulfillment_status || order.status)}`}>
+                    <span
+                      className={`w-fit rounded border px-2 py-1 text-xs font-bold ${statusTone(order.fulfillment_status || order.status)}`}
+                    >
                       {label(order.fulfillment_status || order.status)}
                     </span>
                     <p className="font-black">{money(order.total)}</p>
@@ -2337,7 +2506,9 @@ export default async function AdminDashboard() {
           <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm ring-1 ring-black/[0.02]">
             <div className="flex flex-wrap items-start justify-between gap-3 border-b border-neutral-200 p-5">
               <div>
-                <h2 className="text-xl font-black">Recent eBay Policy Decisions</h2>
+                <h2 className="text-xl font-black">
+                  Recent eBay Policy Decisions
+                </h2>
                 <p className="mt-1 text-sm text-neutral-600">
                   Latest local TCOS import decisions from the eBay sync guard.
                 </p>
@@ -2367,14 +2538,18 @@ export default async function AdminDashboard() {
                   >
                     <div className="min-w-0">
                       <p className="truncate font-bold">
-                        {decision.product_title || decision.sku || "Unknown listing"}
+                        {decision.product_title ||
+                          decision.sku ||
+                          "Unknown listing"}
                       </p>
                       <p className="mt-1 text-xs text-neutral-600">
                         {label(decision.action)} / {label(decision.reason)} /{" "}
                         {shortDate(decision.created_at)}
                       </p>
                     </div>
-                    <span className={`h-fit w-fit rounded border px-2 py-1 text-xs font-black ${statusTone(decision.decision)}`}>
+                    <span
+                      className={`h-fit w-fit rounded border px-2 py-1 text-xs font-black ${statusTone(decision.decision)}`}
+                    >
                       {label(decision.decision)}
                     </span>
                   </div>
@@ -2602,14 +2777,14 @@ function AttentionPanelCard({
     tone === "rose"
       ? "border-rose-200 bg-rose-50 text-rose-950"
       : tone === "amber"
-      ? "border-amber-200 bg-amber-50 text-amber-950"
-      : "border-emerald-200 bg-emerald-50 text-emerald-950";
+        ? "border-amber-200 bg-amber-50 text-amber-950"
+        : "border-emerald-200 bg-emerald-50 text-emerald-950";
   const valueClass =
     tone === "rose"
       ? "bg-rose-700 text-white"
       : tone === "amber"
-      ? "bg-amber-400 text-neutral-950"
-      : "bg-emerald-700 text-white";
+        ? "bg-amber-400 text-neutral-950"
+        : "bg-emerald-700 text-white";
 
   return (
     <Link
@@ -2707,8 +2882,8 @@ function BaseCommandButton({
   const className = primary
     ? "bg-amber-300 text-neutral-950 shadow-sm hover:bg-amber-200"
     : danger
-    ? "border border-rose-400 bg-rose-500/10 text-rose-100 hover:bg-rose-950"
-    : "border border-white/15 bg-white/10 text-white hover:bg-white/15";
+      ? "border border-rose-400 bg-rose-500/10 text-rose-100 hover:bg-rose-950"
+      : "border border-white/15 bg-white/10 text-white hover:bg-white/15";
 
   return (
     <Link
@@ -2731,11 +2906,13 @@ function Pill({
     tone === "green"
       ? "border-emerald-200 bg-emerald-50 text-emerald-800"
       : tone === "amber"
-      ? "border-amber-200 bg-amber-50 text-amber-800"
-      : "border-rose-200 bg-rose-50 text-rose-800";
+        ? "border-amber-200 bg-amber-50 text-amber-800"
+        : "border-rose-200 bg-rose-50 text-rose-800";
 
   return (
-    <span className={`rounded-full border px-2.5 py-1 text-xs font-black ${className}`}>
+    <span
+      className={`rounded-full border px-2.5 py-1 text-xs font-black ${className}`}
+    >
       {label}
     </span>
   );
@@ -2754,8 +2931,8 @@ function MiniLaunchCount({
     tone === "green"
       ? "text-emerald-700"
       : tone === "amber"
-      ? "text-amber-700"
-      : "text-rose-700";
+        ? "text-amber-700"
+        : "text-rose-700";
 
   return (
     <div className="rounded-xl border border-neutral-200 bg-white px-2 py-1.5 shadow-sm">
@@ -2807,7 +2984,9 @@ function BaseQueuePanel({
               <>
                 <div className="min-w-0">
                   <p className="truncate font-bold">{row.title}</p>
-                  <p className="truncate text-xs text-neutral-600">{row.meta}</p>
+                  <p className="truncate text-xs text-neutral-600">
+                    {row.meta}
+                  </p>
                 </div>
                 <p className="shrink-0 text-sm font-black">{row.value}</p>
               </>
@@ -2868,7 +3047,10 @@ function StatusPanel({
       <h2 className="text-xl font-black">{title}</h2>
       <dl className="mt-4 divide-y divide-neutral-200 text-sm">
         {rows.map(([labelText, value]) => (
-          <div key={labelText} className="flex items-center justify-between gap-4 py-3">
+          <div
+            key={labelText}
+            className="flex items-center justify-between gap-4 py-3"
+          >
             <dt className="font-semibold text-neutral-600">{labelText}</dt>
             <dd className="break-words text-right font-black">{value}</dd>
           </div>
