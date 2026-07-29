@@ -27,6 +27,12 @@
 *.zip
 /.codex-run/
 
+# Never commit exported environment or credential backups
+ENV_BACKUP_DO_NOT_DELETE.txt
+*ENV_BACKUP*.txt
+*.env.backup
+*.env.export
+
 # debug
 npm-debug.log*
 yarn-debug.log*
