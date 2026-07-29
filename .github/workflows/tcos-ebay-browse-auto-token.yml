@@ -1,0 +1,97 @@
+name: TCOS eBay Browse Auto Token
+
+on:
+  push:
+    branches:
+      - feature/ebay-browse-auto-token-20260729
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "connectors/tcos-market-intel-mcp/src/config.mjs"
+      - "connectors/tcos-market-intel-mcp/src/ebay-application-token.mjs"
+      - "connectors/tcos-market-intel-mcp/src/public-search.mjs"
+      - "src/app/api/internal/ebay-browse-probe/route.js"
+      - "scripts/apply-ebay-browse-auto-token.mjs"
+      - "scripts/apply-ebay-browse-status-details.mjs"
+      - "scripts/run-ebay-browse-auto-token-simulations.mjs"
+      - "scripts/run-ebay-browse-runtime-contracts.mjs"
+      - ".github/workflows/tcos-ebay-browse-auto-token.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tcos-ebay-browse-auto-token-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out feature source
+        uses: actions/checkout@v4
+        with:
+          ref: feature/ebay-browse-auto-token-20260729
+          fetch-depth: 0
+
+      - name: Materialize automatic eBay Browse adapter and status
+        run: |
+          set -euo pipefail
+          node scripts/apply-ebay-browse-auto-token.mjs
+          node scripts/apply-ebay-browse-status-details.mjs
+          git diff --check
+          git add connectors/tcos-market-intel-mcp/src/public-search.mjs
+          if git diff --cached --quiet; then
+            echo "eBay Browse adapter already materialized."
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "Materialize automatic eBay Browse token adapter"
+            git push origin HEAD:feature/ebay-browse-auto-token-20260729
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Run eBay token-manager simulation
+        run: node scripts/run-ebay-browse-auto-token-simulations.mjs
+
+      - name: Run eBay runtime contracts
+        run: node scripts/run-ebay-browse-runtime-contracts.mjs
+
+      - name: Lint eBay Browse paths
+        run: npx eslint connectors/tcos-market-intel-mcp/src/config.mjs connectors/tcos-market-intel-mcp/src/ebay-application-token.mjs connectors/tcos-market-intel-mcp/src/public-search.mjs src/app/api/internal/ebay-browse-probe/route.js scripts/apply-ebay-browse-auto-token.mjs scripts/apply-ebay-browse-status-details.mjs scripts/run-ebay-browse-auto-token-simulations.mjs scripts/run-ebay-browse-runtime-contracts.mjs
+
+      - name: Build production application
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+          ADMIN_PASSWORD: build-only-placeholder-password
+          ADMIN_SESSION_SECRET: build-only-placeholder-admin-session-secret
+          INSTACOMP_SERVICE_TOKEN: build-only-placeholder-instacomp-service-token
+          TCOS_CONNECTOR_TOKEN: build-only-placeholder-connector-token
+          TCOS_EBAY_PROBE_TOKEN: build-only-placeholder-ebay-probe-token
+          INSTACOMP_BASE_URL: https://truelycollectables.com
+          OPENAI_API_KEY: build-only-placeholder-openai-key
+          SERPAPI_API_KEY: build-only-placeholder-serpapi-key
+          NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+          STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+          STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+          EBAY_CLIENT_ID: build-only-placeholder-client-id
+          EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+          EBAY_ENVIRONMENT: production
+          TCOS_LIVE_PAYMENTS_ENABLED: "false"
+          TCOS_SHIPPING_PURCHASE_MODE: dry_run
+          TCOS_LIVE_SHIPPING_ENABLED: "false"
+        run: npm run build

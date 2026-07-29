@@ -1,4 +1,5 @@
 import { config } from "./config.mjs";
+import { ebayApplicationTokenService } from "./ebay-application-token.mjs";
 import { normalizeUrl, normalizeText } from "./logic.mjs";
 
 const readResponseText = (payload) => {
@@ -190,24 +191,99 @@ export class EbayBrowseAdapter {
   }
 
   get configured() {
-    return Boolean(config.ebayBrowseAccessToken);
+    return ebayApplicationTokenService.configured;
+  }
+
+  status() {
+    return ebayApplicationTokenService.status();
+  }
+
+  async requestSearch(url, accessToken) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), config.ebayBrowseTimeoutMs);
+    try {
+      return await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
+          Accept: "application/json",
+        },
+        signal: controller.signal,
+        redirect: "error",
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   async search(request) {
-    if (!this.configured) return { source: this.name, configured: false, results: [], warnings: ["EBAY_BROWSE_ACCESS_TOKEN is not configured"] };
+    if (!this.configured) {
+      return {
+        source: this.name,
+        configured: false,
+        results: [],
+        warnings: [
+          "Native eBay Browse requires EBAY_CLIENT_ID and EBAY_CLIENT_SECRET.",
+        ],
+      };
+    }
+
     const limit = Math.max(1, Math.min(request.maxResults || 20, 50));
-    const url = new URL("https://api.ebay.com/buy/browse/v1/item_summary/search");
+    const url = new URL(
+      `${ebayApplicationTokenService.apiBaseUrl()}/buy/browse/v1/item_summary/search`,
+    );
     url.searchParams.set("q", request.query);
     url.searchParams.set("limit", String(limit));
-    if (request.filters?.categoryIds?.length) url.searchParams.set("category_ids", request.filters.categoryIds.join(","));
-    const response = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${config.ebayBrowseAccessToken}`,
-        "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
-      },
-    });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(`eBay Browse search failed: ${payload?.errors?.[0]?.message || response.statusText}`);
+    if (request.filters?.categoryIds?.length) {
+      url.searchParams.set("category_ids", request.filters.categoryIds.join(","));
+    }
+
+    let accessToken = await ebayApplicationTokenService.getAccessToken();
+    let response = await this.requestSearch(url, accessToken);
+    if (
+      response.status === 401 &&
+      ebayApplicationTokenService.status().mode === "client_credentials"
+    ) {
+      ebayApplicationTokenService.invalidate(accessToken);
+      accessToken = await ebayApplicationTokenService.getAccessToken({
+        forceRefresh: true,
+      });
+      response = await this.requestSearch(url, accessToken);
+    }
+
+    const text = await response.text();
+    let payload = {};
+    try {
+      payload = text ? JSON.parse(text) : {};
+    } catch {
+      throw new Error(
+        `eBay Browse search returned unreadable JSON (HTTP ${response.status}).`,
+      );
+    }
+
+    if (!response.ok) {
+      const message =
+        payload?.errors?.[0]?.longMessage ||
+        payload?.errors?.[0]?.message ||
+        payload?.error_description ||
+        response.statusText ||
+        "unknown error";
+      if (response.status === 403) {
+        throw new Error(
+          `eBay Browse production access denied (HTTP 403): ${message}. The eBay keyset may require Buy API approval; TCOS will continue public-web eBay discovery without retrying this denied call.`,
+        );
+      }
+      if (response.status === 429) {
+        const retryAfter = response.headers.get("retry-after");
+        throw new Error(
+          `eBay Browse rate limit reached (HTTP 429)${retryAfter ? `; retry after ${retryAfter} seconds` : ""}.`,
+        );
+      }
+      throw new Error(
+        `eBay Browse search failed (HTTP ${response.status}): ${message}`,
+      );
+    }
+
     const results = (payload.itemSummaries || []).map((item) =>
       normalizePublicResult(
         {
@@ -218,17 +294,41 @@ export class EbayBrowseAdapter {
           shipping: item.shippingOptions?.[0]?.shippingCost?.value ?? null,
           quantity: null,
           seller_name: item.seller?.username,
-          image_urls: [item.image?.imageUrl, ...(item.thumbnailImages || []).map((image) => image.imageUrl)].filter(Boolean),
-          pickup_or_shipping: item.itemLocation ? "shipping_or_pickup_unknown" : null,
-          location: [item.itemLocation?.city, item.itemLocation?.stateOrProvince, item.itemLocation?.country].filter(Boolean).join(", ") || null,
-          manual_review_required: Boolean(item.itemGroupType || item.buyingOptions?.includes("AUCTION")),
-          verification_notes: item.itemGroupType ? "Potential multi-variation item; selected-card price must be verified" : null,
+          image_urls: [
+            item.image?.imageUrl,
+            ...(item.thumbnailImages || []).map((image) => image.imageUrl),
+          ].filter(Boolean),
+          pickup_or_shipping: item.itemLocation
+            ? "shipping_or_pickup_unknown"
+            : null,
+          location:
+            [
+              item.itemLocation?.city,
+              item.itemLocation?.stateOrProvince,
+              item.itemLocation?.country,
+            ]
+              .filter(Boolean)
+              .join(", ") || null,
+          manual_review_required: Boolean(
+            item.itemGroupType || item.buyingOptions?.includes("AUCTION"),
+          ),
+          verification_notes: item.itemGroupType
+            ? "Potential multi-variation item; selected-card price must be verified"
+            : item.buyingOptions?.includes("AUCTION")
+              ? "Auction listing; final delivered cost is not fixed"
+              : null,
           raw_payload: item,
         },
         "eBay",
       ),
     );
-    return { source: this.name, configured: true, results, warnings: [] };
+    return {
+      source: this.name,
+      configured: true,
+      results,
+      warnings: [],
+      diagnostics: this.status(),
+    };
   }
 }
 
@@ -298,6 +398,7 @@ export class PublicSearchService {
     return {
       openAiPublicWeb: this.openAi.configured,
       ebayBrowse: this.ebay.configured,
+      ebayBrowseDetails: this.ebay.status(),
       xRecentSearch: this.x.configured,
       manualPublicUrlIntake: true,
       privateFacebookGroups: false,
