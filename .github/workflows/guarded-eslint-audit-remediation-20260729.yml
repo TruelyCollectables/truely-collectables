@@ -84,21 +84,42 @@ jobs:
           git diff --check
           git diff -- package.json package-lock.json
 
-      - name: Enforce zero high or critical npm advisories
+      - name: Diagnose and enforce zero high or critical npm advisories
         shell: bash
         run: |
           set -euo pipefail
-          npm audit --json > npm-audit.json || audit_status=$?
+          set +e
+          npm audit --audit-level=high 2>&1 | tee npm-audit.txt
+          audit_exit=${PIPESTATUS[0]}
+          npm audit --json > npm-audit.json
+          json_exit=$?
+          set -e
           node - <<'NODE'
           const fs = require('node:fs');
           const report = JSON.parse(fs.readFileSync('npm-audit.json', 'utf8'));
           const counts = report.metadata?.vulnerabilities || {};
-          console.log(JSON.stringify(counts));
+          const findings = Object.fromEntries(
+            Object.entries(report.vulnerabilities || {}).map(([name, finding]) => [name, {
+              severity: finding.severity,
+              isDirect: finding.isDirect,
+              via: (finding.via || []).map((entry) => typeof entry === 'string' ? entry : {
+                source: entry.source,
+                name: entry.name,
+                severity: entry.severity,
+                range: entry.range,
+              }),
+              effects: finding.effects,
+              range: finding.range,
+              fixAvailable: finding.fixAvailable,
+            }]),
+          );
+          console.log(JSON.stringify({ counts, findings }, null, 2));
           if ((counts.high || 0) !== 0 || (counts.critical || 0) !== 0) {
             throw new Error(`High/critical advisories remain: ${JSON.stringify(counts)}`);
           }
           NODE
-          npm audit --audit-level=high
+          test "$audit_exit" -eq 0
+          test "$json_exit" -eq 0
           npm ls eslint eslint-config-next minimatch brace-expansion
 
       - name: Run all six Launch 2.0 simulation shards
@@ -126,7 +147,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf .audit npm-audit.json
+          rm -rf .audit npm-audit.json npm-audit.txt
           git diff --check
           mapfile -t changed < <(git status --short | awk '{print $2}')
           for file in "${changed[@]}"; do
