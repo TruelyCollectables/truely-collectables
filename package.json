@@ -160,7 +160,8 @@
     "check:admin-controls": "node scripts/check-admin-controls.mjs",
     "check:admin-live-regions": "node scripts/check-admin-live-regions.mjs",
     "check:admin-routes": "node scripts/check-admin-routes.mjs",
-    "simulate:post-sale-ebay-sync": "node --import tsx scripts/run-post-sale-ebay-sync-simulations.ts"
+    "simulate:post-sale-ebay-sync": "node --import tsx scripts/run-post-sale-ebay-sync-simulations.ts",
+    "simulate:accepted-offer-reservations": "node --import tsx scripts/run-accepted-offer-reservation-simulations.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.26.0",

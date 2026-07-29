@@ -16,6 +16,7 @@ export const LIVE_PAYMENT_APPROVAL_VERSION = "tcos-live-payments-v1";
 export const REQUIRED_LIVE_WEBHOOK_EVENTS = [
   "account.updated",
   "checkout.session.completed",
+  "checkout.session.expired",
   "refund.created",
   "refund.updated",
   "refund.failed",
@@ -406,48 +407,51 @@ export async function evaluateLivePaymentLaunch(params?: {
     testProductsResult,
     sellerAccountsResult,
     dryRunShippingCleanup,
-  ] =
-    await Promise.all([
-      supabase
-        .from("live_payment_launch_gates")
-        .select("gate_status,approval_version,approved_at,approved_by")
-        .eq("store_id", storeId)
-        .maybeSingle(),
-      supabase
-        .from("live_payment_launch_events")
-        .select("id")
-        .eq("store_id", storeId)
-        .limit(1),
-      supabase
-        .from("payment_simulation_runs")
-        .select("run_status,scenario_count,passed_count,failed_count,completed_at")
-        .eq("store_id", storeId)
-        .eq("run_mode", "checkout_e2e")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-      supabase
-        .from("stripe_reconciliation_items")
-        .select("id", { count: "exact", head: true })
-        .eq("store_id", storeId)
-        .eq("item_status", "open"),
-      supabase
-        .from("orders")
-        .select("id", { count: "exact", head: true })
-        .eq("store_id", storeId)
-        .eq("is_test", true),
-      supabase
-        .from("products")
-        .select("id", { count: "exact", head: true })
-        .eq("store_id", storeId)
-        .like("title", "[TCOS TEST]%"),
-      supabase
-        .from("seller_payout_accounts")
-        .select("provider_account_id,onboarding_status,payouts_enabled,details_submitted,disabled_reason,metadata")
-        .eq("store_id", storeId)
-        .eq("provider", "stripe_connect"),
-      getDryRunShippingCleanupSummary({ supabase, storeId }),
-    ]);
+  ] = await Promise.all([
+    supabase
+      .from("live_payment_launch_gates")
+      .select("gate_status,approval_version,approved_at,approved_by")
+      .eq("store_id", storeId)
+      .maybeSingle(),
+    supabase
+      .from("live_payment_launch_events")
+      .select("id")
+      .eq("store_id", storeId)
+      .limit(1),
+    supabase
+      .from("payment_simulation_runs")
+      .select(
+        "run_status,scenario_count,passed_count,failed_count,completed_at",
+      )
+      .eq("store_id", storeId)
+      .eq("run_mode", "checkout_e2e")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("stripe_reconciliation_items")
+      .select("id", { count: "exact", head: true })
+      .eq("store_id", storeId)
+      .eq("item_status", "open"),
+    supabase
+      .from("orders")
+      .select("id", { count: "exact", head: true })
+      .eq("store_id", storeId)
+      .eq("is_test", true),
+    supabase
+      .from("products")
+      .select("id", { count: "exact", head: true })
+      .eq("store_id", storeId)
+      .like("title", "[TCOS TEST]%"),
+    supabase
+      .from("seller_payout_accounts")
+      .select(
+        "provider_account_id,onboarding_status,payouts_enabled,details_submitted,disabled_reason,metadata",
+      )
+      .eq("store_id", storeId)
+      .eq("provider", "stripe_connect"),
+    getDryRunShippingCleanupSummary({ supabase, storeId }),
+  ]);
 
   const gate = (gateResult.data || null) as GateRow | null;
   const databaseApproved =
@@ -467,7 +471,7 @@ export async function evaluateLivePaymentLaunch(params?: {
           ? getLivePaymentGateErrorDetail(gateResult.error)
           : approvalEventsResult.error
             ? getLivePaymentGateErrorDetail(approvalEventsResult.error)
-          : "The auditable database launch approval is locked or stale.",
+            : "The auditable database launch approval is locked or stale.",
     ),
   );
 
@@ -571,7 +575,10 @@ export async function evaluateLivePaymentLaunch(params?: {
     check(
       "test_residue",
       "Test Fixture Isolation",
-      !testOrdersResult.error && !testProductsResult.error && testOrders === 0 && testProducts === 0
+      !testOrdersResult.error &&
+        !testProductsResult.error &&
+        testOrders === 0 &&
+        testProducts === 0
         ? "passed"
         : "blocked",
       `${testOrders} test order(s) and ${testProducts} disposable product(s) remain.`,
@@ -595,7 +602,9 @@ export async function evaluateLivePaymentLaunch(params?: {
     check(
       "monthly_subscription",
       "$5 Monthly Subscription",
-      process.env.TCOS_MONTHLY_SUBSCRIPTION_ENABLED === "true" ? "blocked" : "passed",
+      process.env.TCOS_MONTHLY_SUBSCRIPTION_ENABLED === "true"
+        ? "blocked"
+        : "passed",
       process.env.TCOS_MONTHLY_SUBSCRIPTION_ENABLED === "true"
         ? "The monthly subscription flag is enabled, contrary to the current TCOS launch decision."
         : "Monthly subscription billing is disabled; TCOS remains at the 8% transaction fee only.",
@@ -650,7 +659,8 @@ export async function evaluateLivePaymentLaunch(params?: {
       const endpoint = expectedWebhookUrl
         ? endpoints.data.find(
             (candidate) =>
-              candidate.url === expectedWebhookUrl && candidate.status === "enabled",
+              candidate.url === expectedWebhookUrl &&
+              candidate.status === "enabled",
           )
         : null;
       const enabledEvents = new Set(endpoint?.enabled_events || []);
@@ -677,8 +687,8 @@ export async function evaluateLivePaymentLaunch(params?: {
           `Seller payout accounts could not be verified: ${sellerAccountsResult.error.message}`,
         );
       } else {
-        const sellerRows =
-          (sellerAccountsResult.data || []) as SellerPayoutAccountRow[];
+        const sellerRows = (sellerAccountsResult.data ||
+          []) as SellerPayoutAccountRow[];
         const internalOwnerRows = sellerRows.filter((row) =>
           isInternalPlatformStoreOwnerPayoutAccount(row, storeId),
         );
@@ -724,9 +734,11 @@ export async function evaluateLivePaymentLaunch(params?: {
             externalAccountIds.map(async (accountId) => {
               try {
                 const account = await stripe.accounts.retrieve(accountId);
-                return !(
-                  "deleted" in account && account.deleted
-                ) && account.details_submitted === true && account.payouts_enabled === true;
+                return (
+                  !("deleted" in account && account.deleted) &&
+                  account.details_submitted === true &&
+                  account.payouts_enabled === true
+                );
               } catch {
                 return false;
               }
@@ -768,11 +780,10 @@ export async function evaluateLivePaymentLaunch(params?: {
   const approvalReady = checks.every(
     (item) => item.status !== "blocked" || approvalExclusions.has(item.key),
   );
-  const runtimeSwitchEnabled = process.env.TCOS_LIVE_PAYMENTS_ENABLED === "true";
+  const runtimeSwitchEnabled =
+    process.env.TCOS_LIVE_PAYMENTS_ENABLED === "true";
   const livePaymentsEnabled =
-    approvalReady &&
-    databaseApproved &&
-    runtimeSwitchEnabled;
+    approvalReady && databaseApproved && runtimeSwitchEnabled;
   const summary = summarizeLivePaymentLaunch({
     checks,
     databaseApproved,
