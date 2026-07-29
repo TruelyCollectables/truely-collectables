@@ -32,7 +32,9 @@ export async function finalizeCheckoutOrder(params: {
   const customerEmail =
     session.customer_details?.email || session.customer_email || "unknown";
   const customerName =
-    session.customer_details?.name || collectedInfo?.shipping_details?.name || null;
+    session.customer_details?.name ||
+    collectedInfo?.shipping_details?.name ||
+    null;
   const shipping = collectedInfo?.shipping_details?.address;
   const shippingCountry = shipping?.country || null;
   const shippingAllowed = isAllowedShippingCountry(shippingCountry);
@@ -85,7 +87,9 @@ export async function finalizeCheckoutOrder(params: {
   for (const cartItem of cart) {
     const product = productById.get(cartItem.id);
     if (!product || !product.inventoryItemId) {
-      throw new Error(`Paid product ${cartItem.id} is missing from live inventory.`);
+      throw new Error(
+        `Paid product ${cartItem.id} is missing from live inventory.`,
+      );
     }
   }
 
@@ -189,23 +193,22 @@ export async function finalizeCheckoutOrder(params: {
 
     let mutation;
     try {
-      mutation =
-        checkoutType === "cart" && checkoutAttemptId
-          ? await consumeCheckoutReservationAfterSale({
-              supabase,
-              storeId,
-              checkoutAttemptId,
-              legacyProductId: product.legacyProductId,
-              quantity: cartItem.quantity,
-              stripeSessionId: session.id,
-            })
-          : await decrementOrderInventoryOnce({
-              supabase,
-              storeId,
-              orderId,
-              legacyProductId: product.legacyProductId,
-              quantity: cartItem.quantity,
-            });
+      mutation = checkoutAttemptId
+        ? await consumeCheckoutReservationAfterSale({
+            supabase,
+            storeId,
+            checkoutAttemptId,
+            legacyProductId: product.legacyProductId,
+            quantity: cartItem.quantity,
+            stripeSessionId: session.id,
+          })
+        : await decrementOrderInventoryOnce({
+            supabase,
+            storeId,
+            orderId,
+            legacyProductId: product.legacyProductId,
+            quantity: cartItem.quantity,
+          });
     } catch (inventoryError) {
       await supabase
         .from("orders")

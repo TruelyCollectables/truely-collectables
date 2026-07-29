@@ -145,18 +145,28 @@ for (const source of [offerAccept, offerCounter]) {
 }
 
 const offerBuyerCheckout = read("src/app/api/offers/buyer-checkout/route.ts");
+const reservedOfferCheckout = read("src/lib/reserved-offer-checkout.ts");
 for (const token of [
   "parseOfferCheckoutToken",
   "requestedShippingMethod",
   "buyerProtectionSelected",
   'tcos_line_type: "buyer_protection"',
-  "checkout.sessions.create",
+  "startReservedOfferCheckout",
 ]) {
   assert.ok(
     offerBuyerCheckout.includes(token),
     `Offer checkout must include ${token}.`,
   );
 }
+assert.ok(
+  reservedOfferCheckout.includes("checkout.sessions.create"),
+  "The reservation-backed accepted-offer helper must create the Stripe Session only after inventory is reserved.",
+);
+assert.ok(
+  reservedOfferCheckout.indexOf("reserveCheckoutInventory") <
+    reservedOfferCheckout.indexOf("checkout.sessions.create"),
+  "Accepted-offer inventory must be reserved before Stripe creates a payable session.",
+);
 
 const claims = read("src/app/api/account/buyer-protection/claims/route.ts");
 for (const token of [

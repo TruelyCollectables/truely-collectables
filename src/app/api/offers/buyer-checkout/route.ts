@@ -24,10 +24,15 @@ import {
   publicEndpointRateLimitPolicies,
   publicEndpointRateLimitResponse,
 } from "../../../../lib/public-endpoint-rate-limit";
+import {
+  ReservedOfferCheckoutError,
+  startReservedOfferCheckout,
+} from "../../../../lib/reserved-offer-checkout";
 import { trustedRequestOrigin } from "../../../../lib/site-origin";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 import { createServerInventoryEngine } from "../../../../lib/server-inventory-engine";
+import { InventoryEngineError } from "../../../../modules/inventory";
 
 export const dynamic = "force-dynamic";
 
@@ -81,9 +86,7 @@ export async function POST(request: Request) {
     const supabase = createSupabaseServerClient({ admin: true });
     const { data: offer, error: offerError } = await supabase
       .from("offers")
-      .select(
-        "*, products(id,title,image_url,price,quantity,ebay_item_id)",
-      )
+      .select("*, products(id,title,image_url,price,quantity,ebay_item_id)")
       .eq("id", offerId)
       .eq("store_id", storeId)
       .single();
@@ -104,9 +107,7 @@ export async function POST(request: Request) {
     }
 
     const saleSubtotal = money(
-      offer.status === "countered"
-        ? offer.counter_amount
-        : offer.offer_amount,
+      offer.status === "countered" ? offer.counter_amount : offer.offer_amount,
     );
     if (saleSubtotal <= 0) {
       return NextResponse.json(
@@ -150,9 +151,9 @@ export async function POST(request: Request) {
     });
     const existingProtectionConsent = Boolean(
       offer.buyer_protection_selected === true &&
-        offer.buyer_protection_policy_version ===
-          BUYER_PROTECTION_POLICY_VERSION &&
-        offer.buyer_protection_terms_accepted_at,
+      offer.buyer_protection_policy_version ===
+        BUYER_PROTECTION_POLICY_VERSION &&
+      offer.buyer_protection_terms_accepted_at,
     );
 
     let buyerProtectionSelected = false;
@@ -170,11 +171,9 @@ export async function POST(request: Request) {
 
       if (existingProtectionConsent) {
         buyerProtectionSelected = true;
-        protectionTermsAcceptedAt =
-          offer.buyer_protection_terms_accepted_at;
+        protectionTermsAcceptedAt = offer.buyer_protection_terms_accepted_at;
         protectionConsentSource =
-          offer.buyer_protection_consent_source ||
-          "offer_submission_consent";
+          offer.buyer_protection_consent_source || "offer_submission_consent";
         protectionPreferenceMode =
           offer.buyer_protection_preference_mode === "always_on"
             ? "always_on"
@@ -230,28 +229,13 @@ export async function POST(request: Request) {
     }
     const stripe = new Stripe(stripeRuntime.stripeKey);
 
-    if (offer.stripe_session_id) {
-      try {
-        const existingSession = await stripe.checkout.sessions.retrieve(
-          offer.stripe_session_id,
-        );
-        if (existingSession.status === "open") {
-          await stripe.checkout.sessions.expire(existingSession.id);
-        }
-      } catch {
-        // A missing or already-finished old session does not block a new choice.
-      }
-    }
-
     const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [
       {
         price_data: {
           currency: "usd",
           product_data: {
             name: offer.products.title,
-            images: offer.products.image_url
-              ? [offer.products.image_url]
-              : [],
+            images: offer.products.image_url ? [offer.products.image_url] : [],
           },
           unit_amount: Math.round(saleSubtotal * 100),
         },
@@ -290,88 +274,85 @@ export async function POST(request: Request) {
     }
 
     const origin = trustedRequestOrigin(request);
-    const selectionKey = [
-      resolvedShipping.method,
-      buyerProtectionSelected ? "protected" : "unprotected",
-      Math.round(saleSubtotal * 100),
-    ].join("_");
-    const stripeIdempotencyKey = `truely_offer_checkout_${storeId}_${offer.id}_${selectionKey}`;
-    const session = await stripe.checkout.sessions.create(
-      {
-        mode: "payment",
-        payment_method_types: ["card"],
-        customer_email: offer.customer_email,
-        shipping_address_collection: { allowed_countries: ["US"] },
-        line_items: lineItems,
-        metadata: {
-          store_id: storeId,
-          account_id: offer.account_id || account?.id || "",
-          type: "accepted_offer",
-          offer_id: String(offer.id),
-          product_id: String(offer.products.id),
-          ebay_item_id: offer.products.ebay_item_id || "",
-          offer_amount: saleSubtotal.toFixed(2),
-          cart: JSON.stringify([
-            { id: Number(offer.products.id), quantity: 1 },
-          ]),
-          subtotal: saleSubtotal.toFixed(2),
-          item_count: "1",
-          shipping_selection_mode: "site_offer_choice",
-          requested_shipping_method: requestedShippingMethod,
-          shipping_method: resolvedShipping.method,
-          shipping_name: SHIPPING_RULES[resolvedShipping.method].name,
-          shipping_amount: shippingAmount.toFixed(2),
-          shipping_eligibility_basis_type:
-            "product_listing_price_at_offer_decision",
-          shipping_eligibility_basis_price: listingPriceBasis.toFixed(2),
-          listing_price_basis: listingPriceBasis.toFixed(2),
-          standard_envelope_eligible:
-            resolvedShipping.standardEnvelope.eligible ? "true" : "false",
-          standard_envelope_estimated_oz: String(
-            resolvedShipping.standardEnvelope.estimatedOunces,
-          ),
-          buyer_protection_selected: buyerProtectionSelected ? "true" : "false",
-          buyer_protection_fee: buyerProtectionSelected
-            ? BUYER_PROTECTION_FEE.toFixed(2)
-            : "0.00",
-          buyer_protection_covered_amount: buyerProtectionSelected
-            ? protectionEligibility.coveredAmount.toFixed(2)
-            : "0.00",
-          buyer_protection_policy_version: buyerProtectionSelected
-            ? BUYER_PROTECTION_POLICY_VERSION
-            : "",
-          buyer_protection_terms_accepted_at:
-            protectionTermsAcceptedAt || "",
-          buyer_protection_consent_source:
-            protectionConsentSource || "",
-          buyer_protection_preference_mode:
-            protectionPreferenceMode || "one_time",
-          buyer_protection_consent_ip_address:
-            identity.ipAddress || offer.tos_ip_address || "",
-          buyer_protection_consent_user_agent:
-            identity.userAgent || offer.tos_user_agent || "",
-          buyer_protection_consent_ip_risk:
-            identity.risk || offer.tos_ip_risk || "",
-          buyer_protection_consent_ip_block_reason:
-            identity.blockReason || offer.tos_ip_block_reason || "",
-          tos_accepted: offer.tos_accepted ? "true" : "false",
-          tos_version: offer.tos_version || "",
-          tos_accepted_at: offer.tos_accepted_at || "",
-          tos_acceptance_event_id: offer.tos_acceptance_event_id || "",
-          tos_ip_address: offer.tos_ip_address || "",
-          tos_user_agent: offer.tos_user_agent || "",
-          tos_ip_risk: offer.tos_ip_risk || "",
-          tos_ip_block_reason: offer.tos_ip_block_reason || "",
-        },
-        success_url: `${origin}/success?type=offer&session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${origin}/offer-checkout/${offer.id}?token=${encodeURIComponent(token)}`,
+    const sessionInput: Stripe.Checkout.SessionCreateParams = {
+      mode: "payment",
+      payment_method_types: ["card"],
+      customer_email: offer.customer_email,
+      shipping_address_collection: { allowed_countries: ["US"] },
+      line_items: lineItems,
+      metadata: {
+        store_id: storeId,
+        account_id: offer.account_id || account?.id || "",
+        type: "accepted_offer",
+        offer_id: String(offer.id),
+        product_id: String(offer.products.id),
+        ebay_item_id: offer.products.ebay_item_id || "",
+        offer_amount: saleSubtotal.toFixed(2),
+        cart: JSON.stringify([{ id: Number(offer.products.id), quantity: 1 }]),
+        subtotal: saleSubtotal.toFixed(2),
+        item_count: "1",
+        shipping_selection_mode: "site_offer_choice",
+        requested_shipping_method: requestedShippingMethod,
+        shipping_method: resolvedShipping.method,
+        shipping_name: SHIPPING_RULES[resolvedShipping.method].name,
+        shipping_amount: shippingAmount.toFixed(2),
+        shipping_eligibility_basis_type:
+          "product_listing_price_at_offer_decision",
+        shipping_eligibility_basis_price: listingPriceBasis.toFixed(2),
+        listing_price_basis: listingPriceBasis.toFixed(2),
+        standard_envelope_eligible: resolvedShipping.standardEnvelope.eligible
+          ? "true"
+          : "false",
+        standard_envelope_estimated_oz: String(
+          resolvedShipping.standardEnvelope.estimatedOunces,
+        ),
+        buyer_protection_selected: buyerProtectionSelected ? "true" : "false",
+        buyer_protection_fee: buyerProtectionSelected
+          ? BUYER_PROTECTION_FEE.toFixed(2)
+          : "0.00",
+        buyer_protection_covered_amount: buyerProtectionSelected
+          ? protectionEligibility.coveredAmount.toFixed(2)
+          : "0.00",
+        buyer_protection_policy_version: buyerProtectionSelected
+          ? BUYER_PROTECTION_POLICY_VERSION
+          : "",
+        buyer_protection_terms_accepted_at: protectionTermsAcceptedAt || "",
+        buyer_protection_consent_source: protectionConsentSource || "",
+        buyer_protection_preference_mode:
+          protectionPreferenceMode || "one_time",
+        buyer_protection_consent_ip_address:
+          identity.ipAddress || offer.tos_ip_address || "",
+        buyer_protection_consent_user_agent:
+          identity.userAgent || offer.tos_user_agent || "",
+        buyer_protection_consent_ip_risk:
+          identity.risk || offer.tos_ip_risk || "",
+        buyer_protection_consent_ip_block_reason:
+          identity.blockReason || offer.tos_ip_block_reason || "",
+        tos_accepted: offer.tos_accepted ? "true" : "false",
+        tos_version: offer.tos_version || "",
+        tos_accepted_at: offer.tos_accepted_at || "",
+        tos_ip_address: offer.tos_ip_address || "",
+        tos_user_agent: offer.tos_user_agent || "",
+        tos_ip_risk: offer.tos_ip_risk || "",
+        tos_ip_block_reason: offer.tos_ip_block_reason || "",
       },
-      { idempotencyKey: stripeIdempotencyKey },
-    );
+      success_url: `${origin}/success?type=offer&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${origin}/offer-checkout/${offer.id}?token=${encodeURIComponent(token)}`,
+    };
 
-    if (!session.url) {
-      throw new Error("Stripe did not return a checkout URL");
-    }
+    const reservedCheckout = await startReservedOfferCheckout({
+      supabase,
+      stripe,
+      storeId,
+      offerId: Number(offer.id),
+      accountId: offer.account_id || account?.id || null,
+      productId: Number(offer.products.id),
+      identity,
+      tosAcceptanceEventId: offer.tos_acceptance_event_id || null,
+      legacyStripeSessionId: offer.stripe_session_id || null,
+      sessionInput,
+    });
+    const session = reservedCheckout.session;
 
     const { error: updateError } = await supabase
       .from("offers")
@@ -388,12 +369,9 @@ export async function POST(request: Request) {
         buyer_protection_policy_version: buyerProtectionSelected
           ? BUYER_PROTECTION_POLICY_VERSION
           : null,
-        buyer_protection_terms_accepted_at:
-          protectionTermsAcceptedAt,
-        buyer_protection_consent_source:
-          protectionConsentSource,
-        buyer_protection_preference_mode:
-          protectionPreferenceMode,
+        buyer_protection_terms_accepted_at: protectionTermsAcceptedAt,
+        buyer_protection_consent_source: protectionConsentSource,
+        buyer_protection_preference_mode: protectionPreferenceMode,
         updated_at: new Date().toISOString(),
       })
       .eq("id", offer.id)
@@ -401,10 +379,35 @@ export async function POST(request: Request) {
       .in("status", ["accepted", "countered"]);
     if (updateError) throw updateError;
 
-    return NextResponse.json({ success: true, url: session.url });
+    return NextResponse.json({
+      success: true,
+      url: session.url,
+      replayed: reservedCheckout.replayed,
+      checkoutAttemptId: reservedCheckout.checkoutAttemptId,
+      reservationExpiresAt: reservedCheckout.reservationExpiresAt,
+    });
   } catch (error: any) {
+    if (error instanceof InventoryEngineError) {
+      return NextResponse.json(
+        { error: error.message, retryable: false },
+        { status: error.statusCode },
+      );
+    }
+    if (error instanceof ReservedOfferCheckoutError) {
+      return NextResponse.json(
+        { error: error.message, retryable: error.retryable },
+        {
+          status: error.statusCode,
+          headers: error.retryable ? { "Retry-After": "2" } : undefined,
+        },
+      );
+    }
+
     return NextResponse.json(
-      { error: error.message || "Could not start offer checkout" },
+      {
+        error: error.message || "Could not start offer checkout",
+        retryable: true,
+      },
       { status: 500 },
     );
   }
