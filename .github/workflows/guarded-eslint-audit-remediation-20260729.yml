@@ -80,6 +80,7 @@ jobs:
           }
           JSON
           cat > vendor/brace-expansion-compat/index.cjs <<'CJS'
+          /* eslint-disable @typescript-eslint/no-require-imports -- CommonJS is required to preserve the legacy package API. */
           'use strict';
           const secureCore = require('brace-expansion-safe-core');
           const expand = typeof secureCore === 'function' ? secureCore : secureCore.expand;
