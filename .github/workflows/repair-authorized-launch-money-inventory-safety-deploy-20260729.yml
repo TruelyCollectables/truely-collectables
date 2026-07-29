@@ -1,5 +1,5 @@
 name: Repair Authorized Launch Money and Inventory Safety Deploy 20260729
-# One-time guarded writer; this second synchronization lets GitHub register and execute it.
+# Operations-only writer. Never merge this repair PR.
 
 on:
   pull_request:
@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   repair-deployment-workflow:
-    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'deploy/launch-money-inventory-safety-20260729'
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ops/repair-launch-money-inventory-cutover-20260729'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
