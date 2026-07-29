@@ -1,0 +1,139 @@
+name: Audit Storefront Taxonomy V7 Production V4 20260728
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/audit-storefront-taxonomy-v7-production-v4-20260728.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  audit-production-catalog:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ops/audit-storefront-taxonomy-v7-production-20260728'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/audit-storefront-taxonomy-v7-production-20260728
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies and pull production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          mkdir -p .vercel taxonomy-v7-production-audit
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          npx vercel@56.2.0 env pull .env.production.audit --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+
+      - name: Materialize and run production database audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python <<'PY'
+          from pathlib import Path
+          import textwrap
+          source = Path('.github/workflows/audit-storefront-taxonomy-v7-production-20260728.yml').read_text()
+          start_marker = "          cat > taxonomy-v7-production-audit/audit.ts <<'TS'\n"
+          end_marker = "\n          TS\n          node --import tsx taxonomy-v7-production-audit/audit.ts"
+          start = source.index(start_marker) + len(start_marker)
+          end = source.index(end_marker, start)
+          script = textwrap.dedent(source[start:end])
+          old = 'const key = process.env.SUPABASE_SERVICE_ROLE_KEY;'
+          new = 'const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;'
+          if script.count(old) != 1:
+            raise SystemExit(f'Supabase read key target: expected one match, found {script.count(old)}')
+          Path('taxonomy-v7-production-audit/audit.mts').write_text(script.replace(old, new, 1))
+          PY
+          set -a
+          source .env.production.audit
+          set +a
+          test -n "${NEXT_PUBLIC_SUPABASE_URL:-}"
+          test -n "${SUPABASE_SERVICE_ROLE_KEY:-${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}}"
+          node --import tsx taxonomy-v7-production-audit/audit.mts
+
+      - name: Audit live storefront pages
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p taxonomy-v7-production-audit/pages
+          fetch_page() {
+            key="$1"; path="$2"
+            curl --location --fail --silent --show-error \
+              --connect-timeout 15 --max-time 180 \
+              --header 'Cache-Control: no-cache' \
+              --output "taxonomy-v7-production-audit/pages/${key}.html" \
+              "https://truelycollectables.com${path}"
+          }
+          fetch_page all '/shop'
+          fetch_page other_collectables '/shop?section=Other%20Collectables'
+          fetch_page other_sports '/shop?section=Other%20Sports'
+          fetch_page memorabilia '/shop?section=Memorabilia'
+          fetch_page needs_review '/shop?section=Needs%20Review'
+          fetch_page memorabilia_cards '/shop?feature=memorabilia'
+          fetch_page graded_cards '/shop?feature=graded'
+          fetch_page autographs '/shop?feature=autograph'
+          node <<'NODE'
+          const fs = require('node:fs');
+          const decode = (value) => value
+            .replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"')
+            .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ')
+            .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+          const html = (key) => fs.readFileSync(`taxonomy-v7-production-audit/pages/${key}.html`, 'utf8');
+          const text = (key) => decode(html(key).replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' '));
+          const count = (key) => {
+            const match = text(key).match(/([\d,]+) active cards & collectibles/i);
+            return match ? Number(match[1].replaceAll(',', '')) : null;
+          };
+          const db = JSON.parse(fs.readFileSync('taxonomy-v7-production-audit/report.json', 'utf8'));
+          const counts = {
+            all: count('all'),
+            otherCollectables: count('other_collectables'),
+            otherSports: count('other_sports'),
+            memorabilia: count('memorabilia'),
+            needsReview: count('needs_review'),
+            memorabiliaCards: count('memorabilia_cards'),
+            gradedCards: count('graded_cards'),
+            autographs: count('autographs'),
+          };
+          const allText = text('all');
+          if (counts.all !== db.counts.publicAllowedRows) {
+            throw new Error(`Live total ${counts.all} != audited public rows ${db.counts.publicAllowedRows}.`);
+          }
+          for (const key of ['otherCollectables', 'otherSports', 'memorabilia', 'needsReview']) {
+            if (counts[key] !== 0) throw new Error(`${key} still shows ${counts[key]} items.`);
+          }
+          for (const label of ['Shop by sport', 'Collectible types', 'Card features', 'Memorabilia Cards', 'Graded Cards', 'NBA', 'WNBA']) {
+            if (!allText.includes(label)) throw new Error(`Missing live storefront control: ${label}`);
+          }
+          fs.writeFileSync(
+            'taxonomy-v7-production-audit/live-summary.json',
+            `${JSON.stringify({ success: true, counts }, null, 2)}\n`,
+          );
+          NODE
+
+      - name: Upload complete taxonomy v7 audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: storefront-taxonomy-v7-production-audit-v4-${{ github.run_number }}
+          path: taxonomy-v7-production-audit
+          if-no-files-found: error
+          retention-days: 30
