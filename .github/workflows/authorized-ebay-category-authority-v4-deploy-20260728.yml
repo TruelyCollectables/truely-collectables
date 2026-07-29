@@ -1,4 +1,4 @@
-name: Authorized Storefront Taxonomy V7 Production Deploy 20260728
+name: Authorized Storefront Taxonomy V8 Production Deploy 20260729
 
 on:
   pull_request:
@@ -25,12 +25,12 @@ jobs:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_SCOPE: truelycollectables-projects
-      DEPLOY_SOURCE_SHA: 59cdc76350851aff3bcaf67c3f240271e7717f10
+      DEPLOY_SOURCE_SHA: c7b190ede47d91008b9f759941f929622ca6d6b4
     steps:
       - name: Check out exact merged source
         uses: actions/checkout@v4
         with:
-          ref: 59cdc76350851aff3bcaf67c3f240271e7717f10
+          ref: c7b190ede47d91008b9f759941f929622ca6d6b4
           fetch-depth: 1
 
       - name: Set up Node.js
@@ -84,7 +84,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          marker='Memorabilia Cards'
+          markers=(
+            'Memorabilia Cards'
+            'Graded Cards'
+            'Shop by sport'
+          )
           urls=(
             "$DEPLOYMENT_URL/shop"
             'https://truely-collectables.vercel.app/shop'
@@ -98,22 +102,28 @@ jobs:
               body=".deployment-evidence/${slug}-${attempt}.html"
               code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 60 --output "$body" --write-out '%{http_code}' "$url" || true)"
               echo "$url HTTP=$code"
-              if [ "$code" = '200' ] && grep -Fq "$marker" "$body"; then
-                success="$url"
-                printf '%s\n' "$url" > .deployment-evidence/verified-url.txt
-                break 2
+              if [ "$code" = '200' ]; then
+                matched='true'
+                for marker in "${markers[@]}"; do
+                  grep -Fq "$marker" "$body" || matched='false'
+                done
+                if [ "$matched" = 'true' ]; then
+                  success="$url"
+                  printf '%s\n' "$url" > .deployment-evidence/verified-url.txt
+                  break 2
+                fi
               fi
             done
             sleep 15
           done
           test -n "$success"
-          echo "Verified storefront taxonomy v7 deployment at $success"
+          echo "Verified storefront taxonomy v8 deployment at $success"
 
       - name: Upload deployment evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: storefront-taxonomy-v7-production-deploy-${{ github.run_number }}
+          name: storefront-taxonomy-v8-production-deploy-${{ github.run_number }}
           path: .deployment-evidence
           if-no-files-found: warn
           retention-days: 30
