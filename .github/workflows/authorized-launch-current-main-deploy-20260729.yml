@@ -82,6 +82,13 @@ jobs:
           fi
           node -e 'const p=require("./.vercel/project.json"); if(!p.orgId||!p.projectId) process.exit(1);'
 
+      - name: Remove prior unpromoted candidate if present
+        shell: bash
+        run: |
+          set +e
+          npx vercel@56.2.0 remove https://truely-collectables-oe2qlowol-truelycollectables-projects.vercel.app --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$EVIDENCE_DIR/prior-candidate-removal.txt" 2>&1
+          exit 0
+
       - name: Stage exact Production deployment without promotion
         id: stage
         shell: bash
@@ -105,7 +112,7 @@ jobs:
           set -euo pipefail
           shop_code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 90 --output "$EVIDENCE_DIR/staged-shop.html" --write-out '%{http_code}' "$STAGED_URL/shop")"
           test "$shop_code" = "200"
-          for label in 'Search inventory' 'Filter by section' 'Filter by feature' 'Sort inventory'; do
+          for label in 'Search inventory' 'Filter by section' 'Filter by card feature' 'Sort inventory'; do
             grep -Fq "$label" "$EVIDENCE_DIR/staged-shop.html"
           done
           signup_code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 90 --output "$EVIDENCE_DIR/staged-signup.html" --write-out '%{http_code}' "$STAGED_URL/account/signup")"
@@ -139,7 +146,7 @@ jobs:
             sleep 10
           done
           test -n "$ready"
-          for label in 'Search inventory' 'Filter by section' 'Filter by feature' 'Sort inventory'; do
+          for label in 'Search inventory' 'Filter by section' 'Filter by card feature' 'Sort inventory'; do
             grep -Fq "$label" "$EVIDENCE_DIR/production-shop.html"
           done
           signup_code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 90 --output "$EVIDENCE_DIR/production-signup.html" --write-out '%{http_code}' https://truelycollectables.com/account/signup)"
