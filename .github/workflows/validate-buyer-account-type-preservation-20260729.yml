@@ -1,0 +1,134 @@
+name: Validate Buyer Account Type Preservation 20260729
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/validate-buyer-account-type-preservation-20260729.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'agent/buyer-signup-no-card-verification-20260729'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+      ADMIN_SESSION_SECRET: build-only-placeholder-session-secret
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+      EBAY_CLIENT_ID: build-only-placeholder-client-id
+      EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+      EBAY_ENVIRONMENT: production
+      TCOS_LIVE_PAYMENTS_ENABLED: false
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/buyer-signup-no-card-verification-20260729
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Preserve existing seller account types
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new, label):
+              file = Path(path)
+              text = file.read_text()
+              if text.count(old) != 1:
+                  raise SystemExit(f'{label}: expected one match, found {text.count(old)}')
+              file.write_text(text.replace(old, new, 1))
+
+          account_auth = 'src/lib/account-auth.ts'
+          replace_once(
+              account_auth,
+              '  defaultAccountType?: "buyer" | "seller";\n  accountStatus?: string | null;',
+              '  defaultAccountType?: "buyer" | "seller";\n  preserveDefaultAccountType?: boolean;\n  accountStatus?: string | null;',
+              'profile preservation option',
+          )
+          replace_once(
+              account_auth,
+              '    display_name: cleanText(params.displayName),\n    default_account_type: params.defaultAccountType || "buyer",\n    updated_at: new Date().toISOString(),\n  };',
+              '    display_name: cleanText(params.displayName),\n    updated_at: new Date().toISOString(),\n  };\n\n  if (!params.preserveDefaultAccountType) {\n    profilePayload.default_account_type = params.defaultAccountType || "buyer";\n  }',
+              'conditional default account type',
+          )
+          replace_once(
+              account_auth,
+              '        : null,\n    defaultAccountType: "buyer",\n  });\n\n  if (\n    shouldActivateLegacyBuyerAccount',
+              '        : null,\n    preserveDefaultAccountType: true,\n  });\n\n  if (\n    shouldActivateLegacyBuyerAccount',
+              'session profile preservation',
+          )
+
+          login = 'src/app/api/account/login/route.ts'
+          replace_once(
+              login,
+              '          : null,\n      defaultAccountType: "buyer",\n    });\n\n    if (\n      shouldActivateLegacyBuyerAccount',
+              '          : null,\n      preserveDefaultAccountType: true,\n    });\n\n    if (\n      shouldActivateLegacyBuyerAccount',
+              'login profile preservation',
+          )
+
+          tests = Path('scripts/run-buyer-account-no-card-regressions.ts')
+          text = tests.read_text()
+          text = text.replace(
+              '  shouldActivateLegacyBuyerAccount,\n} from "../src/lib/buyer-account-policy";',
+              '  isBuyerAccountType,\n  shouldActivateLegacyBuyerAccount,\n} from "../src/lib/buyer-account-policy";',
+              1,
+          )
+          anchor = '''assert.equal(\n  shouldActivateLegacyBuyerAccount({\n    accountStatus: "active",\n    defaultAccountType: "buyer",\n  }),\n  false,\n);\n'''
+          addition = anchor + '''assert.equal(isBuyerAccountType("seller", "seller_owner"), false);\nassert.equal(isBuyerAccountType("buyer", "seller_owner"), true);\n'''
+          if text.count(anchor) != 1:
+              raise SystemExit(f'policy assertion anchor: expected one match, found {text.count(anchor)}')
+          text = text.replace(anchor, addition, 1)
+          anchor2 = 'assert.match(accountAuth, /status: BUYER_MEMBERSHIP_ACTIVE_STATUS/);\n'
+          addition2 = anchor2 + '''assert.match(accountAuth, /preserveDefaultAccountType\\?: boolean/);\nassert.match(\n  accountAuth,\n  /if \\(!params\\.preserveDefaultAccountType\\)[\\s\\S]*profilePayload\\.default_account_type/,\n);\nassert.match(loginRoute, /preserveDefaultAccountType: true/);\n'''
+          if text.count(anchor2) != 1:
+              raise SystemExit(f'account preservation assertion anchor: expected one match, found {text.count(anchor2)}')
+          tests.write_text(text.replace(anchor2, addition2, 1))
+          PY
+
+      - name: Remove one-time workflow
+        run: rm .github/workflows/validate-buyer-account-type-preservation-20260729.yml
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Format account changes
+        run: |
+          npx prettier --write \
+            src/lib/account-auth.ts \
+            src/app/api/account/login/route.ts \
+            scripts/run-buyer-account-no-card-regressions.ts
+
+      - name: Run buyer account regressions
+        run: npx tsx scripts/run-buyer-account-no-card-regressions.ts
+
+      - name: Run existing storefront and checkout regressions
+        run: |
+          npx tsx scripts/run-ebay-import-admin-client-simulations.ts
+          npx tsx scripts/run-storefront-taxonomy-regressions.ts
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Run full production build
+        run: npm run build
+
+      - name: Confirm clean patch
+        run: git diff --check
+
+      - name: Commit seller-safe buyer migration
+        run: |
+          git config user.name "Truely Collectables Automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "Preserve seller account type during buyer login"
+          git push origin HEAD:agent/buyer-signup-no-card-verification-20260729
