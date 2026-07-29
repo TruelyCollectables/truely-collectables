@@ -72,24 +72,26 @@ jobs:
               raise SystemExit("Expected unguarded Production build command was not found.")
           link_block = text[link_start:confirm_start]
 
-          new_revalidation = """      - name: Revalidate current launch-blocking safety repairs
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm run simulate:post-sale-ebay-sync
-          npm run simulate:accepted-offer-reservations
-          node --import tsx scripts/run-offer-checkout-idempotency-simulations.ts
-          node --import tsx scripts/run-checkout-webhook-idempotency-simulations.ts
-          node --import tsx scripts/run-buyer-protection-simulations.ts
-          node scripts/run-launch-database-migration-coverage.mjs
-          node scripts/run-privileged-api-route-audit.mjs
-          npm run simulate:privileged-route-auth
-          node scripts/run-ebay-browse-runtime-contracts.mjs
-          npm run lint
-          npx tsc --noEmit --pretty false
-          npx vercel@56.2.0 env run -e production -- npm run build
-
-"""
+          new_revalidation = "\n".join([
+              "      - name: Revalidate current launch-blocking safety repairs",
+              "        shell: bash",
+              "        run: |",
+              "          set -euo pipefail",
+              "          npm run simulate:post-sale-ebay-sync",
+              "          npm run simulate:accepted-offer-reservations",
+              "          node --import tsx scripts/run-offer-checkout-idempotency-simulations.ts",
+              "          node --import tsx scripts/run-checkout-webhook-idempotency-simulations.ts",
+              "          node --import tsx scripts/run-buyer-protection-simulations.ts",
+              "          node scripts/run-launch-database-migration-coverage.mjs",
+              "          node scripts/run-privileged-api-route-audit.mjs",
+              "          npm run simulate:privileged-route-auth",
+              "          node scripts/run-ebay-browse-runtime-contracts.mjs",
+              "          npm run lint",
+              "          npx tsc --noEmit --pretty false",
+              "          npx vercel@56.2.0 env run -e production -- npm run build",
+              "",
+              "",
+          ])
 
           text = text[:revalidate_start] + link_block + new_revalidation + text[confirm_start:]
 
