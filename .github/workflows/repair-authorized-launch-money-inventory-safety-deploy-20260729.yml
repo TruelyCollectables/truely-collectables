@@ -41,7 +41,7 @@ jobs:
           test "$(git rev-parse origin/main)" = "$EXPECTED_SOURCE_SHA"
           git show "origin/$TARGET_BRANCH:$TARGET_WORKFLOW" > /tmp/authorized-cutover.yml
 
-      - name: Generate exact repaired workflow blob
+      - name: Remove nonzero CLI help preflight
         shell: bash
         run: |
           set -euo pipefail
@@ -51,43 +51,51 @@ jobs:
           source = Path('/tmp/authorized-cutover.yml')
           output = Path('ops-output/authorized-launch-money-inventory-safety-deploy-20260729.yml')
           text = source.read_text(encoding='utf-8')
-          old_sha = 'c5cf45854c329771a2a541d2f7f75a631c491e16'
-          new_sha = '8baee1bb26a17f974388b4d8e50b4321bbdfb685'
-          old_name = '      - name: Confirm staged Production and promotion commands exist\n'
-          new_name = '      - name: Confirm staged Production and safe promotion fallback\n'
-          old_line = '          npx vercel@56.2.0 promote --help > .deployment-evidence/vercel-promote-help.txt 2>&1\n'
-          new_line = "          printf '%s\\n' 'alias-set-fallback' > .deployment-evidence/vercel-promotion-method.txt\n"
+          source_sha = '8baee1bb26a17f974388b4d8e50b4321bbdfb685'
+          old_block = """      - name: Confirm staged Production and safe promotion fallback
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 deploy --help > .deployment-evidence/vercel-deploy-help.txt 2>&1
+          grep -Fq -- '--skip-domain' .deployment-evidence/vercel-deploy-help.txt
+          printf '%s\\n' 'alias-set-fallback' > .deployment-evidence/vercel-promotion-method.txt
+"""
+          new_block = """      - name: Record staged Production and safe promotion contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\\n' 'staged-deploy:--prod,--skip-domain;promotion:alias-set-fallback' > .deployment-evidence/vercel-promotion-method.txt
+"""
 
-          if text.count(old_sha) != 2:
-              raise SystemExit('Expected exactly two stale exact-source SHA references.')
-          if text.count(old_name) != 1:
-              raise SystemExit('Expected exactly one stale preflight step name.')
-          if text.count(old_line) != 1:
-              raise SystemExit('Expected exactly one invalid Vercel promote preflight command.')
-          text = text.replace(old_sha, new_sha)
-          text = text.replace(old_name, new_name).replace(old_line, new_line)
+          if text.count(source_sha) != 2:
+              raise SystemExit('Expected exactly two current exact-source SHA references.')
+          if text.count(old_block) != 1:
+              raise SystemExit('Expected exactly one nonzero CLI help preflight block.')
+          text = text.replace(old_block, new_block)
 
           required = [
-              f'SOURCE_SHA: {new_sha}',
-              f'ref: {new_sha}',
-              "grep -Fq -- '--skip-domain'",
-              'alias-set-fallback',
+              f'SOURCE_SHA: {source_sha}',
+              f'ref: {source_sha}',
+              'Record staged Production and safe promotion contract',
+              'staged-deploy:--prod,--skip-domain;promotion:alias-set-fallback',
+              '            --skip-domain \\',
               'npx vercel@56.2.0 promote "$DEPLOYMENT_URL"',
               'npx vercel@56.2.0 alias set "$DEPLOYMENT_URL" truelycollectables.com',
           ]
           for value in required:
               if value not in text:
                   raise SystemExit(f'Missing guarded workflow requirement: {value}')
-          if old_sha in text or old_line in text:
-              raise SystemExit('Stale source or invalid promote preflight remains.')
+          if 'deploy --help' in text or 'promote --help' in text:
+              raise SystemExit('A nonzero CLI help preflight remains.')
 
           output.parent.mkdir(parents=True, exist_ok=True)
           output.write_text(text, encoding='utf-8')
           PY
           grep -Fq "SOURCE_SHA: $EXPECTED_SOURCE_SHA" "$OUTPUT_FILE"
           grep -Fq "ref: $EXPECTED_SOURCE_SHA" "$OUTPUT_FILE"
-          grep -Fq 'Confirm staged Production and safe promotion fallback' "$OUTPUT_FILE"
-          grep -Fq 'alias-set-fallback' "$OUTPUT_FILE"
+          grep -Fq 'Record staged Production and safe promotion contract' "$OUTPUT_FILE"
+          grep -Fq -- '--skip-domain' "$OUTPUT_FILE"
+          ! grep -Fq 'deploy --help' "$OUTPUT_FILE"
           ! grep -Fq 'promote --help' "$OUTPUT_FILE"
 
       - name: Publish sanitized workflow blob outside workflow directory
@@ -102,7 +110,7 @@ jobs:
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'Publish validated cutover workflow blob'
+          git commit -m 'Remove nonzero Vercel help preflight'
           git push origin HEAD:ops/repair-launch-money-inventory-cutover-20260729
 
       - name: Upload sanitized repaired workflow artifact
