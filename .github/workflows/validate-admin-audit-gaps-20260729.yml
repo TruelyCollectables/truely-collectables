@@ -45,22 +45,39 @@ jobs:
 
           smoke = Path('scripts/smoke-admin-runtime.mjs')
           text = smoke.read_text()
-          anchor = '''  {
+          accounts_anchor = '''  {
               path: "/admin/accounts",
               auth: true,
               expectedTexts: ["Customer Account Lookup", "Customer Accounts"],
             },
           '''
-          addition = anchor + '''  {
+          buyer_addition = accounts_anchor + '''  {
               path: "/admin/buyer-protection",
               auth: true,
               expectedText: "Buyer Protection Claims",
             },
           '''
           if '/admin/buyer-protection' not in text:
-              if anchor not in text:
-                  raise SystemExit('smoke route insertion anchor missing')
-              text = text.replace(anchor, addition, 1)
+              if accounts_anchor not in text:
+                  raise SystemExit('buyer-protection smoke insertion anchor missing')
+              text = text.replace(accounts_anchor, buyer_addition, 1)
+
+          sync_anchor = '''  {
+              path: "/admin/ebay/full-store-sync",
+              auth: true,
+              expectedText: "Full eBay Store Sync",
+            },
+          '''
+          launch_sync_addition = sync_anchor + '''  {
+              path: "/admin/ebay/launch-ready-sync",
+              auth: true,
+              expectedText: "eBay Launch Readiness",
+            },
+          '''
+          if '/admin/ebay/launch-ready-sync' not in text:
+              if sync_anchor not in text:
+                  raise SystemExit('launch-ready-sync smoke insertion anchor missing')
+              text = text.replace(sync_anchor, launch_sync_addition, 1)
           smoke.write_text(text)
 
           admin_page = Path('src/app/admin/page.tsx')
@@ -71,6 +88,12 @@ jobs:
               if link_anchor not in text:
                   raise SystemExit('admin buyer-protection link anchor missing')
               text = text.replace(link_anchor, link_anchor + buyer_link, 1)
+          scope_copy = 'Hides the alert only; the product record stays unchanged.'
+          scope_expression = '{"Hides the alert only; the product record stays unchanged."}'
+          if scope_expression not in text:
+              if scope_copy not in text:
+                  raise SystemExit('price-radar scope copy missing')
+              text = text.replace(scope_copy, scope_expression, 1)
           admin_page.write_text(text)
 
           reset_page = Path('src/app/admin/reset-password/page.tsx')
