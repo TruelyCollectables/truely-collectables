@@ -7,9 +7,10 @@ on:
       - main
     paths:
       - ".github/workflows/repair-authorized-launch-money-inventory-safety-deploy-20260729.yml"
+      - "ops-output/authorized-launch-money-inventory-safety-deploy-20260729.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: repair-authorized-launch-money-inventory-safety-deploy-20260729
@@ -22,30 +23,34 @@ jobs:
     timeout-minutes: 15
     env:
       EXPECTED_SOURCE_SHA: 8baee1bb26a17f974388b4d8e50b4321bbdfb685
+      TARGET_BRANCH: deploy/launch-money-inventory-safety-20260729
       TARGET_WORKFLOW: .github/workflows/authorized-launch-money-inventory-safety-deploy-20260729.yml
+      OUTPUT_FILE: ops-output/authorized-launch-money-inventory-safety-deploy-20260729.yml
     steps:
-      - name: Check out guarded deployment branch
+      - name: Check out operations branch
         uses: actions/checkout@v4
         with:
-          ref: deploy/launch-money-inventory-safety-20260729
+          ref: ops/repair-launch-money-inventory-cutover-20260729
           fetch-depth: 0
 
-      - name: Confirm exact current main revision
+      - name: Confirm exact current main and target branch
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin main --depth=1
-          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SOURCE_SHA"
+          git fetch origin main "$TARGET_BRANCH"
+          test "$(git rev-parse origin/main)" = "$EXPECTED_SOURCE_SHA"
+          git show "origin/$TARGET_BRANCH:$TARGET_WORKFLOW" > /tmp/authorized-cutover.yml
 
-      - name: Refresh exact source and remove invalid Vercel promote preflight
+      - name: Generate exact repaired workflow blob
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
 
-          path = Path('.github/workflows/authorized-launch-money-inventory-safety-deploy-20260729.yml')
-          text = path.read_text(encoding='utf-8')
+          source = Path('/tmp/authorized-cutover.yml')
+          output = Path('ops-output/authorized-launch-money-inventory-safety-deploy-20260729.yml')
+          text = source.read_text(encoding='utf-8')
           old_sha = 'c5cf45854c329771a2a541d2f7f75a631c491e16'
           new_sha = '8baee1bb26a17f974388b4d8e50b4321bbdfb685'
           old_name = '      - name: Confirm staged Production and promotion commands exist\n'
@@ -76,36 +81,34 @@ jobs:
           if old_sha in text or old_line in text:
               raise SystemExit('Stale source or invalid promote preflight remains.')
 
-          path.write_text(text, encoding='utf-8')
+          output.parent.mkdir(parents=True, exist_ok=True)
+          output.write_text(text, encoding='utf-8')
           PY
+          grep -Fq "SOURCE_SHA: $EXPECTED_SOURCE_SHA" "$OUTPUT_FILE"
+          grep -Fq "ref: $EXPECTED_SOURCE_SHA" "$OUTPUT_FILE"
+          grep -Fq 'Confirm staged Production and safe promotion fallback' "$OUTPUT_FILE"
+          grep -Fq 'alias-set-fallback' "$OUTPUT_FILE"
+          ! grep -Fq 'promote --help' "$OUTPUT_FILE"
 
-      - name: Validate narrow guarded diff
+      - name: Publish sanitized workflow blob outside workflow directory
         shell: bash
         run: |
           set -euo pipefail
-          git diff --check
-          mapfile -t changed < <(git diff --name-only | sort)
-          test "${#changed[@]}" -eq 1
-          test "${changed[0]}" = "$TARGET_WORKFLOW"
-          grep -Fq "SOURCE_SHA: $EXPECTED_SOURCE_SHA" "$TARGET_WORKFLOW"
-          grep -Fq "ref: $EXPECTED_SOURCE_SHA" "$TARGET_WORKFLOW"
-          grep -Fq 'Confirm staged Production and safe promotion fallback' "$TARGET_WORKFLOW"
-          grep -Fq 'alias-set-fallback' "$TARGET_WORKFLOW"
-          ! grep -Fq 'promote --help' "$TARGET_WORKFLOW"
-
-      - name: Prepare sanitized repaired workflow artifact
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p .repair-output
-          cp "$TARGET_WORKFLOW" .repair-output/authorized-launch-money-inventory-safety-deploy-20260729.yml
-          sha256sum .repair-output/authorized-launch-money-inventory-safety-deploy-20260729.yml > .repair-output/SHA256SUMS
+          git diff --check -- "$OUTPUT_FILE"
+          git add "$OUTPUT_FILE"
+          if git diff --cached --quiet; then
+            echo 'Validated workflow blob is already published.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Publish validated cutover workflow blob'
+          git push origin HEAD:ops/repair-launch-money-inventory-cutover-20260729
 
       - name: Upload sanitized repaired workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: repaired-launch-money-inventory-cutover-${{ github.run_number }}
-          path: .repair-output
+          path: ops-output/authorized-launch-money-inventory-safety-deploy-20260729.yml
           if-no-files-found: error
-          include-hidden-files: true
           retention-days: 7
