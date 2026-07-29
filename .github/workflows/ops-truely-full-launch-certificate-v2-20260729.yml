@@ -100,13 +100,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p evidence
-          for shard in 1 2 3 4 5 6; do
-            node scripts/run-truely-launch-audit-20260729.mjs \
-              --mode simulations \
-              --shard "$shard" \
-              --total-shards 6 \
-              --out "evidence/shard-$shard"
+          rm -rf .audit/simulations
+          for shard in 0 1 2 3 4 5; do
+            node scripts/run-truely-launch-audit-20260729.mjs simulations \
+              --shard="$shard" \
+              --shards=6
           done
+          cp -R .audit/simulations/. evidence/
       - name: Dependency audit
         shell: bash
         run: |
@@ -161,7 +161,13 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Run live Production crawl and security audit
-        run: node scripts/run-truely-launch-audit-20260729.mjs --mode live-production --base-url "$BASE_URL" --out evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .audit/live
+          AUDIT_BASE_URL="$BASE_URL" node scripts/run-truely-launch-audit-20260729.mjs live
+          mkdir -p evidence
+          cp -R .audit/live/. evidence/
       - uses: actions/upload-artifact@v4
         if: always()
         with:
