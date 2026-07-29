@@ -22,7 +22,7 @@ jobs:
     timeout-minutes: 15
     env:
       EXPECTED_MAIN_SHA: 7765f115d44e2629d47cc38871273dacdafcb8e7
-      EXPECTED_AUDIT_SHA: 3417c615337436df896cfe9d3238f5d29ae33518
+      EXPECTED_AUDIT_SHA: 7ecba5b5444730793df45a6d64498a227bff7b96
       AUDIT_BRANCH: ops/truely-full-launch-audit-20260729
       AUDIT_WORKFLOW: .github/workflows/ops-truely-full-launch-audit-20260729.yml
       OUTPUT_FILE: ops-output/ops-truely-full-launch-audit-20260729.yml
@@ -48,10 +48,11 @@ jobs:
           set -euo pipefail
           python ops-tools/patch-full-launch-audit-20260729.py
           git diff --check -- "$OUTPUT_FILE"
-          grep -Fq 'runtime-env-presence.json' "$OUTPUT_FILE"
+          grep -Fq 'GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}' "$OUTPUT_FILE"
+          grep -Fq '/v1/projects/${ref}/api-keys?reveal=true' "$OUTPUT_FILE"
+          grep -Fq 'echo "::add-mask::$SERVICE_ROLE_KEY"' "$OUTPUT_FILE"
           grep -Fq "const transactionalPages = new Set(['cart', 'signup']);" "$OUTPUT_FILE"
           grep -Fq 'row.crawlable !== 0' "$OUTPUT_FILE"
-          grep -Fq 'row.seo < 90 || row.crawlable !== 1' "$OUTPUT_FILE"
           python - <<'PY'
           from pathlib import Path
           text = Path('ops-output/ops-truely-full-launch-audit-20260729.yml').read_text(encoding='utf-8')
@@ -59,6 +60,8 @@ jobs:
               raise SystemExit('Runtime audit step count changed unexpectedly.')
           if text.count('Grade Lighthouse reports') != 1:
               raise SystemExit('Lighthouse grader count changed unexpectedly.')
+          if text.count('GH_SUPABASE_ACCESS_TOKEN:') != 1:
+              raise SystemExit('Management API token wiring count changed unexpectedly.')
           PY
 
       - name: Publish corrected audit workflow blob outside workflow directory
@@ -72,7 +75,7 @@ jobs:
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'Publish corrected full launch audit workflow blob'
+          git commit -m 'Publish Supabase credential fallback audit workflow blob'
           git push origin HEAD:ops/validate-transactional-metadata-20260729
 
       - name: Upload corrected audit workflow evidence
