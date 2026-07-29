@@ -1,0 +1,122 @@
+name: Repair Full Audit Runtime and Lighthouse 20260729
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/ops-repair-full-audit-runtime-lighthouse-20260729.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  repair-audit-only:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ops/repair-full-audit-runtime-lighthouse-20260729')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out exact audit branch
+        uses: actions/checkout@v4
+        with:
+          ref: ops/truely-full-launch-audit-20260729
+          fetch-depth: 1
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Guard and repair audit workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "3417c615337436df896cfe9d3238f5d29ae33518"
+          test "$(git hash-object .github/workflows/ops-truely-full-launch-audit-20260729.yml)" = "24f1944cb405f9bb61d1c03fd952b8eae7df14ea"
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/ops-truely-full-launch-audit-20260729.yml')
+          source = path.read_text()
+
+          runtime_old = '''      - name: Run read-only Production integration and data audit
+        shell: bash
+        run: |
+          set +e
+          node --env-file=.audit-production.env scripts/run-truely-launch-audit-20260729.mjs runtime
+          status=$?
+          set -e
+          rm -f .audit-production.env
+          exit "$status"
+'''
+          runtime_new = '''      - name: Run read-only Production integration and data audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source .audit-production.env
+          set +a
+          for key in NEXT_PUBLIC_SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY STRIPE_LIVE_SECRET_KEY RESEND_API_KEY EBAY_CLIENT_ID EBAY_CLIENT_SECRET; do
+            value="${!key:-}"
+            test -n "$value"
+            echo "::add-mask::$value"
+          done
+          set +e
+          node scripts/run-truely-launch-audit-20260729.mjs runtime
+          status=$?
+          set -e
+          rm -f .audit-production.env
+          exit "$status"
+'''
+
+          lighthouse_old = '''          const rows = [];
+          let blocker = false;
+          for (const file of fs.readdirSync(dir).filter(name => name.endsWith('.json'))) {
+            const report = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'));
+            const row = { page: file.replace('.json', '') };
+            for (const key of ['performance', 'accessibility', 'best-practices', 'seo']) {
+              row[key] = Math.round((report.categories[key]?.score || 0) * 100);
+            }
+            if (row.accessibility < 90 || row.seo < 90 || row['best-practices'] < 85) blocker = true;
+            rows.push(row);
+          }
+'''
+          lighthouse_new = '''          const rows = [];
+          let blocker = false;
+          const intentionallyPrivate = new Set(['cart', 'signup']);
+          for (const file of fs.readdirSync(dir).filter(name => name.endsWith('.json'))) {
+            const report = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'));
+            const row = {
+              page: file.replace('.json', ''),
+              canonical: report.audits.canonical?.score ?? null,
+              crawlable: report.audits['is-crawlable']?.score ?? null,
+            };
+            for (const key of ['performance', 'accessibility', 'best-practices', 'seo']) {
+              row[key] = Math.round((report.categories[key]?.score || 0) * 100);
+            }
+            const categoryFailure = row.accessibility < 90 || row['best-practices'] < 85;
+            const seoFailure = intentionallyPrivate.has(row.page)
+              ? row.canonical !== 1 || row.crawlable !== 0
+              : row.seo < 90;
+            if (categoryFailure || seoFailure) blocker = true;
+            rows.push(row);
+          }
+'''
+
+          if source.count(runtime_old) != 1:
+              raise SystemExit('Runtime audit anchor mismatch')
+          if source.count(lighthouse_old) != 1:
+              raise SystemExit('Lighthouse audit anchor mismatch')
+          source = source.replace(runtime_old, runtime_new, 1)
+          source = source.replace(lighthouse_old, lighthouse_new, 1)
+          path.write_text(source)
+          PY
+          git diff --check
+          test "$(git diff --name-only | tr -d '\r')" = ".github/workflows/ops-truely-full-launch-audit-20260729.yml"
+          grep -Fq 'source .audit-production.env' .github/workflows/ops-truely-full-launch-audit-20260729.yml
+          grep -Fq "const intentionallyPrivate = new Set(['cart', 'signup']);" .github/workflows/ops-truely-full-launch-audit-20260729.yml
+          grep -Fq 'row.canonical !== 1 || row.crawlable !== 0' .github/workflows/ops-truely-full-launch-audit-20260729.yml
+      - name: Commit exact audit-only repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "truely-launch-audit-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add .github/workflows/ops-truely-full-launch-audit-20260729.yml
+          git commit -m "Repair full audit runtime and Lighthouse policy"
+          git push origin HEAD:ops/truely-full-launch-audit-20260729
