@@ -1,0 +1,64 @@
+name: Validate Launch Shop Accessibility 20260729
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "src/app/shop/page.tsx"
+      - ".github/workflows/validate-launch-shop-accessibility-20260729.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'fix/launch-shop-filter-accessibility-20260729'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out exact guarded branch
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Verify accessible names without weakening the audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const source = fs.readFileSync('src/app/shop/page.tsx', 'utf8');
+          const required = [
+            'aria-label="Search inventory"',
+            'aria-label="Filter by section"',
+            'aria-label="Filter by feature"',
+            'aria-label="Sort inventory"',
+          ];
+          for (const marker of required) {
+            if (!source.includes(marker)) throw new Error(`Missing accessible control name: ${marker}`);
+          }
+          const namedSelects = [...source.matchAll(/<select[\s\S]*?aria-label=/g)].length;
+          if (namedSelects !== 3) throw new Error(`Expected three named shop selects; found ${namedSelects}.`);
+          NODE
+
+      - name: Lint
+        run: npm run lint
+
+      - name: TypeScript
+        run: npx tsc --noEmit --pretty false
+
+      - name: Production build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key
+          NEXT_PUBLIC_SITE_URL: https://example.com
+        run: npm run build
