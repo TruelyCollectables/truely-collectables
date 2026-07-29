@@ -1,0 +1,124 @@
+name: Validate Accepted-Offer Inventory Reservations 20260729
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/validate-accepted-offer-reservations-20260729.yml"
+      - "scripts/apply-accepted-offer-reservations-20260729.mjs"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: validate-accepted-offer-reservations-20260729
+  cancel-in-progress: false
+
+env:
+  NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+  SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+  ADMIN_SESSION_SECRET: build-only-placeholder-session-secret-that-is-long-enough
+  ADMIN_PASSWORD: build-only-placeholder-admin-password
+  NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+  STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+  STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+  EBAY_CLIENT_ID: build-only-placeholder-client-id
+  EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+  EBAY_ENVIRONMENT: production
+  TCOS_LIVE_PAYMENTS_ENABLED: "false"
+  TCOS_SHIPPING_PURCHASE_MODE: dry_run
+  TCOS_LIVE_SHIPPING_ENABLED: "false"
+
+jobs:
+  patch-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out reservation branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/accepted-offer-inventory-reservations-20260729
+          fetch-depth: 0
+
+      - name: Fetch reviewed audit source
+        run: git fetch origin pull/142/head:refs/remotes/origin/pr142
+
+      - name: Apply accepted-offer reservation patch
+        run: node scripts/apply-accepted-offer-reservations-20260729.mjs
+
+      - name: Remove one-time writer and workflow
+        run: |
+          rm -f scripts/apply-accepted-offer-reservations-20260729.mjs
+          rm -f .github/workflows/validate-accepted-offer-reservations-20260729.yml
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Format changed TypeScript and JSON
+        run: npx prettier --write package.json scripts/run-accepted-offer-reservation-simulations.ts src/lib/offer-checkout-attempt.ts src/lib/reserved-offer-checkout.ts src/lib/checkout-inventory-reservations.ts src/lib/checkout-order-finalization.ts src/lib/live-payment-launch-core.ts src/app/api/offers/buyer-checkout/route.ts src/app/api/webhook/route.ts
+
+      - name: Validate reservation SQL contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in \
+            supabase/migrations/20260726234000_consume_attached_offer_checkout_reservations.sql \
+            supabase/migrations/20260727141000_hold_attached_checkout_reservations.sql \
+            supabase/migrations/20260727144000_preserve_reserved_product_identity.sql
+          do
+            grep -Eiq '^begin;' "$file"
+            grep -Eiq '^commit;' "$file"
+          done
+
+      - name: Run accepted-offer reservation regression
+        run: npm run simulate:accepted-offer-reservations
+
+      - name: Run checkout and offer regressions
+        run: |
+          node --import tsx scripts/run-offer-checkout-idempotency-simulations.ts
+          node --import tsx scripts/run-checkout-webhook-idempotency-simulations.ts
+          node --import tsx scripts/run-buyer-protection-simulations.ts
+          node --import tsx scripts/run-live-storefront-money-integrity-simulations.ts
+
+      - name: Run migration coverage and privileged route audit
+        run: |
+          node scripts/run-launch-database-migration-coverage.mjs
+          node scripts/run-privileged-api-route-audit.mjs
+
+      - name: Run targeted ESLint
+        run: npx eslint src/lib/offer-checkout-attempt.ts src/lib/reserved-offer-checkout.ts src/lib/checkout-inventory-reservations.ts src/lib/checkout-order-finalization.ts src/lib/live-payment-launch-core.ts src/app/api/offers/buyer-checkout/route.ts src/app/api/webhook/route.ts scripts/run-accepted-offer-reservation-simulations.ts
+
+      - name: Run standalone TypeScript
+        run: npx tsc --noEmit --pretty false
+
+      - name: Run full production build
+        run: npm run build
+
+      - name: Confirm source-only final diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          test ! -e scripts/apply-accepted-offer-reservations-20260729.mjs
+          test ! -e .github/workflows/validate-accepted-offer-reservations-20260729.yml
+          git status --short
+
+      - name: Commit validated reservation patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Truely Collectables Audit"
+          git config user.email "audit@truelycollectables.com"
+          git add package.json scripts/run-accepted-offer-reservation-simulations.ts src/lib/offer-checkout-attempt.ts src/lib/reserved-offer-checkout.ts src/lib/checkout-inventory-reservations.ts src/lib/checkout-order-finalization.ts src/lib/live-payment-launch-core.ts src/app/api/offers/buyer-checkout/route.ts src/app/api/webhook/route.ts supabase/migrations/20260726234000_consume_attached_offer_checkout_reservations.sql supabase/migrations/20260727141000_hold_attached_checkout_reservations.sql supabase/migrations/20260727144000_preserve_reserved_product_identity.sql scripts/apply-accepted-offer-reservations-20260729.mjs .github/workflows/validate-accepted-offer-reservations-20260729.yml
+          git commit -m "Reserve inventory during accepted-offer checkout"
+          git push origin HEAD:fix/accepted-offer-inventory-reservations-20260729
