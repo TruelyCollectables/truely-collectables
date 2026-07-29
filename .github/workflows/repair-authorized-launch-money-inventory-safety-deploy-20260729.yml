@@ -9,7 +9,7 @@ on:
       - ".github/workflows/repair-authorized-launch-money-inventory-safety-deploy-20260729.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: repair-authorized-launch-money-inventory-safety-deploy-20260729
@@ -22,7 +22,6 @@ jobs:
     timeout-minutes: 15
     env:
       EXPECTED_SOURCE_SHA: 9b35f1990998bb0bd47394f19905fd9292c4c5bc
-      TARGET_BRANCH: deploy/launch-money-inventory-safety-20260729
       TARGET_WORKFLOW: .github/workflows/authorized-launch-money-inventory-safety-deploy-20260729.yml
       WRITER_WORKFLOW: .github/workflows/repair-authorized-launch-money-inventory-safety-deploy-20260729.yml
     steps:
@@ -131,12 +130,18 @@ jobs:
           grep -Fq "ref: $EXPECTED_SOURCE_SHA" "$TARGET_WORKFLOW"
           grep -Fq "npx vercel@56.2.0 env run -e production -- npm run build" "$TARGET_WORKFLOW"
 
-      - name: Commit repaired deployment workflow
+      - name: Prepare sanitized repaired workflow artifact
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- "$TARGET_WORKFLOW" "$WRITER_WORKFLOW"
-          git commit -m "Repair guarded money and inventory cutover validation"
-          git push origin "HEAD:$TARGET_BRANCH"
+          mkdir -p .repair-output
+          cp "$TARGET_WORKFLOW" .repair-output/authorized-launch-money-inventory-safety-deploy-20260729.yml
+          sha256sum .repair-output/authorized-launch-money-inventory-safety-deploy-20260729.yml > .repair-output/SHA256SUMS
+
+      - name: Upload sanitized repaired workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: repaired-launch-money-inventory-cutover-${{ github.run_number }}
+          path: .repair-output
+          if-no-files-found: error
+          retention-days: 7
