@@ -22,7 +22,7 @@ jobs:
       NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
       STRIPE_SECRET_KEY: sk_test_build_only_placeholder
       NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
-      STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_build_only-placeholder
       EBAY_CLIENT_ID: build-only-placeholder-client-id
       EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
       EBAY_ENVIRONMENT: production
@@ -63,6 +63,25 @@ jobs:
               text = text.replace(anchor, addition, 1)
           smoke.write_text(text)
 
+          admin_page = Path('src/app/admin/page.tsx')
+          text = admin_page.read_text()
+          link_anchor = '        { href: "/admin/live-payment-launch", label: "Payment Gate" },\n'
+          buyer_link = '        { href: "/admin/buyer-protection", label: "Buyer Protection" },\n'
+          if 'href: "/admin/buyer-protection"' not in text:
+              if link_anchor not in text:
+                  raise SystemExit('admin buyer-protection link anchor missing')
+              text = text.replace(link_anchor, link_anchor + buyer_link, 1)
+          admin_page.write_text(text)
+
+          reset_page = Path('src/app/admin/reset-password/page.tsx')
+          text = reset_page.read_text()
+          dynamic_login = 'href={`/admin/login?next=${encodeURIComponent(nextPath)}`}'
+          if 'href="/admin/login"' not in text:
+              if dynamic_login not in text:
+                  raise SystemExit('reset-password login link anchor missing')
+              text = text.replace(dynamic_login, 'href="/admin/login"', 1)
+          reset_page.write_text(text)
+
           notifications = Path('src/app/admin/order-notifications/page.tsx')
           text = notifications.read_text()
           if 'max-w-7xl' not in text:
@@ -93,7 +112,7 @@ jobs:
         run: npm ci
 
       - name: Format changed source
-        run: npx prettier --write scripts/smoke-admin-runtime.mjs src/app/admin/order-notifications/page.tsx src/app/admin/live-payment-launch/page.tsx
+        run: npx prettier --write scripts/smoke-admin-runtime.mjs src/app/admin/page.tsx src/app/admin/reset-password/page.tsx src/app/admin/order-notifications/page.tsx src/app/admin/live-payment-launch/page.tsx
 
       - name: Run targeted admin regressions
         run: |
@@ -118,7 +137,7 @@ jobs:
           printf '%s\n' "${changed[@]}"
           for file in "${changed[@]}"; do
             case "$file" in
-              scripts/smoke-admin-runtime.mjs|src/app/admin/order-notifications/page.tsx|src/app/admin/live-payment-launch/page.tsx|.github/workflows/validate-admin-audit-gaps-20260729.yml) ;;
+              scripts/smoke-admin-runtime.mjs|src/app/admin/page.tsx|src/app/admin/reset-password/page.tsx|src/app/admin/order-notifications/page.tsx|src/app/admin/live-payment-launch/page.tsx|.github/workflows/validate-admin-audit-gaps-20260729.yml) ;;
               *) echo "Unexpected file: $file" >&2; exit 1 ;;
             esac
           done
@@ -129,6 +148,6 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add scripts/smoke-admin-runtime.mjs src/app/admin/order-notifications/page.tsx src/app/admin/live-payment-launch/page.tsx .github/workflows/validate-admin-audit-gaps-20260729.yml
+          git add scripts/smoke-admin-runtime.mjs src/app/admin/page.tsx src/app/admin/reset-password/page.tsx src/app/admin/order-notifications/page.tsx src/app/admin/live-payment-launch/page.tsx .github/workflows/validate-admin-audit-gaps-20260729.yml
           git commit -m "Fix admin audit coverage and gate posture"
           git push origin HEAD:agent/fix-admin-audit-gaps-20260729
