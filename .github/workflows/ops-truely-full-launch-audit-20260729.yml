@@ -355,8 +355,36 @@ jobs:
         shell: bash
         run: |
           set +e
-          node --env-file=.audit-production.env scripts/run-truely-launch-audit-20260729.mjs runtime
-          status=$?
+          unset_keys=(
+            NEXT_PUBLIC_SUPABASE_URL
+            NEXT_PUBLIC_SUPABASE_ANON_KEY
+            SUPABASE_SERVICE_ROLE_KEY
+            STRIPE_SECRET_KEY
+            NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+            STRIPE_WEBHOOK_SECRET
+            EBAY_CLIENT_ID
+            EBAY_CLIENT_SECRET
+            EBAY_ENVIRONMENT
+            TCOS_LIVE_PAYMENTS_ENABLED
+          )
+          unset_args=()
+          for key in "${unset_keys[@]}"; do
+            unset_args+=("-u" "$key")
+          done
+          env "${unset_args[@]}" node --env-file=.audit-production.env - <<'NODE'
+          const fs = require('fs');
+          const required = ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'];
+          const presence = Object.fromEntries(required.map((key) => [key, Boolean(process.env[key])]));
+          fs.writeFileSync('.audit/runtime/runtime-env-presence.json', JSON.stringify(presence, null, 2));
+          if (required.some((key) => !process.env[key])) process.exit(1);
+          NODE
+          preflight_status=$?
+          if [ "$preflight_status" -eq 0 ]; then
+            env "${unset_args[@]}" node --env-file=.audit-production.env scripts/run-truely-launch-audit-20260729.mjs runtime
+            status=$?
+          else
+            status="$preflight_status"
+          fi
           set -e
           rm -f .audit-production.env
           exit "$status"
@@ -413,10 +441,18 @@ jobs:
       - name: Grade Lighthouse reports
         shell: bash
         run: |
+          set -euo pipefail
+          curl --silent --show-error --fail --location https://truelycollectables.com/cart > .audit/lighthouse/cart.html
+          curl --silent --show-error --fail --location https://truelycollectables.com/account/signup > .audit/lighthouse/signup.html
+          grep -Eiq '<link[^>]+rel="canonical"[^>]+href="https://truelycollectables.com/cart"|<link[^>]+href="https://truelycollectables.com/cart"[^>]+rel="canonical"' .audit/lighthouse/cart.html
+          grep -Eiq '<link[^>]+rel="canonical"[^>]+href="https://truelycollectables.com/account/signup"|<link[^>]+href="https://truelycollectables.com/account/signup"[^>]+rel="canonical"' .audit/lighthouse/signup.html
+          grep -Eiq '<meta[^>]+name="robots"[^>]+content="[^"]*noindex[^"]*nofollow|<meta[^>]+content="[^"]*noindex[^"]*nofollow[^"]*"[^>]+name="robots"' .audit/lighthouse/cart.html
+          grep -Eiq '<meta[^>]+name="robots"[^>]+content="[^"]*noindex[^"]*nofollow|<meta[^>]+content="[^"]*noindex[^"]*nofollow[^"]*"[^>]+name="robots"' .audit/lighthouse/signup.html
           node - <<'NODE'
           const fs = require('fs');
           const path = require('path');
           const dir = '.audit/lighthouse';
+          const transactionalPages = new Set(['cart', 'signup']);
           const rows = [];
           let blocker = false;
           for (const file of fs.readdirSync(dir).filter(name => name.endsWith('.json'))) {
@@ -425,11 +461,21 @@ jobs:
             for (const key of ['performance', 'accessibility', 'best-practices', 'seo']) {
               row[key] = Math.round((report.categories[key]?.score || 0) * 100);
             }
-            if (row.accessibility < 90 || row.seo < 90 || row['best-practices'] < 85) blocker = true;
+            row.canonical = report.audits.canonical?.score ?? null;
+            row.crawlable = report.audits['is-crawlable']?.score ?? null;
+            row.robots = report.audits['robots-txt']?.score ?? null;
+            row.title = report.audits['document-title']?.score ?? null;
+            row.description = report.audits['meta-description']?.score ?? null;
+            const commonFailure = row.accessibility < 90 || row['best-practices'] < 85 || row.canonical !== 1 || row.robots !== 1 || row.title !== 1 || row.description !== 1;
+            if (transactionalPages.has(row.page)) {
+              if (commonFailure || row.crawlable !== 0) blocker = true;
+            } else if (commonFailure || row.seo < 90 || row.crawlable !== 1) {
+              blocker = true;
+            }
             rows.push(row);
           }
           fs.writeFileSync(path.join(dir, 'lighthouse-summary.json'), JSON.stringify({ rows, blocker }, null, 2));
-          fs.writeFileSync(path.join(dir, 'lighthouse-summary.md'), '# Lighthouse summary\n\n' + rows.map(row => `- ${row.page}: Performance ${row.performance}, Accessibility ${row.accessibility}, Best Practices ${row['best-practices']}, SEO ${row.seo}`).join('\n') + '\n');
+          fs.writeFileSync(path.join(dir, 'lighthouse-summary.md'), '# Lighthouse summary\n\n' + rows.map(row => `- ${row.page}: Performance ${row.performance}, Accessibility ${row.accessibility}, Best Practices ${row['best-practices']}, SEO ${row.seo}, Canonical ${row.canonical}, Crawlable ${row.crawlable}`).join('\n') + '\n');
           console.table(rows);
           if (blocker) process.exit(1);
           NODE
