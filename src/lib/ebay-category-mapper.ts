@@ -33,7 +33,14 @@ const CATEGORY_RULES: CategoryRule[] = [
       "prizm",
       "refractor",
     ],
-    mediumTerms: ["baseball", "basketball", "football", "hockey", "soccer", "ufc"],
+    mediumTerms: [
+      "baseball",
+      "basketball",
+      "football",
+      "hockey",
+      "soccer",
+      "ufc",
+    ],
   },
   {
     category: "trading_cards",
@@ -258,7 +265,7 @@ function hasStrongAutographEvidence(title: string, aspects: EbayAspectMap) {
     .join(" ")
     .toLowerCase();
   const negative =
-    /\b(?:facsimile|pre[- ]?printed|printed signature|reproduction|reprint autograph|unsigned|not signed|not autographed|non[- ]?auto)\b/.test(
+    /\b(?:facsimile|pre[- ]?printed|printed signature|reproduction|reprint autograph|unsigned|not signed|not autographed|non[- ]?auto|auto racing)\b/.test(
       focused,
     );
   const signedBy = getAspectValue(aspects, "Signed By");
@@ -266,12 +273,12 @@ function hasStrongAutographEvidence(title: string, aspects: EbayAspectMap) {
   const meaningful = (value: string) =>
     Boolean(
       value &&
-        !/^(?:0|false|no|none|n\/a|na|not applicable|not authenticated|unsigned|not autographed|not signed)$/i.test(
-          value.trim(),
-        ),
+      !/^(?:0|false|no|none|n\/a|na|not applicable|not authenticated|unsigned|not autographed|not signed)$/i.test(
+        value.trim(),
+      ),
     );
   const autoShorthand =
-    /\bauto\b/i.test(titleText) &&
+    /\bautos?\b/i.test(titleText) &&
     !/\b(?:auto racing|automotive|automobile)\b/i.test(titleText);
 
   return (
@@ -279,7 +286,9 @@ function hasStrongAutographEvidence(title: string, aspects: EbayAspectMap) {
     (hasAffirmativeAutographedAspect(aspects) ||
       meaningful(signedBy) ||
       meaningful(authentication) ||
-      /\bautograph(?:ed)?\b|\bsigned\b/i.test(focused) ||
+      /\bautograph(?:ed|s)?\b|\bautos?\b|\bsigned\b|\btreasured ink\b/i.test(
+        focused,
+      ) ||
       autoShorthand)
   );
 }
@@ -292,8 +301,10 @@ function preferSportsCardAsPrimaryCategory(params: {
   if (params.currentCategory !== "autographs") return false;
 
   const focused = `${params.title} ${aspectSearchText(params.aspects)}`;
-  const sportsCardScore =
-    scoreRule(CATEGORY_RULES[0], focused.toLowerCase()).score;
+  const sportsCardScore = scoreRule(
+    CATEGORY_RULES[0],
+    focused.toLowerCase(),
+  ).score;
 
   return sportsCardScore >= 3;
 }
@@ -324,11 +335,11 @@ export function mapEbayInventoryCategory(input: {
   aspects?: EbayAspectMap | null;
 }): EbayCategoryMapping {
   const aspects = input.aspects ?? {};
-  const focusedSearchable = `${input.title} ${aspectSearchText(aspects)}`.toLowerCase();
-  const fallbackSearchable = [
-    focusedSearchable,
-    input.description ?? "",
-  ].join(" ").toLowerCase();
+  const focusedSearchable =
+    `${input.title} ${aspectSearchText(aspects)}`.toLowerCase();
+  const fallbackSearchable = [focusedSearchable, input.description ?? ""]
+    .join(" ")
+    .toLowerCase();
 
   const focusedResults = CATEGORY_RULES.map((rule) => ({
     ...scoreRule(rule, focusedSearchable),
@@ -339,7 +350,8 @@ export function mapEbayInventoryCategory(input: {
     category: rule.category,
   })).sort((left, right) => right.score - left.score);
 
-  let best = focusedResults[0]?.score > 0 ? focusedResults[0] : fallbackResults[0];
+  let best =
+    focusedResults[0]?.score > 0 ? focusedResults[0] : fallbackResults[0];
   const sportsCardResult = focusedResults.find(
     (result) => result.category === "sports_cards",
   );
@@ -363,7 +375,9 @@ export function mapEbayInventoryCategory(input: {
       currentCategory: best.category,
     })
   ) {
-    best = focusedResults.find((result) => result.category === "sports_cards") ?? best;
+    best =
+      focusedResults.find((result) => result.category === "sports_cards") ??
+      best;
   }
 
   if (
@@ -377,8 +391,7 @@ export function mapEbayInventoryCategory(input: {
   }
 
   const mappingConfidence = confidence(best?.score ?? 0);
-  const category =
-    best && best.score > 0 ? best.category : "other_collectable";
+  const category = best && best.score > 0 ? best.category : "other_collectable";
   const reviewRequired = mappingConfidence === "low";
   const evidence = best?.evidence ?? [];
 
@@ -392,7 +405,9 @@ export function mapEbayInventoryCategory(input: {
       tcos_category_confidence: mappingConfidence,
       tcos_review_required: String(reviewRequired),
       tcos_category_evidence: evidence.join(", "),
-      tcos_is_autograph: String(hasStrongAutographEvidence(input.title, aspects)),
+      tcos_is_autograph: String(
+        hasStrongAutographEvidence(input.title, aspects),
+      ),
       ...usefulAspectAttributes(aspects),
     },
   };
