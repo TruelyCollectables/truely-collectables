@@ -1,0 +1,57 @@
+name: Diagnose Final Resend and eBay Integrations 20260729
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/diagnose-final-resend-ebay-20260729.yml"
+      - "scripts/run-final-integration-diagnostics-20260729.sh"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: diagnose-final-resend-ebay-20260729
+  cancel-in-progress: false
+
+env:
+  SOURCE_SHA: 7765f115d44e2629d47cc38871273dacdafcb8e7
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  VERCEL_SCOPE: truelycollectables-projects
+  EVIDENCE_DIR: /tmp/final-resend-ebay-diagnostics
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out operations branch
+        uses: actions/checkout@v4
+        with:
+          ref: ops/diagnose-final-resend-ebay-20260729
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate and run protected diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/run-final-integration-diagnostics-20260729.sh
+          bash scripts/run-final-integration-diagnostics-20260729.sh
+
+      - name: Upload sanitized diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-resend-ebay-diagnostics
+          path: ${{ env.EVIDENCE_DIR }}
+          if-no-files-found: error
+          retention-days: 30
