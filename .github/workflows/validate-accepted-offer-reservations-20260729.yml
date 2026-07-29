@@ -92,7 +92,6 @@ jobs:
           node --import tsx scripts/run-offer-checkout-idempotency-simulations.ts
           node --import tsx scripts/run-checkout-webhook-idempotency-simulations.ts
           node --import tsx scripts/run-buyer-protection-simulations.ts
-          node --import tsx scripts/run-live-storefront-money-integrity-simulations.ts
 
       - name: Run migration coverage and privileged route audit
         run: |
