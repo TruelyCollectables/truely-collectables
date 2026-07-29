@@ -1,4 +1,4 @@
-name: Authorized Storefront Taxonomy V9 Production Deploy 20260729
+name: Authorized Buyer Account Production Deploy 20260729
 
 on:
   pull_request:
@@ -25,12 +25,12 @@ jobs:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_SCOPE: truelycollectables-projects
-      DEPLOY_SOURCE_SHA: 6fea59f3ee29ae51be743d10029f045b3066ca34
+      DEPLOY_SOURCE_SHA: c5e35295ea17274a2e3d3ba8cc7d512f22d2f356
     steps:
       - name: Check out exact merged source
         uses: actions/checkout@v4
         with:
-          ref: 6fea59f3ee29ae51be743d10029f045b3066ca34
+          ref: c5e35295ea17274a2e3d3ba8cc7d512f22d2f356
           fetch-depth: 1
 
       - name: Set up Node.js
@@ -78,52 +78,44 @@ jobs:
           echo "deployment_url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
           printf '%s\n' "$DEPLOYMENT_URL" > .deployment-evidence/deployment-url.txt
 
-      - name: Verify production storefront is live
+      - name: Verify deployed buyer account pages
         env:
           DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
         shell: bash
         run: |
           set -euo pipefail
-          markers=(
-            'Memorabilia Cards'
-            'Graded Cards'
-            'Shop by sport'
-          )
-          urls=(
-            "$DEPLOYMENT_URL/shop"
-            'https://truely-collectables.vercel.app/shop'
-            'https://truelycollectables.com/shop'
-          )
-          success=''
-          for attempt in $(seq 1 24); do
-            echo "Production verification attempt ${attempt}/24"
-            for url in "${urls[@]}"; do
-              slug="$(printf '%s' "$url" | tr -c 'A-Za-z0-9' '-')"
-              body=".deployment-evidence/${slug}-${attempt}.html"
-              code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 60 --output "$body" --write-out '%{http_code}' "$url" || true)"
-              echo "$url HTTP=$code"
-              if [ "$code" = '200' ]; then
-                matched='true'
-                for marker in "${markers[@]}"; do
-                  grep -Fq "$marker" "$body" || matched='false'
-                done
-                if [ "$matched" = 'true' ]; then
-                  success="$url"
-                  printf '%s\n' "$url" > .deployment-evidence/verified-url.txt
-                  break 2
-                fi
-              fi
-            done
-            sleep 15
-          done
-          test -n "$success"
-          echo "Verified storefront taxonomy v9 deployment at $success"
+          verify_page() {
+            url="$1"
+            marker_one="$2"
+            marker_two="$3"
+            output="$4"
+            code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 90 --output "$output" --write-out '%{http_code}' "$url")"
+            test "$code" = '200'
+            grep -Fq "$marker_one" "$output"
+            grep -Fq "$marker_two" "$output"
+          }
+          verify_page \
+            "$DEPLOYMENT_URL/account/signup" \
+            'Truely Collectables Buyer Account' \
+            'No payment card is required to register.' \
+            '.deployment-evidence/deployment-signup.html'
+          verify_page \
+            "$DEPLOYMENT_URL/account/login" \
+            'Buyer Account Login' \
+            'No card verification is required.' \
+            '.deployment-evidence/deployment-login.html'
+          verify_page \
+            "$DEPLOYMENT_URL/shop" \
+            'Shop by sport' \
+            'Memorabilia Cards' \
+            '.deployment-evidence/deployment-shop.html'
+          echo "Verified buyer signup, buyer login, and storefront on exact deployment."
 
       - name: Upload deployment evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: storefront-taxonomy-v9-production-deploy-${{ github.run_number }}
+          name: buyer-account-no-card-production-deploy-${{ github.run_number }}
           path: .deployment-evidence
           if-no-files-found: warn
           retention-days: 30
