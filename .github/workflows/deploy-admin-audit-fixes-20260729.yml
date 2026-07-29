@@ -1,0 +1,88 @@
+name: Deploy Admin Audit Fixes 20260729
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/deploy-admin-audit-fixes-20260729.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-admin-audit-fixes-20260729
+  cancel-in-progress: false
+
+jobs:
+  deploy-production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      DEPLOY_SOURCE_SHA: 4cf46146b1af6c5109391a9a8b7443bd22d47f13
+    steps:
+      - name: Check out exact merged source
+        uses: actions/checkout@v4
+        with:
+          ref: 4cf46146b1af6c5109391a9a8b7443bd22d47f13
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Resolve exact Vercel project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p .vercel .deployment-evidence
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          printf '%s\n' "$DEPLOY_SOURCE_SHA" > .deployment-evidence/source-sha.txt
+
+      - name: Deploy exact merged revision to Production
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 deploy --prod --yes --force --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee .deployment-evidence/vercel-deploy.log
+          DEPLOYMENT_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' .deployment-evidence/vercel-deploy.log | tail -n 1)"
+          test -n "$DEPLOYMENT_URL"
+          echo "deployment_url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$DEPLOYMENT_URL" > .deployment-evidence/deployment-url.txt
+
+      - name: Verify Production admin boundary and login surface
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for base in "$DEPLOYMENT_URL" "https://truelycollectables.com"; do
+            login_body=".deployment-evidence/$(printf '%s' "$base" | tr -c 'A-Za-z0-9' '-')-login.html"
+            login_code="$(curl --silent --show-error --location --max-time 60 --output "$login_body" --write-out '%{http_code}' "$base/admin/login")"
+            test "$login_code" = "200"
+            grep -Fq "Enter admin password" "$login_body"
+
+            headers=".deployment-evidence/$(printf '%s' "$base" | tr -c 'A-Za-z0-9' '-')-admin-headers.txt"
+            curl --silent --show-error --max-time 60 --output /dev/null --dump-header "$headers" "$base/admin"
+            grep -Eiq '^location: .*/admin/login' "$headers"
+            grep -Eiq '^cache-control: .*no-store' "$headers"
+          done
+
+      - name: Upload deployment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-audit-fixes-production-deploy-${{ github.run_number }}
+          path: .deployment-evidence
+          if-no-files-found: error
+          retention-days: 30
