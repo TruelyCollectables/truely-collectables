@@ -1,0 +1,116 @@
+name: Rerun Launch Lighthouse Custom Domain 20260729
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/rerun-launch-lighthouse-custom-20260729.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rerun-launch-lighthouse-custom-20260729
+  cancel-in-progress: false
+
+jobs:
+  custom-domain-certificate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      EXPECTED_MAIN_SHA: 7765f115d44e2629d47cc38871273dacdafcb8e7
+    steps:
+      - name: Check out exact current main
+        uses: actions/checkout@v4
+        with:
+          ref: 7765f115d44e2629d47cc38871273dacdafcb8e7
+          fetch-depth: 0
+
+      - name: Fail closed if main moved
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_MAIN_SHA"
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          mkdir -p .audit/lighthouse-custom
+          printf '%s\n' "$EXPECTED_MAIN_SHA" > .audit/lighthouse-custom/source-sha.txt
+
+      - name: Verify live custom-domain source and privileged boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          root_code="$(curl --location --silent --show-error --output .audit/lighthouse-custom/root.html --write-out '%{http_code}' https://truelycollectables.com/)"
+          shop_code="$(curl --location --silent --show-error --output .audit/lighthouse-custom/shop.html --write-out '%{http_code}' https://truelycollectables.com/shop)"
+          admin_code="$(curl --silent --show-error --output .audit/lighthouse-custom/admin.html --write-out '%{http_code}' https://truelycollectables.com/admin)"
+          login_code="$(curl --location --silent --show-error --output .audit/lighthouse-custom/admin-login.html --write-out '%{http_code}' https://truelycollectables.com/admin/login)"
+          test "$root_code" = "200"
+          test "$shop_code" = "200"
+          test "$admin_code" = "307"
+          test "$login_code" = "200"
+          for id in shop-search shop-section shop-feature shop-sort; do
+            grep -Fq "id=\"$id\"" .audit/lighthouse-custom/shop.html
+          done
+          for id in shop-search shop-section shop-feature shop-sort; do
+            grep -Fq "for=\"$id\"" .audit/lighthouse-custom/shop.html
+          done
+          if grep -Fq 'aria-label="Truely Collectables home"' .audit/lighthouse-custom/shop.html; then
+            echo 'Stale overriding navbar accessible name remains live.' >&2
+            exit 1
+          fi
+          grep -Fq 'Admin Login' .audit/lighthouse-custom/admin-login.html
+
+      - name: Run corrected custom-domain Lighthouse certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes lighthouse@12.8.2 https://truelycollectables.com/shop \
+            --only-categories=performance,accessibility,best-practices,seo \
+            --output=json \
+            --output-path=.audit/lighthouse-custom/shop-lighthouse.json \
+            --chrome-flags="--headless --no-sandbox --disable-gpu" \
+            --quiet
+          node - <<'NODE'
+          const fs = require('fs');
+          const report = JSON.parse(fs.readFileSync('.audit/lighthouse-custom/shop-lighthouse.json', 'utf8'));
+          const audit = (id) => report.audits[id];
+          const labelAudit = audit('label-content-name-mismatch');
+          const labelItems = labelAudit?.details?.items || [];
+          const row = {
+            sourceSha: process.env.EXPECTED_MAIN_SHA,
+            performance: Math.round((report.categories.performance?.score || 0) * 100),
+            accessibility: Math.round((report.categories.accessibility?.score || 0) * 100),
+            bestPractices: Math.round((report.categories['best-practices']?.score || 0) * 100),
+            seo: Math.round((report.categories.seo?.score || 0) * 100),
+            selectName: audit('select-name')?.score,
+            visibleLabelNameScore: labelAudit?.score,
+            visibleLabelNameMode: labelAudit?.scoreDisplayMode,
+            visibleLabelFailures: labelItems.length,
+            crawlable: audit('is-crawlable')?.score,
+            canonical: audit('canonical')?.score,
+          };
+          if (row.accessibility !== 100) throw new Error(`Accessibility is ${row.accessibility}`);
+          if (row.bestPractices < 85) throw new Error(`Best Practices is ${row.bestPractices}`);
+          if (row.seo < 90) throw new Error(`SEO is ${row.seo}`);
+          if (row.selectName !== 1) throw new Error('select-name did not pass');
+          if (!(row.visibleLabelNameScore === 1 || row.visibleLabelNameMode === 'notApplicable')) {
+            throw new Error('visible-label accessible-name audit neither passed nor became not applicable');
+          }
+          if (row.visibleLabelFailures !== 0) throw new Error(`visible-label audit still has ${row.visibleLabelFailures} failing nodes`);
+          if (row.crawlable !== 1) throw new Error('custom domain is not crawlable');
+          if (row.canonical !== 1) throw new Error('custom-domain canonical did not pass');
+          fs.writeFileSync('.audit/lighthouse-custom/summary.json', JSON.stringify(row, null, 2));
+          fs.writeFileSync('.audit/lighthouse-custom/summary.md', `# Custom-domain Lighthouse certificate\n\n- Source: ${row.sourceSha}\n- Performance: ${row.performance}\n- Accessibility: ${row.accessibility}\n- Best Practices: ${row.bestPractices}\n- SEO: ${row.seo}\n- select-name: ${row.selectName}\n- visible-label score: ${row.visibleLabelNameScore}\n- visible-label mode: ${row.visibleLabelNameMode}\n- visible-label failures: ${row.visibleLabelFailures}\n- crawlable: ${row.crawlable}\n- canonical: ${row.canonical}\n`);
+          console.table([row]);
+          NODE
+
+      - name: Upload sanitized Lighthouse certificate
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launch-lighthouse-custom-domain-certificate
+          path: .audit/lighthouse-custom
+          if-no-files-found: error
+          retention-days: 30
