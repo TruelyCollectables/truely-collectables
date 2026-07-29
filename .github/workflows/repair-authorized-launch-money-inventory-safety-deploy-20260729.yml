@@ -1,5 +1,5 @@
-name: Repair Authorized Launch Money and Inventory Safety Deploy 20260729
-# Operations-only writer. Never merge this repair PR.
+name: Remove Orphaned Launch Cutover Deployment 20260729
+# Operations-only cleanup. Never merge this PR.
 
 on:
   pull_request:
@@ -7,26 +7,25 @@ on:
       - main
     paths:
       - ".github/workflows/repair-authorized-launch-money-inventory-safety-deploy-20260729.yml"
-      - "ops-output/authorized-launch-money-inventory-safety-deploy-20260729.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: repair-authorized-launch-money-inventory-safety-deploy-20260729
+  group: remove-orphaned-launch-cutover-deployment-20260729
   cancel-in-progress: false
 
 jobs:
-  repair-deployment-workflow:
+  remove-orphaned-cutover:
     if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ops/repair-launch-money-inventory-cutover-20260729'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
       EXPECTED_SOURCE_SHA: 8baee1bb26a17f974388b4d8e50b4321bbdfb685
-      EXPECTED_TARGET_SHA: fa63d1a8a4355f6bf4b11bd86ed16f612835647b
-      TARGET_BRANCH: deploy/launch-money-inventory-safety-20260729
-      TARGET_WORKFLOW: .github/workflows/authorized-launch-money-inventory-safety-deploy-20260729.yml
-      OUTPUT_FILE: ops-output/authorized-launch-money-inventory-safety-deploy-20260729.yml
+      EXPECTED_TARGET_SHA: 062e14057aaf584add9cd21a0171bb95887d5ef9
+      EPHEMERAL_URL: https://truely-collectables-mlp1vd0p3-truelycollectables-projects.vercel.app
+      VERCEL_SCOPE: truelycollectables-projects
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
     steps:
       - name: Check out operations branch
         uses: actions/checkout@v4
@@ -34,86 +33,58 @@ jobs:
           ref: ops/repair-launch-money-inventory-cutover-20260729
           fetch-depth: 0
 
-      - name: Confirm exact current main and target branch
+      - name: Confirm exact repository state
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin main "$TARGET_BRANCH"
+          test -n "${VERCEL_TOKEN:-}"
+          git fetch origin main deploy/launch-money-inventory-safety-20260729
           test "$(git rev-parse origin/main)" = "$EXPECTED_SOURCE_SHA"
-          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$EXPECTED_TARGET_SHA"
-          git show "origin/$TARGET_BRANCH:$TARGET_WORKFLOW" > /tmp/authorized-cutover.yml
+          test "$(git rev-parse origin/deploy/launch-money-inventory-safety-20260729)" = "$EXPECTED_TARGET_SHA"
+          case "$EPHEMERAL_URL" in
+            https://truely-collectables-mlp1vd0p3-truelycollectables-projects.vercel.app) ;;
+            *) exit 1 ;;
+          esac
 
-      - name: Remove branch-only paths filter while retaining job guard
+      - name: Inspect exact orphaned deployment
         shell: bash
         run: |
           set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
+          mkdir -p cleanup-evidence
+          npx vercel@56.2.0 inspect "$EPHEMERAL_URL" \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" \
+            > cleanup-evidence/inspect-before.txt 2>&1
+          grep -Fq 'truely-collectables-mlp1vd0p3-truelycollectables-projects.vercel.app' cleanup-evidence/inspect-before.txt
 
-          source = Path('/tmp/authorized-cutover.yml')
-          output = Path('ops-output/authorized-launch-money-inventory-safety-deploy-20260729.yml')
-          text = source.read_text(encoding='utf-8')
-          source_sha = '8baee1bb26a17f974388b4d8e50b4321bbdfb685'
-          paths_block = '    paths:\n      - ".github/workflows/authorized-launch-money-inventory-safety-deploy-20260729.yml"\n'
-          branch_guard = "if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'deploy/launch-money-inventory-safety-20260729')"
-
-          if text.count(paths_block) != 1:
-              raise SystemExit('Expected exactly one branch-only paths filter.')
-          if text.count(branch_guard) != 1:
-              raise SystemExit('Expected exactly one deployment branch job guard.')
-          if text.count(source_sha) != 2:
-              raise SystemExit('Expected exactly two exact-source SHA references.')
-          if 'deploy --help' in text or 'promote --help' in text:
-              raise SystemExit('A nonzero CLI help probe remains.')
-
-          text = text.replace(paths_block, '')
-
-          required = [
-              '  pull_request:\n    branches:\n      - main\n',
-              branch_guard,
-              f'SOURCE_SHA: {source_sha}',
-              f'ref: {source_sha}',
-              'Stage ephemeral credential-bound cutover deployment',
-              'Verify ephemeral cutover deployment before mutations',
-              'Apply all six safety migrations atomically and verify them',
-              'Restore exact source and stage clean Production deployment',
-              'Promote only the clean verified deployment',
-              'Remove ephemeral credential-bound deployment',
-          ]
-          for value in required:
-              if value not in text:
-                  raise SystemExit(f'Missing guarded workflow requirement: {value}')
-          if text.count('            --skip-domain \\') < 2:
-              raise SystemExit('Both staged deployments must remain domain-isolated.')
-
-          output.parent.mkdir(parents=True, exist_ok=True)
-          output.write_text(text, encoding='utf-8')
-          PY
-          grep -Fq "SOURCE_SHA: $EXPECTED_SOURCE_SHA" "$OUTPUT_FILE"
-          grep -Fq "head.ref == 'deploy/launch-money-inventory-safety-20260729'" "$OUTPUT_FILE"
-          ! grep -Fq '    paths:' "$OUTPUT_FILE"
-          ! grep -Fq 'deploy --help' "$OUTPUT_FILE"
-          ! grep -Fq 'promote --help' "$OUTPUT_FILE"
-
-      - name: Publish sanitized workflow blob outside workflow directory
+      - name: Remove exact orphaned deployment
         shell: bash
         run: |
           set -euo pipefail
-          git diff --check -- "$OUTPUT_FILE"
-          git add "$OUTPUT_FILE"
-          if git diff --cached --quiet; then
-            echo 'Validated workflow blob is already published.'
-            exit 0
+          npx vercel@56.2.0 remove "$EPHEMERAL_URL" \
+            --yes \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" \
+            > cleanup-evidence/remove.txt 2>&1
+
+      - name: Verify deployment is gone
+        shell: bash
+        run: |
+          set -euo pipefail
+          if npx vercel@56.2.0 inspect "$EPHEMERAL_URL" \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" \
+            > cleanup-evidence/inspect-after.txt 2>&1; then
+            echo 'The exact ephemeral deployment still resolves.' >&2
+            exit 1
           fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'Publish path-filter-free guarded cutover workflow'
-          git push origin HEAD:ops/repair-launch-money-inventory-cutover-20260729
+          grep -Eiq 'not found|could not find|does not exist|no deployment' cleanup-evidence/inspect-after.txt
 
-      - name: Upload sanitized repaired workflow artifact
+      - name: Upload sanitized cleanup evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: repaired-launch-money-inventory-cutover-${{ github.run_number }}
-          path: ops-output/authorized-launch-money-inventory-safety-deploy-20260729.yml
+          name: orphaned-launch-cutover-cleanup-${{ github.run_number }}
+          path: cleanup-evidence
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 30
