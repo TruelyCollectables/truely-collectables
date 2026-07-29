@@ -21,17 +21,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
-      SOURCE_SHA: 49ff319b2c7fdd4cbdeed04ef939f93f4f6a181e
+      SOURCE_SHA: 7765f115d44e2629d47cc38871273dacdafcb8e7
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_SCOPE: truelycollectables-projects
       EVIDENCE_DIR: /tmp/transactional-metadata-evidence
     steps:
-      - name: Check out exact metadata source
+      - name: Check out exact merged metadata source
         uses: actions/checkout@v4
         with:
-          ref: 49ff319b2c7fdd4cbdeed04ef939f93f4f6a181e
+          ref: 7765f115d44e2629d47cc38871273dacdafcb8e7
           fetch-depth: 1
 
       - name: Set up Node.js
@@ -50,7 +50,7 @@ jobs:
           mkdir -p "$EVIDENCE_DIR"
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
           git diff --exit-code
-          node scripts/run-transactional-metadata-contracts.mjs | tee "$EVIDENCE_DIR/transactional-metadata-contracts.log"
+          node scripts/simulate-transactional-canonical-metadata.mjs | tee "$EVIDENCE_DIR/transactional-metadata-contracts.log"
 
       - name: Run lint and TypeScript
         shell: bash
@@ -86,7 +86,7 @@ jobs:
           fi
           node -e 'const p=require("./.vercel/project.json"); if(!p.orgId||!p.projectId) process.exit(1);'
 
-      - name: Stage exact source with Production environment and no domains
+      - name: Stage exact merged source with Production environment and no domains
         id: stage
         shell: bash
         run: |
@@ -99,7 +99,7 @@ jobs:
             --scope "$VERCEL_SCOPE" \
             --token "$VERCEL_TOKEN" \
             2>&1 | tee "$EVIDENCE_DIR/vercel-stage.log"
-          STAGE_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$EVIDENCE_DIR/vercel-stage.log" | tail -n 1)"
+          STAGE_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$EVIDENCE_DIR/vercel-stage.log" | head -n 1)"
           test -n "$STAGE_URL"
           echo "stage_url=$STAGE_URL" >> "$GITHUB_OUTPUT"
           printf '%s\n' "$STAGE_URL" > "$EVIDENCE_DIR/stage-url.txt"
