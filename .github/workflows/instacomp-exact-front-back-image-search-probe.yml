@@ -1,0 +1,138 @@
+name: InstaComp Exact Front Back Image Search Probe
+
+on:
+  push:
+    branches:
+      - agent/instacomp-live-torture-isolated-20260727
+    paths:
+      - ".github/workflows/instacomp-exact-front-back-image-search-probe.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+    steps:
+      - name: Open tracking issue
+        id: tracking
+        run: |
+          ISSUE_NUMBER="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/issues" \
+            -f title="InstaComp exact front/back image search probe ${GITHUB_RUN_ID}" \
+            -f body="Pinned to commit \`${GITHUB_SHA}\`. Probing downloadable exact-card front/back images from public scan hosts." \
+            --jq .number)"
+          echo "issue_number=$ISSUE_NUMBER" >> "$GITHUB_OUTPUT"
+
+      - name: Probe image search
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const crypto = require('node:crypto');
+
+          async function main() {
+            const identity = '2016 Topps Chrome Rookie Autographs RA-ALA Albert Almora';
+            const hosts = /tcdb\.com|beckett\.com|comc\.com|psacard\.com|baseballcardpedia\.com|sportscardspro\.com|ebayimg\.com/i;
+
+            async function search(side) {
+              const url = new URL('https://serpapi.com/search.json');
+              url.searchParams.set('engine', 'google_images');
+              url.searchParams.set('q', `${identity} ${side}`);
+              url.searchParams.set('hl', 'en');
+              url.searchParams.set('gl', 'us');
+              url.searchParams.set('safe', 'active');
+              url.searchParams.set('api_key', process.env.SERPAPI_API_KEY);
+              const response = await fetch(url, { signal: AbortSignal.timeout(60000) });
+              const payload = await response.json().catch(() => ({}));
+              if (!response.ok || payload.error) throw new Error(String(payload.error || response.statusText));
+              const rows = Array.isArray(payload.images_results) ? payload.images_results : [];
+              return rows.slice(0, 40).map((row, index) => ({
+                index,
+                title: row.title || null,
+                source: row.source || null,
+                link: row.link || null,
+                original: row.original || null,
+                thumbnail: row.thumbnail || null,
+                originalWidth: row.original_width || null,
+                originalHeight: row.original_height || null,
+              }));
+            }
+
+            async function validate(candidate) {
+              const url = String(candidate.original || candidate.thumbnail || '');
+              if (!url || !/^https?:\/\//i.test(url)) return { ...candidate, valid: false, error: 'no image URL' };
+              try {
+                const response = await fetch(url, {
+                  redirect: 'follow',
+                  headers: { 'user-agent': 'Mozilla/5.0', accept: 'image/avif,image/webp,image/png,image/jpeg,*/*' },
+                  signal: AbortSignal.timeout(30000),
+                });
+                const bytes = new Uint8Array(await response.arrayBuffer());
+                const magic = bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
+                  ? 'image/jpeg'
+                  : bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47
+                    ? 'image/png'
+                    : bytes.length >= 12 && Buffer.from(bytes.slice(0, 4)).toString() === 'RIFF' && Buffer.from(bytes.slice(8, 12)).toString() === 'WEBP'
+                      ? 'image/webp'
+                      : null;
+                return {
+                  ...candidate,
+                  valid: response.ok && Boolean(magic) && bytes.length > 5000,
+                  status: response.status,
+                  finalUrl: response.url,
+                  contentType: response.headers.get('content-type'),
+                  detectedType: magic,
+                  bytes: bytes.length,
+                  sha256: crypto.createHash('sha256').update(bytes).digest('hex'),
+                  preferredHost: hosts.test(`${candidate.source || ''} ${candidate.link || ''} ${candidate.original || ''}`),
+                };
+              } catch (error) {
+                return { ...candidate, valid: false, error: error instanceof Error ? error.message : String(error) };
+              }
+            }
+
+            const [frontRows, backRows] = await Promise.all([search('front'), search('back')]);
+            const frontValidated = [];
+            const backValidated = [];
+            for (const candidate of frontRows.slice(0, 12)) frontValidated.push(await validate(candidate));
+            for (const candidate of backRows.slice(0, 12)) backValidated.push(await validate(candidate));
+
+            const report = {
+              identity,
+              front: frontValidated,
+              back: backValidated,
+              frontValid: frontValidated.filter((row) => row.valid).length,
+              backValid: backValidated.filter((row) => row.valid).length,
+            };
+            fs.writeFileSync('instacomp-exact-front-back-image-search-probe.json', `${JSON.stringify(report, null, 2)}\n`);
+            console.log(JSON.stringify({ frontValid: report.frontValid, backValid: report.backValid, front: frontValidated.filter(r => r.valid).slice(0, 3), back: backValidated.filter(r => r.valid).slice(0, 3) }, null, 2));
+            if (!report.frontValid || !report.backValid) process.exit(1);
+          }
+
+          main().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-exact-front-back-image-search-probe-${{ github.run_number }}
+          path: instacomp-exact-front-back-image-search-probe.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Close tracking issue
+        if: always()
+        run: |
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${{ steps.tracking.outputs.issue_number }}/comments" \
+            -f body="Image-search probe completed with status **${{ job.status }}**. Actions run: ${GITHUB_RUN_ID}."
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/issues/${{ steps.tracking.outputs.issue_number }}" -f state=closed
