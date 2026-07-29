@@ -161,7 +161,7 @@ const core = fs.readFileSync(corePath, "utf8");
 
 assert.match(
   core,
-  /\.select\("provider_account_id,onboarding_status,payouts_enabled,details_submitted,disabled_reason,metadata"\)/,
+  /\.select\(\s*"provider_account_id,onboarding_status,payouts_enabled,details_submitted,disabled_reason,metadata"\s*\)/,
   "The core launch check must retrieve metadata needed to prove the internal-owner contract.",
 );
 assert.match(
