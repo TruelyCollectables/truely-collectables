@@ -88,14 +88,14 @@ jobs:
           path.write_text(text, encoding="utf-8")
           PY
           git diff --check -- "$TARGET_WORKFLOW"
-          mkdir -p .cutover-output
-          cp "$TARGET_WORKFLOW" .cutover-output/authorized-launch-money-inventory-safety-deploy-20260729.yml
-          sha256sum .cutover-output/authorized-launch-money-inventory-safety-deploy-20260729.yml > .cutover-output/SHA256SUMS
+          mkdir -p cutover-output
+          cp "$TARGET_WORKFLOW" cutover-output/authorized-launch-money-inventory-safety-deploy-20260729.yml
+          sha256sum cutover-output/authorized-launch-money-inventory-safety-deploy-20260729.yml > cutover-output/SHA256SUMS
 
       - name: Upload sanitized cutover workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: prepared-money-inventory-cutover-${{ github.run_number }}
-          path: .cutover-output
+          path: cutover-output
           if-no-files-found: error
           retention-days: 7
