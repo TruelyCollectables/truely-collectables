@@ -1,6 +1,7 @@
 import type { AuthenticityProfile } from "../../lib/authenticity";
 
-export type InventoryStatus = "draft" | "active" | "reserved" | "sold" | "archived";
+export type InventoryStatus =
+  "draft" | "active" | "reserved" | "sold" | "archived";
 
 export type InventoryItem = {
   id: string;
@@ -41,6 +42,7 @@ export type LegacyProductSnapshot = {
 
 export type StorefrontFeatureFlags = {
   autograph: boolean;
+  memorabilia: boolean;
   rookie: boolean;
   graded: boolean;
   numbered: boolean;

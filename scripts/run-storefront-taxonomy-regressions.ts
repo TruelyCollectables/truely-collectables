@@ -12,6 +12,7 @@ import {
   classifyStorefrontItem,
   matchesStorefrontFilters,
   sortStorefrontItems,
+  sortStorefrontSections,
 } from "../src/lib/storefront-taxonomy";
 
 const wnbaAuto = {
@@ -87,7 +88,8 @@ const puckRelicCard = classifyStorefrontItem({
 assert.equal(puckRelicCard.section, "Hockey");
 
 const nonAutoSuperfractor = classifyStorefrontItem({
-  title: "2013 Bowman Platinum Prospects Justin Nicolino Superfractor /1 BGS 9.5 Non Auto",
+  title:
+    "2013 Bowman Platinum Prospects Justin Nicolino Superfractor /1 BGS 9.5 Non Auto",
   rawSport: "Baseball",
   primaryCategory: "sports_cards",
   aspects: { Autographed: ["No"] },
@@ -103,7 +105,8 @@ const skyboxJerseyCard = classifyStorefrontItem({
 assert.equal(skyboxJerseyCard.section, "Baseball");
 
 const spGameUsedJerseyCard = classifyStorefrontItem({
-  title: "2017-18 SP Game Used #FW-JQ Jonathan Quick Frameworks Jumbo Jersey Relic",
+  title:
+    "2017-18 SP Game Used #FW-JQ Jonathan Quick Frameworks Jumbo Jersey Relic",
   rawSport: "Ice Hockey",
   primaryCategory: "memorabilia",
 });
@@ -179,7 +182,8 @@ const hockey = classifyStorefrontItem({
 assert.equal(hockey.section, "Hockey");
 assert.equal(hockey.features.rookie, true);
 
-const authoritativeWnba = ebayAuthoritativeStoreSyncTestHelpers.parseRemoteListing(`
+const authoritativeWnba =
+  ebayAuthoritativeStoreSyncTestHelpers.parseRemoteListing(`
 <Item>
   <ItemID>1234567890</ItemID>
   <ListingType>FixedPriceItem</ListingType>
@@ -206,7 +210,10 @@ assert.equal(authoritativeWnba.mappedCategory, "sports_cards");
 assert.equal(authoritativeWnba.storefrontMetadata.tcos_is_autograph, true);
 assert.equal(authoritativeWnba.storefrontMetadata.tcos_is_rookie, true);
 assert.equal(authoritativeWnba.storefrontMetadata.tcos_is_numbered, true);
-assert.equal(authoritativeWnba.storefrontAttributes.tcos_storefront_section, "WNBA");
+assert.equal(
+  authoritativeWnba.storefrontAttributes.tcos_storefront_section,
+  "WNBA",
+);
 
 const inventory = [
   {
@@ -215,7 +222,13 @@ const inventory = [
     player: "Z Player",
     price: 5,
     storefrontSection: "NBA",
-    features: { autograph: false, rookie: false, graded: false, numbered: false },
+    features: {
+      autograph: false,
+      memorabilia: false,
+      rookie: false,
+      graded: false,
+      numbered: false,
+    },
   },
   {
     legacyProductId: 2,
@@ -223,7 +236,13 @@ const inventory = [
     player: "A Player",
     price: 10,
     storefrontSection: "Baseball",
-    features: { autograph: true, rookie: false, graded: false, numbered: false },
+    features: {
+      autograph: true,
+      memorabilia: false,
+      rookie: false,
+      graded: false,
+      numbered: false,
+    },
   },
   {
     legacyProductId: 3,
@@ -231,7 +250,13 @@ const inventory = [
     player: "C Player",
     price: 20,
     storefrontSection: "WNBA",
-    features: { autograph: true, rookie: true, graded: false, numbered: false },
+    features: {
+      autograph: true,
+      memorabilia: false,
+      rookie: true,
+      graded: false,
+      numbered: false,
+    },
   },
 ];
 
@@ -287,7 +312,8 @@ assert.ok(signedJersey);
 assert.equal(signedJersey.sport, "Jerseys");
 assert.equal(signedJersey.storefrontMetadata.tcos_is_autograph, true);
 
-const ordinaryJersey = ebayAuthoritativeStoreSyncTestHelpers.parseRemoteListing(`
+const ordinaryJersey =
+  ebayAuthoritativeStoreSyncTestHelpers.parseRemoteListing(`
 <Item>
   <ItemID>2000000003</ItemID>
   <ListingType>FixedPriceItem</ListingType>
@@ -333,7 +359,13 @@ assert.equal(
     sport: "Pucks",
     storefrontSection: "Pucks",
     category: "memorabilia",
-    features: { autograph: true, rookie: false, graded: false, numbered: false },
+    features: {
+      autograph: true,
+      memorabilia: false,
+      rookie: false,
+      graded: false,
+      numbered: false,
+    },
   }),
   true,
 );
@@ -343,7 +375,13 @@ assert.equal(
     sport: "Football",
     storefrontSection: "Football",
     category: "memorabilia",
-    features: { autograph: false, rookie: false, graded: false, numbered: false },
+    features: {
+      autograph: false,
+      memorabilia: false,
+      rookie: false,
+      graded: false,
+      numbered: false,
+    },
   }),
   false,
 );
@@ -353,22 +391,36 @@ assert.equal(
     sport: "Other Collectables",
     storefrontSection: "Other Collectables",
     category: "other_collectable",
-    features: { autograph: false, rookie: false, graded: false, numbered: false },
+    features: {
+      autograph: false,
+      memorabilia: false,
+      rookie: false,
+      graded: false,
+      numbered: false,
+    },
   }),
   false,
 );
 
 assert.equal(
-  isLaunchCollectible({ title: "Oakley Sports Sunglasses Black", sport: null }),
+  isLaunchCollectible({
+    title: "Oakley Sports Sunglasses Black",
+    sport: "Watches & Accessories",
+    storefrontSection: "Watches & Accessories",
+  }),
   true,
 );
 assert.equal(
-  isLaunchCollectible({ title: "Collectible Wristwatch", sport: null }),
+  isLaunchCollectible({
+    title: "Collectible Wristwatch",
+    sport: "Watches & Accessories",
+    storefrontSection: "Watches & Accessories",
+  }),
   true,
 );
 
-
-const hockeyJerseyRelicCard = ebayAuthoritativeStoreSyncTestHelpers.parseRemoteListing(`
+const hockeyJerseyRelicCard =
+  ebayAuthoritativeStoreSyncTestHelpers.parseRemoteListing(`
 <Item>
   <ItemID>3000000001</ItemID><ListingType>FixedPriceItem</ListingType>
   <Title>2025-26 SP Game Used #100 Peter Forsberg Red Jersey</Title>
@@ -385,7 +437,8 @@ assert.equal(hockeyJerseyRelicCard.mappedCategory, "sports_cards");
 assert.equal(hockeyJerseyRelicCard.sport, "Hockey");
 assert.notEqual(hockeyJerseyRelicCard.sport, "Jerseys");
 
-const authoritativeHockeyCard = ebayAuthoritativeStoreSyncTestHelpers.parseRemoteListing(`
+const authoritativeHockeyCard =
+  ebayAuthoritativeStoreSyncTestHelpers.parseRemoteListing(`
 <Item>
   <ItemID>3000000002</ItemID><ListingType>FixedPriceItem</ListingType>
   <Title>2022-23 Upper Deck Black Diamond Gordie Howe Exquisite Collection Moments /299</Title>
@@ -398,7 +451,8 @@ assert.ok(authoritativeHockeyCard);
 assert.equal(authoritativeHockeyCard.mappedCategory, "sports_cards");
 assert.equal(authoritativeHockeyCard.sport, "Hockey");
 
-const authoritativePokemonCard = ebayAuthoritativeStoreSyncTestHelpers.parseRemoteListing(`
+const authoritativePokemonCard =
+  ebayAuthoritativeStoreSyncTestHelpers.parseRemoteListing(`
 <Item>
   <ItemID>3000000003</ItemID><ListingType>FixedPriceItem</ListingType>
   <Title>Wailord ex 016/084 Double Rare Pokemon Pitch Black 2026 NM</Title>
@@ -429,10 +483,10 @@ assert.ok(
   "Authoritative inventory and complete image reconciliation must not fight.",
 );
 assert.equal(EBAY_MERGED_LISTING_GROUPS[0].canonicalLegacyProductId, 1991);
-assert.deepEqual([...EBAY_MERGED_LISTING_GROUPS[0].aliasItemIds], [
-  "317570836168",
-  "317570836334",
-]);
+assert.deepEqual(
+  [...EBAY_MERGED_LISTING_GROUPS[0].aliasItemIds],
+  ["317570836168", "317570836334"],
+);
 assert.equal(isMergedEbayAliasItemId("317570836168"), true);
 assert.equal(isMergedEbayCanonicalProductId(1991), true);
 assert.match(
@@ -463,9 +517,7 @@ assert.match(
 );
 assert.ok(authoritativeSyncSource.includes("const LOCAL_PAGE_SIZE = 1000;"));
 assert.ok(
-  authoritativeSyncSource.includes(
-    ".range(from, from + LOCAL_PAGE_SIZE - 1);",
-  ),
+  authoritativeSyncSource.includes(".range(from, from + LOCAL_PAGE_SIZE - 1);"),
 );
 assert.ok(
   authoritativeSyncSource.includes(
@@ -486,7 +538,6 @@ assert.ok(
 );
 
 console.log("Storefront taxonomy regressions passed.");
-
 
 const scheduledSyncSource = fs.readFileSync(
   "src/app/api/cron/ebay-store-fixed-price-sync/route.ts",
@@ -520,4 +571,115 @@ assert.match(
   authoritativeSyncSource,
   /const mergedAliasLocals = locals\.filter[\s\S]*isMergedEbayAliasItemId[\s\S]*deactivateLocalProduct/,
   "Authoritative sync must retire local rows for active merged aliases.",
+);
+
+const taxonomyV7Cases = [
+  ["1993-94 Stadium Club #17 Nick Van Exel Beam Team Members Only", "NBA"],
+  ["1997-98 Leaf #6 Paul Kariya Fractal Matrix Die Cuts SSP", "Hockey"],
+  ["2001 SP Authentic #31 Peter Jacobsen Gold #/500", "Golf"],
+  [
+    "2006 Razor WPT Showdown Signatures Hoyt Corkins WSOP Royalty SSP Auto",
+    "Poker",
+  ],
+  ["2013 Leaf Keeping It Real Autos Bam Margera RC SP /25", "Skateboarding"],
+  ["2025 Score #35 Jaxson Dart Red", "Football"],
+  [
+    "2025 Topps Chrome Update John Rave RC Auto Orange Refractors /25",
+    "Baseball",
+  ],
+  ["2025-26 SkyBox Metal Universe #150 Ivan Demidov", "Hockey"],
+  ["2026 Donruss #1 Paige Bueckers Donruss Ballpark Stars RC", "WNBA"],
+  ["ME05: Pitch Black #077/084 Gladion's Final Battle", "Trading Card Games"],
+  ["Prize Pack Series Cards #005 Basic Psychic Energy", "Trading Card Games"],
+  [
+    "Saturn Automotive GM Dealer Quartz Wristwatch Water Resistant Japan Movement NEW",
+    "Watches & Accessories",
+  ],
+  [
+    "NOAH HANIFIN Limited Edition 2024 Preseason Pin Vegas Golden Knights SGA NEW",
+    "Pins & Souvenirs",
+  ],
+  [
+    "Vegas Golden Knights vanity license plate for player Alex Tuch TUCH",
+    "Signs & Display",
+  ],
+  ["The Beastie Boys ALL 3 Signed CD Booklet PSA Authenticated", "Music"],
+  [
+    "2024 POP CENTURY RETRO TV AUTO ED MARINARO 1/1 AUTOGRAPH HILL STREET BLUES",
+    "Entertainment & Pop Culture",
+  ],
+] as const;
+
+for (const [title, expectedSection] of taxonomyV7Cases) {
+  const result = classifyStorefrontItem({
+    title,
+    primaryCategory: "other_collectable",
+  });
+  assert.equal(result.section, expectedSection, title);
+  assert.ok(
+    !["Other Collectables", "Other Sports", "Memorabilia"].includes(
+      result.section,
+    ),
+  );
+}
+
+const baseballJerseyCard = classifyStorefrontItem({
+  title: "2004 SkyBox LE #20 Josh Beckett PINSTRIPE Jersey Proof /299",
+  rawSport: "Baseball",
+  primaryCategory: "memorabilia",
+});
+assert.equal(baseballJerseyCard.section, "Baseball");
+assert.equal(baseballJerseyCard.features.memorabilia, true);
+
+const hockeyRelicCard = classifyStorefrontItem({
+  title:
+    "2017-18 SP Game Used #FW-JQ Jonathan Quick Frameworks Jumbo Jersey Relic",
+  rawSport: "Ice Hockey",
+  primaryCategory: "memorabilia",
+});
+assert.equal(hockeyRelicCard.section, "Hockey");
+assert.equal(hockeyRelicCard.features.memorabilia, true);
+
+const gradedBaseball = classifyStorefrontItem({
+  title: "1989 Upper Deck #13 Gary Sheffield RC PSA 10",
+  primaryCategory: "sports_cards",
+});
+assert.equal(gradedBaseball.section, "Baseball");
+assert.equal(gradedBaseball.features.graded, true);
+assert.equal(gradedBaseball.features.rookie, true);
+
+const multiFeatureCard = classifyStorefrontItem({
+  title:
+    "2025 Panini Origins Shedeur Sanders RC Jumbo Patch Auto Pink RPA FOTL /12 PSA 9",
+  primaryCategory: "sports_cards",
+});
+assert.equal(multiFeatureCard.section, "Football");
+assert.equal(multiFeatureCard.features.autograph, true);
+assert.equal(multiFeatureCard.features.memorabilia, true);
+assert.equal(multiFeatureCard.features.graded, true);
+assert.equal(multiFeatureCard.features.rookie, true);
+assert.equal(multiFeatureCard.features.numbered, true);
+assert.equal(
+  matchesStorefrontFilters(
+    {
+      legacyProductId: 900001,
+      title: "2004 SkyBox LE #20 Josh Beckett PINSTRIPE Jersey Proof /299",
+      price: 1,
+      storefrontSection: baseballJerseyCard.section,
+      features: baseballJerseyCard.features,
+    },
+    { feature: "memorabilia cards" },
+  ),
+  true,
+);
+assert.deepEqual(
+  sortStorefrontSections([
+    "Other Sports",
+    "Baseball",
+    "Memorabilia",
+    "Other Collectables",
+    "Hockey",
+    "Needs Review",
+  ]),
+  ["Baseball", "Hockey"],
 );

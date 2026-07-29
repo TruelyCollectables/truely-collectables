@@ -51,10 +51,7 @@ const productActions = fs.readFileSync(
   "src/app/product/[id]/ProductActions.tsx",
   "utf8",
 );
-const imageSync = fs.readFileSync(
-  "src/lib/ebay-all-image-sync.ts",
-  "utf8",
-);
+const imageSync = fs.readFileSync("src/lib/ebay-all-image-sync.ts", "utf8");
 const scheduledEbaySync = fs.readFileSync(
   "src/app/api/cron/ebay-store-fixed-price-sync/route.ts",
   "utf8",
@@ -170,11 +167,23 @@ assert.match(
   /selectFrontBackListingImages/,
   "Public product images must choose one complete front/back pair.",
 );
-assert.match(shopPageSource, /"NBA",[\s\S]*"WNBA",[\s\S]*"Basketball"/);
+assert.match(
+  shopPageSource,
+  /COLLECTIBLE_SECTIONS[\s\S]*SPORT_SECTIONS[\s\S]*sortStorefrontSections/,
+  "The shop must use centralized sport and collectible section lists.",
+);
+assert.match(
+  shopPageSource,
+  /FEATURE_LINKS[\s\S]*Memorabilia Cards[\s\S]*Graded Cards/,
+  "Card feature navigation must expose memorabilia and graded-card filters.",
+);
+assert.match(
+  shopPageSource,
+  /product\.features\.memorabilia \? "Memorabilia Card"/,
+  "Product tiles must label memorabilia cards.",
+);
 assert.ok(!shopPageSource.includes('product.category?.replaceAll("_", " ")'));
 assert.ok(shopPageSource.includes("View Item"));
-assert.match(shopPageSource, /const quickSections = QUICK_SECTIONS;/);
-assert.match(shopPageSource, /const sectionOptions = sortStorefrontSections/);
 assert.match(
   productActions,
   /\/api\/storefront\/product-images\/\$\{product\.id\}/,
@@ -250,12 +259,8 @@ assert.equal(
   "eBay thumbnails must be upgraded to the high-resolution image path.",
 );
 assert.equal(
-  listingImageIdentity(
-    "https://i.ebayimg.com/images/g/example/s-l140.jpg",
-  ),
-  listingImageIdentity(
-    "https://i.ebayimg.com/images/g/example/s-l1600.jpg",
-  ),
+  listingImageIdentity("https://i.ebayimg.com/images/g/example/s-l140.jpg"),
+  listingImageIdentity("https://i.ebayimg.com/images/g/example/s-l1600.jpg"),
   "Different eBay size variants of the same photo must share one identity.",
 );
 assert.deepEqual(
@@ -342,42 +347,58 @@ assert.match(
 const launchScopeCases = [
   {
     title: "2025-26 Upper Deck #702 Florian Xhekaj",
-    sport: null,
+    sport: "Hockey",
+    storefrontSection: "Hockey",
+    category: "sports_cards",
     expected: true,
   },
   {
     title: "2023 Topps Max Meyer 1988 35th Chrome RC Auto /249 PSA 8",
-    sport: null,
+    sport: "Baseball",
+    storefrontSection: "Baseball",
+    category: "sports_cards",
     expected: true,
   },
   {
     title: "Wailord ex 016/084 Double Rare Pokemon Pitch Black 2026 NM",
-    sport: null,
+    sport: "Trading Card Games",
+    storefrontSection: "Trading Card Games",
+    category: "trading_cards",
     expected: true,
   },
   {
     title: "Prize Pack Series Cards #005 Basic Psychic Energy",
-    sport: null,
+    sport: "Trading Card Games",
+    storefrontSection: "Trading Card Games",
+    category: "trading_cards",
     expected: true,
   },
   {
     title: "Upper Deck Authenticated Wayne Gretzky Signed Puck",
     sport: "Pucks",
+    storefrontSection: "Pucks",
+    category: "memorabilia",
     expected: true,
   },
   {
     title: "Connor McDavid Autographed Edmonton Oilers Jersey",
     sport: "Jerseys",
+    storefrontSection: "Jerseys",
+    category: "memorabilia",
     expected: true,
   },
   {
     title: "Oakley Sports Sunglasses Black",
-    sport: null,
+    sport: "Watches & Accessories",
+    storefrontSection: "Watches & Accessories",
+    category: "other_collectable",
     expected: true,
   },
   {
     title: "Rolex Oyster Perpetual Collectible Wristwatch",
-    sport: null,
+    sport: "Watches & Accessories",
+    storefrontSection: "Watches & Accessories",
+    category: "other_collectable",
     expected: true,
   },
   {

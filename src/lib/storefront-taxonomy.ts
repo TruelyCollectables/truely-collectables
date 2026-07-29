@@ -1,17 +1,10 @@
 export type StorefrontFeatureKey =
-  | "autograph"
-  | "rookie"
-  | "graded"
-  | "numbered";
+  "autograph" | "memorabilia" | "rookie" | "graded" | "numbered";
 
 export type StorefrontFeatureFlags = Record<StorefrontFeatureKey, boolean>;
 
 export type StorefrontSort =
-  | "section"
-  | "newest"
-  | "price_low"
-  | "price_high"
-  | "title";
+  "section" | "newest" | "price_low" | "price_high" | "title";
 
 export type StorefrontClassification = {
   section: string;
@@ -34,7 +27,9 @@ export type StorefrontFilterableItem = {
   price: number;
 };
 
-const SECTION_ORDER = [
+export const STOREFRONT_TAXONOMY_VERSION = 7;
+
+export const SPORT_SECTIONS = [
   "Baseball",
   "NBA",
   "WNBA",
@@ -48,8 +43,17 @@ const SECTION_ORDER = [
   "Golf",
   "Tennis",
   "Racing / NASCAR",
+  "Cricket",
+  "Lacrosse",
+  "Volleyball",
+  "Rugby",
+  "Olympics / Track & Field",
+  "Poker",
+  "Skateboarding",
   "Multi-Sport",
-  "Other Sports",
+] as const;
+
+export const COLLECTIBLE_SECTIONS = [
   "Sealed Wax",
   "Pucks",
   "Balls",
@@ -58,14 +62,30 @@ const SECTION_ORDER = [
   "Bats & Gloves",
   "Photos & Prints",
   "Tickets & Programs",
+  "Pins & Souvenirs",
+  "Signs & Display",
   "Music",
   "Trading Card Games",
-  "Memorabilia",
+  "Entertainment & Pop Culture",
   "Comics",
   "Coins",
   "Toys & Figures",
-  "Other Collectables",
+  "Watches & Accessories",
 ] as const;
+
+const SECTION_ORDER = [
+  ...SPORT_SECTIONS,
+  ...COLLECTIBLE_SECTIONS,
+  "Needs Review",
+] as const;
+
+const DEPRECATED_SECTIONS = new Set([
+  "other sports",
+  "other collectables",
+  "other collectibles",
+  "memorabilia",
+  "autographs",
+]);
 
 const SECTION_RANK = new Map<string, number>(
   SECTION_ORDER.map((section, index) => [section.toLowerCase(), index]),
@@ -96,6 +116,12 @@ function affirmative(value: unknown) {
   );
 }
 
+function explicitlyNegative(value: unknown) {
+  return /^(?:0|false|no|none|n\/a|na|not applicable|not authenticated|unsigned|not autographed|not signed)$/i.test(
+    normalized(value),
+  );
+}
+
 function metadataBoolean(metadata: Record<string, unknown>, key: string) {
   const value = metadata[key];
   if (typeof value === "boolean") return value;
@@ -110,35 +136,77 @@ function recordValue(value: unknown): Record<string, unknown> {
 }
 
 function currentTaxonomyMetadata(metadata: Record<string, unknown>) {
-  return Number(metadata.tcos_taxonomy_version || 0) >= 6;
+  return (
+    Number(metadata.tcos_taxonomy_version || 0) >= STOREFRONT_TAXONOMY_VERSION
+  );
+}
+
+function trustworthyStoredSection(metadata: Record<string, unknown>) {
+  if (!currentTaxonomyMetadata(metadata)) return null;
+  const stored = textValue(metadata.tcos_storefront_section);
+  if (!stored || DEPRECATED_SECTIONS.has(stored.toLowerCase())) return null;
+  return stored;
 }
 
 function meaningfulAutographAspect(value: unknown) {
   const text = normalized(value);
-  return Boolean(
-    text &&
-      !/^(?:0|false|no|none|n\/a|na|not applicable|not authenticated|unsigned|not autographed|not signed)$/i.test(
-        text,
-      ),
-  );
+  return Boolean(text && !explicitlyNegative(text));
 }
 
-function detectSection(params: {
+function aspectSearchText(aspects: Record<string, unknown>) {
+  return [
+    "Sport",
+    "League",
+    "Team",
+    "Player/Athlete",
+    "Player",
+    "Athlete",
+    "Set",
+    "Manufacturer",
+    "Brand",
+    "Type",
+    "Product",
+    "Item Type",
+    "Format",
+    "Features",
+  ]
+    .map((name) => aspectValue(aspects, name))
+    .filter(Boolean)
+    .join(" ");
+}
+
+function classificationText(params: {
   title: string;
+  description?: string | null;
   rawSport?: unknown;
   primaryCategory?: string | null;
   aspects: Record<string, unknown>;
   metadata: Record<string, unknown>;
 }) {
-  const storedSection = currentTaxonomyMetadata(params.metadata)
-    ? textValue(params.metadata.tcos_storefront_section)
-    : null;
-  if (storedSection) return storedSection;
+  const rawSport = normalized(params.rawSport);
+  const usableRawSport = DEPRECATED_SECTIONS.has(rawSport) ? "" : rawSport;
 
-  const league = normalized(aspectValue(params.aspects, "League"));
-  const sport = normalized(
-    params.rawSport || aspectValue(params.aspects, "Sport"),
+  return normalized(
+    [
+      params.title,
+      params.description,
+      usableRawSport,
+      params.primaryCategory,
+      aspectSearchText(params.aspects),
+      params.metadata.ebay_category_name,
+      params.metadata.tcos_league,
+    ]
+      .filter(Boolean)
+      .join(" "),
   );
+}
+
+function cardContext(params: {
+  title: string;
+  primaryCategory?: string | null;
+  aspects: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+}) {
   const title = normalized(params.title);
   const primaryCategory = normalized(params.primaryCategory);
   const objectType = normalized(
@@ -147,114 +215,303 @@ function detectSection(params: {
       aspectValue(params.aspects, "Product"),
       aspectValue(params.aspects, "Item Type"),
       aspectValue(params.aspects, "Format"),
+      aspectValue(params.aspects, "Set"),
+      aspectValue(params.aspects, "Manufacturer"),
     ].join(" "),
   );
-  const focused = `${sport} ${league} ${title}`;
   const objectFocused = `${title} ${objectType}`;
   const isCardPrimary = [
     "sports_cards",
     "trading_cards",
     "sealed_wax",
   ].includes(primaryCategory);
+  const tradingCardGame =
+    ["trading_cards", "tcg", "ccg"].includes(primaryCategory) ||
+    /^(?:me0?5|mee):/.test(title) ||
+    /\b(?:pokemon|pokémon|magic the gathering|mtg|yu-gi-oh|yugioh|lorcana|collectible card game|trading card game|gladion|prize pack series cards|basic (?:grass|fire|water|lightning|psychic|fighting|darkness|metal|fairy) energy)\b/.test(
+      objectFocused,
+    );
+  const sealedWax =
+    primaryCategory === "sealed_wax" ||
+    (/\b(?:hobby|blaster|mega|booster|factory sealed|sealed|wax)\s+(?:box|case|pack)\b/.test(
+      objectFocused,
+    ) &&
+      /\b(?:cards?|tcg|ccg)\b/.test(objectFocused));
   const explicitCardSignal =
     /\b(?:sports |trading |collectible )?cards?\b|\brookie card\b|\bcard #|\b(?:relic|patch|swatch|jersey|memorabilia) card\b|\bsports trading card\b/.test(
       `${objectFocused} ${primaryCategory}`,
     );
   const cardBrandSignal =
-    /\b(?:topps|panini|upper deck|bowman|donruss|prizm|skybox|sky box|sp game used|sp authentic|select|national treasures|immaculate|flawless|chronicles|contenders|mosaic|optic|finest|heritage|stadium club|score|fleer|leaf|o pee chee|opc)\b/.test(
+    /\b(?:topps|panini|upper deck|bowman|donruss|prizm|skybox|sky box|sp game used|sp authentic|select|national treasures|immaculate|flawless|chronicles|contenders|mosaic|optic|finest|heritage|stadium club|score|fleer|leaf|o pee chee|o-pee-chee|opc|parkhurst|artifacts|allure|black diamond|the cup|spx)\b/.test(
       objectFocused,
     );
   const cardCatalogSignal =
-    /(?:^|\s)#[a-z0-9-]+\b|\b(?:base|insert|parallel|refractor|rookie|rc|proof|relic|patch|swatch|jersey)\b/.test(
+    /(?:^|\s)#[a-z0-9-]+\b|\b(?:base|insert|parallel|refractor|rookie|rc|proof|relic|patch|swatch|jersey|materials?|autograph|auto|numbered)\b/.test(
       objectFocused,
     );
-  const isCardLike =
-    isCardPrimary ||
-    explicitCardSignal ||
-    (cardBrandSignal && cardCatalogSignal);
 
-  if (!isCardLike) {
-    if (
-      /\b(?:music cd|compact disc|cd booklet|cd insert|album booklet|liner notes?|vinyl record|record album)\b/.test(
-        objectFocused,
-      )
-    ) {
-      return "Music";
-    }
-    if (/\bpucks?\b/.test(objectFocused)) return "Pucks";
-    if (/\bjerseys?\b/.test(objectFocused)) return "Jerseys";
-    if (/\bhelmets?\b/.test(objectFocused)) return "Helmets";
-    if (
-      /\b(?:bats?|baseball gloves?|fielding gloves?|catcher'?s mitts?)\b/.test(
-        objectFocused,
-      )
-    ) {
-      return "Bats & Gloves";
-    }
-    if (
-      /\b(?:photos?|photographs?|prints?|posters?|lithographs?)\b/.test(
-        objectFocused,
-      )
-    ) {
-      return "Photos & Prints";
-    }
-    if (/\b(?:tickets?|programs?|media guides?)\b/.test(objectFocused)) {
-      return "Tickets & Programs";
-    }
-    if (
-      /\b(?:baseballs?|footballs?|basketballs?|soccer balls?|softballs?|volleyballs?|golf balls?|game balls?)\b/.test(
-        objectFocused,
-      )
-    ) {
-      return "Balls";
-    }
-  }
+  return {
+    title,
+    primaryCategory,
+    objectFocused,
+    tradingCardGame,
+    sealedWax,
+    isCardLike:
+      isCardPrimary ||
+      tradingCardGame ||
+      explicitCardSignal ||
+      (cardBrandSignal && cardCatalogSignal),
+  };
+}
 
-  if (/\bwnba\b|women'?s national basketball association/.test(focused)) {
-    return "WNBA";
-  }
-  if (/\bnba\b|national basketball association/.test(focused)) {
-    return "NBA";
-  }
-  if (/\bbaseball\b|\bmlb\b|major league baseball/.test(focused)) {
+const WNBA_SIGNAL =
+  /\b(?:wnba|women'?s national basketball association|caitlin clark|paige bueckers)\b/;
+const NBA_SIGNAL =
+  /\b(?:nba|national basketball association|nick van exel|shaquille o['’]?neal|michael jordan|paolo banchero|jimmy butler|nemanja bjelica|mario hezonja|dominique wilkins|langston galloway|markelle fultz|monta ellis)\b/;
+const FOOTBALL_SIGNAL =
+  /\b(?:nfl|american football|college football|jaxson dart|shedeur sanders|tank bigsby|travis hunter|maurice jones[- ]drew|geneo grissom|quinn ewers|kurt warner|drake maye|caleb williams|jayden daniels|cameron jordan|j\.?j\.? mccarthy|bo nix|bo jackson|williams tate)\b/;
+const BASEBALL_SIGNAL =
+  /\b(?:mlb|major league baseball|minor league baseball|baseball|gary sheffield|mike stanton|michael stanton|giancarlo stanton|christian yelich|anthony rizzo|justin nicolino|brad penny|dontrelle willis|sandy alcantara|john rave|jon rave|max meyer|heriberto hernandez|evan longoria|paul goldschmidt|brad hand|hanley ramirez|eddie butler|donovan solano|josh beckett|braxton garrett)\b/;
+const HOCKEY_PLAYER_SIGNAL =
+  /\b(?:paul kariya|connor mcdavid|auston matthews|alex tuch|mark stone|patrick kane|jack eichel|leon draisaitl|connor bedard|william karlsson|shea theodore|alex ovechkin|brady tkachuk|mikko rantanen|nikolaj ehlers|peter forsberg|jonathan quick|ridly greig|ivan demidov|artemi panarin|zach hyman|lane hutson|michael misa|brandon saad)\b/;
+const GOLF_SIGNAL =
+  /\b(?:golf|pga|lpga|tiger woods|nelly korda|jon rahm|paula creamer|dustin johnson|bubba watson|arnold palmer|nick faldo|peter jacobsen|jay haas|brooke henderson|matthieu pavon)\b/;
+const RACING_SIGNAL =
+  /\b(?:nascar|auto racing|motorsport|formula 1|f1 racing|ashley force hood|kasey kahne)\b/;
+
+const MLB_TEAM_SIGNAL =
+  /\b(?:miami marlins|florida marlins|new york yankees|boston red sox|chicago cubs|chicago white sox|new york mets|atlanta braves|philadelphia phillies|houston astros|texas rangers|san diego padres|san francisco giants|oakland athletics|baltimore orioles|tampa bay rays|toronto blue jays|cleveland guardians|cleveland indians|minnesota twins|detroit tigers|kansas city royals|los angeles angels|seattle mariners|arizona diamondbacks|colorado rockies|st louis cardinals|milwaukee brewers|pittsburgh pirates|cincinnati reds|washington nationals|los angeles dodgers)\b/;
+const NHL_TEAM_SIGNAL =
+  /\b(?:vegas golden knights|colorado avalanche|edmonton oilers|pittsburgh penguins|anaheim ducks|los angeles kings|ottawa senators|montreal canadiens|detroit red wings|toronto maple leafs|dallas stars|buffalo sabres|new york rangers|new york islanders|new jersey devils|boston bruins|philadelphia flyers|tampa bay lightning|florida panthers|winnipeg jets|minnesota wild|san jose sharks|vancouver canucks|calgary flames|nashville predators|st louis blues|carolina hurricanes|washington capitals|columbus blue jackets|seattle kraken|chicago blackhawks)\b/;
+const NBA_TEAM_SIGNAL =
+  /\b(?:los angeles lakers|boston celtics|chicago bulls|golden state warriors|new york knicks|brooklyn nets|miami heat|denver nuggets|phoenix suns|dallas mavericks|san antonio spurs|houston rockets|milwaukee bucks|philadelphia 76ers|cleveland cavaliers|detroit pistons|indiana pacers|atlanta hawks|charlotte hornets|orlando magic|washington wizards|toronto raptors|memphis grizzlies|minnesota timberwolves|oklahoma city thunder|portland trail blazers|utah jazz|sacramento kings|new orleans pelicans|los angeles clippers)\b/;
+const NFL_TEAM_SIGNAL =
+  /\b(?:denver broncos|new england patriots|new york giants|new york jets|dallas cowboys|philadelphia eagles|washington commanders|chicago bears|green bay packers|detroit lions|minnesota vikings|kansas city chiefs|las vegas raiders|los angeles chargers|pittsburgh steelers|baltimore ravens|cleveland browns|cincinnati bengals|buffalo bills|miami dolphins|houston texans|indianapolis colts|jacksonville jaguars|tennessee titans|atlanta falcons|carolina panthers|new orleans saints|tampa bay buccaneers|arizona cardinals|los angeles rams|san francisco 49ers|seattle seahawks)\b/;
+
+function detectSportSection(focused: string, title: string) {
+  if (WNBA_SIGNAL.test(focused)) return "WNBA";
+  if (NBA_SIGNAL.test(focused) || NBA_TEAM_SIGNAL.test(focused)) return "NBA";
+  if (BASEBALL_SIGNAL.test(focused) || MLB_TEAM_SIGNAL.test(focused)) {
     return "Baseball";
   }
-  if (/\bbasketball\b/.test(focused)) return "Basketball";
-  if (/american football|\bfootball\b|\bnfl\b/.test(focused)) {
+  if (/\bbasketball\b|\bncaa basketball\b/.test(focused)) return "Basketball";
+  if (FOOTBALL_SIGNAL.test(focused) || NFL_TEAM_SIGNAL.test(focused)) {
     return "Football";
   }
-  if (/ice hockey|\bhockey\b|\bnhl\b/.test(focused)) {
+  if (
+    /\b(?:ice hockey|hockey|nhl|khl|stanley cup)\b/.test(focused) ||
+    HOCKEY_PLAYER_SIGNAL.test(focused) ||
+    NHL_TEAM_SIGNAL.test(focused)
+  ) {
     return "Hockey";
   }
-  if (/\bsoccer\b|association football|\bmls\b/.test(focused)) {
+  if (
+    /\b(?:soccer|association football|mls|premier league|tariq lamptey)\b/.test(
+      focused,
+    )
+  ) {
     return "Soccer";
   }
-  if (/professional wrestling|\bwrestling\b|\bwwe\b|\baew\b/.test(focused)) {
+  if (/\b(?:professional wrestling|wrestling|wwe|aew)\b/.test(focused)) {
     return "Wrestling";
   }
-  if (/mixed martial arts|\bmma\b|\bufc\b/.test(focused)) {
-    return "MMA / UFC";
-  }
+  if (/\b(?:mixed martial arts|mma|ufc)\b/.test(focused)) return "MMA / UFC";
   if (/\bboxing\b/.test(focused)) return "Boxing";
-  if (/\bgolf\b|\bpga\b/.test(focused)) return "Golf";
-  if (/\btennis\b|\batp\b|\bwta\b/.test(focused)) return "Tennis";
-  if (/\bnascar\b|auto racing|motorsport|\bracing\b/.test(focused)) {
-    return "Racing / NASCAR";
+  if (GOLF_SIGNAL.test(focused)) return "Golf";
+  if (/\b(?:tennis|atp|wta)\b/.test(focused)) return "Tennis";
+  if (RACING_SIGNAL.test(focused)) return "Racing / NASCAR";
+  if (/\bcricket\b/.test(focused)) return "Cricket";
+  if (/\blacrosse\b/.test(focused)) return "Lacrosse";
+  if (/\bvolleyball\b/.test(focused)) return "Volleyball";
+  if (/\brugby\b/.test(focused)) return "Rugby";
+  if (/\b(?:olympics?|track and field|track & field)\b/.test(focused)) {
+    return "Olympics / Track & Field";
   }
-  if (/multi[- ]sport/.test(focused)) return "Multi-Sport";
+  if (
+    /\b(?:poker|wpt|wsop|world series of poker|hoyt corkins|scotty nguyen)\b/.test(
+      focused,
+    )
+  ) {
+    return "Poker";
+  }
+  if (/\b(?:skateboard|skateboarding|bam margera)\b/.test(focused)) {
+    return "Skateboarding";
+  }
+  if (/\bmulti[- ]sport\b/.test(focused)) return "Multi-Sport";
 
-  switch (primaryCategory) {
-    case "sports_cards":
-      return "Other Sports";
+  if (
+    /\b(?:o-pee-chee|o pee chee|opc|spx|sp game used|the cup|black diamond|allure|parkhurst|upper deck (?:ice|artifacts|synergy|premier|trilogy|mvp|overtime|stature|credentials|allure)|udcredentials|sereal khl|future watch|young guns|stanley cup|ud canvas|population count|diamond gallery|diamonation|arcticulates|synergistic duos|starquest)\b/.test(
+      title,
+    )
+  ) {
+    return "Hockey";
+  }
+  if (
+    /\b20\d{2}-\d{2}\s+(?:sp authentic|upper deck|flair|ultimate collection|credentials|ice|skybox metal universe|premier)\b/.test(
+      title,
+    )
+  ) {
+    return "Hockey";
+  }
+  if (/\bupper deck renditions\b/.test(title)) return "Golf";
+  if (
+    /\b(?:topps|bowman|finest|stadium club|pro debut|grandstand|onyx platinum prospects|museum collection|heritage|t205|jamestown jammers|florida state league|falconer printing)\b/.test(
+      title,
+    )
+  ) {
+    return "Baseball";
+  }
+  if (/\b(?:hoops|panini excalibur|panini gala)\b/.test(title)) return "NBA";
+  if (/\bscore-a-treat\b/.test(title)) return "Football";
+
+  return null;
+}
+
+function detectObjectSection(params: {
+  focused: string;
+  title: string;
+  primaryCategory: string;
+  isCardLike: boolean;
+}) {
+  if (params.isCardLike) return null;
+
+  const { focused, title, primaryCategory } = params;
+
+  if (
+    /\b(?:music cd|compact disc|cd booklet|cd insert|album booklet|liner notes?|vinyl record|record album)\b/.test(
+      focused,
+    ) ||
+    primaryCategory === "music"
+  ) {
+    return "Music";
+  }
+  if (
+    /\b(?:16x20|8x10|photo|photograph|print|poster|lithograph)\b/.test(focused)
+  ) {
+    return "Photos & Prints";
+  }
+  if (/\bpucks?\b/.test(focused)) return "Pucks";
+  if (/\bjerseys?\b/.test(focused)) return "Jerseys";
+  if (/\bhelmets?\b/.test(focused)) return "Helmets";
+  if (
+    /\b(?:bats?|baseball gloves?|fielding gloves?|catcher'?s mitts?)\b/.test(
+      focused,
+    )
+  ) {
+    return "Bats & Gloves";
+  }
+  if (
+    /\b(?:baseballs?|footballs?|basketballs?|soccer balls?|softballs?|volleyballs?|golf balls?|game balls?)\b/.test(
+      focused,
+    )
+  ) {
+    return "Balls";
+  }
+  if (/\b(?:tickets?|programs?|media guides?)\b/.test(focused)) {
+    return "Tickets & Programs";
+  }
+  if (
+    /\b(?:lapel pin|collector pin|souvenir pin|preseason pin|team pin)\b/.test(
+      focused,
+    )
+  ) {
+    return "Pins & Souvenirs";
+  }
+  if (
+    /\b(?:license plate|vanity plate|street sign|display sign|wall sign)\b/.test(
+      focused,
+    )
+  ) {
+    return "Signs & Display";
+  }
+  if (/\b(?:wristwatch|watch|sunglasses|eyewear|oakley)\b/.test(focused)) {
+    return "Watches & Accessories";
+  }
+  if (
+    /\b(?:comic book|comics?|graphic novel)\b/.test(focused) ||
+    primaryCategory === "comics"
+  ) {
+    return "Comics";
+  }
+  if (
+    /\b(?:coins?|silver dollar|gold coin|bullion)\b/.test(focused) ||
+    primaryCategory === "coins"
+  ) {
+    return "Coins";
+  }
+  if (
+    /\b(?:action figure|funko|lego|toy|diecast)\b/.test(focused) ||
+    primaryCategory === "toys"
+  ) {
+    return "Toys & Figures";
+  }
+  if (
+    /\b(?:pop century|celebrity|movie|television|tv show|actor|actress|hill street blues)\b/.test(
+      focused,
+    )
+  ) {
+    return "Entertainment & Pop Culture";
+  }
+
+  if (
+    primaryCategory === "autographs" &&
+    /\b(?:cut signature|index card|signed document|autograph book)\b/.test(
+      focused,
+    )
+  ) {
+    return "Entertainment & Pop Culture";
+  }
+
+  if (title.includes("pin") && !title.includes("pinstripe")) {
+    return "Pins & Souvenirs";
+  }
+
+  return null;
+}
+
+function detectSection(params: {
+  title: string;
+  description?: string | null;
+  rawSport?: unknown;
+  primaryCategory?: string | null;
+  aspects: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+}) {
+  const storedSection = trustworthyStoredSection(params.metadata);
+  if (storedSection) return storedSection;
+
+  const context = cardContext(params);
+  const focused = classificationText(params);
+
+  if (context.sealedWax) return "Sealed Wax";
+  if (context.tradingCardGame) return "Trading Card Games";
+
+  const objectSection = detectObjectSection({
+    focused,
+    title: context.title,
+    primaryCategory: context.primaryCategory,
+    isCardLike: context.isCardLike,
+  });
+  if (objectSection) return objectSection;
+
+  if (
+    /\b(?:pop century|celebrity|movie|television|tv show|actor|actress|hill street blues)\b/.test(
+      focused,
+    )
+  ) {
+    return "Entertainment & Pop Culture";
+  }
+
+  const sportSection = detectSportSection(focused, context.title);
+  if (sportSection) return sportSection;
+
+  switch (context.primaryCategory) {
     case "trading_cards":
       return "Trading Card Games";
     case "sealed_wax":
       return "Sealed Wax";
     case "music":
       return "Music";
-    case "autographs":
-    case "memorabilia":
-      return "Memorabilia";
     case "comics":
       return "Comics";
     case "coins":
@@ -262,7 +519,7 @@ function detectSection(params: {
     case "toys":
       return "Toys & Figures";
     default:
-      return "Other Collectables";
+      return "Needs Review";
   }
 }
 
@@ -270,8 +527,17 @@ function detectFeatures(params: {
   title: string;
   aspects: Record<string, unknown>;
   metadata: Record<string, unknown>;
+  isCardLike: boolean;
 }) {
   const features = normalized(aspectValue(params.aspects, "Features"));
+  const cardAttributes = normalized(
+    [
+      aspectValue(params.aspects, "Card Attributes"),
+      aspectValue(params.aspects, "Memorabilia"),
+      aspectValue(params.aspects, "Patch"),
+      aspectValue(params.aspects, "Relic"),
+    ].join(" "),
+  );
   const signedBy = aspectValue(params.aspects, "Signed By");
   const autographAuthentication = aspectValue(
     params.aspects,
@@ -287,15 +553,22 @@ function detectFeatures(params: {
   const autoShorthand =
     /\bauto\b/.test(autographFocused) &&
     !/\b(?:auto racing|automotive|automobile)\b/.test(autographFocused);
+  const titleAutograph =
+    /\b(?:autograph(?:ed|s)?|signed|signatures?|scripts?|chirography|fresh ink|autofacts?|sign of the times|ink autographs?|endorsements?)\b/.test(
+      autographFocused,
+    );
   const autograph =
     !negativeAutograph &&
     (affirmative(aspectValue(params.aspects, "Autographed")) ||
       meaningfulAutographAspect(signedBy) ||
       meaningfulAutographAspect(autographAuthentication) ||
-      /\bautograph(?:ed)?\b|\bsigned\b/.test(autographFocused) ||
+      titleAutograph ||
       autoShorthand);
 
   const useStored = currentTaxonomyMetadata(params.metadata);
+  const storedMemorabilia = useStored
+    ? metadataBoolean(params.metadata, "tcos_is_memorabilia_card")
+    : null;
   const storedRookie = useStored
     ? metadataBoolean(params.metadata, "tcos_is_rookie")
     : null;
@@ -306,21 +579,35 @@ function detectFeatures(params: {
     ? metadataBoolean(params.metadata, "tcos_is_numbered")
     : null;
 
+  const memorabiliaText = `${title.replace(/\bnew jersey\b/g, "")} ${features} ${cardAttributes}`;
+  const derivedMemorabilia =
+    params.isCardLike &&
+    /\b(?:relics?|patch(?:es)?|swatches?|jersey(?: relic| patch| swatch| card| proof| materials?| fabrics?| auto| #| \/|$)|materials?|fabrics?|memorabilia|rookie remembrance|banner year|frameworks|microfibers|rpa|prime patch|logo jumbo|team logo jumbo|emblems?)\b/.test(
+      memorabiliaText,
+    );
+  const memorabilia = derivedMemorabilia || storedMemorabilia === true;
+
   const rookie =
-    storedRookie ??
-    /\brookie\b|\brc\b|rated rookie|young guns/.test(`${title} ${features}`);
+    (storedRookie === true ||
+      /\brookie\b|\brc\b|rated rookie|young guns/.test(
+        `${title} ${features}`,
+      )) &&
+    params.isCardLike;
   const graded =
-    storedGraded ??
-    (affirmative(aspectValue(params.aspects, "Graded")) ||
+    (storedGraded === true ||
+      affirmative(aspectValue(params.aspects, "Graded")) ||
       Boolean(aspectValue(params.aspects, "Professional Grader")) ||
-      /\b(?:psa|bgs|sgc|cgc|csg|hga)\s*(?:10|9\.5|9|8\.5|8)\b/.test(title));
+      /\b(?:psa|bgs|sgc|cgc|csg|hga|isa|ksa)\s*(?:authentic|a|\d{1,2}(?:\.\d)?)\b/.test(
+        title,
+      )) &&
+    params.isCardLike;
   const numbered =
-    storedNumbered ??
-    /\b\d{1,5}\s*\/\s*\d{1,5}\b|serial numbered|\bnumbered\b|#'?d\b/.test(
+    storedNumbered === true ||
+    /\b\d{1,5}\s*\/\s*\d{1,5}\b|(?:^|\s)\/\d{1,5}\b|serial numbered|\bnumbered\b|#'?d\b/.test(
       `${title} ${features} ${parallel}`,
     );
 
-  return { autograph, rookie, graded, numbered };
+  return { autograph, memorabilia, rookie, graded, numbered };
 }
 
 export function classifyStorefrontItem(input: {
@@ -333,38 +620,52 @@ export function classifyStorefrontItem(input: {
 }): StorefrontClassification {
   const metadata = input.metadata || {};
   const aspects = input.aspects || recordValue(metadata.source_aspects);
-  const league =
-    textValue(metadata.tcos_league) || aspectValue(aspects, "League") || null;
+  const sourceLeague =
+    aspectValue(aspects, "League") || textValue(metadata.tcos_league) || null;
+  const context = cardContext({
+    title: input.title,
+    primaryCategory: input.primaryCategory,
+    aspects,
+    metadata,
+  });
   const section = detectSection({
     title: input.title,
+    description: input.description,
     rawSport: input.rawSport,
     primaryCategory: input.primaryCategory,
     aspects,
     metadata,
   });
-  const features = detectFeatures({ title: input.title, aspects, metadata });
+  const features = detectFeatures({
+    title: input.title,
+    aspects,
+    metadata,
+    isCardLike: context.isCardLike,
+  });
 
   return {
     section,
-    league,
+    league: sourceLeague,
     features,
     attributes: {
       tcos_storefront_section: section,
-      tcos_league: league || "",
+      tcos_league: sourceLeague || "",
       tcos_is_autograph: String(features.autograph),
+      tcos_is_memorabilia_card: String(features.memorabilia),
       tcos_is_rookie: String(features.rookie),
       tcos_is_graded: String(features.graded),
       tcos_is_numbered: String(features.numbered),
-      tcos_taxonomy_version: "6",
+      tcos_taxonomy_version: String(STOREFRONT_TAXONOMY_VERSION),
     },
     metadata: {
       tcos_storefront_section: section,
-      tcos_league: league,
+      tcos_league: sourceLeague,
       tcos_is_autograph: features.autograph,
+      tcos_is_memorabilia_card: features.memorabilia,
       tcos_is_rookie: features.rookie,
       tcos_is_graded: features.graded,
       tcos_is_numbered: features.numbered,
-      tcos_taxonomy_version: 6,
+      tcos_taxonomy_version: STOREFRONT_TAXONOMY_VERSION,
     },
   };
 }
@@ -378,9 +679,29 @@ export function normalizeStorefrontFeature(value: string | null | undefined) {
   ) {
     return "autograph" as const;
   }
-  if (["rookie", "rookies", "rc"].includes(normalizedValue))
+  if (
+    [
+      "memorabilia",
+      "memorabilia card",
+      "memorabilia cards",
+      "relic",
+      "relics",
+      "patch",
+      "patches",
+      "jersey card",
+      "jersey cards",
+    ].includes(normalizedValue)
+  ) {
+    return "memorabilia" as const;
+  }
+  if (["rookie", "rookies", "rc"].includes(normalizedValue)) {
     return "rookie" as const;
-  if (["graded", "grade"].includes(normalizedValue)) return "graded" as const;
+  }
+  if (
+    ["graded", "grade", "graded card", "graded cards"].includes(normalizedValue)
+  ) {
+    return "graded" as const;
+  }
   if (["numbered", "serial", "serial numbered"].includes(normalizedValue)) {
     return "numbered" as const;
   }
@@ -442,7 +763,16 @@ export function storefrontSectionRank(section: string | null | undefined) {
 }
 
 export function sortStorefrontSections(sections: string[]) {
-  return Array.from(new Set(sections.filter(Boolean))).sort(
+  return Array.from(
+    new Set(
+      sections.filter(
+        (section) =>
+          Boolean(section) &&
+          !DEPRECATED_SECTIONS.has(normalized(section)) &&
+          normalized(section) !== "needs review",
+      ),
+    ),
+  ).sort(
     (left, right) =>
       storefrontSectionRank(left) - storefrontSectionRank(right) ||
       left.localeCompare(right),
