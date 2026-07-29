@@ -398,6 +398,7 @@ export class PublicSearchService {
     return {
       openAiPublicWeb: this.openAi.configured,
       ebayBrowse: this.ebay.configured,
+      ebayBrowseDetails: this.ebay.status(),
       xRecentSearch: this.x.configured,
       manualPublicUrlIntake: true,
       privateFacebookGroups: false,
