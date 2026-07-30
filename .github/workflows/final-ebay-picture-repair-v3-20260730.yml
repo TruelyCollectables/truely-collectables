@@ -1,0 +1,266 @@
+name: Final eBay Picture Repair V3 20260730
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/final-ebay-picture-repair-v3-20260730.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: final-ebay-picture-repair-v3-20260730
+  cancel-in-progress: false
+
+jobs:
+  repair-verify-clean:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'ops/final-ebay-picture-repair-v3-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+
+    steps:
+      - name: Check out isolated repair branch
+        uses: actions/checkout@v4
+        with:
+          ref: ops/final-ebay-picture-repair-v3-20260730
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Generate protected repair route
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          work="$RUNNER_TEMP/final-ebay-picture-repair-v3"
+          mkdir -p "$work" .vercel src/app/api/internal/ebay-hidden-image-repair
+
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+
+          token="$(openssl rand -hex 32)"
+          printf '%s' "$token" > "$work/token"
+          echo "::add-mask::$token"
+
+          git fetch origin ops/diagnose-ebay-hidden-images-20260730
+          git show origin/ops/diagnose-ebay-hidden-images-20260730:.github/workflows/repair-ebay-hidden-images-20260730.yml > "$work/source.yml"
+          route=src/app/api/internal/ebay-hidden-image-repair/route.ts
+          awk '
+            /cat > src\/app\/api\/internal\/ebay-hidden-image-repair\/route\.ts <<'"'"'ROUTE'"'"'/ { capture=1; next }
+            capture && /^          ROUTE$/ { exit }
+            capture { sub(/^          /, ""); print }
+          ' "$work/source.yml" > "$route"
+          test -s "$route"
+
+          sed -i 's#../../../../../lib/supabase-server#../../../../lib/supabase-server#' "$route"
+          sed -i '/lib\/stores/d' "$route"
+          sed -i 's/const storeId = getActiveStoreId();/const storeId = "00000000-0000-4000-8000-000000000001";/' "$route"
+
+          node - "$route" "$token" <<'NODE'
+          const fs = require('node:fs');
+          const route = process.argv[2];
+          const token = process.argv[3];
+          let source = fs.readFileSync(route, 'utf8');
+
+          const auth = 'const expected = process.env.EBAY_HIDDEN_IMAGE_REPAIR_TOKEN || "";';
+          if (!source.includes(auth)) throw new Error('Authentication marker missing.');
+          source = source.replace(auth, `const expected = "${token}";`);
+
+          const inventoryMarker = 'async function getInventoryImages(accessToken: string, skus: string[]) {';
+          if (!source.includes(inventoryMarker)) throw new Error('Inventory reader marker missing.');
+          const publicReader = String.raw`
+          async function getPublicListingImages(itemId: string) {
+            try {
+              const listingUrl = "https://www.ebay.com/itm/" + encodeURIComponent(itemId);
+              const response = await fetch(listingUrl, {
+                redirect: "follow",
+                headers: {
+                  "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/136 Safari/537.36",
+                  "accept-language": "en-US,en;q=0.9",
+                  accept: "text/html,application/xhtml+xml",
+                },
+                signal: AbortSignal.timeout(30000),
+              });
+              const html = await response.text();
+              const decoded = html
+                .replace(/\\u002F/gi, "/")
+                .replace(/\\u0026/gi, "&")
+                .replace(/\\\//g, "/")
+                .replace(/&amp;/g, "&");
+              const matches = decoded.match(
+                /https:\/\/i\.ebayimg\.com\/(?:images\/g\/[^"'<>\\\s]+\/s-l\d+\.(?:jpe?g|png|webp)(?:\?[^"'<>\\\s]*)?|00\/s\/[^"'<>\\\s]+\/z\/[^"'<>\\\s]+\/\$_\d+\.(?:jpe?g|png|webp)(?:\?[^"'<>\\\s]*)?)/gi,
+              ) || [];
+              return {
+                status: response.status,
+                htmlLength: html.length,
+                images: normalize(matches.map(url => url.replace(/[),.;]+$/, ""))),
+              };
+            } catch (error) {
+              return {
+                status: 0,
+                htmlLength: 0,
+                images: [] as string[],
+                error: error instanceof Error ? error.message.slice(0, 300) : String(error),
+              };
+            }
+          }
+
+          `;
+          source = source.replace(inventoryMarker, publicReader + inventoryMarker);
+
+          const sourceStart = source.indexOf('const inventoryApi = await getInventoryImages(accessToken, skuCandidates);');
+          const verifiedStart = source.indexOf('const verifiedRemote: string[] = [];', sourceStart);
+          if (sourceStart < 0 || verifiedStart < 0) throw new Error('Remote image aggregation block missing.');
+          const lineStart = source.lastIndexOf('\n', sourceStart) + 1;
+          const indent = source.slice(lineStart, sourceStart);
+          const replacement = [
+            `${indent}const inventoryApi = await getInventoryImages(accessToken, skuCandidates);`,
+            `${indent}const publicListing = product.ebay_item_id`,
+            `${indent}  ? await getPublicListingImages(String(product.ebay_item_id))`,
+            `${indent}  : { status: 0, htmlLength: 0, images: [] as string[] };`,
+            `${indent}const trustedRemote = normalize([`,
+            `${indent}  ...inventoryApi.images,`,
+            `${indent}  ...trading.pictureUrls,`,
+            `${indent}  ...trading.descriptionImages,`,
+            `${indent}  ...publicListing.images,`,
+            `${indent}]);`,
+            `${indent}`,
+          ].join('\n');
+          source = source.slice(0, lineStart) + replacement + source.slice(verifiedStart);
+
+          const receiptToken = 'verifiedRemoteImages: verifiedRemote,';
+          const receiptIndex = source.indexOf(receiptToken);
+          if (receiptIndex < 0) throw new Error('Receipt marker missing.');
+          const receiptLineStart = source.lastIndexOf('\n', receiptIndex) + 1;
+          const receiptIndent = source.slice(receiptLineStart, receiptIndex);
+          const receiptInsert = [
+            `${receiptIndent}publicListingStatus: publicListing.status,`,
+            `${receiptIndent}publicListingHtmlLength: publicListing.htmlLength,`,
+            `${receiptIndent}publicListingImages: publicListing.images,`,
+            `${receiptIndent}publicListingError: "error" in publicListing ? publicListing.error : null,`,
+          ].join('\n') + '\n';
+          source = source.slice(0, receiptLineStart) + receiptInsert + source.slice(receiptLineStart);
+
+          fs.writeFileSync(route, source);
+          NODE
+
+          grep -Fq 'getPublicListingImages' "$route"
+          grep -Fq 'publicListingImages' "$route"
+          grep -Fq 'sell/inventory/v1/inventory_item' "$route"
+          grep -Fq 'const expected = "' "$route"
+          ! grep -Fq 'getActiveStoreId' "$route"
+          ! grep -Fq '\`https://www.ebay.com' "$route"
+          git diff --check
+
+      - name: Deploy protected repair runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/final-ebay-picture-repair-v3"
+          npx vercel@56.2.0 deploy --prod --yes --force --archive=tgz \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" | tee "$work/deploy.log"
+          deployment_url="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$work/deploy.log" | tail -1)"
+          test -n "$deployment_url"
+          printf '%s' "$deployment_url" > "$work/deployment-url"
+
+      - name: Recover every picture and certify the 50 products
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/final-ebay-picture-repair-v3"
+          token="$(cat "$work/token")"
+          deployment_url="$(cat "$work/deployment-url")"
+          response="$work/response.json"
+          echo "::add-mask::$token"
+          status="$(curl -sS --max-time 330 \
+            -H "x-tcos-repair-token: $token" \
+            -X POST -o "$response" -w '%{http_code}' \
+            "$deployment_url/api/internal/ebay-hidden-image-repair?run=${GITHUB_RUN_ID}" || true)"
+          echo "repair_status=$status"
+          cat "$response" || true
+          echo
+          test "$status" = "200"
+
+          node - "$response" <<'NODE'
+          const fs = require('node:fs');
+          const receipt = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          const summary = {
+            requestedProducts: receipt.requestedProducts,
+            foundProducts: receipt.foundProducts,
+            productsWithFrontBack: receipt.productsWithFrontBack,
+            stillMissingCount: receipt.stillMissingCount,
+            stillMissing: receipt.stillMissing,
+            products: (receipt.results || []).map(row => ({
+              productId: row.productId,
+              title: row.title,
+              inventoryApiCount: row.inventoryApiImages?.length || 0,
+              tradingCount: row.tradingPictureUrls?.length || 0,
+              descriptionCount: row.descriptionImages?.length || 0,
+              publicPageCount: row.publicListingImages?.length || 0,
+              publicPageStatus: row.publicListingStatus || 0,
+              finalImageCount: row.finalImageCount || 0,
+              changedInventoryRows: row.changedInventoryRows || 0,
+              hasBack: row.hasBack === true,
+              error: row.error || null,
+            })),
+          };
+          console.log('FINAL_EBAY_PICTURE_REPAIR=' + JSON.stringify(summary));
+          console.log(JSON.stringify(summary, null, 2));
+          if (!receipt.success) throw new Error('Repair receipt failed.');
+          if (summary.requestedProducts !== 50 || summary.foundProducts !== 50) throw new Error('The full 50-product set was not loaded.');
+          if (summary.stillMissingCount !== 0) throw new Error(`${summary.stillMissingCount} products still lack a second verified image.`);
+          NODE
+
+      - name: Remove temporary route and redeploy clean latest main
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git reset --hard origin/main
+          git clean -fd
+          npx vercel@56.2.0 deploy --prod --yes --force --archive=tgz \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+
+      - name: Verify live product image APIs
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          for id in 1682 1692 10684; do
+            response="$RUNNER_TEMP/product-images-${id}.json"
+            status="$(curl -sS -L --max-time 60 -o "$response" -w '%{http_code}' \
+              "https://truelycollectables.com/api/storefront/product-images/${id}?final_picture_repair_v3=${GITHUB_RUN_ID}")"
+            echo "product=${id} status=${status}"
+            cat "$response"
+            echo
+            test "$status" = "200"
+            node - "$response" <<'NODE'
+            const fs = require('node:fs');
+            const body = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+            if (!body.hasFront || !body.hasBack || !Array.isArray(body.images) || body.images.length < 2) {
+              throw new Error(`Live product ${body.productId} does not expose at least two images.`);
+            }
+            NODE
+          done
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/final-ebay-picture-repair-v3"
