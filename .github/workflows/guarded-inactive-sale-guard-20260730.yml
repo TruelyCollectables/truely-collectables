@@ -1,0 +1,202 @@
+name: Guarded Inactive Sale Guard 20260730
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/guarded-inactive-sale-guard-20260730.yml"
+      - "scripts/run-sold-lifecycle-simulations.mjs"
+      - "supabase/migrations/20260730002900_protect_inactive_marketplace_sales.sql"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: guarded-inactive-sale-guard-20260730
+  cancel-in-progress: false
+
+env:
+  EXPECTED_MAIN_SHA: 25cbf17fa5ca74b8bd787f070909a848ad52c4a0
+  EXPECTED_BRANCH: fix/issue253-inactive-sale-guard-current-main-v2-20260730
+  VERCEL_SCOPE: truelycollectables-projects
+  NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
+  SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
+  ADMIN_SESSION_SECRET: build-validation-session-secret-that-is-long-enough
+  ADMIN_PASSWORD: build-validation-admin-password
+  NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+  STRIPE_SECRET_KEY: sk_test_build_validation
+  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_validation
+  STRIPE_WEBHOOK_SECRET: whsec_build_validation
+  EBAY_CLIENT_ID: build-validation-client-id
+  EBAY_CLIENT_SECRET: build-validation-client-secret
+  EBAY_ENVIRONMENT: production
+  CRON_SECRET: build-validation-cron-secret-that-is-long-enough
+  TCOS_LIVE_PAYMENTS_ENABLED: "false"
+  TCOS_SHIPPING_PURCHASE_MODE: dry_run
+  TCOS_LIVE_SHIPPING_ENABLED: "false"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on exact branch scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          unexpected="$(git diff --name-only "$EXPECTED_MAIN_SHA"...HEAD | grep -Ev '^(\.github/workflows/guarded-inactive-sale-guard-20260730\.yml|scripts/run-sold-lifecycle-simulations\.mjs|supabase/migrations/20260730002900_protect_inactive_marketplace_sales\.sql)$' || true)"
+          test -z "$unexpected" || { printf 'Unexpected branch changes:\n%s\n' "$unexpected" >&2; exit 1; }
+          git diff --check "$EXPECTED_MAIN_SHA"...HEAD
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Run issue 253 and privileged-route simulations
+        run: |
+          node scripts/run-sold-lifecycle-simulations.mjs
+          node scripts/run-sold-trigger-order-simulation.mjs
+          node scripts/run-privileged-api-route-audit.mjs
+          npm run simulate:privileged-route-auth
+
+      - name: Run npm audit
+        run: npm audit --audit-level=high
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Run standalone TypeScript
+        run: npx tsc --noEmit --pretty false
+
+      - name: Run Production build
+        run: npm run build
+
+      - name: Validate full guarded migration chain against Production schema with rollback
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          mkdir -p .vercel "$RUNNER_TEMP/inactive-sale-guard-validation"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/inactive-sale-guard-validation/production.env" \
+            --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+
+          const envPath = path.join(process.env.RUNNER_TEMP, 'inactive-sale-guard-validation', 'production.env');
+          const parsed = {};
+          for (const rawLine of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
+            const line = rawLine.trim();
+            if (!line || line.startsWith('#')) continue;
+            const index = line.indexOf('=');
+            if (index < 1) continue;
+            const key = line.slice(0, index).trim();
+            let value = line.slice(index + 1).trim();
+            if (value.startsWith('"') && value.endsWith('"')) {
+              try { value = JSON.parse(value); } catch { value = value.slice(1, -1); }
+            } else if (value.startsWith("'") && value.endsWith("'")) {
+              value = value.slice(1, -1);
+            }
+            parsed[key] = value;
+          }
+          const productionUrl = parsed.NEXT_PUBLIC_SUPABASE_URL;
+          if (!productionUrl || !/^https:\/\//.test(productionUrl)) throw new Error('Production Supabase URL was not pulled.');
+          const projectRef = new URL(productionUrl).hostname.split('.')[0];
+          const token = process.env.GH_SUPABASE_ACCESS_TOKEN;
+          if (!projectRef || !token) throw new Error('Production Supabase management credentials are incomplete.');
+          const endpoint = `https://api.supabase.com/v1/projects/${projectRef}/database/query`;
+          const request = async (query, readOnly) => {
+            const response = await fetch(endpoint, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ query, parameters: [], read_only: readOnly }),
+            });
+            const body = await response.text();
+            if (!response.ok) {
+              const safe = body
+                .replace(/postgres(?:ql)?:\/\/[^\s"']+/gi, 'postgresql://[REDACTED]')
+                .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [REDACTED]')
+                .slice(0, 5000);
+              throw new Error(`Production rollback validation failed with HTTP ${response.status}: ${safe}`);
+            }
+            return body ? JSON.parse(body) : [];
+          };
+
+          const migrations = [
+            '20260726050000_collectible_asset_lifecycle.sql',
+            '20260730001950_correct_offer_order_item_paid_prices.sql',
+            '20260730002000_sold_storefront_retention_and_sale_history.sql',
+            '20260730002100_manual_sale_ebay_outbox.sql',
+            '20260730002200_capture_ebay_inactive_sale_state.sql',
+            '20260730002300_refine_verified_sale_timestamps.sql',
+            '20260730002400_make_sale_recording_idempotent.sql',
+            '20260730002500_reset_sold_presentation_on_restock.sql',
+            '20260730002600_atomic_ebay_order_sales_and_outbox_scope.sql',
+            '20260730002700_run_sale_guards_before_restock_reset.sql',
+            '20260730002800_enforce_collx_inventory_boundary.sql',
+            '20260730002900_protect_inactive_marketplace_sales.sql',
+          ];
+          const parts = [];
+          for (const name of migrations) {
+            let sql = fs.readFileSync(path.join('supabase', 'migrations', name), 'utf8').trim();
+            const hasBegin = /^begin\s*;/i.test(sql);
+            const hasCommit = /commit\s*;\s*$/i.test(sql);
+            if (hasBegin !== hasCommit) throw new Error(`Incomplete transaction wrapper: ${name}`);
+            if (hasBegin) sql = sql.replace(/^begin\s*;/i, '').replace(/commit\s*;\s*$/i, '').trim();
+            if (/create\s+(?:unique\s+)?index\s+concurrently/i.test(sql)) throw new Error(`Concurrent index is not rollback-safe: ${name}`);
+            parts.push(`\n-- ${name}\n${sql}\n`);
+          }
+
+          const fingerprint = `
+            select json_build_object(
+              'relations', coalesce((select json_agg(c.relname order by c.relname)
+                from pg_class c join pg_namespace n on n.oid=c.relnamespace
+                where n.nspname='public' and c.relname in (
+                  'collectible_assets','collectible_asset_events','collectible_sales',
+                  'instacomp_internal_sold_comps','collx_only_inventory_boundary_violations',
+                  'ebay_inbound_sale_guards'
+                )), '[]'::json),
+              'functions', coalesce((select json_agg(p.proname order by p.proname)
+                from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                where n.nspname='public' and p.proname in (
+                  'record_collectible_sale','record_collectible_sale_unsafe_20260730',
+                  'archive_expired_collectible_sales','apply_ebay_order_collectible_sale',
+                  'capture_ebay_inactive_collectible_sale'
+                )), '[]'::json)
+            ) as state;
+          `;
+          const before = await request(fingerprint, true);
+          await request(`begin;\n${parts.join('\n')}\nrollback;`, false);
+          const after = await request(fingerprint, true);
+          if (JSON.stringify(before) !== JSON.stringify(after)) {
+            throw new Error('Rollback validation changed the Production schema fingerprint.');
+          }
+          console.log(`Validated ${migrations.length} migrations, including the inactive marketplace guard, against Production with rollback.`);
+          NODE
+          rm -f "$RUNNER_TEMP/inactive-sale-guard-validation/production.env"
