@@ -1,0 +1,250 @@
+name: Apply CollX Grant And Certify 20260730
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: apply-collx-grant-and-certify-20260730
+  cancel-in-progress: false
+
+env:
+  PREVIOUS_MAIN_SHA: bb765778806f4bf658da4fc185d38e43fd9a3fba
+  EXPECTED_MAIN_SHA: 09651b6d2476df7e92467b661820e6e9ba30b8ce
+  EXPECTED_BRANCH: ops/apply-collx-grant-and-certify-20260730
+  MIGRATION: supabase/migrations/20260730133000_grant_collx_boundary_view_service_role.sql
+  MIGRATION_SHA256: ab0de2265394ad47ef2f21750fea55a05fec4debd383663f296844d18f934bab
+  RELEASE_VALIDATION_RUN: "30546929466"
+  ROLLBACK_VALIDATION_RUN: "30547357503"
+  PROJECT_REF: rfdzsoykhnngzdnvzlhz
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_PROJECT: truely-collectables
+  PRODUCT_PATH: /product/489878
+  EVIDENCE_DIR: .audit/apply-collx-grant-and-certify-20260730
+
+jobs:
+  apply-collx-grant-and-certify:
+    if: github.event.pull_request.head.ref == 'ops/apply-collx-grant-and-certify-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      GH_API_TOKEN: ${{ github.token }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+    steps:
+      - name: Check out guarded operations branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on exact main migration and one-file operations scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          test "$(git merge-base "$EXPECTED_MAIN_SHA" HEAD)" = "$EXPECTED_MAIN_SHA"
+          mapfile -t ops_changed < <(git diff --name-only "$EXPECTED_MAIN_SHA"...HEAD)
+          test "${#ops_changed[@]}" -eq 1
+          test "${ops_changed[0]}" = ".github/workflows/apply-collx-grant-and-certify-20260730.yml"
+          mapfile -t release_changed < <(git diff --name-only "$PREVIOUS_MAIN_SHA" "$EXPECTED_MAIN_SHA")
+          test "${#release_changed[@]}" -eq 1
+          test "${release_changed[0]}" = "$MIGRATION"
+          git diff --check "$PREVIOUS_MAIN_SHA" "$EXPECTED_MAIN_SHA"
+          git diff --check "$EXPECTED_MAIN_SHA"...HEAD
+          test "$(git show "$EXPECTED_MAIN_SHA:$MIGRATION" | sha256sum | awk '{print $1}')" = "$MIGRATION_SHA256"
+          test -n "${GH_API_TOKEN:-}"
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          test -n "${VERCEL_TOKEN:-}"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          echo "::add-mask::$VERCEL_TOKEN"
+          mkdir -p "$EVIDENCE_DIR" "$RUNNER_TEMP/exact-main"
+          git worktree add --detach "$RUNNER_TEMP/exact-main" "$EXPECTED_MAIN_SHA"
+          printf '%s\n' "$EXPECTED_MAIN_SHA" > "$EVIDENCE_DIR/exact-main-sha.txt"
+
+      - name: Bind passing release build and rollback validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error -H "Authorization: Bearer $GH_API_TOKEN" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/TruelyCollectables/truely-collectables/actions/runs/$RELEASE_VALIDATION_RUN/jobs?per_page=100" > "$EVIDENCE_DIR/release-jobs.json"
+          jq -e '.jobs[]|select(.name=="launch-release-validation")|.conclusion=="success"' "$EVIDENCE_DIR/release-jobs.json" >/dev/null
+          jq -e '.jobs[]|select(.name=="launch-release-validation")|.steps[]|select(.name=="Run lint")|.conclusion=="success"' "$EVIDENCE_DIR/release-jobs.json" >/dev/null
+          jq -e '.jobs[]|select(.name=="launch-release-validation")|.steps[]|select(.name=="Build production application")|.conclusion=="success"' "$EVIDENCE_DIR/release-jobs.json" >/dev/null
+          curl --fail --silent --show-error -H "Authorization: Bearer $GH_API_TOKEN" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/TruelyCollectables/truely-collectables/actions/runs/$ROLLBACK_VALIDATION_RUN/jobs?per_page=100" > "$EVIDENCE_DIR/rollback-jobs.json"
+          jq -e '.jobs[]|select(.name=="validate-collx-grant-final")|.conclusion=="success"' "$EVIDENCE_DIR/rollback-jobs.json" >/dev/null
+          jq -e '.jobs[]|select(.name=="validate-collx-grant-final")|.steps[]|select(.name=="Verify exact revisions and rollback-test the grant")|.conclusion=="success"' "$EVIDENCE_DIR/rollback-jobs.json" >/dev/null
+          rm -f "$EVIDENCE_DIR/release-jobs.json" "$EVIDENCE_DIR/rollback-jobs.json"
+          jq -n --arg sha "$EXPECTED_MAIN_SHA" --argjson releaseRun "$RELEASE_VALIDATION_RUN" --argjson rollbackRun "$ROLLBACK_VALIDATION_RUN" '{ok:true,exactMainSha:$sha,releaseValidationRunId:$releaseRun,rollbackValidationRunId:$rollbackRun,lintPassed:true,productionBuildPassed:true,rollbackPermissionValidationPassed:true,verifiedAt:(now|todate)}' > "$EVIDENCE_DIR/evidence-binding.json"
+
+      - name: Apply committed least-privilege Production migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          MIGRATION_PATH="$RUNNER_TEMP/exact-main/$MIGRATION" node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const endpoint=`https://api.supabase.com/v1/projects/${process.env.PROJECT_REF}/database/query`;
+          const request=async(query,readOnly)=>{
+            const response=await fetch(endpoint,{method:'POST',headers:{Authorization:`Bearer ${process.env.SUPABASE_ACCESS_TOKEN}`,'Content-Type':'application/json'},body:JSON.stringify({query,parameters:[],read_only:readOnly})});
+            const body=await response.text();
+            if(!response.ok)throw new Error(`Supabase migration HTTP ${response.status}: ${body.slice(0,1800)}`);
+            return body?JSON.parse(body):[];
+          };
+          const privileges=`select json_build_object(
+            'service_role_select',has_table_privilege('service_role','public.collx_only_inventory_boundary_violations','SELECT'),
+            'anon_select',has_table_privilege('anon','public.collx_only_inventory_boundary_violations','SELECT'),
+            'authenticated_select',has_table_privilege('authenticated','public.collx_only_inventory_boundary_violations','SELECT')
+          ) receipt;`;
+          const before=(await request(privileges,true))?.[0]?.receipt||{};
+          const migration=fs.readFileSync(process.env.MIGRATION_PATH,'utf8');
+          await request(migration,false);
+          const after=(await request(privileges,true))?.[0]?.receipt||{};
+          if(after.service_role_select!==true||after.anon_select!==false||after.authenticated_select!==false)throw new Error(`Invalid final privileges: ${JSON.stringify(after)}`);
+          await request(`begin; set local role service_role; select count(*) from public.collx_only_inventory_boundary_violations; rollback;`,false);
+          fs.writeFileSync(process.env.EVIDENCE_DIR+'/production-migration.json',JSON.stringify({ok:true,exactMainSha:process.env.EXPECTED_MAIN_SHA,before,after,serviceRoleViewSelectPassed:true,publicRolesDenied:true,appliedAt:new Date().toISOString()},null,2));
+          NODE
+
+      - name: Verify product route recovered before redeployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          recovered=false
+          for attempt in $(seq 1 18); do
+            code="$(curl -sS --max-time 75 -o "$EVIDENCE_DIR/predeploy-product.html" -w '%{http_code}' "https://truelycollectables.com$PRODUCT_PATH" || true)"
+            if [ "$code" = 200 ]; then recovered=true; break; fi
+            sleep 5
+          done
+          printf '{"status":%s,"attempt":%s,"recovered":%s,"verifiedAt":"%s"}\n' "$code" "$attempt" "$recovered" "$(date -u +%FT%TZ)" > "$EVIDENCE_DIR/predeploy-product-recovery.json"
+          test "$recovered" = true
+
+      - name: Deploy exact current main to Vercel Production
+        id: deploy
+        working-directory: ${{ runner.temp }}/exact-main
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          url="$(npx vercel@56.2.0 deploy --prod --yes --force --archive=tgz --meta "githubCommitSha=$EXPECTED_MAIN_SHA" --meta "launchPurpose=final-debug-collx-grant" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2> "$RUNNER_TEMP/deploy-stderr.txt" | tail -n 1)"
+          test -n "$url"
+          printf '%s\n' "$url" > "$GITHUB_WORKSPACE/$EVIDENCE_DIR/deployment-url.txt"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          npx vercel@56.2.0 inspect "$url" --wait --timeout=12m --no-color --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$GITHUB_WORKSPACE/$EVIDENCE_DIR/deployment-inspect.txt"
+
+      - name: Verify exact Production metadata routes boundaries and data invariants
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          host="${DEPLOYMENT_URL#https://}"
+          curl --fail --silent --show-error -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v13/deployments/$host?slug=$VERCEL_SCOPE" > "$EVIDENCE_DIR/deployment.json"
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const p=process.env.EVIDENCE_DIR;
+          const v=JSON.parse(fs.readFileSync(`${p}/deployment.json`,'utf8'));
+          const aliases=Array.isArray(v.alias)?v.alias:Array.isArray(v.aliases)?v.aliases:[];
+          const sha=String(v?.meta?.githubCommitSha||'');
+          const receipt={ok:String(v.target).toLowerCase()==='production'&&String(v.readyState).toUpperCase()==='READY'&&sha===process.env.EXPECTED_MAIN_SHA&&aliases.includes('truelycollectables.com'),deploymentId:v.id,deploymentHost:v.url,target:v.target,readyState:v.readyState,exactMainSha:sha,customDomainAlias:aliases.includes('truelycollectables.com'),verifiedAt:new Date().toISOString()};
+          fs.writeFileSync(`${p}/exact-production.json`,JSON.stringify(receipt,null,2));
+          if(!receipt.ok)throw new Error(`Exact Production mismatch: ${JSON.stringify(receipt)}`);
+          NODE
+          rm -f "$EVIDENCE_DIR/deployment.json"
+          rows='[]'; blockers=()
+          for spec in 'home|/' 'shop|/shop' "product|$PRODUCT_PATH" 'cart|/cart' 'account|/account' 'signup|/account/signup' 'orders|/account/orders' 'shipping|/shipping' 'buyer_protection|/buyer-protection' 'returns|/returns' 'privacy|/privacy' 'terms|/terms' 'contact|/contact'; do
+            name="${spec%%|*}"; path="${spec#*|}"
+            code="$(curl -L -sS --max-time 75 -o "$RUNNER_TEMP/$name.html" -w '%{http_code}' "https://truelycollectables.com$path" || true)"
+            rows="$(jq -c --arg name "$name" --arg path "$path" --argjson code "${code:-0}" '. + [{name:$name,path:$path,status:$code}]' <<<"$rows")"
+            [ "$code" = 200 ] || blockers+=("$name=$code")
+          done
+          admin="$(curl -sS --max-time 75 -o /dev/null -w '%{http_code}' https://truelycollectables.com/admin || true)"
+          email_unsigned="$(curl -sS --max-time 75 -X POST -o /dev/null -w '%{http_code}' https://truelycollectables.com/api/release/order-email-lifecycle-self-test || true)"
+          market_unsigned="$(curl -sS --max-time 75 -X POST -o /dev/null -w '%{http_code}' 'https://truelycollectables.com/api/release/issue253-marketplace-self-test?step=ebay-order-sales' || true)"
+          webhook_unsigned="$(curl -sS --max-time 75 -X POST -H 'content-type: application/json' --data '{}' -o /dev/null -w '%{http_code}' https://truelycollectables.com/api/webhook || true)"
+          [[ "$admin" =~ ^30[1278]$ ]] || blockers+=("admin=$admin")
+          [ "$email_unsigned" = 401 ] || blockers+=("email_unsigned=$email_unsigned")
+          [ "$market_unsigned" = 401 ] || blockers+=("market_unsigned=$market_unsigned")
+          [ "$webhook_unsigned" != 200 ] || blockers+=("webhook_unsigned=$webhook_unsigned")
+          grep -Fq 'Find the collectible your collection is missing' "$RUNNER_TEMP/home.html" || blockers+=("home marker")
+          grep -Fq 'Shop Sports Cards' "$RUNNER_TEMP/shop.html" || blockers+=("shop marker")
+          grep -Fq 'Caitlin Clark' "$RUNNER_TEMP/product.html" || blockers+=("product marker")
+          jq -n --argjson routes "$rows" --argjson admin "$admin" --argjson email "$email_unsigned" --argjson market "$market_unsigned" --argjson webhook "$webhook_unsigned" --argjson blockerCount "${#blockers[@]}" '{ok:($blockerCount==0),routes:$routes,adminRedirect:$admin,unsignedEmailVerifier:$email,unsignedMarketplaceVerifier:$market,unsignedWebhook:$webhook,blockerCount:$blockerCount,verifiedAt:(now|todate)}' > "$EVIDENCE_DIR/routes-and-boundaries.json"
+          if [ "${#blockers[@]}" -ne 0 ]; then printf 'ROUTE BLOCKER: %s\n' "${blockers[@]}" >&2; exit 1; fi
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const endpoint=`https://api.supabase.com/v1/projects/${process.env.PROJECT_REF}/database/query`;
+          const query=`select json_build_object(
+            'service_role_view_select',has_table_privilege('service_role','public.collx_only_inventory_boundary_violations','SELECT'),
+            'anon_view_select',has_table_privilege('anon','public.collx_only_inventory_boundary_violations','SELECT'),
+            'authenticated_view_select',has_table_privilege('authenticated','public.collx_only_inventory_boundary_violations','SELECT'),
+            'collx_only_boundary_violations',(select count(*) from public.collx_only_inventory_boundary_violations),
+            'sold_stock_restoration_violations',(select count(*) from public.products where sold_at is not null and quantity>0),
+            'negative_product_quantities',(select count(*) from public.products where quantity<0),
+            'negative_inventory_quantities',(select count(*) from public.inventory_items where quantity<0),
+            'duplicate_sale_event_groups',(select count(*) from(select store_id,event_key from public.collectible_sales group by store_id,event_key having count(*)>1)d),
+            'violated_guards',(select count(*) from public.ebay_inbound_sale_guards g where active and (coalesce((select p.quantity from public.products p where p.id=g.legacy_product_id and p.seller_id=g.store_id),0)>g.protected_quantity or coalesce((select i.quantity from public.inventory_items i where i.id=g.inventory_item_id),0)>g.protected_quantity)),
+            'remaining_audit_notifications',(select count(*) from public.order_notification_deliveries where recipient_email in ('truelycollectables+launch-buyer@gmail.com','truelycollectables+launch-owner@gmail.com')),
+            'captured_at',now()
+          ) receipt;`;
+          const response=await fetch(endpoint,{method:'POST',headers:{Authorization:`Bearer ${process.env.SUPABASE_ACCESS_TOKEN}`,'Content-Type':'application/json'},body:JSON.stringify({query,parameters:[],read_only:true})});
+          const body=await response.text();
+          if(!response.ok)throw new Error(`Invariant HTTP ${response.status}: ${body.slice(0,1600)}`);
+          const receipt=JSON.parse(body)?.[0]?.receipt||{};
+          const blockers=[];
+          if(receipt.service_role_view_select!==true)blockers.push('service_role_view_select');
+          if(receipt.anon_view_select!==false)blockers.push('anon_view_select');
+          if(receipt.authenticated_view_select!==false)blockers.push('authenticated_view_select');
+          for(const key of ['collx_only_boundary_violations','sold_stock_restoration_violations','negative_product_quantities','negative_inventory_quantities','duplicate_sale_event_groups','violated_guards','remaining_audit_notifications'])if(Number(receipt[key]||0)!==0)blockers.push(`${key}=${receipt[key]}`);
+          const result={ok:blockers.length===0,receipt,blockers,verifiedAt:new Date().toISOString()};
+          fs.writeFileSync(process.env.EVIDENCE_DIR+'/hosted-invariants.json',JSON.stringify(result,null,2));
+          if(blockers.length)throw new Error(blockers.join('; '));
+          NODE
+
+      - name: Run fresh exact Production Lighthouse gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE_DIR/lighthouse"
+          for spec in 'home|/' 'shop|/shop' "product|$PRODUCT_PATH" 'signup|/account/signup' 'cart|/cart'; do
+            name="${spec%%|*}"; path="${spec#*|}"
+            npx --yes lighthouse@12.8.2 "https://truelycollectables.com$path" --quiet --chrome-flags='--headless --no-sandbox' --output=json --output-path="$EVIDENCE_DIR/lighthouse/$name.json"
+          done
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const pages=['home','shop','product','signup','cart']; const rows=[]; const blockers=[];
+          for(const page of pages){
+            const v=JSON.parse(fs.readFileSync(`${process.env.EVIDENCE_DIR}/lighthouse/${page}.json`,'utf8')); const c=v.categories||{};
+            const row={page,performance:Math.round((c.performance?.score||0)*100),accessibility:Math.round((c.accessibility?.score||0)*100),bestPractices:Math.round((c['best-practices']?.score||0)*100),seo:Math.round((c.seo?.score||0)*100)}; rows.push(row);
+            if(row.performance<70)blockers.push(`${page} performance ${row.performance}`);
+            if(row.accessibility<95)blockers.push(`${page} accessibility ${row.accessibility}`);
+            if(row.bestPractices<95)blockers.push(`${page} best-practices ${row.bestPractices}`);
+            if(['home','shop','product'].includes(page)&&row.seo<95)blockers.push(`${page} SEO ${row.seo}`);
+          }
+          const result={ok:blockers.length===0,rows,blockers,verifiedAt:new Date().toISOString()}; fs.writeFileSync(process.env.EVIDENCE_DIR+'/lighthouse-summary.json',JSON.stringify(result,null,2)); if(blockers.length)throw new Error(blockers.join('; '));
+          NODE
+
+      - name: Issue strict final debug certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -e '.ok==true' "$EVIDENCE_DIR/evidence-binding.json" >/dev/null
+          jq -e '.ok==true and .after.service_role_select==true' "$EVIDENCE_DIR/production-migration.json" >/dev/null
+          jq -e '.ok==true' "$EVIDENCE_DIR/exact-production.json" >/dev/null
+          jq -e '.ok==true and .blockerCount==0' "$EVIDENCE_DIR/routes-and-boundaries.json" >/dev/null
+          jq -e '.ok==true and (.blockers|length)==0' "$EVIDENCE_DIR/hosted-invariants.json" >/dev/null
+          jq -e '.ok==true and (.blockers|length)==0' "$EVIDENCE_DIR/lighthouse-summary.json" >/dev/null
+          jq -n --arg sha "$EXPECTED_MAIN_SHA" --arg deployment "$(jq -r .deploymentId "$EVIDENCE_DIR/exact-production.json")" --arg run "$GITHUB_RUN_ID" '{schema:"truelycollectables.finalDebugAfterGrantCertificate.v1",result:"PASS",blockerCount:0,exactProductionSha:$sha,exactProductionDeploymentId:$deployment,workflowRunId:($run|tonumber),productRouteRecovered:true,leastPrivilegeGrantApplied:true,publicRolesDenied:true,releaseBuildPassed:true,allCustomerRoutesPassed:true,protectedBoundariesPassed:true,hostedDataInvariantsPassed:true,lighthousePassed:true,productionMutationLimitedToCommittedGrant:true,emailSent:false,realMoneyCharge:false,realPostagePurchase:false,physicalShipment:false,issuedAt:(now|todate)}' > "$EVIDENCE_DIR/final-debug-certificate.json"
+
+      - name: Upload sanitized final debug certificate
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: apply-collx-grant-and-certify-20260730
+          path: .audit/apply-collx-grant-and-certify-20260730
+          if-no-files-found: error
+          retention-days: 90
