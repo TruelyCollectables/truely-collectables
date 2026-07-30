@@ -1,0 +1,59 @@
+name: Fix Admin Sales History Runtime Smoke
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/smoke-admin-runtime.mjs"
+      - "scripts/apply-admin-sales-history-smoke-patch.mjs"
+      - ".github/workflows/fix-admin-sales-history-runtime-smoke.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fix-admin-sales-history-smoke-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Apply exact runtime smoke fix
+        run: node scripts/apply-admin-sales-history-smoke-patch.mjs
+      - name: Validate admin route inventory and dashboard actions
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
+          ADMIN_SESSION_SECRET: build-validation-session-secret-that-is-long-enough
+          ADMIN_PASSWORD: build-validation-admin-password
+          NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+          STRIPE_SECRET_KEY: sk_test_build_validation
+          STRIPE_WEBHOOK_SECRET: whsec_build_validation
+        run: |
+          npm run simulate:admin-dashboard-actions
+          npm run check:admin-routes
+          npm run check:admin-controls
+          npm run lint
+          npx tsc --noEmit --pretty false
+          npm run build
+      - name: Commit exact passing source
+        shell: bash
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/smoke-admin-runtime.mjs
+          git commit -m "Cover sales history in admin runtime smoke"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
