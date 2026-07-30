@@ -35,12 +35,14 @@ type Order = {
   created_at: string;
   customer_email: string | null;
   customer_name?: string | null;
+  customer_phone?: string | null;
   total: number;
   status: string | null;
   shipping_method: string | null;
   shipping_name: string | null;
   shipping_amount: number | null;
   subtotal: number | null;
+  tax_amount?: number | null;
   item_count: number | null;
   contains_seller_items?: boolean | null;
   seller_item_count?: number | null;
@@ -48,6 +50,7 @@ type Order = {
   fulfillment_status: string | null;
   tracking_number: string | null;
   carrier: string | null;
+  fulfilled_at?: string | null;
   shipped_at: string | null;
   discount_amount?: number | null;
   discount_code?: string | null;
@@ -1151,6 +1154,7 @@ export default async function AdminOrderDetailPage({
         <dl className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <InfoTile label="Name" value={typedOrder.customer_name || "Not saved"} />
           <InfoTile label="Email" value={typedOrder.customer_email || "No email"} />
+          <InfoTile label="Customer Phone" value={typedOrder.customer_phone || "Not collected"} />
         </dl>
 
         <div className="mt-4 rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
@@ -1265,6 +1269,11 @@ export default async function AdminOrderDetailPage({
           </div>
 
           <div className="flex justify-between gap-4">
+            <span>Tax Paid</span>
+            <strong>{money(typedOrder.tax_amount)}</strong>
+          </div>
+
+          <div className="flex justify-between gap-4">
             <span>Shipping Paid</span>
             <strong>{money(shippingPaid)}</strong>
           </div>
@@ -1287,6 +1296,7 @@ export default async function AdminOrderDetailPage({
           <InfoTile label="Items" value={typedOrder.item_count || 0} />
           <InfoTile label="Carrier" value={typedOrder.carrier || "Not added"} />
           <InfoTile label="Tracking" value={typedOrder.tracking_number || "Not added"} />
+          <InfoTile label="Fulfilled At" value={typedOrder.fulfilled_at ? new Date(typedOrder.fulfilled_at).toLocaleString() : "Not fulfilled"} />
           <InfoTile
             label="Shipped At"
             value={

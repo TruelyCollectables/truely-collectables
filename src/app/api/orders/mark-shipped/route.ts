@@ -217,10 +217,11 @@ export async function POST(req: Request) {
       console.error("Shipment notification failed:", notificationError);
     }
 
+    const notification = customerNotification;
     return NextResponse.json({
       success: true,
-      emailSent: customerNotification?.sent === true,
-      emailQueued: Boolean(customerNotification),
+      emailSent: notification?.sent === true,
+      emailQueued: Boolean(notification),
       notificationId: customerNotification?.notificationId || null,
       notificationStatus: customerNotification?.status || null,
       ownerEmailSent: ownerNotification?.sent === true,
