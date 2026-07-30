@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { STORE_SUPPORT_EMAIL } from "../../../lib/legal";
 import {
+  fetchWithAccountSession,
   getAccountSession,
   type StoredAccountSession,
 } from "../account-session";
@@ -64,34 +65,44 @@ export default function BuyerOrdersPage() {
   const [copiedTracking, setCopiedTracking] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!session?.access_token) return;
+    if (!session?.access_token) {
+      setLoading(false);
+      return;
+    }
 
     const controller = new AbortController();
 
-    fetch("/api/account/orders", {
-      headers: {
-        Authorization: `Bearer ${session.access_token}`,
-      },
-      signal: controller.signal,
-      cache: "no-store",
-    })
-      .then(async (response) => {
+    async function loadOrders() {
+      setLoading(true);
+      setError("");
+
+      try {
+        const response = await fetchWithAccountSession("/api/account/orders", {
+          signal: controller.signal,
+          cache: "no-store",
+        });
         const payload = await response.json().catch(() => ({}));
+
         if (!response.ok) {
-          throw new Error(payload.error || "Could not load your orders.");
+          throw new Error(
+            response.status === 401
+              ? "Your sign-in expired. Please log in again."
+              : payload.error || "Could not load your orders.",
+          );
         }
-        return payload;
-      })
-      .then((payload) => {
+
         setOrders(Array.isArray(payload.orders) ? payload.orders : []);
-      })
-      .catch((caught: unknown) => {
+      } catch (caught: unknown) {
         if (caught instanceof Error && caught.name === "AbortError") return;
         setError(
           caught instanceof Error ? caught.message : "Could not load your orders.",
         );
-      })
-      .finally(() => setLoading(false));
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    void loadOrders();
 
     return () => controller.abort();
   }, [session]);
