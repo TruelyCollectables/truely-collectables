@@ -1,0 +1,54 @@
+name: Download CollX Back Candidates 20260730
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  download:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'ops/download-collx-back-candidates-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/download-collx-back-candidates-20260730
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Download all target fronts and every numbered back candidate
+        env:
+          OUTPUT_DIR: ${{ runner.temp }}/collx-back-candidates
+        run: node scripts/download-collx-back-candidates-20260730.mjs
+
+      - name: Summarize candidate inventory
+        shell: bash
+        run: |
+          node - "${RUNNER_TEMP}/collx-back-candidates/manifest.json" <<'NODE'
+          const manifest = require(process.argv[2]);
+          console.log('COLLX_BACK_CANDIDATE_SUMMARY=' + JSON.stringify({
+            targetCount: manifest.targets.length,
+            batches: manifest.batches.map((batch) => ({
+              batch: batch.batch,
+              objectCount: batch.objectCount,
+              targetFrontCount: batch.targetFronts.length,
+              backCount: batch.backObjects.length,
+              downloaded: batch.downloads.filter((entry) => entry.ok).length,
+              backNames: batch.backObjects.map((entry) => entry.name),
+              targetFrontNames: batch.targetFrontObjects.map((entry) => entry.name),
+            })),
+          }));
+          NODE
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: collx-back-candidates-20260730
+          path: ${{ runner.temp }}/collx-back-candidates
+          if-no-files-found: error
+          retention-days: 7
