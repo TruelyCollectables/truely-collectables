@@ -1,8 +1,7 @@
 import type { ReactNode } from "react";
-import Image from "next/image";
 import Link from "next/link";
+import ProductImageGallery from "../../components/ProductImageGallery";
 import { notFound } from "next/navigation";
-import SoldOverlay from "../../../components/SoldOverlay";
 import { getProductSalePresentation } from "../../../lib/collectible-sale-history";
 import { createServerInventoryEngine } from "../../../lib/server-inventory-engine";
 import { getActiveStoreId } from "../../../lib/stores";
@@ -107,17 +106,12 @@ export default async function ProductDetailLayout({
         </Link>
 
         <section className="mt-6 grid gap-8 lg:grid-cols-[minmax(0,1fr)_420px]">
-          <div className="relative min-h-[360px] overflow-hidden rounded border-2 border-red-800 bg-neutral-100 lg:min-h-[680px]">
-            <Image
-              src={product.imageUrl}
-              alt={product.title}
-              fill
-              unoptimized
-              sizes="(min-width: 1024px) calc(100vw - 540px), 100vw"
-              className="object-contain p-3"
-            />
-            <SoldOverlay />
-          </div>
+          <ProductImageGallery
+            inventoryItemId={product.inventoryItemId}
+            primaryImageUrl={product.imageUrl}
+            title={product.title}
+            sold
+          />
 
           <div className="space-y-5">
             <section>

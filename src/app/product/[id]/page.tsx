@@ -1,6 +1,6 @@
 import Link from "next/link";
-import Image from "next/image";
 import type { Metadata } from "next";
+import ProductImageGallery from "../../components/ProductImageGallery";
 import { cache } from "react";
 import OfferForm from "./OfferForm";
 import ProductActions from "./ProductActions";
@@ -233,18 +233,11 @@ export default async function ProductPage({
       </Link>
 
       <section className="mt-6 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_420px]">
-        <div>
-          <div className="relative min-h-[320px] overflow-hidden rounded border bg-neutral-50 lg:min-h-[620px]">
-            <Image
-              src={product.imageUrl || "/placeholder.png"}
-              alt={product.title}
-              fill
-              sizes="(min-width: 1024px) calc(100vw - 540px), 100vw"
-              unoptimized
-              className="object-contain"
-            />
-          </div>
-        </div>
+        <ProductImageGallery
+          inventoryItemId={product.inventoryItemId}
+          primaryImageUrl={product.imageUrl}
+          title={product.title}
+        />
 
         <div className="space-y-6">
           <section>
