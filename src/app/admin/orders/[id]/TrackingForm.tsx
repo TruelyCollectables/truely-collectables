@@ -38,12 +38,12 @@ export default function TrackingForm({
         ? "Enter a tracking number before saving or marking shipped."
         : null;
   const trackingDisabledReason = actionsBusy
-    ? "Finish the current fulfillment action first."
+    ? "Finish the current tracking action first."
     : trackingBlockedReason || "";
   const shipmentDisabledReason = trackingDisabledReason ||
     (!canMarkShipped ? reviewMessage || "This order is on a review hold and cannot be marked shipped yet." : "");
   const fulfillmentDisabledReason = actionsBusy
-    ? "Finish the current fulfillment action first."
+    ? "Finish the current tracking action first."
     : !canMarkShipped
       ? reviewMessage || "This order is on a review hold and cannot be marked fulfilled yet."
       : "";
@@ -53,7 +53,7 @@ export default function TrackingForm({
 
   async function markFulfilled() {
     if (trackingActionRunningRef.current || actionsBusy) {
-      setMessage({ tone: "info", text: "Finish the current fulfillment action first." });
+      setMessage({ tone: "info", text: "Finish the current tracking action first." });
       return;
     }
     if (!canMarkShipped) {
@@ -86,7 +86,7 @@ export default function TrackingForm({
 
   async function saveTracking() {
     if (trackingActionRunningRef.current || actionsBusy) {
-      setMessage({ tone: "info", text: "Finish the current fulfillment action first." });
+      setMessage({ tone: "info", text: "Finish the current tracking action first." });
       return;
     }
     if (trackingBlockedReason) {
@@ -118,7 +118,7 @@ export default function TrackingForm({
 
   async function markShipped() {
     if (trackingActionRunningRef.current || actionsBusy) {
-      setMessage({ tone: "info", text: "Finish the current fulfillment action first." });
+      setMessage({ tone: "info", text: "Finish the current tracking action first." });
       return;
     }
     if (trackingBlockedReason) {
