@@ -112,6 +112,7 @@ jobs:
         run: |
           set -euo pipefail
           git checkout -- next-env.d.ts 2>/dev/null || true
+          rm -f privileged-api-route-audit.json
           git diff --check
           mapfile -t changed < <(git status --porcelain=v1 -uall | cut -c4- | sort)
           printf 'Changed paths after validation:\n%s\n' "$(printf '%s\n' "${changed[@]}")"
