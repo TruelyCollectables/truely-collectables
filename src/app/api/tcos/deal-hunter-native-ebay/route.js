@@ -1,6 +1,7 @@
 import { EbayBrowseAdapter } from "../../../../../connectors/tcos-market-intel-mcp/src/public-search.mjs";
 import {
   buildDealHunterEbayQueryFamilies,
+  DEAL_HUNTER_MICHKOV_QUERY_FAMILY_COUNT,
   DEAL_HUNTER_WNBA_QUERY_FAMILY_COUNT,
   extractEbayItemId,
   parseDealHunterPlayers,
@@ -15,6 +16,7 @@ export const maxDuration = 60;
 const SCOPES = new Set([
   "wnba",
   "ivan_demidov",
+  "matvei_michkov_young_guns",
   "baseball_prospects",
   "signed_baseballs",
   "all",
@@ -281,6 +283,9 @@ export async function GET(request) {
   const wnbaFamilyCount = families.filter(
     (family) => family.scope === "wnba",
   ).length;
+  const michkovFamilyCount = families.filter(
+    (family) => family.scope === "matvei_michkov_young_guns",
+  ).length;
   const requiredWnbaFamiliesExecuted =
     !["wnba", "all"].includes(scope) ||
     (wnbaFamilyCount === DEAL_HUNTER_WNBA_QUERY_FAMILY_COUNT &&
@@ -288,10 +293,19 @@ export async function GET(request) {
         (entry) =>
           entry.familyId.startsWith("wnba.") && entry.status === "COMPLETE",
       ).length === DEAL_HUNTER_WNBA_QUERY_FAMILY_COUNT);
+  const requiredMichkovFamiliesExecuted =
+    !["matvei_michkov_young_guns", "all"].includes(scope) ||
+    (michkovFamilyCount === DEAL_HUNTER_MICHKOV_QUERY_FAMILY_COUNT &&
+      coverage.filter(
+        (entry) =>
+          entry.familyId.startsWith("matvei-michkov.") &&
+          entry.status === "COMPLETE",
+      ).length === DEAL_HUNTER_MICHKOV_QUERY_FAMILY_COUNT);
   const complete =
     errors.length === 0 &&
     successfulQueryCount === families.length &&
-    requiredWnbaFamiliesExecuted;
+    requiredWnbaFamiliesExecuted &&
+    requiredMichkovFamiliesExecuted;
 
   return json(
     {
@@ -316,6 +330,12 @@ export async function GET(request) {
         ? DEAL_HUNTER_WNBA_QUERY_FAMILY_COUNT
         : 0,
       requiredWnbaFamiliesExecuted,
+      requiredMichkovFamilyCount: ["matvei_michkov_young_guns", "all"].includes(
+        scope,
+      )
+        ? DEAL_HUNTER_MICHKOV_QUERY_FAMILY_COUNT
+        : 0,
+      requiredMichkovFamiliesExecuted,
       perQuery,
       rawResultCount: coverage.reduce(
         (sum, entry) => sum + Number(entry.rawResultCount || 0),
