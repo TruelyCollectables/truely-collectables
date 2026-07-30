@@ -25,6 +25,7 @@ function NavigationLink({ href, label }: { href: string; label: string }) {
   return (
     <Link
       href={href}
+      prefetch={false}
       className="inline-flex min-h-11 items-center justify-center whitespace-nowrap text-sm font-black text-neutral-800 hover:underline hover:decoration-yellow-300 hover:decoration-4 hover:underline-offset-4"
     >
       {label}
@@ -43,6 +44,7 @@ export default function Navbar() {
           <div className="flex items-center justify-between gap-3 sm:gap-4">
             <Link
               href="/"
+              prefetch={false}
               className="flex min-w-0 items-center gap-3"
             >
               <div className="flex h-11 w-11 shrink-0 items-center justify-center border-2 border-neutral-950 bg-yellow-300 text-sm font-black uppercase shadow-[3px_3px_0_#111318]">
@@ -67,6 +69,7 @@ export default function Navbar() {
 
               <Link
                 href="/cart"
+                prefetch={false}
                 className="inline-flex min-h-11 items-center justify-center border-2 border-neutral-950 bg-yellow-300 px-4 py-2 text-sm font-black text-neutral-950 shadow-[3px_3px_0_#111318] transition hover:-translate-y-0.5"
               >
                 Cart
