@@ -6,6 +6,8 @@ on:
     paths:
       - "scripts/smoke-admin-runtime.mjs"
       - "src/app/admin/page.tsx"
+      - "src/app/admin/instacomp/DuckAiWitness.tsx"
+      - "src/app/admin/reset-password/page.tsx"
       - "scripts/apply-admin-sales-history-smoke-patch.mjs"
       - ".github/workflows/fix-admin-sales-history-runtime-smoke.yml"
 
@@ -30,9 +32,9 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - name: Apply exact runtime smoke fix
+      - name: Apply exact admin fixes
         run: node scripts/apply-admin-sales-history-smoke-patch.mjs
-      - name: Validate admin route inventory and dashboard actions
+      - name: Validate admin route inventory dashboard and controls
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
           NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
@@ -55,6 +57,6 @@ jobs:
           if git diff --quiet; then exit 0; fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add scripts/smoke-admin-runtime.mjs src/app/admin/page.tsx
-          git commit -m "Link and runtime-smoke sales history"
+          git add scripts/smoke-admin-runtime.mjs src/app/admin/page.tsx src/app/admin/instacomp/DuckAiWitness.tsx src/app/admin/reset-password/page.tsx
+          git commit -m "Repair admin navigation smoke and control safety"
           git push origin HEAD:${{ github.event.pull_request.head.ref }}
