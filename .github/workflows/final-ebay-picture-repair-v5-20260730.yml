@@ -6,6 +6,7 @@ on:
     paths:
       - ".github/workflows/final-ebay-picture-repair-v5-20260730.yml"
       - "scripts/generate-ebay-picture-repair-route.mjs"
+      - "scripts/augment-ebay-picture-repair-inventory-index.mjs"
   workflow_dispatch:
 
 permissions:
@@ -66,15 +67,21 @@ jobs:
           git show origin/ops/diagnose-ebay-hidden-images-20260730:.github/workflows/repair-ebay-hidden-images-20260730.yml > "$work/source.yml"
 
           node --check scripts/generate-ebay-picture-repair-route.mjs
+          node --check scripts/augment-ebay-picture-repair-inventory-index.mjs
           node scripts/generate-ebay-picture-repair-route.mjs \
             "$work/source.yml" \
             src/app/api/internal/ebay-hidden-image-repair/route.ts \
             "$token"
+          node scripts/augment-ebay-picture-repair-inventory-index.mjs \
+            src/app/api/internal/ebay-hidden-image-repair/route.ts
 
           grep -Fq 'trading.error' src/app/api/internal/ebay-hidden-image-repair/route.ts
           grep -Fq 'getPublicListingImages' src/app/api/internal/ebay-hidden-image-repair/route.ts
           grep -Fq 'publicListingImages' src/app/api/internal/ebay-hidden-image-repair/route.ts
           grep -Fq 'inventoryApi.error' src/app/api/internal/ebay-hidden-image-repair/route.ts
+          grep -Fq 'getSellerInventoryIndex' src/app/api/internal/ebay-hidden-image-repair/route.ts
+          grep -Fq 'getOffersForSellerSku' src/app/api/internal/ebay-hidden-image-repair/route.ts
+          grep -Fq 'sellerInventoryMatch.images' src/app/api/internal/ebay-hidden-image-repair/route.ts
           grep -Fq 'const CONCURRENCY = 2;' src/app/api/internal/ebay-hidden-image-repair/route.ts
           ! grep -Fq 'getActiveStoreId' src/app/api/internal/ebay-hidden-image-repair/route.ts
           git diff --check
@@ -139,6 +146,7 @@ jobs:
           const fs = require('node:fs');
           const receipt = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           const summary = {
+            sellerInventoryIndex: receipt.sellerInventoryIndex || null,
             requestedProducts: receipt.requestedProducts,
             foundProducts: receipt.foundProducts,
             productsWithFrontBack: receipt.productsWithFrontBack,
@@ -147,9 +155,20 @@ jobs:
             products: (receipt.results || []).map(row => ({
               productId: row.productId,
               title: row.title,
+              sellerInventoryCandidates: row.sellerInventoryCandidateSkus || [],
+              sellerInventorySelectedSkus: row.sellerInventorySelectedSkus || [],
+              sellerInventoryImageCount: row.sellerInventoryImages?.length || 0,
+              sellerInventoryOfferChecks: row.sellerInventoryOfferChecks || [],
+              sellerInventoryFallbackTitleMatch: row.sellerInventoryFallbackTitleMatch || false,
               inventoryApiCount: row.inventoryApiImages?.length || 0,
               inventoryStatuses: row.inventoryApiAttempts || [],
               inventoryError: row.inventoryApiError || null,
+              browseCount: row.browseImages?.length || 0,
+              browseStatus: row.browseStatus || 0,
+              browseError: row.browseError || null,
+              shoppingCount: row.shoppingImages?.length || 0,
+              shoppingStatus: row.shoppingStatus || 0,
+              shoppingError: row.shoppingError || null,
               tradingCount: row.tradingPictureUrls?.length || 0,
               tradingError: row.tradingError || null,
               descriptionCount: row.descriptionImages?.length || 0,
