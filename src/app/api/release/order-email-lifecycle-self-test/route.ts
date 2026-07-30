@@ -87,7 +87,7 @@ export async function POST(request: Request) {
 
     const { data: product, error: productError } = await supabase
       .from("products")
-      .select("id,title,price,store_id,seller_id")
+      .select("id,title,price,seller_id")
       .gt("quantity", 0)
       .gt("price", 0)
       .limit(1)
@@ -95,7 +95,7 @@ export async function POST(request: Request) {
     if (productError) throw productError;
     if (!product) throw new Error("No active product reference is available.");
 
-    const storeId = String(product.store_id || product.seller_id || DEFAULT_STORE_ID);
+    const storeId = String(product.seller_id || DEFAULT_STORE_ID);
     const now = new Date().toISOString();
     const stamp = now.replace(/[:.]/g, "-");
     const marker = `LAUNCH AUDIT ${stamp}`;
