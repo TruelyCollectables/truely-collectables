@@ -20,7 +20,7 @@
       "schedule": "8 */6 * * *"
     },
     {
-      "path": "/api/cron/market-intel/ebay/growth-scan?maxTargets=25&resultsPerQuery=15&minimumConfidence=80",
+      "path": "/api/cron/market-intel/ebay/growth-scan?maxTargets=25&resultsPerTarget=15&minimumConfidence=80",
       "schedule": "10 */6 * * *"
     },
     {
