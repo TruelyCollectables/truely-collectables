@@ -26,6 +26,9 @@ const idempotencyMigration = read(
 const restockMigration = read(
   "supabase/migrations/20260730002500_reset_sold_presentation_on_restock.sql",
 );
+const atomicEbayMigration = read(
+  "supabase/migrations/20260730002600_atomic_ebay_order_sales_and_outbox_scope.sql",
+);
 const saleHistory = read("src/lib/collectible-sale-history.ts");
 const ebayOrders = read("src/lib/ebay-order-sale-sync.ts");
 const ebayAliases = read("src/lib/ebay-merged-listing-groups.ts");
@@ -64,6 +67,7 @@ assert.match(outboxMigration, /after insert on public\.collectible_sales/);
 
 assert.match(inactiveSaleMigration, /capture_ebay_inactive_collectible_sale/);
 assert.match(inactiveSaleMigration, /ebay_not_active_at_last_full_sync/);
+assert.match(inactiveSaleMigration, /previous_inactive_at_text is not distinct from inactive_at_text/);
 assert.match(inactiveSaleMigration, /ebay_or_collx_via_ebay/);
 assert.match(inactiveSaleMigration, /source_chain/);
 assert.match(inactiveSaleMigration, /force_zero|,\s*true\s*\)/s);
@@ -87,8 +91,18 @@ assert.match(restockMigration, /reset_inventory_sold_presentation_on_restock/);
 assert.match(restockMigration, /reset_collectible_asset_sold_presentation_on_restock/);
 assert.match(restockMigration, /new\.sold_at := null/);
 assert.match(restockMigration, /sold_price_evidence = '\{\}'::jsonb/);
+assert.match(restockMigration, /- 'ebay_not_active_at_last_full_sync'/);
 assert.match(restockMigration, /immutable collectible_sales history remains untouched/);
 assert.doesNotMatch(restockMigration, /delete\s+from\s+public\.collectible_sales/i);
+
+assert.match(atomicEbayMigration, /apply_ebay_order_collectible_sale/);
+assert.match(atomicEbayMigration, /pg_advisory_xact_lock/);
+assert.match(atomicEbayMigration, /for update/);
+assert.match(atomicEbayMigration, /next_product_quantity/);
+assert.match(atomicEbayMigration, /next_inventory_quantity/);
+assert.match(atomicEbayMigration, /record_collectible_sale_unsafe_20260730/);
+assert.match(atomicEbayMigration, /'website',\s*'ebay',\s*'ebay_or_collx_via_ebay'/s);
+assert.match(atomicEbayMigration, /new\.source_marketplace in/);
 
 assert.match(saleHistory, /SOLD_STOREFRONT_RETENTION_DAYS = 7/);
 assert.match(saleHistory, /listRecentSoldStorefrontItems/);
@@ -146,8 +160,9 @@ assert.match(ebayOrders, /DEFAULT_LOOKBACK_DAYS = 2/);
 assert.match(ebayOrders, /canonicalLegacyProductIdForEbayItemId/);
 assert.match(ebayOrders, /canonical_legacy_product_id/);
 assert.match(ebayOrders, /matched_product_ebay_item_id/);
+assert.match(ebayOrders, /apply_ebay_order_collectible_sale/);
+assert.doesNotMatch(ebayOrders, /decrementAfterSale/);
 assert.match(ebayOrders, /evidence_source: "ebay_get_orders"/);
-assert.match(ebayOrders, /decrementAfterSale/);
 assert.match(ebayOrders, /alreadyRecorded/);
 assert.match(ebayOrderCron, /safeLookbackDays/);
 assert.match(ebayOrderCron, /Math\.min\(Math\.max\(Math\.floor\(requested\), 1\), 90\)/);
@@ -181,7 +196,7 @@ console.log(
       ebayOrderPollingMinutes: 5,
       ebayOrderRecurringLookbackDays: 2,
       authoritativeEbayPollingMinutes: 15,
-      checks: 116,
+      checks: 132,
     },
     null,
     2,
