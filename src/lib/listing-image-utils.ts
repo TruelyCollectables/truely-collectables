@@ -93,11 +93,21 @@ export function selectFrontBackListingImages(values: unknown[]) {
   const normalized = normalizeListingImageUrls(values);
   if (normalized.length <= 1) return normalized;
 
-  const front = normalized[0];
-  const remaining = normalized.slice(1);
-  const explicitBack = remaining.find(
+  const ebayImages = normalized.filter((image) =>
+    listingImageIdentity(image).startsWith("ebay:"),
+  );
+  if (ebayImages.length >= 2) return ebayImages.slice(0, 2);
+
+  const explicitFront = normalized.find(
+    (image) => listingImageSide(image) === "front",
+  );
+  const explicitBack = normalized.find(
     (image) => listingImageSide(image) === "back",
   );
+  if (explicitFront && explicitBack) return [explicitFront, explicitBack];
+
+  const front = normalized[0];
+  const remaining = normalized.slice(1);
   const secondEbay = remaining.find((image) =>
     listingImageIdentity(image).startsWith("ebay:"),
   );
