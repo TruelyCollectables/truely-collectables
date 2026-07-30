@@ -45,9 +45,28 @@ function redact(value) {
   return String(value || "")
     .replace(/postgres(?:ql)?:\/\/[^\s"']+/gi, "postgresql://[REDACTED]")
     .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [REDACTED]")
+    .replace(/sk_(?:live|test)_[A-Za-z0-9_-]+/g, "[REDACTED_STRIPE_KEY]")
+    .replace(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "[REDACTED_JWT]")
     .replace(new RegExp(vercelToken.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"), "[REDACTED]")
     .replace(new RegExp(supabaseToken.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"), "[REDACTED]")
     .slice(0, 5000);
+}
+
+function sanitizeJson(value, depth = 0) {
+  if (depth > 7) return "[TRUNCATED]";
+  if (value === null || value === undefined) return value;
+  if (typeof value === "string") return redact(value).slice(0, 2000);
+  if (typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.slice(0, 100).map((item) => sanitizeJson(item, depth + 1));
+  const output = {};
+  for (const [key, child] of Object.entries(value)) {
+    if (/token|secret|password|authorization|credential/i.test(key)) {
+      output[key] = "[REDACTED]";
+    } else {
+      output[key] = sanitizeJson(child, depth + 1);
+    }
+  }
+  return output;
 }
 
 function sleep(ms) {
@@ -92,85 +111,100 @@ const migrationSql = fs.readFileSync(
 if (!migrationSql) throw new Error(`${migrationName} is empty.`);
 await supabaseQuery(migrationSql, false);
 
-const validationRows = await supabaseQuery(`
-  select json_build_object(
-    'inactive_guard_function_exists', to_regprocedure('public.capture_ebay_inactive_collectible_sale()') is not null,
-    'inactive_capture_trigger_exists', exists (
-      select 1 from pg_trigger
-      where tgname = 'capture_ebay_inactive_collectible_sale' and not tgisinternal
-    ),
-    'inbound_guard_table_exists', to_regclass('public.ebay_inbound_sale_guards') is not null,
-    'function_installs_zero_guard', coalesce((
-      select position('ebay_inbound_sale_guards' in pg_get_functiondef(p.oid)) > 0
-         and position('protected_quantity' in pg_get_functiondef(p.oid)) > 0
-         and position('least(existing.protected_quantity' in pg_get_functiondef(p.oid)) > 0
-      from pg_proc p
-      join pg_namespace n on n.oid = p.pronamespace
-      where n.nspname = 'public' and p.proname = 'capture_ebay_inactive_collectible_sale'
-      limit 1
-    ), false),
-    'sale_records_total', (select count(*) from public.collectible_sales),
-    'sale_records_verified', (select count(*) from public.collectible_sales where evidence_status = 'verified'),
-    'sale_records_manual', (select count(*) from public.collectible_sales where evidence_status = 'manual'),
-    'sale_records_unresolved', (select count(*) from public.collectible_sales where evidence_status = 'unresolved'),
-    'verified_or_manual_missing_actual_price', (
-      select count(*) from public.collectible_sales
-      where evidence_status in ('verified','manual') and sold_price is null
-    ),
-    'null_price_not_explicitly_unresolved', (
-      select count(*) from public.collectible_sales
-      where sold_price is null and evidence_status <> 'unresolved'
-    ),
-    'website_pre_cutoff_sale_records', (
-      select count(*) from public.collectible_sales
-      where source_marketplace = 'website'
-        and sold_at < timestamptz '2026-07-28 00:00:00+00'
-    ),
-    'duplicate_sale_event_groups', (
-      select count(*) from (
-        select store_id, event_key from public.collectible_sales
-        group by store_id, event_key having count(*) > 1
-      ) duplicate_groups
-    ),
-    'negative_product_quantities', (select count(*) from public.products where quantity < 0),
-    'negative_inventory_quantities', (select count(*) from public.inventory_items where quantity < 0),
-    'sold_stock_restoration_violations', (
-      select count(*) from public.products where sold_at is not null and quantity > 0
-    ),
-    'collx_only_excluded_inventory_rows', (
-      select count(*) from public.collx_only_inventory_boundary_violations
-    ),
-    'active_zero_quantity_inbound_guards', (
-      select count(*) from public.ebay_inbound_sale_guards
-      where active and protected_quantity = 0
-    ),
-    'captured_at', now()
-  ) as receipt;
-`, true);
-
-const validation = validationRows?.[0]?.receipt;
-if (!validation) throw new Error("Production issue #253 validation receipt was empty.");
-for (const key of [
-  "inactive_guard_function_exists",
-  "inactive_capture_trigger_exists",
-  "inbound_guard_table_exists",
-  "function_installs_zero_guard",
-]) {
-  if (validation[key] !== true) throw new Error(`Production validation failed: ${key}.`);
+async function productionAggregateReceipt() {
+  const rows = await supabaseQuery(`
+    select json_build_object(
+      'inactive_guard_function_exists', to_regprocedure('public.capture_ebay_inactive_collectible_sale()') is not null,
+      'inactive_capture_trigger_exists', exists (
+        select 1 from pg_trigger
+        where tgname = 'capture_ebay_inactive_collectible_sale' and not tgisinternal
+      ),
+      'inbound_guard_table_exists', to_regclass('public.ebay_inbound_sale_guards') is not null,
+      'function_installs_zero_guard', coalesce((
+        select position('ebay_inbound_sale_guards' in pg_get_functiondef(p.oid)) > 0
+           and position('protected_quantity' in pg_get_functiondef(p.oid)) > 0
+           and position('least(existing.protected_quantity' in pg_get_functiondef(p.oid)) > 0
+        from pg_proc p
+        join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'capture_ebay_inactive_collectible_sale'
+        limit 1
+      ), false),
+      'sale_records_total', (select count(*) from public.collectible_sales),
+      'sale_records_verified', (select count(*) from public.collectible_sales where evidence_status = 'verified'),
+      'sale_records_manual', (select count(*) from public.collectible_sales where evidence_status = 'manual'),
+      'sale_records_unresolved', (select count(*) from public.collectible_sales where evidence_status = 'unresolved'),
+      'verified_or_manual_missing_actual_price', (
+        select count(*) from public.collectible_sales
+        where evidence_status in ('verified','manual') and sold_price is null
+      ),
+      'null_price_not_explicitly_unresolved', (
+        select count(*) from public.collectible_sales
+        where sold_price is null and evidence_status <> 'unresolved'
+      ),
+      'website_pre_cutoff_sale_records', (
+        select count(*) from public.collectible_sales
+        where source_marketplace = 'website'
+          and sold_at < timestamptz '2026-07-28 00:00:00+00'
+      ),
+      'duplicate_sale_event_groups', (
+        select count(*) from (
+          select store_id, event_key from public.collectible_sales
+          group by store_id, event_key having count(*) > 1
+        ) duplicate_groups
+      ),
+      'negative_product_quantities', (select count(*) from public.products where quantity < 0),
+      'negative_inventory_quantities', (select count(*) from public.inventory_items where quantity < 0),
+      'sold_stock_restoration_violations', (
+        select count(*) from public.products where sold_at is not null and quantity > 0
+      ),
+      'collx_only_excluded_inventory_rows', (
+        select count(*) from public.collx_only_inventory_boundary_violations
+      ),
+      'active_zero_quantity_inbound_guards', (
+        select count(*) from public.ebay_inbound_sale_guards
+        where active and protected_quantity = 0
+      ),
+      'source_counts', coalesce((
+        select json_object_agg(source_marketplace, source_count)
+        from (
+          select source_marketplace, count(*) source_count
+          from public.collectible_sales
+          group by source_marketplace
+        ) source_totals
+      ), '{}'::json),
+      'captured_at', now()
+    ) as receipt;
+  `, true);
+  return rows?.[0]?.receipt;
 }
-for (const key of [
-  "verified_or_manual_missing_actual_price",
-  "null_price_not_explicitly_unresolved",
-  "duplicate_sale_event_groups",
-  "negative_product_quantities",
-  "negative_inventory_quantities",
-  "sold_stock_restoration_violations",
-]) {
-  if (Number(validation[key]) !== 0) {
-    throw new Error(`Production invariant failed: ${key}=${validation[key]}.`);
+
+function requireAggregateInvariants(validation) {
+  if (!validation) throw new Error("Production issue #253 validation receipt was empty.");
+  for (const key of [
+    "inactive_guard_function_exists",
+    "inactive_capture_trigger_exists",
+    "inbound_guard_table_exists",
+    "function_installs_zero_guard",
+  ]) {
+    if (validation[key] !== true) throw new Error(`Production validation failed: ${key}.`);
+  }
+  for (const key of [
+    "verified_or_manual_missing_actual_price",
+    "null_price_not_explicitly_unresolved",
+    "duplicate_sale_event_groups",
+    "negative_product_quantities",
+    "negative_inventory_quantities",
+    "sold_stock_restoration_violations",
+  ]) {
+    if (Number(validation[key]) !== 0) {
+      throw new Error(`Production invariant failed: ${key}=${validation[key]}.`);
+    }
   }
 }
-writeJson("production-issue253-aggregate-validation.json", validation);
+
+const beforeRuntimeValidation = await productionAggregateReceipt();
+requireAggregateInvariants(beforeRuntimeValidation);
+writeJson("production-issue253-before-runtime.json", beforeRuntimeValidation);
 
 const deployment = spawnSync(
   "npx",
@@ -247,11 +281,15 @@ async function requestStatus(url, options = {}) {
   return { status: response.status, text };
 }
 
-let liveReceipt = null;
+function parseJson(text) {
+  try { return JSON.parse(text); } catch { return null; }
+}
+
+let liveBoundary = null;
 let lastLiveState = null;
 for (let attempt = 1; attempt <= 72; attempt += 1) {
   try {
-    const [home, shop, selfTest, unsignedSelfTest, unsignedHealth] = await Promise.all([
+    const [home, shop, adminSelfTest, unsignedAdminSelfTest, unsignedMarketplaceSelfTest, unsignedHealth] = await Promise.all([
       requestStatus("https://truelycollectables.com/"),
       requestStatus("https://truelycollectables.com/shop"),
       requestStatus("https://truelycollectables.com/api/release/admin-orders-self-test", {
@@ -259,55 +297,98 @@ for (let attempt = 1; attempt <= 72; attempt += 1) {
         headers: { Authorization: `Bearer ${vercelToken}` },
       }),
       requestStatus("https://truelycollectables.com/api/release/admin-orders-self-test", { method: "POST" }),
+      requestStatus("https://truelycollectables.com/api/release/issue253-marketplace-self-test?step=sold-archive", { method: "POST" }),
       requestStatus("https://truelycollectables.com/api/admin-orders-health"),
     ]);
-    let selfTestJson = {};
-    try { selfTestJson = JSON.parse(selfTest.text); } catch { selfTestJson = {}; }
+    const adminJson = parseJson(adminSelfTest.text) || {};
     lastLiveState = {
       homeStatus: home.status,
       shopStatus: shop.status,
-      protectedRuntimeSelfTestStatus: selfTest.status,
-      protectedRuntimeSelfTestSuccess: selfTestJson?.success === true,
-      protectedRuntimeSelfTestRelease: selfTestJson?.release || null,
-      protectedRuntimeSelfTestError: selfTestJson?.success === false
-        ? redact(selfTestJson?.error || "unknown")
-        : null,
-      unsignedRuntimeSelfTestStatus: unsignedSelfTest.status,
+      protectedAdminSelfTestStatus: adminSelfTest.status,
+      protectedAdminSelfTestSuccess: adminJson?.success === true,
+      protectedAdminSelfTestRelease: adminJson?.release || null,
+      protectedAdminSelfTestError: adminJson?.success === false ? redact(adminJson?.error || "unknown") : null,
+      unsignedAdminSelfTestStatus: unsignedAdminSelfTest.status,
+      unsignedMarketplaceSelfTestStatus: unsignedMarketplaceSelfTest.status,
       unsignedAdminHealthStatus: unsignedHealth.status,
       checkedAt: new Date().toISOString(),
     };
     if (
       lastLiveState.homeStatus === 200 &&
       lastLiveState.shopStatus === 200 &&
-      lastLiveState.protectedRuntimeSelfTestStatus === 200 &&
-      lastLiveState.protectedRuntimeSelfTestSuccess === true &&
-      lastLiveState.unsignedRuntimeSelfTestStatus === 401 &&
+      lastLiveState.protectedAdminSelfTestStatus === 200 &&
+      lastLiveState.protectedAdminSelfTestSuccess === true &&
+      lastLiveState.unsignedAdminSelfTestStatus === 401 &&
+      lastLiveState.unsignedMarketplaceSelfTestStatus === 401 &&
       lastLiveState.unsignedAdminHealthStatus === 401
     ) {
-      liveReceipt = lastLiveState;
+      liveBoundary = lastLiveState;
       break;
     }
   } catch (error) {
-    lastLiveState = {
-      requestError: redact(error?.message || error),
-      checkedAt: new Date().toISOString(),
-    };
+    lastLiveState = { requestError: redact(error?.message || error), checkedAt: new Date().toISOString() };
   }
   await sleep(10_000);
 }
-if (!liveReceipt) {
+if (!liveBoundary) {
   writeJson("live-boundary-last-state.json", lastLiveState || { unavailable: true });
   throw new Error("Live storefront and protected runtime admin verification did not pass within 12 minutes.");
 }
+
+const marketplaceSteps = [
+  "ebay-order-sales",
+  "ebay-full-sync",
+  "seller-reconciliation",
+  "sold-archive",
+];
+const marketplaceReceipts = [];
+for (const step of marketplaceSteps) {
+  let passedReceipt = null;
+  let lastReceipt = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const response = await requestStatus(
+      `https://truelycollectables.com/api/release/issue253-marketplace-self-test?step=${encodeURIComponent(step)}`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${vercelToken}` },
+      },
+    );
+    const payload = parseJson(response.text) || { raw: redact(response.text) };
+    lastReceipt = {
+      step,
+      status: response.status,
+      payload: sanitizeJson(payload),
+      checkedAt: new Date().toISOString(),
+    };
+    if (response.status === 200 && payload?.success === true) {
+      passedReceipt = lastReceipt;
+      break;
+    }
+    await sleep(30_000);
+  }
+  if (!passedReceipt) {
+    marketplaceReceipts.push(lastReceipt || { step, unavailable: true });
+    writeJson("marketplace-runtime-self-test-receipts.json", marketplaceReceipts);
+    throw new Error(`Protected Production marketplace runtime step failed: ${step}.`);
+  }
+  marketplaceReceipts.push(passedReceipt);
+}
+writeJson("marketplace-runtime-self-test-receipts.json", marketplaceReceipts);
+
+const afterRuntimeValidation = await productionAggregateReceipt();
+requireAggregateInvariants(afterRuntimeValidation);
+writeJson("production-issue253-after-runtime.json", afterRuntimeValidation);
 
 const receipt = {
   ok: true,
   exactMainSha: expectedSha,
   migration: { name: migrationName, appliedAndVerified: true },
-  productionAggregateValidation: validation,
+  beforeRuntimeAggregateValidation: beforeRuntimeValidation,
+  afterRuntimeAggregateValidation: afterRuntimeValidation,
   deployment: { deploymentUrl, ...deploymentApi },
-  liveBoundary: liveReceipt,
-  evidenceScope: "aggregate counts, deployment metadata, and protected runtime self-test results only",
+  liveBoundary,
+  marketplaceRuntimeSteps: marketplaceReceipts,
+  evidenceScope: "aggregate counts, deployment metadata, protected admin self-test, and protected live marketplace handler receipts",
   prohibitedRealWorldEvidenceCreated: false,
   generatedAt: new Date().toISOString(),
 };
