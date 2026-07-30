@@ -7,6 +7,8 @@ on:
       - "src/app/account/AccountSessionBoundary.tsx"
       - "src/app/account/layout.tsx"
       - "src/app/account/orders/page.tsx"
+      - "src/app/components/Navbar.tsx"
+      - "src/app/components/MobileNavigation.tsx"
       - "scripts/verify-buyer-account-session-refresh.mjs"
       - ".github/workflows/verify-buyer-account-session-refresh.yml"
   push:
@@ -16,6 +18,8 @@ on:
       - "src/app/account/AccountSessionBoundary.tsx"
       - "src/app/account/layout.tsx"
       - "src/app/account/orders/page.tsx"
+      - "src/app/components/Navbar.tsx"
+      - "src/app/components/MobileNavigation.tsx"
       - "scripts/verify-buyer-account-session-refresh.mjs"
       - ".github/workflows/verify-buyer-account-session-refresh.yml"
 
@@ -56,7 +60,7 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
-      - name: Verify buyer session refresh contract
+      - name: Verify buyer session and mobile navigation contracts
         run: node scripts/verify-buyer-account-session-refresh.mjs
       - name: Lint
         run: npm run lint
