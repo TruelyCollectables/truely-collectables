@@ -1,0 +1,544 @@
+name: Issue 253 Hosted Cutover 20260730
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/issue253-hosted-cutover-20260730.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue253-hosted-cutover-20260730
+  cancel-in-progress: false
+
+env:
+  EXPECTED_MAIN_SHA: 11b95609b4af979283c1d72cf1019f1bc0e9fc85
+  EXPECTED_BRANCH: deploy/issue253-hosted-cutover-20260730
+  VERCEL_SCOPE: truelycollectables-projects
+  NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
+  SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
+  ADMIN_SESSION_SECRET: build-validation-session-secret-that-is-long-enough
+  ADMIN_PASSWORD: build-validation-admin-password
+  NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+  STRIPE_SECRET_KEY: sk_test_build_validation
+  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_validation
+  STRIPE_WEBHOOK_SECRET: whsec_build_validation
+  EBAY_CLIENT_ID: build-validation-client-id
+  EBAY_CLIENT_SECRET: build-validation-client-secret
+  EBAY_ENVIRONMENT: production
+  CRON_SECRET: build-validation-cron-secret-that-is-long-enough
+  TCOS_LIVE_PAYMENTS_ENABLED: "false"
+  TCOS_SHIPPING_PURCHASE_MODE: dry_run
+  TCOS_LIVE_SHIPPING_ENABLED: "false"
+  EVIDENCE_DIR: .audit/issue253-hosted-cutover
+
+jobs:
+  migrate-deploy-sync-certify:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'deploy/issue253-hosted-cutover-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      LIVE_CRON_SECRET: ${{ secrets.CRON_SECRET }}
+    steps:
+      - name: Check out guarded operations branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on exact main and operations-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          test "$(git merge-base "$EXPECTED_MAIN_SHA" HEAD)" = "$EXPECTED_MAIN_SHA"
+          mapfile -t changed < <(git diff --name-only "$EXPECTED_MAIN_SHA"...HEAD | sort)
+          test "${#changed[@]}" -eq 1
+          test "${changed[0]}" = ".github/workflows/issue253-hosted-cutover-20260730.yml"
+          git diff --check "$EXPECTED_MAIN_SHA"...HEAD
+          mkdir -p "$EVIDENCE_DIR"
+          printf '%s\n' "$EXPECTED_MAIN_SHA" > "$EVIDENCE_DIR/source-sha.txt"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Revalidate exact issue 253 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/run-sold-lifecycle-simulations.mjs | tee "$EVIDENCE_DIR/sold-lifecycle-simulations.log"
+          node scripts/run-sold-trigger-order-simulation.mjs | tee "$EVIDENCE_DIR/sold-trigger-order-simulation.log"
+          node scripts/run-privileged-api-route-audit.mjs | tee "$EVIDENCE_DIR/privileged-route-audit.log"
+          npm run simulate:privileged-route-auth | tee "$EVIDENCE_DIR/privileged-route-auth.log"
+          npm audit --json > "$EVIDENCE_DIR/npm-audit.json" || audit_status=$?
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const report = JSON.parse(fs.readFileSync(process.env.EVIDENCE_DIR + '/npm-audit.json', 'utf8'));
+          const counts = report.metadata?.vulnerabilities || {};
+          if ((counts.high || 0) !== 0 || (counts.critical || 0) !== 0) {
+            throw new Error(`High or critical dependency advisories remain: ${JSON.stringify(counts)}`);
+          }
+          fs.writeFileSync(process.env.EVIDENCE_DIR + '/npm-audit-summary.json', JSON.stringify(counts, null, 2));
+          NODE
+          npm run lint
+          npx tsc --noEmit --pretty false
+          npm run build
+          git diff --check
+
+      - name: Resolve exact Vercel project and Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          test -n "${LIVE_CRON_SECRET:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          echo "::add-mask::$LIVE_CRON_SECRET"
+          mkdir -p .vercel "$RUNNER_TEMP/issue253-cutover"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/issue253-cutover/production.env" \
+            --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Reconfirm main immediately before hosted mutation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+
+      - name: Apply issue 253 migrations and authoritative backfill atomically
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+
+          const envPath = path.join(process.env.RUNNER_TEMP, 'issue253-cutover', 'production.env');
+          const text = fs.readFileSync(envPath, 'utf8');
+          const parsed = {};
+          for (const rawLine of text.split(/\r?\n/)) {
+            const line = rawLine.trim();
+            if (!line || line.startsWith('#')) continue;
+            const index = line.indexOf('=');
+            if (index < 1) continue;
+            const key = line.slice(0, index).trim();
+            let value = line.slice(index + 1).trim();
+            if (value.startsWith('"') && value.endsWith('"')) {
+              try { value = JSON.parse(value); } catch { value = value.slice(1, -1); }
+            } else if (value.startsWith("'") && value.endsWith("'")) {
+              value = value.slice(1, -1);
+            }
+            parsed[key] = value;
+          }
+          const productionUrl = parsed.NEXT_PUBLIC_SUPABASE_URL;
+          if (!productionUrl || !/^https:\/\//.test(productionUrl)) throw new Error('Production Supabase URL is unavailable.');
+          const projectRef = new URL(productionUrl).hostname.split('.')[0];
+          const token = process.env.GH_SUPABASE_ACCESS_TOKEN;
+          if (!projectRef || !token) throw new Error('Supabase management credentials are incomplete.');
+          const endpoint = `https://api.supabase.com/v1/projects/${projectRef}/database/query`;
+          const request = async (query, readOnly = false) => {
+            const response = await fetch(endpoint, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ query, parameters: [], read_only: readOnly }),
+            });
+            const body = await response.text();
+            if (!response.ok) {
+              const safe = body
+                .replace(/postgres(?:ql)?:\/\/[^\s"']+/gi, 'postgresql://[REDACTED]')
+                .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [REDACTED]')
+                .slice(0, 5000);
+              throw new Error(`Supabase query failed with HTTP ${response.status}: ${safe}`);
+            }
+            return body ? JSON.parse(body) : [];
+          };
+          const migrationNames = [
+            '20260726050000_collectible_asset_lifecycle.sql',
+            '20260730001950_correct_offer_order_item_paid_prices.sql',
+            '20260730002000_sold_storefront_retention_and_sale_history.sql',
+            '20260730002100_manual_sale_ebay_outbox.sql',
+            '20260730002200_capture_ebay_inactive_sale_state.sql',
+            '20260730002300_refine_verified_sale_timestamps.sql',
+            '20260730002400_make_sale_recording_idempotent.sql',
+            '20260730002500_reset_sold_presentation_on_restock.sql',
+            '20260730002600_atomic_ebay_order_sales_and_outbox_scope.sql',
+            '20260730002700_run_sale_guards_before_restock_reset.sql',
+            '20260730002800_enforce_collx_inventory_boundary.sql',
+            '20260730002900_protect_inactive_marketplace_sales.sql',
+          ];
+          const parts = [];
+          for (const name of migrationNames) {
+            let sql = fs.readFileSync(path.join('supabase', 'migrations', name), 'utf8').trim();
+            if (!sql) throw new Error(`Migration ${name} is empty.`);
+            const outerBegin = /^begin\s*;/i.test(sql);
+            const outerCommit = /commit\s*;\s*$/i.test(sql);
+            if (outerBegin !== outerCommit) throw new Error(`Migration ${name} has an incomplete transaction wrapper.`);
+            if (outerBegin) sql = sql.replace(/^begin\s*;/i, '').replace(/commit\s*;\s*$/i, '').trim();
+            if (/create\s+(?:unique\s+)?index\s+concurrently/i.test(sql)) throw new Error(`${name} cannot run in the atomic cutover.`);
+            parts.push(`\n-- ${name}\n${sql}\n`);
+          }
+          const before = await request(`
+            select json_build_object(
+              'collectible_sales_exists', to_regclass('public.collectible_sales') is not null,
+              'collectible_assets_exists', to_regclass('public.collectible_assets') is not null,
+              'guards_exists', to_regclass('public.ebay_inbound_sale_guards') is not null,
+              'collx_boundary_exists', to_regclass('public.collx_only_inventory_boundary_violations') is not null
+            ) as state;
+          `, true);
+          await request(`begin;\n${parts.join('\n')}\ncommit;`, false);
+          const audit = await request(`
+            with sales as (
+              select
+                count(*)::bigint as total_sales,
+                count(*) filter (where sold_price is not null)::bigint as priced_sales,
+                count(*) filter (where sold_price is null)::bigint as unresolved_sales,
+                count(*) filter (where sold_price is null and evidence_status <> 'unresolved')::bigint as invalid_unresolved_status,
+                count(*) filter (where sold_price is not null and sold_price < 0)::bigint as negative_sold_prices,
+                count(*) filter (where source_marketplace = 'website' and sold_at < '2026-07-28T00:00:00Z')::bigint as historical_website_sales,
+                count(*) filter (where source_marketplace = 'website' and sold_at < '2026-07-28T00:00:00Z' and sold_price is null)::bigint as historical_website_unresolved
+              from public.collectible_sales
+            ), product_flags as (
+              select count(*)::bigint as invalid_product_flags
+              from public.products
+              where quantity <= 0
+                and sold_price is null
+                and coalesce(metadata->>'sold_price_status', '') <> 'unresolved'
+            ), inventory_flags as (
+              select count(*)::bigint as invalid_inventory_flags
+              from public.inventory_items
+              where quantity <= 0
+                and sold_price is null
+                and coalesce(metadata->>'sold_price_status', '') <> 'unresolved'
+            ), guard_violations as (
+              select count(*)::bigint as count
+              from public.ebay_inbound_sale_guards g
+              left join public.products p
+                on p.id = g.legacy_product_id
+               and p.seller_id = g.store_id
+              left join public.inventory_items i
+                on i.id = g.inventory_item_id
+              where g.active = true
+                and (coalesce(p.quantity, 0) > g.protected_quantity or coalesce(i.quantity, 0) > g.protected_quantity)
+            ), collx as (
+              select count(*)::bigint as excluded_collx_only_rows
+              from public.collx_only_inventory_boundary_violations
+            )
+            select json_build_object(
+              'sales', row_to_json(sales),
+              'productFlags', row_to_json(product_flags),
+              'inventoryFlags', row_to_json(inventory_flags),
+              'activeGuardViolations', guard_violations.count,
+              'excludedCollxOnlyRows', collx.excluded_collx_only_rows,
+              'tables', json_build_object(
+                'collectibleAssets', to_regclass('public.collectible_assets') is not null,
+                'collectibleSales', to_regclass('public.collectible_sales') is not null,
+                'inboundGuards', to_regclass('public.ebay_inbound_sale_guards') is not null,
+                'collxBoundary', to_regclass('public.collx_only_inventory_boundary_violations') is not null
+              ),
+              'functions', json_build_object(
+                'recordSale', to_regprocedure('public.record_collectible_sale(uuid,bigint,text,text,text,integer,numeric,text,timestamptz,text,jsonb,boolean)') is not null,
+                'inactiveSale', to_regprocedure('public.capture_ebay_inactive_collectible_sale()') is not null,
+                'applyEbayOrder', to_regprocedure('public.apply_ebay_order_collectible_sale(uuid,bigint,text,text,text,integer,numeric,text,timestamptz,jsonb)') is not null
+              )
+            ) as state
+            from sales, product_flags, inventory_flags, guard_violations, collx;
+          `, true);
+          const state = audit?.[0]?.state || {};
+          const blockers = [];
+          if (!state.tables?.collectibleAssets || !state.tables?.collectibleSales || !state.tables?.inboundGuards || !state.tables?.collxBoundary) blockers.push('required table/view missing');
+          if (!state.functions?.recordSale || !state.functions?.inactiveSale || !state.functions?.applyEbayOrder) blockers.push('required function missing');
+          if (Number(state.sales?.invalid_unresolved_status || 0) !== 0) blockers.push('null sale prices are not explicitly unresolved');
+          if (Number(state.sales?.negative_sold_prices || 0) !== 0) blockers.push('negative sold prices exist');
+          if (Number(state.productFlags?.invalid_product_flags || 0) !== 0) blockers.push('sold products lack unresolved price flags');
+          if (Number(state.inventoryFlags?.invalid_inventory_flags || 0) !== 0) blockers.push('sold inventory lacks unresolved price flags');
+          if (Number(state.activeGuardViolations || 0) !== 0) blockers.push('active inbound guard is already violated');
+          const receipt = {
+            ok: blockers.length === 0,
+            sourceSha: process.env.EXPECTED_MAIN_SHA,
+            migrationCount: migrationNames.length,
+            before: before?.[0]?.state || {},
+            after: state,
+            blockers,
+            appliedAt: new Date().toISOString(),
+          };
+          fs.writeFileSync(process.env.EVIDENCE_DIR + '/hosted-migration-backfill-receipt.json', JSON.stringify(receipt, null, 2));
+          if (blockers.length) throw new Error(`Hosted migration/backfill audit failed: ${blockers.join('; ')}`);
+          NODE
+
+      - name: Run rollback-only eBay and CollX-via-eBay propagation simulations
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          const envText = fs.readFileSync(path.join(process.env.RUNNER_TEMP, 'issue253-cutover', 'production.env'), 'utf8');
+          const parsed = {};
+          for (const raw of envText.split(/\r?\n/)) {
+            const line = raw.trim();
+            if (!line || line.startsWith('#')) continue;
+            const index = line.indexOf('=');
+            if (index < 1) continue;
+            let value = line.slice(index + 1).trim();
+            if (value.startsWith('"') && value.endsWith('"')) { try { value = JSON.parse(value); } catch { value = value.slice(1, -1); } }
+            parsed[line.slice(0, index).trim()] = value;
+          }
+          const projectRef = new URL(parsed.NEXT_PUBLIC_SUPABASE_URL).hostname.split('.')[0];
+          const endpoint = `https://api.supabase.com/v1/projects/${projectRef}/database/query`;
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${process.env.GH_SUPABASE_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              read_only: false,
+              parameters: [],
+              query: `
+                begin;
+                do $$
+                declare
+                  target public.inventory_items%rowtype;
+                  marker timestamptz := clock_timestamp();
+                  event_prefix text;
+                  sale_count integer;
+                  guard_quantity integer;
+                  product_quantity integer;
+                  inventory_quantity integer;
+                begin
+                  select * into target
+                  from public.inventory_items
+                  where legacy_product_id is not null
+                    and coalesce(quantity, 0) > 0
+                  order by updated_at desc nulls last
+                  limit 1
+                  for update;
+                  if target.id is null then
+                    raise exception 'No eligible inventory row exists for rollback-only inactive-sale simulation.';
+                  end if;
+                  event_prefix := 'ebay-inactive:' || target.id::text || ':' || marker::text;
+                  update public.inventory_items
+                  set metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object(
+                        'ebay_listing_id', coalesce(metadata->>'ebay_listing_id', 'ROLLBACK-SIMULATION'),
+                        'ebay_not_active_at_last_full_sync', marker
+                      ),
+                      status = 'sold',
+                      quantity = 0
+                  where id = target.id;
+                  select count(*) into sale_count
+                  from public.collectible_sales
+                  where store_id = target.store_id and event_key = event_prefix;
+                  if sale_count <> 1 then raise exception 'Inactive-state event was not recorded exactly once.'; end if;
+                  select protected_quantity into guard_quantity
+                  from public.ebay_inbound_sale_guards
+                  where store_id = target.store_id and legacy_product_id = target.legacy_product_id and active = true;
+                  if guard_quantity is distinct from 0 then raise exception 'Inactive-state sale did not install zero-quantity guard.'; end if;
+                  update public.inventory_items set quantity = greatest(target.quantity, 1) where id = target.id;
+                  update public.products set quantity = greatest(target.quantity, 1) where id = target.legacy_product_id;
+                  select quantity into inventory_quantity from public.inventory_items where id = target.id;
+                  select quantity into product_quantity from public.products where id = target.legacy_product_id;
+                  if inventory_quantity <> 0 or product_quantity <> 0 then raise exception 'Stale inbound quantity restored protected sold stock.'; end if;
+                  update public.inventory_items
+                  set metadata = metadata || jsonb_build_object('ebay_not_active_at_last_full_sync', marker)
+                  where id = target.id;
+                  select count(*) into sale_count
+                  from public.collectible_sales
+                  where store_id = target.store_id and event_key = event_prefix;
+                  if sale_count <> 1 then raise exception 'Duplicate inactive marker created duplicate sale evidence.'; end if;
+                end
+                $$;
+                rollback;
+              `,
+            }),
+          });
+          const body = await response.text();
+          if (!response.ok) throw new Error(`Rollback propagation simulation failed with HTTP ${response.status}: ${body.slice(0, 3000)}`);
+          fs.writeFileSync(process.env.EVIDENCE_DIR + '/rollback-propagation-simulation.json', JSON.stringify({
+            ok: true,
+            realMarketplaceOrderCreated: false,
+            transactionRolledBack: true,
+            assertions: [
+              'inactive sale recorded once',
+              'zero-quantity guard installed',
+              'stale product and inventory restore clamped',
+              'duplicate inactive marker idempotent'
+            ],
+            verifiedAt: new Date().toISOString(),
+          }, null, 2));
+          NODE
+
+      - name: Reconfirm main before exact Production deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+
+      - name: Deploy detached exact main to Vercel Production
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          exact="$RUNNER_TEMP/issue253-exact-main"
+          rm -rf "$exact"
+          git worktree add --detach "$exact" "$EXPECTED_MAIN_SHA"
+          test "$(git -C "$exact" rev-parse HEAD)" = "$EXPECTED_MAIN_SHA"
+          test -z "$(git -C "$exact" status --porcelain)"
+          mkdir -p "$exact/.vercel"
+          cp .vercel/project.json "$exact/.vercel/project.json"
+          cd "$exact"
+          npx vercel@56.2.0 deploy --prod --yes --force \
+            --meta "launchSourceSha=$EXPECTED_MAIN_SHA" \
+            --meta "launchPurpose=issue-253-hosted-cutover" \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" \
+            2>&1 | tee "$GITHUB_WORKSPACE/$EVIDENCE_DIR/vercel-deploy.log"
+          url="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$GITHUB_WORKSPACE/$EVIDENCE_DIR/vercel-deploy.log" | tail -n 1)"
+          test -n "$url"
+          printf '%s\n' "$url" > "$GITHUB_WORKSPACE/$EVIDENCE_DIR/deployment-url.txt"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Verify exact deployment and custom-domain boundaries
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for label in deployment custom; do
+            if [ "$label" = deployment ]; then base="$DEPLOYMENT_URL"; else base="https://truelycollectables.com"; fi
+            root_code="$(curl --location --silent --show-error --max-time 90 --output "$EVIDENCE_DIR/${label}-root.html" --write-out '%{http_code}' "$base/")"
+            shop_code="$(curl --location --silent --show-error --max-time 90 --output "$EVIDENCE_DIR/${label}-shop.html" --write-out '%{http_code}' "$base/shop")"
+            admin_code="$(curl --silent --show-error --max-time 60 --output "$EVIDENCE_DIR/${label}-admin.html" --write-out '%{http_code}' "$base/admin")"
+            health_unauth="$(curl --silent --show-error --max-time 60 --output "$EVIDENCE_DIR/${label}-health-unauthorized.json" --write-out '%{http_code}' "$base/api/admin-orders-health")"
+            health_auth="$(curl --silent --show-error --max-time 60 --header "Authorization: Bearer $LIVE_CRON_SECRET" --output "$EVIDENCE_DIR/${label}-health-authorized.json" --write-out '%{http_code}' "$base/api/admin-orders-health")"
+            test "$root_code" = "200"
+            test "$shop_code" = "200"
+            test "$admin_code" = "307"
+            test "$health_unauth" = "401"
+            test "$health_auth" = "200"
+            grep -Fq 'admin-orders-service-role' "$EVIDENCE_DIR/${label}-health-authorized.json"
+          done
+
+      - name: Run authorized eBay sale and reconciliation synchronization
+        shell: bash
+        run: |
+          set -euo pipefail
+          call_cron() {
+            local name="$1"
+            local path="$2"
+            local max_time="$3"
+            local code
+            code="$(curl --location --silent --show-error --max-time "$max_time" \
+              --header "Authorization: Bearer $LIVE_CRON_SECRET" \
+              --output "$EVIDENCE_DIR/${name}.json" --write-out '%{http_code}' \
+              "https://truelycollectables.com${path}")"
+            test "$code" = "200" || { echo "$name returned HTTP $code" >&2; cat "$EVIDENCE_DIR/${name}.json" >&2; exit 1; }
+          }
+          call_cron ebay-order-sale-sync '/api/cron/ebay-order-sale-sync?lookbackDays=90' 300
+          call_cron ebay-store-fixed-price-sync '/api/cron/ebay-store-fixed-price-sync' 300
+          call_cron seller-ebay-reconciliation '/api/cron/seller-ebay-reconciliation' 300
+
+      - name: Verify post-sync sale evidence, CollX boundary, and guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          const envText = fs.readFileSync(path.join(process.env.RUNNER_TEMP, 'issue253-cutover', 'production.env'), 'utf8');
+          const parsed = {};
+          for (const raw of envText.split(/\r?\n/)) {
+            const line = raw.trim();
+            if (!line || line.startsWith('#')) continue;
+            const index = line.indexOf('=');
+            if (index < 1) continue;
+            let value = line.slice(index + 1).trim();
+            if (value.startsWith('"') && value.endsWith('"')) { try { value = JSON.parse(value); } catch { value = value.slice(1, -1); } }
+            parsed[line.slice(0, index).trim()] = value;
+          }
+          const projectRef = new URL(parsed.NEXT_PUBLIC_SUPABASE_URL).hostname.split('.')[0];
+          const endpoint = `https://api.supabase.com/v1/projects/${projectRef}/database/query`;
+          const query = `
+            with sales as (
+              select
+                count(*)::bigint total,
+                count(*) filter (where sold_price is not null)::bigint priced,
+                count(*) filter (where sold_price is null)::bigint unresolved,
+                count(*) filter (where source_marketplace = 'ebay')::bigint ebay,
+                count(*) filter (where source_marketplace = 'ebay_or_collx_via_ebay')::bigint ebay_or_collx_via_ebay,
+                count(*) filter (where sold_price is null and evidence_status <> 'unresolved')::bigint invalid_unresolved
+              from public.collectible_sales
+            ), guards as (
+              select
+                count(*) filter (where active)::bigint active,
+                count(*) filter (
+                  where active and (
+                    coalesce((select p.quantity from public.products p where p.id = g.legacy_product_id and p.seller_id = g.store_id), 0) > g.protected_quantity
+                    or coalesce((select i.quantity from public.inventory_items i where i.id = g.inventory_item_id), 0) > g.protected_quantity
+                  )
+                )::bigint violated
+              from public.ebay_inbound_sale_guards g
+            ), collx as (
+              select count(*)::bigint excluded from public.collx_only_inventory_boundary_violations
+            )
+            select json_build_object(
+              'sales', row_to_json(sales),
+              'guards', row_to_json(guards),
+              'collxOnlyExcluded', collx.excluded,
+              'maximumPropagationMinutes', json_build_object(
+                'completedEbayOrderPoll', 5,
+                'authoritativeInactiveFullSync', 15,
+                'sellerReconciliation', 15
+              )
+            ) as state from sales, guards, collx;
+          `;
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${process.env.GH_SUPABASE_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query, parameters: [], read_only: true }),
+          });
+          const body = await response.text();
+          if (!response.ok) throw new Error(`Post-sync audit failed with HTTP ${response.status}: ${body.slice(0, 3000)}`);
+          const rows = body ? JSON.parse(body) : [];
+          const state = rows?.[0]?.state || {};
+          const blockers = [];
+          if (Number(state.sales?.invalid_unresolved || 0) !== 0) blockers.push('unresolved sale evidence is mislabeled');
+          if (Number(state.guards?.violated || 0) !== 0) blockers.push('active sold-stock guard violation');
+          const receipt = {
+            ok: blockers.length === 0,
+            sourceSha: process.env.EXPECTED_MAIN_SHA,
+            state,
+            blockers,
+            realMarketplaceOrderCreatedByAudit: false,
+            verifiedAt: new Date().toISOString(),
+          };
+          fs.writeFileSync(process.env.EVIDENCE_DIR + '/post-sync-audit.json', JSON.stringify(receipt, null, 2));
+          if (blockers.length) throw new Error(blockers.join('; '));
+          NODE
+          rm -f "$RUNNER_TEMP/issue253-cutover/production.env"
+
+      - name: Upload sanitized cutover evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue253-hosted-cutover-evidence
+          path: .audit/issue253-hosted-cutover
+          if-no-files-found: error
+          retention-days: 90
