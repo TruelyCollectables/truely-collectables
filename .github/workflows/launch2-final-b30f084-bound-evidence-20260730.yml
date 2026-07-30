@@ -1,0 +1,279 @@
+name: Launch 2 Final B30F084 Bound Evidence 20260730
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/launch2-final-b30f084-bound-evidence-20260730.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: launch2-final-b30f084-bound-evidence-20260730
+  cancel-in-progress: false
+
+env:
+  EXPECTED_MAIN_SHA: b30f084775775d258e02affafd695028261c12c9
+  PREVIOUS_CERTIFIED_SHA: f7b164543e1b6189fa6dbc5404f21fc29c01dfe8
+  EXPECTED_BRANCH: ops/launch2-final-b30f084-bound-evidence-20260730
+  SOURCE_AUDIT_BRANCH: deploy/issue253-hosted-cutover-v3-20260730
+  PREVIOUS_RUN_ID: "30515829777"
+  PREVIOUS_ARTIFACT_NAME: launch2-issue253-final-f7b164-f7b164543e1b6189fa6dbc5404f21fc29c01dfe8
+  PREVIOUS_ARTIFACT_DIGEST: sha256:448357da65164e56b2cf9332f943eb950e01bbfcf2c0e493aa8c7d600031d4a4
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_PROJECT: truely-collectables
+  PROJECT_REF: rfdzsoykhnngzdnvzlhz
+  EVIDENCE_DIR: .audit/launch2-final-b30f084-bound-evidence
+  NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
+  SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
+  ADMIN_SESSION_SECRET: build-validation-session-secret-that-is-long-enough
+  ADMIN_PASSWORD: build-validation-admin-password
+  NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+  STRIPE_SECRET_KEY: sk_test_build_validation
+  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_validation
+  STRIPE_WEBHOOK_SECRET: whsec_build_validation
+  EBAY_CLIENT_ID: build-validation-client-id
+  EBAY_CLIENT_SECRET: build-validation-client-secret
+  EBAY_ENVIRONMENT: production
+  CRON_SECRET: build-validation-cron-secret-that-is-long-enough
+  TCOS_LIVE_PAYMENTS_ENABLED: "false"
+  TCOS_SHIPPING_PURCHASE_MODE: dry_run
+  TCOS_LIVE_SHIPPING_ENABLED: "false"
+
+jobs:
+  certify:
+    if: github.event.pull_request.head.ref == 'ops/launch2-final-b30f084-bound-evidence-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - name: Check out guarded operations branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on exact current main and prepare audit runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main
+          git fetch origin "+refs/heads/$SOURCE_AUDIT_BRANCH:refs/remotes/origin/$SOURCE_AUDIT_BRANCH"
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          test "$(git merge-base "$EXPECTED_MAIN_SHA" HEAD)" = "$EXPECTED_MAIN_SHA"
+          mapfile -t changed < <(git diff --name-only "$EXPECTED_MAIN_SHA"...HEAD)
+          test "${#changed[@]}" -eq 1
+          test "${changed[0]}" = ".github/workflows/launch2-final-b30f084-bound-evidence-20260730.yml"
+          git diff --check "$EXPECTED_MAIN_SHA"...HEAD
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$VERCEL_TOKEN"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          mkdir -p "$EVIDENCE_DIR" "$RUNNER_TEMP/launch2-b30f084-bound"
+          printf '%s\n' "$EXPECTED_MAIN_SHA" > "$EVIDENCE_DIR/exact-main-sha.txt"
+          runner="$RUNNER_TEMP/launch2-b30f084-bound/issue253-cutover.mjs"
+          git show "origin/$SOURCE_AUDIT_BRANCH:scripts/run-issue253-hosted-cutover-v3.mjs" > "$runner"
+          RUNNER_PATH="$runner" node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const file=process.env.RUNNER_PATH;
+          let text=fs.readFileSync(file,'utf8');
+          const stale="coalesce(metadata->>'sold_price_status', '')";
+          const count=text.split(stale).length-1;
+          if(count!==2) throw new Error(`Expected two stale sold-price checks, found ${count}.`);
+          fs.writeFileSync(file,text.replaceAll(stale,"coalesce(sold_price_status, '')"));
+          NODE
+
+      - name: Prove cleanup-only diff from prior certified revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --name-status "$PREVIOUS_CERTIFIED_SHA" "$EXPECTED_MAIN_SHA" > "$EVIDENCE_DIR/cleanup-diff.txt"
+          cat > "$RUNNER_TEMP/launch2-b30f084-bound/expected-diff.txt" <<'EOF'
+          D	.github/workflows/runtime-admin-orders-self-test-build.yml
+          D	.github/workflows/verify-admin-orders-production.yml
+          D	.vercel-deploy-trigger
+          D	scripts/verify-live-admin-orders-release.mjs
+          D	scripts/verify-runtime-admin-orders-self-test-contract.mjs
+          D	src/app/api/build-info/route.ts
+          D	src/app/api/release/admin-orders-self-test/route.ts
+          M	vercel.json
+          EOF
+          diff -u "$RUNNER_TEMP/launch2-b30f084-bound/expected-diff.txt" "$EVIDENCE_DIR/cleanup-diff.txt"
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const value=JSON.parse(fs.readFileSync('vercel.json','utf8'));
+          if(value?.git?.deploymentEnabled?.['*']!==false||value?.git?.deploymentEnabled?.main!==false) throw new Error('Cleaned main must retain manual-only Vercel Git deployment.');
+          fs.writeFileSync(process.env.EVIDENCE_DIR+'/cleanup-binding.json',JSON.stringify({ok:true,previousCertifiedSha:process.env.PREVIOUS_CERTIFIED_SHA,cleanedMainSha:process.env.EXPECTED_MAIN_SHA,onlyTemporaryVerificationFilesRemoved:true,permanentAdminOrderRefundFeeSourcesChanged:false,vercelGitDeploymentsManualOnly:true,verifiedAt:new Date().toISOString()},null,2));
+          NODE
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Revalidate cleaned exact main
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/run-sold-lifecycle-simulations.mjs | tee "$EVIDENCE_DIR/sold-lifecycle.log"
+          node scripts/run-sold-trigger-order-simulation.mjs | tee "$EVIDENCE_DIR/sold-trigger.log"
+          node scripts/run-privileged-api-route-audit.mjs | tee "$EVIDENCE_DIR/privileged-route-audit.log"
+          npm run simulate:privileged-route-auth | tee "$EVIDENCE_DIR/privileged-route-auth.log"
+          node scripts/verify-issue253-marketplace-runtime-self-test-contract.mjs | tee "$EVIDENCE_DIR/marketplace-runtime-contract.log"
+          node scripts/verify-platform-fee-service-role-delete-grant.mjs | tee "$EVIDENCE_DIR/platform-fee-grant-contract.log"
+          npm audit --audit-level=high
+          npm run lint
+          npx tsc --noEmit --pretty false
+          npm run build
+          git diff --check
+
+      - name: Download immutable prior exact-Production evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.PREVIOUS_ARTIFACT_NAME }}
+          path: ${{ runner.temp }}/previous-f7b164-evidence
+          github-token: ${{ github.token }}
+          repository: TruelyCollectables/truely-collectables
+          run-id: ${{ env.PREVIOUS_RUN_ID }}
+
+      - name: Bind prior signed-admin evidence to cleanup-only current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          previous="$RUNNER_TEMP/previous-f7b164-evidence"
+          test -f "$previous/admin-runtime-receipt.json"
+          test -f "$previous/deployment-receipt.json"
+          test -f "$previous/post-sync-receipt.json"
+          jq -e '.ok == true and .success == true and .adminNavigation == "passed" and .sessionRefresh == "passed" and .refundConfirmationGuard == "passed" and .refundIssued == false and (.directStoreTcosFeesRemaining|tonumber) == 0' "$previous/admin-runtime-receipt.json" >/dev/null
+          jq -e --arg sha "$PREVIOUS_CERTIFIED_SHA" '.ok == true and .exactMainSha == $sha and .metadataSha == $sha and .customDomainAlias == "truelycollectables.com"' "$previous/deployment-receipt.json" >/dev/null
+          jq -e --arg sha "$PREVIOUS_CERTIFIED_SHA" '.ok == true and .exactMainSha == $sha and (.receipt.collx_only_boundary_violations|tonumber) == 0 and (.receipt.sold_stock_restoration_violations|tonumber) == 0' "$previous/post-sync-receipt.json" >/dev/null
+          jq -n --arg previous "$PREVIOUS_CERTIFIED_SHA" --arg current "$EXPECTED_MAIN_SHA" --arg run "$PREVIOUS_RUN_ID" --arg artifact "$PREVIOUS_ARTIFACT_NAME" --arg digest "$PREVIOUS_ARTIFACT_DIGEST" '{ok:true,priorExactProductionSha:$previous,currentCleanedMainSha:$current,priorWorkflowRun:($run|tonumber),priorArtifact:$artifact,priorArtifactDigest:$digest,priorSignedAdminRuntime:"passed",cleanupOnlyDiff:"passed",bindingConclusion:"Permanent admin/order/refund/fee behavior unchanged by cleanup commit",verifiedAt:(now|todate)}' > "$EVIDENCE_DIR/prior-evidence-binding.json"
+
+      - name: Apply repeatable hosted requirements and rollback race proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const endpoint=`https://api.supabase.com/v1/projects/${process.env.PROJECT_REF}/database/query`;
+          const request=async(query,readOnly=false)=>{const r=await fetch(endpoint,{method:'POST',headers:{Authorization:`Bearer ${process.env.SUPABASE_ACCESS_TOKEN}`,'Content-Type':'application/json'},body:JSON.stringify({query,parameters:[],read_only:readOnly})});const body=await r.text();if(!r.ok)throw new Error(`Supabase HTTP ${r.status}: ${body.slice(0,1200)}`);return body?JSON.parse(body):[];};
+          await request(fs.readFileSync('supabase/migrations/20260730050000_grant_platform_fee_delete_service_role.sql','utf8'));
+          const row=(await request(`select has_table_privilege('service_role','public.platform_fee_ledger_entries','DELETE') service_role_delete,has_table_privilege('anon','public.platform_fee_ledger_entries','DELETE') anon_delete,has_table_privilege('authenticated','public.platform_fee_ledger_entries','DELETE') authenticated_delete;`,true))?.[0]||{};
+          if(row.service_role_delete!==true||row.anon_delete===true||row.authenticated_delete===true) throw new Error(`Invalid privilege state: ${JSON.stringify(row)}`);
+          fs.writeFileSync(process.env.EVIDENCE_DIR+'/platform-fee-grant-production.json',JSON.stringify({ok:true,exactMainSha:process.env.EXPECTED_MAIN_SHA,serviceRoleDelete:true,anonDelete:false,authenticatedDelete:false,verifiedAt:new Date().toISOString()},null,2));
+          NODE
+          node "$RUNNER_TEMP/launch2-b30f084-bound/issue253-cutover.mjs" migrate
+          node "$RUNNER_TEMP/launch2-b30f084-bound/issue253-cutover.mjs" rollback-proof
+
+      - name: Reconfirm exact main before Production deployment
+        run: git fetch origin main && test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+
+      - name: Deploy exact cleaned main to Production
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          exact="$RUNNER_TEMP/launch2-b30f084-bound-exact"
+          rm -rf "$exact"
+          git worktree add --detach "$exact" "$EXPECTED_MAIN_SHA"
+          test "$(git -C "$exact" rev-parse HEAD)" = "$EXPECTED_MAIN_SHA"
+          mkdir -p "$exact/.vercel" && cp .vercel/project.json "$exact/.vercel/project.json"
+          cd "$exact"
+          url="$(npx vercel@56.2.0 deploy --prod --yes --force --archive=tgz --meta "githubCommitSha=$EXPECTED_MAIN_SHA" --meta "launchPurpose=launch2-final-b30f084-bound-evidence" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2> "$RUNNER_TEMP/launch2-b30f084-bound/deploy-stderr.txt" | tail -n 1)"
+          test -n "$url"
+          printf '%s\n' "$url" > "$GITHUB_WORKSPACE/$EVIDENCE_DIR/deployment-url.txt"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          npx vercel@56.2.0 inspect "$url" --wait --timeout=12m --no-color --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$GITHUB_WORKSPACE/$EVIDENCE_DIR/deployment-inspect.txt"
+
+      - name: Verify exact Production metadata and live boundaries
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          host="${DEPLOYMENT_URL#https://}"
+          curl --fail --silent --show-error -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v13/deployments/$host?slug=$VERCEL_SCOPE" > "$EVIDENCE_DIR/deployment.json"
+          DEPLOYMENT_JSON="$(cat "$EVIDENCE_DIR/deployment.json")" node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const v=JSON.parse(process.env.DEPLOYMENT_JSON||'{}');const aliases=Array.isArray(v.alias)?v.alias:Array.isArray(v.aliases)?v.aliases:[];const sha=String(v?.meta?.githubCommitSha||'');
+          if(String(v.target).toLowerCase()!=='production'||String(v.readyState).toUpperCase()!=='READY'||sha!==process.env.EXPECTED_MAIN_SHA||!aliases.includes('truelycollectables.com')) throw new Error(`Exact Production metadata failed: ${JSON.stringify({target:v.target,readyState:v.readyState,sha,aliases})}`);
+          fs.writeFileSync(process.env.EVIDENCE_DIR+'/exact-production.json',JSON.stringify({ok:true,deploymentId:v.id,deploymentHost:v.url,exactMainSha:sha,customDomainAlias:'truelycollectables.com',verifiedAt:new Date().toISOString()},null,2));
+          NODE
+          rm -f "$EVIDENCE_DIR/deployment.json"
+          for base in "$DEPLOYMENT_URL" https://truelycollectables.com; do
+            test "$(curl -L -sS --max-time 60 -o /dev/null -w '%{http_code}' "$base/")" = 200
+            test "$(curl -L -sS --max-time 60 -o /dev/null -w '%{http_code}' "$base/shop")" = 200
+            test "$(curl -sS --max-time 60 -o /dev/null -w '%{http_code}' "$base/admin")" = 307
+            test "$(curl -sS --max-time 60 -o /dev/null -w '%{http_code}' "$base/api/admin-orders-health")" = 401
+            unsigned_webhook="$(curl -sS --max-time 60 -X POST -H 'content-type: application/json' --data '{}' -o /dev/null -w '%{http_code}' "$base/api/webhook")"
+            test "$unsigned_webhook" != 200
+          done
+          printf '{"exactMainSha":"%s","home":200,"shop":200,"unsignedAdmin":401,"unsignedWebhookRejected":true,"verifiedAt":"%s"}\n' "$EXPECTED_MAIN_SHA" "$(date -u +%FT%TZ)" > "$EVIDENCE_DIR/live-boundaries.json"
+
+      - name: Run protected issue 253 marketplace convergence chain
+        shell: bash
+        run: |
+          set -euo pipefail
+          for step in ebay-order-sales ebay-full-sync seller-reconciliation sold-archive; do
+            code="$(curl -sS --max-time 320 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" --output "$EVIDENCE_DIR/runtime-${step}.json" -w '%{http_code}' "https://truelycollectables.com/api/release/issue253-marketplace-self-test?step=${step}")"
+            if [ "$code" != 200 ] || ! jq -e --arg step "$step" '.success == true and .cronSecretConfigured == true and .upstreamStatus == 200 and .step == $step' "$EVIDENCE_DIR/runtime-${step}.json" >/dev/null; then
+              cat "$EVIDENCE_DIR/runtime-${step}.json" >&2
+              exit 1
+            fi
+          done
+
+      - name: Audit final issue 253 state and indirect CollX evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          node "$RUNNER_TEMP/launch2-b30f084-bound/issue253-cutover.mjs" post-sync-audit
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const endpoint=`https://api.supabase.com/v1/projects/${process.env.PROJECT_REF}/database/query`;
+          const r=await fetch(endpoint,{method:'POST',headers:{Authorization:`Bearer ${process.env.SUPABASE_ACCESS_TOKEN}`,'Content-Type':'application/json'},body:JSON.stringify({read_only:true,parameters:[],query:`select json_build_object(
+            'sale_records_total',(select count(*) from public.collectible_sales),
+            'verified_sales',(select count(*) from public.collectible_sales where evidence_status='verified'),
+            'unresolved_sales',(select count(*) from public.collectible_sales where evidence_status='unresolved'),
+            'collx_via_linked_ebay_sales',(select count(*) from public.collectible_sales where source_marketplace='ebay_or_collx_via_ebay'),
+            'chain_evidence_rows',(select count(*) from public.collectible_sales where source_marketplace='ebay_or_collx_via_ebay' and evidence->>'source_chain'='collx_or_ebay_to_ebay_to_truely_collectables'),
+            'collx_only_boundary_violations',(select count(*) from public.collx_only_inventory_boundary_violations),
+            'invalid_unresolved',(select count(*) from public.collectible_sales where sold_price is null and evidence_status <> 'unresolved'),
+            'historical_sold_products_without_sale_record',(select count(*) from public.products p where p.sold_at < timestamptz '2026-07-28 00:00:00+00' and not exists(select 1 from public.collectible_sales s where s.store_id=p.store_id and s.legacy_product_id=p.id)),
+            'violated_guards',(select count(*) from public.ebay_inbound_sale_guards g where active and (coalesce((select p.quantity from public.products p where p.id=g.legacy_product_id and p.seller_id=g.store_id),0)>g.protected_quantity or coalesce((select i.quantity from public.inventory_items i where i.id=g.inventory_item_id),0)>g.protected_quantity)),
+            'sold_stock_restoration_violations',(select count(*) from public.products where sold_at is not null and quantity>0),
+            'maximum_propagation_minutes',json_build_object('completed_order_poll',5,'inactive_full_sync',15,'seller_reconciliation',15),
+            'captured_at',now()) receipt;`})});
+          const body=await r.text();if(!r.ok)throw new Error(`Final DB audit HTTP ${r.status}: ${body.slice(0,1000)}`);const receipt=JSON.parse(body)?.[0]?.receipt||{};const blockers=[];
+          if(Number(receipt.collx_via_linked_ebay_sales||0)<1)blockers.push('no existing indirect eBay/CollX sale evidence');
+          if(Number(receipt.chain_evidence_rows||0)<1)blockers.push('no persisted indirect source-chain evidence');
+          for(const key of ['collx_only_boundary_violations','invalid_unresolved','historical_sold_products_without_sale_record','violated_guards','sold_stock_restoration_violations']) if(Number(receipt[key]||0)!==0) blockers.push(`${key}=${receipt[key]}`);
+          fs.writeFileSync(process.env.EVIDENCE_DIR+'/final-issue253-production.json',JSON.stringify({ok:blockers.length===0,exactMainSha:process.env.EXPECTED_MAIN_SHA,receipt,blockers,realMarketplaceOrderCreatedByAudit:false,verifiedAt:new Date().toISOString()},null,2));
+          if(blockers.length) throw new Error(blockers.join('; '));
+          NODE
+
+      - name: Issue exact cleaned-main certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -n --arg sha "$EXPECTED_MAIN_SHA" --arg deployment "$(cat "$EVIDENCE_DIR/deployment-url.txt")" --arg prior "$PREVIOUS_CERTIFIED_SHA" --arg run "$GITHUB_RUN_ID" '{schema:"truelycollectables.launch2Issue253CleanedMainCertificate.v1",ok:true,blockerCount:0,exactProductionSha:$sha,deployment:$deployment,priorSignedAdminEvidenceSha:$prior,currentRunId:($run|tonumber),cleanupOnlyEvidenceBinding:true,sourceSecurityBuildPassed:true,hostedMigrationsAndBackfillPassed:true,rollbackRaceProofPassed:true,marketplaceConvergencePassed:true,collxBoundaryPassed:true,soldStockProtectionPassed:true,realMarketplaceOrderCreatedByAudit:false,realMoneyChargeCreatedByAudit:false,realPostagePurchasedByAudit:false,refundIssuedByAudit:false,issuedAt:(now|todate)}' > "$EVIDENCE_DIR/final-certificate.json"
+
+      - name: Upload sanitized exact Production evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launch2-final-b30f084-bound-evidence
+          path: .audit/launch2-final-b30f084-bound-evidence
+          if-no-files-found: error
+          retention-days: 90
