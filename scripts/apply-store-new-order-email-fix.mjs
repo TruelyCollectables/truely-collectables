@@ -71,7 +71,7 @@ simulation = replaceExact(
 simulation = replaceExact(
   simulation,
   `assert.match(checkout, /if \\(!isE2ETest\\)/);`,
-  `assert.match(checkout, /if \\(!isE2ETest\\)/);\nassert.match(checkout, /recipientEmail: storeSettings\\.salesEmail/);\nassert.match(checkout, /idempotencyKey: \\`store_order_received\\//);\nassert.match(checkout, /audience: "store"/);\nassert.match(checkout, /adminOrderUrl/);`,
+  `assert.match(checkout, /if \\(!isE2ETest\\)/);\nassert.match(checkout, /recipientEmail: storeSettings\\.salesEmail/);\nassert.match(checkout, /store_order_received\\//);\nassert.match(checkout, /audience: "store"/);\nassert.match(checkout, /adminOrderUrl/);`,
   "checkout store-alert assertions",
 );
 await writeFile(simulationPath, simulation);
