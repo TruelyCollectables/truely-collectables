@@ -14,6 +14,14 @@ const ordersSource = fs.readFileSync(
   "src/app/account/orders/page.tsx",
   "utf8",
 );
+const navbarSource = fs.readFileSync(
+  "src/app/components/Navbar.tsx",
+  "utf8",
+);
+const mobileNavigationSource = fs.readFileSync(
+  "src/app/components/MobileNavigation.tsx",
+  "utf8",
+);
 
 assert.match(
   sessionSource,
@@ -60,7 +68,22 @@ assert.match(
   /Authorization: `Bearer \$\{session\.access_token\}`/,
   "Orders must continue using the refreshed bearer token supplied through the account session.",
 );
+assert.match(
+  navbarSource,
+  /<MobileNavigation links=\{navigationLinks\} \/>/,
+  "The mobile header must use the route-aware navigation component.",
+);
+assert.match(
+  mobileNavigationSource,
+  /const pathname = usePathname\(\)/,
+  "Mobile navigation must observe route changes.",
+);
+assert.match(
+  mobileNavigationSource,
+  /element\.scrollLeft = 0;[\s\S]*\[pathname\]/,
+  "Mobile navigation must reset its horizontal position after navigation so the first link is not clipped.",
+);
 
 console.log(
-  "Buyer account session refresh contract passed: expired tokens clear, refresh happens before render, long-lived routes rotate, and account children remount on token change.",
+  "Buyer account and mobile navigation contracts passed: expired tokens clear, refresh happens before render, long-lived routes rotate, account children remount on token change, and mobile navigation returns to the first link after route changes.",
 );
