@@ -1,0 +1,141 @@
+name: Ops Deploy Runtime Fee Diagnostic
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/ops-deploy-runtime-fee-diagnostic-20260730.yml"
+
+permissions:
+  contents: read
+
+env:
+  EXPECTED_MAIN_SHA: 12b1988c7a0a822303ee77ba80b56c75c339c33c
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_PROJECT: truely-collectables
+
+jobs:
+  deploy-diagnose:
+    if: github.event.pull_request.head.ref == 'ops/launch2-issue253-production-apply-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
+      ADMIN_SESSION_SECRET: build-validation-session-secret-that-is-long-enough
+      ADMIN_PASSWORD: build-validation-admin-password
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      STRIPE_SECRET_KEY: sk_test_build_validation
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_validation
+      STRIPE_WEBHOOK_SECRET: whsec_build_validation
+      EBAY_CLIENT_ID: build-validation-client-id
+      EBAY_CLIENT_SECRET: build-validation-client-secret
+      EBAY_ENVIRONMENT: production
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Pin exact current source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          test "$(git rev-parse HEAD)" = "$EXPECTED_MAIN_SHA"
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          test -n "${VERCEL_TOKEN:-}"
+          echo "::add-mask::$VERCEL_TOKEN"
+          mkdir -p "$RUNNER_TEMP/runtime-fee-diagnostic"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Validate diagnostic revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/verify-runtime-admin-orders-self-test-contract.mjs
+          node scripts/run-privileged-api-route-audit.mjs
+          npm run simulate:privileged-route-auth
+          npm run lint
+          npx tsc --noEmit --pretty false
+          npm run build
+
+      - name: Link existing Vercel Production project
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Deploy exact current main to Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_MAIN_SHA"
+          output="$(npx vercel@56.2.0 deploy --prod --yes --force --archive=tgz --meta "githubCommitSha=$EXPECTED_MAIN_SHA" --meta "launchGate=runtime-fee-diagnostic" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN")"
+          deployment_url="$(printf '%s\n' "$output" | grep -Eo 'https://[^[:space:]]+\.vercel\.app' | tail -n 1)"
+          test -n "$deployment_url"
+          printf 'DEPLOYMENT_URL=%s\nDEPLOYMENT_HOST=%s\n' "$deployment_url" "${deployment_url#https://}" >> "$GITHUB_ENV"
+          printf '%s\n' "$deployment_url" > "$RUNNER_TEMP/runtime-fee-diagnostic/deployment-url.txt"
+
+      - name: Verify metadata and capture protected runtime result
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/runtime-fee-diagnostic"
+          curl --fail --silent --show-error --header "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v13/deployments/$DEPLOYMENT_HOST?slug=$VERCEL_SCOPE" > "$evidence/deployment.json"
+          DEPLOYMENT_JSON="$(cat "$evidence/deployment.json")" node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          const value = JSON.parse(process.env.DEPLOYMENT_JSON || '{}');
+          const aliases = Array.isArray(value.alias) ? value.alias : Array.isArray(value.aliases) ? value.aliases : [];
+          const metaSha = String(value?.meta?.githubCommitSha || '').trim();
+          if (String(value.target || '').toLowerCase() !== 'production') throw new Error(`target=${value.target}`);
+          if (String(value.readyState || '').toUpperCase() !== 'READY') throw new Error(`readyState=${value.readyState}`);
+          if (metaSha !== process.env.EXPECTED_MAIN_SHA) throw new Error(`metadataSha=${metaSha}`);
+          if (!aliases.includes('truelycollectables.com')) throw new Error('custom domain alias missing');
+          fs.writeFileSync(path.join(process.env.RUNNER_TEMP, 'runtime-fee-diagnostic', 'deployment-receipt.json'), JSON.stringify({ ok: true, deploymentId: value.id, deploymentHost: value.url, exactMainSha: process.env.EXPECTED_MAIN_SHA, metadataSha: metaSha, target: value.target, readyState: value.readyState, customDomainAlias: 'truelycollectables.com', verifiedAt: new Date().toISOString() }, null, 2));
+          NODE
+          rm -f "$evidence/deployment.json"
+
+          success=false
+          for attempt in $(seq 1 72); do
+            status="$(curl --silent --show-error --max-time 90 --request POST --header "Authorization: Bearer $VERCEL_TOKEN" --output "$evidence/runtime.json" --write-out '%{http_code}' https://truelycollectables.com/api/release/admin-orders-self-test || true)"
+            if [ "$status" = 200 ] || [ "$status" = 500 ]; then
+              success=true
+              break
+            fi
+            sleep 10
+          done
+          test "$success" = true
+          RUNTIME_STATUS="$status" RUNTIME_JSON="$(cat "$evidence/runtime.json")" node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          let value = {};
+          try { value = JSON.parse(process.env.RUNTIME_JSON || '{}'); } catch { value = { error: 'non-json runtime response' }; }
+          const safe = {};
+          for (const key of ['success','release','orderId','adminNavigation','sessionRefresh','refundConfirmationGuard','refundIssued','directStoreTcosFeesRemaining','removedDirectStoreFeeRows','error']) if (Object.prototype.hasOwnProperty.call(value, key)) safe[key] = value[key];
+          const receipt = { exactMainSha: process.env.EXPECTED_MAIN_SHA, status: Number(process.env.RUNTIME_STATUS || 0), body: safe, capturedAt: new Date().toISOString() };
+          fs.writeFileSync(path.join(process.env.RUNNER_TEMP, 'runtime-fee-diagnostic', 'protected-runtime-receipt.json'), JSON.stringify(receipt, null, 2));
+          console.log(JSON.stringify(receipt));
+          NODE
+          rm -f "$evidence/runtime.json"
+
+      - name: Upload sanitized diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-fee-diagnostic-${{ env.EXPECTED_MAIN_SHA }}
+          path: ${{ runner.temp }}/runtime-fee-diagnostic
+          if-no-files-found: error
+          retention-days: 14
