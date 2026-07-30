@@ -8,7 +8,7 @@ import {
 import { getStoreSettings } from "./store-settings";
 
 const TRADING_API_VERSION = "1409";
-const PAGE_SIZE = 200;
+const PAGE_SIZE = 100;
 const MAX_ACTIVE_LISTINGS = 3000;
 const MAX_PAGES = Math.ceil(MAX_ACTIVE_LISTINGS / PAGE_SIZE);
 const APPLY_CONCURRENCY = 8;
@@ -16,8 +16,8 @@ const DATABASE_PAGE_SIZE = 1000;
 const MAX_DATABASE_PAGES = 50;
 const PRODUCT_ID_CHUNK_SIZE = 100;
 const INVENTORY_ID_CHUNK_SIZE = 20;
-const MAX_ITEMS_PER_RUN = 250;
-const IMAGE_SYNC_VERSION = 2;
+const MAX_ITEMS_PER_RUN = 1500;
+const IMAGE_SYNC_VERSION = 3;
 
 type InventoryImageRow = {
   id: string;
@@ -169,34 +169,44 @@ async function getAccessToken(params: {
   return String(payload.access_token);
 }
 
+function activeSellerListEndRange() {
+  const now = Date.now();
+  return {
+    endTimeFrom: new Date(now - 5 * 60 * 1000).toISOString(),
+    endTimeTo: new Date(now + 119 * 24 * 60 * 60 * 1000).toISOString(),
+  };
+}
+
 async function readImagePage(params: {
   environment: string;
   accessToken: string;
   page: number;
+  endTimeFrom: string;
+  endTimeTo: string;
 }) {
   const response = await fetch(tradingEndpoint(params.environment), {
     method: "POST",
     headers: {
       "Content-Type": "text/xml",
-      "X-EBAY-API-CALL-NAME": "GetMyeBaySelling",
+      "X-EBAY-API-CALL-NAME": "GetSellerList",
       "X-EBAY-API-COMPATIBILITY-LEVEL": TRADING_API_VERSION,
       "X-EBAY-API-SITEID": "0",
       "X-EBAY-API-IAF-TOKEN": params.accessToken,
     },
     body: `<?xml version="1.0" encoding="utf-8"?>
-<GetMyeBaySellingRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+<GetSellerListRequest xmlns="urn:ebay:apis:eBLBaseComponents">
   <DetailLevel>ReturnAll</DetailLevel>
-  <HideVariations>true</HideVariations>
-  <ActiveList>
-    <Include>true</Include>
-    <ListingType>FixedPriceItem</ListingType>
-    <Pagination>
-      <EntriesPerPage>${PAGE_SIZE}</EntriesPerPage>
-      <PageNumber>${params.page}</PageNumber>
-    </Pagination>
-  </ActiveList>
-</GetMyeBaySellingRequest>`,
-    signal: AbortSignal.timeout(35_000),
+  <ErrorLanguage>en_US</ErrorLanguage>
+  <WarningLevel>High</WarningLevel>
+  <EndTimeFrom>${params.endTimeFrom}</EndTimeFrom>
+  <EndTimeTo>${params.endTimeTo}</EndTimeTo>
+  <IncludeVariations>false</IncludeVariations>
+  <Pagination>
+    <EntriesPerPage>${PAGE_SIZE}</EntriesPerPage>
+    <PageNumber>${params.page}</PageNumber>
+  </Pagination>
+</GetSellerListRequest>`,
+    signal: AbortSignal.timeout(60_000),
   });
   const xml = await response.text();
   const ack = xmlText(xml, "Ack") || "Failure";
@@ -205,28 +215,31 @@ async function readImagePage(params: {
     throw new Error(
       xmlText(errorBlock, "LongMessage") ||
         xmlText(errorBlock, "ShortMessage") ||
-        `eBay image sync failed with ${response.status}.`,
+        `eBay GetSellerList image sync failed with ${response.status}.`,
     );
   }
 
-  const activeList = xmlBlock(xml, "ActiveList") || "";
-  const items = xmlBlocks(xmlBlock(activeList, "ItemArray") || "", "Item");
+  const itemArray = xmlBlock(xml, "ItemArray") || "";
+  const items = xmlBlocks(itemArray, "Item");
   const listings = items.flatMap((itemXml) => {
     const itemId = xmlText(itemXml, "ItemID")?.trim();
     if (!itemId) return [];
     const pictureDetails = xmlBlock(itemXml, "PictureDetails") || "";
     const imageUrls = normalizeListingImageUrls([
-      xmlText(pictureDetails, "GalleryURL"),
       ...xmlBlocks(pictureDetails, "PictureURL").map(decodeXml),
+      xmlText(pictureDetails, "GalleryURL"),
     ]);
     return [{ itemId, imageUrls }];
   });
+  const pagination = xmlBlock(xml, "PaginationResult") || "";
+  const totalPages = Math.max(
+    nonNegativeInteger(xmlText(pagination, "TotalNumberOfPages")),
+    1,
+  );
+  const hasMoreItems = xmlText(xml, "HasMoreItems") === "true";
 
   return {
-    totalPages: Math.max(
-      nonNegativeInteger(xmlText(activeList, "TotalNumberOfPages")),
-      1,
-    ),
+    totalPages: hasMoreItems ? Math.max(totalPages, params.page + 1) : totalPages,
     listings,
   };
 }
@@ -236,15 +249,23 @@ async function readAllListingImages(params: {
   accessToken: string;
 }) {
   const byItemId = new Map<string, string[]>();
+  const endRange = activeSellerListEndRange();
   let totalPages = 1;
   let pagesRead = 0;
   for (let page = 1; page <= Math.min(totalPages, MAX_PAGES); page += 1) {
-    const result = await readImagePage({ ...params, page });
+    const result = await readImagePage({ ...params, ...endRange, page });
     totalPages = result.totalPages;
     pagesRead = page;
-    for (const listing of result.listings) byItemId.set(listing.itemId, listing.imageUrls);
+    for (const listing of result.listings) {
+      byItemId.set(listing.itemId, listing.imageUrls);
+    }
   }
-  return { byItemId, pagesRead, cycleComplete: pagesRead >= totalPages };
+  return {
+    byItemId,
+    pagesRead,
+    cycleComplete: pagesRead >= totalPages,
+    sourceCall: "GetSellerList" as const,
+  };
 }
 
 function chooseFinalImages(remoteImages: string[], existingImages: InventoryImageRow[]) {
