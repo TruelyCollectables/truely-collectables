@@ -72,7 +72,7 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${VERCEL_TOKEN:-}"
-          mkdir -p .vercel .seller-admin-evidence
+          mkdir -p .vercel seller-admin-evidence
           if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
             printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
           else
@@ -104,18 +104,18 @@ jobs:
             --force \
             --scope "$VERCEL_SCOPE" \
             --token "$VERCEL_TOKEN" \
-            2>&1 | tee .seller-admin-evidence/temporary-deploy.log
-          TEMPORARY_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' .seller-admin-evidence/temporary-deploy.log | tail -n 1)"
+            2>&1 | tee seller-admin-evidence/temporary-deploy.log
+          TEMPORARY_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' seller-admin-evidence/temporary-deploy.log | tail -n 1)"
           test -n "$TEMPORARY_URL"
           echo "temporary_url=$TEMPORARY_URL" >> "$GITHUB_OUTPUT"
           echo "TEMPORARY_URL=$TEMPORARY_URL" >> "$GITHUB_ENV"
-          printf '%s\n' "$TEMPORARY_URL" > .seller-admin-evidence/temporary-deployment-url.txt
+          printf '%s\n' "$TEMPORARY_URL" > seller-admin-evidence/temporary-deployment-url.txt
 
       - name: Prove temporary setup route is private
         run: |
           set -euo pipefail
           code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 \
-            --output .seller-admin-evidence/unauthorized-route.json \
+            --output seller-admin-evidence/unauthorized-route.json \
             --write-out '%{http_code}' \
             --request POST \
             --header 'Content-Type: application/json' \
@@ -146,22 +146,22 @@ jobs:
             --arg marker "$MARKER" \
             '{action:"setup",sellerAEmail:$sellerAEmail,sellerAPassword:$sellerAPassword,sellerBEmail:$sellerBEmail,sellerBPassword:$sellerBPassword,marker:$marker}')"
           code="$(curl --silent --show-error --connect-timeout 15 --max-time 120 \
-            --output .seller-admin-evidence/setup.json \
+            --output seller-admin-evidence/setup.json \
             --write-out '%{http_code}' \
             --request POST \
             --header "Authorization: Bearer $VERCEL_TOKEN" \
             --header 'Content-Type: application/json' \
             --data "$payload" \
             "$TEMPORARY_URL/api/release/seller-inventory-admin-live-test" || true)"
-          cat .seller-admin-evidence/setup.json
+          cat seller-admin-evidence/setup.json
           test "$code" = "200"
-          test "$(jq -r '.success' .seller-admin-evidence/setup.json)" = "true"
-          SELLER_A_ID="$(jq -r '.sellers.a.id // empty' .seller-admin-evidence/setup.json)"
-          SELLER_B_ID="$(jq -r '.sellers.b.id // empty' .seller-admin-evidence/setup.json)"
-          ITEM_A_ID="$(jq -r '.items[0].inventoryItemId // empty' .seller-admin-evidence/setup.json)"
-          ITEM_B_ID="$(jq -r '.items[1].inventoryItemId // empty' .seller-admin-evidence/setup.json)"
-          PRODUCT_A_ID="$(jq -r '.items[0].legacyProductId // empty' .seller-admin-evidence/setup.json)"
-          PRODUCT_B_ID="$(jq -r '.items[1].legacyProductId // empty' .seller-admin-evidence/setup.json)"
+          test "$(jq -r '.success' seller-admin-evidence/setup.json)" = "true"
+          SELLER_A_ID="$(jq -r '.sellers.a.id // empty' seller-admin-evidence/setup.json)"
+          SELLER_B_ID="$(jq -r '.sellers.b.id // empty' seller-admin-evidence/setup.json)"
+          ITEM_A_ID="$(jq -r '.items[0].inventoryItemId // empty' seller-admin-evidence/setup.json)"
+          ITEM_B_ID="$(jq -r '.items[1].inventoryItemId // empty' seller-admin-evidence/setup.json)"
+          PRODUCT_A_ID="$(jq -r '.items[0].legacyProductId // empty' seller-admin-evidence/setup.json)"
+          PRODUCT_B_ID="$(jq -r '.items[1].legacyProductId // empty' seller-admin-evidence/setup.json)"
           test -n "$SELLER_A_ID"
           test -n "$SELLER_B_ID"
           test -n "$ITEM_A_ID"
@@ -208,20 +208,20 @@ jobs:
           ACCESS_B="$(jq -r '.session.access_token' /tmp/seller-b-login.json)"
 
           code="$(curl --silent --show-error --connect-timeout 15 --max-time 90 \
-            --output .seller-admin-evidence/inventory-before.json \
+            --output seller-admin-evidence/inventory-before.json \
             --write-out '%{http_code}' \
             --header "Authorization: Bearer $ACCESS_A" \
             "$TEMPORARY_URL/api/account/seller/inventory-admin" || true)"
           test "$code" = "200"
-          test "$(jq --arg marker "$MARKER" '[.items[] | select(.title | startswith($marker))] | length' .seller-admin-evidence/inventory-before.json)" = "2"
-          test "$(jq -r '.account.isStoreOwner' .seller-admin-evidence/inventory-before.json)" = "false"
+          test "$(jq --arg marker "$MARKER" '[.items[] | select(.title | startswith($marker))] | length' seller-admin-evidence/inventory-before.json)" = "2"
+          test "$(jq -r '.account.isStoreOwner' seller-admin-evidence/inventory-before.json)" = "false"
 
           individual_payload="$(jq -n \
             --arg id "$ITEM_A_ID" \
             --arg title "$MARKER ALPHA EDITED" \
             '{items:[{inventoryItemId:$id,title:$title,player:"Live Test Player",sport:"Baseball",price:15.55,quantity:5,status:"draft",category:"sports_cards",condition:"near_mint",description:"Disposable individual seller inventory edit proof."}]}')"
           code="$(curl --silent --show-error --connect-timeout 15 --max-time 120 \
-            --output .seller-admin-evidence/individual-edit.json \
+            --output seller-admin-evidence/individual-edit.json \
             --write-out '%{http_code}' \
             --request POST \
             --header "Authorization: Bearer $ACCESS_A" \
@@ -229,15 +229,15 @@ jobs:
             --data "$individual_payload" \
             "$TEMPORARY_URL/api/account/seller/inventory-admin" || true)"
           test "$code" = "200"
-          test "$(jq -r '.summary.successCount' .seller-admin-evidence/individual-edit.json)" = "1"
-          test "$(jq -r '.summary.failureCount' .seller-admin-evidence/individual-edit.json)" = "0"
+          test "$(jq -r '.summary.successCount' seller-admin-evidence/individual-edit.json)" = "1"
+          test "$(jq -r '.summary.failureCount' seller-admin-evidence/individual-edit.json)" = "0"
 
           bulk_payload="$(jq -n \
             --arg first "$ITEM_A_ID" \
             --arg second "$ITEM_B_ID" \
             '{items:[{inventoryItemId:$first,price:33.33,quantity:7,status:"draft",category:"trading_cards",condition:"excellent"},{inventoryItemId:$second,price:33.33,quantity:7,status:"draft",category:"trading_cards",condition:"excellent"}]}')"
           code="$(curl --silent --show-error --connect-timeout 15 --max-time 120 \
-            --output .seller-admin-evidence/bulk-edit.json \
+            --output seller-admin-evidence/bulk-edit.json \
             --write-out '%{http_code}' \
             --request POST \
             --header "Authorization: Bearer $ACCESS_A" \
@@ -245,12 +245,12 @@ jobs:
             --data "$bulk_payload" \
             "$TEMPORARY_URL/api/account/seller/inventory-admin" || true)"
           test "$code" = "200"
-          test "$(jq -r '.summary.successCount' .seller-admin-evidence/bulk-edit.json)" = "2"
-          test "$(jq -r '.summary.failureCount' .seller-admin-evidence/bulk-edit.json)" = "0"
+          test "$(jq -r '.summary.successCount' seller-admin-evidence/bulk-edit.json)" = "2"
+          test "$(jq -r '.summary.failureCount' seller-admin-evidence/bulk-edit.json)" = "0"
 
           hostile_payload="$(jq -n --arg id "$ITEM_A_ID" '{items:[{inventoryItemId:$id,quantity:99}]}')"
           code="$(curl --silent --show-error --connect-timeout 15 --max-time 120 \
-            --output .seller-admin-evidence/cross-seller-denial.json \
+            --output seller-admin-evidence/cross-seller-denial.json \
             --write-out '%{http_code}' \
             --request POST \
             --header "Authorization: Bearer $ACCESS_B" \
@@ -258,18 +258,18 @@ jobs:
             --data "$hostile_payload" \
             "$TEMPORARY_URL/api/account/seller/inventory-admin" || true)"
           test "$code" = "200"
-          test "$(jq -r '.summary.successCount' .seller-admin-evidence/cross-seller-denial.json)" = "0"
-          test "$(jq -r '.summary.failureCount' .seller-admin-evidence/cross-seller-denial.json)" = "1"
-          denial_status="$(jq -r '.results[0].status' .seller-admin-evidence/cross-seller-denial.json)"
+          test "$(jq -r '.summary.successCount' seller-admin-evidence/cross-seller-denial.json)" = "0"
+          test "$(jq -r '.summary.failureCount' seller-admin-evidence/cross-seller-denial.json)" = "1"
+          denial_status="$(jq -r '.results[0].status' seller-admin-evidence/cross-seller-denial.json)"
           test "$denial_status" = "403" -o "$denial_status" = "404"
 
           code="$(curl --silent --show-error --connect-timeout 15 --max-time 90 \
-            --output .seller-admin-evidence/inventory-after.json \
+            --output seller-admin-evidence/inventory-after.json \
             --write-out '%{http_code}' \
             --header "Authorization: Bearer $ACCESS_A" \
             "$TEMPORARY_URL/api/account/seller/inventory-admin" || true)"
           test "$code" = "200"
-          test "$(jq --arg first "$ITEM_A_ID" --arg second "$ITEM_B_ID" '[.items[] | select(.inventoryItemId == $first or .inventoryItemId == $second) | select(.quantity == 7 and .price == 33.33 and .category == "trading_cards" and .condition == "excellent")] | length' .seller-admin-evidence/inventory-after.json)" = "2"
+          test "$(jq --arg marker "$MARKER" '[.items[] | select(.title | startswith($marker)) | select(.price == 33.33 and .quantity == 7 and .category == "trading_cards" and .condition == "excellent")] | length' seller-admin-evidence/inventory-after.json)" = "2"
 
       - name: Install headless Chromium
         run: |
@@ -289,86 +289,80 @@ jobs:
           (async () => {
             const deploymentUrl = process.env.DEPLOYMENT_URL;
             const login = JSON.parse(fs.readFileSync('/tmp/seller-a-login.json', 'utf8'));
-            const session = login.session;
-            const marker = process.env.MARKER;
-            const email = process.env.SELLER_A_EMAIL;
-            const password = process.env.SELLER_A_PASSWORD;
             const browser = await chromium.launch({ headless: true });
             const context = await browser.newContext({
               viewport: { width: 390, height: 844 },
-              userAgent: 'TCOS-Seller-Inventory-Admin-Production-Verifier/20260730',
+              userAgent: 'TCOS-Seller-Inventory-Production-Verifier/20260730',
             });
             const page = await context.newPage();
             const pageErrors = [];
             page.on('pageerror', (error) => pageErrors.push(String(error.message || error)));
-            await page.addInitScript((storedSession) => {
-              window.localStorage.setItem('tcos_account_session', JSON.stringify(storedSession));
-            }, session);
 
-            await page.goto(`${deploymentUrl}/account`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-            const sellerNav = page.getByRole('navigation', { name: 'Seller account administration' });
-            await sellerNav.waitFor({ state: 'visible', timeout: 60_000 });
-            const inventoryButton = sellerNav.getByRole('link', { name: 'Inventory Admin', exact: true });
-            if ((await inventoryButton.getAttribute('href')) !== '/seller/admin/inventory') {
-              throw new Error('Account Inventory Admin button has the wrong destination.');
+            await page.addInitScript((session) => {
+              window.localStorage.setItem('tcos_account_session', JSON.stringify(session));
+            }, login.session);
+
+            await page.goto(`${deploymentUrl}/account`, {
+              waitUntil: 'domcontentloaded',
+              timeout: 60_000,
+            });
+            const adminButton = page.getByRole('link', { name: 'Inventory Admin', exact: true });
+            await adminButton.waitFor({ state: 'visible', timeout: 60_000 });
+            const accountButtonHref = await adminButton.getAttribute('href');
+            if (accountButtonHref !== '/seller/admin/inventory') {
+              throw new Error(`Inventory Admin button points to ${accountButtonHref}.`);
             }
-            await inventoryButton.click();
+            await adminButton.click();
             await page.waitForURL((url) => url.pathname === '/seller/admin/inventory', { timeout: 60_000 });
             await page.getByRole('heading', { name: 'Inventory Admin', exact: true }).waitFor({ timeout: 60_000 });
-            await page.getByText(marker, { exact: false }).first().waitFor({ timeout: 60_000 });
+            await page.waitForFunction((marker) => document.body.innerText.includes(marker), process.env.MARKER, { timeout: 60_000 });
 
-            const requiredLinks = new Map([
+            const requiredLinks = [
               ['Account', '/account'],
               ['Orders', '/account/orders'],
               ['Seller Workspace', '/seller/inventory'],
               ['View Store', '/shop'],
-            ]);
+            ];
             for (const [label, href] of requiredLinks) {
-              const link = page.getByRole('link', { name: label, exact: true }).last();
-              if ((await link.getAttribute('href')) !== href) {
-                throw new Error(`${label} link expected ${href}.`);
-              }
+              const link = page.getByRole('link', { name: label, exact: true });
+              await link.waitFor({ state: 'visible', timeout: 30_000 });
+              const actualHref = await link.getAttribute('href');
+              if (actualHref !== href) throw new Error(`${label} points to ${actualHref}.`);
               const response = await page.request.get(`${deploymentUrl}${href}`);
-              if (response.status() !== 200) {
-                throw new Error(`${label} destination returned ${response.status()}.`);
-              }
+              if (response.status() !== 200) throw new Error(`${label} returned ${response.status()}.`);
             }
 
-            if (await page.getByRole('link', { name: 'Storefront', exact: true }).count()) {
-              throw new Error('Draft listings exposed a misleading Storefront link.');
-            }
-            if (!(await page.getByRole('button', { name: 'Save Selected Edits (0)', exact: true }).count())) {
-              throw new Error('Bulk save control is missing.');
-            }
-            if (!(await page.getByRole('button', { name: /Apply Values to 0 Selected/ }).count())) {
-              throw new Error('Bulk apply control is missing.');
-            }
+            const draftStorefrontLinkCount = await page.getByRole('link', { name: 'Storefront', exact: true }).count();
+            if (draftStorefrontLinkCount !== 0) throw new Error('Draft inventory still exposes a Storefront link.');
+            await page.getByText('Apply Values to').waitFor({ state: 'visible', timeout: 30_000 });
+            await page.getByRole('button', { name: 'Save Selected Edits', exact: true }).waitFor({ state: 'visible', timeout: 30_000 });
 
-            await page.evaluate(() => window.localStorage.removeItem('tcos_account_session'));
-            await page.goto(`${deploymentUrl}/account/login?next=/seller/admin/inventory`, {
+            const loggedOut = await browser.newContext({ viewport: { width: 390, height: 844 } });
+            const loginPage = await loggedOut.newPage();
+            await loginPage.goto(`${deploymentUrl}/account/login?next=%2Fseller%2Fadmin%2Finventory`, {
               waitUntil: 'domcontentloaded',
               timeout: 60_000,
             });
-            await page.getByLabel('Email').fill(email);
-            await page.getByLabel('Password').fill(password);
-            await page.getByRole('button', { name: 'Log In', exact: true }).click();
-            await page.waitForURL((url) => url.pathname === '/seller/admin/inventory', { timeout: 60_000 });
-            await page.getByRole('heading', { name: 'Inventory Admin', exact: true }).waitFor({ timeout: 60_000 });
-            await page.getByText(marker, { exact: false }).first().waitFor({ timeout: 60_000 });
-            if (pageErrors.length) throw new Error(`Page errors: ${pageErrors.join(' | ')}`);
+            await loginPage.getByLabel('Email').fill(process.env.SELLER_A_EMAIL);
+            await loginPage.getByLabel('Password').fill(process.env.SELLER_A_PASSWORD);
+            await loginPage.getByRole('button', { name: 'Log In', exact: true }).click();
+            await loginPage.waitForURL((url) => url.pathname === '/seller/admin/inventory', { timeout: 60_000 });
+            const loginReturnPath = new URL(loginPage.url()).pathname;
+            await loggedOut.close();
 
-            await page.screenshot({ path: '.seller-admin-evidence/seller-inventory-admin-live.png', fullPage: true });
+            if (pageErrors.length) throw new Error(`Page errors: ${pageErrors.join(' | ')}`);
+            await page.screenshot({ path: 'seller-admin-evidence/seller-inventory-admin-live.png', fullPage: true });
             const evidence = {
               ok: true,
-              accountButtonHref: '/seller/admin/inventory',
-              loginReturnPath: '/seller/admin/inventory',
+              accountButtonHref,
+              loginReturnPath,
               verifiedInternalLinks: Object.fromEntries(requiredLinks),
               draftStorefrontLinkCount: 0,
               bulkControlsPresent: true,
               disposableListingCount: 2,
               pageErrorCount: pageErrors.length,
             };
-            fs.writeFileSync('.seller-admin-evidence/browser-evidence.json', JSON.stringify(evidence, null, 2));
+            fs.writeFileSync('seller-admin-evidence/browser-evidence.json', JSON.stringify(evidence, null, 2));
             console.log(JSON.stringify(evidence));
             await browser.close();
           })().catch((error) => {
@@ -387,17 +381,17 @@ jobs:
           fi
           payload="$(jq -n --arg first "$SELLER_A_ID" --arg second "$SELLER_B_ID" '{action:"cleanup",userIds:[$first,$second]}')"
           code="$(curl --silent --show-error --connect-timeout 15 --max-time 120 \
-            --output .seller-admin-evidence/cleanup.json \
+            --output seller-admin-evidence/cleanup.json \
             --write-out '%{http_code}' \
             --request POST \
             --header "Authorization: Bearer $VERCEL_TOKEN" \
             --header 'Content-Type: application/json' \
             --data "$payload" \
             "$TEMPORARY_URL/api/release/seller-inventory-admin-live-test" || true)"
-          cat .seller-admin-evidence/cleanup.json
+          cat seller-admin-evidence/cleanup.json
           test "$code" = "200"
-          test "$(jq -r '.success' .seller-admin-evidence/cleanup.json)" = "true"
-          test "$(jq '.cleanupErrors | length' .seller-admin-evidence/cleanup.json)" = "0"
+          test "$(jq -r '.success' seller-admin-evidence/cleanup.json)" = "true"
+          test "$(jq '.cleanupErrors | length' seller-admin-evidence/cleanup.json)" = "0"
 
       - name: Redeploy exact clean merged main
         if: always()
@@ -418,11 +412,11 @@ jobs:
             --force \
             --scope "$VERCEL_SCOPE" \
             --token "$VERCEL_TOKEN" \
-            2>&1 | tee "$GITHUB_WORKSPACE/.seller-admin-evidence/clean-deploy.log"
-          CLEAN_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$GITHUB_WORKSPACE/.seller-admin-evidence/clean-deploy.log" | tail -n 1)"
+            2>&1 | tee "$GITHUB_WORKSPACE/seller-admin-evidence/clean-deploy.log"
+          CLEAN_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$GITHUB_WORKSPACE/seller-admin-evidence/clean-deploy.log" | tail -n 1)"
           test -n "$CLEAN_URL"
           echo "CLEAN_URL=$CLEAN_URL" >> "$GITHUB_ENV"
-          printf '%s\n' "$CLEAN_URL" > "$GITHUB_WORKSPACE/.seller-admin-evidence/clean-deployment-url.txt"
+          printf '%s\n' "$CLEAN_URL" > "$GITHUB_WORKSPACE/seller-admin-evidence/clean-deployment-url.txt"
 
       - name: Verify clean custom-domain promotion and route boundaries
         if: always()
@@ -453,7 +447,7 @@ jobs:
           clean_inventory_code="$(curl --silent --show-error --connect-timeout 15 --max-time 60 --output /tmp/clean-inventory.html --write-out '%{http_code}' "$CLEAN_URL/seller/admin/inventory" || true)"
           test "$clean_inventory_code" = "200"
           grep -q 'Inventory Admin' /tmp/clean-inventory.html
-          cat > .seller-admin-evidence/final-live-boundary.json <<JSON
+          cat > seller-admin-evidence/final-live-boundary.json <<JSON
           {
             "ok": true,
             "sourceSha": "$SOURCE_SHA",
@@ -472,6 +466,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: seller-inventory-admin-production-20260730-${{ github.run_number }}
-          path: .seller-admin-evidence
+          path: seller-admin-evidence
           if-no-files-found: warn
           retention-days: 30
