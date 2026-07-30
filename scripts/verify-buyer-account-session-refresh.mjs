@@ -39,6 +39,21 @@ assert.match(
   "Buyer sessions must refresh through Supabase before protected account requests.",
 );
 assert.match(
+  sessionSource,
+  /export async function fetchWithAccountSession/,
+  "Protected buyer requests must use the central authenticated fetch helper.",
+);
+assert.match(
+  sessionSource,
+  /if \(response\.status !== 401\) return response;[\s\S]*getFreshAccountSession\(0, true\)[\s\S]*response = await fetch/,
+  "A protected buyer request must force-refresh and retry exactly after a 401.",
+);
+assert.match(
+  sessionSource,
+  /if \(response\.status === 401\) \{[\s\S]*clearAccountSession\(\)/,
+  "A session that remains unauthorized after refresh must be cleared instead of leaving a fake logged-in UI.",
+);
+assert.match(
   boundarySource,
   /await getFreshAccountSession\(REFRESH_AHEAD_SECONDS, forceRefresh\)/,
   "The account boundary must refresh the stored session before rendering account pages.",
@@ -55,6 +70,16 @@ assert.match(
 );
 assert.match(
   boundarySource,
+  /window\.addEventListener\("focus", handleWindowFocus\)/,
+  "Buyer sessions must refresh when a suspended mobile browser returns to the foreground.",
+);
+assert.match(
+  boundarySource,
+  /document\.addEventListener\("visibilitychange", handleVisibilityChange\)/,
+  "Buyer sessions must refresh when the account tab becomes visible again.",
+);
+assert.match(
+  boundarySource,
   /key=\{version\}/,
   "Account children must remount after token rotation so stale bearer tokens are not retained in component state.",
 );
@@ -65,8 +90,13 @@ assert.match(
 );
 assert.match(
   ordersSource,
+  /fetchWithAccountSession\("\/api\/account\/orders"/,
+  "The buyer orders screen must use the refresh-and-retry account request path.",
+);
+assert.doesNotMatch(
+  ordersSource,
   /Authorization: `Bearer \$\{session\.access_token\}`/,
-  "Orders must continue using the refreshed bearer token supplied through the account session.",
+  "The buyer orders screen must not send a frozen localStorage token directly.",
 );
 assert.match(
   navbarSource,
@@ -85,5 +115,5 @@ assert.match(
 );
 
 console.log(
-  "Buyer account and mobile navigation contracts passed: expired tokens clear, refresh happens before render, long-lived routes rotate, account children remount on token change, and mobile navigation returns to the first link after route changes.",
+  "Buyer account and mobile navigation contracts passed: protected account pages refresh before render, retry once after a 401, clear dead sessions, refresh after mobile resume, remount after token rotation, and reset the mobile navigation position after route changes.",
 );
