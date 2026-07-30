@@ -8,6 +8,7 @@ import {
 } from "../../lib/legal";
 import {
   clearAccountSession,
+  fetchWithAccountSession,
   getAccountSession,
   type StoredAccountSession,
 } from "./account-session";
@@ -646,7 +647,7 @@ export default function AccountPage() {
       setOrdersError("");
 
       try {
-        const response = await fetch("/api/account/orders", {
+        const response = await fetchWithAccountSession("/api/account/orders", {
           headers: {
             Authorization: `Bearer ${accessToken}`,
           },
@@ -686,7 +687,7 @@ export default function AccountPage() {
 
     async function loadSellerPayoutRequests() {
       try {
-        const response = await fetch("/api/account/seller/payout-requests", {
+        const response = await fetchWithAccountSession("/api/account/seller/payout-requests", {
           headers: {
             Authorization: `Bearer ${accessToken}`,
           },
@@ -729,7 +730,7 @@ export default function AccountPage() {
       setSellerPayoutError("");
 
       try {
-        const response = await fetch("/api/account/seller/payout-onboarding", {
+        const response = await fetchWithAccountSession("/api/account/seller/payout-onboarding", {
           headers: {
             Authorization: `Bearer ${accessToken}`,
           },
@@ -772,7 +773,7 @@ export default function AccountPage() {
 
     async function loadSellerMarketplaceWorkspace() {
       try {
-        const response = await fetch(
+        const response = await fetchWithAccountSession(
           "/api/account/seller/marketplace-connections/ebay/staged-items?limit=1&importJobLimit=1",
           {
             headers: {
@@ -815,7 +816,7 @@ export default function AccountPage() {
       setDashboardError("");
 
       try {
-        const response = await fetch("/api/account/dashboard/preferences", {
+        const response = await fetchWithAccountSession("/api/account/dashboard/preferences", {
           headers: {
             Authorization: `Bearer ${accessToken}`,
           },
@@ -866,7 +867,7 @@ export default function AccountPage() {
       setCollectorError("");
 
       try {
-        const response = await fetch("/api/account/collector/items", {
+        const response = await fetchWithAccountSession("/api/account/collector/items", {
           headers: {
             Authorization: `Bearer ${accessToken}`,
           },
@@ -912,7 +913,7 @@ export default function AccountPage() {
 
     async function loadCollectorProfile() {
       try {
-        const response = await fetch("/api/account/collector/profile", {
+        const response = await fetchWithAccountSession("/api/account/collector/profile", {
           headers: {
             Authorization: `Bearer ${accessToken}`,
           },
@@ -965,7 +966,7 @@ export default function AccountPage() {
       setSocialError("");
 
       try {
-        const response = await fetch("/api/account/collector/social", {
+        const response = await fetchWithAccountSession("/api/account/collector/social", {
           headers: {
             Authorization: `Bearer ${accessToken}`,
           },
@@ -1051,7 +1052,7 @@ export default function AccountPage() {
     setSocialError("");
 
     try {
-      const response = await fetch("/api/account/collector/social", {
+      const response = await fetchWithAccountSession("/api/account/collector/social", {
         headers: {
           Authorization: `Bearer ${accessToken}`,
         },
@@ -1090,7 +1091,7 @@ export default function AccountPage() {
     setSocialError("");
 
     try {
-      const response = await fetch("/api/account/collector/social", {
+      const response = await fetchWithAccountSession("/api/account/collector/social", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1122,7 +1123,7 @@ export default function AccountPage() {
     setSocialError("");
 
     try {
-      const response = await fetch("/api/account/collector/social", {
+      const response = await fetchWithAccountSession("/api/account/collector/social", {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
@@ -1151,7 +1152,7 @@ export default function AccountPage() {
     setDashboardError("");
 
     try {
-      const response = await fetch("/api/account/dashboard/preferences", {
+      const response = await fetchWithAccountSession("/api/account/dashboard/preferences", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1197,7 +1198,7 @@ export default function AccountPage() {
     setDashboardError("");
 
     try {
-      const response = await fetch("/api/account/dashboard/preferences", {
+      const response = await fetchWithAccountSession("/api/account/dashboard/preferences", {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
@@ -1230,7 +1231,7 @@ export default function AccountPage() {
     setSellerPayoutError("");
 
     try {
-      const response = await fetch("/api/account/seller/payout-onboarding", {
+      const response = await fetchWithAccountSession("/api/account/seller/payout-onboarding", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1263,7 +1264,7 @@ export default function AccountPage() {
   async function refreshSellerPayoutRequests() {
     if (!accessToken) return;
 
-    const response = await fetch("/api/account/seller/payout-requests", {
+    const response = await fetchWithAccountSession("/api/account/seller/payout-requests", {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -1285,7 +1286,7 @@ export default function AccountPage() {
     setSellerPayoutError("");
 
     try {
-      const response = await fetch("/api/account/seller/payout-requests", {
+      const response = await fetchWithAccountSession("/api/account/seller/payout-requests", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1319,7 +1320,7 @@ export default function AccountPage() {
     setCollectorError("");
 
     try {
-      const response = await fetch("/api/account/collector/items", {
+      const response = await fetchWithAccountSession("/api/account/collector/items", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1387,7 +1388,7 @@ export default function AccountPage() {
     setCollectorError("");
 
     try {
-      const response = await fetch("/api/account/collector/items", {
+      const response = await fetchWithAccountSession("/api/account/collector/items", {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
@@ -1420,7 +1421,7 @@ export default function AccountPage() {
     setCollectorError("");
 
     try {
-      const response = await fetch("/api/account/collector/profile", {
+      const response = await fetchWithAccountSession("/api/account/collector/profile", {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -1464,7 +1465,7 @@ export default function AccountPage() {
     setCollectorError("");
 
     try {
-      const response = await fetch(
+      const response = await fetchWithAccountSession(
         `/api/account/collector/exports?format=${format}`,
         {
           headers: {
@@ -1511,7 +1512,7 @@ export default function AccountPage() {
 
     try {
       const csvText = await collectionImportFile.text();
-      const response = await fetch("/api/account/collector/imports", {
+      const response = await fetchWithAccountSession("/api/account/collector/imports", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1554,7 +1555,7 @@ export default function AccountPage() {
     setSocialError("");
 
     try {
-      const response = await fetch("/api/account/collector/social", {
+      const response = await fetchWithAccountSession("/api/account/collector/social", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

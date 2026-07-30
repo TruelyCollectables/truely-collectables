@@ -3,6 +3,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 const STORAGE_KEY = "tcos_account_session";
+export const ACCOUNT_SESSION_CHANGE_EVENT = "tcos-account-session-change";
 let refreshClient: SupabaseClient | null = null;
 let refreshInFlight: Promise<StoredAccountSession | null> | null = null;
 
@@ -16,10 +17,16 @@ export type StoredAccountSession = {
   };
 };
 
+function notifyAccountSessionChange() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(ACCOUNT_SESSION_CHANGE_EVENT));
+}
+
 export function saveAccountSession(session: StoredAccountSession | null) {
   if (!session) return;
 
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+  notifyAccountSessionChange();
 }
 
 export function getAccountSession(): StoredAccountSession | null {
@@ -31,12 +38,14 @@ export function getAccountSession(): StoredAccountSession | null {
     return JSON.parse(raw) as StoredAccountSession;
   } catch {
     window.localStorage.removeItem(STORAGE_KEY);
+    notifyAccountSessionChange();
     return null;
   }
 }
 
 export function clearAccountSession() {
   window.localStorage.removeItem(STORAGE_KEY);
+  notifyAccountSessionChange();
 }
 
 function getRefreshClient() {
@@ -57,6 +66,10 @@ function getRefreshClient() {
   return refreshClient;
 }
 
+function sessionIsExpired(expiresAtMs: number) {
+  return expiresAtMs <= 0 || expiresAtMs <= Date.now();
+}
+
 export async function getFreshAccountSession(
   minimumValiditySeconds = 5 * 60,
   forceRefresh = false,
@@ -75,11 +88,25 @@ export async function getFreshAccountSession(
     return session;
   }
 
-  if (!session.refresh_token) return session;
+  if (!session.refresh_token) {
+    if (sessionIsExpired(expiresAtMs)) {
+      clearAccountSession();
+      return null;
+    }
+
+    return session;
+  }
 
   const client = getRefreshClient();
 
-  if (!client) return session;
+  if (!client) {
+    if (sessionIsExpired(expiresAtMs)) {
+      clearAccountSession();
+      return null;
+    }
+
+    return session;
+  }
 
   if (!refreshInFlight) {
     refreshInFlight = (async () => {
@@ -90,7 +117,7 @@ export async function getFreshAccountSession(
       });
 
       if (error || !data.session) {
-        if (latestExpiresAtMs > 0 && latestExpiresAtMs <= Date.now()) {
+        if (sessionIsExpired(latestExpiresAtMs)) {
           clearAccountSession();
           return null;
         }
@@ -116,4 +143,69 @@ export async function getFreshAccountSession(
   }
 
   return refreshInFlight;
+}
+
+function withAccountAuthorization(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  accessToken: string,
+): RequestInit {
+  const headers = new Headers(input instanceof Request ? input.headers : undefined);
+  new Headers(init.headers).forEach((value, key) => headers.set(key, value));
+  headers.set("Authorization", `Bearer ${accessToken}`);
+
+  return {
+    ...init,
+    headers,
+    cache: init.cache || "no-store",
+  };
+}
+
+function unauthorizedResponse() {
+  return new Response(JSON.stringify({ error: "Unauthorized" }), {
+    status: 401,
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
+export async function fetchWithAccountSession(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+): Promise<Response> {
+  const session = await getFreshAccountSession();
+
+  if (!session?.access_token) {
+    return unauthorizedResponse();
+  }
+
+  let response = await fetch(
+    input,
+    withAccountAuthorization(input, init, session.access_token),
+  );
+
+  if (response.status !== 401) return response;
+
+  const refreshed = await getFreshAccountSession(0, true);
+
+  if (
+    !refreshed?.access_token ||
+    refreshed.access_token === session.access_token
+  ) {
+    clearAccountSession();
+    return response;
+  }
+
+  response = await fetch(
+    input,
+    withAccountAuthorization(input, init, refreshed.access_token),
+  );
+
+  if (response.status === 401) {
+    clearAccountSession();
+  }
+
+  return response;
 }
