@@ -65,10 +65,7 @@ export default function BuyerOrdersPage() {
   const [copiedTracking, setCopiedTracking] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!session?.access_token) {
-      setLoading(false);
-      return;
-    }
+    if (!session?.access_token) return;
 
     const controller = new AbortController();
 
