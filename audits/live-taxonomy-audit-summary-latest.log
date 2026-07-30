@@ -1,0 +1,90 @@
+{
+  "auditVersion": 3,
+  "generatedAt": "2026-07-30T21:35:44.868Z",
+  "activeProducts": 852,
+  "inventoryItems": 1370,
+  "currentCounts": {
+    "autograph": 210,
+    "memorabilia": 93,
+    "rookie": 124,
+    "graded": 54,
+    "numbered": 426
+  },
+  "strictCounts": {
+    "autograph": 210,
+    "memorabilia": 93,
+    "rookie": 124,
+    "graded": 54,
+    "numbered": 426
+  },
+  "falsePositiveCounts": {
+    "autograph": 0,
+    "memorabilia": 0,
+    "rookie": 0,
+    "graded": 0,
+    "numbered": 0
+  },
+  "falseNegativeCounts": {
+    "autograph": 0,
+    "memorabilia": 0,
+    "rookie": 0,
+    "graded": 0,
+    "numbered": 0
+  },
+  "sectionCounts": {
+    "Hockey": 375,
+    "Baseball": 165,
+    "Trading Card Games": 96,
+    "Football": 70,
+    "NBA": 56,
+    "WNBA": 53,
+    "Golf": 14,
+    "Wrestling": 4,
+    "Pucks": 4,
+    "Poker": 2,
+    "MMA / UFC": 2,
+    "Racing / NASCAR": 2,
+    "Watches & Accessories": 2,
+    "Skateboarding": 1,
+    "Soccer": 1,
+    "Signs & Display": 1,
+    "Entertainment & Pop Culture": 1,
+    "Photos & Prints": 1,
+    "Music": 1,
+    "Pins & Souvenirs": 1
+  },
+  "needsReviewCount": 0,
+  "sectionSuspectCount": 1,
+  "needsReview": [],
+  "sectionSuspects": [
+    {
+      "id": 1691,
+      "ebayItemId": "318109806177",
+      "title": "2025-26 SP Game Used Devon Toews 2025 4 Nations Face-Off Fabrics Auto Jersey",
+      "section": "Hockey",
+      "primaryCategory": "memorabilia",
+      "autographedAspect": null,
+      "signedBy": null,
+      "autographAuthentication": null,
+      "gradedAspect": null,
+      "professionalGrader": null,
+      "featuresAspect": null,
+      "parallelAspect": null,
+      "expectedObjectSection": "Jerseys"
+    }
+  ],
+  "falsePositives": {
+    "autograph": [],
+    "memorabilia": [],
+    "rookie": [],
+    "graded": [],
+    "numbered": []
+  },
+  "falseNegatives": {
+    "autograph": [],
+    "memorabilia": [],
+    "rookie": [],
+    "graded": [],
+    "numbered": []
+  }
+}
