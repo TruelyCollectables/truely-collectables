@@ -1,0 +1,337 @@
+name: Apply Launch 2 SOLD Migrations 20260730
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/apply-launch2-sold-migrations-20260730.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apply-launch2-sold-migrations-20260730
+  cancel-in-progress: false
+
+env:
+  EXPECTED_MAIN_SHA: 4bb20535f68d5d28bb83434ecda93a6ed8d96e9a
+  EXPECTED_BRANCH: ops/apply-launch2-sold-migrations-20260730
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
+  SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
+  ADMIN_SESSION_SECRET: build-validation-session-secret-that-is-long-enough
+  ADMIN_PASSWORD: build-validation-admin-password
+  CRON_SECRET: build-validation-cron-secret-that-is-long-enough
+  NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+  STRIPE_SECRET_KEY: sk_test_build_validation
+  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_validation
+  STRIPE_WEBHOOK_SECRET: whsec_build_validation
+  EBAY_CLIENT_ID: build-validation-client-id
+  EBAY_CLIENT_SECRET: build-validation-client-secret
+  EBAY_ENVIRONMENT: production
+  TCOS_LIVE_PAYMENTS_ENABLED: "false"
+  TCOS_SHIPPING_PURCHASE_MODE: dry_run
+  TCOS_LIVE_SHIPPING_ENABLED: "false"
+
+jobs:
+  validate-apply-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on exact operations scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          test "$(git diff --name-only "$EXPECTED_MAIN_SHA"...HEAD)" = ".github/workflows/apply-launch2-sold-migrations-20260730.yml"
+          git diff --check "$EXPECTED_MAIN_SHA"...HEAD
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Reprove exact source before database mutation
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          node scripts/run-sold-lifecycle-simulations.mjs
+          node scripts/run-sold-trigger-order-simulation.mjs
+          node scripts/run-privileged-api-route-audit.mjs
+          npm run simulate:privileged-route-auth
+          npm audit --audit-level=high
+          npm run lint
+          npx tsc --noEmit --pretty false
+          npm run build
+
+      - name: Resolve Production project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          mkdir -p .vercel "$RUNNER_TEMP/launch2-sold-production" evidence/launch2-sold-migrations
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/launch2-sold-production/production.env" \
+            --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Atomically apply complete migration and backfill chain
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+
+          const evidenceDir = path.join('evidence', 'launch2-sold-migrations');
+          const envPath = path.join(process.env.RUNNER_TEMP, 'launch2-sold-production', 'production.env');
+          const parsed = {};
+          for (const rawLine of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
+            const line = rawLine.trim();
+            if (!line || line.startsWith('#')) continue;
+            const index = line.indexOf('=');
+            if (index < 1) continue;
+            const key = line.slice(0, index).trim();
+            let value = line.slice(index + 1).trim();
+            if (value.startsWith('"') && value.endsWith('"')) {
+              try { value = JSON.parse(value); } catch { value = value.slice(1, -1); }
+            } else if (value.startsWith("'") && value.endsWith("'")) {
+              value = value.slice(1, -1);
+            }
+            parsed[key] = value;
+          }
+
+          const productionUrl = parsed.NEXT_PUBLIC_SUPABASE_URL;
+          if (!productionUrl || !/^https:\/\//.test(productionUrl)) {
+            throw new Error('Production NEXT_PUBLIC_SUPABASE_URL was not pulled.');
+          }
+          const projectRef = new URL(productionUrl).hostname.split('.')[0];
+          const token = process.env.GH_SUPABASE_ACCESS_TOKEN;
+          if (!projectRef || !token) throw new Error('Production Supabase management credentials are incomplete.');
+
+          const endpoint = `https://api.supabase.com/v1/projects/${projectRef}/database/query`;
+          const request = async (query, readOnly) => {
+            const response = await fetch(endpoint, {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ query, parameters: [], read_only: readOnly }),
+            });
+            const body = await response.text();
+            if (!response.ok) {
+              const safe = body
+                .replace(/postgres(?:ql)?:\/\/[^\s"']+/gi, 'postgresql://[REDACTED]')
+                .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [REDACTED]')
+                .slice(0, 4000);
+              throw new Error(`Supabase query failed with HTTP ${response.status}: ${safe}`);
+            }
+            return body ? JSON.parse(body) : [];
+          };
+
+          const migrations = [
+            '20260726050000_collectible_asset_lifecycle.sql',
+            '20260730001950_correct_offer_order_item_paid_prices.sql',
+            '20260730002000_sold_storefront_retention_and_sale_history.sql',
+            '20260730002100_manual_sale_ebay_outbox.sql',
+            '20260730002200_capture_ebay_inactive_sale_state.sql',
+            '20260730002300_refine_verified_sale_timestamps.sql',
+            '20260730002400_make_sale_recording_idempotent.sql',
+            '20260730002500_reset_sold_presentation_on_restock.sql',
+            '20260730002600_atomic_ebay_order_sales_and_outbox_scope.sql',
+            '20260730002700_run_sale_guards_before_restock_reset.sql',
+            '20260730002800_enforce_collx_inventory_boundary.sql',
+          ];
+          const sqlParts = [];
+          for (const name of migrations) {
+            let sql = fs.readFileSync(path.join('supabase', 'migrations', name), 'utf8').trim();
+            if (!sql) throw new Error(`Migration ${name} is empty.`);
+            const hasBegin = /^begin\s*;/i.test(sql);
+            const hasCommit = /commit\s*;\s*$/i.test(sql);
+            if (hasBegin !== hasCommit) throw new Error(`Migration ${name} has an incomplete transaction wrapper.`);
+            if (hasBegin) sql = sql.replace(/^begin\s*;/i, '').replace(/commit\s*;\s*$/i, '').trim();
+            if (/create\s+(?:unique\s+)?index\s+concurrently/i.test(sql)) {
+              throw new Error(`Migration ${name} cannot run inside the atomic chain.`);
+            }
+            sqlParts.push(`\n-- ${name}\n${sql}\n`);
+          }
+
+          const beforeSql = `
+            select json_build_object(
+              'collectible_assets_exists', to_regclass('public.collectible_assets') is not null,
+              'collectible_sales_exists', to_regclass('public.collectible_sales') is not null,
+              'collx_boundary_exists', to_regclass('public.collx_only_inventory_boundary_violations') is not null
+            ) as state;
+          `;
+          const before = await request(beforeSql, true);
+          const atomicSql = `begin;\n${sqlParts.join('\n')}\ncommit;`;
+          await request(atomicSql, false);
+
+          const afterSql = `
+            select json_build_object(
+              'collectible_assets', (select count(*) from public.collectible_assets),
+              'sale_records', (select count(*) from public.collectible_sales),
+              'historical_sales_before_2026_07_28', (
+                select count(*) from public.collectible_sales
+                where sold_at < '2026-07-28 00:00:00+00'::timestamptz
+              ),
+              'historical_verified_or_manual', (
+                select count(*) from public.collectible_sales
+                where sold_at < '2026-07-28 00:00:00+00'::timestamptz
+                  and sold_price is not null
+                  and evidence_status in ('verified','manual')
+              ),
+              'historical_unresolved', (
+                select count(*) from public.collectible_sales
+                where sold_at < '2026-07-28 00:00:00+00'::timestamptz
+                  and (sold_price is null or evidence_status = 'unresolved')
+              ),
+              'missing_historical_sale_rows', (
+                select count(*) from public.products p
+                where p.sold_at is not null
+                  and p.sold_at < '2026-07-28 00:00:00+00'::timestamptz
+                  and not exists (
+                    select 1 from public.collectible_sales s
+                    where s.store_id = p.store_id and s.legacy_product_id = p.id
+                  )
+              ),
+              'resolved_sales_missing_price', (
+                select count(*) from public.collectible_sales
+                where evidence_status in ('verified','manual') and sold_price is null
+              ),
+              'unresolved_sales_not_flagged', (
+                select count(*) from public.collectible_sales
+                where sold_price is null and evidence_status <> 'unresolved'
+              ),
+              'invalid_sales', (
+                select count(*) from public.collectible_sales
+                where sold_quantity <= 0 or sold_price < 0
+              ),
+              'duplicate_event_keys', (
+                select count(*) from (
+                  select store_id, event_key from public.collectible_sales
+                  group by store_id, event_key having count(*) > 1
+                ) duplicate_rows
+              ),
+              'collx_only_excluded_items', (
+                select count(*) from public.collx_only_inventory_boundary_violations
+              ),
+              'active_sale_guards', (
+                select count(*) from public.ebay_inbound_sale_guards where active
+              ),
+              'product_guard_violations', (
+                select count(*)
+                from public.ebay_inbound_sale_guards guard
+                join public.products product
+                  on product.store_id = guard.store_id
+                 and product.id = guard.legacy_product_id
+                where guard.active and product.quantity > guard.protected_quantity
+              ),
+              'inventory_guard_violations', (
+                select count(*)
+                from public.ebay_inbound_sale_guards guard
+                join public.inventory_items item
+                  on item.store_id = guard.store_id
+                 and item.legacy_product_id = guard.legacy_product_id
+                where guard.active and item.quantity > guard.protected_quantity
+              ),
+              'append_only_trigger', exists (
+                select 1 from pg_trigger
+                where tgname = 'collectible_sales_append_only' and not tgisinternal
+              ),
+              'archive_function', to_regprocedure('public.archive_expired_collectible_sales()') is not null,
+              'manual_sale_function', exists (
+                select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                where n.nspname = 'public' and p.proname = 'mark_collectible_sold_elsewhere'
+              ),
+              'ebay_sale_function', exists (
+                select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                where n.nspname = 'public' and p.proname = 'apply_ebay_order_collectible_sale'
+              )
+            ) as state;
+          `;
+          const after = await request(afterSql, true);
+          const state = after?.[0]?.state;
+          if (!state) throw new Error('Post-migration verification returned no state.');
+
+          const blockers = [];
+          for (const key of [
+            'missing_historical_sale_rows',
+            'resolved_sales_missing_price',
+            'unresolved_sales_not_flagged',
+            'invalid_sales',
+            'duplicate_event_keys',
+            'product_guard_violations',
+            'inventory_guard_violations',
+          ]) {
+            if (Number(state[key] || 0) !== 0) blockers.push(`${key}=${state[key]}`);
+          }
+          for (const key of ['append_only_trigger','archive_function','manual_sale_function','ebay_sale_function']) {
+            if (state[key] !== true) blockers.push(`${key}=false`);
+          }
+          if (blockers.length) throw new Error(`Post-migration blockers: ${blockers.join(', ')}`);
+
+          const receipt = {
+            schema: 'truelycollectables.launch2.soldMigrations.v1',
+            sourceSha: process.env.EXPECTED_MAIN_SHA,
+            appliedAt: new Date().toISOString(),
+            atomic: true,
+            migrationCount: migrations.length,
+            migrations,
+            before: before?.[0]?.state || null,
+            after: state,
+            blockers,
+            evidenceNotes: {
+              historicalUnresolvedPricesRemainExplicitlyFlagged: true,
+              noHistoricalPriceWasFabricatedByTheAudit: true,
+              collxOnlyRowsAreCountedAsExcludedNotMissingEbayInventory: true,
+            },
+          };
+          fs.writeFileSync(path.join(evidenceDir, 'migration-receipt.json'), `${JSON.stringify(receipt, null, 2)}\n`);
+          fs.writeFileSync(path.join(evidenceDir, 'migration-receipt.md'), [
+            '# Launch 2 SOLD migration receipt',
+            '',
+            `- Source SHA: \`${receipt.sourceSha}\``,
+            `- Applied atomically: ${receipt.atomic}`,
+            `- Migration count: ${receipt.migrationCount}`,
+            `- Sale records: ${state.sale_records}`,
+            `- Historical sales before July 28: ${state.historical_sales_before_2026_07_28}`,
+            `- Historical verified/manual prices: ${state.historical_verified_or_manual}`,
+            `- Historical unresolved prices: ${state.historical_unresolved}`,
+            `- CollX-only items excluded: ${state.collx_only_excluded_items}`,
+            `- Active inbound sale guards: ${state.active_sale_guards}`,
+            '- Blockers: none',
+            '',
+          ].join('\n'));
+          console.log(JSON.stringify({ ok: true, state }, null, 2));
+          NODE
+          rm -f "$RUNNER_TEMP/launch2-sold-production/production.env"
+
+      - name: Upload sanitized migration receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launch2-sold-production-migrations
+          path: evidence/launch2-sold-migrations
+          if-no-files-found: error
+          retention-days: 90
