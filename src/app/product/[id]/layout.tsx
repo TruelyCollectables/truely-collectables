@@ -24,6 +24,19 @@ function dateLabel(value: string | null) {
   }).format(date);
 }
 
+function isSoldRetentionExpired(saleState: {
+  sold_at?: string | null;
+  archive_after?: string | null;
+  archived_at?: string | null;
+} | null) {
+  if (!saleState?.sold_at) return false;
+  if (saleState.archived_at) return true;
+  if (!saleState.archive_after) return false;
+
+  const archiveTime = new Date(saleState.archive_after).getTime();
+  return Number.isFinite(archiveTime) && archiveTime <= Date.now();
+}
+
 export default async function ProductDetailLayout({
   children,
   params,
@@ -51,18 +64,7 @@ export default async function ProductDetailLayout({
     .eq("id", legacyProductId)
     .maybeSingle();
 
-  const archiveTime = saleState?.archive_after
-    ? new Date(saleState.archive_after).getTime()
-    : null;
-  const soldRetentionExpired = Boolean(
-    saleState?.sold_at &&
-      (saleState.archived_at ||
-        (archiveTime !== null &&
-          Number.isFinite(archiveTime) &&
-          archiveTime <= Date.now())),
-  );
-
-  if (soldRetentionExpired) {
+  if (isSoldRetentionExpired(saleState)) {
     notFound();
   }
 
