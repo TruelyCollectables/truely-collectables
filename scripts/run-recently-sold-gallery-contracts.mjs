@@ -14,8 +14,8 @@ assert.match(soldPage, /Recently Sold — See What You Missed/);
 assert.match(soldPage, /listRecentSoldStorefrontItems/);
 assert.match(gallery, /selectFrontBackListingImages/);
 assert.match(gallery, /inventory_images/);
-assert.match(gallery, /Front photo/);
-assert.match(gallery, /Back photo/);
+assert.match(gallery, /listingImageLabel/);
+assert.match(gallery, /front and back photos/);
 assert.match(productPage, /ProductImageGallery/);
 assert.match(productLayout, /ProductImageGallery/);
 
