@@ -71,6 +71,12 @@ for (const name of required) {
       .slice(0, 3000);
     throw new Error(`Unable to provision ${name}: ${safe}`);
   }
+
+  // Vercel may omit write-only/sensitive values from a later env pull. Keep the
+  // generated value only in this runner's ephemeral env file so the exact new
+  // deployment can be verified, then the workflow deletes the file.
+  fs.appendFileSync(envPath, `\n${name}=${JSON.stringify(value)}\n`, { mode: 0o600 });
+  current[name] = value;
   provisionedNames.push(name);
 }
 
@@ -83,6 +89,7 @@ fs.writeFileSync(
       requiredNames: required,
       provisionedNames,
       valuesRecorded: false,
+      ephemeralRuntimeValuesRetained: provisionedNames.length > 0,
       generatedAt: new Date().toISOString(),
     },
     null,
