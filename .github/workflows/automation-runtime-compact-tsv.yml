@@ -1,0 +1,68 @@
+name: Build Compact Automation Runtime TSV
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/automation-runtime-compact-tsv.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build compact TSV
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,hashlib,re
+          RUN='dh-20260730T170046Z-7d4c2a91'; SEQ=4
+          with open('tmp/automation-runtime-results.json') as f: raw=json.load(f)
+          observed=raw.get('fetchedAt') or '2026-07-30T17:05:44Z'
+          labels={'wnba':'WNBA','ivan_demidov':'IVAN DEMIDOV','matvei_michkov_young_guns':'MICHKOV YOUNG GUNS','matvei_michkov_opc_platinum':'MICHKOV OPC PLATINUM','baseball_prospects':'BASEBALL PROSPECTS','signed_baseballs':'SIGNED BASEBALLS'}
+          def clean(v):
+            if v is None:return ''
+            if isinstance(v,bool):return 'TRUE' if v else 'FALSE'
+            s=str(v).replace('\t',' ').replace('\r',' ').replace('\n',' ').strip()
+            if s[:1] in '=+-@':s="'"+s
+            return s
+          def j(v):return json.dumps(v,separators=(',',':'),ensure_ascii=False)
+          merged={}
+          for ep,o in raw.get('endpoints',{}).items():
+            for c in (o.get('data') or {}).get('results') or []:
+              k=str(c.get('listingItemId') or c.get('listingUrl') or '')
+              if not k:continue
+              if k not in merged:merged[k]={'eps':set([ep]),**c}
+              else:
+                m=merged[k];m['eps'].add(ep);m['queryFamilyIds']=sorted(set((m.get('queryFamilyIds') or [])+(c.get('queryFamilyIds') or [])));m['preliminaryRisks']=sorted(set((m.get('preliminaryRisks') or [])+(c.get('preliminaryRisks') or [])))
+          with open('tmp/automation-runtime-candidates-compact.tsv','w') as f:
+            for k,c in sorted(merged.items(),key=lambda x:(sorted(x[1]['eps'])[0],str(x[1].get('listingItemId') or ''))):
+              eps=sorted(c.pop('eps')); dig=hashlib.sha1(('|'.join(eps)+'|'+k).encode()).hexdigest()[:18]
+              cid='cand-s4-ebay-'+dig
+              rawid=str(c.get('listingItemId') or '')
+              num=(re.findall(r'\d{9,15}',rawid) or re.findall(r'/itm/(\d{9,15})',str(c.get('listingUrl') or '')) or [''])[0]
+              url='https://www.ebay.com/itm/'+num if num else str(c.get('listingUrl') or '').split('?')[0]
+              imgs=c.get('imageUrls') or []
+              qids=c.get('queryFamilyIds') or []
+              risks=c.get('preliminaryRisks') or []
+              row=['']*77
+              vals={0:cid,1:RUN,2:SEQ,3:observed,4:' + '.join(labels.get(e,e) for e in eps)+' / '+str(c.get('lane') or ''),5:c.get('watchedPerson') or ', '.join(c.get('watchedPersons') or []),6:c.get('itemType'),7:'eBay',8:c.get('sellerName'),10:rawid,11:url,12:'LIVE',13:str(c.get('title') or '')[:240],14:j({'q':qids,'s':c.get('preliminaryScopeStatus')}),15:j({'status':'UNVERIFIED'}),16:'preliminary|'+dig,17:'ebay|'+str(c.get('sellerName') or 'unknown')+'|'+rawid,18:(imgs[0] if imgs else ''),20:False,21:False,22:False,23:False,24:'{}',35:'UNASSESSED',36:j(risks),37:c.get('itemPrice'),38:c.get('inboundShipping'),55:'INSUFFICIENT',72:'MANUAL REVIEW / UNPRICED',73:False,74:False,75:j(['identity_unverified','exact_comps_missing','full_costs_unknown','owned_copy_check_missing']+risks),76:j({'ep':eps,'q':qids,'id':rawid})}
+              for i,v in vals.items():row[i]=v
+              f.write('\t'.join(clean(v) for v in row)+'\n')
+          PY
+      - name: Commit compact TSV
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tmp/automation-runtime-candidates-compact.tsv
+          git commit -m 'Build compact automation runtime candidate rows' || exit 0
+          git push origin HEAD:main
