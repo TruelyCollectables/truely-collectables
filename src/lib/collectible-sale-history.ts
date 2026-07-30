@@ -2,9 +2,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { extractAuthenticityProfile } from "./authenticity";
 import { isMergedEbayAliasItemId } from "./ebay-merged-listing-groups";
 import { isLaunchCollectible } from "./sports-card-launch-scope";
+import { deriveStrictStorefrontFeatures } from "./storefront-feature-evidence";
 import {
   classifyStorefrontItem,
   matchesStorefrontFilters,
+  normalizeStorefrontFeature,
   sortStorefrontItems,
   type StorefrontSort,
 } from "./storefront-taxonomy";
@@ -176,11 +178,13 @@ export async function listRecentSoldStorefrontItems(params: {
     }
   }
 
+  const requestedFeature = normalizeStorefrontFeature(params.feature);
   const soldItems = products
     .map((product: any) => {
       const inventory = inventoryByProduct.get(Number(product.id)) || null;
+      const title = String(product.title || "Untitled");
       const classification = classifyStorefrontItem({
-        title: product.title || "Untitled",
+        title,
         description: product.description || null,
         rawSport: product.sport || null,
         primaryCategory: inventory?.category || null,
@@ -197,14 +201,17 @@ export async function listRecentSoldStorefrontItems(params: {
         legacyProductId: Number(product.id),
         sellerAccountId: product.seller_account_id || null,
         sku: product.sku || inventory?.sku || null,
-        title: String(product.title || "Untitled"),
+        title,
         description: product.description || null,
         player: product.player || null,
         sport: classification.section,
         category: inventory?.category || null,
         storefrontSection: classification.section,
         league: classification.league,
-        features: classification.features,
+        features: deriveStrictStorefrontFeatures({
+          title,
+          section: classification.section,
+        }),
         price: soldPrice ?? safeNumber(product.price),
         quantity: 0,
         imageUrl: product.image_url || null,
@@ -232,12 +239,17 @@ export async function listRecentSoldStorefrontItems(params: {
       matchesStorefrontFilters(item, {
         query: params.query,
         section: params.section,
-        feature: params.feature,
+        feature: undefined,
         category: params.category,
       }),
-    );
+    )
+    .filter((item) => !requestedFeature || item.features[requestedFeature]);
 
-  if (params.sort === "price_low" || params.sort === "price_high" || params.sort === "title") {
+  if (
+    params.sort === "price_low" ||
+    params.sort === "price_high" ||
+    params.sort === "title"
+  ) {
     return sortStorefrontItems(soldItems, params.sort);
   }
 
@@ -296,27 +308,29 @@ export async function listAdminSaleHistory(params: {
   limit?: number;
 }): Promise<AdminSaleHistory> {
   const limit = Math.min(Math.max(params.limit || 250, 1), 1000);
-  const [{ data: sales, error: salesError }, { data: unresolved, error: unresolvedError }] =
-    await Promise.all([
-      params.supabase
-        .from("collectible_sales")
-        .select(
-          "id,store_id,asset_id,legacy_product_id,inventory_item_id,sku,ebay_item_id,event_key,source_marketplace,source_reference,sold_quantity,sold_price,currency,sold_at,evidence_status,evidence",
-        )
-        .eq("store_id", params.storeId)
-        .order("sold_at", { ascending: false })
-        .limit(limit),
-      params.supabase
-        .from("products")
-        .select(
-          "id,title,sku,ebay_item_id,price,sold_at,sold_source,sold_reference",
-        )
-        .eq("store_id", params.storeId)
-        .lte("quantity", 0)
-        .is("sold_price", null)
-        .order("id", { ascending: false })
-        .limit(limit),
-    ]);
+  const [
+    { data: sales, error: salesError },
+    { data: unresolved, error: unresolvedError },
+  ] = await Promise.all([
+    params.supabase
+      .from("collectible_sales")
+      .select(
+        "id,store_id,asset_id,legacy_product_id,inventory_item_id,sku,ebay_item_id,event_key,source_marketplace,source_reference,sold_quantity,sold_price,currency,sold_at,evidence_status,evidence",
+      )
+      .eq("store_id", params.storeId)
+      .order("sold_at", { ascending: false })
+      .limit(limit),
+    params.supabase
+      .from("products")
+      .select(
+        "id,title,sku,ebay_item_id,price,sold_at,sold_source,sold_reference",
+      )
+      .eq("store_id", params.storeId)
+      .lte("quantity", 0)
+      .is("sold_price", null)
+      .order("id", { ascending: false })
+      .limit(limit),
+  ]);
 
   if (salesError) throw salesError;
   if (unresolvedError) throw unresolvedError;
@@ -327,7 +341,9 @@ export async function listAdminSaleHistory(params: {
       storeId: String(row.store_id),
       assetId: String(row.asset_id),
       legacyProductId: Number(row.legacy_product_id),
-      inventoryItemId: row.inventory_item_id ? String(row.inventory_item_id) : null,
+      inventoryItemId: row.inventory_item_id
+        ? String(row.inventory_item_id)
+        : null,
       sku: row.sku ? String(row.sku) : null,
       ebayItemId: row.ebay_item_id ? String(row.ebay_item_id) : null,
       eventKey: String(row.event_key),

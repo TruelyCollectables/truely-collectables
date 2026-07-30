@@ -5,16 +5,25 @@ on:
     branches:
       - main
       - agent/live-taxonomy-repair-20260730
+      - agent/run-live-taxonomy-audit-20260730
     paths:
       - ".github/workflows/live-storefront-taxonomy-audit-20260730.yml"
-      - "scripts/run-live-storefront-taxonomy-audit.ts"
+      - "scripts/apply-production-collx-boundary-grant.mts"
+      - "scripts/run-live-storefront-taxonomy-audit-v3.mts"
+      - "scripts/run-autograph-image-contact-sheet.mts"
+      - "scripts/run-storefront-feature-evidence-regressions.ts"
+      - "src/lib/storefront-feature-evidence.ts"
       - "src/lib/storefront-taxonomy.ts"
       - "src/lib/server-inventory-engine.ts"
   pull_request:
     branches: [main]
     paths:
       - ".github/workflows/live-storefront-taxonomy-audit-20260730.yml"
-      - "scripts/run-live-storefront-taxonomy-audit.ts"
+      - "scripts/apply-production-collx-boundary-grant.mts"
+      - "scripts/run-live-storefront-taxonomy-audit-v3.mts"
+      - "scripts/run-autograph-image-contact-sheet.mts"
+      - "scripts/run-storefront-feature-evidence-regressions.ts"
+      - "src/lib/storefront-feature-evidence.ts"
       - "src/lib/storefront-taxonomy.ts"
       - "src/lib/server-inventory-engine.ts"
   workflow_dispatch:
@@ -27,11 +36,12 @@ env:
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
   VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
   VERCEL_SCOPE: truelycollectables-projects
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
 jobs:
   audit-production-taxonomy:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Check out audit branch
         uses: actions/checkout@v4
@@ -45,11 +55,16 @@ jobs:
       - name: Install exact dependencies
         run: npm ci
 
+      - name: Run storefront feature evidence regressions
+        run: npx tsx scripts/run-storefront-feature-evidence-regressions.ts
+
       - name: Pull Production environment
         shell: bash
         run: |
           set -euo pipefail
           test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
           mkdir -p .vercel "$RUNNER_TEMP/live-taxonomy-audit"
           if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
             printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
@@ -59,6 +74,55 @@ jobs:
           npx vercel@56.2.0 env pull "$RUNNER_TEMP/live-taxonomy-audit/production.env" \
             --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
 
+      - name: Repair Production CollX boundary grant
+        shell: bash
+        env:
+          PRODUCTION_ENV_FILE: ${{ runner.temp }}/live-taxonomy-audit/production.env
+        run: |
+          set -euo pipefail
+          npx tsx scripts/apply-production-collx-boundary-grant.mts | tee "$RUNNER_TEMP/live-taxonomy-audit/collx-boundary-grant.log"
+
+      - name: Verify live shop and category routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/live-taxonomy-audit/live-smoke"
+          stamp="${GITHUB_SHA:0:12}-$(date +%s)"
+          routes=(
+            "shop"
+            "shop?feature=autograph"
+            "shop?feature=memorabilia"
+            "shop?feature=rookie"
+            "shop?feature=graded"
+            "shop?feature=numbered"
+          )
+          for index in "${!routes[@]}"; do
+            route="${routes[$index]}"
+            separator="?"
+            if [[ "$route" == *"?"* ]]; then separator="&"; fi
+            output="$RUNNER_TEMP/live-taxonomy-audit/live-smoke/route-$index.html"
+            curl --fail --silent --show-error --location --retry 4 --retry-all-errors \
+              -H "Cache-Control: no-cache" \
+              -A "TruelyCollectablesTaxonomyAudit/1.0" \
+              "https://truelycollectables.com/${route}${separator}taxonomy_repair=${stamp}-${index}" \
+              -o "$output"
+            if grep -Fqi "Error loading products" "$output"; then
+              echo "Live route failed: /$route"
+              grep -Fi "Error loading products" -A 3 "$output" || true
+              exit 1
+            fi
+            if grep -Fqi "permission denied for view collx_only_inventory_boundary_violations" "$output"; then
+              echo "CollX boundary permission failure remains on /$route"
+              exit 1
+            fi
+            if ! grep -Eqi "Shop Sports Cards|Autographed Items|Memorabilia Cards|Rookie Cards|Graded Cards|Numbered Cards|All Inventory" "$output"; then
+              echo "Expected storefront content missing on /$route"
+              exit 1
+            fi
+            echo "PASS /$route"
+          done
+          printf '%s\n' "All live storefront category routes passed." | tee "$RUNNER_TEMP/live-taxonomy-audit/live-smoke-summary.log"
+
       - name: Audit every active Production listing
         shell: bash
         env:
@@ -66,7 +130,16 @@ jobs:
           AUDIT_OUTPUT: ${{ runner.temp }}/live-taxonomy-audit/live-taxonomy-audit.json
         run: |
           set -euo pipefail
-          npx tsx scripts/run-live-storefront-taxonomy-audit.ts | tee "$RUNNER_TEMP/live-taxonomy-audit/summary.log"
+          npx tsx scripts/run-live-storefront-taxonomy-audit-v3.mts | tee "$RUNNER_TEMP/live-taxonomy-audit/summary.log"
+
+      - name: Build autograph image contact sheets
+        shell: bash
+        env:
+          PRODUCTION_ENV_FILE: ${{ runner.temp }}/live-taxonomy-audit/production.env
+          AUTOGRAPH_SHEET_DIR: ${{ runner.temp }}/live-taxonomy-audit/autograph-contact-sheets
+        run: |
+          set -euo pipefail
+          npx tsx scripts/run-autograph-image-contact-sheet.mts | tee "$RUNNER_TEMP/live-taxonomy-audit/autograph-contact-sheet-summary.log"
           rm -f "$PRODUCTION_ENV_FILE"
 
       - name: Record latest audit receipt on main
@@ -87,12 +160,16 @@ jobs:
           git commit -m "Record live storefront taxonomy audit [skip ci]"
           git push
 
-      - name: Upload taxonomy audit receipt
+      - name: Upload taxonomy and image audit receipt
         uses: actions/upload-artifact@v4
         with:
           name: live-taxonomy-audit-20260730
           path: |
+            ${{ runner.temp }}/live-taxonomy-audit/collx-boundary-grant.log
+            ${{ runner.temp }}/live-taxonomy-audit/live-smoke-summary.log
             ${{ runner.temp }}/live-taxonomy-audit/live-taxonomy-audit.json
             ${{ runner.temp }}/live-taxonomy-audit/summary.log
+            ${{ runner.temp }}/live-taxonomy-audit/autograph-contact-sheet-summary.log
+            ${{ runner.temp }}/live-taxonomy-audit/autograph-contact-sheets/**
           if-no-files-found: error
           retention-days: 7
