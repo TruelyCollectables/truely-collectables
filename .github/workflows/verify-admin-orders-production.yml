@@ -13,14 +13,14 @@ on:
       - "src/app/api/build-info/route.ts"
       - "scripts/verify-live-admin-orders-release.mjs"
       - ".github/workflows/verify-admin-orders-production.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/verify-admin-orders-production.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
-
-concurrency:
-  group: verify-admin-orders-production
-  cancel-in-progress: false
 
 jobs:
   verify-live-production:
