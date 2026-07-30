@@ -1,4 +1,4 @@
-name: Verify Admin Orders Production
+name: Verify Clean Admin Orders Production
 
 on:
   pull_request:
@@ -11,15 +11,11 @@ permissions:
   contents: read
 
 jobs:
-  verify-live-production:
+  verify-clean-production:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-      VERCEL_SCOPE: truelycollectables-projects
+    timeout-minutes: 30
     steps:
-      - name: Checkout merged source
+      - name: Checkout cleaned source
         uses: actions/checkout@v4
 
       - name: Setup Node
@@ -27,161 +23,85 @@ jobs:
         with:
           node-version: 24
 
-      - name: Link existing Vercel project and pull public Production locator
+      - name: Confirm manual deployment guard in source
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e '
+            const config = require("./vercel.json");
+            const enabled = config?.git?.deploymentEnabled;
+            if (!enabled || enabled["*"] !== false || enabled.main !== false) {
+              throw new Error("Manual-only Vercel Git deployment guard is not restored.");
+            }
+            console.log("SOURCE_MANUAL_VERCEL_DEPLOYMENT_GUARD=passed");
+          '
+
+      - name: Link existing Vercel project
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
           test -n "$VERCEL_TOKEN"
-          test -n "$SUPABASE_ACCESS_TOKEN"
-          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
-          mkdir -p .vercel "$RUNNER_TEMP/platform-fee-live-apply"
           npm exec --yes --package=vercel@56.2.0 -- vercel link \
             --yes \
             --project truely-collectables \
-            --scope "$VERCEL_SCOPE" \
-            --token "$VERCEL_TOKEN" >/dev/null
-          npm exec --yes --package=vercel@56.2.0 -- vercel env pull \
-            "$RUNNER_TEMP/platform-fee-live-apply/production.env" \
+            --scope truelycollectables-projects \
+            --token "$VERCEL_TOKEN"
+
+      - name: Deploy cleaned source to Production
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm exec --yes --package=vercel@56.2.0 -- vercel \
+            --prod \
             --yes \
-            --environment production \
-            --scope "$VERCEL_SCOPE" \
-            --token "$VERCEL_TOKEN" >/dev/null
+            --scope truelycollectables-projects \
+            --token "$VERCEL_TOKEN"
 
-      - name: Apply and verify the single Production DELETE grant
+      - name: Verify cleaned live Production
         shell: bash
         run: |
           set -euo pipefail
-          node --input-type=module - <<'NODE'
-          import fs from 'node:fs';
-          import path from 'node:path';
+          origin='https://truelycollectables.com'
 
-          const envPath = path.join(
-            process.env.RUNNER_TEMP,
-            'platform-fee-live-apply',
-            'production.env',
-          );
-          const text = fs.readFileSync(envPath, 'utf8');
-          const parsed = {};
-          for (const rawLine of text.split(/\r?\n/)) {
-            const line = rawLine.trim();
-            if (!line || line.startsWith('#')) continue;
-            const index = line.indexOf('=');
-            if (index < 1) continue;
-            const key = line.slice(0, index).trim();
-            let value = line.slice(index + 1).trim();
-            if (value.startsWith('"') && value.endsWith('"')) {
-              try { value = JSON.parse(value); } catch { value = value.slice(1, -1); }
-            } else if (value.startsWith("'") && value.endsWith("'")) {
-              value = value.slice(1, -1);
-            }
-            parsed[key] = value;
+          wait_for_status() {
+            local path="$1"
+            local expected="$2"
+            local method="${3:-GET}"
+            local body="${4:-}"
+            local content_type="${5:-}"
+
+            for attempt in $(seq 1 72); do
+              args=(--silent --show-error --max-time 30 --request "$method" --output /tmp/verify-body --write-out '%{http_code}')
+              if [ -n "$content_type" ]; then args+=(--header "Content-Type: $content_type"); fi
+              if [ -n "$body" ]; then args+=(--data "$body"); fi
+              status="$(curl "${args[@]}" "$origin$path" || true)"
+              if [ "$status" = "$expected" ]; then
+                echo "LIVE_STATUS_${path//[^A-Za-z0-9]/_}=$status"
+                return 0
+              fi
+              echo "Attempt $attempt/72: $method $path returned $status; expected $expected."
+              sleep 10
+            done
+            return 1
           }
 
-          const productionUrl = parsed.NEXT_PUBLIC_SUPABASE_URL;
-          if (!productionUrl || !/^https:\/\//.test(productionUrl)) {
-            throw new Error('Production Supabase project locator is unavailable.');
-          }
-          const projectRef = new URL(productionUrl).hostname.split('.')[0];
-          const token = process.env.SUPABASE_ACCESS_TOKEN;
-          if (!projectRef || !token) throw new Error('Production SQL authorization is unavailable.');
+          wait_for_status '/' '200'
+          wait_for_status '/admin/login' '200'
+          wait_for_status '/api/release/admin-orders-self-test' '404'
+          wait_for_status '/api/build-info' '404'
+          wait_for_status '/api/orders/refund' '401' 'POST' '{"orderId":6,"reason":"Verification only","confirmed":false}' 'application/json'
+          wait_for_status '/api/admin/session/refresh' '401' 'POST'
+          wait_for_status '/api/admin/reconcile-platform-fees' '401' 'POST'
 
-          const endpoint = `https://api.supabase.com/v1/projects/${projectRef}/database/query`;
-          const request = async (query, readOnly) => {
-            const response = await fetch(endpoint, {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${token}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({ query, parameters: [], read_only: readOnly }),
-            });
-            const body = await response.text();
-            if (!response.ok) {
-              const safe = body
-                .replace(/postgres(?:ql)?:\/\/[^\s"']+/gi, 'postgresql://[REDACTED]')
-                .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [REDACTED]')
-                .slice(0, 4000);
-              throw new Error(`Supabase Production grant apply failed with HTTP ${response.status}: ${safe}`);
-            }
-            return body ? JSON.parse(body) : [];
-          };
-
-          const privilegeSql = `
-            select
-              has_table_privilege('service_role', 'public.platform_fee_ledger_entries', 'DELETE') as service_role_delete,
-              has_table_privilege('anon', 'public.platform_fee_ledger_entries', 'DELETE') as anon_delete,
-              has_table_privilege('authenticated', 'public.platform_fee_ledger_entries', 'DELETE') as authenticated_delete;
-          `;
-          const before = await request(privilegeSql, true);
-          const beforeRow = before?.[0] || {};
-          if (beforeRow.anon_delete === true || beforeRow.authenticated_delete === true) {
-            throw new Error('A public role has DELETE permission on the platform fee ledger.');
-          }
-
-          if (beforeRow.service_role_delete !== true) {
-            const migration = fs.readFileSync(
-              path.join(
-                'supabase',
-                'migrations',
-                '20260730050000_grant_platform_fee_delete_service_role.sql',
-              ),
-              'utf8',
-            );
-            await request(migration, false);
-          }
-
-          const after = await request(privilegeSql, true);
-          const afterRow = after?.[0] || {};
-          if (
-            afterRow.service_role_delete !== true ||
-            afterRow.anon_delete === true ||
-            afterRow.authenticated_delete === true
-          ) {
-            throw new Error('Production platform fee grant verification failed.');
-          }
-
-          console.log(`LIVE_PLATFORM_FEE_DELETE_BEFORE=${beforeRow.service_role_delete === true}`);
-          console.log('LIVE_PLATFORM_FEE_SERVICE_ROLE_DELETE=true');
-          console.log('LIVE_PLATFORM_FEE_PUBLIC_DELETE=false');
-          NODE
-          rm -f "$RUNNER_TEMP/platform-fee-live-apply/production.env"
-
-      - name: Prove live admin session, refund guard, and direct-store fee cleanup
-        shell: bash
-        run: |
-          set -euo pipefail
-          endpoint='https://truelycollectables.com/api/release/admin-orders-self-test'
-          status="$(curl \
-            --silent \
-            --show-error \
-            --max-time 120 \
-            --request POST \
-            --header "Authorization: Bearer $VERCEL_TOKEN" \
-            --output /tmp/admin-orders-self-test.json \
-            --write-out '%{http_code}' \
-            "$endpoint" || true)"
-          body="$(cat /tmp/admin-orders-self-test.json 2>/dev/null || true)"
-          echo "LIVE_RUNTIME_STATUS=$status"
-          echo "LIVE_RUNTIME_BODY=${body:-<empty>}"
-
-          [ "$status" = '200' ]
-          SELF_TEST_BODY="$body" node -e '
-            const result = JSON.parse(process.env.SELF_TEST_BODY || "{}");
-            const passed =
-              result.success === true &&
-              result.release === "admin-session-refund-fee-fix-2026-07-29-2115-mt" &&
-              result.adminNavigation === "passed" &&
-              result.sessionRefresh === "passed" &&
-              result.refundConfirmationGuard === "passed" &&
-              result.refundIssued === false &&
-              result.directStoreTcosFeesRemaining === 0;
-            if (!passed) process.exit(1);
-            console.log(`LIVE_PRODUCTION_RELEASE=${result.release}`);
-            console.log(`LIVE_ADMIN_ORDER_ID=${result.orderId}`);
-            console.log(`LIVE_ADMIN_NAVIGATION=${result.adminNavigation}`);
-            console.log(`LIVE_SESSION_REFRESH=${result.sessionRefresh}`);
-            console.log(`LIVE_REFUND_CONFIRMATION_GUARD=${result.refundConfirmationGuard}`);
-            console.log(`LIVE_REFUND_ISSUED=${result.refundIssued}`);
-            console.log(`LIVE_DIRECT_STORE_TCOS_FEES_REMAINING=${result.directStoreTcosFeesRemaining}`);
-            console.log(`LIVE_REMOVED_DIRECT_STORE_FEE_ROWS=${result.removedDirectStoreFeeRows}`);
-          '
+          headers="$(curl --silent --show-error --max-time 30 --request GET --dump-header - --output /dev/null "$origin/admin/orders")"
+          status="$(printf '%s' "$headers" | awk 'NR==1 {print $2}')"
+          location="$(printf '%s' "$headers" | awk 'BEGIN{IGNORECASE=1} /^location:/ {sub(/^[^:]+:[[:space:]]*/,""); sub(/\r$/,""); print; exit}')"
+          case "$status" in 301|302|303|307|308) ;; *) echo "Unexpected admin orders status: $status"; exit 1 ;; esac
+          printf '%s' "$location" | grep -F '/admin/login'
+          echo "LIVE_ADMIN_ORDERS_UNAUTHENTICATED_REDIRECT=passed"
+          echo "LIVE_TEMPORARY_VERIFIER_ROUTES_REMOVED=passed"
+          echo "LIVE_ADMIN_API_AUTHORIZATION=passed"
