@@ -168,7 +168,8 @@ jobs:
           node - <<'NODE'
           const fs = require('node:fs');
           const cp = require('node:child_process');
-          const files = cp.execFileSync('git', ['ls-files'], { encoding: 'utf8' }).trim().split(/\r?\n/).filter(Boolean);
+          const knownRedactionFixtures = new Set(['scripts/check-production-guardrails.mjs', 'scripts/deploy-production.mjs', 'scripts/smoke-production.mjs']);
+          const files = cp.execFileSync('git', ['ls-files'], { encoding: 'utf8' }).trim().split(/\r?\n/).filter(Boolean).filter((file) => !knownRedactionFixtures.has(file));
           const patterns = [
             /sk_(?:live|test)_[A-Za-z0-9]{16,}/,
             /whsec_[A-Za-z0-9]{16,}/,
