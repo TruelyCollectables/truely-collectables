@@ -1,0 +1,72 @@
+name: Live Storefront Taxonomy Audit 20260730
+
+on:
+  push:
+    branches:
+      - agent/live-taxonomy-repair-20260730
+    paths:
+      - ".github/workflows/live-storefront-taxonomy-audit-20260730.yml"
+      - "scripts/run-live-storefront-taxonomy-audit.ts"
+      - "src/lib/storefront-taxonomy.ts"
+      - "src/lib/server-inventory-engine.ts"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  VERCEL_SCOPE: truelycollectables-projects
+
+jobs:
+  audit-production-taxonomy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out audit branch
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Pull Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p .vercel "$RUNNER_TEMP/live-taxonomy-audit"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/live-taxonomy-audit/production.env" \
+            --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Audit every active Production listing
+        shell: bash
+        env:
+          PRODUCTION_ENV_FILE: ${{ runner.temp }}/live-taxonomy-audit/production.env
+          AUDIT_OUTPUT: ${{ runner.temp }}/live-taxonomy-audit/live-taxonomy-audit.json
+        run: |
+          set -euo pipefail
+          npx tsx scripts/run-live-storefront-taxonomy-audit.ts | tee "$RUNNER_TEMP/live-taxonomy-audit/summary.log"
+          rm -f "$PRODUCTION_ENV_FILE"
+
+      - name: Upload taxonomy audit receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-taxonomy-audit-20260730
+          path: |
+            ${{ runner.temp }}/live-taxonomy-audit/live-taxonomy-audit.json
+            ${{ runner.temp }}/live-taxonomy-audit/summary.log
+          if-no-files-found: error
+          retention-days: 7
