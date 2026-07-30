@@ -8,6 +8,7 @@ set search_path = public
 as $$
 declare
   inactive_at_text text;
+  previous_inactive_at_text text;
   inactive_at_value timestamptz;
   listing_id text;
   source_label text;
@@ -18,19 +19,18 @@ begin
 
   inactive_at_text := coalesce(new.metadata, '{}'::jsonb)
     ->> 'ebay_not_active_at_last_full_sync';
+  previous_inactive_at_text := coalesce(old.metadata, '{}'::jsonb)
+    ->> 'ebay_not_active_at_last_full_sync';
 
   if inactive_at_text is null or btrim(inactive_at_text) = '' then
     return new;
   end if;
 
-  if new.status <> 'sold' or coalesce(new.quantity, 0) > 0 then
+  if previous_inactive_at_text is not distinct from inactive_at_text then
     return new;
   end if;
 
-  if old.status = 'sold'
-     and coalesce(old.quantity, 0) <= 0
-     and coalesce(old.metadata, '{}'::jsonb)
-       ->> 'ebay_not_active_at_last_full_sync' = inactive_at_text then
+  if new.status <> 'sold' or coalesce(new.quantity, 0) > 0 then
     return new;
   end if;
 
