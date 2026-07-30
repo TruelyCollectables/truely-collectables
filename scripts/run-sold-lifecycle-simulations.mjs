@@ -5,6 +5,9 @@ function read(path) {
   return fs.readFileSync(path, "utf8");
 }
 
+const offerPriceMigration = read(
+  "supabase/migrations/20260730001950_correct_offer_order_item_paid_prices.sql",
+);
 const saleMigration = read(
   "supabase/migrations/20260730002000_sold_storefront_retention_and_sale_history.sql",
 );
@@ -23,6 +26,12 @@ const admin = read("src/app/admin/sales-history/page.tsx");
 const archiveCron = read("src/app/api/cron/sold-collectible-archive/route.ts");
 const ebayOrderCron = read("src/app/api/cron/ebay-order-sale-sync/route.ts");
 const vercel = JSON.parse(read("vercel.json"));
+
+assert.match(offerPriceMigration, /stripe_session_id = order_row\.stripe_session_id/);
+assert.match(offerPriceMigration, /coalesce\(offer_row\.counter_amount, offer_row\.offer_amount\)/);
+assert.match(offerPriceMigration, /before insert or update/);
+assert.match(offerPriceMigration, /update public\.order_items/);
+assert.match(offerPriceMigration, /new\.price := paid_offer_price/);
 
 assert.match(saleMigration, /create table if not exists public\.collectible_sales/);
 assert.match(saleMigration, /unique \(store_id, event_key\)/);
@@ -51,6 +60,8 @@ assert.match(saleHistory, /SOLD_STOREFRONT_RETENTION_DAYS = 7/);
 assert.match(saleHistory, /listRecentSoldStorefrontItems/);
 assert.match(saleHistory, /\.gte\("sold_at", cutoff\)/);
 assert.match(saleHistory, /\.is\("archived_at", null\)/);
+assert.match(saleHistory, /isLaunchCollectible/);
+assert.match(saleHistory, /isMergedEbayAliasItemId/);
 assert.match(saleHistory, /listAdminSaleHistory/);
 assert.match(saleHistory, /\.is\("sold_price", null\)/);
 
@@ -110,7 +121,7 @@ console.log(
       soldRetentionDays: 7,
       ebayOrderPollingMinutes: 5,
       authoritativeEbayPollingMinutes: 15,
-      checks: 53,
+      checks: 60,
     },
     null,
     2,
