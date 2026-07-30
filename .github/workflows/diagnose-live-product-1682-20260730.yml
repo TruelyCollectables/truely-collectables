@@ -1,0 +1,39 @@
+name: Diagnose Live Product 1682 20260730
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/diagnose-live-product-1682-20260730.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'ops/deploy-ebay-full-picture-import-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Inspect live product and image API
+        shell: bash
+        run: |
+          set -euo pipefail
+          product="$RUNNER_TEMP/product.html"
+          api="$RUNNER_TEMP/images.json"
+          product_status="$(curl -sS -L --max-time 60 -o "$product" -w '%{http_code}' "https://truelycollectables.com/product/1682?diagnose=${GITHUB_RUN_ID}")"
+          api_status="$(curl -sS -L --max-time 60 -o "$api" -w '%{http_code}' "https://truelycollectables.com/api/storefront/product-images/1682?diagnose=${GITHUB_RUN_ID}")"
+          echo "product_status=$product_status api_status=$api_status"
+          echo "IMAGE API:"
+          cat "$api"
+          echo
+          echo "PRODUCT MARKERS:"
+          grep -Eio '.{0,120}(Front photo|Back photo|Back photo unavailable|Product Not Found|Missing Supabase|permission denied).{0,200}' "$product" | head -n 30 || true
+          echo "eBay image identities in page:"
+          grep -Eo 'https://i\.ebayimg\.com/images/g/[^/]+/s-l1600\.(jpg|jpeg|png|webp)' "$product" | sort -u | head -n 30 || true
+          echo "counts:"
+          printf 'front_photo='; grep -Foc 'Front photo' "$product" || true
+          printf 'back_photo='; grep -Foc 'Back photo' "$product" || true
+          printf 'unavailable='; grep -Foc 'Back photo unavailable' "$product" || true
+          printf 'unique_ebay_images='; grep -Eo 'https://i\.ebayimg\.com/images/g/[^/]+/s-l1600\.(jpg|jpeg|png|webp)' "$product" | sort -u | wc -l || true
