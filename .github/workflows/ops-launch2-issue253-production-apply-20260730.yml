@@ -106,9 +106,20 @@ jobs:
           set -a
           source "$RUNNER_TEMP/launch2-issue253-production/production.env"
           set +a
-          test -n "${CRON_SECRET:-}"
-          echo "::add-mask::$CRON_SECRET"
-          printf 'CRON_SECRET=%s\n' "$CRON_SECRET" >> "$GITHUB_ENV"
+          test -n "${ADMIN_SESSION_SECRET:-}"
+          echo "::add-mask::$ADMIN_SESSION_SECRET"
+          admin_session_value="$(node --input-type=module - <<'NODE'
+          import { createHmac } from 'node:crypto';
+          const secret = String(process.env.ADMIN_SESSION_SECRET || '').trim();
+          if (!secret) throw new Error('ADMIN_SESSION_SECRET is unavailable.');
+          const issuedAt = String(Math.floor(Date.now() / 1000));
+          const signature = createHmac('sha256', secret).update(issuedAt).digest('base64url');
+          process.stdout.write(`${issuedAt}.${signature}`);
+          NODE
+          )"
+          test -n "$admin_session_value"
+          echo "::add-mask::$admin_session_value"
+          printf 'ADMIN_SESSION_VALUE=%s\n' "$admin_session_value" >> "$GITHUB_ENV"
 
       - name: Apply issue 253 migrations and authoritative backfills
         shell: bash
@@ -320,15 +331,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -n "${CRON_SECRET:-}"
-          echo "::add-mask::$CRON_SECRET"
+          test -n "${ADMIN_SESSION_VALUE:-}"
           evidence="$RUNNER_TEMP/launch2-issue253-evidence"
           success=false
           for attempt in $(seq 1 72); do
             home_code="$(curl --location --silent --show-error --max-time 20 --output "$evidence/home.html" --write-out '%{http_code}' https://truelycollectables.com/ || true)"
             shop_code="$(curl --location --silent --show-error --max-time 20 --output "$evidence/shop.html" --write-out '%{http_code}' https://truelycollectables.com/shop || true)"
             health_code="$(curl --location --silent --show-error --max-time 20 \
-              --header "Authorization: Bearer $CRON_SECRET" \
+              --cookie "tcos_admin_auth_v3=$ADMIN_SESSION_VALUE" \
               --output "$evidence/admin-orders-health.json" --write-out '%{http_code}' \
               https://truelycollectables.com/api/admin-orders-health || true)"
             unsigned_code="$(curl --location --silent --show-error --max-time 20 \
