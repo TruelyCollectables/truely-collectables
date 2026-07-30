@@ -1,0 +1,132 @@
+name: Diagnose eBay Browse Images 20260730
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/diagnose-ebay-browse-images-20260730.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose-browse-images:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'ops/deploy-ebay-getitem-pictures-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+
+    steps:
+      - name: Check out current merged source
+        uses: actions/checkout@v4
+        with:
+          ref: bc7ee9822d91873bc2cbc2be7eb917eb5b29b566
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Pull Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .vercel "$RUNNER_TEMP/ebay-browse-diagnostic"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/ebay-browse-diagnostic/production.env" \
+            --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Compare Trading and Browse image results
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source "$RUNNER_TEMP/ebay-browse-diagnostic/production.env"
+          set +a
+          test -n "${NEXT_PUBLIC_SUPABASE_URL:-}"
+          test -n "${SUPABASE_SERVICE_ROLE_KEY:-}"
+          test -n "${EBAY_CLIENT_ID:-}"
+          test -n "${EBAY_CLIENT_SECRET:-}"
+          echo "::add-mask::$SUPABASE_SERVICE_ROLE_KEY"
+          node --input-type=module - <<'NODE'
+          import { createClient } from '@supabase/supabase-js';
+
+          const productIds = [1682, 1692, 1709, 1723, 1779, 2052];
+          const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL,
+            process.env.SUPABASE_SERVICE_ROLE_KEY,
+            { auth: { persistSession: false, autoRefreshToken: false } },
+          );
+          const { data: products, error } = await supabase
+            .from('products')
+            .select('id,title,ebay_item_id,quantity')
+            .in('id', productIds)
+            .order('id', { ascending: true });
+          if (error) throw error;
+
+          const basic = Buffer.from(`${process.env.EBAY_CLIENT_ID}:${process.env.EBAY_CLIENT_SECRET}`).toString('base64');
+          const tokenResponse = await fetch('https://api.ebay.com/identity/v1/oauth2/token', {
+            method: 'POST',
+            headers: {
+              Authorization: `Basic ${basic}`,
+              'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: new URLSearchParams({
+              grant_type: 'client_credentials',
+              scope: 'https://api.ebay.com/oauth/api_scope',
+            }),
+          });
+          const tokenBody = await tokenResponse.json().catch(() => ({}));
+          if (!tokenResponse.ok || !tokenBody.access_token) {
+            throw new Error(`Application token failed: ${tokenResponse.status} ${JSON.stringify(tokenBody).slice(0, 1000)}`);
+          }
+          const token = tokenBody.access_token;
+
+          const results = [];
+          for (const product of products || []) {
+            const itemId = String(product.ebay_item_id || '');
+            const endpoint = new URL('https://api.ebay.com/buy/browse/v1/item/get_item_by_legacy_id');
+            endpoint.searchParams.set('legacy_item_id', itemId);
+            const response = await fetch(endpoint, {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                'X-EBAY-C-MARKETPLACE-ID': 'EBAY_US',
+              },
+            });
+            const body = await response.json().catch(() => ({}));
+            const primary = body?.image?.imageUrl ? [body.image.imageUrl] : [];
+            const additional = Array.isArray(body?.additionalImages)
+              ? body.additionalImages.map((entry) => entry?.imageUrl).filter(Boolean)
+              : [];
+            results.push({
+              productId: Number(product.id),
+              itemId,
+              title: String(product.title || '').slice(0, 100),
+              browseStatus: response.status,
+              browseItemId: body?.itemId || null,
+              primaryCount: primary.length,
+              additionalCount: additional.length,
+              totalBrowsePictures: new Set([...primary, ...additional]).size,
+              imageUrls: [...new Set([...primary, ...additional])],
+              errors: body?.errors || null,
+            });
+          }
+          console.log(JSON.stringify({ results }, null, 2));
+          NODE
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/ebay-browse-diagnostic"
