@@ -1,0 +1,232 @@
+name: Diagnose eBay Browse Runtime 20260730
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/diagnose-ebay-browse-runtime-20260730.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: diagnose-ebay-browse-runtime-20260730
+  cancel-in-progress: false
+
+jobs:
+  diagnose-runtime:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'ops/diagnose-ebay-browse-runtime-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+
+    steps:
+      - name: Check out diagnostic branch
+        uses: actions/checkout@v4
+        with:
+          ref: ops/diagnose-ebay-browse-runtime-20260730
+          fetch-depth: 0
+
+      - name: Validate required merged image code
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'X-EBAY-API-CALL-NAME": "GetItem"' src/lib/ebay-all-image-sync.ts
+          grep -Fq 'sourceCall: "GetSellerList+GetItem" as const' src/lib/ebay-all-image-sync.ts
+          git diff --check
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Link Vercel and create one-time diagnostic token
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          work="$RUNNER_TEMP/ebay-browse-runtime"
+          mkdir -p .vercel "$work"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          token="$(openssl rand -hex 32)"
+          echo "::add-mask::$token"
+          printf '%s' "$token" > "$work/diagnostic-token"
+          printf '%s\n' "$token" | npx vercel@56.2.0 env add EBAY_BROWSE_IMAGE_DIAGNOSTIC_TOKEN production \
+            --force --sensitive --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Add protected Browse API diagnostic route
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p src/app/api/internal/ebay-browse-image-diagnostic
+          cat > src/app/api/internal/ebay-browse-image-diagnostic/route.ts <<'TS'
+          import { timingSafeEqual } from "node:crypto";
+          import { getActiveStoreId } from "../../../../lib/stores";
+          import { createSupabaseServerClient } from "../../../../lib/supabase-server";
+
+          export const dynamic = "force-dynamic";
+          export const maxDuration = 60;
+
+          function authorized(request: Request, secret: string) {
+            const supplied = Buffer.from(request.headers.get("x-tcos-diagnostic-token") || "");
+            const expected = Buffer.from(secret);
+            return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+          }
+
+          async function applicationToken() {
+            const clientId = process.env.EBAY_CLIENT_ID;
+            const clientSecret = process.env.EBAY_CLIENT_SECRET;
+            if (!clientId || !clientSecret) throw new Error("Production eBay client credentials are unavailable.");
+            const response = await fetch("https://api.ebay.com/identity/v1/oauth2/token", {
+              method: "POST",
+              headers: {
+                Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
+                "Content-Type": "application/x-www-form-urlencoded",
+              },
+              body: new URLSearchParams({
+                grant_type: "client_credentials",
+                scope: "https://api.ebay.com/oauth/api_scope",
+              }),
+              signal: AbortSignal.timeout(20_000),
+            });
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok || !body?.access_token) {
+              throw new Error(`eBay application token failed with ${response.status}: ${JSON.stringify(body).slice(0, 600)}`);
+            }
+            return String(body.access_token);
+          }
+
+          export async function POST(request: Request) {
+            const secret = process.env.EBAY_BROWSE_IMAGE_DIAGNOSTIC_TOKEN || "";
+            if (secret.length < 32 || !authorized(request, secret)) {
+              return Response.json({ success: false, error: "Unauthorized" }, { status: 401 });
+            }
+
+            try {
+              const supabase = createSupabaseServerClient({ admin: true });
+              const storeId = getActiveStoreId();
+              const productIds = [1682, 1692, 1709, 1723, 1779, 2052, 2241];
+              const { data: products, error } = await supabase
+                .from("products")
+                .select("id,title,ebay_item_id,quantity")
+                .eq("store_id", storeId)
+                .in("id", productIds)
+                .order("id", { ascending: true });
+              if (error) throw error;
+              const token = await applicationToken();
+              const results = [];
+
+              for (const product of products || []) {
+                const legacyItemId = String(product.ebay_item_id || "");
+                const endpoint = new URL("https://api.ebay.com/buy/browse/v1/item/get_item_by_legacy_id");
+                endpoint.searchParams.set("legacy_item_id", legacyItemId);
+                const response = await fetch(endpoint, {
+                  headers: {
+                    Authorization: `Bearer ${token}`,
+                    "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
+                  },
+                  signal: AbortSignal.timeout(25_000),
+                });
+                const body = await response.json().catch(() => ({}));
+                const primary = body?.image?.imageUrl ? [body.image.imageUrl] : [];
+                const additional = Array.isArray(body?.additionalImages)
+                  ? body.additionalImages.map((entry: any) => entry?.imageUrl).filter(Boolean)
+                  : [];
+                const productPrimary = body?.product?.image?.imageUrl ? [body.product.image.imageUrl] : [];
+                const productAdditional = Array.isArray(body?.product?.additionalImages)
+                  ? body.product.additionalImages.map((entry: any) => entry?.imageUrl).filter(Boolean)
+                  : [];
+                results.push({
+                  productId: Number(product.id),
+                  legacyItemId,
+                  title: String(product.title || "").slice(0, 110),
+                  browseStatus: response.status,
+                  browseItemId: body?.itemId || null,
+                  listingPictures: Array.from(new Set([...primary, ...additional])),
+                  listingPictureCount: new Set([...primary, ...additional]).size,
+                  productPictures: Array.from(new Set([...productPrimary, ...productAdditional])),
+                  productPictureCount: new Set([...productPrimary, ...productAdditional]).size,
+                  errors: body?.errors || null,
+                });
+              }
+
+              return Response.json({ success: true, storeId, results });
+            } catch (error) {
+              return Response.json(
+                {
+                  success: false,
+                  error: error instanceof Error ? error.message.slice(0, 1200) : "Unknown diagnostic error",
+                },
+                { status: 500 },
+              );
+            }
+          }
+          TS
+          git diff --check
+
+      - name: Deploy protected diagnostic runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/ebay-browse-runtime"
+          npx vercel@56.2.0 deploy --prod --yes --force --archive=tgz \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee "$work/deploy.log"
+          deployment_url="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$work/deploy.log" | tail -n 1)"
+          test -n "$deployment_url"
+          printf '%s' "$deployment_url" > "$work/deployment-url"
+
+      - name: Run protected Browse image comparison
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/ebay-browse-runtime"
+          token="$(cat "$work/diagnostic-token")"
+          deployment_url="$(cat "$work/deployment-url")"
+          response="$work/response.json"
+          status="$(curl -sS --max-time 120 \
+            -H "x-tcos-diagnostic-token: $token" \
+            -X POST -o "$response" -w '%{http_code}' \
+            "$deployment_url/api/internal/ebay-browse-image-diagnostic?run=${GITHUB_RUN_ID}" || true)"
+          echo "diagnostic_status=$status"
+          cat "$response" || true
+          echo
+          test "$status" = "200"
+          node - "$response" <<'NODE'
+          const fs = require('node:fs');
+          const receipt = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          if (!receipt.success) throw new Error(JSON.stringify(receipt));
+          console.log(JSON.stringify({ browseImageDiagnostic: receipt.results }, null, 2));
+          NODE
+
+      - name: Remove diagnostic route and deploy latest main
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 env rm EBAY_BROWSE_IMAGE_DIAGNOSTIC_TOKEN production --yes \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null || true
+          git fetch origin main
+          git reset --hard origin/main
+          test -z "$(git status --porcelain --untracked-files=all)"
+          npx vercel@56.2.0 deploy --prod --yes --force --archive=tgz \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+
+      - name: Cleanup
+        if: always()
+        shell: bash
+        run: |
+          npx vercel@56.2.0 env rm EBAY_BROWSE_IMAGE_DIAGNOSTIC_TOKEN production --yes \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null || true
+          rm -rf "$RUNNER_TEMP/ebay-browse-runtime"
