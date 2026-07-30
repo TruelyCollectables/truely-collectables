@@ -13,9 +13,42 @@ permissions:
 jobs:
   verify-live-production:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 30
     steps:
-      - name: Diagnose live runtime admin orders release
+      - name: Checkout tested source
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Link existing Vercel project
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$VERCEL_TOKEN"
+          npm exec --yes --package=vercel@56.2.0 -- vercel link \
+            --yes \
+            --project truely-collectables \
+            --scope truelycollectables-projects \
+            --token "$VERCEL_TOKEN"
+
+      - name: Deploy corrected verifier to Production
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm exec --yes --package=vercel@56.2.0 -- vercel \
+            --prod \
+            --yes \
+            --scope truelycollectables-projects \
+            --token "$VERCEL_TOKEN"
+
+      - name: Prove live admin orders release
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         shell: bash
@@ -48,4 +81,12 @@ jobs:
               result.refundIssued === false &&
               result.directStoreTcosFeesRemaining === 0;
             if (!passed) process.exit(1);
+            console.log(`LIVE_PRODUCTION_RELEASE=${result.release}`);
+            console.log(`LIVE_ADMIN_ORDER_ID=${result.orderId}`);
+            console.log(`LIVE_ADMIN_NAVIGATION=${result.adminNavigation}`);
+            console.log(`LIVE_SESSION_REFRESH=${result.sessionRefresh}`);
+            console.log(`LIVE_REFUND_CONFIRMATION_GUARD=${result.refundConfirmationGuard}`);
+            console.log(`LIVE_REFUND_ISSUED=${result.refundIssued}`);
+            console.log(`LIVE_DIRECT_STORE_TCOS_FEES_REMAINING=${result.directStoreTcosFeesRemaining}`);
+            console.log(`LIVE_REMOVED_DIRECT_STORE_FEE_ROWS=${result.removedDirectStoreFeeRows}`);
           '
