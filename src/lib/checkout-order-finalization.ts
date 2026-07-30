@@ -347,6 +347,20 @@ export async function finalizeCheckoutOrder(params: {
   }
 
   if (!isE2ETest) {
+    const paymentNotificationPayload = {
+      orderId,
+      customerName,
+      total,
+      subtotal,
+      shippingAmount,
+      shippingName,
+      items: (ledgerOrderItems || []).map((item) => ({
+        title: String(item.title || "Item"),
+        quantity: Number(item.quantity || 1),
+        price: Number(item.price || 0),
+      })),
+    };
+
     try {
       await enqueueAndAttemptOrderNotification({
         supabase,
@@ -355,23 +369,38 @@ export async function finalizeCheckoutOrder(params: {
         notificationType: "payment_confirmation",
         recipientEmail: customerEmail,
         recipientName: customerName,
-        payload: {
-          orderId,
-          customerName,
-          total,
-          subtotal,
-          shippingAmount,
-          shippingName,
-          items: (ledgerOrderItems || []).map((item) => ({
-            title: String(item.title || "Item"),
-            quantity: Number(item.quantity || 1),
-            price: Number(item.price || 0),
-          })),
-        },
+        payload: paymentNotificationPayload,
       });
     } catch (notificationError: any) {
       console.error(
         "Payment confirmation notification failed:",
+        notificationError?.message || notificationError,
+      );
+    }
+
+    try {
+      const storeSettings = await getStoreSettings(supabase, storeId);
+      const baseSiteUrl = String(
+        process.env.NEXT_PUBLIC_SITE_URL || "https://truelycollectables.com",
+      ).replace(/\/+$/, "");
+      await enqueueAndAttemptOrderNotification({
+        supabase,
+        storeId,
+        orderId,
+        notificationType: "payment_confirmation",
+        recipientEmail: storeSettings.salesEmail,
+        recipientName: "Fulfillment",
+        idempotencyKey: `store_order_received/${storeId}/${orderId}`,
+        payload: {
+          ...paymentNotificationPayload,
+          audience: "store",
+          customerEmail,
+          adminOrderUrl: baseSiteUrl + "/admin/orders/" + orderId,
+        },
+      });
+    } catch (notificationError: any) {
+      console.error(
+        "Store new-order notification failed:",
         notificationError?.message || notificationError,
       );
     }
