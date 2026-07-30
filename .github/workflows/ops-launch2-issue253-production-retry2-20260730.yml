@@ -1,0 +1,326 @@
+name: Ops Launch 2 Issue 253 Production Retry 2
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/ops-launch2-issue253-production-retry2-20260730.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ops-launch2-issue253-production-retry2-20260730
+  cancel-in-progress: false
+
+env:
+  EXPECTED_MAIN_SHA: 11b95609b4af979283c1d72cf1019f1bc0e9fc85
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_PROJECT: truely-collectables
+
+jobs:
+  verify-deploy-production:
+    if: github.event.pull_request.head.ref == 'ops/launch2-issue253-production-apply-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
+      ADMIN_SESSION_SECRET: build-validation-session-secret-that-is-long-enough
+      ADMIN_PASSWORD: build-validation-admin-password
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      STRIPE_SECRET_KEY: sk_test_build_validation
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_validation
+      STRIPE_WEBHOOK_SECRET: whsec_build_validation
+      EBAY_CLIENT_ID: build-validation-client-id
+      EBAY_CLIENT_SECRET: build-validation-client-secret
+      EBAY_ENVIRONMENT: production
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+    steps:
+      - name: Check out exact current main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Fail closed on exact source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          test "$(git rev-parse HEAD)" = "$EXPECTED_MAIN_SHA"
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          git diff --check
+          mkdir -p "$RUNNER_TEMP/launch2-issue253-retry2"
+          printf '%s\n' "$EXPECTED_MAIN_SHA" > "$RUNNER_TEMP/launch2-issue253-retry2/exact-main-sha.txt"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Re-run issue 253 and security gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/run-sold-lifecycle-simulations.mjs
+          node scripts/run-sold-trigger-order-simulation.mjs
+          node scripts/run-privileged-api-route-audit.mjs
+          npm run simulate:privileged-route-auth
+          npm audit --audit-level=high
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Run standalone TypeScript
+        run: npx tsc --noEmit --pretty false
+
+      - name: Run Production build
+        run: npm run build
+
+      - name: Link Vercel and derive protected Production context
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$VERCEL_TOKEN"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          mkdir -p .vercel "$RUNNER_TEMP/launch2-issue253-production"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/launch2-issue253-production/production.env" \
+            --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import { createHmac } from 'node:crypto';
+
+          const envPath = `${process.env.RUNNER_TEMP}/launch2-issue253-production/production.env`;
+          const text = fs.readFileSync(envPath, 'utf8');
+          const parsed = {};
+          for (const rawLine of text.split(/\r?\n/)) {
+            const line = rawLine.trim();
+            if (!line || line.startsWith('#')) continue;
+            const index = line.indexOf('=');
+            if (index < 1) continue;
+            const key = line.slice(0, index).trim();
+            let value = line.slice(index + 1).trim();
+            if (value.startsWith('"') && value.endsWith('"')) {
+              try { value = JSON.parse(value); } catch { value = value.slice(1, -1); }
+            } else if (value.startsWith("'") && value.endsWith("'")) {
+              value = value.slice(1, -1);
+            }
+            parsed[key] = value;
+          }
+
+          const productionUrl = String(parsed.NEXT_PUBLIC_SUPABASE_URL || '').trim();
+          const secret = String(parsed.ADMIN_SESSION_SECRET || '').trim();
+          if (!/^https:\/\//.test(productionUrl)) {
+            throw new Error('Production Supabase URL is unavailable from Vercel.');
+          }
+          if (!secret) {
+            throw new Error('Production ADMIN_SESSION_SECRET is unavailable from Vercel.');
+          }
+          const projectRef = new URL(productionUrl).hostname.split('.')[0];
+          if (!projectRef) throw new Error('Unable to derive Production Supabase project reference.');
+          const issuedAt = String(Math.floor(Date.now() / 1000));
+          const signature = createHmac('sha256', secret).update(issuedAt).digest('base64url');
+          const session = `${issuedAt}.${signature}`;
+          console.log(`::add-mask::${session}`);
+          fs.appendFileSync(process.env.GITHUB_ENV, `PRODUCTION_SUPABASE_PROJECT_REF=${projectRef}\n`);
+          fs.appendFileSync(process.env.GITHUB_ENV, `ADMIN_SESSION_VALUE=${session}\n`);
+          NODE
+
+      - name: Verify hosted issue 253 schema and authoritative backfill state
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${PRODUCTION_SUPABASE_PROJECT_REF:-}"
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+
+          const endpoint = `https://api.supabase.com/v1/projects/${process.env.PRODUCTION_SUPABASE_PROJECT_REF}/database/query`;
+          const token = process.env.GH_SUPABASE_ACCESS_TOKEN;
+          if (!token) throw new Error('SUPABASE_ACCESS_TOKEN is unavailable.');
+
+          async function query(sql, readOnly = true) {
+            const response = await fetch(endpoint, {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ query: sql, parameters: [], read_only: readOnly }),
+            });
+            const body = await response.text();
+            if (!response.ok) {
+              const safe = body
+                .replace(/postgres(?:ql)?:\/\/[^\s"']+/gi, 'postgresql://[REDACTED]')
+                .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [REDACTED]')
+                .slice(0, 4000);
+              throw new Error(`Supabase verification failed with HTTP ${response.status}: ${safe}`);
+            }
+            return body ? JSON.parse(body) : [];
+          }
+
+          const rows = await query(`
+            select json_build_object(
+              'required_relations', (
+                select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace
+                where n.nspname='public' and c.relname in (
+                  'collectible_assets','collectible_asset_events','collectible_grader_verifications',
+                  'collectible_market_snapshots','collectible_sales','instacomp_internal_sold_comps',
+                  'collx_only_inventory_boundary_violations','ebay_inbound_sale_guards'
+                )
+              ),
+              'sale_records_total', (select count(*) from public.collectible_sales),
+              'sale_records_verified', (select count(*) from public.collectible_sales where evidence_status='verified'),
+              'sale_records_manual', (select count(*) from public.collectible_sales where evidence_status='manual'),
+              'sale_records_unresolved', (select count(*) from public.collectible_sales where evidence_status='unresolved'),
+              'verified_or_manual_price_missing', (
+                select count(*) from public.collectible_sales
+                where evidence_status in ('verified','manual') and sold_price is null
+              ),
+              'null_price_not_flagged_unresolved', (
+                select count(*) from public.collectible_sales
+                where sold_price is null and evidence_status <> 'unresolved'
+              ),
+              'historical_sold_products_without_sale_record', (
+                select count(*) from public.products p
+                where p.sold_at < timestamptz '2026-07-28 00:00:00+00'
+                  and not exists (
+                    select 1 from public.collectible_sales s
+                    where s.store_id=p.store_id and s.legacy_product_id=p.id
+                  )
+              ),
+              'collx_only_boundary_violations', (
+                select count(*) from public.collx_only_inventory_boundary_violations
+              ),
+              'active_inbound_sale_guards', (
+                select count(*) from public.ebay_inbound_sale_guards where active
+              ),
+              'duplicate_sale_event_groups', (
+                select count(*) from (
+                  select store_id,event_key from public.collectible_sales
+                  group by store_id,event_key having count(*) > 1
+                ) d
+              ),
+              'negative_product_quantities', (select count(*) from public.products where quantity < 0),
+              'negative_inventory_quantities', (select count(*) from public.inventory_items where quantity < 0),
+              'sold_stock_restoration_violations', (
+                select count(*) from public.products where sold_at is not null and quantity > 0
+              ),
+              'inactive_guard_trigger_count', (
+                select count(*) from pg_trigger where tgname='capture_ebay_inactive_collectible_sale' and not tgisinternal
+              ),
+              'inactive_guard_function_installed', (
+                select case when to_regprocedure('public.capture_ebay_inactive_collectible_sale()') is null then false
+                  else position('ebay_inbound_sale_guards' in pg_get_functiondef(to_regprocedure('public.capture_ebay_inactive_collectible_sale()'))) > 0 end
+              ),
+              'captured_at', now()
+            ) as receipt;
+          `, true);
+
+          const row = Array.isArray(rows) ? rows[0] : rows;
+          const receipt = row?.receipt ?? row?.result?.receipt ?? row;
+          if (!receipt || typeof receipt !== 'object') throw new Error('Hosted receipt shape is invalid.');
+          const exactZero = [
+            'verified_or_manual_price_missing',
+            'null_price_not_flagged_unresolved',
+            'historical_sold_products_without_sale_record',
+            'collx_only_boundary_violations',
+            'duplicate_sale_event_groups',
+            'negative_product_quantities',
+            'negative_inventory_quantities',
+            'sold_stock_restoration_violations',
+          ];
+          for (const key of exactZero) {
+            if (Number(receipt[key]) !== 0) throw new Error(`Issue 253 hosted invariant failed: ${key}=${receipt[key]}`);
+          }
+          if (Number(receipt.required_relations) !== 8) throw new Error(`Issue 253 required relation count is ${receipt.required_relations}, expected 8.`);
+          if (Number(receipt.inactive_guard_trigger_count) !== 1) throw new Error('Inactive-sale trigger is not installed exactly once.');
+          if (receipt.inactive_guard_function_installed !== true) throw new Error('Inactive-sale zero-stock guard function is not installed.');
+
+          const evidenceDir = path.join(process.env.RUNNER_TEMP, 'launch2-issue253-retry2');
+          fs.writeFileSync(path.join(evidenceDir, 'hosted-schema-backfill-receipt.json'), JSON.stringify({
+            ok: true,
+            exactMainSha: process.env.EXPECTED_MAIN_SHA,
+            receipt,
+            containsOnlyAggregateCounts: true,
+            generatedAt: new Date().toISOString(),
+          }, null, 2));
+          NODE
+
+      - name: Deploy exact certified main to Vercel Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_MAIN_SHA"
+          npx vercel@56.2.0 deploy --prod --yes --force --archive=tgz \
+            --meta "githubCommitSha=$EXPECTED_MAIN_SHA" \
+            --meta "launchGate=issue253-retry2" \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" \
+            > "$RUNNER_TEMP/launch2-issue253-retry2/deployment-url.txt" \
+            2> "$RUNNER_TEMP/launch2-issue253-retry2/deployment-stderr.txt"
+          deployment_url="$(tr -d '\r\n' < "$RUNNER_TEMP/launch2-issue253-retry2/deployment-url.txt")"
+          test -n "$deployment_url"
+          printf 'DEPLOYMENT_URL=%s\n' "$deployment_url" >> "$GITHUB_ENV"
+          npx vercel@56.2.0 inspect "$deployment_url" --wait --timeout=10m --no-color \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" \
+            > "$RUNNER_TEMP/launch2-issue253-retry2/deployment-inspect.txt"
+          grep -Fq "$EXPECTED_MAIN_SHA" "$RUNNER_TEMP/launch2-issue253-retry2/deployment-inspect.txt"
+
+      - name: Verify live custom domain and protected admin boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${ADMIN_SESSION_VALUE:-}"
+          evidence="$RUNNER_TEMP/launch2-issue253-retry2"
+          success=false
+          for attempt in $(seq 1 72); do
+            home_code="$(curl --location --silent --show-error --max-time 20 --output "$evidence/home.html" --write-out '%{http_code}' https://truelycollectables.com/ || true)"
+            shop_code="$(curl --location --silent --show-error --max-time 20 --output "$evidence/shop.html" --write-out '%{http_code}' https://truelycollectables.com/shop || true)"
+            health_code="$(curl --location --silent --show-error --max-time 20 \
+              --cookie "tcos_admin_auth_v3=$ADMIN_SESSION_VALUE" \
+              --output "$evidence/admin-orders-health.json" --write-out '%{http_code}' \
+              https://truelycollectables.com/api/admin-orders-health || true)"
+            unsigned_code="$(curl --location --silent --show-error --max-time 20 \
+              --output /dev/null --write-out '%{http_code}' \
+              https://truelycollectables.com/api/admin-orders-health || true)"
+            if [ "$home_code" = "200" ] && [ "$shop_code" = "200" ] && [ "$health_code" = "200" ] && [ "$unsigned_code" = "401" ] && \
+               grep -Eq '"ok"[[:space:]]*:[[:space:]]*true' "$evidence/admin-orders-health.json"; then
+              success=true
+              printf '{"home":%s,"shop":%s,"authorizedHealth":%s,"unsignedHealth":%s,"deploymentUrl":"%s","exactMainSha":"%s","verifiedAt":"%s"}\n' \
+                "$home_code" "$shop_code" "$health_code" "$unsigned_code" "$DEPLOYMENT_URL" "$EXPECTED_MAIN_SHA" "$(date -u +%FT%TZ)" \
+                > "$evidence/live-boundary-receipt.json"
+              break
+            fi
+            echo "Attempt $attempt/72: waiting for exact Production readiness."
+            sleep 10
+          done
+          test "$success" = true
+          rm -f "$RUNNER_TEMP/launch2-issue253-production/production.env"
+          rm -f "$evidence/home.html" "$evidence/shop.html" "$evidence/admin-orders-health.json" "$evidence/deployment-stderr.txt"
+
+      - name: Upload sanitized issue 253 Production evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: launch2-issue253-production-retry2-${{ env.EXPECTED_MAIN_SHA }}
+          path: ${{ runner.temp }}/launch2-issue253-retry2
+          if-no-files-found: error
+          retention-days: 30
