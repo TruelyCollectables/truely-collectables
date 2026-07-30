@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
-import { classifyStorefrontItem } from "../src/lib/storefront-taxonomy.ts";
+import { classifyStorefrontItem } from "../src/lib/storefront-taxonomy";
 
 type Row = Record<string, any>;
 
@@ -28,7 +28,7 @@ function parseEnvFile(file: string) {
   return parsed;
 }
 
-function normalize(value: unknown) {
+function normalize(value: unknown): string {
   if (Array.isArray(value)) return value.map(normalize).filter(Boolean).join(" ");
   return String(value ?? "")
     .replace(/\s+/g, " ")
@@ -111,7 +111,7 @@ function strictFeatures(params: {
   const memorabiliaText = `${title.replace(/\bnew jersey\b/g, "")} ${features}`;
   const memorabilia =
     cardFeatureEligible &&
-    /\b(?:relics?|patch(?:es)?|swatch(?:es)?|jersey|memorabilia|rookie remembrance|rookie materials?|materials?|fabrics?|rpa|prime patch|logo jumbo|team logo jumbo|emblems?|stitchings?|momentous material|game[- ]used)/.test(
+    /\b(?:relics?|patch(?:es)?|swatch(?:es)?|jersey|memorabilia|rookie remembrance|rookie materials?|materials?|fabrics?|rpa|prime patch|logo jumbo|team logo jumbo|emblems?|stitchings?|momentous material|game[- ]used)\b/.test(
       memorabiliaText,
     );
 
@@ -153,7 +153,7 @@ function strictFeatures(params: {
   return { autograph, memorabilia, rookie, graded, numbered };
 }
 
-async function readAll(client: ReturnType<typeof createClient>, table: string) {
+async function readAll(client: any, table: string) {
   const rows: Row[] = [];
   const pageSize = 1000;
   for (let page = 0; page < 50; page += 1) {
@@ -239,10 +239,17 @@ for (const product of activeProducts) {
     (sections.get(classification.section) || 0) + 1,
   );
   if (classification.section === "Needs Review") {
-    needsReview.push({ id: product.id, title, sport: product.sport, category: inventory?.category });
+    needsReview.push({
+      id: product.id,
+      title,
+      sport: product.sport,
+      category: inventory?.category,
+    });
   }
 
-  for (const feature of Object.keys(currentCounts) as Array<keyof typeof currentCounts>) {
+  for (const feature of Object.keys(currentCounts) as Array<
+    keyof typeof currentCounts
+  >) {
     if (classification.features[feature]) currentCounts[feature] += 1;
     if (strict[feature]) strictCounts[feature] += 1;
     if (classification.features[feature] && !strict[feature]) {
@@ -282,17 +289,25 @@ const report = {
   suspects,
 };
 
-const output = path.resolve(process.env.AUDIT_OUTPUT || "live-taxonomy-audit.json");
+const output = path.resolve(
+  process.env.AUDIT_OUTPUT || "live-taxonomy-audit.json",
+);
 fs.writeFileSync(output, JSON.stringify(report, null, 2));
-console.log(JSON.stringify({
-  generatedAt: report.generatedAt,
-  activeProducts: report.activeProducts,
-  currentCounts: report.currentCounts,
-  strictCounts: report.strictCounts,
-  suspectCounts: report.suspectCounts,
-  needsReviewCount: report.needsReviewCount,
-  sectionCounts: report.sectionCounts,
-  autographSuspects: report.suspects.autograph,
-  gradedSuspects: report.suspects.graded,
-  numberedSuspects: report.suspects.numbered,
-}, null, 2));
+console.log(
+  JSON.stringify(
+    {
+      generatedAt: report.generatedAt,
+      activeProducts: report.activeProducts,
+      currentCounts: report.currentCounts,
+      strictCounts: report.strictCounts,
+      suspectCounts: report.suspectCounts,
+      needsReviewCount: report.needsReviewCount,
+      sectionCounts: report.sectionCounts,
+      autographSuspects: report.suspects.autograph,
+      gradedSuspects: report.suspects.graded,
+      numberedSuspects: report.suspects.numbered,
+    },
+    null,
+    2,
+  ),
+);
