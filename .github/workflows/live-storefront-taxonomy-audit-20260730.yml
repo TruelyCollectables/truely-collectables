@@ -3,6 +3,7 @@ name: Live Storefront Taxonomy Audit 20260730
 on:
   push:
     branches:
+      - main
       - agent/live-taxonomy-repair-20260730
     paths:
       - ".github/workflows/live-storefront-taxonomy-audit-20260730.yml"
