@@ -37,6 +37,7 @@ const ebayOrders = read("src/lib/ebay-order-sale-sync.ts");
 const ebayAliases = read("src/lib/ebay-merged-listing-groups.ts");
 const ebayAuth = read("src/app/api/ebay/auth/route.ts");
 const adminOrdersHealth = read("src/app/api/admin-orders-health/route.ts");
+const fulfillmentHealth = read("src/app/api/fulfillment-health/route.ts");
 const overlay = read("src/components/SoldOverlay.tsx");
 const shop = read("src/app/shop/page.tsx");
 const productLayout = read("src/app/product/[id]/layout.tsx");
@@ -161,10 +162,12 @@ assert.match(adminProductLayout, /collectible_sales/);
 assert.match(adminProductLayout, /evidence_status/);
 assert.match(adminProductLayout, /Open Sale History/);
 
-assert.match(adminOrdersHealth, /ADMIN_SESSION_COOKIE_NAMES/);
-assert.match(adminOrdersHealth, /isValidAdminSessionValue/);
-assert.match(adminOrdersHealth, /status:\s*401/);
-assert.match(adminOrdersHealth, /createSupabaseServerClient\(\{ admin: true \}\)/);
+for (const healthRoute of [adminOrdersHealth, fulfillmentHealth]) {
+  assert.match(healthRoute, /ADMIN_SESSION_COOKIE_NAMES/);
+  assert.match(healthRoute, /isValidAdminSessionValue/);
+  assert.match(healthRoute, /status:\s*401/);
+  assert.match(healthRoute, /createSupabaseServerClient\(\{ admin: true \}\)/);
+}
 
 assert.match(ebayAliases, /canonicalLegacyProductIdForEbayItemId/);
 assert.match(ebayAliases, /aliasItemIds\.some/);
@@ -230,7 +233,7 @@ console.log(
       ebayOrderPollingMinutes: 5,
       ebayOrderRecurringLookbackDays: 2,
       authoritativeEbayPollingMinutes: 15,
-      checks: 161,
+      checks: 165,
     },
     null,
     2,
