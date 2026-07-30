@@ -1,0 +1,143 @@
+name: Ops Launch 2 Issue 253 Production Finalize
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/ops-launch2-issue253-production-finalize-20260730.yml"
+      - "ops/launch2-issue253-production-finalize.mjs"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ops-launch2-issue253-production-finalize-20260730
+  cancel-in-progress: false
+
+env:
+  EXPECTED_MAIN_SHA: 11b95609b4af979283c1d72cf1019f1bc0e9fc85
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_PROJECT: truely-collectables
+
+jobs:
+  finalize-exact-production:
+    if: github.event.pull_request.head.ref == 'ops/launch2-issue253-production-finalize-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
+      ADMIN_SESSION_SECRET: build-validation-session-secret-that-is-long-enough
+      ADMIN_PASSWORD: build-validation-admin-password
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      STRIPE_SECRET_KEY: sk_test_build_validation
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_validation
+      STRIPE_WEBHOOK_SECRET: whsec_build-validation
+      EBAY_CLIENT_ID: build-validation-client-id
+      EBAY_CLIENT_SECRET: build-validation-client-secret
+      EBAY_ENVIRONMENT: production
+      CRON_SECRET: build-validation-cron-secret-that-is-long-enough
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+    steps:
+      - name: Check out operations control branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check out exact current main separately
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: live-app
+          fetch-depth: 0
+
+      - name: Fail closed unless current main matches the certified SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C live-app fetch origin main
+          test "$(git -C live-app rev-parse HEAD)" = "$EXPECTED_MAIN_SHA"
+          test "$(git -C live-app rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          git -C live-app diff --check
+          git diff --check
+          mkdir -p "$RUNNER_TEMP/launch2-issue253-finalize-evidence"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: live-app/package-lock.json
+
+      - name: Install exact dependencies
+        working-directory: live-app
+        run: npm ci
+
+      - name: Run issue 253 lifecycle and privileged-route simulations
+        working-directory: live-app
+        run: |
+          set -euo pipefail
+          node scripts/run-sold-lifecycle-simulations.mjs
+          node scripts/run-sold-trigger-order-simulation.mjs
+          node scripts/run-privileged-api-route-audit.mjs
+          npm run simulate:privileged-route-auth
+
+      - name: Run high-severity dependency audit
+        working-directory: live-app
+        run: npm audit --audit-level=high
+
+      - name: Run lint
+        working-directory: live-app
+        run: npm run lint
+
+      - name: Run standalone TypeScript
+        working-directory: live-app
+        run: npx tsc --noEmit --pretty false
+
+      - name: Run Production build
+        working-directory: live-app
+        run: npm run build
+
+      - name: Link existing Vercel Production project
+        working-directory: live-app
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$VERCEL_TOKEN"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          mkdir -p .vercel "$RUNNER_TEMP/launch2-issue253-finalize-production"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/launch2-issue253-finalize-production/production.env" \
+            --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Apply migration 02900, deploy exact main, and verify live Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          node ops/launch2-issue253-production-finalize.mjs \
+            live-app \
+            "$RUNNER_TEMP/launch2-issue253-finalize-production/production.env" \
+            "$RUNNER_TEMP/launch2-issue253-finalize-evidence"
+          rm -f "$RUNNER_TEMP/launch2-issue253-finalize-production/production.env"
+
+      - name: Upload sanitized Production finalization evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launch2-issue253-production-finalize-${{ env.EXPECTED_MAIN_SHA }}
+          path: ${{ runner.temp }}/launch2-issue253-finalize-evidence
+          if-no-files-found: warn
+          retention-days: 30
