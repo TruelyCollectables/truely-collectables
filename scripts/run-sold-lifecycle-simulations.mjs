@@ -36,6 +36,7 @@ const publicInventoryEngine = read("src/lib/server-inventory-engine.ts");
 const ebayOrders = read("src/lib/ebay-order-sale-sync.ts");
 const ebayAliases = read("src/lib/ebay-merged-listing-groups.ts");
 const ebayAuth = read("src/app/api/ebay/auth/route.ts");
+const adminOrdersHealth = read("src/app/api/admin-orders-health/route.ts");
 const overlay = read("src/components/SoldOverlay.tsx");
 const shop = read("src/app/shop/page.tsx");
 const productLayout = read("src/app/product/[id]/layout.tsx");
@@ -160,6 +161,11 @@ assert.match(adminProductLayout, /collectible_sales/);
 assert.match(adminProductLayout, /evidence_status/);
 assert.match(adminProductLayout, /Open Sale History/);
 
+assert.match(adminOrdersHealth, /ADMIN_SESSION_COOKIE_NAMES/);
+assert.match(adminOrdersHealth, /isValidAdminSessionValue/);
+assert.match(adminOrdersHealth, /status:\s*401/);
+assert.match(adminOrdersHealth, /createSupabaseServerClient\(\{ admin: true \}\)/);
+
 assert.match(ebayAliases, /canonicalLegacyProductIdForEbayItemId/);
 assert.match(ebayAliases, /aliasItemIds\.some/);
 assert.match(ebayAuth, /https:\/\/api\.ebay\.com\/oauth\/api_scope/);
@@ -224,7 +230,7 @@ console.log(
       ebayOrderPollingMinutes: 5,
       ebayOrderRecurringLookbackDays: 2,
       authoritativeEbayPollingMinutes: 15,
-      checks: 157,
+      checks: 161,
     },
     null,
     2,
