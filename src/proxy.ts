@@ -7,7 +7,6 @@ import {
   isValidAdminSessionValue,
 } from "./lib/admin-session";
 
-const CANONICAL_ADMIN_HOST = "truelycollectables.com";
 const PUBLIC_ADMIN_RECOVERY_PATHS = new Set([
   "/admin/login",
   "/admin/reset-password",
@@ -193,7 +192,7 @@ function canonicalDomainRedirect(req: NextRequest) {
   }
 
   const url = req.nextUrl.clone();
-  url.hostname = CANONICAL_ADMIN_HOST;
+  url.hostname = "truelycollectables.com";
 
   return NextResponse.redirect(url, 308);
 }
@@ -222,7 +221,7 @@ async function canonicalAdminHostRedirect(req: NextRequest) {
   if (
     !isSafeRedirectMethod ||
     !req.nextUrl.pathname.startsWith("/admin") ||
-    hostname === CANONICAL_ADMIN_HOST ||
+    hostname === "truelycollectables.com" ||
     !isKnownNoncanonicalAdminHost
   ) {
     return null;
@@ -230,7 +229,7 @@ async function canonicalAdminHostRedirect(req: NextRequest) {
 
   const url = req.nextUrl.clone();
   url.protocol = "https:";
-  url.hostname = CANONICAL_ADMIN_HOST;
+  url.hostname = "truelycollectables.com";
   url.port = "";
 
   const sessionValue = await validAdminCookie(req);
