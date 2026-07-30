@@ -5,6 +5,21 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { saveAccountSession } from "../account-session";
 
+function safeAccountReturnPath() {
+  if (typeof window === "undefined") return "/account";
+
+  const candidate = new URLSearchParams(window.location.search).get("next");
+  if (!candidate || !candidate.startsWith("/")) return "/account";
+
+  try {
+    const resolved = new URL(candidate, window.location.origin);
+    if (resolved.origin !== window.location.origin) return "/account";
+    return `${resolved.pathname}${resolved.search}${resolved.hash}`;
+  } catch {
+    return "/account";
+  }
+}
+
 export default function AccountLoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -36,7 +51,7 @@ export default function AccountLoginPage() {
       }
 
       saveAccountSession(data.session);
-      router.push("/account");
+      router.push(safeAccountReturnPath());
     } finally {
       setIsSubmitting(false);
     }
@@ -46,13 +61,12 @@ export default function AccountLoginPage() {
     <main className="mx-auto flex min-h-screen max-w-xl flex-col justify-center px-6 py-12">
       <section className="rounded-md border border-neutral-200 bg-white p-6 shadow-sm">
         <p className="text-sm font-bold uppercase text-neutral-500">
-          Truely Collectables Buyer Account
+          Truely Collectables Account
         </p>
-        <h1 className="mt-2 text-3xl font-black">Buyer Account Login</h1>
+        <h1 className="mt-2 text-3xl font-black">Account Login</h1>
         <p className="mt-2 text-sm leading-6 text-neutral-600">
-          Log in to view linked orders and manage your buyer account. No card
-          verification is required. TCOS seller and admin access remain
-          separate.
+          Log in to view linked orders and manage buyer or seller inventory tools.
+          Protected platform-admin access remains separate.
         </p>
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">

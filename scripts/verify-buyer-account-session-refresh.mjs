@@ -85,8 +85,8 @@ assert.match(
 );
 assert.match(
   layoutSource,
-  /<AccountSessionBoundary>\{children\}<\/AccountSessionBoundary>/,
-  "Every /account route must pass through the session refresh boundary.",
+  /<AccountSessionBoundary>[\s\S]*\{children\}[\s\S]*<\/AccountSessionBoundary>/,
+  "Every /account route and any account-only controls must remain inside the session refresh boundary.",
 );
 assert.match(
   ordersSource,
