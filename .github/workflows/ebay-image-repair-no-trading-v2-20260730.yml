@@ -49,6 +49,7 @@ jobs:
             npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
           fi
           cp ops/templates/ebay-image-repair-no-trading-route.ts src/app/api/internal/ebay-no-trading-image-repair-v2/route.ts
+          rm ops/templates/ebay-image-repair-no-trading-route.ts
           token="$(openssl rand -hex 32)"
           printf '%s' "$token" > "$work/token"
           echo "::add-mask::$token"
