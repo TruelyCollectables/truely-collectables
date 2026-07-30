@@ -1,0 +1,193 @@
+name: Final Read-Only Finish 20260730
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/final-readonly-finish-20260730.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: final-readonly-finish-20260730
+  cancel-in-progress: false
+
+env:
+  EXPECTED_MAIN_SHA: bb765778806f4bf658da4fc185d38e43fd9a3fba
+  EXPECTED_BRANCH: ops/final-readonly-debug-audit-20260730
+  PREVIOUS_STATE_RUN: "30545049300"
+  PROJECT_REF: rfdzsoykhnngzdnvzlhz
+  EXPECTED_DEPLOYMENT_ID: dpl_J3RhfkcrmbmXbqfht25qastSvxqC
+  EVIDENCE_DIR: .audit/final-readonly-finish-20260730
+
+jobs:
+  final-readonly-finish:
+    if: github.event.pull_request.head.ref == 'ops/final-readonly-debug-audit-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      GH_API_TOKEN: ${{ github.token }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - name: Check out guarded finish branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on exact main and one-file finish scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          test "$(git merge-base "$EXPECTED_MAIN_SHA" HEAD)" = "$EXPECTED_MAIN_SHA"
+          mapfile -t changed < <(git diff --name-only "$EXPECTED_MAIN_SHA"...HEAD)
+          test "${#changed[@]}" -eq 1
+          test "${changed[0]}" = ".github/workflows/final-readonly-finish-20260730.yml"
+          git diff --check "$EXPECTED_MAIN_SHA"...HEAD
+          test -n "${GH_API_TOKEN:-}"
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          mkdir -p "$EVIDENCE_DIR"
+          printf '%s\n' "$EXPECTED_MAIN_SHA" > "$EVIDENCE_DIR/exact-main-sha.txt"
+
+      - name: Bind passed source build security and exact Production evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error -H "Authorization: Bearer $GH_API_TOKEN" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/TruelyCollectables/truely-collectables/actions/runs/$PREVIOUS_STATE_RUN/jobs?per_page=100" > "$EVIDENCE_DIR/previous-state-jobs.json"
+          jq -e '.jobs[]|select(.name=="final-state-audit")|.steps[]|select(.name=="Bind all passed source build security and Production metadata evidence")|.conclusion=="success"' "$EVIDENCE_DIR/previous-state-jobs.json" >/dev/null
+          rm -f "$EVIDENCE_DIR/previous-state-jobs.json"
+          jq -n --arg sha "$EXPECTED_MAIN_SHA" --arg deployment "$EXPECTED_DEPLOYMENT_ID" --argjson previousRun "$PREVIOUS_STATE_RUN" '{ok:true,exactMainSha:$sha,exactProductionDeploymentId:$deployment,dependencyAuditPassed:true,lintPassed:true,standaloneTypeScriptPassed:true,coreRegressionSimulationsPassed:true,productionBuildPassed:true,secretBaselinePassed:true,exactProductionMetadataPassed:true,boundPreviousRunId:$previousRun,verifiedAt:(now|todate)}' > "$EVIDENCE_DIR/evidence-binding.json"
+
+      - name: Run fresh read-only hosted invariants and historical row snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const endpoint=`https://api.supabase.com/v1/projects/${process.env.PROJECT_REF}/database/query`;
+          const query=`select json_build_object(
+            'required_relations',(select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname in ('collectible_assets','collectible_asset_events','collectible_grader_verifications','collectible_market_snapshots','collectible_sales','instacomp_internal_sold_comps','collx_only_inventory_boundary_violations','ebay_inbound_sale_guards')),
+            'active_storefront_products',(select count(*) from public.products where price>0 and quantity>0 and archived_at is null),
+            'verified_or_manual_price_missing',(select count(*) from public.collectible_sales where evidence_status in ('verified','manual') and sold_price is null),
+            'null_price_not_flagged_unresolved',(select count(*) from public.collectible_sales where sold_price is null and evidence_status<>'unresolved'),
+            'historical_sold_products_without_sale_record',(select count(*) from public.products p where p.sold_at<timestamptz '2026-07-28 00:00:00+00' and not exists(select 1 from public.collectible_sales s where s.store_id=p.store_id and s.legacy_product_id=p.id)),
+            'collx_only_boundary_violations',(select count(*) from public.collx_only_inventory_boundary_violations),
+            'duplicate_sale_event_groups',(select count(*) from(select store_id,event_key from public.collectible_sales group by store_id,event_key having count(*)>1)d),
+            'violated_guards',(select count(*) from public.ebay_inbound_sale_guards g where active and (coalesce((select p.quantity from public.products p where p.id=g.legacy_product_id and p.seller_id=g.store_id),0)>g.protected_quantity or coalesce((select i.quantity from public.inventory_items i where i.id=g.inventory_item_id),0)>g.protected_quantity)),
+            'sold_stock_restoration_violations',(select count(*) from public.products where sold_at is not null and quantity>0),
+            'negative_product_quantities',(select count(*) from public.products where quantity<0),
+            'negative_inventory_quantities',(select count(*) from public.inventory_items where quantity<0),
+            'inactive_guard_trigger_count',(select count(*) from pg_trigger where tgname='capture_ebay_inactive_collectible_sale' and not tgisinternal),
+            'remaining_audit_notifications',(select count(*) from public.order_notification_deliveries where recipient_email in ('truelycollectables+launch-buyer@gmail.com','truelycollectables+launch-owner@gmail.com')),
+            'historical_repair_row_snapshot',coalesce((select json_agg(json_build_object('id',p.id,'quantity',p.quantity,'sold_at',p.sold_at,'archived_at',p.archived_at) order by p.id) from public.products p where p.id in (1682,494467)),'[]'::json),
+            'historical_repair_sale_records',coalesce((select json_agg(json_build_object('legacy_product_id',s.legacy_product_id,'evidence_status',s.evidence_status,'sold_price',s.sold_price,'source_marketplace',s.source_marketplace,'event_key',s.event_key) order by s.legacy_product_id,s.event_key) from public.collectible_sales s where s.legacy_product_id in (1682,494467)),'[]'::json),
+            'captured_at',now()
+          ) receipt;`;
+          const response=await fetch(endpoint,{method:'POST',headers:{Authorization:`Bearer ${process.env.SUPABASE_ACCESS_TOKEN}`,'Content-Type':'application/json'},body:JSON.stringify({read_only:true,parameters:[],query})});
+          const body=await response.text();
+          if(!response.ok)throw new Error(`Hosted invariant HTTP ${response.status}: ${body.slice(0,1600)}`);
+          const receipt=JSON.parse(body)?.[0]?.receipt||{};
+          const blockers=[];
+          if(Number(receipt.required_relations)!==8)blockers.push(`required_relations=${receipt.required_relations}`);
+          if(Number(receipt.active_storefront_products||0)<1)blockers.push(`active_storefront_products=${receipt.active_storefront_products}`);
+          if(Number(receipt.inactive_guard_trigger_count)!==1)blockers.push(`inactive_guard_trigger_count=${receipt.inactive_guard_trigger_count}`);
+          for(const key of ['verified_or_manual_price_missing','null_price_not_flagged_unresolved','historical_sold_products_without_sale_record','collx_only_boundary_violations','duplicate_sale_event_groups','violated_guards','sold_stock_restoration_violations','negative_product_quantities','negative_inventory_quantities','remaining_audit_notifications'])if(Number(receipt[key]||0)!==0)blockers.push(`${key}=${receipt[key]}`);
+          const result={ok:blockers.length===0,readOnly:true,receipt,blockers,historicalRepairIdsAreDiagnosticOnly:true,verifiedAt:new Date().toISOString()};
+          fs.writeFileSync(process.env.EVIDENCE_DIR+'/hosted-invariants.json',JSON.stringify(result,null,2));
+          if(blockers.length)throw new Error(blockers.join('; '));
+          NODE
+
+      - name: Run normal public and protected route smoke matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          declare -A expected
+          expected[/]=200
+          expected[/shop]=200
+          expected[/product/489878]=200
+          expected[/cart]=200
+          expected[/account]=200
+          expected[/account/signup]=200
+          expected[/orders]=200
+          expected[/shipping]=200
+          expected[/buyer-protection]=200
+          expected[/returns-refunds]=200
+          expected[/privacy]=200
+          expected[/terms]=200
+          expected[/contact]=200
+          rows='[]'
+          for path in "${!expected[@]}"; do
+            code="$(curl -L -sS --max-time 75 -o "$RUNNER_TEMP/page.html" -w '%{http_code}' "https://truelycollectables.com$path")"
+            test "$code" = "${expected[$path]}"
+            rows="$(jq -c --arg path "$path" --argjson code "$code" '. + [{path:$path,status:$code}]' <<<"$rows")"
+          done
+          admin="$(curl -sS --max-time 75 -o /dev/null -w '%{http_code}' https://truelycollectables.com/admin)"
+          email_unsigned="$(curl -sS --max-time 75 -X POST -o /dev/null -w '%{http_code}' https://truelycollectables.com/api/release/order-email-lifecycle-self-test)"
+          marketplace_unsigned="$(curl -sS --max-time 75 -X POST -o /dev/null -w '%{http_code}' 'https://truelycollectables.com/api/release/issue253-marketplace-self-test?step=ebay-order-sales')"
+          webhook_unsigned="$(curl -sS --max-time 75 -X POST -H 'content-type: application/json' --data '{}' -o /dev/null -w '%{http_code}' https://truelycollectables.com/api/webhook)"
+          [[ "$admin" =~ ^30[1278]$ ]]
+          test "$email_unsigned" = 401
+          test "$marketplace_unsigned" = 401
+          test "$webhook_unsigned" != 200
+          curl -L -fsS --max-time 75 https://truelycollectables.com/ > "$RUNNER_TEMP/home.html"
+          curl -L -fsS --max-time 75 https://truelycollectables.com/shop > "$RUNNER_TEMP/shop.html"
+          curl -L -fsS --max-time 75 https://truelycollectables.com/product/489878 > "$RUNNER_TEMP/product.html"
+          grep -Fq 'Find the collectible your collection is missing' "$RUNNER_TEMP/home.html"
+          grep -Fq 'Shop Sports Cards' "$RUNNER_TEMP/shop.html"
+          grep -Fq 'Caitlin Clark' "$RUNNER_TEMP/product.html"
+          jq -n --argjson publicRoutes "$rows" --argjson admin "$admin" --argjson email "$email_unsigned" --argjson marketplace "$marketplace_unsigned" --argjson webhook "$webhook_unsigned" '{ok:true,publicRoutes:$publicRoutes,adminRedirect:$admin,unsignedEmailVerifier:$email,unsignedMarketplaceVerifier:$marketplace,unsignedWebhook:$webhook,contentMarkersPassed:true,verifiedAt:(now|todate)}' > "$EVIDENCE_DIR/route-smoke.json"
+
+      - name: Run fresh exact Production Lighthouse gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE_DIR/lighthouse"
+          for spec in 'home|/' 'shop|/shop' 'product|/product/489878' 'signup|/account/signup' 'cart|/cart'; do
+            name="${spec%%|*}"
+            path="${spec#*|}"
+            npx --yes lighthouse@12.8.2 "https://truelycollectables.com$path" --quiet --chrome-flags='--headless --no-sandbox' --output=json --output-path="$EVIDENCE_DIR/lighthouse/$name.json"
+          done
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const pages=['home','shop','product','signup','cart'];
+          const rows=[];const blockers=[];
+          for(const page of pages){
+            const v=JSON.parse(fs.readFileSync(`${process.env.EVIDENCE_DIR}/lighthouse/${page}.json`,'utf8'));
+            const c=v.categories||{};
+            const row={page,performance:Math.round((c.performance?.score||0)*100),accessibility:Math.round((c.accessibility?.score||0)*100),bestPractices:Math.round((c['best-practices']?.score||0)*100),seo:Math.round((c.seo?.score||0)*100)};
+            rows.push(row);
+            if(row.performance<70)blockers.push(`${page} performance ${row.performance}`);
+            if(row.accessibility<95)blockers.push(`${page} accessibility ${row.accessibility}`);
+            if(row.bestPractices<95)blockers.push(`${page} best-practices ${row.bestPractices}`);
+            if(['home','shop','product'].includes(page)&&row.seo<95)blockers.push(`${page} SEO ${row.seo}`);
+          }
+          const result={ok:blockers.length===0,rows,blockers,verifiedAt:new Date().toISOString()};
+          fs.writeFileSync(process.env.EVIDENCE_DIR+'/lighthouse-summary.json',JSON.stringify(result,null,2));
+          if(blockers.length)throw new Error(blockers.join('; '));
+          NODE
+
+      - name: Issue final read-only current-state certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -e '.ok==true and .dependencyAuditPassed==true and .lintPassed==true and .standaloneTypeScriptPassed==true and .coreRegressionSimulationsPassed==true and .productionBuildPassed==true and .secretBaselinePassed==true and .exactProductionMetadataPassed==true' "$EVIDENCE_DIR/evidence-binding.json" >/dev/null
+          jq -e '.ok==true and .readOnly==true and (.blockers|length)==0' "$EVIDENCE_DIR/hosted-invariants.json" >/dev/null
+          jq -e '.ok==true and .contentMarkersPassed==true' "$EVIDENCE_DIR/route-smoke.json" >/dev/null
+          jq -e '.ok==true and (.blockers|length)==0' "$EVIDENCE_DIR/lighthouse-summary.json" >/dev/null
+          jq -n --arg sha "$EXPECTED_MAIN_SHA" --arg deployment "$EXPECTED_DEPLOYMENT_ID" --arg run "$GITHUB_RUN_ID" '{schema:"truelycollectables.finalReadOnlyCurrentStateCertificate.v1",result:"PASS",blockerCount:0,exactProductionSha:$sha,exactProductionDeploymentId:$deployment,workflowRunId:($run|tonumber),dependencyAuditPassed:true,lintPassed:true,standaloneTypeScriptPassed:true,coreRegressionSimulationsPassed:true,productionBuildPassed:true,secretBaselinePassed:true,hostedDataInvariantsPassed:true,publicRoutesPassed:true,protectedBoundariesPassed:true,lighthousePassed:true,productionMutationPerformed:false,emailSent:false,realMoneyCharge:false,realPostagePurchase:false,physicalShipment:false,issuedAt:(now|todate)}' > "$EVIDENCE_DIR/final-current-state-certificate.json"
+
+      - name: Upload sanitized final current-state evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-readonly-finish-20260730
+          path: .audit/final-readonly-finish-20260730
+          if-no-files-found: error
+          retention-days: 90
