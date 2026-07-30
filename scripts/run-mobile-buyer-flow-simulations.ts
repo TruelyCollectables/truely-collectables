@@ -6,18 +6,55 @@ function read(path: string) {
 }
 
 const navbar = read("src/app/components/Navbar.tsx");
+const mobileNavigation = read("src/app/components/MobileNavigation.tsx");
 const shop = read("src/app/shop/page.tsx");
 const productActions = read("src/app/product/[id]/ProductActions.tsx");
 const offerForm = read("src/app/product/[id]/OfferForm.tsx");
 const cart = read("src/app/cart/CartClient.tsx");
 const checkoutButton = read("src/app/components/CheckoutButton.tsx");
 
-assert.match(navbar, /lg:hidden/, "Phone navigation must stay visible below the desktop breakpoint.");
-assert.match(navbar, /overflow-x-auto/, "Phone navigation must scroll instead of overflowing narrow screens.");
-for (const path of ["/shop", "/shop?q=rookie", "/shop?q=autograph", "/shop?q=PSA", "/account"]) {
-  assert.ok(navbar.includes(`href: "${path}"`), `Mobile navigation must include ${path}.`);
+assert.match(
+  navbar,
+  /<MobileNavigation links=\{navigationLinks\} \/>/,
+  "The storefront header must render the phone navigation component.",
+);
+assert.match(
+  mobileNavigation,
+  /lg:hidden/,
+  "Phone navigation must stay visible below the desktop breakpoint.",
+);
+assert.match(
+  mobileNavigation,
+  /overflow-x-auto/,
+  "Phone navigation must scroll instead of overflowing narrow screens.",
+);
+assert.match(
+  mobileNavigation,
+  /element\.scrollLeft = 0/,
+  "Phone navigation must return to the first link after route changes.",
+);
+for (const path of [
+  "/shop",
+  "/shop?q=rookie",
+  "/shop?q=autograph",
+  "/shop?q=PSA",
+  "/account",
+]) {
+  assert.ok(
+    navbar.includes(`href: "${path}"`),
+    `Mobile navigation must include ${path}.`,
+  );
 }
-assert.match(navbar, /min-h-11/, "Navigation and cart controls must meet the mobile touch-target contract.");
+assert.match(
+  mobileNavigation,
+  /min-h-11/,
+  "Navigation controls must meet the mobile touch-target contract.",
+);
+assert.match(
+  navbar,
+  /min-h-11/,
+  "The cart control must meet the mobile touch-target contract.",
+);
 
 assert.match(shop, /px-4 py-8 sm:px-6/, "The shop must use narrow phone gutters with larger-screen fallback.");
 assert.match(shop, /className="object-contain p-2"/, "Shop thumbnails must show the whole collectible instead of cropping it.");
