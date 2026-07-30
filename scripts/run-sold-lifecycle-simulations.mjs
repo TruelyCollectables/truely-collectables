@@ -30,6 +30,9 @@ const atomicEbayMigration = read(
   "supabase/migrations/20260730002600_atomic_ebay_order_sales_and_outbox_scope.sql",
 );
 const saleHistory = read("src/lib/collectible-sale-history.ts");
+const collxBoundaryMigration = read("supabase/migrations/20260730002800_enforce_collx_inventory_boundary.sql");
+const checkoutEngine = read("src/modules/inventory/checkout-engine.ts");
+const publicInventoryEngine = read("src/lib/server-inventory-engine.ts");
 const ebayOrders = read("src/lib/ebay-order-sale-sync.ts");
 const ebayAliases = read("src/lib/ebay-merged-listing-groups.ts");
 const ebayAuth = read("src/app/api/ebay/auth/route.ts");
@@ -181,6 +184,20 @@ assert.match(ebayOrderCron, /Math\.min\(Math\.max\(Math\.floor\(requested\), 1\)
 assert.match(archiveCron, /archiveExpiredCollectibleSales/);
 assert.match(archiveCron, /timingSafeEqual/);
 
+assert.match(collxBoundaryMigration, /collx_only_inventory_boundary_violations/);
+assert.match(collxBoundaryMigration, /COLLX_ONLY_INVENTORY_BLOCKED/);
+assert.match(collxBoundaryMigration, /before insert or update/);
+assert.match(collxBoundaryMigration, /actual sale price\/date\/reference ingestion/);
+assert.match(collxBoundaryMigration, /race\/retry\/duplicate\/reconciliation tests pass/);
+assert.match(publicInventoryEngine, /collx_only_inventory_boundary_violations/);
+assert.match(publicInventoryEngine, /!collxOnlyProductIds\.has\(item\.legacyProductId\)/);
+assert.match(checkoutEngine, /collx_only_inventory_boundary_violations/);
+assert.match(checkoutEngine, /collxOnlyProductIds\.has\(item\.legacyProductId\)/);
+assert.match(saleHistory, /collx_only_inventory_boundary_violations/);
+assert.match(saleHistory, /!collxOnlyProductIds\.has\(item\.legacyProductId\)/);
+assert.equal(fs.existsSync("src/app/api/cron/collx-inventory-sync/route.ts"), false);
+assert.equal(fs.existsSync("src/app/api/cron/collx-sales-sync/route.ts"), false);
+
 const cronByPath = new Map(
   (vercel.crons || []).map((cron) => [cron.path, cron.schedule]),
 );
@@ -207,7 +224,7 @@ console.log(
       ebayOrderPollingMinutes: 5,
       ebayOrderRecurringLookbackDays: 2,
       authoritativeEbayPollingMinutes: 15,
-      checks: 144,
+      checks: 157,
     },
     null,
     2,

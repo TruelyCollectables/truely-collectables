@@ -133,6 +133,15 @@ export async function listRecentSoldStorefrontItems(params: {
     Date.now() - SOLD_STOREFRONT_RETENTION_DAYS * 24 * 60 * 60 * 1000,
   ).toISOString();
 
+  const { data: collxOnlyRows, error: collxOnlyError } = await params.supabase
+    .from("collx_only_inventory_boundary_violations")
+    .select("legacy_product_id")
+    .eq("store_id", params.storeId);
+  if (collxOnlyError) throw collxOnlyError;
+  const collxOnlyProductIds = new Set(
+    (collxOnlyRows || []).map((row: any) => Number(row.legacy_product_id)),
+  );
+
   const { data: products, error: productError } = await params.supabase
     .from("products")
     .select(
@@ -217,6 +226,7 @@ export async function listRecentSoldStorefrontItems(params: {
     })
     .filter((item) => item.imageUrl && item.soldAt)
     .filter((item) => isLaunchCollectible(item))
+    .filter((item) => !collxOnlyProductIds.has(item.legacyProductId))
     .filter((item) => !isMergedEbayAliasItemId(item.ebayItemId))
     .filter((item) =>
       matchesStorefrontFilters(item, {
@@ -243,6 +253,15 @@ export async function getProductSalePresentation(params: {
   storeId: string;
   legacyProductId: number;
 }) {
+  const { data: collxBoundary, error: collxBoundaryError } = await params.supabase
+    .from("collx_only_inventory_boundary_violations")
+    .select("legacy_product_id")
+    .eq("store_id", params.storeId)
+    .eq("legacy_product_id", params.legacyProductId)
+    .maybeSingle();
+  if (collxBoundaryError) throw collxBoundaryError;
+  if (collxBoundary) return null;
+
   const { data, error } = await params.supabase
     .from("products")
     .select(
