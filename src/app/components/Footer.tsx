@@ -46,6 +46,12 @@ export default function Footer() {
             <Link href="/shop" className="text-sm font-black hover:text-yellow-300">
               Shop
             </Link>
+            <Link
+              href="/recently-sold"
+              className="text-sm font-black hover:text-yellow-300"
+            >
+              Recently Sold
+            </Link>
             {policyLinks.map((item) => (
               <Link
                 key={item.href}
