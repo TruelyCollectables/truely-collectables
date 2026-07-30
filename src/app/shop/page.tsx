@@ -2,8 +2,15 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import Image from "next/image";
 import ClearCartOnSuccess from "../../components/ClearCartOnSuccess";
+import SoldOverlay from "../../components/SoldOverlay";
+import {
+  listRecentSoldStorefrontItems,
+  type SaleEvidenceStatus,
+} from "../../lib/collectible-sale-history";
 import { preferHighResolutionListingImage } from "../../lib/listing-image-utils";
 import { createServerInventoryEngine } from "../../lib/server-inventory-engine";
+import { getActiveStoreId } from "../../lib/stores";
+import { createSupabaseServerClient } from "../../lib/supabase-server";
 import {
   COLLECTIBLE_SECTIONS,
   SPORT_SECTIONS,
@@ -77,6 +84,85 @@ function FeatureBadges({ product }: { product: UniversalInventoryItem }) {
   );
 }
 
+function soldPriceLabel(product: UniversalInventoryItem) {
+  const status: SaleEvidenceStatus =
+    product.soldPriceStatus === "verified" || product.soldPriceStatus === "manual"
+      ? product.soldPriceStatus
+      : "unresolved";
+
+  if (product.soldPrice !== null && product.soldPrice !== undefined && status !== "unresolved") {
+    return `Sold for $${Number(product.soldPrice).toFixed(2)}`;
+  }
+
+  return "Sold price pending verification";
+}
+
+function SoldProductCard({ product }: { product: UniversalInventoryItem }) {
+  const storefrontImage =
+    preferHighResolutionListingImage(product.imageUrl) || "/placeholder.png";
+  const subtitle = product.player || product.league;
+  const soldDate = product.soldAt
+    ? new Intl.DateTimeFormat("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      }).format(new Date(product.soldAt))
+    : null;
+
+  return (
+    <article className="overflow-hidden rounded border-2 border-red-700 bg-white">
+      <Link
+        href={`/product/${product.legacyProductId}`}
+        className="block"
+        aria-label={`View sold item ${product.title}`}
+      >
+        <div className="relative aspect-[4/5] bg-neutral-100">
+          <Image
+            src={storefrontImage}
+            alt={product.title}
+            fill
+            sizes="(min-width: 1280px) 300px, (min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
+            quality={90}
+            className="object-contain p-2"
+          />
+          <SoldOverlay compact />
+        </div>
+      </Link>
+
+      <div className="p-4">
+        <p className="text-xs font-black uppercase tracking-[0.12em] text-red-700">
+          {product.storefrontSection} · Recently sold
+        </p>
+        <h2 className="mt-2 line-clamp-2 min-h-14 text-lg font-black leading-7">
+          {product.title}
+        </h2>
+        {subtitle ? (
+          <p className="mt-2 text-sm text-neutral-500">{subtitle}</p>
+        ) : null}
+        <FeatureBadges product={product} />
+
+        <div className="mt-4 border-t border-neutral-200 pt-3">
+          <p className="text-lg font-black text-red-800">
+            {soldPriceLabel(product)}
+          </p>
+          <p className="mt-1 text-xs font-bold text-neutral-600">
+            {[soldDate, product.soldSource]
+              .filter(Boolean)
+              .join(" · ") || "Sale recorded"}
+          </p>
+        </div>
+
+        <Link
+          href={`/product/${product.legacyProductId}`}
+          className="mt-4 flex min-h-11 w-full items-center justify-center rounded border border-red-800 px-4 py-2 text-center font-bold text-red-800 hover:bg-red-800 hover:text-white"
+        >
+          View Sold Item
+        </Link>
+      </div>
+    </article>
+  );
+}
+
 export default async function Shop({
   searchParams,
 }: {
@@ -95,18 +181,31 @@ export default async function Shop({
   const sort: StorefrontSort = params?.sort || "section";
 
   let products: UniversalInventoryItem[] = [];
+  let soldProducts: UniversalInventoryItem[] = [];
   let sections: string[] = [];
   let error: Error | null = null;
 
   try {
     const inventoryEngine = createServerInventoryEngine();
-    products = await inventoryEngine.listAvailable({
-      query: q,
-      section,
-      feature,
-      sort,
-    });
-    sections = await inventoryEngine.listAvailableSections();
+    const supabase = createSupabaseServerClient();
+    const storeId = getActiveStoreId();
+    [products, soldProducts, sections] = await Promise.all([
+      inventoryEngine.listAvailable({
+        query: q,
+        section,
+        feature,
+        sort,
+      }),
+      listRecentSoldStorefrontItems({
+        supabase,
+        storeId,
+        query: q,
+        section,
+        feature,
+        sort,
+      }),
+      inventoryEngine.listAvailableSections(),
+    ]);
   } catch (err: any) {
     error = err;
   }
@@ -134,20 +233,27 @@ export default async function Shop({
       <section className="mb-6 flex flex-wrap items-end justify-between gap-4 border-b border-neutral-200 pb-6">
         <div>
           <p className="text-sm font-bold uppercase text-neutral-500">
-            Active Inventory
+            Live inventory and recent sales
           </p>
           <h1 className="mt-2 text-3xl font-black sm:text-4xl md:text-5xl">
             {heading({ section, feature })}
           </h1>
           <p className="mt-3 max-w-2xl text-neutral-600">
-            Browse cards by sport, with NBA and WNBA kept separate. Autographs
-            are a filter, while real pucks, wearable jerseys, and music items
-            stay in their own sections.
+            Browse cards by sport, with NBA and WNBA kept separate. Sold items
+            remain visible for seven days as market history but cannot be bought,
+            offered on, or added to cart.
           </p>
         </div>
-        <p className="rounded bg-white px-4 py-2 text-sm font-bold text-neutral-700">
-          {products.length.toLocaleString()} active cards & collectibles
-        </p>
+        <div className="flex flex-wrap gap-2 text-sm font-bold">
+          <p className="rounded bg-white px-4 py-2 text-neutral-700">
+            {products.length.toLocaleString()} active
+          </p>
+          {soldProducts.length ? (
+            <p className="rounded bg-red-100 px-4 py-2 text-red-800">
+              {soldProducts.length.toLocaleString()} recently sold
+            </p>
+          ) : null}
+        </div>
       </section>
 
       <section className="mb-8 space-y-5">
@@ -293,7 +399,7 @@ export default async function Shop({
       ) : null}
 
       {products.length === 0 ? (
-        <p className="text-gray-600">No cards or collectibles found.</p>
+        <p className="text-gray-600">No active cards or collectibles found.</p>
       ) : null}
 
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
@@ -357,6 +463,32 @@ export default async function Shop({
           );
         })}
       </div>
+
+      {soldProducts.length ? (
+        <section className="mt-12 border-t-4 border-red-700 pt-8">
+          <div className="mb-6">
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-red-700">
+              Seven-day sale wall
+            </p>
+            <h2 className="mt-2 text-3xl font-black sm:text-4xl">
+              Recently sold collectibles
+            </h2>
+            <p className="mt-2 max-w-3xl font-semibold text-neutral-600">
+              These items are retained as visible sale history only. They are
+              locked from checkout, offers, and cart actions, and move to the
+              InstaComp archive after seven days.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            {soldProducts.map((product) => (
+              <SoldProductCard
+                key={`sold-${product.legacyProductId}`}
+                product={product}
+              />
+            ))}
+          </div>
+        </section>
+      ) : null}
     </main>
   );
 }
