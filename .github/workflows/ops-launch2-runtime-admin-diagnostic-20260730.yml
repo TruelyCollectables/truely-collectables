@@ -1,0 +1,90 @@
+name: Ops Launch 2 Runtime Admin Diagnostic
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/ops-launch2-runtime-admin-diagnostic-20260730.yml"
+
+permissions:
+  contents: read
+
+env:
+  EXPECTED_MAIN_SHA: eff61e573154f4ad2ccc05eae0fe3fa542e94a95
+
+jobs:
+  diagnose:
+    if: github.event.pull_request.head.ref == 'ops/launch2-issue253-production-apply-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+    steps:
+      - name: Check out exact current main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Pin exact source and probe Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          test "$(git rev-parse HEAD)" = "$EXPECTED_MAIN_SHA"
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          test -n "${VERCEL_TOKEN:-}"
+          echo "::add-mask::$VERCEL_TOKEN"
+
+          evidence="$RUNNER_TEMP/runtime-admin-diagnostic"
+          mkdir -p "$evidence"
+
+          home_code="$(curl --location --silent --show-error --max-time 30 --output "$evidence/home.body" --write-out '%{http_code}' https://truelycollectables.com/ || true)"
+          shop_code="$(curl --location --silent --show-error --max-time 30 --output "$evidence/shop.body" --write-out '%{http_code}' https://truelycollectables.com/shop || true)"
+          unsigned_health_code="$(curl --location --silent --show-error --max-time 30 --output "$evidence/unsigned-health.body" --write-out '%{http_code}' https://truelycollectables.com/api/admin-orders-health || true)"
+          runtime_code="$(curl --silent --show-error --max-time 90 --request POST --header "Authorization: Bearer $VERCEL_TOKEN" --output "$evidence/runtime.body" --write-out '%{http_code}' https://truelycollectables.com/api/release/admin-orders-self-test || true)"
+
+          HOME_CODE="$home_code" SHOP_CODE="$shop_code" UNSIGNED_HEALTH_CODE="$unsigned_health_code" RUNTIME_CODE="$runtime_code" node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+
+          const dir = path.join(process.env.RUNNER_TEMP, 'runtime-admin-diagnostic');
+          const read = (name) => {
+            try { return fs.readFileSync(path.join(dir, name), 'utf8'); } catch { return ''; }
+          };
+          const safeJson = (text) => {
+            try {
+              const value = JSON.parse(text || '{}');
+              const allowed = {};
+              for (const key of ['success','release','orderId','adminNavigation','sessionRefresh','refundConfirmationGuard','refundIssued','directStoreTcosFeesRemaining','removedDirectStoreFeeRows','error']) {
+                if (Object.prototype.hasOwnProperty.call(value, key)) allowed[key] = value[key];
+              }
+              return allowed;
+            } catch {
+              return { nonJson: String(text || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 500) };
+            }
+          };
+          const receipt = {
+            exactMainSha: process.env.EXPECTED_MAIN_SHA,
+            homeStatus: Number(process.env.HOME_CODE || 0),
+            shopStatus: Number(process.env.SHOP_CODE || 0),
+            unsignedAdminHealthStatus: Number(process.env.UNSIGNED_HEALTH_CODE || 0),
+            protectedRuntimeStatus: Number(process.env.RUNTIME_CODE || 0),
+            unsignedAdminHealthBody: safeJson(read('unsigned-health.body')),
+            protectedRuntimeBody: safeJson(read('runtime.body')),
+            capturedAt: new Date().toISOString(),
+          };
+          fs.writeFileSync(path.join(dir, 'runtime-diagnostic-receipt.json'), JSON.stringify(receipt, null, 2));
+          console.log(JSON.stringify(receipt));
+          NODE
+
+          rm -f "$evidence/home.body" "$evidence/shop.body" "$evidence/unsigned-health.body" "$evidence/runtime.body"
+
+      - name: Upload sanitized runtime diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launch2-runtime-admin-diagnostic-${{ env.EXPECTED_MAIN_SHA }}
+          path: ${{ runner.temp }}/runtime-admin-diagnostic
+          if-no-files-found: error
+          retention-days: 14
