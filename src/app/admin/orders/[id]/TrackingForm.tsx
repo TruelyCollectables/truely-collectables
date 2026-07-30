@@ -153,7 +153,7 @@ export default function TrackingForm({
         setMessage({ tone: "error", text: shipData.error || "Unable to mark shipped." });
         return;
       }
-      setMessage({ tone: "success", text: "Order marked shipped. Customer and owner tracking emails were queued." });
+      setMessage({ tone: "success", text: "Order marked shipped. Refreshing... Customer and owner tracking emails were queued." });
       setTimeout(() => window.location.reload(), 800);
     } catch (err: any) {
       setMessage({ tone: "error", text: err?.message || "Unable to mark shipped." });
