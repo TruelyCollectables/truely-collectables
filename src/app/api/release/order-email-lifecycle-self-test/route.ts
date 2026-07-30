@@ -23,6 +23,10 @@ type DeliverySpec = {
   payload: OrderNotificationPayload;
 };
 
+type DeliveryResult = Awaited<
+  ReturnType<typeof enqueueAndAttemptOrderNotification>
+>;
+
 function bearerToken(request: Request) {
   const authorization = request.headers.get("authorization") || "";
   return authorization.startsWith("Bearer ")
@@ -257,7 +261,7 @@ export async function POST(request: Request) {
       },
     ];
 
-    const firstResults = [];
+    const firstResults: DeliveryResult[] = [];
     for (const spec of specs) {
       const result = await enqueueAndAttemptOrderNotification({
         supabase,
@@ -277,7 +281,7 @@ export async function POST(request: Request) {
       firstResults.push(result);
     }
 
-    const replayResults = [];
+    const replayResults: DeliveryResult[] = [];
     for (const spec of specs) {
       replayResults.push(
         await enqueueAndAttemptOrderNotification({
