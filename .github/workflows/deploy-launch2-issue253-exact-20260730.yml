@@ -1,0 +1,251 @@
+name: Deploy Launch 2 Issue 253 Exact 20260730
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/deploy-launch2-issue253-exact-20260730.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-launch2-issue253-exact-20260730
+  cancel-in-progress: false
+
+env:
+  EXPECTED_MAIN_SHA: 11b95609b4af979283c1d72cf1019f1bc0e9fc85
+  EXPECTED_BRANCH: deploy/launch2-issue253-11b956-20260730
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
+  SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
+  ADMIN_SESSION_SECRET: build-validation-session-secret-that-is-long-enough
+  ADMIN_PASSWORD: build-validation-admin-password
+  NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+  STRIPE_SECRET_KEY: sk_test_build_validation
+  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_validation
+  STRIPE_WEBHOOK_SECRET: whsec_build_validation
+  EBAY_CLIENT_ID: build-validation-client-id
+  EBAY_CLIENT_SECRET: build-validation-client-secret
+  EBAY_ENVIRONMENT: production
+  CRON_SECRET: build-validation-cron-secret-that-is-long-enough
+  TCOS_LIVE_PAYMENTS_ENABLED: "false"
+  TCOS_SHIPPING_PURCHASE_MODE: dry_run
+  TCOS_LIVE_SHIPPING_ENABLED: "false"
+
+jobs:
+  validate-deploy-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on exact deployment scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main ops/truqely-full-launch-audit-20260729
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          test "$(git diff --name-only "$EXPECTED_MAIN_SHA"...HEAD)" = ".github/workflows/deploy-launch2-issue253-exact-20260730.yml"
+          git diff --check "$EXPECTED_MAIN_SHA"...HEAD
+          mkdir -p evidence/launch2-issue253-deployment .audit/simulations
+          printf '%s\n' "$EXPECTED_MAIN_SHA" > evidence/launch2-issue253-deployment/source-sha.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Run all six launch simulations and issue 253 gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          git show origin/ops/truqely-full-launch-audit-20260729:scripts/run-truely-launch-audit-20260729.mjs > scripts/.issue253-deploy-audit-runner.mjs
+          rm -rf .audit/simulations
+          for shard in 0 1 2 3 4 5; do
+            node scripts/.issue253-deploy-audit-runner.mjs simulations --shard="$shard" --shards=6
+          done
+          node scripts/run-sold-lifecycle-simulations.mjs
+          node scripts/run-sold-trigger-order-simulation.mjs
+          node scripts/run-privileged-api-route-audit.mjs
+          npm run simulate:privileged-route-auth
+          cp -R .audit/simulations evidence/launch2-issue253-deployment/
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const dir = '.audit/simulations';
+          const files = fs.readdirSync(dir).filter((name) => /^simulation-shard-\d+\.json$/.test(name));
+          if (files.length < 6) throw new Error(`Only ${files.length} simulation reports exist.`);
+          const failures = files.flatMap((name) => {
+            const value = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8'));
+            return (value.results || []).filter((row) => row.status !== 'passed').map((row) => ({name: row.name, status: row.status, shard: name}));
+          });
+          if (failures.length) throw new Error(`Simulation failures: ${JSON.stringify(failures)}`);
+          fs.writeFileSync('evidence/launch2-issue253-deployment/simulation-summary.json', JSON.stringify({reports: files.length, failures}, null, 2));
+          NODE
+
+      - name: Run npm security lint TypeScript and Production build
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm audit --json > evidence/launch2-issue253-deployment/npm-audit.json || audit_status=$?
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const report = JSON.parse(fs.readFileSync('evidence/launch2-issue253-deployment/npm-audit.json', 'utf8'));
+          const counts = report.metadata?.vulnerabilities || {};
+          fs.writeFileSync('evidence/launch2-issue253-deployment/npm-audit-summary.json', JSON.stringify(counts, null, 2));
+          if ((counts.high || 0) !== 0 || (counts.critical || 0) !== 0) throw new Error(`High/critical advisories: ${JSON.stringify(counts)}`);
+          NODE
+          npm audit --audit-level=high
+          npm run lint
+          npx tsc --noEmit --pretty false
+          npm run build
+
+      - name: Resolve exact Vercel and Supabase projects
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          mkdir -p .vercel "$RUNNER_TEMP/launch2-issue253-deploy"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/launch2-issue253-deploy/production.env" \
+            --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Deploy exact current main to Production
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          exact="$RUNNER_TEMP/truely-issue253-exact-main"
+          rm -rf "$exact"
+          git worktree add --detach "$exact" "$EXPECTED_MAIN_SHA"
+          test "$(git -C "$exact" rev-parse HEAD)" = "$EXPECTED_MAIN_SHA"
+          test -z "$(git -C "$exact" status --porcelain)"
+          mkdir -p "$exact/.vercel"
+          cp .vercel/project.json "$exact/.vercel/project.json"
+          cd "$exact"
+          npx vercel@56.2.0 deploy --prod --yes --force \
+            --meta "launchSourceSha=$EXPECTED_MAIN_SHA" \
+            --meta "launchPurpose=launch-2-issue253-final-deployment" \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" \
+            2>&1 | tee "$GITHUB_WORKSPACE/evidence/launch2-issue253-deployment/vercel-deploy.log"
+          url="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$GITHUB_WORKSPACE/evidence/launch2-issue253-deployment/vercel-deploy.log" | tail -n 1)"
+          test -n "$url"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$url" > "$GITHUB_WORKSPACE/evidence/launch2-issue253-deployment/staged-deployment-url.txt"
+
+      - name: Verify live Production database and SOLD presentation
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          const envPath = path.join(process.env.RUNNER_TEMP, 'launch2-issue253-deploy', 'production.env');
+          const parsed = {};
+          for (const rawLine of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
+            const line = rawLine.trim();
+            if (!line || line.startsWith('#')) continue;
+            const index = line.indexOf('=');
+            if (index < 1) continue;
+            const key = line.slice(0, index).trim();
+            let value = line.slice(index + 1).trim();
+            if (value.startsWith('"') && value.endsWith('"')) { try { value = JSON.parse(value); } catch { value = value.slice(1,-1); } }
+            else if (value.startsWith("'") && value.endsWith("'")) value = value.slice(1,-1);
+            parsed[key] = value;
+          }
+          const url = parsed.NEXT_PUBLIC_SUPABASE_URL;
+          const projectRef = new URL(url).hostname.split('.')[0];
+          const token = process.env.GH_SUPABASE_ACCESS_TOKEN;
+          const response = await fetch(`https://api.supabase.com/v1/projects/${projectRef}/database/query`, {
+            method: 'POST',
+            headers: {Authorization: `Bearer ${token}`, 'Content-Type': 'application/json'},
+            body: JSON.stringify({read_only: true, parameters: [], query: `
+              select json_build_object(
+                'sale_records', (select count(*) from public.collectible_sales),
+                'recent_unarchived', (select count(*) from public.collectible_sales where sold_at >= now() - interval '7 days' and archive_after > now()),
+                'recent_product_id', (select legacy_product_id from public.collectible_sales where sold_at >= now() - interval '7 days' and archive_after > now() order by sold_at desc limit 1),
+                'historical_unresolved', (select count(*) from public.collectible_sales where sold_at < '2026-07-28 00:00:00+00'::timestamptz and (sold_price is null or evidence_status='unresolved')),
+                'active_guards', (select count(*) from public.ebay_inbound_sale_guards where active),
+                'guard_violations', (
+                  select count(*) from public.ebay_inbound_sale_guards g
+                  left join public.products p on p.store_id=g.store_id and p.id=g.legacy_product_id
+                  left join public.inventory_items i on i.store_id=g.store_id and i.legacy_product_id=g.legacy_product_id
+                  where g.active and (coalesce(p.quantity,g.protected_quantity)>g.protected_quantity or coalesce(i.quantity,g.protected_quantity)>g.protected_quantity)
+                ),
+                'collx_only_excluded', (select count(*) from public.collx_only_inventory_boundary_violations),
+                'source_counts', coalesce((select json_object_agg(source_marketplace, count_value) from (select source_marketplace, count(*) count_value from public.collectible_sales group by source_marketplace) q), '{}'::json)
+              ) as state;
+            `})
+          });
+          const body = await response.text();
+          if (!response.ok) throw new Error(`Production DB verification HTTP ${response.status}: ${body.slice(0,2000)}`);
+          const state = JSON.parse(body)?.[0]?.state;
+          if (!state) throw new Error('No Production SOLD state returned.');
+          const blockers = [];
+          if (Number(state.sale_records || 0) < 1) blockers.push('no_sale_records');
+          if (Number(state.active_guards || 0) < 1) blockers.push('no_active_sale_guards');
+          if (Number(state.guard_violations || 0) !== 0) blockers.push(`guard_violations=${state.guard_violations}`);
+          if (blockers.length) throw new Error(`Production SOLD blockers: ${blockers.join(', ')}`);
+          fs.writeFileSync('evidence/launch2-issue253-deployment/sold-production-state.json', JSON.stringify({state, blockers}, null, 2));
+          NODE
+
+          recent_id="$(node -e "const v=require('./evidence/launch2-issue253-deployment/sold-production-state.json'); process.stdout.write(v.state.recent_product_id == null ? '' : String(v.state.recent_product_id))")"
+          for label in deployment custom; do
+            if [ "$label" = deployment ]; then base="$DEPLOYMENT_URL"; else base="https://truelycollectables.com"; fi
+            for attempt in $(seq 1 18); do
+              root_code="$(curl --location --silent --show-error --output "evidence/launch2-issue253-deployment/${label}-root.html" --write-out '%{http_code}' "$base/")"
+              shop_code="$(curl --location --silent --show-error --output "evidence/launch2-issue253-deployment/${label}-shop.html" --write-out '%{http_code}' "$base/shop")"
+              admin_code="$(curl --silent --show-error --output "evidence/launch2-issue253-deployment/${label}-admin.html" --write-out '%{http_code}' "$base/admin")"
+              login_code="$(curl --location --silent --show-error --output "evidence/launch2-issue253-deployment/${label}-admin-login.html" --write-out '%{http_code}' "$base/admin/login")"
+              if [ "$root_code" = 200 ] && [ "$shop_code" = 200 ] && [ "$admin_code" = 307 ] && [ "$login_code" = 200 ]; then break; fi
+              sleep 10
+            done
+            test "$root_code" = 200
+            test "$shop_code" = 200
+            test "$admin_code" = 307
+            test "$login_code" = 200
+            grep -Fq 'Admin Login' "evidence/launch2-issue253-deployment/${label}-admin-login.html"
+            if [ -n "$recent_id" ]; then
+              product_code="$(curl --location --silent --show-error --output "evidence/launch2-issue253-deployment/${label}-sold-product.html" --write-out '%{http_code}' "$base/product/$recent_id")"
+              test "$product_code" = 200
+              grep -Fq 'Sold · Research only' "evidence/launch2-issue253-deployment/${label}-sold-product.html"
+              if grep -Eiq 'Add to Cart|Make Best Offer|Buy Now' "evidence/launch2-issue253-deployment/${label}-sold-product.html"; then exit 1; fi
+              grep -Fq 'Recently sold collectibles' "evidence/launch2-issue253-deployment/${label}-shop.html"
+            fi
+          done
+          webhook_code="$(curl --silent --show-error --request POST --header 'Content-Type: application/json' --data '{}' --output evidence/launch2-issue253-deployment/custom-webhook.json --write-out '%{http_code}' https://truelycollectables.com/api/webhook)"
+          test "$webhook_code" = 400 -o "$webhook_code" = 401
+          printf 'PASS\n' > evidence/launch2-issue253-deployment/production-verification.txt
+          rm -f "$RUNNER_TEMP/launch2-issue253-deploy/production.env"
+          rm -f scripts/.issue253-deploy-audit-runner.mjs
+
+      - name: Upload signed exact Production evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launch-current-main-11b956-issue253-production
+          path: evidence/launch2-issue253-deployment
+          if-no-files-found: error
+          retention-days: 90
