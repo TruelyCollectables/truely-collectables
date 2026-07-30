@@ -1,0 +1,245 @@
+name: Deploy eBay Full Picture Import 20260730
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/deploy-ebay-full-picture-import-20260730.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-ebay-full-picture-import-20260730
+  cancel-in-progress: false
+
+jobs:
+  deploy-sync-verify:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'ops/deploy-ebay-full-picture-import-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SOURCE_SHA: 8eef48590b58d2fe169b232f599e42e94c155f8b
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+
+    steps:
+      - name: Check out exact merged source
+        uses: actions/checkout@v4
+        with:
+          ref: 8eef48590b58d2fe169b232f599e42e94c155f8b
+          fetch-depth: 0
+
+      - name: Fail closed on exact source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          grep -Fq 'X-EBAY-API-CALL-NAME": "GetSellerList"' src/lib/ebay-all-image-sync.ts
+          grep -Fq 'xmlBlocks(pictureDetails, "PictureURL")' src/lib/ebay-all-image-sync.ts
+          ! grep -Fq 'X-EBAY-API-CALL-NAME": "GetMyeBaySelling"' src/lib/ebay-all-image-sync.ts
+          git diff --check
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Link Vercel and pull Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p .vercel "$RUNNER_TEMP/ebay-full-picture-import"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/ebay-full-picture-import/production.env" \
+            --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          test -s "$RUNNER_TEMP/ebay-full-picture-import/production.env"
+
+      - name: Deploy exact importer to Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          npx vercel@56.2.0 deploy --prod --yes --force --archive=tgz \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+
+      - name: Run full Production eBay picture reconciliation
+        shell: bash
+        run: |
+          set -euo pipefail
+          env_file="$RUNNER_TEMP/ebay-full-picture-import/production.env"
+          set -a
+          source "$env_file"
+          set +a
+          test -n "${CRON_SECRET:-}"
+          echo "::add-mask::$CRON_SECRET"
+          response_file="$RUNNER_TEMP/ebay-full-picture-import/sync-response.json"
+          status="$(curl -sS -L --max-time 330 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -o "$response_file" -w '%{http_code}' \
+            "https://truelycollectables.com/api/cron/ebay-store-fixed-price-sync?full_picture_run=${GITHUB_RUN_ID}")"
+          cat "$response_file"
+          test "$status" = "200"
+          node - "$response_file" <<'NODE'
+          const fs = require('node:fs');
+          const receipt = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          if (!receipt.success) throw new Error(`Production eBay sync failed: ${JSON.stringify(receipt.errors || []).slice(0, 3000)}`);
+          const imagePasses = Array.isArray(receipt.imagePasses) ? receipt.imagePasses : [];
+          if (!imagePasses.length) throw new Error('Production sync did not report an image pass.');
+          const last = imagePasses[imagePasses.length - 1];
+          if (last.remainingCandidates !== 0 || last.failed !== 0 || !last.cycleComplete) {
+            throw new Error(`Image reconciliation did not converge: ${JSON.stringify(last)}`);
+          }
+          console.log(JSON.stringify({
+            productionSyncSuccess: true,
+            imagePasses,
+            activeLinkedProducts: receipt.databaseAudit?.activeLinkedProducts ?? null,
+          }, null, 2));
+          NODE
+
+      - name: Measure imported eBay picture coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          env_file="$RUNNER_TEMP/ebay-full-picture-import/production.env"
+          set -a
+          source "$env_file"
+          set +a
+          test -n "${NEXT_PUBLIC_SUPABASE_URL:-}"
+          test -n "${SUPABASE_SERVICE_ROLE_KEY:-}"
+          echo "::add-mask::$SUPABASE_SERVICE_ROLE_KEY"
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import { createClient } from '@supabase/supabase-js';
+
+          const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL,
+            process.env.SUPABASE_SERVICE_ROLE_KEY,
+            { auth: { persistSession: false, autoRefreshToken: false } },
+          );
+          const { data: products, error: productsError } = await supabase
+            .from('products')
+            .select('id,store_id,ebay_item_id,quantity')
+            .gt('quantity', 0)
+            .not('ebay_item_id', 'is', null)
+            .limit(2000);
+          if (productsError) throw productsError;
+          const storeCounts = new Map();
+          for (const row of products || []) {
+            storeCounts.set(row.store_id, (storeCounts.get(row.store_id) || 0) + 1);
+          }
+          const storeId = [...storeCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+          if (!storeId) throw new Error('No active eBay store inventory was found.');
+          const activeProducts = (products || []).filter((row) => row.store_id === storeId);
+          const { data: inventory, error: inventoryError } = await supabase
+            .from('inventory_items')
+            .select('id,legacy_product_id,status,quantity')
+            .eq('store_id', storeId)
+            .in('legacy_product_id', activeProducts.map((row) => row.id))
+            .limit(2000);
+          if (inventoryError) throw inventoryError;
+          const inventoryIds = (inventory || []).map((row) => row.id);
+          const images = [];
+          for (let index = 0; index < inventoryIds.length; index += 20) {
+            const chunk = inventoryIds.slice(index, index + 20);
+            const { data, error } = await supabase
+              .from('inventory_images')
+              .select('inventory_item_id,image_url,sort_order')
+              .in('inventory_item_id', chunk)
+              .order('inventory_item_id', { ascending: true })
+              .order('sort_order', { ascending: true })
+              .limit(1000);
+            if (error) throw error;
+            images.push(...(data || []));
+          }
+          const imageSets = new Map();
+          for (const image of images) {
+            const rows = imageSets.get(image.inventory_item_id) || [];
+            if (!rows.includes(image.image_url)) rows.push(image.image_url);
+            imageSets.set(image.inventory_item_id, rows);
+          }
+          const productByInventory = new Map(
+            (inventory || []).map((row) => [row.id, Number(row.legacy_product_id)]),
+          );
+          const multiple = (inventory || []).flatMap((row) => {
+            const urls = imageSets.get(row.id) || [];
+            const ebayUrls = urls.filter((url) => {
+              try { return new URL(url).hostname.toLowerCase() === 'i.ebayimg.com'; }
+              catch { return false; }
+            });
+            return ebayUrls.length >= 2
+              ? [{ productId: Number(row.legacy_product_id), inventoryItemId: row.id, pictureCount: ebayUrls.length }]
+              : [];
+          });
+          const coveragePercent = activeProducts.length
+            ? Math.round((multiple.length / activeProducts.length) * 10000) / 100
+            : 0;
+          const receipt = {
+            storeId,
+            activeProducts: activeProducts.length,
+            activeInventoryRows: inventory.length,
+            productsWithMultipleEbayPictures: multiple.length,
+            multiplePictureCoveragePercent: coveragePercent,
+            sampleProductId: multiple[0]?.productId || null,
+            checkedAt: new Date().toISOString(),
+          };
+          console.log(JSON.stringify({ pictureCoverage: receipt }, null, 2));
+          fs.writeFileSync(
+            path.join(process.env.RUNNER_TEMP, 'ebay-full-picture-import', 'coverage.json'),
+            JSON.stringify(receipt, null, 2),
+          );
+          if (!receipt.sampleProductId) throw new Error('No live product received multiple eBay PictureURL values.');
+          if (coveragePercent < 75) {
+            throw new Error(`Only ${coveragePercent}% of active eBay products received multiple pictures; expected at least 75%.`);
+          }
+          NODE
+
+      - name: Verify live front and back product gallery
+        shell: bash
+        run: |
+          set -euo pipefail
+          coverage="$RUNNER_TEMP/ebay-full-picture-import/coverage.json"
+          sample_id="$(node -e 'const r=require(process.argv[1]); process.stdout.write(String(r.sampleProductId || ""))' "$coverage")"
+          test -n "$sample_id"
+          for attempt in $(seq 1 18); do
+            shop_file="$RUNNER_TEMP/ebay-full-picture-import/shop.html"
+            sold_file="$RUNNER_TEMP/ebay-full-picture-import/sold.html"
+            product_file="$RUNNER_TEMP/ebay-full-picture-import/product.html"
+            shop_status="$(curl -sS -L --max-time 60 -o "$shop_file" -w '%{http_code}' "https://truelycollectables.com/shop?full_picture_verify=${GITHUB_RUN_ID}&attempt=${attempt}" || true)"
+            sold_status="$(curl -sS -L --max-time 60 -o "$sold_file" -w '%{http_code}' "https://truelycollectables.com/recently-sold?full_picture_verify=${GITHUB_RUN_ID}&attempt=${attempt}" || true)"
+            product_status="$(curl -sS -L --max-time 60 -o "$product_file" -w '%{http_code}' "https://truelycollectables.com/product/${sample_id}?full_picture_verify=${GITHUB_RUN_ID}&attempt=${attempt}" || true)"
+            if [ "$shop_status" = "200" ] \
+              && grep -Fq '/recently-sold' "$shop_file" \
+              && [ "$sold_status" = "200" ] \
+              && grep -Fq 'See What You Missed' "$sold_file" \
+              && [ "$product_status" = "200" ] \
+              && grep -Fq 'Front photo' "$product_file" \
+              && grep -Fq 'Back photo' "$product_file"; then
+              echo "Live eBay front/back gallery verified with product ${sample_id} on attempt ${attempt}."
+              cat "$coverage"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Live full-picture storefront verification failed for product ${sample_id}." >&2
+          exit 1
+
+      - name: Remove temporary Production files
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "$RUNNER_TEMP/ebay-full-picture-import"
