@@ -127,9 +127,10 @@ assert.doesNotMatch(shop, /SoldProductCard[\s\S]*OfferForm/);
 assert.match(productLayout, /Sold · Research only/);
 assert.match(productLayout, /locked from cart, checkout, Buy Now, and Best/);
 assert.match(productLayout, /<SoldOverlay \/>/);
-assert.match(productLayout, /soldRetentionExpired/);
-assert.match(productLayout, /notFound\(\)/);
+assert.match(productLayout, /function isSoldRetentionExpired/);
 assert.match(productLayout, /archiveTime <= Date\.now\(\)/);
+assert.match(productLayout, /if \(isSoldRetentionExpired\(saleState\)\)/);
+assert.match(productLayout, /notFound\(\)/);
 assert.doesNotMatch(productLayout, /ProductActions/);
 assert.doesNotMatch(productLayout, /OfferForm/);
 
@@ -196,7 +197,7 @@ console.log(
       ebayOrderPollingMinutes: 5,
       ebayOrderRecurringLookbackDays: 2,
       authoritativeEbayPollingMinutes: 15,
-      checks: 132,
+      checks: 134,
     },
     null,
     2,
