@@ -126,6 +126,16 @@ jobs:
             npx vercel@56.2.0 link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
           fi
 
+      - name: Pull Production environment for hosted migration runner
+        working-directory: ${{ env.EXACT_APP_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          envfile="$RUNNER_TEMP/launch2-final-b30f084/production.env"
+          npx vercel@56.2.0 env pull "$envfile" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          test -s "$envfile"
+          printf 'PRODUCTION_ENV_FILE=%s\n' "$envfile" >> "$GITHUB_ENV"
+
       - name: Reconfirm exact main before hosted verification
         run: git fetch origin main && test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
 
@@ -162,9 +172,10 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-      - name: Remove exact worktree
+      - name: Remove pulled Production environment and exact worktree
         if: always()
         shell: bash
         run: |
           set -euo pipefail
+          rm -f "$RUNNER_TEMP/launch2-final-b30f084/production.env"
           git worktree remove --force "$RUNNER_TEMP/launch2-final-b30f084/exact-main" || true
