@@ -1,0 +1,119 @@
+name: Launch 2 Final bb7657 Lighthouse Matrix
+
+on:
+  pull_request:
+    branches: [main]
+    paths: [".github/workflows/launch2-final-bb7657-lighthouse-matrix.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: launch2-final-bb7657-lighthouse-matrix
+  cancel-in-progress: true
+
+env:
+  EXPECTED_MAIN_SHA: bb765778806f4bf658da4fc185d38e43fd9a3fba
+  EXPECTED_BRANCH: ops/launch2-final-bb7657-20260730
+
+jobs:
+  pin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+      - name: Pin exact main and operations-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          test "$(git merge-base "$EXPECTED_MAIN_SHA" HEAD)" = "$EXPECTED_MAIN_SHA"
+          mapfile -t changed < <(git diff --name-only "$EXPECTED_MAIN_SHA"...HEAD | sort)
+          test "${#changed[@]}" -eq 3
+          test "${changed[0]}" = ".github/workflows/launch2-final-bb7657-lighthouse-matrix.yml"
+          test "${changed[1]}" = ".github/workflows/launch2-final-bb7657-live-fast.yml"
+          test "${changed[2]}" = ".github/workflows/launch2-final-bb7657.yml"
+
+  lighthouse:
+    needs: pin
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - page: home
+            path: /
+            public_seo: true
+          - page: shop
+            path: /shop
+            public_seo: true
+          - page: signup
+            path: /account/signup
+            public_seo: false
+          - page: cart
+            path: /cart
+            public_seo: false
+    steps:
+      - name: Install Lighthouse
+        run: npm install --global lighthouse@12.8.2 >/dev/null
+      - name: Run bounded Production Lighthouse
+        shell: bash
+        env:
+          PAGE: ${{ matrix.page }}
+          PATHNAME: ${{ matrix.path }}
+          PUBLIC_SEO: ${{ matrix.public_seo }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          timeout 180s lighthouse "https://truelycollectables.com$PATHNAME" --quiet --chrome-flags='--headless --no-sandbox --disable-gpu' --throttling-method=provided --max-wait-for-load=60000 --output=json --output-path="evidence/lighthouse-$PAGE.json"
+          FILE="evidence/lighthouse-$PAGE.json" PAGE="$PAGE" PUBLIC_SEO="$PUBLIC_SEO" node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const report=JSON.parse(fs.readFileSync(process.env.FILE,'utf8'));
+          const categories=report.categories;
+          const scores={performance:categories.performance.score,accessibility:categories.accessibility.score,bestPractices:categories['best-practices'].score,seo:categories.seo.score};
+          if(scores.performance<.70||scores.accessibility<.95||scores.bestPractices<.95) throw new Error(`${process.env.PAGE} Lighthouse blocker ${JSON.stringify(scores)}`);
+          if(process.env.PUBLIC_SEO==='true'&&scores.seo<.95) throw new Error(`${process.env.PAGE} SEO blocker ${scores.seo}`);
+          fs.writeFileSync(`evidence/lighthouse-${process.env.PAGE}-summary.json`,JSON.stringify({ok:true,page:process.env.PAGE,path:report.finalDisplayedUrl,scores,exactProductionSha:process.env.EXPECTED_MAIN_SHA,verifiedAt:new Date().toISOString()},null,2));
+          NODE
+      - name: Upload page evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: launch2-lighthouse-${{ matrix.page }}-${{ env.EXPECTED_MAIN_SHA }}
+          path: evidence
+          if-no-files-found: error
+          retention-days: 30
+
+  certificate:
+    needs: lighthouse
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Write parallel Lighthouse certificate
+        shell: bash
+        run: |
+          mkdir -p evidence
+          cat > evidence/lighthouse-matrix-certificate.json <<EOF
+          {
+            "schema":"truelycollectables.launch2LighthouseMatrixCertificate.v1",
+            "status":"PASS",
+            "exactProductionSha":"$EXPECTED_MAIN_SHA",
+            "pages":["home","shop","signup","cart"],
+            "performanceThreshold":0.70,
+            "accessibilityThreshold":0.95,
+            "bestPracticesThreshold":0.95,
+            "publicSeoThreshold":0.95,
+            "certifiedAt":"$(date -u +%FT%TZ)"
+          }
+          EOF
+      - uses: actions/upload-artifact@v4
+        with:
+          name: launch2-lighthouse-matrix-certificate-${{ env.EXPECTED_MAIN_SHA }}
+          path: evidence
+          if-no-files-found: error
+          retention-days: 30
