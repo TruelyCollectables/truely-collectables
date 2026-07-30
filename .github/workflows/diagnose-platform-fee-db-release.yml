@@ -1,0 +1,34 @@
+name: Diagnose Platform Fee DB Release
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/diagnose-platform-fee-db-release.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: List database migration and release files
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== SUPABASE TREE ==='
+          find supabase -maxdepth 4 -type f -print 2>/dev/null | sort || true
+          echo '=== DATABASE-RELATED WORKFLOWS/SCRIPTS ==='
+          find .github/workflows scripts -maxdepth 3 -type f -print 2>/dev/null \
+            | sort \
+            | grep -Ei 'supabase|database|migration|launch|deploy|bootstrap' || true
+          echo '=== PLATFORM FEE / GRANT / LIVE DB REFERENCES ==='
+          grep -RInE \
+            'platform_fee_ledger_entries|seller_payout_ledger_entries|grant[[:space:]].*service_role|supabase[[:space:]]+db|DATABASE_URL|SUPABASE_DB|migration' \
+            supabase scripts .github package.json 2>/dev/null \
+            | head -2500 || true
