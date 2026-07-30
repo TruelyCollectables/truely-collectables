@@ -6,6 +6,7 @@ on:
     paths:
       - ".github/workflows/ops-launch2-issue253-production-finalize-20260730.yml"
       - "ops/launch2-issue253-production-finalize.mjs"
+      - "ops/provision-launch-secrets.mjs"
 
 permissions:
   contents: read
@@ -120,6 +121,18 @@ jobs:
           else
             npx vercel@56.2.0 link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
           fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/launch2-issue253-finalize-production/production.env" \
+            --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Provision missing Production launch credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          node ops/provision-launch-secrets.mjs \
+            live-app \
+            "$RUNNER_TEMP/launch2-issue253-finalize-production/production.env" \
+            "$RUNNER_TEMP/launch2-issue253-finalize-evidence"
+          cd live-app
           npx vercel@56.2.0 env pull "$RUNNER_TEMP/launch2-issue253-finalize-production/production.env" \
             --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
 
