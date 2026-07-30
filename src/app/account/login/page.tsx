@@ -9,11 +9,15 @@ function safeAccountReturnPath() {
   if (typeof window === "undefined") return "/account";
 
   const candidate = new URLSearchParams(window.location.search).get("next");
-  if (!candidate || !candidate.startsWith("/") || candidate.startsWith("//")) {
+  if (!candidate || !candidate.startsWith("/")) return "/account";
+
+  try {
+    const resolved = new URL(candidate, window.location.origin);
+    if (resolved.origin !== window.location.origin) return "/account";
+    return `${resolved.pathname}${resolved.search}${resolved.hash}`;
+  } catch {
     return "/account";
   }
-
-  return candidate;
 }
 
 export default function AccountLoginPage() {
