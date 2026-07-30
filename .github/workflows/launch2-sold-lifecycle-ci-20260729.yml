@@ -26,7 +26,7 @@ permissions:
 
 concurrency:
   group: launch2-sold-lifecycle-ci-20260729
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   sold-lifecycle-gates:
