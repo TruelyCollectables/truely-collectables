@@ -1,0 +1,359 @@
+name: Guarded CollX Inventory Boundary 20260730
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/guarded-collx-boundary-20260730.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: guarded-collx-boundary-20260730
+  cancel-in-progress: false
+
+env:
+  EXPECTED_BRANCH: fix/launch2-sold-lifecycle-20260729
+  EXPECTED_HEAD_SHA: e91aef163100f81a49e7d2f731895e07406d0d55
+  EXPECTED_MAIN_SHA: 3d205772c7ac5b6d5115748035a227a4f053cc9f
+  NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
+  SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
+  ADMIN_SESSION_SECRET: build-validation-session-secret-that-is-long-enough
+  ADMIN_PASSWORD: build-validation-admin-password
+  NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+  STRIPE_SECRET_KEY: sk_test_build_validation
+  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_validation
+  STRIPE_WEBHOOK_SECRET: whsec_build_validation
+  EBAY_CLIENT_ID: build-validation-client-id
+  EBAY_CLIENT_SECRET: build-validation-client-secret
+  EBAY_ENVIRONMENT: production
+  CRON_SECRET: build-validation-cron-secret-that-is-long-enough
+  TCOS_LIVE_PAYMENTS_ENABLED: "false"
+  TCOS_SHIPPING_PURCHASE_MODE: dry_run
+  TCOS_LIVE_SHIPPING_ENABLED: "false"
+
+jobs:
+  patch-and-validate:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'fix/launch2-sold-lifecycle-20260729'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Check out guarded branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on branch and source drift
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          test -z "$(git status --porcelain)"
+
+      - name: Merge exact current main without committing
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git merge --no-commit --no-ff "$EXPECTED_MAIN_SHA"
+
+      - name: Apply CollX-only inventory boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > src/lib/collx-inventory-boundary.ts <<'TS'
+          const MARKETPLACE_METADATA_KEYS = [
+            "source_marketplace",
+            "sourceMarketplace",
+            "marketplace",
+            "marketplaces",
+            "source_marketplaces",
+            "sourceMarketplaces",
+            "listing_marketplace",
+            "listingMarketplace",
+            "inventory_source",
+            "inventorySource",
+            "source",
+            "origin",
+          ] as const;
+
+          export const DIRECT_COLLX_CONNECTOR_VERIFIED = false;
+          export const COLLX_VIA_EBAY_LISTING_SYNC_MINUTES = 15;
+          export const COLLX_VIA_EBAY_RECONCILIATION_OFFSET_MINUTES = 5;
+          export const COLLX_VIA_EBAY_MAX_SCHEDULED_PROTECTION_MINUTES =
+            COLLX_VIA_EBAY_LISTING_SYNC_MINUTES +
+            COLLX_VIA_EBAY_RECONCILIATION_OFFSET_MINUTES;
+
+          function marketplaceTokens(metadata: Record<string, unknown> | null | undefined) {
+            const tokens = new Set<string>();
+            if (!metadata) return tokens;
+
+            const add = (value: unknown) => {
+              if (Array.isArray(value)) {
+                value.forEach(add);
+                return;
+              }
+              if (typeof value !== "string") return;
+              for (const token of value.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)) {
+                tokens.add(token);
+              }
+            };
+
+            for (const key of MARKETPLACE_METADATA_KEYS) add(metadata[key]);
+            return tokens;
+          }
+
+          export function isCollxOnlyInventory(params: {
+            ebayItemId?: string | null;
+            metadata?: Record<string, unknown> | null;
+          }) {
+            if (params.ebayItemId?.trim()) return false;
+            const tokens = marketplaceTokens(params.metadata);
+            return (
+              DIRECT_COLLX_CONNECTOR_VERIFIED === false &&
+              tokens.has("collx") &&
+              !tokens.has("ebay")
+            );
+          }
+          TS
+
+          cat > supabase/migrations/20260730002700_enforce_collx_inventory_boundary.sql <<'SQL'
+          -- Launch 2.0 issue #253: CollX-only inventory is excluded until a direct connector is verified.
+          create or replace function public.inventory_metadata_mentions_collx(p_metadata jsonb)
+          returns boolean
+          language plpgsql
+          immutable
+          set search_path = public
+          as $$
+          declare
+            source_text text;
+          begin
+            source_text := lower(concat_ws(' ',
+              p_metadata ->> 'source_marketplace',
+              p_metadata ->> 'sourceMarketplace',
+              p_metadata ->> 'marketplace',
+              p_metadata ->> 'marketplaces',
+              p_metadata ->> 'source_marketplaces',
+              p_metadata ->> 'sourceMarketplaces',
+              p_metadata ->> 'listing_marketplace',
+              p_metadata ->> 'listingMarketplace',
+              p_metadata ->> 'inventory_source',
+              p_metadata ->> 'inventorySource',
+              p_metadata ->> 'source',
+              p_metadata ->> 'origin'
+            ));
+            return source_text ~ '(^|[^a-z0-9])collx([^a-z0-9]|$)';
+          end;
+          $$;
+
+          create or replace view public.collx_only_inventory_boundary_violations
+          with (security_invoker = true)
+          as
+          select
+            i.id as inventory_item_id,
+            i.store_id,
+            i.legacy_product_id,
+            i.sku,
+            p.ebay_item_id
+          from public.inventory_items i
+          left join public.products p
+            on p.store_id = i.store_id
+           and (
+             p.id = i.legacy_product_id
+             or (i.legacy_product_id is null and i.sku is not null and p.sku = i.sku)
+           )
+          where public.inventory_metadata_mentions_collx(i.metadata)
+            and nullif(btrim(coalesce(p.ebay_item_id, '')), '') is null;
+
+          create or replace function public.enforce_collx_inventory_boundary()
+          returns trigger
+          language plpgsql
+          security definer
+          set search_path = public
+          as $$
+          declare
+            linked_ebay_item_id text;
+          begin
+            if not public.inventory_metadata_mentions_collx(new.metadata) then
+              return new;
+            end if;
+
+            select nullif(btrim(p.ebay_item_id), '')
+              into linked_ebay_item_id
+            from public.products p
+            where p.store_id = new.store_id
+              and (
+                p.id = new.legacy_product_id
+                or (new.legacy_product_id is null and new.sku is not null and p.sku = new.sku)
+              )
+            order by (p.id = new.legacy_product_id) desc
+            limit 1;
+
+            if linked_ebay_item_id is null then
+              raise exception using
+                errcode = '23514',
+                message = 'COLLX_ONLY_INVENTORY_BLOCKED',
+                detail = 'CollX-only inventory cannot be imported or published until a direct CollX inventory-and-sales connector is verified.';
+            end if;
+
+            return new;
+          end;
+          $$;
+
+          drop trigger if exists enforce_collx_inventory_boundary on public.inventory_items;
+          create trigger enforce_collx_inventory_boundary
+          before insert or update of store_id, legacy_product_id, sku, metadata
+          on public.inventory_items
+          for each row execute function public.enforce_collx_inventory_boundary();
+
+          revoke all on function public.enforce_collx_inventory_boundary() from public, anon, authenticated;
+          grant execute on function public.enforce_collx_inventory_boundary() to service_role;
+          SQL
+
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new, count=1):
+              p = Path(path)
+              text = p.read_text()
+              if text.count(old) != count:
+                  raise SystemExit(f"{path}: expected {count} anchor(s), found {text.count(old)}")
+              p.write_text(text.replace(old, new, count))
+
+          replace(
+              "src/modules/inventory/types.ts",
+              "  isSoldRetention?: boolean;\n};",
+              "  isSoldRetention?: boolean;\n  collxOnly?: boolean;\n};",
+          )
+
+          replace(
+              "src/modules/inventory/engine.ts",
+              'import { getStoreSettings } from "../../lib/store-settings";\n',
+              'import { getStoreSettings } from "../../lib/store-settings";\nimport { isCollxOnlyInventory } from "../../lib/collx-inventory-boundary";\n',
+          )
+          replace(
+              "src/modules/inventory/engine.ts",
+              "      ebayItemId: product.ebay_item_id,\n      status: inventoryItem.status,",
+              "      ebayItemId: product.ebay_item_id,\n      collxOnly: isCollxOnlyInventory({\n        ebayItemId: product.ebay_item_id,\n        metadata: inventoryItem.metadata,\n      }),\n      status: inventoryItem.status,",
+          )
+          replace(
+              "src/modules/inventory/engine.ts",
+              "    ebayItemId: product.ebay_item_id,\n    status: normalizeStatus(product.quantity),",
+              "    ebayItemId: product.ebay_item_id,\n    collxOnly: false,\n    status: normalizeStatus(product.quantity),",
+          )
+
+          replace(
+              "src/lib/server-inventory-engine.ts",
+              "    isLaunchCollectible(item) &&\n    !isMergedEbayAliasItemId(item.ebayItemId)",
+              "    isLaunchCollectible(item) &&\n    item.collxOnly !== true &&\n    !isMergedEbayAliasItemId(item.ebayItemId)",
+          )
+
+          replace(
+              "src/modules/inventory/checkout-engine.ts",
+              "    const blockedItem = items.find((item) => !isLaunchSportsCard(item));",
+              "    const blockedItem = items.find(\n      (item) => !isLaunchSportsCard(item) || item.collxOnly === true,\n    );",
+          )
+
+          replace(
+              "src/lib/collectible-sale-history.ts",
+              'import { isMergedEbayAliasItemId } from "./ebay-merged-listing-groups";\n',
+              'import { isMergedEbayAliasItemId } from "./ebay-merged-listing-groups";\nimport { isCollxOnlyInventory } from "./collx-inventory-boundary";\n',
+          )
+          replace(
+              "src/lib/collectible-sale-history.ts",
+              "        ebayItemId: product.ebay_item_id || null,\n        status: \"sold\" as const,",
+              "        ebayItemId: product.ebay_item_id || null,\n        collxOnly: isCollxOnlyInventory({\n          ebayItemId: product.ebay_item_id || null,\n          metadata: inventory?.metadata || null,\n        }),\n        status: \"sold\" as const,",
+          )
+          replace(
+              "src/lib/collectible-sale-history.ts",
+              "    .filter((item) => isLaunchCollectible(item))\n    .filter((item) => !isMergedEbayAliasItemId(item.ebayItemId))",
+              "    .filter((item) => isLaunchCollectible(item))\n    .filter((item) => item.collxOnly !== true)\n    .filter((item) => !isMergedEbayAliasItemId(item.ebayItemId))",
+          )
+
+          replace(
+              "scripts/run-sold-lifecycle-simulations.mjs",
+              'const saleHistory = read("src/lib/collectible-sale-history.ts");\n',
+              'const saleHistory = read("src/lib/collectible-sale-history.ts");\nconst collxBoundary = read("src/lib/collx-inventory-boundary.ts");\nconst collxBoundaryMigration = read("supabase/migrations/20260730002700_enforce_collx_inventory_boundary.sql");\nconst inventoryEngine = read("src/modules/inventory/engine.ts");\nconst checkoutEngine = read("src/modules/inventory/checkout-engine.ts");\nconst publicInventoryEngine = read("src/lib/server-inventory-engine.ts");\n',
+          )
+          marker = "const cronByPath = new Map(\n"
+          assertions = '''assert.match(collxBoundary, /DIRECT_COLLX_CONNECTOR_VERIFIED = false/);
+          assert.match(collxBoundary, /tokens\.has\("collx"\)/);
+          assert.match(collxBoundary, /!tokens\.has\("ebay"\)/);
+          assert.match(collxBoundary, /if \(params\.ebayItemId\?\.trim\(\)\) return false/);
+          assert.match(collxBoundary, /COLLX_VIA_EBAY_MAX_SCHEDULED_PROTECTION_MINUTES/);
+          assert.match(collxBoundaryMigration, /create or replace view public\.collx_only_inventory_boundary_violations/);
+          assert.match(collxBoundaryMigration, /COLLX_ONLY_INVENTORY_BLOCKED/);
+          assert.match(collxBoundaryMigration, /before insert or update/);
+          assert.match(collxBoundaryMigration, /nullif\(btrim\(coalesce\(p\.ebay_item_id/);
+          assert.match(inventoryEngine, /collxOnly: isCollxOnlyInventory/);
+          assert.match(checkoutEngine, /item\.collxOnly === true/);
+          assert.match(publicInventoryEngine, /item\.collxOnly !== true/);
+          assert.match(saleHistory, /item\.collxOnly !== true/);
+          assert.equal(fs.existsSync("src/app/api/cron/collx-inventory-sync/route.ts"), false);
+          assert.equal(fs.existsSync("src/app/api/cron/collx-sales-sync/route.ts"), false);
+
+          '''
+          replace("scripts/run-sold-lifecycle-simulations.mjs", marker, assertions + marker)
+          replace(
+              "scripts/run-sold-lifecycle-simulations.mjs",
+              "      checks: 144,",
+              "      checks: 159,",
+          )
+          PY
+
+          git diff --check
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Run issue 253 and CollX boundary simulations
+        run: node scripts/run-sold-lifecycle-simulations.mjs
+
+      - name: Run privileged route audit
+        run: |
+          node scripts/run-privileged-api-route-audit.mjs
+          npm run simulate:privileged-route-auth
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Run standalone TypeScript
+        run: npx tsc --noEmit --pretty false
+
+      - name: Run Production build
+        run: npm run build
+
+      - name: Commit validated current-main synchronization and boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          mapfile -t changed < <(git status --porcelain=v1 -uall | cut -c4- | sort)
+          expected=(
+            scripts/run-sold-lifecycle-simulations.mjs
+            src/lib/collx-inventory-boundary.ts
+            src/lib/collectible-sale-history.ts
+            src/lib/server-inventory-engine.ts
+            src/modules/inventory/checkout-engine.ts
+            src/modules/inventory/engine.ts
+            src/modules/inventory/types.ts
+            supabase/migrations/20260730002700_enforce_collx_inventory_boundary.sql
+          )
+          test "${#changed[@]}" -eq "${#expected[@]}"
+          test "$(printf '%s\n' "${changed[@]}")" = "$(printf '%s\n' "${expected[@]}")"
+          git add "${expected[@]}"
+          git commit -m "Enforce the CollX-only inventory launch boundary"
+          git push origin "HEAD:$EXPECTED_BRANCH"
