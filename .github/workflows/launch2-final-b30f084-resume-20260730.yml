@@ -107,8 +107,13 @@ jobs:
           const priceCount=text.split(stalePrice).length-1;
           if(priceCount!==2)throw new Error(`Expected two stale sold-price checks, found ${priceCount}.`);
           text=text.replaceAll(stalePrice,"coalesce(sold_price_status, '')");
+          const staleRecord="public.record_collectible_sale(uuid,bigint,text,text,text,integer,numeric,text,timestamptz,text,jsonb,boolean)";
+          const currentRecord="public.record_collectible_sale(uuid,bigint,text,text,text,integer,numeric,text,timestamp with time zone,text,jsonb,boolean)";
+          const recordCount=text.split(staleRecord).length-1;
+          if(recordCount!==1)throw new Error(`Expected one stale record-sale signature, found ${recordCount}.`);
+          text=text.replace(staleRecord,currentRecord);
           const staleApply="public.apply_ebay_order_collectible_sale(uuid,bigint,text,text,text,integer,numeric,text,timestamptz,jsonb)";
-          const currentApply="public.apply_ebay_order_collectible_sale(uuid,bigint,text,text,text,integer,numeric,text,timestamptz,text,jsonb)";
+          const currentApply="public.apply_ebay_order_collectible_sale(uuid,bigint,text,text,integer,numeric,text,timestamp with time zone,text,jsonb)";
           const applyCount=text.split(staleApply).length-1;
           if(applyCount!==1)throw new Error(`Expected one stale apply-sale signature, found ${applyCount}.`);
           text=text.replace(staleApply,currentApply);
