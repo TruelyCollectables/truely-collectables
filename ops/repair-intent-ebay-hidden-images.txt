@@ -1,0 +1,1 @@
+User-directed operation: pull every available product photo for each of the 50 identified listings and persist the full ordered set to every linked inventory record.
