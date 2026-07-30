@@ -18,6 +18,9 @@ export type OrderNotificationPayload = {
   subtotal?: number | null;
   shippingAmount?: number | null;
   shippingName?: string | null;
+  audience?: "customer" | "store";
+  customerEmail?: string | null;
+  adminOrderUrl?: string | null;
   carrier?: string | null;
   trackingNumber?: string | null;
   items?: OrderNotificationItem[];
@@ -118,7 +121,11 @@ function subjectForNotification(
   type: OrderNotificationType,
   storeName: string,
   orderId: number,
+  payload: OrderNotificationPayload,
 ) {
+  if (type === "payment_confirmation" && payload.audience === "store") {
+    return `New paid ${storeName} order #${orderId} — ${money(payload.total)}`;
+  }
   if (type === "payment_confirmation") {
     return `We received your ${storeName} order #${orderId}`;
   }
@@ -162,6 +169,27 @@ function renderOrderNotification(params: {
   const safeName = escapeOrderNotificationHtml(name);
   const safeStore = escapeOrderNotificationHtml(params.storeName);
   const items = Array.isArray(payload.items) ? payload.items : [];
+
+  if (
+    row.notification_type === "payment_confirmation" &&
+    payload.audience === "store"
+  ) {
+    const htmlItems = items.length
+      ? `<table style="width:100%;border-collapse:collapse;margin:18px 0;"><thead><tr><th style="text-align:left;padding-bottom:8px;">Item</th><th style="text-align:center;padding-bottom:8px;">Qty</th><th style="text-align:right;padding-bottom:8px;">Price</th></tr></thead><tbody>${itemRows(items)}</tbody></table>`
+      : "";
+    const textItems = items.length ? `\nItems:\n${textItemRows(items)}\n` : "";
+    const customerEmail = cleanInline(payload.customerEmail, "Not provided");
+    const shippingName = cleanInline(payload.shippingName, "Selected shipping");
+    const adminOrderUrl = cleanInline(payload.adminOrderUrl);
+    const action = adminOrderUrl
+      ? `<p><a href="${escapeOrderNotificationHtml(adminOrderUrl)}" style="display:inline-block;background:#111;color:#fff;padding:10px 16px;text-decoration:none;border-radius:6px;">Open order in fulfillment</a></p>`
+      : "";
+
+    return {
+      html: `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#111;max-width:640px;margin:0 auto;"><h1>New paid order</h1><p><strong>Order #${orderId}</strong> is ready for fulfillment.</p><p><strong>Customer:</strong> ${safeName}<br><strong>Email:</strong> ${escapeOrderNotificationHtml(customerEmail)}</p>${htmlItems}<p><strong>Subtotal:</strong> ${money(payload.subtotal)}<br><strong>${escapeOrderNotificationHtml(shippingName)}:</strong> ${money(payload.shippingAmount)}<br><strong>Total paid:</strong> ${money(payload.total)}</p>${action}<p>— ${safeStore} order system</p></div>`,
+      text: `New paid order\n\nOrder #${orderId} is ready for fulfillment.\n\nCustomer: ${name}\nEmail: ${customerEmail}\n${textItems}\nSubtotal: ${money(payload.subtotal)}\n${shippingName}: ${money(payload.shippingAmount)}\nTotal paid: ${money(payload.total)}${adminOrderUrl ? `\n\nOpen order: ${adminOrderUrl}` : ""}\n\n— ${params.storeName} order system`,
+    };
+  }
 
   if (row.notification_type === "payment_confirmation") {
     const htmlItems = items.length
@@ -230,6 +258,7 @@ export async function enqueueOrderNotification(params: {
     params.notificationType,
     storeName,
     params.orderId,
+    params.payload,
   );
   const insertPayload = {
     store_id: params.storeId,
