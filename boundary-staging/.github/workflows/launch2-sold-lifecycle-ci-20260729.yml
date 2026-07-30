@@ -1,0 +1,125 @@
+name: Launch 2 Sold Lifecycle Certification 20260730
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/launch2-sold-lifecycle-ci-20260729.yml"
+      - "scripts/run-sold-lifecycle-simulations.mjs"
+      - "scripts/run-sold-trigger-order-simulation.mjs"
+      - "src/app/admin/products/[id]/layout.tsx"
+      - "src/app/admin/sales-history/**"
+      - "src/app/api/cron/ebay-order-sale-sync/**"
+      - "src/app/api/cron/sold-collectible-archive/**"
+      - "src/app/product/[id]/layout.tsx"
+      - "src/app/shop/page.tsx"
+      - "src/components/SoldOverlay.tsx"
+      - "src/lib/collectible-sale-history.ts"
+      - "src/lib/server-inventory-engine.ts"
+      - "src/modules/inventory/checkout-engine.ts"
+      - "src/lib/ebay-merged-listing-groups.ts"
+      - "src/lib/ebay-order-sale-sync.ts"
+      - "src/modules/inventory/types.ts"
+      - "supabase/migrations/20260730001950_correct_offer_order_item_paid_prices.sql"
+      - "supabase/migrations/20260730002000_sold_storefront_retention_and_sale_history.sql"
+      - "supabase/migrations/20260730002100_manual_sale_ebay_outbox.sql"
+      - "supabase/migrations/20260730002200_capture_ebay_inactive_sale_state.sql"
+      - "supabase/migrations/20260730002300_refine_verified_sale_timestamps.sql"
+      - "supabase/migrations/20260730002400_make_sale_recording_idempotent.sql"
+      - "supabase/migrations/20260730002500_reset_sold_presentation_on_restock.sql"
+      - "supabase/migrations/20260730002600_atomic_ebay_order_sales_and_outbox_scope.sql"
+      - "supabase/migrations/20260730002700_run_sale_guards_before_restock_reset.sql"
+      - "supabase/migrations/20260730002800_enforce_collx_inventory_boundary.sql"
+      - "vercel.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: launch2-sold-lifecycle-certification-20260730
+  cancel-in-progress: true
+
+jobs:
+  sold-lifecycle-gates:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'fix/launch2-sold-lifecycle-certify-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
+      ADMIN_SESSION_SECRET: build-validation-session-secret-that-is-long-enough
+      ADMIN_PASSWORD: build-validation-admin-password
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      STRIPE_SECRET_KEY: sk_test_build_validation
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_validation
+      STRIPE_WEBHOOK_SECRET: whsec_build_validation
+      EBAY_CLIENT_ID: build-validation-client-id
+      EBAY_CLIENT_SECRET: build-validation-client-secret
+      EBAY_ENVIRONMENT: production
+      CRON_SECRET: build-validation-cron-secret-that-is-long-enough
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+    steps:
+      - name: Check out stable certification branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fail closed on certification branch scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "fix/launch2-sold-lifecycle-certify-20260730"
+          git fetch origin main
+          git diff --check origin/main...HEAD
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Run issue 253 sold lifecycle simulations
+        run: |
+          node scripts/run-sold-lifecycle-simulations.mjs
+          node scripts/run-sold-trigger-order-simulation.mjs
+
+      - name: Run privileged route audit
+        run: |
+          node scripts/run-privileged-api-route-audit.mjs
+          npm run simulate:privileged-route-auth
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Run standalone TypeScript
+        run: npx tsc --noEmit --pretty false
+
+      - name: Run Production build
+        run: npm run build
+
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.48.3
+
+      - name: Replay all Supabase migrations locally
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f supabase/config.toml ]; then
+            supabase init --force
+          fi
+          supabase start -x studio,imgproxy,inbucket,storage-api,edge-runtime,logflare,vector,supavisor
+          supabase db reset --local
+          git diff --check
+
+      - name: Stop local Supabase
+        if: always()
+        run: supabase stop --no-backup || true
