@@ -99,6 +99,11 @@ function summarizeImagePass(sync: ImageSync, pass: number) {
     imagesRemoved: sync.imagesRemoved,
     pagesRead: sync.pagesRead,
     cycleComplete: sync.cycleComplete,
+    sourceCall: sync.sourceCall,
+    getItemChecked: sync.getItemChecked,
+    getItemHydrated: sync.getItemHydrated,
+    getItemMultiPicture: sync.getItemMultiPicture,
+    getItemFailed: sync.getItemFailed,
     remainingCandidates: sync.remainingCandidates,
     failed: sync.errors.length,
     errorSample: sync.errors.slice(0, 5).map((entry) => ({
