@@ -6,6 +6,8 @@ on:
       - main
     paths:
       - "src/lib/storefront-taxonomy.ts"
+      - "src/lib/storefront-feature-evidence.ts"
+      - "src/lib/collectible-sale-history.ts"
       - "src/lib/ebay-category-mapper.ts"
       - "src/lib/ebay-sync.ts"
       - "src/lib/ebay-authoritative-store-sync.ts"
@@ -17,6 +19,7 @@ on:
       - "src/app/page.tsx"
       - "src/app/components/Navbar.tsx"
       - "scripts/run-storefront-taxonomy-regressions.ts"
+      - "scripts/run-storefront-feature-evidence-regressions.ts"
       - "scripts/run-ebay-import-admin-client-simulations.ts"
       - ".github/workflows/storefront-taxonomy.yml"
   pull_request:
@@ -24,6 +27,8 @@ on:
       - main
     paths:
       - "src/lib/storefront-taxonomy.ts"
+      - "src/lib/storefront-feature-evidence.ts"
+      - "src/lib/collectible-sale-history.ts"
       - "src/lib/ebay-category-mapper.ts"
       - "src/lib/ebay-sync.ts"
       - "src/lib/ebay-authoritative-store-sync.ts"
@@ -35,6 +40,7 @@ on:
       - "src/app/page.tsx"
       - "src/app/components/Navbar.tsx"
       - "scripts/run-storefront-taxonomy-regressions.ts"
+      - "scripts/run-storefront-feature-evidence-regressions.ts"
       - "scripts/run-ebay-import-admin-client-simulations.ts"
       - ".github/workflows/storefront-taxonomy.yml"
   workflow_dispatch:
@@ -74,12 +80,16 @@ jobs:
       - run: npm ci
       - name: Run storefront taxonomy regressions
         run: node --import tsx scripts/run-storefront-taxonomy-regressions.ts
+      - name: Run storefront feature evidence regressions
+        run: node --import tsx scripts/run-storefront-feature-evidence-regressions.ts
       - name: Run eBay catalog exclusion regressions
         run: node --import tsx scripts/run-ebay-import-admin-client-simulations.ts
       - name: Lint storefront taxonomy paths
         run: >-
           npx eslint
           src/lib/storefront-taxonomy.ts
+          src/lib/storefront-feature-evidence.ts
+          src/lib/collectible-sale-history.ts
           src/lib/ebay-category-mapper.ts
           src/lib/ebay-sync.ts
           src/lib/ebay-authoritative-store-sync.ts
@@ -93,6 +103,7 @@ jobs:
           src/app/page.tsx
           src/app/components/Navbar.tsx
           scripts/run-storefront-taxonomy-regressions.ts
+          scripts/run-storefront-feature-evidence-regressions.ts
           scripts/run-ebay-import-admin-client-simulations.ts
       - name: Build production application
         run: npm run build
