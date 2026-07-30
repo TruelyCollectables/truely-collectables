@@ -3,6 +3,8 @@ import type { AuthenticityProfile } from "../../lib/authenticity";
 export type InventoryStatus =
   "draft" | "active" | "reserved" | "sold" | "archived";
 
+export type SaleEvidenceStatus = "verified" | "manual" | "unresolved";
+
 export type InventoryItem = {
   id: string;
   store_id: string;
@@ -21,6 +23,14 @@ export type InventoryItem = {
   location: string | null;
   notes: string | null;
   metadata: Record<string, unknown> | null;
+  sold_at?: string | null;
+  sold_price?: number | null;
+  sold_source?: string | null;
+  sold_reference?: string | null;
+  sold_price_status?: SaleEvidenceStatus | null;
+  sold_evidence?: Record<string, unknown> | null;
+  archive_after?: string | null;
+  archived_at?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -38,6 +48,14 @@ export type LegacyProductSnapshot = {
   image_url: string | null;
   ebay_item_id: string | null;
   last_seen_at: string | null;
+  sold_at?: string | null;
+  sold_price?: number | null;
+  sold_source?: string | null;
+  sold_reference?: string | null;
+  sold_price_status?: SaleEvidenceStatus | null;
+  sold_evidence?: Record<string, unknown> | null;
+  archive_after?: string | null;
+  archived_at?: string | null;
 };
 
 export type StorefrontFeatureFlags = {
@@ -68,6 +86,14 @@ export type UniversalInventoryItem = {
   status: InventoryStatus;
   source: "inventory_items" | "products";
   authenticity: AuthenticityProfile;
+  soldAt?: string | null;
+  soldPrice?: number | null;
+  soldSource?: string | null;
+  soldReference?: string | null;
+  soldPriceStatus?: SaleEvidenceStatus | null;
+  archiveAfter?: string | null;
+  archivedAt?: string | null;
+  isSoldRetention?: boolean;
 };
 
 export type InventoryImage = {
@@ -112,6 +138,14 @@ export type CreateInventoryItemInput = {
   location?: string | null;
   notes?: string | null;
   metadata?: Record<string, unknown> | null;
+  sold_at?: string | null;
+  sold_price?: number | null;
+  sold_source?: string | null;
+  sold_reference?: string | null;
+  sold_price_status?: SaleEvidenceStatus | null;
+  sold_evidence?: Record<string, unknown> | null;
+  archive_after?: string | null;
+  archived_at?: string | null;
 };
 
 export type UpdateInventoryItemInput = Partial<CreateInventoryItemInput>;

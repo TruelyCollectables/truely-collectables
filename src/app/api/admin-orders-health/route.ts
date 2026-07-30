@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import {
@@ -21,8 +22,25 @@ async function hasValidAdminSession() {
   return false;
 }
 
-export async function GET() {
-  if (!(await hasValidAdminSession())) {
+function validCronAuthorization(request: Request) {
+  const secret = String(process.env.CRON_SECRET || "").trim();
+  const authorization = String(request.headers.get("authorization") || "");
+  const expected = `Bearer ${secret}`;
+  const left = Buffer.from(authorization, "utf8");
+  const right = Buffer.from(expected, "utf8");
+
+  return (
+    secret.length >= 16 &&
+    left.length === right.length &&
+    timingSafeEqual(left, right)
+  );
+}
+
+export async function GET(request: Request) {
+  const authorized =
+    validCronAuthorization(request) || (await hasValidAdminSession());
+
+  if (!authorized) {
     return NextResponse.json(
       {
         ok: false,

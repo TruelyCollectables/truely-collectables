@@ -22,6 +22,16 @@ export function isMergedEbayCanonicalProductId(value: unknown) {
   return mergedCanonicalProductIds.has(Number(value));
 }
 
+export function canonicalLegacyProductIdForEbayItemId(value: unknown) {
+  const itemId = String(value || "").trim();
+  if (!itemId) return null;
+
+  const group = EBAY_MERGED_LISTING_GROUPS.find((candidate) =>
+    candidate.aliasItemIds.some((aliasItemId) => aliasItemId === itemId),
+  );
+  return group?.canonicalLegacyProductId ?? null;
+}
+
 export function isMergedEbayListingMember(input: {
   itemId: unknown;
   legacyProductId: unknown;

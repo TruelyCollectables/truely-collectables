@@ -1,0 +1,274 @@
+name: Launch 2 Sold Lifecycle Certification 20260730
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/launch2-sold-lifecycle-ci-20260729.yml"
+      - "scripts/run-sold-lifecycle-simulations.mjs"
+      - "scripts/run-sold-trigger-order-simulation.mjs"
+      - "src/app/admin/products/[id]/layout.tsx"
+      - "src/app/admin/sales-history/**"
+      - "src/app/api/cron/ebay-order-sale-sync/**"
+      - "src/app/api/cron/sold-collectible-archive/**"
+      - "src/app/product/[id]/layout.tsx"
+      - "src/app/shop/page.tsx"
+      - "src/components/SoldOverlay.tsx"
+      - "src/lib/collectible-sale-history.ts"
+      - "src/lib/server-inventory-engine.ts"
+      - "src/modules/inventory/checkout-engine.ts"
+      - "src/lib/ebay-merged-listing-groups.ts"
+      - "src/lib/ebay-order-sale-sync.ts"
+      - "src/modules/inventory/types.ts"
+      - "supabase/migrations/20260726050000_collectible_asset_lifecycle.sql"
+      - "supabase/migrations/20260730001950_correct_offer_order_item_paid_prices.sql"
+      - "supabase/migrations/20260730002000_sold_storefront_retention_and_sale_history.sql"
+      - "supabase/migrations/20260730002100_manual_sale_ebay_outbox.sql"
+      - "supabase/migrations/20260730002200_capture_ebay_inactive_sale_state.sql"
+      - "supabase/migrations/20260730002300_refine_verified_sale_timestamps.sql"
+      - "supabase/migrations/20260730002400_make_sale_recording_idempotent.sql"
+      - "supabase/migrations/20260730002500_reset_sold_presentation_on_restock.sql"
+      - "supabase/migrations/20260730002600_atomic_ebay_order_sales_and_outbox_scope.sql"
+      - "supabase/migrations/20260730002700_run_sale_guards_before_restock_reset.sql"
+      - "supabase/migrations/20260730002800_enforce_collx_inventory_boundary.sql"
+      - "vercel.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: launch2-sold-lifecycle-certification-20260730
+  cancel-in-progress: true
+
+jobs:
+  sold-lifecycle-gates:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'fix/launch2-sold-lifecycle-certify-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
+      ADMIN_SESSION_SECRET: build-validation-session-secret-that-is-long-enough
+      ADMIN_PASSWORD: build-validation-admin-password
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      STRIPE_SECRET_KEY: sk_test_build_validation
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_validation
+      STRIPE_WEBHOOK_SECRET: whsec_build_validation
+      EBAY_CLIENT_ID: build-validation-client-id
+      EBAY_CLIENT_SECRET: build-validation-client-secret
+      EBAY_ENVIRONMENT: production
+      CRON_SECRET: build-validation-cron-secret-that-is-long-enough
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - name: Check out stable certification branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fail closed on certification branch scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "fix/launch2-sold-lifecycle-certify-20260730"
+          git fetch origin main
+          git diff --check origin/main...HEAD
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Run issue 253 sold lifecycle simulations
+        run: |
+          node scripts/run-sold-lifecycle-simulations.mjs
+          node scripts/run-sold-trigger-order-simulation.mjs
+
+      - name: Run privileged route audit
+        run: |
+          node scripts/run-privileged-api-route-audit.mjs
+          npm run simulate:privileged-route-auth
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Run standalone TypeScript
+        run: npx tsc --noEmit --pretty false
+
+      - name: Run Production build
+        run: npm run build
+
+      - name: Validate issue 253 migrations against Production schema with rollback
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          mkdir -p .vercel "$RUNNER_TEMP/launch2-sold-migration-validation"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/launch2-sold-migration-validation/production.env" \
+            --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+
+          const envPath = path.join(process.env.RUNNER_TEMP, 'launch2-sold-migration-validation', 'production.env');
+          const text = fs.readFileSync(envPath, 'utf8');
+          const parsed = {};
+          for (const rawLine of text.split(/\r?\n/)) {
+            const line = rawLine.trim();
+            if (!line || line.startsWith('#')) continue;
+            const index = line.indexOf('=');
+            if (index < 1) continue;
+            const key = line.slice(0, index).trim();
+            let value = line.slice(index + 1).trim();
+            if (value.startsWith('"') && value.endsWith('"')) {
+              try { value = JSON.parse(value); } catch { value = value.slice(1, -1); }
+            } else if (value.startsWith("'") && value.endsWith("'")) {
+              value = value.slice(1, -1);
+            }
+            parsed[key] = value;
+          }
+          const productionUrl = parsed.NEXT_PUBLIC_SUPABASE_URL;
+          if (!productionUrl || !/^https:\/\//.test(productionUrl)) {
+            throw new Error('Production NEXT_PUBLIC_SUPABASE_URL was not pulled from Vercel.');
+          }
+          const projectRef = new URL(productionUrl).hostname.split('.')[0];
+          if (!projectRef) throw new Error('Unable to derive the Supabase project reference.');
+          const token = process.env.GH_SUPABASE_ACCESS_TOKEN;
+          if (!token) throw new Error('SUPABASE_ACCESS_TOKEN is unavailable.');
+
+          const migrations = [
+            '20260726050000_collectible_asset_lifecycle.sql',
+            '20260730001950_correct_offer_order_item_paid_prices.sql',
+            '20260730002000_sold_storefront_retention_and_sale_history.sql',
+            '20260730002100_manual_sale_ebay_outbox.sql',
+            '20260730002200_capture_ebay_inactive_sale_state.sql',
+            '20260730002300_refine_verified_sale_timestamps.sql',
+            '20260730002400_make_sale_recording_idempotent.sql',
+            '20260730002500_reset_sold_presentation_on_restock.sql',
+            '20260730002600_atomic_ebay_order_sales_and_outbox_scope.sql',
+            '20260730002700_run_sale_guards_before_restock_reset.sql',
+            '20260730002800_enforce_collx_inventory_boundary.sql',
+          ];
+          const sqlParts = [];
+          for (const name of migrations) {
+            const file = path.join('supabase', 'migrations', name);
+            let sql = fs.readFileSync(file, 'utf8').trim();
+            if (!sql) throw new Error(`Migration ${name} is empty.`);
+            const hasOuterBegin = /^begin\s*;/i.test(sql);
+            const hasOuterCommit = /commit\s*;\s*$/i.test(sql);
+            if (hasOuterBegin !== hasOuterCommit) {
+              throw new Error(`Migration ${name} has an incomplete outer transaction wrapper.`);
+            }
+            if (hasOuterBegin) {
+              sql = sql.replace(/^begin\s*;/i, '').replace(/commit\s*;\s*$/i, '').trim();
+            }
+            if (/create\s+(?:unique\s+)?index\s+concurrently/i.test(sql)) {
+              throw new Error(`Migration ${name} contains CREATE INDEX CONCURRENTLY and cannot be rollback-validated.`);
+            }
+            sqlParts.push(`\n-- ${name}\n${sql}\n`);
+          }
+
+          const endpoint = `https://api.supabase.com/v1/projects/${projectRef}/database/query`;
+          const request = async (query, readOnly) => {
+            const response = await fetch(endpoint, {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ query, parameters: [], read_only: readOnly }),
+            });
+            const body = await response.text();
+            if (!response.ok) {
+              const safe = body
+                .replace(/postgres(?:ql)?:\/\/[^\s"']+/gi, 'postgresql://[REDACTED]')
+                .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [REDACTED]')
+                .slice(0, 4000);
+              throw new Error(`Supabase schema validation failed with HTTP ${response.status}: ${safe}`);
+            }
+            return body ? JSON.parse(body) : [];
+          };
+
+          const fingerprintSql = `
+            select json_build_object(
+              'relations', coalesce((
+                select json_agg(row_to_json(x) order by x.relname)
+                from (
+                  select n.nspname as schema_name, c.relname, c.relkind
+                  from pg_class c
+                  join pg_namespace n on n.oid = c.relnamespace
+                  where n.nspname = 'public'
+                    and c.relname in (
+                      'collectible_assets',
+                      'collectible_asset_events',
+                      'collectible_grader_verifications',
+                      'collectible_market_snapshots',
+                      'collectible_sales',
+                      'collectible_sale_evidence',
+                      'collx_only_inventory_boundary_violations'
+                    )
+                ) x
+              ), '[]'::json),
+              'product_columns', coalesce((
+                select json_agg(column_name order by column_name)
+                from information_schema.columns
+                where table_schema = 'public'
+                  and table_name = 'products'
+                  and column_name in (
+                    'sold_at', 'sold_until', 'actual_sold_price',
+                    'sale_source', 'sale_external_reference', 'archived_at'
+                  )
+              ), '[]'::json),
+              'functions', coalesce((
+                select json_agg(p.proname order by p.proname)
+                from pg_proc p
+                join pg_namespace n on n.oid = p.pronamespace
+                where n.nspname = 'public'
+                  and p.proname in (
+                    'record_collectible_sale',
+                    'archive_expired_sold_collectibles',
+                    'mark_collectible_sold_elsewhere'
+                  )
+              ), '[]'::json)
+            ) as state;
+          `;
+          const before = await request(fingerprintSql, true);
+          const validationSql = `begin;\n${sqlParts.join('\n')}\nrollback;`;
+          await request(validationSql, false);
+          const after = await request(fingerprintSql, true);
+          if (JSON.stringify(before) !== JSON.stringify(after)) {
+            throw new Error('Rollback-only migration validation changed the Production schema fingerprint.');
+          }
+          fs.writeFileSync(
+            path.join(process.env.RUNNER_TEMP, 'launch2-sold-migration-validation', 'receipt.json'),
+            JSON.stringify({
+              ok: true,
+              migrationCount: migrations.length,
+              includesCollectibleAssetPrerequisite: true,
+              productionSchemaFingerprintPreserved: true,
+              validatedAt: new Date().toISOString(),
+            }, null, 2),
+          );
+          console.log(`Validated ${migrations.length} issue #253 migrations and prerequisites against the Production schema with rollback.`);
+          NODE
+          rm -f "$RUNNER_TEMP/launch2-sold-migration-validation/production.env"
+          git diff --check
