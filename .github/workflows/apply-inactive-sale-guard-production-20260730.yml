@@ -1,0 +1,257 @@
+name: Apply Inactive Sale Guard Production 20260730
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/apply-inactive-sale-guard-production-20260730.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apply-inactive-sale-guard-production-20260730
+  cancel-in-progress: false
+
+env:
+  EXPECTED_MAIN_SHA: 11b95609b4af979283c1d72cf1019f1bc0e9fc85
+  EXPECTED_BRANCH: ops/apply-inactive-sale-guard-production-20260730
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
+  SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
+  ADMIN_SESSION_SECRET: build-validation-session-secret-that-is-long-enough
+  ADMIN_PASSWORD: build-validation-admin-password
+  NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+  STRIPE_SECRET_KEY: sk_test_build_validation
+  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_validation
+  STRIPE_WEBHOOK_SECRET: whsec_build_validation
+  EBAY_CLIENT_ID: build-validation-client-id
+  EBAY_CLIENT_SECRET: build-validation-client-secret
+  EBAY_ENVIRONMENT: production
+  CRON_SECRET: build-validation-cron-secret-that-is-long-enough
+  TCOS_LIVE_PAYMENTS_ENABLED: "false"
+  TCOS_SHIPPING_PURCHASE_MODE: dry_run
+  TCOS_LIVE_SHIPPING_ENABLED: "false"
+
+jobs:
+  validate-apply-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on exact operations scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          test "$(git diff --name-only "$EXPECTED_MAIN_SHA"...HEAD)" = ".github/workflows/apply-inactive-sale-guard-production-20260730.yml"
+          git diff --check "$EXPECTED_MAIN_SHA"...HEAD
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Reprove exact source before mutation
+        run: |
+          npm ci
+          node scripts/run-sold-lifecycle-simulations.mjs
+          node scripts/run-sold-trigger-order-simulation.mjs
+          node scripts/run-privileged-api-route-audit.mjs
+          npm run simulate:privileged-route-auth
+          npm audit --audit-level=high
+          npm run lint
+          npx tsc --noEmit --pretty false
+          npm run build
+
+      - name: Pull Production project identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          mkdir -p .vercel "$RUNNER_TEMP/inactive-sale-production" evidence/inactive-sale-production
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/inactive-sale-production/production.env" \
+            --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Apply forward inactive marketplace guard and verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+
+          const envPath = path.join(process.env.RUNNER_TEMP, 'inactive-sale-production', 'production.env');
+          const parsed = {};
+          for (const rawLine of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
+            const line = rawLine.trim();
+            if (!line || line.startsWith('#')) continue;
+            const index = line.indexOf('=');
+            if (index < 1) continue;
+            const key = line.slice(0, index).trim();
+            let value = line.slice(index + 1).trim();
+            if (value.startsWith('"') && value.endsWith('"')) {
+              try { value = JSON.parse(value); } catch { value = value.slice(1, -1); }
+            } else if (value.startsWith("'") && value.endsWith("'")) {
+              value = value.slice(1, -1);
+            }
+            parsed[key] = value;
+          }
+          const productionUrl = parsed.NEXT_PUBLIC_SUPABASE_URL;
+          if (!productionUrl || !/^https:\/\//.test(productionUrl)) throw new Error('Production Supabase URL is unavailable.');
+          const projectRef = new URL(productionUrl).hostname.split('.')[0];
+          const token = process.env.GH_SUPABASE_ACCESS_TOKEN;
+          if (!projectRef || !token) throw new Error('Production Supabase management credentials are incomplete.');
+
+          const endpoint = `https://api.supabase.com/v1/projects/${projectRef}/database/query`;
+          const request = async (query, readOnly) => {
+            const response = await fetch(endpoint, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ query, parameters: [], read_only: readOnly }),
+            });
+            const body = await response.text();
+            if (!response.ok) {
+              const safe = body
+                .replace(/postgres(?:ql)?:\/\/[^\s"']+/gi, 'postgresql://[REDACTED]')
+                .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [REDACTED]')
+                .slice(0, 5000);
+              throw new Error(`Production inactive-sale migration failed with HTTP ${response.status}: ${safe}`);
+            }
+            return body ? JSON.parse(body) : [];
+          };
+
+          const stateSql = `
+            select json_build_object(
+              'sale_records', (select count(*) from public.collectible_sales),
+              'active_guards', (select count(*) from public.ebay_inbound_sale_guards where active),
+              'guard_violations', (
+                select count(*)
+                from public.ebay_inbound_sale_guards guard
+                left join public.products product
+                  on product.store_id = guard.store_id
+                 and product.id = guard.legacy_product_id
+                left join public.inventory_items item
+                  on item.store_id = guard.store_id
+                 and item.legacy_product_id = guard.legacy_product_id
+                where guard.active
+                  and (
+                    coalesce(product.quantity, guard.protected_quantity) > guard.protected_quantity
+                    or coalesce(item.quantity, guard.protected_quantity) > guard.protected_quantity
+                  )
+              ),
+              'function_oid', to_regprocedure('public.capture_ebay_inactive_collectible_sale()')::text,
+              'function_definition', pg_get_functiondef(to_regprocedure('public.capture_ebay_inactive_collectible_sale()')),
+              'trigger_count', (
+                select count(*)
+                from pg_trigger t
+                join pg_proc p on p.oid = t.tgfoid
+                join pg_class c on c.oid = t.tgrelid
+                join pg_namespace n on n.oid = c.relnamespace
+                where not t.tgisinternal
+                  and n.nspname = 'public'
+                  and c.relname = 'inventory_items'
+                  and p.proname = 'capture_ebay_inactive_collectible_sale'
+              )
+            ) as state;
+          `;
+          const beforeRows = await request(stateSql, true);
+          const before = beforeRows?.[0]?.state;
+          if (!before?.function_oid) throw new Error('Existing inactive-sale capture function is missing before forward replacement.');
+
+          let migration = fs.readFileSync(
+            path.join('supabase','migrations','20260730002900_protect_inactive_marketplace_sales.sql'),
+            'utf8',
+          ).trim();
+          migration = migration.replace(/^begin\s*;/i, '').replace(/commit\s*;\s*$/i, '').trim();
+          await request(`begin;\n${migration}\ncommit;`, false);
+
+          const afterRows = await request(stateSql, true);
+          const after = afterRows?.[0]?.state;
+          if (!after?.function_oid) throw new Error('Inactive-sale capture function is missing after migration.');
+          const definition = String(after.function_definition || '');
+          const required = [
+            'insert into public.ebay_inbound_sale_guards',
+            'protected_quantity = least',
+            "'ebay_or_collx_via_ebay'",
+            "'authoritative_ebay_inactive_state'",
+          ];
+          const missing = required.filter((needle) => !definition.toLowerCase().includes(needle.toLowerCase()));
+          const blockers = [];
+          if (missing.length) blockers.push(`missing_function_contract=${missing.join('|')}`);
+          if (Number(after.trigger_count || 0) < 1) blockers.push('inactive_sale_trigger_missing');
+          if (Number(after.guard_violations || 0) !== 0) blockers.push(`guard_violations=${after.guard_violations}`);
+          if (Number(after.sale_records || 0) !== Number(before.sale_records || 0)) blockers.push('sale_record_count_changed_during_function_replacement');
+          if (Number(after.active_guards || 0) !== Number(before.active_guards || 0)) blockers.push('active_guard_count_changed_during_function_replacement');
+          if (blockers.length) throw new Error(`Inactive-sale Production blockers: ${blockers.join(', ')}`);
+
+          const receipt = {
+            schema: 'truelycollectables.launch2.inactiveSaleGuardProduction.v1',
+            sourceSha: process.env.EXPECTED_MAIN_SHA,
+            appliedAt: new Date().toISOString(),
+            migration: '20260730002900_protect_inactive_marketplace_sales.sql',
+            before: {
+              saleRecords: before.sale_records,
+              activeGuards: before.active_guards,
+              guardViolations: before.guard_violations,
+              triggerCount: before.trigger_count,
+            },
+            after: {
+              saleRecords: after.sale_records,
+              activeGuards: after.active_guards,
+              guardViolations: after.guard_violations,
+              triggerCount: after.trigger_count,
+              durableZeroStockGuardContract: true,
+            },
+            blockers,
+            notes: {
+              noMarketplaceOrderWasManufactured: true,
+              noSaleEvidenceWasFabricated: true,
+              collxViaLinkedEbayPathProtected: true,
+            },
+          };
+          const dir = path.join('evidence','inactive-sale-production');
+          fs.writeFileSync(path.join(dir,'receipt.json'), `${JSON.stringify(receipt,null,2)}\n`);
+          fs.writeFileSync(path.join(dir,'receipt.md'), [
+            '# Inactive marketplace sale guard Production receipt',
+            '',
+            `- Source SHA: \`${receipt.sourceSha}\``,
+            `- Migration: \`${receipt.migration}\``,
+            `- Sale records before/after: ${before.sale_records}/${after.sale_records}`,
+            `- Active guards before/after: ${before.active_guards}/${after.active_guards}`,
+            `- Guard violations: ${after.guard_violations}`,
+            `- Trigger count: ${after.trigger_count}`,
+            '- Blockers: none',
+            '',
+          ].join('\n'));
+          console.log(JSON.stringify({ok:true,before:receipt.before,after:receipt.after},null,2));
+          NODE
+          rm -f "$RUNNER_TEMP/inactive-sale-production/production.env"
+
+      - name: Upload sanitized Production receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launch2-inactive-sale-guard-production
+          path: evidence/inactive-sale-production
+          if-no-files-found: error
+          retention-days: 90
