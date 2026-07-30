@@ -12,12 +12,13 @@ const PAGE_SIZE = 100;
 const MAX_ACTIVE_LISTINGS = 3000;
 const MAX_PAGES = Math.ceil(MAX_ACTIVE_LISTINGS / PAGE_SIZE);
 const APPLY_CONCURRENCY = 8;
+const GET_ITEM_CONCURRENCY = 12;
 const DATABASE_PAGE_SIZE = 1000;
 const MAX_DATABASE_PAGES = 50;
 const PRODUCT_ID_CHUNK_SIZE = 100;
 const INVENTORY_ID_CHUNK_SIZE = 20;
 const MAX_ITEMS_PER_RUN = 1500;
-const IMAGE_SYNC_VERSION = 3;
+const IMAGE_SYNC_VERSION = 4;
 
 type InventoryImageRow = {
   id: string;
@@ -244,6 +245,48 @@ async function readImagePage(params: {
   };
 }
 
+async function readItemImages(params: {
+  environment: string;
+  accessToken: string;
+  itemId: string;
+}) {
+  const response = await fetch(tradingEndpoint(params.environment), {
+    method: "POST",
+    headers: {
+      "Content-Type": "text/xml",
+      "X-EBAY-API-CALL-NAME": "GetItem",
+      "X-EBAY-API-COMPATIBILITY-LEVEL": TRADING_API_VERSION,
+      "X-EBAY-API-SITEID": "0",
+      "X-EBAY-API-IAF-TOKEN": params.accessToken,
+    },
+    body: `<?xml version="1.0" encoding="utf-8"?>
+<GetItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <DetailLevel>ReturnAll</DetailLevel>
+  <ErrorLanguage>en_US</ErrorLanguage>
+  <WarningLevel>High</WarningLevel>
+  <ItemID>${params.itemId}</ItemID>
+</GetItemRequest>`,
+    signal: AbortSignal.timeout(30_000),
+  });
+  const xml = await response.text();
+  const ack = xmlText(xml, "Ack") || "Failure";
+  if (!response.ok || !["Success", "Warning"].includes(ack)) {
+    const errorBlock = xmlBlock(xml, "Errors") || xml;
+    throw new Error(
+      xmlText(errorBlock, "LongMessage") ||
+        xmlText(errorBlock, "ShortMessage") ||
+        `eBay GetItem picture hydration failed with ${response.status}.`,
+    );
+  }
+
+  const item = xmlBlock(xml, "Item") || "";
+  const pictureDetails = xmlBlock(item, "PictureDetails") || "";
+  return normalizeListingImageUrls([
+    ...xmlBlocks(pictureDetails, "PictureURL").map(decodeXml),
+    xmlText(pictureDetails, "GalleryURL"),
+  ]);
+}
+
 async function readAllListingImages(params: {
   environment: string;
   accessToken: string;
@@ -260,11 +303,49 @@ async function readAllListingImages(params: {
       byItemId.set(listing.itemId, listing.imageUrls);
     }
   }
+
+  const itemIds = Array.from(byItemId.keys());
+  const hydrationErrors: Array<{ itemId: string; error: string }> = [];
+  let getItemHydrated = 0;
+  let getItemMultiPicture = 0;
+  let getItemFailed = 0;
+
+  await runWorkers(
+    itemIds,
+    async (itemId) => {
+      const summaryImages = byItemId.get(itemId) || [];
+      try {
+        const itemImages = await readItemImages({ ...params, itemId });
+        const finalImages = normalizeListingImageUrls([
+          ...itemImages,
+          ...summaryImages,
+        ]);
+        byItemId.set(itemId, finalImages);
+        getItemHydrated += 1;
+        if (finalImages.length >= 2) getItemMultiPicture += 1;
+      } catch (error) {
+        getItemFailed += 1;
+        if (summaryImages.length < 2) {
+          hydrationErrors.push({
+            itemId,
+            error: syncErrorMessage(error, "Unknown GetItem picture error"),
+          });
+        }
+      }
+    },
+    GET_ITEM_CONCURRENCY,
+  );
+
   return {
     byItemId,
     pagesRead,
     cycleComplete: pagesRead >= totalPages,
-    sourceCall: "GetSellerList" as const,
+    sourceCall: "GetSellerList+GetItem" as const,
+    getItemChecked: itemIds.length,
+    getItemHydrated,
+    getItemMultiPicture,
+    getItemFailed,
+    hydrationErrors,
   };
 }
 
@@ -363,7 +444,11 @@ async function synchronizeImageRows(params: {
   return { added, removed: unusedIds.length };
 }
 
-async function runWorkers<T>(items: T[], worker: (item: T) => Promise<void>) {
+async function runWorkers<T>(
+  items: T[],
+  worker: (item: T) => Promise<void>,
+  concurrency = APPLY_CONCURRENCY,
+) {
   let cursor = 0;
   async function run() {
     while (cursor < items.length) {
@@ -373,7 +458,7 @@ async function runWorkers<T>(items: T[], worker: (item: T) => Promise<void>) {
   }
   await Promise.all(
     Array.from(
-      { length: Math.min(APPLY_CONCURRENCY, Math.max(items.length, 1)) },
+      { length: Math.min(concurrency, Math.max(items.length, 1)) },
       () => run(),
     ),
   );
@@ -489,6 +574,11 @@ const productIds = products.map((product) => Number(product.id));
       imagesRemoved: 0,
       pagesRead: remote.pagesRead,
       cycleComplete: remote.cycleComplete,
+      sourceCall: remote.sourceCall,
+      getItemChecked: remote.getItemChecked,
+      getItemHydrated: remote.getItemHydrated,
+      getItemMultiPicture: remote.getItemMultiPicture,
+      getItemFailed: remote.getItemFailed,
       maxImagesPerListing: 20,
       remainingCandidates: 0,
       errors: [] as Array<{ legacyProductId: number; error: string }>,
@@ -515,6 +605,9 @@ const imageRows = inventoryIds.length
     imagesByInventoryId.set(image.inventory_item_id, rows);
   }
   const productById = new Map(products.map((product) => [Number(product.id), product]));
+  const productByEbayItemId = new Map(
+    products.map((product) => [String(product.ebay_item_id || ""), product]),
+  );
 
   const allCandidates = inventories.flatMap((inventory) => {
     const product = productById.get(Number(inventory.legacy_product_id));
@@ -540,7 +633,18 @@ const imageRows = inventoryIds.length
   let updated = 0;
   let imagesAdded = 0;
   let imagesRemoved = 0;
-  const errors: Array<{ legacyProductId: number; error: string }> = [];
+  const errors: Array<{ legacyProductId: number; error: string }> =
+    remote.hydrationErrors.flatMap((entry) => {
+      const product = productByEbayItemId.get(entry.itemId);
+      return product
+        ? [
+            {
+              legacyProductId: Number(product.id),
+              error: `GetItem picture hydration failed: ${entry.error}`,
+            },
+          ]
+        : [];
+    });
 
   await runWorkers(candidates, async (candidate) => {
     try {
@@ -556,6 +660,7 @@ const imageRows = inventoryIds.length
         ebay_image_urls: candidate.remoteImages,
         ebay_all_image_sync_version: IMAGE_SYNC_VERSION,
         ebay_all_image_sync_at: checkedAt,
+        ebay_image_source_call: remote.sourceCall,
         ebay_all_image_count: candidate.finalImages.length,
       };
       const { error: inventoryUpdateError } = await params.supabase
@@ -591,6 +696,11 @@ const imageRows = inventoryIds.length
     imagesRemoved,
     pagesRead: remote.pagesRead,
     cycleComplete: remote.cycleComplete,
+    sourceCall: remote.sourceCall,
+    getItemChecked: remote.getItemChecked,
+    getItemHydrated: remote.getItemHydrated,
+    getItemMultiPicture: remote.getItemMultiPicture,
+    getItemFailed: remote.getItemFailed,
     maxImagesPerListing: 20,
     remainingCandidates: Math.max(allCandidates.length - candidates.length, 0),
     errors,

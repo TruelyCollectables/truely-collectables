@@ -226,8 +226,18 @@ assert.match(
 );
 assert.match(
   imageSync,
-  /<ActiveList>[\s\S]*<Include>true<\/Include>/,
-  "Image synchronization must read active eBay listings only.",
+  /X-EBAY-API-CALL-NAME": "GetSellerList"/,
+  "Image synchronization must enumerate the active seller listing set.",
+);
+assert.match(
+  imageSync,
+  /<EndTimeFrom>[\s\S]*<EndTimeTo>/,
+  "Image synchronization must bound GetSellerList to the active listing end-time window.",
+);
+assert.match(
+  imageSync,
+  /X-EBAY-API-CALL-NAME": "GetItem"/,
+  "Image synchronization must hydrate each active listing with its complete PictureURL set.",
 );
 assert.match(
   imageSync,
