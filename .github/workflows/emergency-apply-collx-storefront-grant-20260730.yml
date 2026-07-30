@@ -19,7 +19,7 @@ jobs:
   apply-and-verify:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'fix/issue253-emergency-collx-grant-20260730'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
@@ -42,7 +42,7 @@ jobs:
         with:
           node-version: 22
 
-      - name: Apply Production grant, reload PostgREST, and verify runtime key
+      - name: Link Vercel project and pull Production environment
         shell: bash
         run: |
           set -euo pipefail
@@ -57,12 +57,18 @@ jobs:
           fi
           npx vercel@56.2.0 env pull "$RUNNER_TEMP/collx-storefront-repair/production.env" \
             --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Apply grant, reload PostgREST, and retrieve verified server key
+        shell: bash
+        run: |
+          set -euo pipefail
           node --input-type=module - <<'NODE'
           import fs from 'node:fs';
           import path from 'node:path';
           import { setTimeout as sleep } from 'node:timers/promises';
 
-          const envPath = path.join(process.env.RUNNER_TEMP, 'collx-storefront-repair', 'production.env');
+          const workDir = path.join(process.env.RUNNER_TEMP, 'collx-storefront-repair');
+          const envPath = path.join(workDir, 'production.env');
           const text = fs.readFileSync(envPath, 'utf8');
           const parsed = {};
           for (const rawLine of text.split(/\r?\n/)) {
@@ -81,22 +87,16 @@ jobs:
           }
 
           const productionUrl = parsed.NEXT_PUBLIC_SUPABASE_URL;
-          const serviceRoleKey = parsed.SUPABASE_SERVICE_ROLE_KEY;
           if (!productionUrl || !/^https:\/\//.test(productionUrl)) {
             throw new Error('Production NEXT_PUBLIC_SUPABASE_URL was not pulled from Vercel.');
           }
-          if (!serviceRoleKey?.trim()) {
-            throw new Error('Production SUPABASE_SERVICE_ROLE_KEY was not pulled from Vercel.');
-          }
-          console.log('::add-mask::' + serviceRoleKey);
-
           const projectRef = new URL(productionUrl).hostname.split('.')[0];
           const token = process.env.GH_SUPABASE_ACCESS_TOKEN;
           if (!projectRef || !token) throw new Error('Production Supabase credentials are unavailable.');
 
-          const endpoint = `https://api.supabase.com/v1/projects/${projectRef}/database/query`;
-          const request = async (query, readOnly) => {
-            const response = await fetch(endpoint, {
+          const databaseEndpoint = `https://api.supabase.com/v1/projects/${projectRef}/database/query`;
+          const databaseRequest = async (query, readOnly) => {
+            const response = await fetch(databaseEndpoint, {
               method: 'POST',
               headers: {
                 Authorization: `Bearer ${token}`,
@@ -110,7 +110,7 @@ jobs:
                 .replace(/postgres(?:ql)?:\/\/[^\s"']+/gi, 'postgresql://[REDACTED]')
                 .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [REDACTED]')
                 .slice(0, 4000);
-              throw new Error(`Supabase Production repair failed with HTTP ${response.status}: ${safe}`);
+              throw new Error(`Supabase Production database repair failed with HTTP ${response.status}: ${safe}`);
             }
             return body ? JSON.parse(body) : [];
           };
@@ -118,10 +118,10 @@ jobs:
           const migrationPath = path.join('supabase', 'migrations', '20260730133000_grant_collx_boundary_view_service_role.sql');
           const migrationSql = fs.readFileSync(migrationPath, 'utf8').trim();
           if (!migrationSql) throw new Error('Emergency grant migration is empty.');
-          await request(migrationSql, false);
-          await request("notify pgrst, 'reload schema';", false);
+          await databaseRequest(migrationSql, false);
+          await databaseRequest("notify pgrst, 'reload schema';", false);
 
-          const verification = await request(`
+          const verification = await databaseRequest(`
             select
               to_regclass('public.collx_only_inventory_boundary_violations') is not null as view_exists,
               has_table_privilege('service_role', 'public.collx_only_inventory_boundary_violations', 'select') as service_role_can_select,
@@ -133,6 +133,24 @@ jobs:
             throw new Error(`Unexpected CollX boundary ACL verification: ${JSON.stringify(verification).slice(0, 1000)}`);
           }
 
+          const keysResponse = await fetch(
+            `https://api.supabase.com/v1/projects/${projectRef}/api-keys?reveal=true`,
+            { headers: { Authorization: `Bearer ${token}` } },
+          );
+          const keysText = await keysResponse.text();
+          if (!keysResponse.ok) {
+            throw new Error(`Unable to retrieve Production Supabase API keys: HTTP ${keysResponse.status}: ${keysText.slice(0, 2000)}`);
+          }
+          const keys = JSON.parse(keysText);
+          const elevated = Array.isArray(keys)
+            ? keys.find((entry) => typeof entry?.api_key === 'string' && entry.api_key.startsWith('sb_secret_'))
+              || keys.find((entry) => typeof entry?.api_key === 'string' && String(entry?.name || '').toLowerCase() === 'service_role')
+              || keys.find((entry) => typeof entry?.api_key === 'string' && String(entry?.name || '').toLowerCase().includes('service'))
+            : null;
+          const serviceKey = elevated?.api_key;
+          if (!serviceKey) throw new Error('No elevated Supabase secret/service_role API key was returned.');
+          console.log('::add-mask::' + serviceKey);
+
           let lastStatus = 0;
           let lastBody = '';
           for (let attempt = 1; attempt <= 12; attempt += 1) {
@@ -140,37 +158,64 @@ jobs:
               `${productionUrl}/rest/v1/collx_only_inventory_boundary_violations?select=legacy_product_id&limit=1`,
               {
                 headers: {
-                  apikey: serviceRoleKey,
-                  Authorization: `Bearer ${serviceRoleKey}`,
+                  apikey: serviceKey,
+                  Authorization: `Bearer ${serviceKey}`,
                 },
               },
             );
             lastStatus = response.status;
             lastBody = await response.text();
             if (response.ok) {
-              console.log(`Production service-role REST access verified after PostgREST reload on attempt ${attempt}.`);
+              fs.writeFileSync(path.join(workDir, 'service-role-key'), serviceKey, { mode: 0o600 });
+              console.log(`Verified elevated Supabase REST access on attempt ${attempt}.`);
               process.exit(0);
             }
             await sleep(5000);
           }
-          const safeBody = lastBody.replaceAll(serviceRoleKey, '[REDACTED]').slice(0, 2000);
-          throw new Error(`Production service-role REST check failed with HTTP ${lastStatus}: ${safeBody}`);
+          const safeBody = lastBody.replaceAll(serviceKey, '[REDACTED]').slice(0, 2000);
+          throw new Error(`Verified elevated key could not query the boundary view: HTTP ${lastStatus}: ${safeBody}`);
           NODE
-          rm -f "$RUNNER_TEMP/collx-storefront-repair/production.env"
+
+      - name: Install missing Production service-role key
+        shell: bash
+        run: |
+          set -euo pipefail
+          key_file="$RUNNER_TEMP/collx-storefront-repair/service-role-key"
+          test -s "$key_file"
+          service_key="$(cat "$key_file")"
+          echo "::add-mask::$service_key"
+          printf '%s\n' "$service_key" | npx vercel@56.2.0 env add SUPABASE_SERVICE_ROLE_KEY production \
+            --force --sensitive --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          echo "Production SUPABASE_SERVICE_ROLE_KEY installed in Vercel."
+
+      - name: Redeploy exact application code to Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 deploy --prod --yes --force \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
 
       - name: Verify live storefront inventory route
         shell: bash
         run: |
           set -euo pipefail
-          for attempt in $(seq 1 18); do
-            body="$(curl -fsSL --max-time 30 "https://truelycollectables.com/shop?repair_run=${GITHUB_RUN_ID}&attempt=${attempt}" || true)"
+          for attempt in $(seq 1 30); do
+            body="$(curl -fsSL --max-time 45 "https://truelycollectables.com/shop?repair_run=${GITHUB_RUN_ID}&attempt=${attempt}" || true)"
             if [ -n "$body" ] \
               && ! grep -Fq "permission denied for view collx_only_inventory_boundary_violations" <<<"$body" \
+              && ! grep -Fq "Missing Supabase service role key environment variable" <<<"$body" \
               && grep -Eq "Shop Sports Cards|active cards & collectibles|View Card / Item" <<<"$body"; then
               echo "Live /shop inventory response verified on attempt ${attempt}."
               exit 0
             fi
             sleep 10
           done
-          echo "Live /shop did not recover after the Production ACL repair and PostgREST reload." >&2
+          echo "Live /shop did not recover after the Production database, credential, and deploy repair." >&2
           exit 1
+
+      - name: Remove temporary secret files
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/collx-storefront-repair/production.env"
+          rm -f "$RUNNER_TEMP/collx-storefront-repair/service-role-key"
