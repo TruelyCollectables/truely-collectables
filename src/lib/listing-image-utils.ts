@@ -14,16 +14,23 @@ export function preferHighResolutionListingImage(value: unknown) {
   );
 }
 
+function ebayImageKey(pathname: string) {
+  const current = /^\/images\/g\/([^/]+)\//i.exec(pathname)?.[1];
+  if (current) return current;
+
+  const legacy = /\/z\/([^/]+)\/\$_\d+\.(?:jpe?g|png|webp)$/i.exec(pathname)?.[1];
+  return legacy || null;
+}
+
 export function listingImageIdentity(value: unknown) {
   const normalized = preferHighResolutionListingImage(value);
   if (!normalized) return "";
 
   try {
     const url = new URL(normalized);
-    const ebayMatch = /^\/images\/g\/([^/]+)\//i.exec(url.pathname);
-
-    if (url.hostname.toLowerCase() === "i.ebayimg.com" && ebayMatch?.[1]) {
-      return `ebay:${ebayMatch[1]}`;
+    if (url.hostname.toLowerCase() === "i.ebayimg.com") {
+      const key = ebayImageKey(url.pathname);
+      if (key) return `ebay:${key}`;
     }
 
     url.hash = "";
