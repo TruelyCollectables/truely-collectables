@@ -60,7 +60,7 @@ jobs:
       - name: Run shipping and privilege regressions
         run: |
           npm run verify:shipping
-          npm run simulate:admin-shipping
+          npm run simulate:admin-shipping-actions
           npm run simulate:privileged-route-auth
 
       - name: Security audit
