@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { STORE_BRAND_NAME } from "../../lib/legal";
+import MobileNavigation from "./MobileNavigation";
 
 const navigationLinks = [
   { href: "/shop", label: "Shop" },
@@ -78,16 +79,7 @@ export default function Navbar() {
             </div>
           </div>
 
-          <div className="-mx-4 mt-3 overflow-x-auto border-t border-neutral-200 px-4 pt-2 lg:hidden sm:-mx-6 sm:px-6">
-            <div
-              className="flex min-w-max items-center gap-5"
-              aria-label="Mobile store navigation"
-            >
-              {navigationLinks.map((item) => (
-                <NavigationLink key={item.href} {...item} />
-              ))}
-            </div>
-          </div>
+          <MobileNavigation links={navigationLinks} />
         </div>
       </nav>
     </>
