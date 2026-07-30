@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
   enqueueAndAttemptOrderNotification,
   type OrderNotificationPayload,
@@ -77,7 +77,7 @@ export async function POST(request: Request) {
 
   const startedAt = new Date().toISOString();
   let orderId: number | null = null;
-  let supabase: ReturnType<typeof createClient> | null = null;
+  let supabase: SupabaseClient | null = null;
 
   try {
     const environment = requiredEnvironment();
