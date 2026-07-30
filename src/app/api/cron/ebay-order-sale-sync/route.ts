@@ -12,6 +12,12 @@ function authorized(request: Request, secret: string) {
   return supplied.length === expected.length && timingSafeEqual(supplied, expected);
 }
 
+function safeLookbackDays(request: Request) {
+  const requested = Number(new URL(request.url).searchParams.get("lookbackDays") || 2);
+  if (!Number.isFinite(requested)) return 2;
+  return Math.min(Math.max(Math.floor(requested), 1), 90);
+}
+
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET;
   if (!secret || secret.length < 16) {
@@ -28,7 +34,7 @@ export async function GET(request: Request) {
     const result = await syncRecentEbayOrderSales({
       supabase: createSupabaseServerClient({ admin: true }),
       storeId: getActiveStoreId(),
-      lookbackDays: 90,
+      lookbackDays: safeLookbackDays(request),
     });
     return Response.json(
       {
