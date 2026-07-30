@@ -19,13 +19,9 @@ type DeliverySpec = {
   notificationType: OrderNotificationType;
   recipientEmail: string;
   recipientName: string;
-  idempotencyKey?: string;
+  idempotencyKey: string;
   payload: OrderNotificationPayload;
 };
-
-type DeliveryResult = Awaited<
-  ReturnType<typeof enqueueAndAttemptOrderNotification>
->;
 
 function bearerToken(request: Request) {
   const authorization = request.headers.get("authorization") || "";
@@ -64,6 +60,19 @@ function requiredEnvironment() {
   return { supabaseUrl, serviceRoleKey };
 }
 
+function safeErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message.slice(0, 500);
+  if (error && typeof error === "object") {
+    const value = error as Record<string, unknown>;
+    return [value.message, value.code, value.details, value.hint]
+      .filter((part) => typeof part === "string" && part.trim())
+      .map((part) => String(part).replace(/Bearer\s+\S+/gi, "Bearer [REDACTED]"))
+      .join(" | ")
+      .slice(0, 500);
+  }
+  return "Self-test failed.";
+}
+
 export async function POST(request: Request) {
   if (!(await verifyVercelToken(request))) {
     return Response.json(
@@ -80,8 +89,8 @@ export async function POST(request: Request) {
   }
 
   const startedAt = new Date().toISOString();
-  let orderId: number | null = null;
   let supabase: SupabaseClient | null = null;
+  const deliveryIds: string[] = [];
 
   try {
     const environment = requiredEnvironment();
@@ -89,69 +98,23 @@ export async function POST(request: Request) {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    const { data: product, error: productError } = await supabase
-      .from("products")
-      .select("id,title,price,seller_id")
-      .gt("quantity", 0)
-      .gt("price", 0)
+    const { data: anchorOrder, error: anchorError } = await supabase
+      .from("orders")
+      .select("id,store_id,created_at")
+      .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (productError) throw productError;
-    if (!product) throw new Error("No active product reference is available.");
+    if (anchorError) throw anchorError;
+    if (!anchorOrder) {
+      throw new Error("No existing Production order is available as a safe delivery anchor.");
+    }
 
-    const storeId = String(product.seller_id || DEFAULT_STORE_ID);
+    const orderId = Number(anchorOrder.id);
+    const storeId = String(anchorOrder.store_id || DEFAULT_STORE_ID);
     const now = new Date().toISOString();
     const stamp = now.replace(/[:.]/g, "-");
     const marker = `LAUNCH AUDIT ${stamp}`;
-
-    const { data: order, error: orderError } = await supabase
-      .from("orders")
-      .insert({
-        store_id: storeId,
-        stripe_session_id: `cs_test_launch_email_${Date.now()}`,
-        customer_email: BUYER_ALIAS,
-        customer_name: "Launch Audit Buyer",
-        customer_phone: "303-555-0100",
-        total: 22.96,
-        subtotal: 19.99,
-        tax_amount: 1.61,
-        shipping_amount: 1.36,
-        shipping_name: "Tracked Card Letter — Limited USPS scan visibility",
-        shipping_method: "STANDARD_ENVELOPE",
-        item_count: 1,
-        status: "paid",
-        payment_status: "paid",
-        fulfillment_status: "ready_to_ship",
-        shipping_address_line1: "123 Launch Audit Way",
-        shipping_address_line2: "Suite 2",
-        shipping_city: "Denver",
-        shipping_state: "CO",
-        shipping_postal_code: "80202",
-        shipping_country: "US",
-        contains_seller_items: false,
-        seller_item_count: 0,
-        store_item_count: 1,
-        last_payment_event_at: now,
-        tos_accepted: true,
-        tos_version: "2026-06-28",
-        tos_accepted_at: now,
-      })
-      .select("id,created_at")
-      .single();
-    if (orderError || !order) {
-      throw orderError || new Error("Controlled test order insert failed.");
-    }
-    orderId = Number(order.id);
-
-    const { error: itemError } = await supabase.from("order_items").insert({
-      store_id: storeId,
-      order_id: orderId,
-      product_id: Number(product.id),
-      title: "Launch Audit Card — Email Rendering Test",
-      price: 19.99,
-      quantity: 1,
-    });
-    if (itemError) throw itemError;
+    const adminOrderUrl = `https://truelycollectables.com/admin/orders/${orderId}`;
 
     const base: OrderNotificationPayload = {
       orderId,
@@ -174,7 +137,7 @@ export async function POST(request: Request) {
       },
       destinationSummary: "Denver CO 80202",
       paymentStatus: "paid",
-      orderCreatedAt: String(order.created_at || now),
+      orderCreatedAt: String(anchorOrder.created_at || now),
       auditMarker: marker,
       items: [
         {
@@ -185,19 +148,19 @@ export async function POST(request: Request) {
       ],
     };
 
-    const adminOrderUrl = `https://truelycollectables.com/admin/orders/${orderId}`;
     const specs: DeliverySpec[] = [
       {
         notificationType: "payment_confirmation",
         recipientEmail: BUYER_ALIAS,
         recipientName: "Launch Audit Buyer",
+        idempotencyKey: `${marker}/buyer/payment`,
         payload: { ...base, audience: "customer", fulfillmentStatus: "ready_to_ship" },
       },
       {
         notificationType: "payment_confirmation",
         recipientEmail: OWNER_ALIAS,
         recipientName: "Launch Audit Owner",
-        idempotencyKey: `audit_owner_payment/${storeId}/${orderId}`,
+        idempotencyKey: `${marker}/owner/payment`,
         payload: {
           ...base,
           audience: "store",
@@ -209,6 +172,7 @@ export async function POST(request: Request) {
         notificationType: "fulfillment_confirmation",
         recipientEmail: BUYER_ALIAS,
         recipientName: "Launch Audit Buyer",
+        idempotencyKey: `${marker}/buyer/fulfilled`,
         payload: {
           ...base,
           audience: "customer",
@@ -220,7 +184,7 @@ export async function POST(request: Request) {
         notificationType: "fulfillment_confirmation",
         recipientEmail: OWNER_ALIAS,
         recipientName: "Launch Audit Owner",
-        idempotencyKey: `audit_owner_fulfilled/${storeId}/${orderId}`,
+        idempotencyKey: `${marker}/owner/fulfilled`,
         payload: {
           ...base,
           audience: "store",
@@ -233,6 +197,7 @@ export async function POST(request: Request) {
         notificationType: "shipment_confirmation",
         recipientEmail: BUYER_ALIAS,
         recipientName: "Launch Audit Buyer",
+        idempotencyKey: `${marker}/buyer/shipped`,
         payload: {
           ...base,
           audience: "customer",
@@ -247,7 +212,7 @@ export async function POST(request: Request) {
         notificationType: "shipment_confirmation",
         recipientEmail: OWNER_ALIAS,
         recipientName: "Launch Audit Owner",
-        idempotencyKey: `audit_owner_shipped/${storeId}/${orderId}`,
+        idempotencyKey: `${marker}/owner/shipped`,
         payload: {
           ...base,
           audience: "store",
@@ -261,7 +226,7 @@ export async function POST(request: Request) {
       },
     ];
 
-    const firstResults: DeliveryResult[] = [];
+    const firstIds: string[] = [];
     for (const spec of specs) {
       const result = await enqueueAndAttemptOrderNotification({
         supabase,
@@ -273,28 +238,30 @@ export async function POST(request: Request) {
         idempotencyKey: spec.idempotencyKey,
         payload: spec.payload,
       });
-      if (!result?.sent) {
+      if (!result?.sent || !result.notificationId) {
         throw new Error(
           `${spec.notificationType}/${spec.recipientEmail} failed: ${result?.error || result?.status || "unknown"}`,
         );
       }
-      firstResults.push(result);
+      const notificationId = String(result.notificationId);
+      firstIds.push(notificationId);
+      deliveryIds.push(notificationId);
     }
 
-    const replayResults: DeliveryResult[] = [];
-    for (const spec of specs) {
-      replayResults.push(
-        await enqueueAndAttemptOrderNotification({
-          supabase,
-          storeId,
-          orderId,
-          notificationType: spec.notificationType,
-          recipientEmail: spec.recipientEmail,
-          recipientName: spec.recipientName,
-          idempotencyKey: spec.idempotencyKey,
-          payload: spec.payload,
-        }),
-      );
+    for (const [index, spec] of specs.entries()) {
+      const replay = await enqueueAndAttemptOrderNotification({
+        supabase,
+        storeId,
+        orderId,
+        notificationType: spec.notificationType,
+        recipientEmail: spec.recipientEmail,
+        recipientName: spec.recipientName,
+        idempotencyKey: spec.idempotencyKey,
+        payload: spec.payload,
+      });
+      if (!replay?.notificationId || String(replay.notificationId) !== firstIds[index]) {
+        throw new Error(`Idempotency replay failed for ${spec.idempotencyKey}.`);
+      }
     }
 
     const { data: rows, error: rowsError } = await supabase
@@ -302,27 +269,22 @@ export async function POST(request: Request) {
       .select(
         "id,notification_type,recipient_email,status,provider_message_id,idempotency_key,subject",
       )
-      .eq("order_id", orderId)
+      .in("id", deliveryIds)
       .order("created_at");
     if (rowsError) throw rowsError;
-
     if (
       rows?.length !== 6 ||
-      rows.some((row) => row.status !== "sent") ||
-      firstResults.some(
-        (result, index) =>
-          result?.notificationId !== replayResults[index]?.notificationId,
-      )
+      rows.some((row) => row.status !== "sent" || !row.provider_message_id)
     ) {
-      throw new Error("Controlled delivery or idempotency verification failed.");
+      throw new Error("Controlled delivery verification failed.");
     }
 
     return Response.json(
       {
         success: true,
-        schema: "truelycollectables.orderEmailLifecycleRuntimeSelfTest.v1",
+        schema: "truelycollectables.orderEmailLifecycleRuntimeSelfTest.v2",
         marker,
-        orderId,
+        anchorOrderId: orderId,
         buyerAlias: BUYER_ALIAS,
         ownerAlias: OWNER_ALIAS,
         expectedMessages: 6,
@@ -341,6 +303,7 @@ export async function POST(request: Request) {
           ownerPackingSlip: true,
         },
         simulatedTracking: true,
+        existingOrderModified: false,
         startedAt,
         completedAt: new Date().toISOString(),
       },
@@ -350,18 +313,16 @@ export async function POST(request: Request) {
     return Response.json(
       {
         success: false,
-        schema: "truelycollectables.orderEmailLifecycleRuntimeSelfTest.v1",
-        error: error instanceof Error ? error.message.slice(0, 500) : "Self-test failed.",
+        schema: "truelycollectables.orderEmailLifecycleRuntimeSelfTest.v2",
+        error: safeErrorMessage(error),
         startedAt,
         completedAt: new Date().toISOString(),
       },
       { status: 500, headers: { "Cache-Control": "no-store" } },
     );
   } finally {
-    if (supabase && orderId) {
-      await supabase.from("order_notification_deliveries").delete().eq("order_id", orderId);
-      await supabase.from("order_items").delete().eq("order_id", orderId);
-      await supabase.from("orders").delete().eq("id", orderId);
+    if (supabase && deliveryIds.length > 0) {
+      await supabase.from("order_notification_deliveries").delete().in("id", deliveryIds);
     }
   }
 }
