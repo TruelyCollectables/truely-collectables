@@ -193,7 +193,7 @@ export async function POST(request: Request) {
     await requireAdminPage(`/admin/orders/${orderId}`, `Order #${orderId}`, cookie);
     await requireAdminPage(
       `/admin/orders/${orderId}/packing-slip`,
-      `Order #${orderId}`,
+      "Packing Slip",
       cookie,
     );
     await requireAdminPage("/admin/products", "Products", cookie);
