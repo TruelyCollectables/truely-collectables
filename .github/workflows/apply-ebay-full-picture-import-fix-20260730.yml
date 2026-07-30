@@ -1,0 +1,84 @@
+name: Apply eBay Full Picture Import Fix 20260730
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-ebay-full-picture-import-fix-20260730
+  cancel-in-progress: true
+
+jobs:
+  patch-test-and-commit:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'fix/ebay-full-picture-import-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
+      ADMIN_SESSION_SECRET: build-validation-session-secret-that-is-long-enough
+      ADMIN_PASSWORD: build-validation-admin-password
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      STRIPE_SECRET_KEY: sk_test_build_validation
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_validation
+      STRIPE_WEBHOOK_SECRET: whsec_build_validation
+      EBAY_CLIENT_ID: build-validation-client-id
+      EBAY_CLIENT_SECRET: build-validation-client-secret
+      EBAY_ENVIRONMENT: production
+      CRON_SECRET: build-validation-cron-secret-that-is-long-enough
+      RESEND_API_KEY: re_build_validation
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+
+    steps:
+      - name: Check out exact repair branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/ebay-full-picture-import-20260730
+          fetch-depth: 0
+
+      - name: Fail closed on exact branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "fix/ebay-full-picture-import-20260730"
+          test -f scripts/apply-ebay-full-picture-import-fix.mjs
+          test -f scripts/run-ebay-full-picture-import-contracts.mjs
+          git diff --check
+
+      - name: Replace summary-only image source with full seller listing source
+        run: node scripts/apply-ebay-full-picture-import-fix.mjs
+
+      - name: Run focused eBay image contracts
+        run: node scripts/run-ebay-full-picture-import-contracts.mjs
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Run TypeScript and Production build
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx tsc --noEmit --pretty false
+          npm run build
+          git diff --check
+
+      - name: Commit the durable eBay full-picture importer
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add src/lib/ebay-all-image-sync.ts
+          if git diff --cached --quiet; then
+            echo "The full-picture importer is already committed."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Pull every listing picture from eBay"
+          git push origin HEAD:fix/ebay-full-picture-import-20260730
