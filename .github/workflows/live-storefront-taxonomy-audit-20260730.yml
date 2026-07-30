@@ -82,6 +82,47 @@ jobs:
           set -euo pipefail
           npx tsx scripts/apply-production-collx-boundary-grant.mts | tee "$RUNNER_TEMP/live-taxonomy-audit/collx-boundary-grant.log"
 
+      - name: Verify live shop and category routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/live-taxonomy-audit/live-smoke"
+          stamp="${GITHUB_SHA:0:12}-$(date +%s)"
+          routes=(
+            "shop"
+            "shop?feature=autograph"
+            "shop?feature=memorabilia"
+            "shop?feature=rookie"
+            "shop?feature=graded"
+            "shop?feature=numbered"
+          )
+          for index in "${!routes[@]}"; do
+            route="${routes[$index]}"
+            separator="?"
+            if [[ "$route" == *"?"* ]]; then separator="&"; fi
+            output="$RUNNER_TEMP/live-taxonomy-audit/live-smoke/route-$index.html"
+            curl --fail --silent --show-error --location --retry 4 --retry-all-errors \
+              -H "Cache-Control: no-cache" \
+              -A "TruelyCollectablesTaxonomyAudit/1.0" \
+              "https://truelycollectables.com/${route}${separator}taxonomy_repair=${stamp}-${index}" \
+              -o "$output"
+            if grep -Fqi "Error loading products" "$output"; then
+              echo "Live route failed: /$route"
+              grep -Fi "Error loading products" -A 3 "$output" || true
+              exit 1
+            fi
+            if grep -Fqi "permission denied for view collx_only_inventory_boundary_violations" "$output"; then
+              echo "CollX boundary permission failure remains on /$route"
+              exit 1
+            fi
+            if ! grep -Eqi "[0-9,]+ active" "$output"; then
+              echo "Live inventory count missing on /$route"
+              exit 1
+            fi
+            echo "PASS /$route"
+          done
+          printf '%s\n' "All live storefront category routes passed." | tee "$RUNNER_TEMP/live-taxonomy-audit/live-smoke-summary.log"
+
       - name: Audit every active Production listing
         shell: bash
         env:
@@ -125,6 +166,7 @@ jobs:
           name: live-taxonomy-audit-20260730
           path: |
             ${{ runner.temp }}/live-taxonomy-audit/collx-boundary-grant.log
+            ${{ runner.temp }}/live-taxonomy-audit/live-smoke-summary.log
             ${{ runner.temp }}/live-taxonomy-audit/live-taxonomy-audit.json
             ${{ runner.temp }}/live-taxonomy-audit/summary.log
             ${{ runner.temp }}/live-taxonomy-audit/autograph-contact-sheet-summary.log
