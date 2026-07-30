@@ -15,31 +15,33 @@ const token = String(process.env.VERCEL_TOKEN || "").trim();
 const scope = String(process.env.VERCEL_SCOPE || "").trim();
 if (!token || !scope) throw new Error("Vercel credentials are unavailable.");
 
-function parseEnv(text) {
-  const values = {};
-  for (const rawLine of text.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#")) continue;
-    const index = line.indexOf("=");
-    if (index < 1) continue;
-    const key = line.slice(0, index).trim();
-    let value = line.slice(index + 1).trim();
-    if (value.startsWith('"') && value.endsWith('"')) {
-      try { value = JSON.parse(value); } catch { value = value.slice(1, -1); }
-    } else if (value.startsWith("'") && value.endsWith("'")) {
-      value = value.slice(1, -1);
-    }
-    values[key] = value;
-  }
-  return values;
-}
+const projectLink = JSON.parse(fs.readFileSync(path.join(appDir, ".vercel", "project.json"), "utf8"));
+const projectId = String(projectLink.projectId || "").trim();
+const orgId = String(projectLink.orgId || "").trim();
+if (!projectId || !orgId) throw new Error("Vercel project linkage is incomplete.");
 
-const current = parseEnv(fs.readFileSync(envPath, "utf8"));
+const response = await fetch(
+  `https://api.vercel.com/v10/projects/${encodeURIComponent(projectId)}/env?teamId=${encodeURIComponent(orgId)}&decrypt=false`,
+  { headers: { Authorization: `Bearer ${token}` } },
+);
+const responseBody = await response.text();
+if (!response.ok) {
+  throw new Error(`Unable to list Vercel Production environment names: HTTP ${response.status}.`);
+}
+const payload = JSON.parse(responseBody);
+const envRows = Array.isArray(payload?.envs) ? payload.envs : [];
+const existingProductionNames = new Set(
+  envRows
+    .filter((row) => Array.isArray(row?.target) && row.target.includes("production"))
+    .map((row) => String(row?.key || "").trim())
+    .filter(Boolean),
+);
+
 const required = ["ADMIN_SESSION_SECRET", "CRON_SECRET"];
 const provisionedNames = [];
 
 for (const name of required) {
-  if (String(current[name] || "").trim()) continue;
+  if (existingProductionNames.has(name)) continue;
   const value = randomBytes(48).toString("base64url");
   const result = spawnSync(
     "npx",
@@ -71,12 +73,6 @@ for (const name of required) {
       .slice(0, 3000);
     throw new Error(`Unable to provision ${name}: ${safe}`);
   }
-
-  // Vercel may omit write-only/sensitive values from a later env pull. Keep the
-  // generated value only in this runner's ephemeral env file so the exact new
-  // deployment can be verified, then the workflow deletes the file.
-  fs.appendFileSync(envPath, `\n${name}=${JSON.stringify(value)}\n`, { mode: 0o600 });
-  current[name] = value;
   provisionedNames.push(name);
 }
 
@@ -87,9 +83,9 @@ fs.writeFileSync(
     {
       ok: true,
       requiredNames: required,
+      previouslyPresentNames: required.filter((name) => existingProductionNames.has(name)),
       provisionedNames,
       valuesRecorded: false,
-      ephemeralRuntimeValuesRetained: provisionedNames.length > 0,
       generatedAt: new Date().toISOString(),
     },
     null,
