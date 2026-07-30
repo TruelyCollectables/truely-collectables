@@ -24,11 +24,15 @@ assert.deepEqual(selectFrontBackListingImages([ebayFront, collxFront]), [
 ]);
 assert.deepEqual(
   selectFrontBackListingImages([ebayFront, collxFront, collxBack]),
-  [ebayFront, collxBack],
+  [collxFront, collxBack],
 );
 assert.deepEqual(selectFrontBackListingImages([ebayFront, ebayBack]), [
   ebayFront,
   ebayBack,
+]);
+assert.deepEqual(selectFrontBackListingImages([ebayFront, collxBack]), [
+  ebayFront,
+  collxBack,
 ]);
 
 const gallery = fs.readFileSync(
@@ -59,6 +63,7 @@ console.log(
     {
       ok: true,
       rejectsMislabeledFrontAsBack: true,
+      preservesCompleteVerifiedPair: true,
       acceptsVerifiedCompanionBack: true,
       acceptsSecondEbayImage: true,
       scheduledReconciliation: true,
