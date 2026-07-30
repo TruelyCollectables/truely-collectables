@@ -35,10 +35,12 @@ export async function finalizeCheckoutOrder(params: {
     session.customer_details?.name ||
     collectedInfo?.shipping_details?.name ||
     null;
+  const customerPhone = session.customer_details?.phone || null;
   const shipping = collectedInfo?.shipping_details?.address;
   const shippingCountry = shipping?.country || null;
   const shippingAllowed = isAllowedShippingCountry(shippingCountry);
   const total = Number(session.amount_total || 0) / 100;
+  const taxAmount = Number(session.total_details?.amount_tax || 0) / 100;
   const selectedShipping = await selectedCheckoutShipping({
     stripe,
     session,
@@ -111,6 +113,7 @@ export async function finalizeCheckoutOrder(params: {
     account_id: accountId,
     customer_email: customerEmail,
     customer_name: customerName,
+    customer_phone: customerPhone,
     total,
     status: shippingAllowed ? "paid" : "paid_shipping_review",
     payment_status: session.payment_status || "paid",
@@ -121,6 +124,7 @@ export async function finalizeCheckoutOrder(params: {
     shipping_name: shippingName,
     shipping_amount: shippingAmount,
     subtotal,
+    tax_amount: taxAmount,
     item_count: itemCount || normalizedItemCount,
     fulfillment_status: shippingAllowed ? "ready_to_ship" : "shipping_review",
     shipping_address_line1: shipping?.line1 || null,
@@ -350,10 +354,25 @@ export async function finalizeCheckoutOrder(params: {
     const paymentNotificationPayload = {
       orderId,
       customerName,
+      customerEmail,
+      customerPhone,
       total,
       subtotal,
+      taxAmount,
       shippingAmount,
       shippingName,
+      shippingService: shippingName || shippingMethod,
+      shippingAddress: {
+        line1: shipping?.line1 || null,
+        line2: shipping?.line2 || null,
+        city: shipping?.city || null,
+        state: shipping?.state || null,
+        postalCode: shipping?.postal_code || null,
+        country: shippingCountry,
+      },
+      paymentStatus: session.payment_status || "paid",
+      fulfillmentStatus: shippingAllowed ? "ready_to_ship" : "shipping_review",
+      orderCreatedAt: new Date().toISOString(),
       items: (ledgerOrderItems || []).map((item) => ({
         title: String(item.title || "Item"),
         quantity: Number(item.quantity || 1),

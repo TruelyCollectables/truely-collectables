@@ -1,9 +1,13 @@
 import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getStoreSettings } from "./store-settings";
+import { buildOrderNotificationAttachments } from "./order-notification-documents";
 
 export type OrderNotificationType =
-  "payment_confirmation" | "shipment_confirmation" | "tracking_updated";
+  | "payment_confirmation"
+  | "fulfillment_confirmation"
+  | "shipment_confirmation"
+  | "tracking_updated";
 
 export type OrderNotificationItem = {
   title: string;
@@ -14,15 +18,26 @@ export type OrderNotificationItem = {
 export type OrderNotificationPayload = {
   orderId: number;
   customerName?: string | null;
+  customerEmail?: string | null;
+  customerPhone?: string | null;
   total?: number | null;
   subtotal?: number | null;
+  taxAmount?: number | null;
   shippingAmount?: number | null;
   shippingName?: string | null;
+  shippingService?: string | null;
+  shippingAddress?: { line1?: string | null; line2?: string | null; city?: string | null; state?: string | null; postalCode?: string | null; country?: string | null };
+  destinationSummary?: string | null;
+  paymentStatus?: string | null;
+  fulfillmentStatus?: string | null;
+  orderCreatedAt?: string | null;
+  fulfilledAt?: string | null;
+  shippedAt?: string | null;
   audience?: "customer" | "store";
-  customerEmail?: string | null;
   adminOrderUrl?: string | null;
   carrier?: string | null;
   trackingNumber?: string | null;
+  auditMarker?: string | null;
   items?: OrderNotificationItem[];
 };
 
@@ -123,16 +138,15 @@ function subjectForNotification(
   orderId: number,
   payload: OrderNotificationPayload,
 ) {
-  if (type === "payment_confirmation" && payload.audience === "store") {
-    return `New paid ${storeName} order #${orderId} — ${money(payload.total)}`;
-  }
-  if (type === "payment_confirmation") {
-    return `We received your ${storeName} order #${orderId}`;
-  }
-  if (type === "tracking_updated") {
-    return `Tracking updated for ${storeName} order #${orderId}`;
-  }
-  return `Your ${storeName} order #${orderId} has shipped`;
+  const subject = type === "payment_confirmation"
+    ? payload.audience === "store" ? `New paid ${storeName} order #${orderId} — ${money(payload.total)}` : `We received your ${storeName} order #${orderId}`
+    : type === "fulfillment_confirmation"
+      ? payload.audience === "store" ? `${storeName} order #${orderId} is fulfilled and ready to ship` : `Your ${storeName} order #${orderId} is prepared`
+      : type === "tracking_updated"
+        ? payload.audience === "store" ? `Tracking updated for ${storeName} order #${orderId} — owner copy` : `Tracking updated for ${storeName} order #${orderId}`
+        : payload.audience === "store" ? `${storeName} order #${orderId} shipped — owner copy` : `Your ${storeName} order #${orderId} has shipped`;
+  const marker = cleanInline(payload.auditMarker);
+  return marker ? `${marker} — ${subject}` : subject;
 }
 
 function itemRows(items: OrderNotificationItem[]) {
@@ -157,72 +171,90 @@ function textItemRows(items: OrderNotificationItem[]) {
     .join("\n");
 }
 
-function renderOrderNotification(params: {
-  row: OrderNotificationRow;
-  storeName: string;
-}) {
+function renderOrderNotification(params: { row: OrderNotificationRow; storeName: string }) {
   const { row } = params;
-  const payload =
-    row.payload || ({ orderId: row.order_id } as OrderNotificationPayload);
+  const payload = row.payload || ({ orderId: row.order_id } as OrderNotificationPayload);
   const orderId = Number(payload.orderId || row.order_id);
   const name = cleanInline(payload.customerName || row.recipient_name, "there");
-  const safeName = escapeOrderNotificationHtml(name);
-  const safeStore = escapeOrderNotificationHtml(params.storeName);
   const items = Array.isArray(payload.items) ? payload.items : [];
-
-  if (
-    row.notification_type === "payment_confirmation" &&
-    payload.audience === "store"
-  ) {
-    const htmlItems = items.length
-      ? `<table style="width:100%;border-collapse:collapse;margin:18px 0;"><thead><tr><th style="text-align:left;padding-bottom:8px;">Item</th><th style="text-align:center;padding-bottom:8px;">Qty</th><th style="text-align:right;padding-bottom:8px;">Price</th></tr></thead><tbody>${itemRows(items)}</tbody></table>`
-      : "";
-    const textItems = items.length ? `\nItems:\n${textItemRows(items)}\n` : "";
-    const customerEmail = cleanInline(payload.customerEmail, "Not provided");
-    const shippingName = cleanInline(payload.shippingName, "Selected shipping");
-    const adminOrderUrl = cleanInline(payload.adminOrderUrl);
-    const action = adminOrderUrl
-      ? `<p><a href="${escapeOrderNotificationHtml(adminOrderUrl)}" style="display:inline-block;background:#111;color:#fff;padding:10px 16px;text-decoration:none;border-radius:6px;">Open order in fulfillment</a></p>`
-      : "";
-
-    return {
-      html: `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#111;max-width:640px;margin:0 auto;"><h1>New paid order</h1><p><strong>Order #${orderId}</strong> is ready for fulfillment.</p><p><strong>Customer:</strong> ${safeName}<br><strong>Email:</strong> ${escapeOrderNotificationHtml(customerEmail)}</p>${htmlItems}<p><strong>Subtotal:</strong> ${money(payload.subtotal)}<br><strong>${escapeOrderNotificationHtml(shippingName)}:</strong> ${money(payload.shippingAmount)}<br><strong>Total paid:</strong> ${money(payload.total)}</p>${action}<p>— ${safeStore} order system</p></div>`,
-      text: `New paid order\n\nOrder #${orderId} is ready for fulfillment.\n\nCustomer: ${name}\nEmail: ${customerEmail}\n${textItems}\nSubtotal: ${money(payload.subtotal)}\n${shippingName}: ${money(payload.shippingAmount)}\nTotal paid: ${money(payload.total)}${adminOrderUrl ? `\n\nOpen order: ${adminOrderUrl}` : ""}\n\n— ${params.storeName} order system`,
-    };
-  }
+  const shippingName = cleanInline(payload.shippingService || payload.shippingName, "Selected shipping");
+  const address = payload.shippingAddress || {};
+  const addressLines = [payload.customerName, address.line1, address.line2, [address.city, address.state, address.postalCode].filter(Boolean).join(" "), address.country].map((value) => cleanInline(value)).filter(Boolean);
+  const addressHtml = addressLines.length ? addressLines.map(escapeOrderNotificationHtml).join("<br>") : "Address not provided";
+  const addressText = addressLines.length ? addressLines.join("\n") : "Address not provided";
+  const htmlItems = items.length ? `<table style="width:100%;border-collapse:collapse;margin:18px 0;"><tbody>${itemRows(items)}</tbody></table>` : "";
+  const textItems = items.length ? `
+Items:
+${textItemRows(items)}
+` : "";
+  const adminUrl = cleanInline(payload.adminOrderUrl);
+  const adminAction = adminUrl ? `<p><a href="${escapeOrderNotificationHtml(adminUrl)}">Open order in fulfillment</a></p>` : "";
+  const attachments = buildOrderNotificationAttachments({ payload, storeName: params.storeName, notificationType: row.notification_type });
+  const shell = (heading: string, body: string) => `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#111;max-width:680px;margin:0 auto;"><h1>${heading}</h1>${body}<p>— ${escapeOrderNotificationHtml(params.storeName)}</p></div>`;
 
   if (row.notification_type === "payment_confirmation") {
-    const htmlItems = items.length
-      ? `<table style="width:100%;border-collapse:collapse;margin:18px 0;"><thead><tr><th style="text-align:left;padding-bottom:8px;">Item</th><th style="text-align:center;padding-bottom:8px;">Qty</th><th style="text-align:right;padding-bottom:8px;">Price</th></tr></thead><tbody>${itemRows(items)}</tbody></table>`
-      : "";
-    const textItems = items.length ? `\nItems:\n${textItemRows(items)}\n` : "";
-    const shippingName = cleanInline(payload.shippingName, "Selected shipping");
+    const totalsHtml = `<p><strong>Subtotal:</strong> ${money(payload.subtotal)}<br><strong>Tax:</strong> ${money(payload.taxAmount)}<br><strong>${escapeOrderNotificationHtml(shippingName)}:</strong> ${money(payload.shippingAmount)}<br><strong>Total paid:</strong> ${money(payload.total)}</p>`;
+    const totalsText = `Subtotal: ${money(payload.subtotal)}
+Tax: ${money(payload.taxAmount)}
+${shippingName}: ${money(payload.shippingAmount)}
+Total paid: ${money(payload.total)}`;
+    if (payload.audience === "store") return {
+      html: shell("New paid order", `<p><strong>Order #${orderId}</strong> is ready for fulfillment.</p><p><strong>Customer:</strong> ${escapeOrderNotificationHtml(name)}<br><strong>Email:</strong> ${escapeOrderNotificationHtml(payload.customerEmail || "Not provided")}<br><strong>Phone:</strong> ${escapeOrderNotificationHtml(payload.customerPhone || "Not provided")}</p><p><strong>Ship to:</strong><br>${addressHtml}</p>${htmlItems}${totalsHtml}<p>The invoice and internal packing slip are attached.</p>${adminAction}`),
+      text: `New paid order
 
+Order #${orderId} is ready for fulfillment.
+Customer: ${name}
+Email: ${payload.customerEmail || "Not provided"}
+Phone: ${payload.customerPhone || "Not provided"}
+
+Ship to:
+${addressText}
+${textItems}
+${totalsText}
+
+The invoice and internal packing slip are attached.${adminUrl ? `
+Open order: ${adminUrl}` : ""}`, attachments };
     return {
-      html: `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#111;max-width:640px;margin:0 auto;"><h1>Order received</h1><p>Hi ${safeName},</p><p>Thank you for your order from ${safeStore}. We received payment for order <strong>#${orderId}</strong>.</p>${htmlItems}<p><strong>Subtotal:</strong> ${money(payload.subtotal)}<br><strong>${escapeOrderNotificationHtml(shippingName)}:</strong> ${money(payload.shippingAmount)}<br><strong>Total:</strong> ${money(payload.total)}</p><p>We will send another email when your order ships.</p><p>— ${safeStore}</p></div>`,
-      text: `Order received\n\nHi ${name},\n\nThank you for your order from ${params.storeName}. We received payment for order #${orderId}.\n${textItems}\nSubtotal: ${money(payload.subtotal)}\n${shippingName}: ${money(payload.shippingAmount)}\nTotal: ${money(payload.total)}\n\nWe will send another email when your order ships.\n\n— ${params.storeName}`,
-    };
+      html: shell("Order received", `<p>Hi ${escapeOrderNotificationHtml(name)},</p><p>We received payment for order <strong>#${orderId}</strong>.</p><p><strong>Ship to:</strong><br>${addressHtml}</p>${htmlItems}${totalsHtml}<p>Your invoice/receipt is attached. We will email you when the order is prepared and when it ships.</p>`),
+      text: `Order received
+
+Hi ${name},
+
+We received payment for order #${orderId}.
+
+Ship to:
+${addressText}
+${textItems}
+${totalsText}
+
+Your invoice/receipt is attached. We will email you when the order is prepared and when it ships.`, attachments };
+  }
+
+  if (row.notification_type === "fulfillment_confirmation") {
+    const body = payload.audience === "store"
+      ? `<p>Order <strong>#${orderId}</strong> for ${escapeOrderNotificationHtml(name)} is fulfilled and ready to ship.</p><p><strong>Service:</strong> ${escapeOrderNotificationHtml(shippingName)}<br><strong>Ship to:</strong><br>${addressHtml}</p>${adminAction}`
+      : `<p>Hi ${escapeOrderNotificationHtml(name)},</p><p>Order <strong>#${orderId}</strong> has been fulfilled and prepared for shipment.</p><p><strong>Shipping service:</strong> ${escapeOrderNotificationHtml(shippingName)}</p><p>We will send your tracking number when it ships.</p>`;
+    return { html: shell(payload.audience === "store" ? "Order prepared" : "Your order is prepared", body), text: `Order #${orderId} is fulfilled and prepared for shipment.
+Service: ${shippingName}
+Ship to: ${addressText}${adminUrl ? `
+Open order: ${adminUrl}` : ""}`, attachments };
   }
 
   const carrier = cleanInline(payload.carrier, "Carrier");
   const trackingNumber = cleanInline(payload.trackingNumber, "Not provided");
   const url = trackingUrl(carrier, trackingNumber);
-  const action = url
-    ? `<p><a href="${url}" style="display:inline-block;background:#111;color:#fff;padding:10px 16px;text-decoration:none;border-radius:6px;">Track your package</a></p>`
-    : "<p>Use the tracking number on the carrier's website to follow the shipment.</p>";
-  const heading =
-    row.notification_type === "tracking_updated"
-      ? "Your tracking information was updated"
-      : "Your order has shipped";
-  const detail =
-    row.notification_type === "tracking_updated"
-      ? `The tracking information for order <strong>#${orderId}</strong> has changed.`
-      : `Great news — order <strong>#${orderId}</strong> is on the way.`;
+  const heading = row.notification_type === "tracking_updated" ? "Tracking updated" : "Your order has shipped";
+  const body = `<p>Hi ${escapeOrderNotificationHtml(name)},</p><p>Order <strong>#${orderId}</strong> ${row.notification_type === "tracking_updated" ? "has updated tracking information" : "is on the way"}.</p><p><strong>Carrier:</strong> ${escapeOrderNotificationHtml(carrier)}<br><strong>Service:</strong> ${escapeOrderNotificationHtml(shippingName)}<br><strong>Tracking:</strong> ${escapeOrderNotificationHtml(trackingNumber)}<br><strong>Ship date:</strong> ${escapeOrderNotificationHtml(payload.shippedAt || "Not recorded")}<br><strong>Destination:</strong> ${escapeOrderNotificationHtml(payload.destinationSummary || addressLines.slice(-2).join(" "))}</p>${url ? `<p><a href="${url}">Track your package</a></p>` : ""}${adminAction}`;
+  return { html: shell(payload.audience === "store" ? `Owner copy — ${heading}` : heading, body), text: `${heading}
 
-  return {
-    html: `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#111;max-width:640px;margin:0 auto;"><h1>${heading}</h1><p>Hi ${safeName},</p><p>${detail}</p><p><strong>Carrier:</strong> ${escapeOrderNotificationHtml(carrier)}<br><strong>Tracking number:</strong> ${escapeOrderNotificationHtml(trackingNumber)}</p>${action}<p>Thank you for shopping with ${safeStore}.</p><p>— ${safeStore}</p></div>`,
-    text: `${heading}\n\nHi ${name},\n\n${row.notification_type === "tracking_updated" ? `The tracking information for order #${orderId} has changed.` : `Great news — order #${orderId} is on the way.`}\n\nCarrier: ${carrier}\nTracking number: ${trackingNumber}\n${url ? `Track your package: ${url}` : "Use the tracking number on the carrier's website to follow the shipment."}\n\nThank you for shopping with ${params.storeName}.\n\n— ${params.storeName}`,
-  };
+Order #${orderId}
+Carrier: ${carrier}
+Service: ${shippingName}
+Tracking: ${trackingNumber}
+Ship date: ${payload.shippedAt || "Not recorded"}
+Destination: ${payload.destinationSummary || addressText}${url ? `
+Track: ${url}` : ""}${adminUrl ? `
+Open order: ${adminUrl}` : ""}`, attachments };
 }
 
 function normalizeEmail(value: unknown) {
@@ -385,6 +417,8 @@ export async function deliverOrderNotification(params: {
         subject: row.subject,
         html: rendered.html,
         text: rendered.text,
+        reply_to: settings.supportEmail || settings.salesEmail,
+        attachments: rendered.attachments,
       }),
     });
     const data = await response.json().catch(() => ({}));
