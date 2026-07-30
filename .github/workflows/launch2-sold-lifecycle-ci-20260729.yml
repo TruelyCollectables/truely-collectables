@@ -1,4 +1,4 @@
-name: Launch 2 Sold Lifecycle CI 20260729
+name: Launch 2 Sold Lifecycle Certification 20260730
 
 on:
   pull_request:
@@ -34,12 +34,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: launch2-sold-lifecycle-ci-20260729
+  group: launch2-sold-lifecycle-certification-20260730
   cancel-in-progress: true
 
 jobs:
   sold-lifecycle-gates:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'fix/launch2-sold-lifecycle-20260729'
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'fix/launch2-sold-lifecycle-certify-20260730'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
@@ -60,16 +60,16 @@ jobs:
       TCOS_SHIPPING_PURCHASE_MODE: dry_run
       TCOS_LIVE_SHIPPING_ENABLED: "false"
     steps:
-      - name: Check out guarded remediation branch
+      - name: Check out stable certification branch
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Fail closed on branch scope
+      - name: Fail closed on certification branch scope
         shell: bash
         run: |
           set -euo pipefail
-          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "fix/launch2-sold-lifecycle-20260729"
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "fix/launch2-sold-lifecycle-certify-20260730"
           git fetch origin main
           git diff --check origin/main...HEAD
 
