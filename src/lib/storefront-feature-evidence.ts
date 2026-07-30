@@ -51,7 +51,7 @@ export function hasStrictMemorabiliaTitleEvidence(titleValue: unknown) {
   const title = lower(titleValue).replace(/\bnew jersey\b/g, "");
   if (!title) return false;
 
-  return /\b(?:relics?|patch(?:es)?|swatch(?:es)?|memorabilia|rookie remembrance|rookie materials?|materials?|fabrics?|microfibers?|pinstripes?|rpa|prime patch|logo jumbo|team logo jumbo|emblems?|stitchings?|momentous material|jerseys?|(?:game[- ]used|player[- ]worn|event[- ]worn) (?:jersey|patch|swatch|memorabilia|materials?|fabrics?))\b/.test(
+  return /\b(?:relics?|patch(?:es)?|swatch(?:es)?|memorabilia|rookie remembrance|rookie materials?|materials?|fabrics?|microfibers?|rpa|prime patch|logo jumbo|team logo jumbo|emblems?|stitchings?|momentous material|jerseys?|(?:game[- ]used|player[- ]worn|event[- ]worn) (?:jersey|patch|swatch|memorabilia|materials?|fabrics?))\b/.test(
     title,
   );
 }
