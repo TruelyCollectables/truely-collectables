@@ -1,0 +1,253 @@
+name: Issue 253 Hosted Cutover V3 20260730
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/issue253-hosted-cutover-v3-20260730.yml"
+      - "scripts/run-issue253-hosted-cutover-v3.mjs"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue253-hosted-cutover-v3-20260730
+  cancel-in-progress: false
+
+env:
+  EXPECTED_MAIN_SHA: 39fcb4f5a447188cf75a699587a9061d0c163ffb
+  EXPECTED_BRANCH: deploy/issue253-hosted-cutover-v3-20260730
+  VERCEL_SCOPE: truelycollectables-projects
+  EVIDENCE_DIR: .audit/issue253-hosted-cutover-v3
+  NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
+  SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
+  ADMIN_SESSION_SECRET: build-validation-session-secret-that-is-long-enough
+  ADMIN_PASSWORD: build-validation-admin-password
+  NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+  STRIPE_SECRET_KEY: sk_test_build_validation
+  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_validation
+  STRIPE_WEBHOOK_SECRET: whsec_build_validation
+  EBAY_CLIENT_ID: build-validation-client-id
+  EBAY_CLIENT_SECRET: build-validation-client-secret
+  EBAY_ENVIRONMENT: production
+  CRON_SECRET: build-validation-cron-secret-that-is-long-enough
+  TCOS_LIVE_PAYMENTS_ENABLED: "false"
+  TCOS_SHIPPING_PURCHASE_MODE: dry_run
+  TCOS_LIVE_SHIPPING_ENABLED: "false"
+
+jobs:
+  cutover:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'deploy/issue253-hosted-cutover-v3-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - name: Check out guarded operations branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on exact main and operations-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          test "$(git merge-base "$EXPECTED_MAIN_SHA" HEAD)" = "$EXPECTED_MAIN_SHA"
+          mapfile -t changed < <(git diff --name-only "$EXPECTED_MAIN_SHA"...HEAD | sort)
+          expected=(
+            .github/workflows/issue253-hosted-cutover-v3-20260730.yml
+            scripts/run-issue253-hosted-cutover-v3.mjs
+          )
+          test "${#changed[@]}" -eq "${#expected[@]}"
+          test "$(printf '%s\n' "${changed[@]}")" = "$(printf '%s\n' "${expected[@]}")"
+          git diff --check "$EXPECTED_MAIN_SHA"...HEAD
+          mkdir -p "$EVIDENCE_DIR"
+          printf '%s\n' "$EXPECTED_MAIN_SHA" > "$EVIDENCE_DIR/source-sha.txt"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Revalidate exact source before mutation
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/run-sold-lifecycle-simulations.mjs | tee "$EVIDENCE_DIR/sold-lifecycle-simulations.log"
+          node scripts/run-sold-trigger-order-simulation.mjs | tee "$EVIDENCE_DIR/sold-trigger-order-simulation.log"
+          node scripts/run-privileged-api-route-audit.mjs | tee "$EVIDENCE_DIR/privileged-route-audit.log"
+          npm run simulate:privileged-route-auth | tee "$EVIDENCE_DIR/privileged-route-auth.log"
+          node scripts/verify-runtime-admin-orders-self-test-contract.mjs | tee "$EVIDENCE_DIR/runtime-admin-orders-contract.log"
+          node scripts/verify-issue253-marketplace-runtime-self-test-contract.mjs | tee "$EVIDENCE_DIR/runtime-marketplace-contract.log"
+          npm audit --json > "$EVIDENCE_DIR/npm-audit.json" || audit_status=$?
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const report = JSON.parse(fs.readFileSync(process.env.EVIDENCE_DIR + '/npm-audit.json', 'utf8'));
+          const counts = report.metadata?.vulnerabilities || {};
+          if ((counts.high || 0) !== 0 || (counts.critical || 0) !== 0) {
+            throw new Error(`High or critical advisories remain: ${JSON.stringify(counts)}`);
+          }
+          fs.writeFileSync(process.env.EVIDENCE_DIR + '/npm-audit-summary.json', JSON.stringify(counts, null, 2));
+          NODE
+          npm run lint
+          npx tsc --noEmit --pretty false
+          npm run build
+          git diff --check
+
+      - name: Resolve exact Vercel project and Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          mkdir -p .vercel "$RUNNER_TEMP/issue253-cutover-v3"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/issue253-cutover-v3/production.env" \
+            --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          const file = path.join(process.env.RUNNER_TEMP, 'issue253-cutover-v3', 'production.env');
+          const text = fs.readFileSync(file, 'utf8');
+          const hasSupabaseUrl = text.split(/\r?\n/).some((line) => /^NEXT_PUBLIC_SUPABASE_URL=/.test(line.trim()));
+          if (!hasSupabaseUrl) throw new Error('Production Supabase URL was not pulled from Vercel.');
+          fs.appendFileSync(process.env.GITHUB_ENV, `PRODUCTION_ENV_FILE=${file}\n`);
+          NODE
+
+      - name: Reconfirm exact main immediately before hosted mutation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+
+      - name: Apply migrations and authoritative historical backfill atomically
+        run: node scripts/run-issue253-hosted-cutover-v3.mjs migrate
+
+      - name: Run rollback-only CollX-via-eBay propagation proof
+        run: node scripts/run-issue253-hosted-cutover-v3.mjs rollback-proof
+
+      - name: Reconfirm exact main before Production deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+
+      - name: Deploy detached exact main to Vercel Production
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          exact="$RUNNER_TEMP/issue253-exact-main-v3"
+          rm -rf "$exact"
+          git worktree add --detach "$exact" "$EXPECTED_MAIN_SHA"
+          test "$(git -C "$exact" rev-parse HEAD)" = "$EXPECTED_MAIN_SHA"
+          test -z "$(git -C "$exact" status --porcelain)"
+          mkdir -p "$exact/.vercel"
+          cp .vercel/project.json "$exact/.vercel/project.json"
+          cd "$exact"
+          npx vercel@56.2.0 deploy --prod --yes --force \
+            --meta "launchSourceSha=$EXPECTED_MAIN_SHA" \
+            --meta "launchPurpose=issue-253-hosted-cutover-v3" \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" \
+            2>&1 | tee "$GITHUB_WORKSPACE/$EVIDENCE_DIR/vercel-deploy.log"
+          url="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$GITHUB_WORKSPACE/$EVIDENCE_DIR/vercel-deploy.log" | tail -n 1)"
+          test -n "$url"
+          printf '%s\n' "$url" > "$GITHUB_WORKSPACE/$EVIDENCE_DIR/deployment-url.txt"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Verify exact deployment boundaries and protected admin runtime
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for label in deployment custom; do
+            if [ "$label" = deployment ]; then base="$DEPLOYMENT_URL"; else base="https://truelycollectables.com"; fi
+            root_code="$(curl --location --silent --show-error --max-time 90 --output "$EVIDENCE_DIR/${label}-root.html" --write-out '%{http_code}' "$base/")"
+            shop_code="$(curl --location --silent --show-error --max-time 90 --output "$EVIDENCE_DIR/${label}-shop.html" --write-out '%{http_code}' "$base/shop")"
+            admin_code="$(curl --silent --show-error --max-time 60 --output "$EVIDENCE_DIR/${label}-admin.html" --write-out '%{http_code}' "$base/admin")"
+            health_unauth="$(curl --silent --show-error --max-time 60 --output "$EVIDENCE_DIR/${label}-health-unauthorized.json" --write-out '%{http_code}' "$base/api/admin-orders-health")"
+            test "$root_code" = "200"
+            test "$shop_code" = "200"
+            test "$admin_code" = "307"
+            test "$health_unauth" = "401"
+          done
+
+          runtime_code="$(curl --silent --show-error --max-time 300 \
+            --request POST --header "Authorization: Bearer $VERCEL_TOKEN" \
+            --output "$EVIDENCE_DIR/runtime-admin-orders-self-test.json" --write-out '%{http_code}' \
+            'https://truelycollectables.com/api/release/admin-orders-self-test')"
+          test "$runtime_code" = "200"
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const value = JSON.parse(fs.readFileSync(process.env.EVIDENCE_DIR + '/runtime-admin-orders-self-test.json', 'utf8'));
+          if (value.success !== true || value.adminNavigation !== 'passed' || value.sessionRefresh !== 'passed') {
+            throw new Error('Protected admin runtime self-test failed.');
+          }
+          if (value.refundIssued !== false || value.refundConfirmationGuard !== 'passed') {
+            throw new Error('Refund safety proof failed.');
+          }
+          if (Number(value.directStoreTcosFeesRemaining) !== 0) {
+            throw new Error('Direct-store TCOS fee cleanup failed.');
+          }
+          NODE
+
+      - name: Run protected issue 253 marketplace runtime chain
+        shell: bash
+        run: |
+          set -euo pipefail
+          for step in ebay-order-sales ebay-full-sync seller-reconciliation sold-archive; do
+            code="$(curl --silent --show-error --max-time 300 \
+              --request POST --header "Authorization: Bearer $VERCEL_TOKEN" \
+              --output "$EVIDENCE_DIR/runtime-${step}.json" --write-out '%{http_code}' \
+              "https://truelycollectables.com/api/release/issue253-marketplace-self-test?step=${step}")"
+            test "$code" = "200" || { echo "Runtime step $step returned HTTP $code" >&2; cat "$EVIDENCE_DIR/runtime-${step}.json" >&2; exit 1; }
+            STEP="$step" node - <<'NODE'
+            const fs = require('node:fs');
+            const step = process.env.STEP;
+            const value = JSON.parse(fs.readFileSync(`${process.env.EVIDENCE_DIR}/runtime-${step}.json`, 'utf8'));
+            if (value.success !== true || value.cronSecretConfigured !== true || Number(value.upstreamStatus) !== 200) {
+              throw new Error(`Runtime marketplace step ${step} failed.`);
+            }
+            NODE
+          done
+
+      - name: Audit final sale history, guards, and CollX exclusion
+        run: node scripts/run-issue253-hosted-cutover-v3.mjs post-sync-audit
+
+      - name: Remove pulled Production environment
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          rm -f "$RUNNER_TEMP/issue253-cutover-v3/production.env"
+          set -e
+
+      - name: Upload sanitized cutover evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue253-hosted-cutover-v3-evidence
+          path: .audit/issue253-hosted-cutover-v3
+          if-no-files-found: error
+          retention-days: 90
