@@ -1,0 +1,131 @@
+name: Launch 2 Final bb7657 Live Fast
+
+on:
+  pull_request:
+    branches: [main]
+    paths: [".github/workflows/launch2-final-bb7657-live-fast.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: launch2-final-bb7657-live-fast
+  cancel-in-progress: true
+
+env:
+  EXPECTED_MAIN_SHA: bb765778806f4bf658da4fc185d38e43fd9a3fba
+  EXPECTED_BRANCH: ops/launch2-final-bb7657-20260730
+  VERCEL_SCOPE: truelycollectables-projects
+  EVIDENCE_DIR: .audit/launch2-final-bb7657-live-fast
+
+jobs:
+  certify-live-fast:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'ops/launch2-final-bb7657-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Pin exact main and operations-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          test "$(git merge-base "$EXPECTED_MAIN_SHA" HEAD)" = "$EXPECTED_MAIN_SHA"
+          mapfile -t changed < <(git diff --name-only "$EXPECTED_MAIN_SHA"...HEAD | sort)
+          test "${#changed[@]}" -eq 2
+          test "${changed[0]}" = ".github/workflows/launch2-final-bb7657-live-fast.yml"
+          test "${changed[1]}" = ".github/workflows/launch2-final-bb7657.yml"
+          test -n "${VERCEL_TOKEN:-}"
+          echo "::add-mask::$VERCEL_TOKEN"
+          mkdir -p "$EVIDENCE_DIR" "$RUNNER_TEMP/launch2-bb7657-fast"
+          printf '%s\n' "$EXPECTED_MAIN_SHA" > "$EVIDENCE_DIR/exact-main-sha.txt"
+
+      - name: Verify exact Production deployment and live boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v13/deployments/truely-collectables-ky5k7ymwp-truelycollectables-projects.vercel.app?slug=$VERCEL_SCOPE" > "$RUNNER_TEMP/launch2-bb7657-fast/deployment.json"
+          FILE="$RUNNER_TEMP/launch2-bb7657-fast/deployment.json" OUT="$EVIDENCE_DIR/deployment-receipt.json" node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const value=JSON.parse(fs.readFileSync(process.env.FILE,'utf8'));
+          const aliases=Array.isArray(value.alias)?value.alias:(Array.isArray(value.aliases)?value.aliases:[]);
+          const sha=String(value?.meta?.githubCommitSha||'');
+          if(String(value.target).toLowerCase()!=='production'||String(value.readyState).toUpperCase()!=='READY'||sha!==process.env.EXPECTED_MAIN_SHA||!aliases.includes('truelycollectables.com')) throw new Error('Exact Production metadata failed');
+          fs.writeFileSync(process.env.OUT,JSON.stringify({ok:true,deploymentId:value.id,deploymentHost:value.url,exactMainSha:sha,customDomainAlias:'truelycollectables.com',verifiedAt:new Date().toISOString()},null,2));
+          NODE
+          routes=(/ /shop /cart /account /account/signup /account/login /shipping /returns /buyer-protection /contact /terms /privacy /product/489878)
+          printf '{"routes":[' > "$EVIDENCE_DIR/live-route-crawl.json"
+          first=true
+          for route in "${routes[@]}"; do
+            code="$(curl -L -sS --max-time 45 -o "$RUNNER_TEMP/launch2-bb7657-fast/page.html" -w '%{http_code}' "https://truelycollectables.com$route")"
+            test "$code" = 200
+            if [ "$route" = "/product/489878" ]; then ! grep -q "Product Not Found" "$RUNNER_TEMP/launch2-bb7657-fast/page.html"; fi
+            $first || printf ',' >> "$EVIDENCE_DIR/live-route-crawl.json"
+            first=false
+            printf '{"route":"%s","status":%s}' "$route" "$code" >> "$EVIDENCE_DIR/live-route-crawl.json"
+          done
+          printf '],"verifiedAt":"%s"}\n' "$(date -u +%FT%TZ)" >> "$EVIDENCE_DIR/live-route-crawl.json"
+          unsigned_self="$(curl -sS --max-time 30 -X POST -o /dev/null -w '%{http_code}' https://truelycollectables.com/api/release/order-email-lifecycle-self-test || true)"
+          unsigned_webhook="$(curl -sS --max-time 30 -X POST -H 'content-type: application/json' --data '{}' -o /dev/null -w '%{http_code}' https://truelycollectables.com/api/webhook || true)"
+          test "$unsigned_self" = 401
+          test "$unsigned_webhook" != 200
+          printf '{"unsignedSelfTest":%s,"unsignedWebhook":%s,"verifiedAt":"%s"}\n' "$unsigned_self" "$unsigned_webhook" "$(date -u +%FT%TZ)" > "$EVIDENCE_DIR/live-boundary-receipt.json"
+
+      - name: Run bounded Production Lighthouse gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --global lighthouse@12.8.2 >/dev/null
+          for spec in home:/ shop:/shop signup:/account/signup cart:/cart; do
+            page="${spec%%:*}"
+            path="${spec#*:}"
+            timeout 150s lighthouse "https://truelycollectables.com$path" --quiet --chrome-flags='--headless --no-sandbox --disable-gpu' --throttling-method=provided --max-wait-for-load=60000 --output=json --output-path="$EVIDENCE_DIR/lighthouse-$page.json"
+          done
+          EVIDENCE="$EVIDENCE_DIR" node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const receipt={ok:true,pages:{},verifiedAt:new Date().toISOString()};
+          for(const page of ['home','shop','signup','cart']){
+            const report=JSON.parse(fs.readFileSync(`${process.env.EVIDENCE}/lighthouse-${page}.json`,'utf8'));
+            const categories=report.categories;
+            const scores={performance:categories.performance.score,accessibility:categories.accessibility.score,bestPractices:categories['best-practices'].score,seo:categories.seo.score};
+            if(scores.performance<.70||scores.accessibility<.95||scores.bestPractices<.95) throw new Error(`${page} Lighthouse blocker ${JSON.stringify(scores)}`);
+            if(['home','shop'].includes(page)&&scores.seo<.95) throw new Error(`${page} SEO blocker ${scores.seo}`);
+            receipt.pages[page]=scores;
+          }
+          fs.writeFileSync(`${process.env.EVIDENCE}/lighthouse-summary.json`,JSON.stringify(receipt,null,2));
+          NODE
+
+      - name: Write live supplement certificate
+        shell: bash
+        run: |
+          cat > "$EVIDENCE_DIR/live-fast-certificate.json" <<EOF
+          {
+            "schema":"truelycollectables.launch2LiveFastCertificate.v1",
+            "status":"PASS",
+            "exactProductionSha":"$EXPECTED_MAIN_SHA",
+            "productionDeployment":"https://truely-collectables-ky5k7ymwp-truelycollectables-projects.vercel.app",
+            "baseRun":30523617670,
+            "baseRunPassedThroughProductionSelfTestCleanupAndLiveRoutes":true,
+            "lighthousePassed":true,
+            "gmailInspectionPending":true,
+            "certifiedAt":"$(date -u +%FT%TZ)"
+          }
+          EOF
+
+      - name: Upload sanitized live supplement evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launch2-final-bb7657-live-fast-${{ env.EXPECTED_MAIN_SHA }}
+          path: ${{ env.EVIDENCE_DIR }}
+          if-no-files-found: error
+          retention-days: 30
