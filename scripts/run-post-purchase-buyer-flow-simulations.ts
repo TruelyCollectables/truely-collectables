@@ -54,6 +54,10 @@ const accountOrdersRoute = fs.readFileSync(
   "src/app/api/account/orders/route.ts",
   "utf8",
 );
+const accountSession = fs.readFileSync(
+  "src/app/account/account-session.ts",
+  "utf8",
+);
 const buyerOrdersPage = fs.readFileSync(
   "src/app/account/orders/page.tsx",
   "utf8",
@@ -135,9 +139,19 @@ assert.match(
   "Buyer history must return item detail with each order.",
 );
 assert.match(
+  accountSession,
+  /export async function fetchWithAccountSession[\s\S]*response\.status !== 401[\s\S]*getFreshAccountSession\(0, true\)[\s\S]*response = await fetch/,
+  "Protected buyer requests must refresh and retry once after an unauthorized response.",
+);
+assert.match(
+  buyerOrdersPage,
+  /fetchWithAccountSession\("\/api\/account\/orders"/,
+  "The standalone buyer orders page must authenticate through the refresh-and-retry session helper.",
+);
+assert.doesNotMatch(
   buyerOrdersPage,
   /Authorization:\s*`Bearer \$\{session\.access_token\}`/,
-  "The standalone buyer orders page must authenticate its API request.",
+  "The standalone buyer orders page must not send a frozen local-storage token directly.",
 );
 assert.match(
   buyerOrdersPage,
