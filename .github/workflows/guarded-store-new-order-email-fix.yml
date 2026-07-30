@@ -1,0 +1,107 @@
+name: Guarded store new-order email fix
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: guarded-store-new-order-email-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  patch-and-validate:
+    if: github.head_ref == 'fix/store-new-order-email-20260729'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
+      ADMIN_SESSION_SECRET: build-validation-session-secret-that-is-long-enough
+      ADMIN_PASSWORD: build-validation-admin-password
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      STRIPE_SECRET_KEY: sk_test_build_validation
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_validation
+      STRIPE_WEBHOOK_SECRET: whsec_build_validation
+      EBAY_CLIENT_ID: build-validation-client-id
+      EBAY_CLIENT_SECRET: build-validation-client-secret
+      EBAY_ENVIRONMENT: production
+      RESEND_API_KEY: re_build_validation
+      CRON_SECRET: build-validation-cron-secret
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+
+    steps:
+      - name: Check out guarded branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Verify exact source base
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --depth=1
+          test "$(git merge-base HEAD origin/main)" = "3d205772c7ac5b6d5115748035a227a4f053cc9f"
+
+      - name: Apply store new-order alert
+        run: node scripts/apply-store-new-order-email-fix.mjs
+
+      - name: Verify patch shape
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          grep -Fq 'recipientEmail: storeSettings.salesEmail' src/lib/checkout-order-finalization.ts
+          grep -Fq 'store_order_received/' src/lib/checkout-order-finalization.ts
+          grep -Fq 'payload.audience === "store"' src/lib/order-notifications.ts
+          grep -Fq 'Open order in fulfillment' src/lib/order-notifications.ts
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run notification regression
+        run: node --import tsx scripts/run-order-notification-hardening-simulations.ts
+
+      - name: Run focused lint
+        run: >-
+          npx eslint
+          src/lib/order-notifications.ts
+          src/lib/checkout-order-finalization.ts
+          scripts/run-order-notification-hardening-simulations.ts
+
+      - name: Run TypeScript
+        run: npx tsc --noEmit --pretty false
+
+      - name: Run Production build
+        run: npm run build
+
+      - name: Remove one-time repair machinery
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm scripts/apply-store-new-order-email-fix.mjs
+          rm .github/workflows/guarded-store-new-order-email-fix.yml
+          git diff --check
+
+      - name: Commit validated repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            src/lib/order-notifications.ts \
+            src/lib/checkout-order-finalization.ts \
+            scripts/run-order-notification-hardening-simulations.ts \
+            scripts/apply-store-new-order-email-fix.mjs \
+            .github/workflows/guarded-store-new-order-email-fix.yml
+          git commit -m "Send store new-order email alerts"
+          git push origin "HEAD:${{ github.head_ref }}"
