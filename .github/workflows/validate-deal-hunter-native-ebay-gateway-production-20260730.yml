@@ -1,0 +1,185 @@
+name: Validate Deal Hunter Native eBay Gateway Production 20260730
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/validate-deal-hunter-native-ebay-gateway-production-20260730.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-deal-hunter-native-ebay-gateway-production-20260730
+  cancel-in-progress: true
+
+env:
+  SOURCE_SHA: 8bc59e03c5a126272768869e81abe35922503a5a
+  EXPECTED_BRANCH: ops/validate-deal-hunter-native-ebay-gateway-20260730
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_PROJECT: truely-collectables
+  EVIDENCE_DIR: .audit/deal-hunter-native-ebay-gateway-production-20260730
+
+jobs:
+  deploy-and-verify:
+    if: github.event.pull_request.head.ref == 'ops/validate-deal-hunter-native-ebay-gateway-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+    steps:
+      - name: Check out exact merged source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+
+      - name: Fail closed on exact source and operations-only branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$SOURCE_SHA"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -n "${VERCEL_TOKEN:-}"
+          echo "::add-mask::$VERCEL_TOKEN"
+          mkdir -p "$EVIDENCE_DIR" .vercel
+          printf '%s\n' "$SOURCE_SHA" > "$EVIDENCE_DIR/source-sha.txt"
+
+      - name: Link exact Vercel project
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          fi
+
+      - name: Deploy exact merged source to Production
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 deploy \
+            --prod \
+            --yes \
+            --force \
+            --archive=tgz \
+            --meta "githubCommitSha=$SOURCE_SHA" \
+            --meta "deploymentPurpose=deal-hunter-native-ebay-gateway" \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" \
+            2>&1 | tee "$EVIDENCE_DIR/vercel-deploy.log"
+          DEPLOYMENT_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$EVIDENCE_DIR/vercel-deploy.log" | tail -n 1)"
+          test -n "$DEPLOYMENT_URL"
+          echo "deployment_url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$DEPLOYMENT_URL" > "$EVIDENCE_DIR/deployment-url.txt"
+
+      - name: Verify WNBA 15-family native Browse gateway on deployment
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --silent --show-error --connect-timeout 20 --max-time 180 \
+            --output "$EVIDENCE_DIR/wnba.json" \
+            --write-out '%{http_code}' \
+            --get \
+            --data-urlencode 'scope=wnba' \
+            --data-urlencode 'perQuery=5' \
+            "$DEPLOYMENT_URL/api/tcos/deal-hunter-native-ebay" || true)"
+          echo "WNBA deployment gateway HTTP=$code"
+          test "$code" = "200"
+          node <<'NODE'
+          const fs=require('node:fs');
+          const payload=JSON.parse(fs.readFileSync(process.env.EVIDENCE_DIR+'/wnba.json','utf8'));
+          const failures=[];
+          if(payload.ok!==true)failures.push(`ok=${payload.ok}`);
+          if(payload.schema!=='TCOS_NATIVE_EBAY_FEED_V1')failures.push(`schema=${payload.schema}`);
+          if(payload.nativeEbayUsed!==true)failures.push('nativeEbayUsed=false');
+          if(Number(payload.queryFamilyCount)!==15)failures.push(`queryFamilyCount=${payload.queryFamilyCount}`);
+          if(Number(payload.successfulQueryCount)!==15)failures.push(`successfulQueryCount=${payload.successfulQueryCount}`);
+          if(Number(payload.failedQueryCount)!==0)failures.push(`failedQueryCount=${payload.failedQueryCount}`);
+          if(Number(payload.requiredWnbaFamilyCount)!==15)failures.push(`requiredWnbaFamilyCount=${payload.requiredWnbaFamilyCount}`);
+          if(payload.requiredWnbaFamiliesExecuted!==true)failures.push('requiredWnbaFamiliesExecuted=false');
+          if(payload.tokenMode!=='client_credentials')failures.push(`tokenMode=${payload.tokenMode}`);
+          if(!Array.isArray(payload.sourceCoverage)||payload.sourceCoverage.length!==15)failures.push(`sourceCoverage=${payload.sourceCoverage?.length}`);
+          if(payload.sourceCoverage?.some((entry)=>entry.status!=='COMPLETE'))failures.push('incomplete source coverage');
+          if(!Array.isArray(payload.results))failures.push('results missing');
+          if(payload.results?.some((entry)=>!/^https:\/\/(www\.)?ebay\.com\//i.test(entry.listingUrl||'')))failures.push('non-eBay direct listing URL');
+          if(payload.boundaries?.arbitraryQueryAccepted!==false||payload.boundaries?.purchaseCapability!==false||payload.boundaries?.ledgerMutationCapability!==false)failures.push('boundary contract failed');
+          if(failures.length)throw new Error(failures.join('; '));
+          fs.writeFileSync(process.env.EVIDENCE_DIR+'/wnba-summary.json',JSON.stringify({ok:true,queryFamilyCount:payload.queryFamilyCount,successfulQueryCount:payload.successfulQueryCount,rawResultCount:payload.rawResultCount,deduplicatedResultCount:payload.deduplicatedResultCount,nativeEbayUsed:payload.nativeEbayUsed,tokenMode:payload.tokenMode,durationMs:payload.durationMs,verifiedAt:new Date().toISOString()},null,2));
+          NODE
+
+      - name: Verify Ivan prospects and signed-ball fixed scopes
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in \
+            'ivan_demidov||3' \
+            'baseball_prospects|Jesus Made,Leo De Vries|4' \
+            'signed_baseballs|Jesus Made,Leo De Vries|2'; do
+            scope="${spec%%|*}"
+            rest="${spec#*|}"
+            players="${rest%%|*}"
+            expected="${rest##*|}"
+            args=(--get --data-urlencode "scope=$scope" --data-urlencode 'perQuery=5')
+            if [ -n "$players" ]; then args+=(--data-urlencode "players=$players"); fi
+            code="$(curl --silent --show-error --connect-timeout 20 --max-time 180 \
+              --output "$EVIDENCE_DIR/$scope.json" \
+              --write-out '%{http_code}' \
+              "${args[@]}" \
+              "$DEPLOYMENT_URL/api/tcos/deal-hunter-native-ebay" || true)"
+            echo "$scope deployment gateway HTTP=$code"
+            test "$code" = "200"
+            FILE="$EVIDENCE_DIR/$scope.json" EXPECTED="$expected" node <<'NODE'
+          const fs=require('node:fs');
+          const payload=JSON.parse(fs.readFileSync(process.env.FILE,'utf8'));
+          if(payload.ok!==true||payload.nativeEbayUsed!==true||Number(payload.queryFamilyCount)!==Number(process.env.EXPECTED)||Number(payload.successfulQueryCount)!==Number(process.env.EXPECTED)||Number(payload.failedQueryCount)!==0)throw new Error(`Scope contract failed: ${JSON.stringify({scope:payload.scope,ok:payload.ok,nativeEbayUsed:payload.nativeEbayUsed,queryFamilyCount:payload.queryFamilyCount,successfulQueryCount:payload.successfulQueryCount,failedQueryCount:payload.failedQueryCount})}`);
+          NODE
+          done
+
+      - name: Verify custom-domain promotion and 15-family live runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          ready=""
+          for attempt in $(seq 1 36); do
+            code="$(curl --silent --show-error --connect-timeout 20 --max-time 180 \
+              --output "$EVIDENCE_DIR/custom-domain-wnba.json" \
+              --write-out '%{http_code}' \
+              --get \
+              --data-urlencode 'scope=wnba' \
+              --data-urlencode 'perQuery=5' \
+              https://truelycollectables.com/api/tcos/deal-hunter-native-ebay || true)"
+            echo "custom-domain WNBA attempt=$attempt HTTP=$code"
+            if [ "$code" = "200" ]; then
+              FILE="$EVIDENCE_DIR/custom-domain-wnba.json" node <<'NODE'
+          const fs=require('node:fs');
+          const payload=JSON.parse(fs.readFileSync(process.env.FILE,'utf8'));
+          if(payload.ok!==true||payload.nativeEbayUsed!==true||Number(payload.queryFamilyCount)!==15||Number(payload.successfulQueryCount)!==15||Number(payload.failedQueryCount)!==0||payload.requiredWnbaFamiliesExecuted!==true)process.exit(1);
+          NODE
+              ready=1
+              break
+            fi
+            sleep 10
+          done
+          test -n "$ready"
+          printf '{"ok":true,"exactProductionSha":"%s","wnbaQueryFamilies":15,"nativeEbayUsed":true,"customDomainVerified":true,"verifiedAt":"%s"}\n' "$SOURCE_SHA" "$(date -u +%FT%TZ)" > "$EVIDENCE_DIR/production-certificate.json"
+
+      - name: Upload sanitized Production evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deal-hunter-native-ebay-gateway-production-20260730
+          path: ${{ env.EVIDENCE_DIR }}
+          if-no-files-found: error
+          retention-days: 90
