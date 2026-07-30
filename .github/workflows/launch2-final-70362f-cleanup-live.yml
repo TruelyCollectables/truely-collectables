@@ -84,7 +84,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsS -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v6/deployments?projectId=truely-collectables&target=production&limit=20&teamId=$VERCEL_SCOPE" > "$RUNNER_TEMP/launch2-cleanup-live/deployments.json" || true
           npx --yes vercel@56.2.0 inspect https://truely-collectables-gugzaemni-truelycollectables-projects.vercel.app --wait --timeout=10m --no-color --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$EVIDENCE_DIR/deployment-inspect.txt"
           curl -fsS -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v13/deployments/truely-collectables-gugzaemni-truelycollectables-projects.vercel.app?slug=$VERCEL_SCOPE" > "$RUNNER_TEMP/launch2-cleanup-live/deployment.json"
           FILE="$RUNNER_TEMP/launch2-cleanup-live/deployment.json" OUT="$EVIDENCE_DIR/deployment-receipt.json" node --input-type=module - <<'NODE'
@@ -95,21 +94,21 @@ jobs:
           if(String(value.target).toLowerCase()!=='production'||String(value.readyState).toUpperCase()!=='READY'||sha!==process.env.EXPECTED_MAIN_SHA||!aliases.includes('truelycollectables.com')) throw new Error(`Exact Production metadata failed ${JSON.stringify({target:value.target,readyState:value.readyState,sha,aliases})}`);
           fs.writeFileSync(process.env.OUT,JSON.stringify({ok:true,deploymentId:value.id,deploymentHost:value.url,exactMainSha:sha,customDomainAlias:'truelycollectables.com',verifiedAt:new Date().toISOString()},null,2));
           NODE
-          rm -f "$RUNNER_TEMP/launch2-cleanup-live/deployments.json" "$RUNNER_TEMP/launch2-cleanup-live/deployment.json"
+          rm -f "$RUNNER_TEMP/launch2-cleanup-live/deployment.json"
 
       - name: Verify live customer routes product navigation and protected boundaries
         shell: bash
         run: |
           set -euo pipefail
-          routes=(/ /shop /cart /signup /login /shipping /returns /buyer-protection /contact /terms /privacy)
+          routes=(/ /shop /cart /account /account/signup /account/login /shipping /returns /buyer-protection /contact /terms /privacy)
           printf '{"routes":[' > "$EVIDENCE_DIR/live-route-crawl.json"
           first=true
           for route in "${routes[@]}"; do
             code="$(curl -L -sS --max-time 45 -o /dev/null -w '%{http_code}' "https://truelycollectables.com$route")"
-            test "$code" = 200
             $first || printf ',' >> "$EVIDENCE_DIR/live-route-crawl.json"
             first=false
             printf '{"route":"%s","status":%s}' "$route" "$code" >> "$EVIDENCE_DIR/live-route-crawl.json"
+            test "$code" = 200
           done
           printf '],"exactMainSha":"%s","verifiedAt":"%s"}\n' "$EXPECTED_MAIN_SHA" "$(date -u +%FT%TZ)" >> "$EVIDENCE_DIR/live-route-crawl.json"
           shop_html="$(curl -L -sS --max-time 45 https://truelycollectables.com/shop)"
@@ -129,7 +128,7 @@ jobs:
         run: |
           set -euo pipefail
           npm install --global lighthouse@12.8.2 >/dev/null
-          for spec in home:/ shop:/shop signup:/signup cart:/cart; do
+          for spec in home:/ shop:/shop signup:/account/signup cart:/cart; do
             page="${spec%%:*}"
             path="${spec#*:}"
             lighthouse "https://truelycollectables.com$path" --quiet --chrome-flags='--headless --no-sandbox --disable-gpu' --output=json --output-path="$EVIDENCE_DIR/lighthouse-$page.json"
