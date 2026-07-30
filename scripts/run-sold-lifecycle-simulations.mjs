@@ -11,6 +11,9 @@ const saleMigration = read(
 const outboxMigration = read(
   "supabase/migrations/20260730002100_manual_sale_ebay_outbox.sql",
 );
+const inactiveSaleMigration = read(
+  "supabase/migrations/20260730002200_capture_ebay_inactive_sale_state.sql",
+);
 const saleHistory = read("src/lib/collectible-sale-history.ts");
 const ebayOrders = read("src/lib/ebay-order-sale-sync.ts");
 const overlay = read("src/components/SoldOverlay.tsx");
@@ -37,6 +40,12 @@ assert.match(outboxMigration, /'manual_sale'/);
 assert.match(outboxMigration, /desired_quantity,\s*status/s);
 assert.match(outboxMigration, /\n    0,\n    'pending'/);
 assert.match(outboxMigration, /after insert on public\.collectible_sales/);
+
+assert.match(inactiveSaleMigration, /capture_ebay_inactive_collectible_sale/);
+assert.match(inactiveSaleMigration, /ebay_not_active_at_last_full_sync/);
+assert.match(inactiveSaleMigration, /ebay_or_collx_via_ebay/);
+assert.match(inactiveSaleMigration, /source_chain/);
+assert.match(inactiveSaleMigration, /force_zero|,\s*true\s*\)/s);
 
 assert.match(saleHistory, /SOLD_STOREFRONT_RETENTION_DAYS = 7/);
 assert.match(saleHistory, /listRecentSoldStorefrontItems/);
@@ -101,7 +110,7 @@ console.log(
       soldRetentionDays: 7,
       ebayOrderPollingMinutes: 5,
       authoritativeEbayPollingMinutes: 15,
-      checks: 48,
+      checks: 53,
     },
     null,
     2,
