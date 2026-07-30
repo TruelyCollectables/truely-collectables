@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   InventoryEngine,
   InventoryRepository,
@@ -30,6 +31,19 @@ const COLLX_METADATA_KEYS = [
   "origin",
 ] as const;
 
+type BoundaryProductRow = {
+  id: number | string;
+  sku: string | null;
+  ebay_item_id: string | null;
+};
+
+type BoundaryInventoryRow = {
+  id: string;
+  legacy_product_id: number | string | null;
+  sku: string | null;
+  metadata: unknown;
+};
+
 function metadataMentionsCollx(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const metadata = value as Record<string, unknown>;
@@ -43,60 +57,67 @@ function metadataMentionsCollx(value: unknown) {
   return /(^|[^a-z0-9])collx([^a-z0-9]|$)/.test(focused);
 }
 
-async function readAllStoreRows(params: {
-  table: "products" | "inventory_items";
-  columns: string;
+async function readAllStoreProducts(params: {
+  supabase: SupabaseClient;
   storeId: string;
 }) {
-  const supabase = createSupabaseServerClient({ admin: true });
-  const rows: any[] = [];
-
+  const rows: BoundaryProductRow[] = [];
   for (let page = 0; page < MAX_DATABASE_PAGES; page += 1) {
     const from = page * DATABASE_PAGE_SIZE;
-    const { data, error } = await supabase
-      .from(params.table)
-      .select(params.columns)
+    const { data, error } = await params.supabase
+      .from("products")
+      .select("id,sku,ebay_item_id")
       .eq("store_id", params.storeId)
       .order("id", { ascending: true })
       .range(from, from + DATABASE_PAGE_SIZE - 1);
-
     if (error) throw error;
-    const batch = data || [];
+    const batch = (data || []) as BoundaryProductRow[];
     rows.push(...batch);
     if (batch.length < DATABASE_PAGE_SIZE) return rows;
   }
-
   throw new Error(
-    `${params.table} boundary pagination exceeded ${MAX_DATABASE_PAGES * DATABASE_PAGE_SIZE} rows.`,
+    `products boundary pagination exceeded ${MAX_DATABASE_PAGES * DATABASE_PAGE_SIZE} rows.`,
   );
 }
 
-async function collxOnlyLegacyProductIds() {
-  const storeId = getActiveStoreId();
-  const [products, inventoryItems] = await Promise.all([
-    readAllStoreRows({
-      table: "products",
-      columns: "id,sku,ebay_item_id",
-      storeId,
-    }),
-    readAllStoreRows({
-      table: "inventory_items",
-      columns: "id,legacy_product_id,sku,metadata",
-      storeId,
-    }),
-  ]);
+async function readAllStoreInventoryItems(params: {
+  supabase: SupabaseClient;
+  storeId: string;
+}) {
+  const rows: BoundaryInventoryRow[] = [];
+  for (let page = 0; page < MAX_DATABASE_PAGES; page += 1) {
+    const from = page * DATABASE_PAGE_SIZE;
+    const { data, error } = await params.supabase
+      .from("inventory_items")
+      .select("id,legacy_product_id,sku,metadata")
+      .eq("store_id", params.storeId)
+      .order("id", { ascending: true })
+      .range(from, from + DATABASE_PAGE_SIZE - 1);
+    if (error) throw error;
+    const batch = (data || []) as BoundaryInventoryRow[];
+    rows.push(...batch);
+    if (batch.length < DATABASE_PAGE_SIZE) return rows;
+  }
+  throw new Error(
+    `inventory_items boundary pagination exceeded ${MAX_DATABASE_PAGES * DATABASE_PAGE_SIZE} rows.`,
+  );
+}
 
+function deriveCollxOnlyLegacyProductIds(params: {
+  products: BoundaryProductRow[];
+  inventoryItems: BoundaryInventoryRow[];
+}) {
   const productById = new Map(
-    products.map((product) => [Number(product.id), product]),
+    params.products.map((product) => [Number(product.id), product]),
   );
   const productBySku = new Map(
-    products
+    params.products
       .filter((product) => String(product.sku || "").trim())
       .map((product) => [String(product.sku).trim(), product]),
   );
   const blocked = new Set<number>();
 
-  for (const inventory of inventoryItems) {
+  for (const inventory of params.inventoryItems) {
     if (!metadataMentionsCollx(inventory.metadata)) continue;
 
     const rawLegacyProductId = inventory.legacy_product_id;
@@ -121,6 +142,16 @@ async function collxOnlyLegacyProductIds() {
   }
 
   return blocked;
+}
+
+async function collxOnlyLegacyProductIds() {
+  const storeId = getActiveStoreId();
+  const supabase = createSupabaseServerClient({ admin: true });
+  const [products, inventoryItems] = await Promise.all([
+    readAllStoreProducts({ supabase, storeId }),
+    readAllStoreInventoryItems({ supabase, storeId }),
+  ]);
+  return deriveCollxOnlyLegacyProductIds({ products, inventoryItems });
 }
 
 function enforceStrictStorefrontFeatures(item: UniversalInventoryItem) {
@@ -152,10 +183,17 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
   ) {
     const requestedFeature = normalizeStorefrontFeature(params.feature);
     const baseParams = requestedFeature ? { ...params, feature: undefined } : params;
-    const [items, collxOnlyProductIds] = await Promise.all([
+    const storeId = getActiveStoreId();
+    const supabase = createSupabaseServerClient({ admin: true });
+    const [items, products, inventoryItems] = await Promise.all([
       super.listAvailable(baseParams),
-      collxOnlyLegacyProductIds(),
+      readAllStoreProducts({ supabase, storeId }),
+      readAllStoreInventoryItems({ supabase, storeId }),
     ]);
+    const collxOnlyProductIds = deriveCollxOnlyLegacyProductIds({
+      products,
+      inventoryItems,
+    });
 
     return items
       .map(enforceStrictStorefrontFeatures)
