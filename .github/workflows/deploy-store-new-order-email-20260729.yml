@@ -1,0 +1,154 @@
+name: Deploy Store New-Order Email 20260729
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/deploy-store-new-order-email-20260729.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-store-new-order-email-20260729
+  cancel-in-progress: false
+
+jobs:
+  validate-deploy-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      DEPLOY_SOURCE_SHA: 17b543312e3605a14b69e64e4a8875a2858bc695
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      EVIDENCE_DIR: .audit/deploy-store-new-order-email
+      NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
+      ADMIN_SESSION_SECRET: build-validation-session-secret-that-is-long-enough
+      ADMIN_PASSWORD: build-validation-admin-password
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      STRIPE_SECRET_KEY: sk_test_build_validation
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_validation
+      STRIPE_WEBHOOK_SECRET: whsec_build_validation
+      EBAY_CLIENT_ID: build-validation-client-id
+      EBAY_CLIENT_SECRET: build-validation-client-secret
+      EBAY_ENVIRONMENT: production
+      RESEND_API_KEY: re_build_validation
+      CRON_SECRET: build-validation-cron-secret
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+
+    steps:
+      - name: Check out exact merged repair
+        uses: actions/checkout@v4
+        with:
+          ref: 17b543312e3605a14b69e64e4a8875a2858bc695
+          fetch-depth: 0
+
+      - name: Fail closed if main moved
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$DEPLOY_SOURCE_SHA"
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$DEPLOY_SOURCE_SHA"
+          git diff --quiet
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Re-prove order email repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --import tsx scripts/run-order-notification-hardening-simulations.ts
+          npx eslint \
+            src/lib/order-notifications.ts \
+            src/lib/checkout-order-finalization.ts \
+            scripts/run-order-notification-hardening-simulations.ts
+          npx tsc --noEmit --pretty false
+          npm run build
+          mkdir -p "$EVIDENCE_DIR"
+          printf '%s\n' "$DEPLOY_SOURCE_SHA" > "$EVIDENCE_DIR/source-sha.txt"
+          grep -Fq 'recipientEmail: storeSettings.salesEmail' src/lib/checkout-order-finalization.ts
+          grep -Fq 'store_order_received/' src/lib/checkout-order-finalization.ts
+          grep -Fq 'payload.audience === "store"' src/lib/order-notifications.ts
+          grep -Fq 'Open order in fulfillment' src/lib/order-notifications.ts
+
+      - name: Resolve exact Vercel project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p .vercel "$EVIDENCE_DIR"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          npx vercel@56.2.0 whoami --token "$VERCEL_TOKEN" > "$EVIDENCE_DIR/vercel-identity.txt"
+
+      - name: Deploy exact repair to Production
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 deploy --prod --yes --force \
+            --meta "launchPurpose=store-new-order-email-fix" \
+            --meta "sourceSha=$DEPLOY_SOURCE_SHA" \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" \
+            2>&1 | tee "$EVIDENCE_DIR/vercel-deploy.log"
+          DEPLOYMENT_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$EVIDENCE_DIR/vercel-deploy.log" | tail -n 1)"
+          test -n "$DEPLOYMENT_URL"
+          printf '%s\n' "$DEPLOYMENT_URL" > "$EVIDENCE_DIR/deployment-url.txt"
+          echo "deployment_url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+          npx vercel@56.2.0 inspect "$DEPLOYMENT_URL" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$EVIDENCE_DIR/vercel-deployment-inspect.txt" 2>&1
+
+      - name: Verify Production routes and admin boundary
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 24); do
+            if curl --silent --show-error --fail --max-time 45 https://truelycollectables.com/shop > "$EVIDENCE_DIR/custom-shop.html"; then
+              break
+            fi
+            sleep 5
+          done
+          for label in deployment custom; do
+            if [ "$label" = deployment ]; then base="$DEPLOYMENT_URL"; else base="https://truelycollectables.com"; fi
+            root_code="$(curl --location --silent --show-error --max-time 60 --output "$EVIDENCE_DIR/${label}-root.html" --write-out '%{http_code}' "$base/")"
+            shop_code="$(curl --location --silent --show-error --max-time 60 --output "$EVIDENCE_DIR/${label}-shop.html" --write-out '%{http_code}' "$base/shop")"
+            admin_code="$(curl --silent --show-error --max-time 60 --output "$EVIDENCE_DIR/${label}-admin.html" --write-out '%{http_code}' "$base/admin")"
+            orders_code="$(curl --silent --show-error --max-time 60 --output "$EVIDENCE_DIR/${label}-orders.html" --write-out '%{http_code}' "$base/admin/orders")"
+            login_code="$(curl --location --silent --show-error --max-time 60 --output "$EVIDENCE_DIR/${label}-admin-login.html" --write-out '%{http_code}' "$base/admin/login")"
+            test "$root_code" = "200"
+            test "$shop_code" = "200"
+            test "$admin_code" = "307"
+            test "$orders_code" = "307"
+            test "$login_code" = "200"
+            grep -Fq 'Admin Login' "$EVIDENCE_DIR/${label}-admin-login.html"
+          done
+          npx vercel@56.2.0 inspect https://truelycollectables.com --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$EVIDENCE_DIR/vercel-custom-domain-inspect.txt" 2>&1
+          printf '%s\n' 'PASS' > "$EVIDENCE_DIR/production-verification.txt"
+
+      - name: Upload Production evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: store-new-order-email-17b5433-production
+          path: .audit/deploy-store-new-order-email
+          if-no-files-found: error
+          retention-days: 90
