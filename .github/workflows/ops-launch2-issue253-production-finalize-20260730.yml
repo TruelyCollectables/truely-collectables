@@ -7,6 +7,7 @@ on:
       - ".github/workflows/ops-launch2-issue253-production-finalize-20260730.yml"
       - "ops/launch2-issue253-production-finalize.mjs"
       - "ops/provision-launch-secrets.mjs"
+      - "ops/apply-platform-fee-service-role-grant.mjs"
 
 permissions:
   contents: read
@@ -16,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  EXPECTED_MAIN_SHA: 39fcb4f5a447188cf75a699587a9061d0c163ffb
+  EXPECTED_MAIN_SHA: f7b164543e1b6189fa6dbc5404f21fc29c01dfe8
   VERCEL_SCOPE: truelycollectables-projects
   VERCEL_PROJECT: truely-collectables
 
@@ -91,6 +92,7 @@ jobs:
           npm run simulate:privileged-route-auth
           node scripts/verify-runtime-admin-orders-self-test-contract.mjs
           node scripts/verify-issue253-marketplace-runtime-self-test-contract.mjs
+          node scripts/verify-platform-fee-service-role-delete-grant.mjs
 
       - name: Run high-severity dependency audit
         working-directory: live-app
@@ -135,6 +137,23 @@ jobs:
             "$RUNNER_TEMP/launch2-issue253-finalize-production/production.env" \
             "$RUNNER_TEMP/launch2-issue253-finalize-evidence"
 
+      - name: Apply platform fee cleanup service-role grant
+        shell: bash
+        run: |
+          set -euo pipefail
+          node ops/apply-platform-fee-service-role-grant.mjs \
+            live-app \
+            "$RUNNER_TEMP/launch2-issue253-finalize-production/production.env" \
+            "$RUNNER_TEMP/launch2-issue253-finalize-evidence"
+
+      - name: Recheck exact main immediately before Production mutation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C live-app fetch origin main
+          test "$(git -C live-app rev-parse HEAD)" = "$EXPECTED_MAIN_SHA"
+          test "$(git -C live-app rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+
       - name: Apply migration 02900, deploy exact main, and verify live Production
         shell: bash
         run: |
@@ -143,6 +162,8 @@ jobs:
             live-app \
             "$RUNNER_TEMP/launch2-issue253-finalize-production/production.env" \
             "$RUNNER_TEMP/launch2-issue253-finalize-evidence"
+          git -C live-app fetch origin main
+          test "$(git -C live-app rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
           rm -f "$RUNNER_TEMP/launch2-issue253-finalize-production/production.env"
 
       - name: Upload sanitized Production finalization evidence
