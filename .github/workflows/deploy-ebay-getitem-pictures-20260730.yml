@@ -1,0 +1,345 @@
+name: Deploy eBay GetItem Pictures 20260730
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/deploy-ebay-getitem-pictures-20260730.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-ebay-getitem-pictures-20260730
+  cancel-in-progress: false
+
+jobs:
+  deploy-backfill-verify:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'ops/deploy-ebay-getitem-pictures-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      SOURCE_SHA: bc7ee9822d91873bc2cbc2be7eb917eb5b29b566
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+
+    steps:
+      - name: Check out exact merged source
+        uses: actions/checkout@v4
+        with:
+          ref: bc7ee9822d91873bc2cbc2be7eb917eb5b29b566
+          fetch-depth: 0
+
+      - name: Fail closed on exact source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          grep -Fq 'X-EBAY-API-CALL-NAME": "GetSellerList"' src/lib/ebay-all-image-sync.ts
+          grep -Fq 'X-EBAY-API-CALL-NAME": "GetItem"' src/lib/ebay-all-image-sync.ts
+          grep -Fq 'sourceCall: "GetSellerList+GetItem" as const' src/lib/ebay-all-image-sync.ts
+          grep -Fq 'const IMAGE_SYNC_VERSION = 4;' src/lib/ebay-all-image-sync.ts
+          git diff --check
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Link Vercel and create one-time repair token
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          work="$RUNNER_TEMP/ebay-getitem-pictures"
+          mkdir -p .vercel "$work"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          token="$(openssl rand -hex 32)"
+          echo "::add-mask::$token"
+          printf '%s' "$token" > "$work/repair-token"
+          printf '%s\n' "$token" | npx vercel@56.2.0 env add EBAY_GETITEM_PICTURE_REPAIR_TOKEN production \
+            --force --sensitive --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Add protected temporary GetItem backfill route
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p src/app/api/internal/ebay-getitem-picture-repair
+          cat > src/app/api/internal/ebay-getitem-picture-repair/route.ts <<'TS'
+          import { timingSafeEqual } from "node:crypto";
+          import { syncEbayAllListingImages } from "../../../../lib/ebay-all-image-sync";
+          import { listingImageIdentity } from "../../../../lib/listing-image-utils";
+          import { getActiveStoreId } from "../../../../lib/stores";
+          import { createSupabaseServerClient } from "../../../../lib/supabase-server";
+
+          export const dynamic = "force-dynamic";
+          export const maxDuration = 300;
+
+          function authorized(request: Request, secret: string) {
+            const supplied = Buffer.from(request.headers.get("x-tcos-repair-token") || "");
+            const expected = Buffer.from(secret);
+            return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+          }
+
+          function chunks<T>(values: T[], size: number) {
+            const result: T[][] = [];
+            for (let index = 0; index < values.length; index += size) {
+              result.push(values.slice(index, index + size));
+            }
+            return result;
+          }
+
+          export async function POST(request: Request) {
+            const secret = process.env.EBAY_GETITEM_PICTURE_REPAIR_TOKEN || "";
+            if (secret.length < 32 || !authorized(request, secret)) {
+              return Response.json({ success: false, error: "Unauthorized" }, { status: 401 });
+            }
+
+            const startedAt = new Date().toISOString();
+            const supabase = createSupabaseServerClient({ admin: true });
+            const storeId = getActiveStoreId();
+
+            try {
+              const sync = await syncEbayAllListingImages({ supabase, storeId });
+              if (
+                !sync.cycleComplete ||
+                sync.errors.length > 0 ||
+                sync.remainingCandidates !== 0
+              ) {
+                return Response.json(
+                  {
+                    success: false,
+                    event: "ebay_getitem_picture_sync_incomplete",
+                    startedAt,
+                    completedAt: new Date().toISOString(),
+                    storeId,
+                    sync,
+                  },
+                  { status: 409 },
+                );
+              }
+
+              const { data: products, error: productError } = await supabase
+                .from("products")
+                .select("id,ebay_item_id")
+                .eq("store_id", storeId)
+                .gt("quantity", 0)
+                .not("ebay_item_id", "is", null)
+                .order("id", { ascending: true })
+                .limit(3000);
+              if (productError) throw productError;
+
+              const productIds = (products || []).map((row: any) => Number(row.id));
+              const inventory: Array<{ id: string; legacy_product_id: number }> = [];
+              for (const productChunk of chunks(productIds, 100)) {
+                const { data, error } = await supabase
+                  .from("inventory_items")
+                  .select("id,legacy_product_id")
+                  .eq("store_id", storeId)
+                  .in("legacy_product_id", productChunk)
+                  .limit(1000);
+                if (error) throw error;
+                inventory.push(...((data || []) as Array<{ id: string; legacy_product_id: number }>));
+              }
+
+              const images: Array<{ inventory_item_id: string; image_url: string }> = [];
+              for (const inventoryChunk of chunks(inventory.map((row) => row.id), 20)) {
+                const { data, error } = await supabase
+                  .from("inventory_images")
+                  .select("inventory_item_id,image_url")
+                  .in("inventory_item_id", inventoryChunk)
+                  .order("inventory_item_id", { ascending: true })
+                  .order("sort_order", { ascending: true })
+                  .limit(1000);
+                if (error) throw error;
+                images.push(...((data || []) as Array<{ inventory_item_id: string; image_url: string }>));
+              }
+
+              const identitiesByInventory = new Map<string, Set<string>>();
+              for (const image of images) {
+                const identity = listingImageIdentity(image.image_url);
+                if (!identity.startsWith("ebay:")) continue;
+                const identities = identitiesByInventory.get(image.inventory_item_id) || new Set<string>();
+                identities.add(identity);
+                identitiesByInventory.set(image.inventory_item_id, identities);
+              }
+
+              const multiple: Array<{ productId: number; pictureCount: number }> = [];
+              const single: Array<{ productId: number; pictureCount: number }> = [];
+              for (const row of inventory) {
+                const pictureCount = identitiesByInventory.get(row.id)?.size || 0;
+                const record = {
+                  productId: Number(row.legacy_product_id),
+                  pictureCount,
+                };
+                if (pictureCount >= 2) multiple.push(record);
+                else single.push(record);
+              }
+
+              const coveragePercent = productIds.length
+                ? Math.round((multiple.length / productIds.length) * 10000) / 100
+                : 0;
+              const coverage = {
+                activeEbayProducts: productIds.length,
+                activeInventoryRows: inventory.length,
+                productsWithMultipleDistinctEbayPictures: multiple.length,
+                productsWithoutMultipleDistinctEbayPictures: single.length,
+                multipleDistinctPictureCoveragePercent: coveragePercent,
+                sampleProductId: multiple[0]?.productId || null,
+                singlePictureSamples: single.slice(0, 25),
+              };
+
+              const success =
+                sync.sourceCall === "GetSellerList+GetItem" &&
+                sync.getItemChecked === productIds.length &&
+                sync.getItemHydrated === productIds.length &&
+                sync.getItemFailed === 0 &&
+                sync.getItemMultiPicture === productIds.length &&
+                single.length === 0;
+
+              return Response.json(
+                {
+                  success,
+                  event: success
+                    ? "ebay_getitem_picture_repair_completed"
+                    : "ebay_getitem_picture_repair_coverage_failed",
+                  startedAt,
+                  completedAt: new Date().toISOString(),
+                  storeId,
+                  sync,
+                  coverage,
+                },
+                { status: success ? 200 : 409 },
+              );
+            } catch (error) {
+              return Response.json(
+                {
+                  success: false,
+                  event: "ebay_getitem_picture_repair_failed",
+                  startedAt,
+                  completedAt: new Date().toISOString(),
+                  storeId,
+                  error: error instanceof Error ? error.message.slice(0, 1500) : "Unknown repair failure",
+                },
+                { status: 500 },
+              );
+            }
+          }
+          TS
+          git diff --check
+
+      - name: Deploy protected GetItem repair runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/ebay-getitem-pictures"
+          npx vercel@56.2.0 deploy --prod --yes --force --archive=tgz \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee "$work/repair-deploy.log"
+          deployment_url="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$work/repair-deploy.log" | tail -n 1)"
+          test -n "$deployment_url"
+          printf '%s' "$deployment_url" > "$work/repair-deployment-url"
+          echo "Protected repair deployment: $deployment_url"
+
+      - name: Pull all eBay pictures with GetItem and certify coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/ebay-getitem-pictures"
+          token="$(cat "$work/repair-token")"
+          deployment_url="$(cat "$work/repair-deployment-url")"
+          response="$work/repair-response.json"
+          status="$(curl -sS --max-time 330 \
+            -H "x-tcos-repair-token: $token" \
+            -X POST -o "$response" -w '%{http_code}' \
+            "$deployment_url/api/internal/ebay-getitem-picture-repair?run=${GITHUB_RUN_ID}" || true)"
+          echo "repair_status=$status"
+          cat "$response" || true
+          echo
+          test "$status" = "200"
+          node - "$response" <<'NODE'
+          const fs = require('node:fs');
+          const receipt = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          if (!receipt.success) throw new Error(JSON.stringify(receipt).slice(0, 12000));
+          const sync = receipt.sync || {};
+          const coverage = receipt.coverage || {};
+          if (sync.sourceCall !== 'GetSellerList+GetItem') throw new Error('The Production repair did not use GetItem hydration.');
+          if (sync.getItemFailed !== 0) throw new Error(`${sync.getItemFailed} GetItem requests failed.`);
+          if (sync.getItemChecked !== coverage.activeEbayProducts) throw new Error('GetItem did not check every active eBay product.');
+          if (sync.getItemHydrated !== coverage.activeEbayProducts) throw new Error('GetItem did not hydrate every active eBay product.');
+          if (sync.getItemMultiPicture !== coverage.activeEbayProducts) throw new Error('Not every active eBay listing returned multiple distinct pictures.');
+          if (coverage.productsWithoutMultipleDistinctEbayPictures !== 0) throw new Error(JSON.stringify(coverage.singlePictureSamples));
+          if (!coverage.sampleProductId) throw new Error('No multi-picture sample product was produced.');
+          console.log(JSON.stringify({ certified: true, sync, coverage }, null, 2));
+          NODE
+
+      - name: Remove repair route and deploy exact merged source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf src/app/api/internal/ebay-getitem-picture-repair
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          npx vercel@56.2.0 env rm EBAY_GETITEM_PICTURE_REPAIR_TOKEN production --yes \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null || true
+          npx vercel@56.2.0 deploy --prod --yes --force --archive=tgz \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+
+      - name: Verify a real live front and back listing
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/ebay-getitem-pictures"
+          response="$work/repair-response.json"
+          sample_id="$(node -e 'const r=require(process.argv[1]); process.stdout.write(String(r.coverage?.sampleProductId || ""))' "$response")"
+          test -n "$sample_id"
+          for attempt in $(seq 1 18); do
+            api_file="$work/images.json"
+            product_file="$work/product.html"
+            sold_file="$work/sold.html"
+            api_status="$(curl -sS -L --max-time 60 -o "$api_file" -w '%{http_code}' "https://truelycollectables.com/api/storefront/product-images/${sample_id}?getitem_verify=${GITHUB_RUN_ID}&attempt=${attempt}" || true)"
+            product_status="$(curl -sS -L --max-time 60 -o "$product_file" -w '%{http_code}' "https://truelycollectables.com/product/${sample_id}?getitem_verify=${GITHUB_RUN_ID}&attempt=${attempt}" || true)"
+            sold_status="$(curl -sS -L --max-time 60 -o "$sold_file" -w '%{http_code}' "https://truelycollectables.com/recently-sold?getitem_verify=${GITHUB_RUN_ID}&attempt=${attempt}" || true)"
+            api_ok="$(node - "$api_file" <<'NODE'
+          const fs = require('node:fs');
+          try {
+            const receipt = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+            process.stdout.write(receipt.hasBack === true && Array.isArray(receipt.images) && receipt.images.length >= 2 ? 'true' : 'false');
+          } catch { process.stdout.write('false'); }
+          NODE
+          )"
+            if [ "$api_status" = "200" ] \
+              && [ "$api_ok" = "true" ] \
+              && [ "$product_status" = "200" ] \
+              && grep -Fq 'Front photo' "$product_file" \
+              && grep -Fq 'Back photo' "$product_file" \
+              && [ "$sold_status" = "200" ] \
+              && grep -Fq 'See What You Missed' "$sold_file"; then
+              echo "Live front/back listing verified with product ${sample_id} on attempt ${attempt}."
+              cat "$api_file"
+              echo
+              cat "$response"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Live front/back verification failed for product ${sample_id}." >&2
+          exit 1
+
+      - name: Remove temporary files and repair token
+        if: always()
+        shell: bash
+        run: |
+          npx vercel@56.2.0 env rm EBAY_GETITEM_PICTURE_REPAIR_TOKEN production --yes \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null || true
+          rm -rf "$RUNNER_TEMP/ebay-getitem-pictures"
