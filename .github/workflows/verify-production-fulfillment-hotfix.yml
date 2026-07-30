@@ -19,10 +19,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: verify-production-fulfillment-hotfix
-  cancel-in-progress: false
-
 jobs:
   verify-live-production:
     runs-on: ubuntu-latest
