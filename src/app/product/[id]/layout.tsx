@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import SoldOverlay from "../../../components/SoldOverlay";
 import { getProductSalePresentation } from "../../../lib/collectible-sale-history";
 import { createServerInventoryEngine } from "../../../lib/server-inventory-engine";
@@ -43,6 +44,28 @@ export default async function ProductDetailLayout({
 
   const supabase = createSupabaseServerClient({ admin: true });
   const storeId = getActiveStoreId();
+  const { data: saleState } = await supabase
+    .from("products")
+    .select("sold_at,archive_after,archived_at")
+    .eq("store_id", storeId)
+    .eq("id", legacyProductId)
+    .maybeSingle();
+
+  const archiveTime = saleState?.archive_after
+    ? new Date(saleState.archive_after).getTime()
+    : null;
+  const soldRetentionExpired = Boolean(
+    saleState?.sold_at &&
+      (saleState.archived_at ||
+        (archiveTime !== null &&
+          Number.isFinite(archiveTime) &&
+          archiveTime <= Date.now())),
+  );
+
+  if (soldRetentionExpired) {
+    notFound();
+  }
+
   const sale = await getProductSalePresentation({
     supabase,
     storeId,
