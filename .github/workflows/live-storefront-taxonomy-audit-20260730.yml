@@ -8,7 +8,7 @@ on:
       - agent/run-live-taxonomy-audit-20260730
     paths:
       - ".github/workflows/live-storefront-taxonomy-audit-20260730.yml"
-      - "scripts/run-live-storefront-taxonomy-audit.ts"
+      - "scripts/run-live-storefront-taxonomy-audit-v2.mts"
       - "scripts/run-storefront-feature-evidence-regressions.ts"
       - "src/lib/storefront-feature-evidence.ts"
       - "src/lib/storefront-taxonomy.ts"
@@ -17,7 +17,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/live-storefront-taxonomy-audit-20260730.yml"
-      - "scripts/run-live-storefront-taxonomy-audit.ts"
+      - "scripts/run-live-storefront-taxonomy-audit-v2.mts"
       - "scripts/run-storefront-feature-evidence-regressions.ts"
       - "src/lib/storefront-feature-evidence.ts"
       - "src/lib/storefront-taxonomy.ts"
@@ -74,7 +74,7 @@ jobs:
           AUDIT_OUTPUT: ${{ runner.temp }}/live-taxonomy-audit/live-taxonomy-audit.json
         run: |
           set -euo pipefail
-          npx tsx scripts/run-live-storefront-taxonomy-audit.ts | tee "$RUNNER_TEMP/live-taxonomy-audit/summary.log"
+          npx tsx scripts/run-live-storefront-taxonomy-audit-v2.mts | tee "$RUNNER_TEMP/live-taxonomy-audit/summary.log"
           rm -f "$PRODUCTION_ENV_FILE"
 
       - name: Record latest audit receipt on main
