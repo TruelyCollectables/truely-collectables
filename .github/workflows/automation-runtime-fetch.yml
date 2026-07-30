@@ -1,0 +1,60 @@
+name: Automation Runtime Endpoint Fetch
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/automation-runtime-fetch.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fetch required TCOS endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tmp
+          python - <<'PY'
+          import json, subprocess, datetime
+          urls = {
+            'wnba': 'https://truelycollectables.com/api/tcos/deal-hunter-native-ebay?scope=wnba&perQuery=20',
+            'ivan_demidov': 'https://truelycollectables.com/api/tcos/deal-hunter-native-ebay?scope=ivan_demidov&perQuery=20',
+            'matvei_michkov_young_guns': 'https://truelycollectables.com/api/tcos/deal-hunter-native-ebay?scope=matvei_michkov_young_guns&perQuery=20',
+            'matvei_michkov_opc_platinum': 'https://truelycollectables.com/api/tcos/deal-hunter-michkov-opc-platinum?perQuery=20',
+            'baseball_prospects': 'https://truelycollectables.com/api/tcos/deal-hunter-native-ebay?scope=baseball_prospects&perQuery=20',
+            'signed_baseballs': 'https://truelycollectables.com/api/tcos/deal-hunter-native-ebay?scope=signed_baseballs&perQuery=20',
+          }
+          out = {'fetchedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'endpoints': {}}
+          for name, url in urls.items():
+            proc = subprocess.run(['curl','-sS','-L','--max-time','120','-w','\n__HTTP_STATUS__:%{http_code}','-H','User-Agent: TCOS-GitHub-Actions-Runtime/1.0',url], text=True, capture_output=True)
+            text = proc.stdout
+            status = None
+            if '\n__HTTP_STATUS__:' in text:
+              body, status_text = text.rsplit('\n__HTTP_STATUS__:',1)
+              text = body
+              try: status = int(status_text.strip())
+              except: status = None
+            try: data = json.loads(text)
+            except Exception: data = {'raw': text[:20000]}
+            out['endpoints'][name] = {'url': url, 'httpStatus': status, 'curlExit': proc.returncode, 'stderr': proc.stderr[-2000:], 'data': data}
+          with open('tmp/automation-runtime-results.json','w') as f:
+            json.dump(out,f,separators=(',',':'))
+          PY
+      - name: Commit endpoint results
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tmp/automation-runtime-results.json
+          git commit -m 'Record automation runtime endpoint results' || exit 0
+          git push origin HEAD:main
