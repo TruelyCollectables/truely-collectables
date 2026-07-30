@@ -7,6 +7,7 @@ on:
       - ".github/workflows/issue253-marketplace-runtime-self-test-ci-20260730.yml"
       - "src/app/api/release/issue253-marketplace-self-test/route.ts"
       - "scripts/verify-issue253-marketplace-runtime-self-test-contract.mjs"
+      - "src/lib/vercel-release-runtime-auth.ts"
   workflow_dispatch:
 
 permissions:
@@ -55,6 +56,7 @@ jobs:
             .github/workflows/issue253-marketplace-runtime-self-test-ci-20260730.yml
             scripts/verify-issue253-marketplace-runtime-self-test-contract.mjs
             src/app/api/release/issue253-marketplace-self-test/route.ts
+            src/lib/vercel-release-runtime-auth.ts
           )
           test "${#changed[@]}" -eq "${#expected[@]}"
           test "$(printf '%s\n' "${changed[@]}")" = "$(printf '%s\n' "${expected[@]}")"
