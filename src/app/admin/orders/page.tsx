@@ -3,7 +3,7 @@ import {
   getAccountProfilesByIds,
   type AccountProfileSummary,
 } from "../../../lib/account-profiles";
-import { supabase } from "../../../lib/supabase";
+import { createSupabaseServerClient } from "../../../lib/supabase-server";
 import { getActiveStoreId } from "../../../lib/stores";
 import {
   isOrderReviewStatus,
@@ -158,6 +158,7 @@ export default async function AdminOrdersPage({
   const params = await searchParams;
   const activeTab = safeTab(params?.tab);
   const storeId = getActiveStoreId();
+  const supabase = createSupabaseServerClient({ admin: true });
 
   const { data: orders, error: ordersError } = await supabase
     .from("orders")
