@@ -1,0 +1,67 @@
+name: Launch 2 Sold Migration Replay Diagnostic 20260730
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/launch2-sold-migration-replay-diagnostic-20260730.yml"
+      - "supabase/migrations/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: launch2-sold-migration-replay-diagnostic-20260730
+  cancel-in-progress: true
+
+jobs:
+  migration-replay:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'fix/launch2-sold-lifecycle-certify-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out stable certification branch
+        uses: actions/checkout@v4
+
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.48.3
+
+      - name: Replay full migration history with captured diagnostics
+        id: replay
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p .audit/supabase-migration-replay
+          status=0
+          {
+            echo "source_sha=$GITHUB_SHA"
+            echo "started_at=$(date -u +%FT%TZ)"
+            if [ ! -f supabase/config.toml ]; then
+              supabase init --force
+            fi
+            supabase start -x studio,imgproxy,inbucket,storage-api,edge-runtime,logflare,vector,supavisor
+            supabase db reset --local
+            echo "completed_at=$(date -u +%FT%TZ)"
+          } 2>&1 | sed -E \
+            -e 's#postgres(ql)?://[^[:space:]]+#postgresql://[REDACTED]#g' \
+            -e 's#(anon key|service_role key|access token|refresh token|password)[:=][[:space:]]*[^[:space:]]+#\1=[REDACTED]#Ig' \
+            | tee .audit/supabase-migration-replay/replay.log
+          status=${PIPESTATUS[0]}
+          printf '%s\n' "$status" > .audit/supabase-migration-replay/exit-code.txt
+          exit "$status"
+
+      - name: Upload migration replay diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launch2-sold-migration-replay-${{ github.sha }}
+          path: .audit/supabase-migration-replay
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Stop local Supabase
+        if: always()
+        run: supabase stop --no-backup || true

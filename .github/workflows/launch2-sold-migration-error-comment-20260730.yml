@@ -1,0 +1,89 @@
+name: Launch 2 Sold Migration Error Comment 20260730
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/launch2-sold-migration-error-comment-20260730.yml"
+      - "supabase/migrations/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: launch2-sold-migration-error-comment-20260730
+  cancel-in-progress: true
+
+jobs:
+  diagnose:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'fix/launch2-sold-lifecycle-certify-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.48.3
+
+      - name: Run migration replay and capture sanitized failure
+        id: replay
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p .audit
+          status=0
+          {
+            if [ ! -f supabase/config.toml ]; then
+              supabase init --force
+            fi
+            supabase start -x studio,imgproxy,inbucket,storage-api,edge-runtime,logflare,vector,supavisor
+            supabase db reset --local
+          } > .audit/raw.log 2>&1 || status=$?
+          sed -E \
+            -e 's#postgres(ql)?://[^[:space:]]+#postgresql://[REDACTED]#g' \
+            -e 's#(anon key|service_role key|access token|refresh token|password)[:=][[:space:]]*[^[:space:]]+#\1=[REDACTED]#Ig' \
+            .audit/raw.log > .audit/sanitized.log
+          printf '%s\n' "$status" > .audit/status.txt
+          exit "$status"
+
+      - name: Post sanitized failure on PR
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('node:fs');
+            const log = fs.readFileSync('.audit/sanitized.log', 'utf8');
+            const relevant = log.split(/\r?\n/).filter((line) =>
+              /(Applying migration|ERROR|Error|failed|does not exist|already exists|syntax error|constraint|trigger|function)/.test(line)
+            ).slice(-30).join('\n').slice(0, 6000);
+            const marker = '<!-- launch2-sold-migration-diagnostic -->';
+            const body = `${marker}\n## Supabase migration replay blocker\n\nExact head: \`${context.sha}\`\n\n\`\`\`text\n${relevant || log.slice(-5000)}\n\`\`\``;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+            const existing = comments.find((comment) => comment.body?.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+      - name: Stop local Supabase
+        if: always()
+        run: supabase stop --no-backup || true
