@@ -51,7 +51,7 @@ export function hasStrictMemorabiliaTitleEvidence(titleValue: unknown) {
   const title = lower(titleValue).replace(/\bnew jersey\b/g, "");
   if (!title) return false;
 
-  return /\b(?:relics?|patch(?:es)?|swatch(?:es)?|memorabilia|rookie remembrance|rookie materials?|game[- ]used|player[- ]worn|event[- ]worn|materials?|fabrics?|rpa|prime patch|logo jumbo|team logo jumbo|emblems?|stitchings?|momentous material|jersey (?:card|relic|patch|swatch|materials?|fabric|auto)|(?:game[- ]used|player[- ]worn|event[- ]worn) jersey)\b/.test(
+  return /\b(?:relics?|patch(?:es)?|swatch(?:es)?|memorabilia|rookie remembrance|rookie materials?|materials?|fabrics?|microfibers?|pinstripes?|rpa|prime patch|logo jumbo|team logo jumbo|emblems?|stitchings?|momentous material|jerseys?|(?:game[- ]used|player[- ]worn|event[- ]worn) (?:jersey|patch|swatch|memorabilia|materials?|fabrics?))\b/.test(
     title,
   );
 }
@@ -84,7 +84,11 @@ export function hasStrictNumberedTitleEvidence(
   const section = lower(sectionValue);
   if (!title || section === "trading card games") return false;
 
-  if (/\b(?:serial numbered|numbered|#'?d|one of one|1[- ]of[- ]1)\b/.test(title)) {
+  if (
+    /\b(?:serial numbered|numbered|#'?d|one of one|1[- ]of[- ]1)\b/.test(
+      title,
+    ) || /\b1\s*\/\s*1\b/.test(title)
+  ) {
     return true;
   }
 
@@ -94,7 +98,7 @@ export function hasStrictNumberedTitleEvidence(
     const numerator = Number(match[1]);
     const denominator = Number(match[2]);
     const yearSeason = numerator >= 1900 && numerator <= 2100 && denominator <= 99;
-    if (!yearSeason && denominator > 1) return true;
+    if (!yearSeason && denominator >= 1) return true;
   }
 
   return false;
