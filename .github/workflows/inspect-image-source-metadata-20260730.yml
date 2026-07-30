@@ -1,0 +1,146 @@
+name: Inspect Image Source Metadata 20260730
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: inspect-image-source-metadata-20260730
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'ops/inspect-image-source-metadata-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/inspect-image-source-metadata-20260730
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Prepare protected diagnostic route
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/image-source-metadata"
+          mkdir -p "$work" .vercel src/app/api/internal/image-source-metadata-diagnostic
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          cp ops/templates/image-source-metadata-diagnostic-route.txt src/app/api/internal/image-source-metadata-diagnostic/route.ts
+          token="$(openssl rand -hex 32)"
+          printf '%s' "$token" > "$work/token"
+          echo "::add-mask::$token"
+          printf '%s\n' "$token" | npx vercel@56.2.0 env add IMAGE_SOURCE_METADATA_DIAGNOSTIC_TOKEN_20260730 production --force --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx tsc --noEmit --pretty false
+
+      - name: Deploy diagnostic runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/image-source-metadata"
+          npx vercel@56.2.0 deploy --prod --yes --force --archive=tgz --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" | tee "$work/deploy.log"
+          url="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$work/deploy.log" | tail -1)"
+          test -n "$url"
+          printf '%s' "$url" > "$work/url"
+
+      - name: Inspect original product and inventory source metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/image-source-metadata"
+          token="$(cat "$work/token")"
+          url="$(cat "$work/url")"
+          response="$work/response.json"
+          status="$(curl -sS --max-time 330 -H "x-tcos-diagnostic-token: $token" -X POST -o "$response" -w '%{http_code}' "$url/api/internal/image-source-metadata-diagnostic?run=${GITHUB_RUN_ID}" || true)"
+          echo "diagnostic_status=$status"
+          test "$status" = "200"
+          node - "$response" <<'NODE'
+          const fs = require('node:fs');
+          const r = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          const summary = {
+            success: r.success,
+            targetCount: r.targetCount,
+            productCount: r.productCount,
+            inventoryCount: r.inventoryCount,
+            imageRowCount: r.imageRowCount,
+            products: r.productEvidence.map((entry) => ({
+              productId: entry.productId,
+              title: entry.title,
+              productRowKeys: entry.productRowKeys,
+              productUrls: entry.productUrls,
+              productHintPaths: entry.productHints.map((hint) => hint.path),
+              inventories: entry.inventoryEvidence.map((inventory) => ({
+                inventoryItemId: inventory.inventoryItemId,
+                rowKeys: inventory.rowKeys,
+                urls: inventory.urls,
+                hintPaths: inventory.hints.map((hint) => hint.path),
+                imageCount: inventory.images.length,
+              })),
+            })),
+            batchListings: r.batchListings.map((batch) => ({
+              key: batch.key,
+              status: batch.status,
+              count: batch.count,
+              frontNamed: batch.frontNamed,
+              backNamed: batch.backNamed,
+              error: batch.error || null,
+            })),
+          };
+          console.log('IMAGE_SOURCE_METADATA_SUMMARY=' + JSON.stringify(summary));
+          console.log(JSON.stringify({
+            counts: {
+              targetCount: summary.targetCount,
+              productCount: summary.productCount,
+              inventoryCount: summary.inventoryCount,
+              imageRowCount: summary.imageRowCount,
+            },
+            productsWithMetadataBackUrls: summary.products.filter((product) => JSON.stringify(product).toLowerCase().includes('-back.')).map((product) => product.productId),
+            productsWithDescriptionUrls: summary.products.filter((product) => product.productUrls.some((entry) => entry.path.toLowerCase().includes('description'))).map((product) => product.productId),
+            batches: summary.batchListings,
+          }, null, 2));
+          NODE
+
+      - name: Upload diagnostic JSON
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-source-metadata-diagnostic-20260730
+          path: ${{ runner.temp }}/image-source-metadata/response.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Restore clean production
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 env rm IMAGE_SOURCE_METADATA_DIAGNOSTIC_TOKEN_20260730 production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null || true
+          git fetch origin main
+          git reset --hard origin/main
+          git clean -fd
+          npx vercel@56.2.0 deploy --prod --yes --force --archive=tgz --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/image-source-metadata"
