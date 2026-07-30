@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 
@@ -50,8 +50,8 @@ export default function AdminTemplate({ children }: { children: ReactNode }) {
 }
 
 function RefundOrderPanel({ pathname }: { pathname: string }) {
-  const pathOrderId = useMemo(() => orderIdFromPath(pathname), [pathname]);
-  const [orderId, setOrderId] = useState(pathOrderId);
+  const pathOrderId = orderIdFromPath(pathname);
+  const [manualOrderId, setManualOrderId] = useState("");
   const [reason, setReason] = useState("");
   const [confirmed, setConfirmed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -59,11 +59,7 @@ function RefundOrderPanel({ pathname }: { pathname: string }) {
     tone: "success" | "error" | "info";
     text: string;
   } | null>(null);
-
-  useEffect(() => {
-    if (pathOrderId) setOrderId(pathOrderId);
-  }, [pathOrderId]);
-
+  const orderId = pathOrderId || manualOrderId;
   const cleanOrderId = Number(orderId);
   const cleanReason = reason.replace(/\s+/g, " ").trim();
   const canSubmit =
@@ -157,7 +153,9 @@ function RefundOrderPanel({ pathname }: { pathname: string }) {
             inputMode="numeric"
             value={orderId}
             readOnly={Boolean(pathOrderId)}
-            onChange={(event) => setOrderId(event.target.value.replace(/\D/g, ""))}
+            onChange={(event) =>
+              setManualOrderId(event.target.value.replace(/\D/g, ""))
+            }
             className="mt-2 w-full rounded-2xl border border-neutral-300 bg-white px-3 py-3 text-sm font-semibold outline-none focus:border-red-700 read-only:bg-neutral-100"
             placeholder="Order number"
           />
