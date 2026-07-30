@@ -1,0 +1,64 @@
+name: Patch Final Certificate Path Normalization 20260730
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/patch-final-certificate-path-normalization-20260730.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ops/launch-2-final-certificate-ad575-20260729')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/launch-2-final-certificate-ad575-20260729
+          fetch-depth: 0
+
+      - name: Guard exact certificate workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "ad5758557e14f10ae9294a4a8de4dd69d188b58d"
+          test "$(git hash-object .github/workflows/launch-2-final-certificate-ad575-20260729.yml)" = "faeae8585206fce9a98a0cbbc319f37d7c5f264c"
+
+      - name: Replace only the invalid path-normalization expression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('.github/workflows/launch-2-final-certificate-ad575-20260729.yml')
+          text = path.read_text()
+          old = "replace(/^\\\\/repo\\\\//, '')"
+          new = "replace('/repo/', '')"
+          if text.count(old) != 1:
+              raise SystemExit(f'Expected one invalid normalization expression, found {text.count(old)}.')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          git diff --check
+          grep -Fq "replace('/repo/', '')" .github/workflows/launch-2-final-certificate-ad575-20260729.yml
+          if grep -Fq "replace(/^\\\\/repo\\\\//, '')" .github/workflows/launch-2-final-certificate-ad575-20260729.yml; then exit 1; fi
+          ruby -e 'require "yaml"; YAML.load_file(".github/workflows/launch-2-final-certificate-ad575-20260729.yml"); puts "Certificate YAML parsed."'
+
+      - name: Stage validated workflow as ordinary data
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p normalization-staging
+          cp .github/workflows/launch-2-final-certificate-ad575-20260729.yml normalization-staging/launch-2-final-certificate-ad575-20260729.yml
+          sha256sum normalization-staging/launch-2-final-certificate-ad575-20260729.yml > normalization-staging/launch-2-final-certificate-ad575-20260729.sha256
+          git checkout -- .github/workflows/launch-2-final-certificate-ad575-20260729.yml
+          git diff --quiet
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add normalization-staging/launch-2-final-certificate-ad575-20260729.yml normalization-staging/launch-2-final-certificate-ad575-20260729.sha256
+          git commit -m "Stage corrected final certificate path normalization"
+          git push origin HEAD:ops/launch-2-final-certificate-ad575-20260729
