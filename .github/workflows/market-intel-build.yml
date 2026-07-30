@@ -24,6 +24,9 @@ jobs:
       - name: Validate InstaComp Duck.ai witness
         run: node --import tsx scripts/run-instacomp-duck-ai-witness-simulations.ts
 
+      - name: Verify admin orders privileged data access
+        run: node scripts/verify-admin-orders-data-access.mjs
+
       - name: Build
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
