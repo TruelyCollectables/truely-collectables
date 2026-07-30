@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { webcrypto } from "node:crypto";
 
 const [appDirInput, envPathInput, evidenceDirInput] = process.argv.slice(2);
 if (!appDirInput || !envPathInput || !evidenceDirInput) {
@@ -59,13 +60,36 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function signedAdminCookie(secret) {
+  const issuedAt = String(Math.floor(Date.now() / 1000));
+  const encoder = new TextEncoder();
+  const key = await webcrypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await webcrypto.subtle.sign("HMAC", key, encoder.encode(issuedAt));
+  const value = `${issuedAt}.${Buffer.from(signature).toString("base64url")}`;
+  return `tcos_admin_auth_v3=${encodeURIComponent(value)}`;
+}
+
 const productionEnv = parseEnvFile(fs.readFileSync(envPath, "utf8"));
 const productionSupabaseUrl = String(productionEnv.NEXT_PUBLIC_SUPABASE_URL || "").trim();
 const cronSecret = String(productionEnv.CRON_SECRET || "").trim();
+const adminSessionSecret = String(productionEnv.ADMIN_SESSION_SECRET || "").trim();
 if (!/^https:\/\//.test(productionSupabaseUrl)) {
   throw new Error("Production NEXT_PUBLIC_SUPABASE_URL was not pulled from Vercel.");
 }
-if (!cronSecret) throw new Error("Production CRON_SECRET is unavailable for protected-boundary verification.");
+if (cronSecret.length < 16 && !adminSessionSecret) {
+  throw new Error("Neither a Production cron credential nor an admin session secret is available for protected-boundary verification.");
+}
+
+const protectedHeaders = cronSecret.length >= 16
+  ? { Authorization: `Bearer ${cronSecret}` }
+  : { Cookie: await signedAdminCookie(adminSessionSecret) };
+const protectedAuthorizationMode = cronSecret.length >= 16 ? "cron_bearer" : "signed_admin_session";
 
 const projectRef = new URL(productionSupabaseUrl).hostname.split(".")[0];
 if (!projectRef) throw new Error("Unable to derive the Supabase project reference.");
@@ -227,7 +251,11 @@ for (let attempt = 1; attempt <= 90; attempt += 1) {
   const body = await response.text();
   if (response.ok) {
     const candidate = JSON.parse(body);
-    const aliases = [...(candidate.alias || []), ...(candidate.aliases || [])]
+    const rawAliases = [
+      ...(Array.isArray(candidate.alias) ? candidate.alias : []),
+      ...(Array.isArray(candidate.aliases) ? candidate.aliases : []),
+    ];
+    const aliases = rawAliases
       .map((value) => String(value).replace(/^https?:\/\//, "").replace(/\/$/, ""));
     const exact = candidate.meta?.githubCommitSha === expectedSha;
     const ready = candidate.readyState === "READY";
@@ -264,7 +292,7 @@ for (let attempt = 1; attempt <= 72; attempt += 1) {
       requestStatus("https://truelycollectables.com/"),
       requestStatus("https://truelycollectables.com/shop"),
       requestStatus("https://truelycollectables.com/api/admin-orders-health", {
-        headers: { Authorization: `Bearer ${cronSecret}` },
+        headers: protectedHeaders,
       }),
       requestStatus("https://truelycollectables.com/api/admin-orders-health"),
     ]);
@@ -287,6 +315,7 @@ for (let attempt = 1; attempt <= 72; attempt += 1) {
         authorizedAdminHealthStatus: authorized.response.status,
         unsignedAdminHealthStatus: unsigned.response.status,
         authorizedAdminHealthOk: true,
+        authorizationMode: protectedAuthorizationMode,
         verifiedAt: new Date().toISOString(),
       };
       break;
