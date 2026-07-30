@@ -6,6 +6,7 @@ on:
     paths:
       - ".github/workflows/launch2-sold-lifecycle-ci-20260729.yml"
       - "scripts/run-sold-lifecycle-simulations.mjs"
+      - "scripts/run-sold-trigger-order-simulation.mjs"
       - "src/app/admin/products/[id]/layout.tsx"
       - "src/app/admin/sales-history/**"
       - "src/app/api/cron/ebay-order-sale-sync/**"
@@ -25,6 +26,7 @@ on:
       - "supabase/migrations/20260730002400_make_sale_recording_idempotent.sql"
       - "supabase/migrations/20260730002500_reset_sold_presentation_on_restock.sql"
       - "supabase/migrations/20260730002600_atomic_ebay_order_sales_and_outbox_scope.sql"
+      - "supabase/migrations/20260730002700_run_sale_guards_before_restock_reset.sql"
       - "vercel.json"
   workflow_dispatch:
 
@@ -81,7 +83,9 @@ jobs:
         run: npm ci
 
       - name: Run issue 253 sold lifecycle simulations
-        run: node scripts/run-sold-lifecycle-simulations.mjs
+        run: |
+          node scripts/run-sold-lifecycle-simulations.mjs
+          node scripts/run-sold-trigger-order-simulation.mjs
 
       - name: Run privileged route audit
         run: |
