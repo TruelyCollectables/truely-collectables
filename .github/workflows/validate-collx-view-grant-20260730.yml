@@ -1,0 +1,163 @@
+name: Validate CollX View Grant 20260730
+
+on:
+  pull_request:
+    branches:
+      - fix/grant-collx-view-service-role-20260730
+    paths:
+      - ".github/workflows/validate-collx-view-grant-20260730.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-collx-view-grant-20260730
+  cancel-in-progress: false
+
+env:
+  EXPECTED_MAIN_SHA: bb765778806f4bf658da4fc185d38e43fd9a3fba
+  EXPECTED_FIX_SHA: 54b433f5bf7d6d7e2cb15f5880ec3f7350034709
+  EXPECTED_BRANCH: ops/validate-collx-view-grant-20260730
+  EXPECTED_BASE_BRANCH: fix/grant-collx-view-service-role-20260730
+  MIGRATION: supabase/migrations/20260730133000_grant_collx_boundary_view_service_role.sql
+  PROJECT_REF: rfdzsoykhnngzdnvzlhz
+  EVIDENCE_DIR: .audit/validate-collx-view-grant-20260730
+
+jobs:
+  validate-collx-view-grant:
+    if: github.event.pull_request.head.ref == 'ops/validate-collx-view-grant-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
+      ADMIN_SESSION_SECRET: build-validation-session-secret-that-is-long-enough
+      ADMIN_PASSWORD: build-validation-admin-password
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      STRIPE_SECRET_KEY: sk_test_build_validation
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_validation
+      STRIPE_WEBHOOK_SECRET: whsec_build_validation
+      EBAY_CLIENT_ID: build-validation-client-id
+      EBAY_CLIENT_SECRET: build-validation-client-secret
+      EBAY_ENVIRONMENT: production
+      CRON_SECRET: build-validation-cron-secret-that-is-long-enough
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+
+    steps:
+      - name: Check out guarded validation branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on exact fix and one-file operations scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main "$EXPECTED_BASE_BRANCH"
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          test "$(git rev-parse "origin/$EXPECTED_BASE_BRANCH")" = "$EXPECTED_FIX_SHA"
+          test "$(git merge-base "$EXPECTED_FIX_SHA" HEAD)" = "$EXPECTED_FIX_SHA"
+          mapfile -t ops_changed < <(git diff --name-only "$EXPECTED_FIX_SHA"...HEAD)
+          test "${#ops_changed[@]}" -eq 1
+          test "${ops_changed[0]}" = ".github/workflows/validate-collx-view-grant-20260730.yml"
+          mapfile -t fix_changed < <(git diff --name-only "$EXPECTED_MAIN_SHA" "$EXPECTED_FIX_SHA")
+          test "${#fix_changed[@]}" -eq 1
+          test "${fix_changed[0]}" = "$MIGRATION"
+          git diff --check "$EXPECTED_MAIN_SHA" "$EXPECTED_FIX_SHA"
+          git diff --check "$EXPECTED_FIX_SHA"...HEAD
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          mkdir -p "$EVIDENCE_DIR" "$RUNNER_TEMP/exact-fix"
+          git worktree add --detach "$RUNNER_TEMP/exact-fix" "$EXPECTED_FIX_SHA"
+          grep -Fq "grant select on table public.collx_only_inventory_boundary_violations" "$RUNNER_TEMP/exact-fix/$MIGRATION"
+          grep -Fq "to service_role" "$RUNNER_TEMP/exact-fix/$MIGRATION"
+          grep -Fq "from public, anon, authenticated" "$RUNNER_TEMP/exact-fix/$MIGRATION"
+          printf '%s\n' "$EXPECTED_FIX_SHA" > "$EVIDENCE_DIR/exact-fix-sha.txt"
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ${{ runner.temp }}/exact-fix/package-lock.json
+
+      - name: Install exact fix dependencies
+        working-directory: ${{ runner.temp }}/exact-fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+
+      - name: Run dependency lint TypeScript and Production build gates
+        working-directory: ${{ runner.temp }}/exact-fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm audit --audit-level=high
+          npm run lint
+          npx tsc --noEmit --pretty false
+          npm run build
+
+      - name: Rollback-validate least-privilege Production grant
+        shell: bash
+        run: |
+          set -euo pipefail
+          MIGRATION_PATH="$RUNNER_TEMP/exact-fix/$MIGRATION" node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const endpoint=`https://api.supabase.com/v1/projects/${process.env.PROJECT_REF}/database/query`;
+          const request=async(query,readOnly)=>{
+            const response=await fetch(endpoint,{method:'POST',headers:{Authorization:`Bearer ${process.env.SUPABASE_ACCESS_TOKEN}`,'Content-Type':'application/json'},body:JSON.stringify({query,parameters:[],read_only:readOnly})});
+            const body=await response.text();
+            if(!response.ok)throw new Error(`Supabase validation HTTP ${response.status}: ${body.slice(0,1800)}`);
+            return body?JSON.parse(body):[];
+          };
+          const privilegeSql=`select json_build_object(
+            'service_role_select',has_table_privilege('service_role','public.collx_only_inventory_boundary_violations','SELECT'),
+            'anon_select',has_table_privilege('anon','public.collx_only_inventory_boundary_violations','SELECT'),
+            'authenticated_select',has_table_privilege('authenticated','public.collx_only_inventory_boundary_violations','SELECT')
+          ) receipt;`;
+          const before=(await request(privilegeSql,true))?.[0]?.receipt||{};
+          if(before.service_role_select!==false||before.anon_select!==false||before.authenticated_select!==false){
+            throw new Error(`Unexpected pre-validation privileges: ${JSON.stringify(before)}`);
+          }
+          let migration=fs.readFileSync(process.env.MIGRATION_PATH,'utf8');
+          migration=migration.replace(/\bbegin\s*;/i,'').replace(/\bcommit\s*;\s*$/i,'').trim();
+          const validation=`begin;\n${migration}\n
+do $$
+begin
+  if not has_table_privilege('service_role','public.collx_only_inventory_boundary_violations','SELECT') then
+    raise exception 'SERVICE_ROLE_SELECT_NOT_GRANTED';
+  end if;
+  if has_table_privilege('anon','public.collx_only_inventory_boundary_violations','SELECT') then
+    raise exception 'ANON_SELECT_WAS_GRANTED';
+  end if;
+  if has_table_privilege('authenticated','public.collx_only_inventory_boundary_violations','SELECT') then
+    raise exception 'AUTHENTICATED_SELECT_WAS_GRANTED';
+  end if;
+end;
+$$;
+set local role service_role;
+select count(*) as service_role_view_rows from public.collx_only_inventory_boundary_violations;
+rollback;`;
+          await request(validation,false);
+          const after=(await request(privilegeSql,true))?.[0]?.receipt||{};
+          if(JSON.stringify(after)!==JSON.stringify(before)){
+            throw new Error(`Rollback did not preserve privileges: ${JSON.stringify({before,after})}`);
+          }
+          fs.writeFileSync(process.env.EVIDENCE_DIR+'/rollback-validation.json',JSON.stringify({ok:true,exactFixSha:process.env.EXPECTED_FIX_SHA,before,after,serviceRoleViewSelectSucceededInsideRollback:true,publicRolesRemainedDenied:true,productionMutationPersisted:false,validatedAt:new Date().toISOString()},null,2));
+          NODE
+
+      - name: Upload sanitized validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validate-collx-view-grant-20260730
+          path: .audit/validate-collx-view-grant-20260730
+          if-no-files-found: error
+          retention-days: 90
