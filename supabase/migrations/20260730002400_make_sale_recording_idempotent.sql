@@ -1,24 +1,34 @@
 begin;
 
 do $$
+declare
+  public_function_oid oid := to_regprocedure(
+    'public.record_collectible_sale(uuid,bigint,text,text,text,integer,numeric,text,timestamp with time zone,text,jsonb,boolean)'
+  );
+  unsafe_function_oid oid := to_regprocedure(
+    'public.record_collectible_sale_unsafe_20260730(uuid,bigint,text,text,text,integer,numeric,text,timestamp with time zone,text,jsonb,boolean)'
+  );
+  current_definition text;
 begin
-  if to_regprocedure(
-    'public.record_collectible_sale_unsafe_20260730(uuid,bigint,text,text,text,integer,numeric,text,timestamptz,text,jsonb,boolean)'
-  ) is null then
-    alter function public.record_collectible_sale(
-      uuid,
-      bigint,
-      text,
-      text,
-      text,
-      integer,
-      numeric,
-      text,
-      timestamptz,
-      text,
-      jsonb,
-      boolean
-    ) rename to record_collectible_sale_unsafe_20260730;
+  if public_function_oid is null and unsafe_function_oid is null then
+    raise exception 'record_collectible_sale prerequisite function is missing.'
+      using errcode = '42883';
+  end if;
+
+  if public_function_oid is not null then
+    current_definition := pg_get_functiondef(public_function_oid);
+
+    if unsafe_function_oid is null then
+      if position('record_collectible_sale_unsafe_20260730' in current_definition) > 0 then
+        raise exception 'record_collectible_sale wrapper exists but its unsafe implementation is missing.'
+          using errcode = '42883';
+      end if;
+
+      execute 'alter function public.record_collectible_sale(uuid,bigint,text,text,text,integer,numeric,text,timestamptz,text,jsonb,boolean) rename to record_collectible_sale_unsafe_20260730';
+    elsif position('record_collectible_sale_unsafe_20260730' in current_definition) = 0 then
+      execute 'drop function public.record_collectible_sale_unsafe_20260730(uuid,bigint,text,text,text,integer,numeric,text,timestamptz,text,jsonb,boolean)';
+      execute 'alter function public.record_collectible_sale(uuid,bigint,text,text,text,integer,numeric,text,timestamptz,text,jsonb,boolean) rename to record_collectible_sale_unsafe_20260730';
+    end if;
   end if;
 end
 $$;
