@@ -234,6 +234,8 @@ export default async function ProductPage({
 
       <section className="mt-6 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_420px]">
         <ProductImageGallery
+          legacyProductId={product.legacyProductId}
+          sku={product.sku}
           inventoryItemId={product.inventoryItemId}
           primaryImageUrl={product.imageUrl}
           title={product.title}
