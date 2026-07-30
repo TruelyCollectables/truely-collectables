@@ -1,0 +1,1 @@
+Operations-only live Deal Hunter native eBay cycle evidence. Never merge this branch. The workflow calls the fixed-scope Production gateway only and uploads sanitized JSON payloads.
