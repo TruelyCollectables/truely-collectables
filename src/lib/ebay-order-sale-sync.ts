@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { recordCollectibleSale } from "./collectible-sale-history";
+import { canonicalLegacyProductIdForEbayItemId } from "./ebay-merged-listing-groups";
 import { getStoreSettings } from "./store-settings";
 import { inventoryEngine } from "../modules/inventory";
 
@@ -254,6 +255,28 @@ async function fetchOrderPage(params: {
   };
 }
 
+async function findSaleProduct(params: {
+  supabase: SupabaseClient;
+  storeId: string;
+  ebayItemId: string;
+}) {
+  const canonicalLegacyProductId =
+    canonicalLegacyProductIdForEbayItemId(params.ebayItemId);
+  const query = params.supabase
+    .from("products")
+    .select("id,quantity,ebay_item_id")
+    .eq("store_id", params.storeId);
+  const result = canonicalLegacyProductId
+    ? await query.eq("id", canonicalLegacyProductId).maybeSingle()
+    : await query.eq("ebay_item_id", params.ebayItemId).maybeSingle();
+  if (result.error) throw result.error;
+
+  return {
+    product: result.data,
+    canonicalLegacyProductId,
+  };
+}
+
 export async function syncRecentEbayOrderSales(params: {
   supabase: SupabaseClient;
   storeId: string;
@@ -322,13 +345,11 @@ export async function syncRecentEbayOrderSales(params: {
           continue;
         }
 
-        const { data: product, error: productError } = await params.supabase
-          .from("products")
-          .select("id,quantity")
-          .eq("store_id", params.storeId)
-          .eq("ebay_item_id", sale.itemId)
-          .maybeSingle();
-        if (productError) throw productError;
+        const { product, canonicalLegacyProductId } = await findSaleProduct({
+          supabase: params.supabase,
+          storeId: params.storeId,
+          ebayItemId: sale.itemId,
+        });
         if (!product?.id) {
           result.unmatched += 1;
           continue;
@@ -359,6 +380,8 @@ export async function syncRecentEbayOrderSales(params: {
             order_id: sale.orderId,
             order_line_item_id: sale.orderLineItemId,
             ebay_item_id: sale.itemId,
+            matched_product_ebay_item_id: product.ebay_item_id,
+            canonical_legacy_product_id: canonicalLegacyProductId,
             title: sale.title,
             order_status_filter: "Completed",
             evidence_source: "ebay_get_orders",
@@ -385,4 +408,5 @@ export const ebayOrderSaleSyncTestHelpers = {
   xmlText,
   xmlBlocks,
   xmlMoney,
+  findSaleProduct,
 };
