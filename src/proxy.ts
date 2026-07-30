@@ -197,12 +197,60 @@ function canonicalDomainRedirect(req: NextRequest) {
   return NextResponse.redirect(url, 308);
 }
 
+function adminCookieValues(req: NextRequest) {
+  return ADMIN_SESSION_COOKIE_NAMES.flatMap((cookieName) =>
+    req.cookies.getAll(cookieName).map((cookie) => cookie.value),
+  );
+}
+
+async function validAdminCookie(req: NextRequest) {
+  for (const adminCookie of adminCookieValues(req)) {
+    if (await isValidAdminSessionValue(adminCookie)) {
+      return adminCookie;
+    }
+  }
+
+  return null;
+}
+
+async function canonicalAdminHostRedirect(req: NextRequest) {
+  const hostname = req.nextUrl.hostname.toLowerCase();
+  const isSafeRedirectMethod = req.method === "GET" || req.method === "HEAD";
+  const isKnownNoncanonicalAdminHost = hostname.endsWith(".vercel.app");
+
+  if (
+    !isSafeRedirectMethod ||
+    !req.nextUrl.pathname.startsWith("/admin") ||
+    hostname === "truelycollectables.com" ||
+    !isKnownNoncanonicalAdminHost
+  ) {
+    return null;
+  }
+
+  const url = req.nextUrl.clone();
+  url.protocol = "https:";
+  url.hostname = "truelycollectables.com";
+  url.port = "";
+
+  const sessionValue = await validAdminCookie(req);
+  if (sessionValue && req.nextUrl.pathname !== "/admin/logout") {
+    url.searchParams.set("admin_handoff", sessionValue);
+  }
+
+  return NextResponse.redirect(url, 303);
+}
+
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const canonicalRedirect = canonicalDomainRedirect(req);
 
   if (canonicalRedirect) {
     return applySecurityHeaders(canonicalRedirect, req);
+  }
+
+  const adminHostRedirect = await canonicalAdminHostRedirect(req);
+  if (adminHostRedirect) {
+    return applySecurityHeaders(adminHostRedirect, req);
   }
 
   if (!isIdentityCheckExempt(pathname) && !isLocalhostRequest(req)) {
@@ -238,21 +286,15 @@ export async function proxy(req: NextRequest) {
       return applySecurityHeaders(response, req);
     }
 
-    const adminCookies = ADMIN_SESSION_COOKIE_NAMES.flatMap((cookieName) =>
-      req.cookies.getAll(cookieName).map((cookie) => cookie.value),
-    );
-    let isValidSession = false;
+    const sessionValue = await validAdminCookie(req);
 
-    for (const adminCookie of adminCookies) {
-      if (await isValidAdminSessionValue(adminCookie)) {
-        isValidSession = true;
-        break;
-      }
-    }
-
-    if (!isValidSession) {
+    if (!sessionValue) {
       return applySecurityHeaders(unauthorized(req), req);
     }
+
+    const response = NextResponse.next();
+    appendAdminSessionCookies(response.headers, req.nextUrl.hostname, sessionValue);
+    return applySecurityHeaders(response, req);
   }
 
   return applySecurityHeaders(NextResponse.next(), req);
