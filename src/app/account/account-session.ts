@@ -3,6 +3,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 const STORAGE_KEY = "tcos_account_session";
+export const ACCOUNT_SESSION_CHANGE_EVENT = "tcos-account-session-change";
 let refreshClient: SupabaseClient | null = null;
 let refreshInFlight: Promise<StoredAccountSession | null> | null = null;
 
@@ -16,10 +17,16 @@ export type StoredAccountSession = {
   };
 };
 
+function notifyAccountSessionChange() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(ACCOUNT_SESSION_CHANGE_EVENT));
+}
+
 export function saveAccountSession(session: StoredAccountSession | null) {
   if (!session) return;
 
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+  notifyAccountSessionChange();
 }
 
 export function getAccountSession(): StoredAccountSession | null {
@@ -31,12 +38,14 @@ export function getAccountSession(): StoredAccountSession | null {
     return JSON.parse(raw) as StoredAccountSession;
   } catch {
     window.localStorage.removeItem(STORAGE_KEY);
+    notifyAccountSessionChange();
     return null;
   }
 }
 
 export function clearAccountSession() {
   window.localStorage.removeItem(STORAGE_KEY);
+  notifyAccountSessionChange();
 }
 
 function getRefreshClient() {
@@ -57,6 +66,10 @@ function getRefreshClient() {
   return refreshClient;
 }
 
+function sessionIsExpired(expiresAtMs: number) {
+  return expiresAtMs <= 0 || expiresAtMs <= Date.now();
+}
+
 export async function getFreshAccountSession(
   minimumValiditySeconds = 5 * 60,
   forceRefresh = false,
@@ -75,11 +88,25 @@ export async function getFreshAccountSession(
     return session;
   }
 
-  if (!session.refresh_token) return session;
+  if (!session.refresh_token) {
+    if (sessionIsExpired(expiresAtMs)) {
+      clearAccountSession();
+      return null;
+    }
+
+    return session;
+  }
 
   const client = getRefreshClient();
 
-  if (!client) return session;
+  if (!client) {
+    if (sessionIsExpired(expiresAtMs)) {
+      clearAccountSession();
+      return null;
+    }
+
+    return session;
+  }
 
   if (!refreshInFlight) {
     refreshInFlight = (async () => {
@@ -90,7 +117,7 @@ export async function getFreshAccountSession(
       });
 
       if (error || !data.session) {
-        if (latestExpiresAtMs > 0 && latestExpiresAtMs <= Date.now()) {
+        if (sessionIsExpired(latestExpiresAtMs)) {
           clearAccountSession();
           return null;
         }
