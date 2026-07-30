@@ -58,6 +58,15 @@ jobs:
             --scope truelycollectables-projects \
             --token "$VERCEL_TOKEN"
 
+      - name: Diagnose required Production variable presence
+        shell: bash
+        run: |
+          node --env-file=.vercel/.env.production.local -e '
+            for (const key of ["ADMIN_SESSION_SECRET", "ADMIN_PASSWORD", "NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "NEXT_PUBLIC_SUPABASE_ANON_KEY"]) {
+              console.log(`${key}_PRESENT=${Boolean(process.env[key]?.trim())}`);
+            }
+          '
+
       - name: Verify live admin orders release
         shell: bash
         run: |
