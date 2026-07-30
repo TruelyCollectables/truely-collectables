@@ -1,0 +1,71 @@
+name: Verified Back Image Contracts
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/verified-back-image-contracts.yml"
+      - "src/lib/listing-image-utils.ts"
+      - "src/lib/companion-back-image-sync.ts"
+      - "src/app/components/ProductImageGallery.tsx"
+      - "src/app/api/cron/companion-back-image-sync/**"
+      - "scripts/run-verified-back-image-contracts.mjs"
+      - "vercel.json"
+  push:
+    branches: [main]
+    paths:
+      - "src/lib/listing-image-utils.ts"
+      - "src/lib/companion-back-image-sync.ts"
+      - "src/app/components/ProductImageGallery.tsx"
+      - "src/app/api/cron/companion-back-image-sync/**"
+      - "scripts/run-verified-back-image-contracts.mjs"
+      - "vercel.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verified-back-image-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
+      ADMIN_SESSION_SECRET: build-validation-session-secret-that-is-long-enough
+      ADMIN_PASSWORD: build-validation-admin-password
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      STRIPE_SECRET_KEY: sk_test_build_validation
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_validation
+      STRIPE_WEBHOOK_SECRET: whsec_build_validation
+      EBAY_CLIENT_ID: build-validation-client-id
+      EBAY_CLIENT_SECRET: build-validation-client-secret
+      EBAY_ENVIRONMENT: production
+      CRON_SECRET: build-validation-cron-secret-that-is-long-enough
+      RESEND_API_KEY: re_build_validation
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Run verified back-image contracts
+        run: node --import tsx scripts/run-verified-back-image-contracts.mjs
+
+      - name: Run TypeScript
+        run: npx tsc --noEmit --pretty false
+
+      - name: Run Production build
+        run: npm run build
