@@ -144,3 +144,68 @@ export async function getFreshAccountSession(
 
   return refreshInFlight;
 }
+
+function withAccountAuthorization(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  accessToken: string,
+): RequestInit {
+  const headers = new Headers(input instanceof Request ? input.headers : undefined);
+  new Headers(init.headers).forEach((value, key) => headers.set(key, value));
+  headers.set("Authorization", `Bearer ${accessToken}`);
+
+  return {
+    ...init,
+    headers,
+    cache: init.cache || "no-store",
+  };
+}
+
+function unauthorizedResponse() {
+  return new Response(JSON.stringify({ error: "Unauthorized" }), {
+    status: 401,
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
+export async function fetchWithAccountSession(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+): Promise<Response> {
+  const session = await getFreshAccountSession();
+
+  if (!session?.access_token) {
+    return unauthorizedResponse();
+  }
+
+  let response = await fetch(
+    input,
+    withAccountAuthorization(input, init, session.access_token),
+  );
+
+  if (response.status !== 401) return response;
+
+  const refreshed = await getFreshAccountSession(0, true);
+
+  if (
+    !refreshed?.access_token ||
+    refreshed.access_token === session.access_token
+  ) {
+    clearAccountSession();
+    return response;
+  }
+
+  response = await fetch(
+    input,
+    withAccountAuthorization(input, init, refreshed.access_token),
+  );
+
+  if (response.status === 401) {
+    clearAccountSession();
+  }
+
+  return response;
+}
