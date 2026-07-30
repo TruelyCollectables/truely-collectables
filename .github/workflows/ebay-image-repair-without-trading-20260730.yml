@@ -1,0 +1,373 @@
+name: eBay Image Repair Without Trading 20260730
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/ebay-image-repair-without-trading-20260730.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ebay-image-repair-without-trading-20260730
+  cancel-in-progress: false
+
+jobs:
+  repair-and-certify:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'ops/ebay-image-repair-without-trading-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      SOURCE_BRANCH: ops/diagnose-ebay-hidden-images-20260730
+
+    steps:
+      - name: Check out isolated operations branch
+        uses: actions/checkout@v4
+        with:
+          ref: ops/ebay-image-repair-without-trading-20260730
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Link Vercel and create isolated repair token
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          work="$RUNNER_TEMP/ebay-image-repair-no-trading"
+          mkdir -p "$work" .vercel
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          token="$(openssl rand -hex 32)"
+          printf '%s' "$token" > "$work/token"
+          echo "::add-mask::$token"
+          printf '%s\n' "$token" | npx vercel@56.2.0 env add EBAY_NO_TRADING_IMAGE_REPAIR_TOKEN_20260730 production --force \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Build quota-independent protected repair route
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/ebay-image-repair-no-trading"
+          git fetch origin "$SOURCE_BRANCH"
+          git show "origin/$SOURCE_BRANCH:.github/workflows/repair-ebay-hidden-images-20260730.yml" > "$work/source-workflow.yml"
+          route=src/app/api/internal/ebay-no-trading-image-repair/route.ts
+          mkdir -p "$(dirname "$route")"
+          awk '
+            /cat > src\/app\/api\/internal\/ebay-hidden-image-repair\/route\.ts <<'"'"'ROUTE'"'"'/ { capture=1; next }
+            capture && /^          ROUTE$/ { capture=0; exit }
+            capture { sub(/^          /, ""); print }
+          ' "$work/source-workflow.yml" > "$route"
+          test -s "$route"
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/app/api/internal/ebay-no-trading-image-repair/route.ts')
+          text = path.read_text()
+          text = text.replace('../../../../../lib/supabase-server', '../../../../lib/supabase-server')
+          text = text.replace('import { getActiveStoreId } from "../../../../../lib/stores";\n', '')
+          text = text.replace('const storeId = getActiveStoreId();', 'const storeId = "00000000-0000-4000-8000-000000000001";')
+          text = text.replace('EBAY_HIDDEN_IMAGE_REPAIR_TOKEN', 'EBAY_NO_TRADING_IMAGE_REPAIR_TOKEN_20260730')
+
+          marker = '''          function metadataSku(metadata: Record<string, unknown> | null) {'''
+          addition = r'''
+          function decodePageText(value: string) {
+            return value
+              .replace(/\\u002f/gi, "/")
+              .replace(/\\\//g, "/")
+              .replace(/&quot;/gi, '"')
+              .replace(/&#34;/g, '"')
+              .replace(/&amp;/gi, "&")
+              .replace(/&#39;|&apos;/gi, "'");
+          }
+
+          function collectImageValues(value: unknown, target: string[]) {
+            if (typeof value === "string") {
+              if (/^https:\/\/i\.ebayimg\.com\//i.test(value) ||
+                  /^https:\/\/storage\.googleapis\.com\//i.test(value) ||
+                  /^https:\/\/[^/]+\.googleusercontent\.com\//i.test(value)) {
+                target.push(value);
+              }
+              return;
+            }
+            if (Array.isArray(value)) {
+              for (const entry of value) collectImageValues(entry, target);
+              return;
+            }
+            if (!value || typeof value !== "object") return;
+            for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+              if (["image", "images", "imageUrl", "imageUrls", "additionalImages"].includes(key)) {
+                collectImageValues(entry, target);
+              }
+            }
+          }
+
+          async function getPublicListingImages(itemId: string) {
+            const found: string[] = [];
+            const statuses: Array<{ source: string; status: number }> = [];
+            const headers = {
+              "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/126 Safari/537.36",
+              "accept-language": "en-US,en;q=0.9",
+            };
+
+            try {
+              const response = await fetch(`https://www.ebay.com/itm/${encodeURIComponent(itemId)}`, {
+                headers,
+                redirect: "follow",
+                signal: AbortSignal.timeout(30000),
+              });
+              statuses.push({ source: "item_page", status: response.status });
+              const html = decodePageText(await response.text());
+              for (const match of html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
+                try {
+                  const payload = JSON.parse(match[1].trim());
+                  const candidates = Array.isArray(payload) ? payload : [payload];
+                  for (const candidate of candidates) {
+                    const type = candidate?.["@type"];
+                    const productType = type === "Product" || (Array.isArray(type) && type.includes("Product"));
+                    if (productType) collectImageValues(candidate, found);
+                  }
+                } catch {
+                  // Ignore malformed structured-data blocks.
+                }
+              }
+              for (const match of html.matchAll(/"(?:imageUrl|zoomUrl|originalImageUrl|largeImageUrl)"\s*:\s*"(https:\/\/i\.ebayimg\.com\/images\/g\/[^"\\]+)"/gi)) {
+                found.push(match[1]);
+              }
+            } catch {
+              statuses.push({ source: "item_page", status: 0 });
+            }
+
+            try {
+              const response = await fetch(`https://vi.vipr.ebaydesc.com/ws/eBayISAPI.dll?ViewItemDescV4&item=${encodeURIComponent(itemId)}`, {
+                headers,
+                redirect: "follow",
+                signal: AbortSignal.timeout(30000),
+              });
+              statuses.push({ source: "description_page", status: response.status });
+              const description = decodePageText(await response.text());
+              found.push(...trustedDescriptionImages(description));
+            } catch {
+              statuses.push({ source: "description_page", status: 0 });
+            }
+
+            return { images: normalize(found), statuses };
+          }
+
+'''
+          if marker not in text:
+              raise SystemExit('metadataSku marker not found')
+          text = text.replace(marker, addition + marker, 1)
+
+          old = r'''              try {
+                const trading = product.ebay_item_id ? await getItemSources(accessToken, String(product.ebay_item_id)) : { pictureUrls: [], descriptionImages: [], descriptionLength: 0 };
+                const inventoryApi = await getInventoryImages(accessToken, skuCandidates);
+                const trustedRemote = normalize([
+                  ...inventoryApi.images,
+                  ...trading.pictureUrls,
+                  ...trading.descriptionImages,
+                ]);
+                const verifiedRemote: string[] = [];
+                for (const url of trustedRemote) {
+                  if (await verifyImage(url)) verifiedRemote.push(url);
+                }
+                const finalSets: string[][] = [];
+                let changedRows = 0;
+                for (const inventory of linked) {
+                  const reconciled = await reconcileInventoryImages(
+                    supabase,
+                    inventory,
+                    imagesByInventory.get(inventory.id) || [],
+                    verifiedRemote,
+                  );
+                  finalSets.push(reconciled.finalImages);
+                  if (reconciled.changed) changedRows += 1;
+                }
+                const combined = normalize([...verifiedRemote, ...finalSets.flat()]);
+                if (combined[0]) {
+                  const { error } = await supabase.from("products").update({ image_url: combined[0] }).eq("store_id", storeId).eq("id", product.id);
+                  if (error) throw error;
+                }
+                results.push({
+                  productId: product.id,
+                  title: product.title,
+                  ebayItemId: product.ebay_item_id,
+                  linkedInventoryRows: linked.length,
+                  skuCandidates,
+                  inventoryApiAttempts: inventoryApi.attempts,
+                  inventoryApiImages: inventoryApi.images,
+                  tradingPictureUrls: trading.pictureUrls,
+                  descriptionImages: trading.descriptionImages,
+                  descriptionLength: trading.descriptionLength,
+                  verifiedRemoteImages: verifiedRemote,
+                  finalImages: combined,
+                  finalImageCount: combined.length,
+                  changedInventoryRows: changedRows,
+                  hasBack: combined.length >= 2,
+                });
+'''
+          new = r'''              try {
+                let inventoryApi: { images: string[]; attempts: Array<{ sku: string; status: number }> } = { images: [], attempts: [] };
+                let inventoryApiError: string | null = null;
+                try {
+                  inventoryApi = await getInventoryImages(accessToken, skuCandidates);
+                } catch (error) {
+                  inventoryApiError = error instanceof Error ? error.message.slice(0, 500) : String(error);
+                }
+
+                let publicListing: { images: string[]; statuses: Array<{ source: string; status: number }> } = { images: [], statuses: [] };
+                let publicListingError: string | null = null;
+                try {
+                  publicListing = product.ebay_item_id
+                    ? await getPublicListingImages(String(product.ebay_item_id))
+                    : { images: [], statuses: [] };
+                } catch (error) {
+                  publicListingError = error instanceof Error ? error.message.slice(0, 500) : String(error);
+                }
+
+                const trustedRemote = normalize([
+                  ...inventoryApi.images,
+                  ...publicListing.images,
+                ]);
+                const verifiedRemote: string[] = [];
+                for (const url of trustedRemote) {
+                  if (await verifyImage(url)) verifiedRemote.push(url);
+                }
+                const finalSets: string[][] = [];
+                let changedRows = 0;
+                for (const inventory of linked) {
+                  const reconciled = await reconcileInventoryImages(
+                    supabase,
+                    inventory,
+                    imagesByInventory.get(inventory.id) || [],
+                    verifiedRemote,
+                  );
+                  finalSets.push(reconciled.finalImages);
+                  if (reconciled.changed) changedRows += 1;
+                }
+                const combined = normalize([...verifiedRemote, ...finalSets.flat()]);
+                if (combined[0]) {
+                  const { error } = await supabase.from("products").update({ image_url: combined[0] }).eq("store_id", storeId).eq("id", product.id);
+                  if (error) throw error;
+                }
+                results.push({
+                  productId: product.id,
+                  title: product.title,
+                  ebayItemId: product.ebay_item_id,
+                  linkedInventoryRows: linked.length,
+                  skuCandidates,
+                  inventoryApiAttempts: inventoryApi.attempts,
+                  inventoryApiImages: inventoryApi.images,
+                  inventoryApiError,
+                  publicListingStatuses: publicListing.statuses,
+                  publicListingImages: publicListing.images,
+                  publicListingError,
+                  verifiedRemoteImages: verifiedRemote,
+                  finalImages: combined,
+                  finalImageCount: combined.length,
+                  changedInventoryRows: changedRows,
+                  hasBack: combined.length >= 2,
+                });
+'''
+          if old not in text:
+              raise SystemExit('worker block not found')
+          text = text.replace(old, new, 1)
+          path.write_text(text)
+          PY
+          ! grep -Fq 'getActiveStoreId' "$route"
+          grep -Fq 'from "../../../../lib/supabase-server"' "$route"
+          grep -Fq 'EBAY_NO_TRADING_IMAGE_REPAIR_TOKEN_20260730' "$route"
+          grep -Fq 'getPublicListingImages' "$route"
+          grep -Fq 'getInventoryImages(accessToken, skuCandidates)' "$route"
+          grep -Fq 'publicListingImages' "$route"
+          git diff --check
+
+      - name: Deploy quota-independent repair runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/ebay-image-repair-no-trading"
+          npx vercel@56.2.0 deploy --prod --yes --force --archive=tgz \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" | tee "$work/deploy.log"
+          deployment_url="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$work/deploy.log" | tail -1)"
+          test -n "$deployment_url"
+          printf '%s' "$deployment_url" > "$work/deployment-url"
+
+      - name: Recover all pictures without Trading API calls
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/ebay-image-repair-no-trading"
+          token="$(cat "$work/token")"
+          deployment_url="$(cat "$work/deployment-url")"
+          response="$work/response.json"
+          echo "::add-mask::$token"
+          status="$(curl -sS --max-time 330 \
+            -H "x-tcos-repair-token: $token" \
+            -X POST -o "$response" -w '%{http_code}' \
+            "$deployment_url/api/internal/ebay-no-trading-image-repair?run=${GITHUB_RUN_ID}" || true)"
+          echo "repair_status=$status"
+          cat "$response" || true
+          echo
+          test "$status" = "200"
+          node - "$response" <<'NODE'
+          const fs = require('node:fs');
+          const receipt = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          if (!receipt.success) throw new Error('Repair receipt was not successful.');
+          const summary = {
+            requestedProducts: receipt.requestedProducts,
+            foundProducts: receipt.foundProducts,
+            productsWithFrontBack: receipt.productsWithFrontBack,
+            stillMissingCount: receipt.stillMissingCount,
+            stillMissing: receipt.stillMissing,
+            sourceSummary: receipt.results.map((row) => ({
+              productId: row.productId,
+              title: row.title,
+              inventoryApiCount: row.inventoryApiImages?.length || 0,
+              publicListingCount: row.publicListingImages?.length || 0,
+              finalImageCount: row.finalImageCount || 0,
+              changedInventoryRows: row.changedInventoryRows || 0,
+              hasBack: row.hasBack,
+              inventoryApiAttempts: row.inventoryApiAttempts || [],
+              publicListingStatuses: row.publicListingStatuses || [],
+              inventoryApiError: row.inventoryApiError || null,
+              publicListingError: row.publicListingError || null,
+              error: row.error || null,
+            })),
+          };
+          console.log('NO_TRADING_IMAGE_REPAIR_SUMMARY=' + JSON.stringify(summary));
+          console.log(JSON.stringify(summary, null, 2));
+          NODE
+
+      - name: Remove temporary route and deploy clean latest main
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 env rm EBAY_NO_TRADING_IMAGE_REPAIR_TOKEN_20260730 production --yes \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null || true
+          git fetch origin main
+          git reset --hard origin/main
+          git clean -fd
+          npx vercel@56.2.0 deploy --prod --yes --force --archive=tgz \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/ebay-image-repair-no-trading"
