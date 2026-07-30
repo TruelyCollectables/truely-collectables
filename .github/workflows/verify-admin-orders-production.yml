@@ -36,7 +36,7 @@ jobs:
             --scope truelycollectables-projects \
             --token "$VERCEL_TOKEN"
 
-      - name: Deploy corrected verifier to Production
+      - name: Deploy protected fee cleanup diagnostic
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         shell: bash
