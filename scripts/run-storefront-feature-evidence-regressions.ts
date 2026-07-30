@@ -39,6 +39,24 @@ assert.equal(
 );
 assert.equal(
   hasStrictMemorabiliaTitleEvidence(
+    "2024-25 Upper Deck Premier #23 Mason McTavish Bronze Jersey",
+  ),
+  true,
+);
+assert.equal(
+  hasStrictMemorabiliaTitleEvidence(
+    "2024-25 SkyBox Metal Universe Connor McDavid Microfibers",
+  ),
+  true,
+);
+assert.equal(
+  hasStrictMemorabiliaTitleEvidence(
+    "2025-26 SP Game Used #NM-89 Peter Forsberg NHL Masters #/299",
+  ),
+  false,
+);
+assert.equal(
+  hasStrictMemorabiliaTitleEvidence(
     "2024-25 Upper Deck New Jersey Devils Team Checklist",
   ),
   false,
@@ -69,6 +87,10 @@ assert.equal(
 );
 assert.equal(
   hasStrictNumberedTitleEvidence("2024 Prizm Orange 12/99", "NBA"),
+  true,
+);
+assert.equal(
+  hasStrictNumberedTitleEvidence("2013 Topps Vault Blank Back 1/1", "Baseball"),
   true,
 );
 assert.equal(
@@ -116,6 +138,8 @@ console.log(
       autographPositiveCases: autographTrue.length,
       allFeatureCategoriesCovered: true,
       seasonFractionExcluded: true,
+      oneOfOneIncluded: true,
+      spGameUsedSetNameExcludedFromMemorabilia: true,
       newJerseyFalsePositiveExcluded: true,
       psaDnaOnlyExcludedFromGraded: true,
     },
