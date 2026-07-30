@@ -17,6 +17,7 @@ on:
       - "src/modules/inventory/types.ts"
       - "supabase/migrations/20260730002000_sold_storefront_retention_and_sale_history.sql"
       - "supabase/migrations/20260730002100_manual_sale_ebay_outbox.sql"
+      - "supabase/migrations/20260730002200_capture_ebay_inactive_sale_state.sql"
       - "vercel.json"
   workflow_dispatch:
 
