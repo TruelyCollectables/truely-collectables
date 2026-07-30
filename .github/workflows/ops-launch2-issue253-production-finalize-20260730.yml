@@ -13,10 +13,10 @@ permissions:
 
 concurrency:
   group: ops-launch2-issue253-production-finalize-20260730
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
-  EXPECTED_MAIN_SHA: 11b95609b4af979283c1d72cf1019f1bc0e9fc85
+  EXPECTED_MAIN_SHA: eff61e573154f4ad2ccc05eae0fe3fa542e94a95
   VERCEL_SCOPE: truelycollectables-projects
   VERCEL_PROJECT: truely-collectables
 
@@ -89,6 +89,7 @@ jobs:
           node scripts/run-sold-trigger-order-simulation.mjs
           node scripts/run-privileged-api-route-audit.mjs
           npm run simulate:privileged-route-auth
+          node scripts/verify-runtime-admin-orders-self-test-contract.mjs
 
       - name: Run high-severity dependency audit
         working-directory: live-app
