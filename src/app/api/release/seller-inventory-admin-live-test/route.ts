@@ -1,3 +1,7 @@
+import {
+  createOrUpdateAccountProfile,
+  ensureAccountStoreMembership,
+} from "../../../../lib/account-auth";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { releaseRuntimeTeamIsAllowed } from "../../../../lib/vercel-release-runtime-auth";
@@ -94,19 +98,9 @@ async function deleteAccountRows(accountId: string) {
     cleanupErrors.push(`products: ${productDeleteError.message}`);
   }
 
-  for (const cleanup of [
-    await supabase.from("account_auth_events").delete().eq("account_id", accountId),
-    await supabase
-      .from("account_store_memberships")
-      .delete()
-      .eq("account_id", accountId),
-    await supabase.from("account_profiles").delete().eq("id", accountId),
-  ]) {
-    if (cleanup.error && !["42P01", "42703"].includes(String(cleanup.error.code || ""))) {
-      cleanupErrors.push(cleanup.error.message);
-    }
-  }
-
+  // Account profile, membership, and auth-event rows are owned by the auth user
+  // and are removed through the database's auth-user cascade. The service role is
+  // intentionally not granted direct DELETE access to those protected tables.
   const { error: userDeleteError } = await supabase.auth.admin.deleteUser(accountId);
   if (userDeleteError && !/not found/i.test(userDeleteError.message)) {
     cleanupErrors.push(`auth: ${userDeleteError.message}`);
@@ -135,6 +129,30 @@ async function createDisposableSeller(params: {
   if (error || !data.user) {
     throw new Error(error?.message || `Could not create ${params.label}.`);
   }
+
+  const now = new Date().toISOString();
+  await createOrUpdateAccountProfile({
+    accountId: data.user.id,
+    email: params.email,
+    displayName: params.label,
+    defaultAccountType: "seller",
+    accountStatus: "active",
+    tosAccepted: true,
+    cardVerified: true,
+    cardVerifiedAt: now,
+  });
+  await Promise.all([
+    ensureAccountStoreMembership({
+      accountId: data.user.id,
+      role: "buyer",
+      status: "active",
+    }),
+    ensureAccountStoreMembership({
+      accountId: data.user.id,
+      role: "seller",
+      status: "active",
+    }),
+  ]);
 
   return data.user;
 }
@@ -252,7 +270,7 @@ export async function POST(request: Request) {
         return json(
           {
             success: false,
-            error: error instanceof Error ? error.message : "Setup failed.",
+            error: error instanceof Error ? error.message : String(error),
             cleanupErrors,
           },
           500,
