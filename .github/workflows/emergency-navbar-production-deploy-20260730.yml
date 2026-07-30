@@ -7,6 +7,12 @@ on:
       - "src/app/components/Navbar.tsx"
       - "scripts/run-navbar-feature-link-regressions.mjs"
       - ".github/workflows/emergency-navbar-production-deploy-20260730.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/app/components/Navbar.tsx"
+      - "scripts/run-navbar-feature-link-regressions.mjs"
+      - ".github/workflows/emergency-navbar-production-deploy-20260730.yml"
   workflow_dispatch:
 
 permissions:
