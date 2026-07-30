@@ -35,6 +35,7 @@
   ],
   "exclude": [
     "node_modules",
-    "scripts/run-autograph-image-contact-sheet.mts"
+    "scripts/run-autograph-image-contact-sheet.mts",
+    "scripts/run-live-storefront-taxonomy-audit-v3.mts"
   ]
 }
