@@ -1,0 +1,262 @@
+name: Deploy Recently Sold Gallery 20260730
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/deploy-recently-sold-gallery-20260730.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-recently-sold-gallery-20260730
+  cancel-in-progress: false
+
+jobs:
+  deploy-sync-and-verify:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'ops/deploy-recently-sold-gallery-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      SOURCE_SHA: 62185767fb910e2e0ba05a1e5a373994cc251987
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+
+    steps:
+      - name: Check out exact merged source
+        uses: actions/checkout@v4
+        with:
+          ref: 62185767fb910e2e0ba05a1e5a373994cc251987
+          fetch-depth: 0
+
+      - name: Fail closed on exact source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -f src/app/recently-sold/page.tsx
+          test -f src/app/components/ProductImageGallery.tsx
+          grep -Fq 'href: "/recently-sold", label: "Recently Sold"' src/app/components/Navbar.tsx
+          grep -Fq 'ProductImageGallery' src/app/product/'[id]'/page.tsx
+          grep -Fq 'ProductImageGallery' src/app/product/'[id]'/layout.tsx
+          git diff --check
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Link Vercel and pull Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p .vercel "$RUNNER_TEMP/recently-sold-gallery"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/recently-sold-gallery/production.env" \
+            --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          test -s "$RUNNER_TEMP/recently-sold-gallery/production.env"
+
+      - name: Reconcile all eBay listing photos into inventory images
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --env-file="$RUNNER_TEMP/recently-sold-gallery/production.env" --import tsx --input-type=module <<'NODE'
+          import { createClient } from '@supabase/supabase-js';
+          import { syncEbayAllListingImages } from './src/lib/ebay-all-image-sync.ts';
+          import { getActiveStoreId } from './src/lib/stores.ts';
+
+          const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+          const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+          if (!url || !key) throw new Error('Production Supabase server credentials are unavailable.');
+          const supabase = createClient(url, key, {
+            auth: { autoRefreshToken: false, persistSession: false },
+          });
+          const storeId = getActiveStoreId();
+          const passes = [];
+          for (let pass = 1; pass <= 5; pass += 1) {
+            const result = await syncEbayAllListingImages({ supabase, storeId });
+            passes.push({
+              pass,
+              checked: result.checked,
+              updated: result.updated,
+              imagesAdded: result.imagesAdded,
+              imagesRemoved: result.imagesRemoved,
+              remainingCandidates: result.remainingCandidates,
+              failed: result.errors.length,
+              cycleComplete: result.cycleComplete,
+            });
+            if (!result.cycleComplete) throw new Error(`Image sync page cycle was incomplete on pass ${pass}.`);
+            if (result.errors.length) {
+              throw new Error(`Image sync had ${result.errors.length} failures on pass ${pass}.`);
+            }
+            if (result.remainingCandidates === 0) break;
+          }
+          const finalPass = passes[passes.length - 1];
+          if (!finalPass || finalPass.remainingCandidates !== 0) {
+            throw new Error('Image sync did not converge to zero remaining candidates.');
+          }
+          console.log(JSON.stringify({ imageSync: passes }, null, 2));
+          NODE
+
+      - name: Measure Production front and back photo coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --env-file="$RUNNER_TEMP/recently-sold-gallery/production.env" --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import { createClient } from '@supabase/supabase-js';
+
+          const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+          const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+          const storeId = process.env.TCOS_ACTIVE_STORE_ID || process.env.NEXT_PUBLIC_TCOS_ACTIVE_STORE_ID;
+          if (!url || !key) throw new Error('Production Supabase server credentials are unavailable.');
+          const supabase = createClient(url, key, {
+            auth: { autoRefreshToken: false, persistSession: false },
+          });
+
+          async function allRows(factory) {
+            const rows = [];
+            for (let page = 0; page < 50; page += 1) {
+              const from = page * 1000;
+              const { data, error } = await factory(from, from + 999);
+              if (error) throw error;
+              const batch = data || [];
+              rows.push(...batch);
+              if (batch.length < 1000) return rows;
+            }
+            throw new Error('Production coverage pagination exceeded 50000 rows.');
+          }
+
+          const products = await allRows((from, to) => {
+            let query = supabase
+              .from('products')
+              .select('id,title,quantity,store_id')
+              .gt('quantity', 0)
+              .order('id', { ascending: true })
+              .range(from, to);
+            if (storeId) query = query.eq('store_id', storeId);
+            return query;
+          });
+          const productIds = new Set(products.map((row) => Number(row.id)));
+          const inventory = await allRows((from, to) => {
+            let query = supabase
+              .from('inventory_items')
+              .select('id,legacy_product_id,store_id')
+              .order('id', { ascending: true })
+              .range(from, to);
+            if (storeId) query = query.eq('store_id', storeId);
+            return query;
+          });
+          const activeInventory = inventory.filter((row) => productIds.has(Number(row.legacy_product_id)));
+          const inventoryIds = activeInventory.map((row) => String(row.id));
+          const images = [];
+          for (let offset = 0; offset < inventoryIds.length; offset += 20) {
+            const ids = inventoryIds.slice(offset, offset + 20);
+            if (!ids.length) continue;
+            const batch = await allRows((from, to) =>
+              supabase
+                .from('inventory_images')
+                .select('inventory_item_id,image_url,sort_order')
+                .in('inventory_item_id', ids)
+                .order('inventory_item_id', { ascending: true })
+                .order('sort_order', { ascending: true })
+                .range(from, to),
+            );
+            images.push(...batch);
+          }
+          const counts = new Map();
+          for (const image of images) {
+            const id = String(image.inventory_item_id);
+            counts.set(id, (counts.get(id) || 0) + 1);
+          }
+          let noPhoto = 0;
+          let frontOnly = 0;
+          let frontBack = 0;
+          let sampleProductId = null;
+          for (const row of activeInventory) {
+            const count = counts.get(String(row.id)) || 0;
+            if (count === 0) noPhoto += 1;
+            else if (count === 1) frontOnly += 1;
+            else {
+              frontBack += 1;
+              if (sampleProductId === null) sampleProductId = Number(row.legacy_product_id);
+            }
+          }
+          if (products.length && activeInventory.length === 0) {
+            throw new Error('Active products exist but no bridged inventory rows were found.');
+          }
+          if (activeInventory.length && frontBack === 0) {
+            throw new Error('No active listing has both front and back photos after image reconciliation.');
+          }
+          const receipt = {
+            activeProducts: products.length,
+            activeInventoryRows: activeInventory.length,
+            noPhoto,
+            frontOnly,
+            frontBack,
+            frontBackPercent: activeInventory.length
+              ? Math.round((frontBack / activeInventory.length) * 10000) / 100
+              : 0,
+            sampleProductId,
+            checkedAt: new Date().toISOString(),
+          };
+          fs.writeFileSync(
+            path.join(process.env.RUNNER_TEMP, 'recently-sold-gallery', 'coverage.json'),
+            JSON.stringify(receipt, null, 2),
+          );
+          console.log(JSON.stringify({ photoCoverage: receipt }, null, 2));
+          NODE
+
+      - name: Deploy exact merged application to Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 deploy --prod --yes --force --archive=tgz \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+
+      - name: Verify live Recently Sold link page and front back gallery
+        shell: bash
+        run: |
+          set -euo pipefail
+          sample_id="$(node -e 'const r=require(process.argv[1]); process.stdout.write(r.sampleProductId ? String(r.sampleProductId) : "")' "$RUNNER_TEMP/recently-sold-gallery/coverage.json")"
+          for attempt in $(seq 1 18); do
+            shop="$(curl -fsSL --max-time 45 "https://truelycollectables.com/shop?gallery_verify=${GITHUB_RUN_ID}&attempt=${attempt}" || true)"
+            sold="$(curl -fsSL --max-time 45 "https://truelycollectables.com/recently-sold?gallery_verify=${GITHUB_RUN_ID}&attempt=${attempt}" || true)"
+            product=""
+            if [ -n "$sample_id" ]; then
+              product="$(curl -fsSL --max-time 45 "https://truelycollectables.com/product/${sample_id}?gallery_verify=${GITHUB_RUN_ID}&attempt=${attempt}" || true)"
+            fi
+            if [ -n "$shop" ] \
+              && grep -Fq 'Recently Sold' <<<"$shop" \
+              && [ -n "$sold" ] \
+              && grep -Fq 'Recently Sold — See What You Missed' <<<"$sold" \
+              && { [ -z "$sample_id" ] || { grep -Fq 'Front photo' <<<"$product" && grep -Fq 'Back photo' <<<"$product"; }; }; then
+              echo "Live Recently Sold and front/back gallery verified on attempt ${attempt}."
+              cat "$RUNNER_TEMP/recently-sold-gallery/coverage.json"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Live Recently Sold or front/back gallery verification failed." >&2
+          exit 1
+
+      - name: Remove temporary Production environment files
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/recently-sold-gallery/production.env"
+          rm -f "$RUNNER_TEMP/recently-sold-gallery/coverage.json"
