@@ -23,18 +23,23 @@ jobs:
   verify-live-production:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
     steps:
       - name: Wait for live fulfillment hotfix
         shell: bash
         run: |
-          set -u
+          set -euo pipefail
+          test -n "${CRON_SECRET:-}"
+          echo "::add-mask::$CRON_SECRET"
           expected='fulfillment-hotfix-2026-07-29-2018-mt'
           build_url='https://truelycollectables.com/api/build-info'
           health_url='https://truelycollectables.com/api/admin-orders-health'
 
           for attempt in $(seq 1 72); do
             build_body="$(curl --location --silent --show-error --max-time 20 "$build_url" 2>/dev/null || true)"
-            health_body="$(curl --location --silent --show-error --max-time 20 "$health_url" 2>/dev/null || true)"
+            health_body="$(curl --location --silent --show-error --max-time 20 \
+              --header "Authorization: Bearer $CRON_SECRET" "$health_url" 2>/dev/null || true)"
 
             if printf '%s' "$build_body" | grep -Fq "$expected" && \
                printf '%s' "$health_body" | grep -Eq '"ok"[[:space:]]*:[[:space:]]*true' && \
@@ -50,5 +55,5 @@ jobs:
 
           echo "Production verification failed after 12 minutes."
           echo "Last build response: ${build_body:-<empty>}"
-          echo "Last health response: ${health_body:-<empty>}"
+          echo "Last health response omitted because it may contain privileged diagnostics."
           exit 1
