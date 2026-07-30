@@ -82,10 +82,22 @@ export default function AccountSessionBoundary({
       applySession(getAccountSession());
     }
 
+    function handleWindowFocus() {
+      void refreshSession(false);
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        void refreshSession(false);
+      }
+    }
+
     window.addEventListener(
       ACCOUNT_SESSION_CHANGE_EVENT,
       handleSessionChange,
     );
+    window.addEventListener("focus", handleWindowFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     void refreshSession(false);
 
     return () => {
@@ -95,6 +107,8 @@ export default function AccountSessionBoundary({
         ACCOUNT_SESSION_CHANGE_EVENT,
         handleSessionChange,
       );
+      window.removeEventListener("focus", handleWindowFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, []);
 
