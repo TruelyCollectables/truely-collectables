@@ -1,0 +1,38 @@
+name: Apply Seller Inventory Live Link Fix
+
+on:
+  push:
+    branches:
+      - fix/seller-inventory-live-link-20260730
+    paths:
+      - ".github/workflows/apply-seller-inventory-live-link-fix.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/seller-inventory-live-link-20260730
+          fetch-depth: 0
+      - name: Restrict storefront links to public listings
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const file = 'src/app/seller/admin/inventory/page.tsx';
+          const source = fs.readFileSync(file, 'utf8');
+          const before = '                      {item.legacyProductId ? (';
+          const after = '                      {item.legacyProductId && item.status === "active" && item.quantity > 0 && item.imageUrl ? (';
+          const count = source.split(before).length - 1;
+          if (count !== 1) throw new Error(`Expected one storefront-link condition, found ${count}.`);
+          fs.writeFileSync(file, source.replace(before, after));
+          NODE
+          git diff --check
+          git add src/app/seller/admin/inventory/page.tsx
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Show storefront links only for public inventory"
+          git push origin HEAD:fix/seller-inventory-live-link-20260730
