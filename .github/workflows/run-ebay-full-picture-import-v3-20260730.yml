@@ -1,0 +1,316 @@
+name: Run eBay Full Picture Import V3 20260730
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/run-ebay-full-picture-import-v3-20260730.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: run-ebay-full-picture-import-v3-20260730
+  cancel-in-progress: false
+
+jobs:
+  protected-runtime-backfill:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'ops/deploy-ebay-full-picture-import-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      SOURCE_SHA: 8eef48590b58d2fe169b232f599e42e94c155f8b
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+
+    steps:
+      - name: Check out exact merged source
+        uses: actions/checkout@v4
+        with:
+          ref: 8eef48590b58d2fe169b232f599e42e94c155f8b
+          fetch-depth: 0
+
+      - name: Validate exact full-picture importer
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          grep -Fq 'X-EBAY-API-CALL-NAME": "GetSellerList"' src/lib/ebay-all-image-sync.ts
+          grep -Fq 'xmlBlocks(pictureDetails, "PictureURL")' src/lib/ebay-all-image-sync.ts
+          ! grep -Fq 'X-EBAY-API-CALL-NAME": "GetMyeBaySelling"' src/lib/ebay-all-image-sync.ts
+          git diff --check
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Link Vercel and create one-time repair token
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          work="$RUNNER_TEMP/ebay-full-picture-v3"
+          mkdir -p .vercel "$work"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          token="$(openssl rand -hex 32)"
+          echo "::add-mask::$token"
+          printf '%s' "$token" > "$work/repair-token"
+          printf '%s\n' "$token" | npx vercel@56.2.0 env add EBAY_FULL_PICTURE_REPAIR_TOKEN production \
+            --force --sensitive --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Add protected temporary full-picture route
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p src/app/api/internal/ebay-full-picture-repair
+          cat > src/app/api/internal/ebay-full-picture-repair/route.ts <<'TS'
+          import { timingSafeEqual } from "node:crypto";
+          import { syncEbayAllListingImages } from "../../../../lib/ebay-all-image-sync";
+          import { getActiveStoreId } from "../../../../lib/stores";
+          import { createSupabaseServerClient } from "../../../../lib/supabase-server";
+
+          export const dynamic = "force-dynamic";
+          export const maxDuration = 300;
+
+          function authorized(request: Request, secret: string) {
+            const supplied = Buffer.from(request.headers.get("x-tcos-repair-token") || "");
+            const expected = Buffer.from(secret);
+            return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+          }
+
+          function chunks<T>(values: T[], size: number) {
+            const result: T[][] = [];
+            for (let index = 0; index < values.length; index += size) {
+              result.push(values.slice(index, index + size));
+            }
+            return result;
+          }
+
+          export async function POST(request: Request) {
+            const secret = process.env.EBAY_FULL_PICTURE_REPAIR_TOKEN || "";
+            if (secret.length < 32 || !authorized(request, secret)) {
+              return Response.json({ success: false, error: "Unauthorized" }, { status: 401 });
+            }
+
+            const startedAt = new Date().toISOString();
+            const supabase = createSupabaseServerClient({ admin: true });
+            const storeId = getActiveStoreId();
+            const passes = [];
+
+            try {
+              for (let pass = 1; pass <= 4; pass += 1) {
+                const result = await syncEbayAllListingImages({ supabase, storeId });
+                passes.push({ pass, ...result });
+                if (!result.cycleComplete || result.errors.length > 0) break;
+                if (result.remainingCandidates === 0) break;
+              }
+
+              const last = passes.at(-1);
+              if (!last || !last.cycleComplete || last.errors.length > 0 || last.remainingCandidates !== 0) {
+                return Response.json(
+                  {
+                    success: false,
+                    event: "ebay_full_picture_repair_incomplete",
+                    startedAt,
+                    completedAt: new Date().toISOString(),
+                    storeId,
+                    passes,
+                  },
+                  { status: 409 },
+                );
+              }
+
+              const { data: products, error: productError } = await supabase
+                .from("products")
+                .select("id")
+                .eq("store_id", storeId)
+                .gt("quantity", 0)
+                .not("ebay_item_id", "is", null)
+                .order("id", { ascending: true })
+                .limit(2000);
+              if (productError) throw productError;
+              const productIds = (products || []).map((row: any) => Number(row.id));
+
+              const inventory: Array<{ id: string; legacy_product_id: number }> = [];
+              for (const productChunk of chunks(productIds, 100)) {
+                const { data, error } = await supabase
+                  .from("inventory_items")
+                  .select("id,legacy_product_id")
+                  .eq("store_id", storeId)
+                  .in("legacy_product_id", productChunk)
+                  .limit(1000);
+                if (error) throw error;
+                inventory.push(...((data || []) as Array<{ id: string; legacy_product_id: number }>));
+              }
+
+              const images: Array<{ inventory_item_id: string; image_url: string }> = [];
+              for (const inventoryChunk of chunks(inventory.map((row) => row.id), 20)) {
+                const { data, error } = await supabase
+                  .from("inventory_images")
+                  .select("inventory_item_id,image_url")
+                  .in("inventory_item_id", inventoryChunk)
+                  .order("inventory_item_id", { ascending: true })
+                  .order("sort_order", { ascending: true })
+                  .limit(1000);
+                if (error) throw error;
+                images.push(...((data || []) as Array<{ inventory_item_id: string; image_url: string }>));
+              }
+
+              const byInventory = new Map<string, Set<string>>();
+              for (const image of images) {
+                let isEbay = false;
+                try {
+                  isEbay = new URL(image.image_url).hostname.toLowerCase() === "i.ebayimg.com";
+                } catch {
+                  isEbay = false;
+                }
+                if (!isEbay) continue;
+                const set = byInventory.get(image.inventory_item_id) || new Set<string>();
+                set.add(image.image_url);
+                byInventory.set(image.inventory_item_id, set);
+              }
+
+              const multiple = inventory.flatMap((row) => {
+                const pictureCount = byInventory.get(row.id)?.size || 0;
+                return pictureCount >= 2
+                  ? [{ productId: Number(row.legacy_product_id), pictureCount }]
+                  : [];
+              });
+              const percentage = productIds.length
+                ? Math.round((multiple.length / productIds.length) * 10000) / 100
+                : 0;
+
+              return Response.json({
+                success: true,
+                event: "ebay_full_picture_repair_completed",
+                startedAt,
+                completedAt: new Date().toISOString(),
+                storeId,
+                passes,
+                coverage: {
+                  activeEbayProducts: productIds.length,
+                  activeInventoryRows: inventory.length,
+                  productsWithMultipleEbayPictures: multiple.length,
+                  multiplePictureCoveragePercent: percentage,
+                  sampleProductId: multiple[0]?.productId || null,
+                },
+              });
+            } catch (error) {
+              return Response.json(
+                {
+                  success: false,
+                  event: "ebay_full_picture_repair_failed",
+                  startedAt,
+                  completedAt: new Date().toISOString(),
+                  storeId,
+                  passes,
+                  error: error instanceof Error ? error.message.slice(0, 1000) : "Unknown repair failure",
+                },
+                { status: 500 },
+              );
+            }
+          }
+          TS
+          git diff --check
+
+      - name: Deploy protected repair runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/ebay-full-picture-v3"
+          npx vercel@56.2.0 deploy --prod --yes --force --archive=tgz \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee "$work/repair-deploy.log"
+          deployment_url="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$work/repair-deploy.log" | tail -n 1)"
+          test -n "$deployment_url"
+          printf '%s' "$deployment_url" > "$work/repair-deployment-url"
+          echo "Protected repair deployment: $deployment_url"
+
+      - name: Pull every eBay listing picture and measure coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/ebay-full-picture-v3"
+          token="$(cat "$work/repair-token")"
+          deployment_url="$(cat "$work/repair-deployment-url")"
+          response="$work/repair-response.json"
+          status="$(curl -sS --max-time 330 \
+            -H "x-tcos-repair-token: $token" \
+            -X POST -o "$response" -w '%{http_code}' \
+            "$deployment_url/api/internal/ebay-full-picture-repair?run=${GITHUB_RUN_ID}" || true)"
+          echo "repair_status=$status"
+          cat "$response" || true
+          echo
+          test "$status" = "200"
+          node - "$response" <<'NODE'
+          const fs = require('node:fs');
+          const receipt = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          if (!receipt.success) throw new Error(JSON.stringify(receipt).slice(0, 8000));
+          const last = receipt.passes?.at(-1);
+          if (!last || !last.cycleComplete || last.errors?.length || last.remainingCandidates !== 0) {
+            throw new Error(`Image sync did not converge: ${JSON.stringify(last)}`);
+          }
+          const coverage = receipt.coverage || {};
+          if (!coverage.sampleProductId) throw new Error('No live product received multiple eBay PictureURL values.');
+          if (Number(coverage.multiplePictureCoveragePercent || 0) < 90) {
+            throw new Error(`Only ${coverage.multiplePictureCoveragePercent}% of active eBay listings received multiple eBay pictures.`);
+          }
+          console.log(JSON.stringify({ verifiedReceipt: receipt }, null, 2));
+          NODE
+
+      - name: Remove repair route token and deploy exact merged source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf src/app/api/internal/ebay-full-picture-repair
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          npx vercel@56.2.0 env rm EBAY_FULL_PICTURE_REPAIR_TOKEN production --yes \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null || true
+          npx vercel@56.2.0 deploy --prod --yes --force --archive=tgz \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+
+      - name: Verify live front and back photos
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$RUNNER_TEMP/ebay-full-picture-v3/repair-response.json"
+          sample_id="$(node -e 'const r=require(process.argv[1]); process.stdout.write(String(r.coverage?.sampleProductId || ""))' "$response")"
+          test -n "$sample_id"
+          for attempt in $(seq 1 18); do
+            product_file="$RUNNER_TEMP/ebay-full-picture-v3/product.html"
+            sold_file="$RUNNER_TEMP/ebay-full-picture-v3/sold.html"
+            product_status="$(curl -sS -L --max-time 60 -o "$product_file" -w '%{http_code}' "https://truelycollectables.com/product/${sample_id}?full_picture_v3=${GITHUB_RUN_ID}&attempt=${attempt}" || true)"
+            sold_status="$(curl -sS -L --max-time 60 -o "$sold_file" -w '%{http_code}' "https://truelycollectables.com/recently-sold?full_picture_v3=${GITHUB_RUN_ID}&attempt=${attempt}" || true)"
+            if [ "$product_status" = "200" ] \
+              && grep -Fq 'Front photo' "$product_file" \
+              && grep -Fq 'Back photo' "$product_file" \
+              && [ "$sold_status" = "200" ] \
+              && grep -Fq 'See What You Missed' "$sold_file"; then
+              echo "Live front/back eBay pictures verified with product ${sample_id} on attempt ${attempt}."
+              cat "$response"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Live front/back verification failed for product ${sample_id}." >&2
+          exit 1
+
+      - name: Remove temporary files and repair token
+        if: always()
+        shell: bash
+        run: |
+          npx vercel@56.2.0 env rm EBAY_FULL_PICTURE_REPAIR_TOKEN production --yes \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null || true
+          rm -rf "$RUNNER_TEMP/ebay-full-picture-v3"
