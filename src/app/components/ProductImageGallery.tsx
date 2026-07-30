@@ -54,14 +54,11 @@ export default async function ProductImageGallery({
     primaryImageUrl,
   });
   const visibleImages = images.length ? images : ["/placeholder.png"];
+  const backImageAvailable = visibleImages.length > 1;
 
   return (
     <section aria-label={`${title} front and back photos`}>
-      <div
-        className={`grid gap-4 ${
-          visibleImages.length > 1 ? "sm:grid-cols-2" : "grid-cols-1"
-        }`}
-      >
+      <div className="grid gap-4 sm:grid-cols-2">
         {visibleImages.map((imageUrl, index) => (
           <figure
             key={`${imageUrl}-${index}`}
@@ -74,11 +71,7 @@ export default async function ProductImageGallery({
                 src={imageUrl}
                 alt={listingImageAltText(title, index)}
                 fill
-                sizes={
-                  visibleImages.length > 1
-                    ? "(min-width: 1024px) 34vw, (min-width: 640px) 50vw, 100vw"
-                    : "(min-width: 1024px) calc(100vw - 540px), 100vw"
-                }
+                sizes="(min-width: 1024px) 34vw, (min-width: 640px) 50vw, 100vw"
                 unoptimized
                 className="object-contain p-3"
               />
@@ -95,12 +88,28 @@ export default async function ProductImageGallery({
             </figcaption>
           </figure>
         ))}
+
+        {!backImageAvailable ? (
+          <div
+            className={`flex aspect-[4/5] min-h-[320px] items-center justify-center rounded border-2 border-dashed p-6 text-center lg:min-h-[520px] ${
+              sold
+                ? "border-red-300 bg-red-50 text-red-800"
+                : "border-neutral-300 bg-white text-neutral-600"
+            }`}
+            aria-label={`${title} back photo unavailable`}
+          >
+            <div>
+              <p className="text-sm font-black uppercase tracking-[0.14em]">
+                Back photo unavailable
+              </p>
+              <p className="mt-2 text-sm font-semibold leading-6">
+                The source listing does not currently include a verified back
+                image. We will add it automatically when one becomes available.
+              </p>
+            </div>
+          </div>
+        ) : null}
       </div>
-      {visibleImages.length === 1 ? (
-        <p className="mt-3 text-sm font-semibold text-neutral-500">
-          A back photo is not available from the source listing yet.
-        </p>
-      ) : null}
     </section>
   );
 }

@@ -60,6 +60,10 @@
       "schedule": "11 * * * *"
     },
     {
+      "path": "/api/cron/companion-back-image-sync",
+      "schedule": "23 9 * * *"
+    },
+    {
       "path": "/api/cron/stripe-reconciliation",
       "schedule": "0 18 * * *"
     }

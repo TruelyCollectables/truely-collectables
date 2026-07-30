@@ -33,6 +33,43 @@ export function listingImageIdentity(value: unknown) {
   }
 }
 
+export function listingImageSide(value: unknown): "front" | "back" | null {
+  const cleaned = cleanImageUrl(value);
+  if (!cleaned) return null;
+
+  let pathname = cleaned;
+  try {
+    pathname = new URL(cleaned).pathname;
+  } catch {
+    pathname = cleaned.split(/[?#]/, 1)[0];
+  }
+
+  const match = /(?:^|[-_/])(front|back)(?=\.[a-z0-9]+$)/i.exec(pathname);
+  if (!match?.[1]) return null;
+  return match[1].toLowerCase() === "back" ? "back" : "front";
+}
+
+export function companionBackListingImageUrl(value: unknown) {
+  const cleaned = cleanImageUrl(value);
+  if (!cleaned || listingImageSide(cleaned) !== "front") return "";
+
+  try {
+    const url = new URL(cleaned);
+    const replaced = url.pathname.replace(
+      /(^|[-_/])front(?=\.[a-z0-9]+$)/i,
+      "$1back",
+    );
+    if (replaced === url.pathname) return "";
+    url.pathname = replaced;
+    return url.toString();
+  } catch {
+    return cleaned.replace(
+      /(^|[-_/])front(?=\.[a-z0-9]+(?:[?#].*)?$)/i,
+      "$1back",
+    );
+  }
+}
+
 export function normalizeListingImageUrls(values: unknown[]) {
   const images: string[] = [];
   const identities = new Set<string>();
@@ -54,20 +91,32 @@ export function normalizeListingImageUrls(values: unknown[]) {
 
 export function selectFrontBackListingImages(values: unknown[]) {
   const normalized = normalizeListingImageUrls(values);
-  const firstTwo = normalized.slice(0, 2);
+  if (normalized.length <= 1) return normalized;
 
-  if (
-    firstTwo.length === 2 &&
-    firstTwo.every((image) => listingImageIdentity(image).startsWith("ebay:"))
-  ) {
-    return firstTwo;
-  }
-
-  const nonEbay = normalized.filter(
-    (image) => !listingImageIdentity(image).startsWith("ebay:"),
+  const ebayImages = normalized.filter((image) =>
+    listingImageIdentity(image).startsWith("ebay:"),
   );
+  if (ebayImages.length >= 2) return ebayImages.slice(0, 2);
 
-  return (nonEbay.length >= 2 ? nonEbay : normalized).slice(0, 2);
+  const explicitFront = normalized.find(
+    (image) => listingImageSide(image) === "front",
+  );
+  const explicitBack = normalized.find(
+    (image) => listingImageSide(image) === "back",
+  );
+  if (explicitFront && explicitBack) return [explicitFront, explicitBack];
+
+  const front = normalized[0];
+  const remaining = normalized.slice(1);
+  const secondEbay = remaining.find((image) =>
+    listingImageIdentity(image).startsWith("ebay:"),
+  );
+  const neutralDetail = remaining.find(
+    (image) => listingImageSide(image) !== "front",
+  );
+  const back = explicitBack || secondEbay || neutralDetail;
+
+  return back ? [front, back] : [front];
 }
 
 export function listingImageLabel(index: number) {
