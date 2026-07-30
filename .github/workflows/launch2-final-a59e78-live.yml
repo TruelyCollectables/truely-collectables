@@ -1,0 +1,187 @@
+name: Launch 2 Final a59e78 Live Supplement
+
+on:
+  pull_request:
+    branches: [main]
+    paths: [".github/workflows/launch2-final-a59e78-live.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: launch2-final-a59e78-live
+  cancel-in-progress: false
+
+env:
+  EXPECTED_MAIN_SHA: a59e78575fd604cb7a876e9f57350c793756f6ad
+  EXPECTED_BRANCH: ops/launch2-final-a59e78-20260730
+  VERCEL_SCOPE: truelycollectables-projects
+  PROJECT_REF: rfdzsoykhnngzdnvzlhz
+  EVIDENCE_DIR: .audit/launch2-final-a59e78-live
+
+jobs:
+  certify-live:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'ops/launch2-final-a59e78-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Pin exact main and operations-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          test "$(git merge-base "$EXPECTED_MAIN_SHA" HEAD)" = "$EXPECTED_MAIN_SHA"
+          mapfile -t changed < <(git diff --name-only "$EXPECTED_MAIN_SHA"...HEAD | sort)
+          test "${#changed[@]}" -eq 2
+          test "${changed[0]}" = ".github/workflows/launch2-final-a59e78-live.yml"
+          test "${changed[1]}" = ".github/workflows/launch2-final-a59e78.yml"
+          test -n "${VERCEL_TOKEN:-}" && test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$VERCEL_TOKEN"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          mkdir -p "$EVIDENCE_DIR" "$RUNNER_TEMP/launch2-a59e78-live"
+          printf '%s\n' "$EXPECTED_MAIN_SHA" > "$EVIDENCE_DIR/exact-main-sha.txt"
+
+      - name: Reconfirm zero residual test records and collect candidate product IDs
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const endpoint=`https://api.supabase.com/v1/projects/${process.env.PROJECT_REF}/database/query`;
+          const query=`select json_build_object(
+            'candidate_product_ids',(select coalesce(json_agg(x.legacy_product_id),'[]'::json) from (select distinct i.legacy_product_id from public.inventory_items i join public.products p on p.id=i.legacy_product_id and p.store_id=i.store_id where i.legacy_product_id is not null and i.status='active' and i.quantity>0 and i.price>0 and p.archived_at is null order by i.legacy_product_id desc limit 300)x),
+            'launch_test_orders',(select count(*) from public.orders where customer_email='truelycollectables+launch-buyer@gmail.com' and stripe_session_id like 'cs_test_launch%'),
+            'launch_test_notifications',(select count(*) from public.order_notification_deliveries where recipient_email in ('truelycollectables+launch-buyer@gmail.com','truelycollectables+launch-owner@gmail.com') and subject like 'LAUNCH AUDIT%'),
+            'negative_products',(select count(*) from public.products where quantity<0 or price<0),
+            'negative_inventory',(select count(*) from public.inventory_items where quantity<0 or price<0),
+            'captured_at',now()) receipt;`;
+          const response=await fetch(endpoint,{method:'POST',headers:{Authorization:`Bearer ${process.env.SUPABASE_ACCESS_TOKEN}`,'Content-Type':'application/json'},body:JSON.stringify({query,parameters:[],read_only:true})});
+          const text=await response.text(); if(!response.ok) throw new Error(`Supabase ${response.status}: ${text.slice(0,900)}`);
+          const rows=text?JSON.parse(text):[]; const receipt=rows?.[0]?.receipt||rows;
+          for(const key of ['launch_test_orders','launch_test_notifications','negative_products','negative_inventory']) if(Number(receipt[key])!==0) throw new Error(`${key}=${receipt[key]}`);
+          if(!Array.isArray(receipt.candidate_product_ids)||receipt.candidate_product_ids.length===0) throw new Error('No active product candidates were available.');
+          fs.writeFileSync(process.env.GITHUB_WORKSPACE+'/'+process.env.EVIDENCE_DIR+'/production-cleanup-and-candidates.json',JSON.stringify({ok:true,exactMainSha:process.env.EXPECTED_MAIN_SHA,receipt,verifiedAt:new Date().toISOString()},null,2));
+          fs.writeFileSync(process.env.RUNNER_TEMP+'/launch2-a59e78-live/product-ids.txt',receipt.candidate_product_ids.join('\n')+'\n');
+          NODE
+
+      - name: Verify exact Production deployment metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v13/deployments/truely-collectables-h9p38ujfi-truelycollectables-projects.vercel.app?slug=$VERCEL_SCOPE" > "$RUNNER_TEMP/launch2-a59e78-live/deployment.json"
+          FILE="$RUNNER_TEMP/launch2-a59e78-live/deployment.json" OUT="$EVIDENCE_DIR/deployment-receipt.json" node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const value=JSON.parse(fs.readFileSync(process.env.FILE,'utf8'));
+          const aliases=Array.isArray(value.alias)?value.alias:(Array.isArray(value.aliases)?value.aliases:[]);
+          const sha=String(value?.meta?.githubCommitSha||'');
+          if(String(value.target).toLowerCase()!=='production'||String(value.readyState).toUpperCase()!=='READY'||sha!==process.env.EXPECTED_MAIN_SHA||!aliases.includes('truelycollectables.com')) throw new Error(`Exact Production metadata failed ${JSON.stringify({target:value.target,readyState:value.readyState,sha,aliases})}`);
+          fs.writeFileSync(process.env.OUT,JSON.stringify({ok:true,deploymentId:value.id,deploymentHost:value.url,exactMainSha:sha,customDomainAlias:'truelycollectables.com',verifiedAt:new Date().toISOString()},null,2));
+          NODE
+          rm -f "$RUNNER_TEMP/launch2-a59e78-live/deployment.json"
+
+      - name: Verify public routes and discover a genuinely public product page
+        shell: bash
+        run: |
+          set -euo pipefail
+          routes=(/ /shop /cart /account /account/signup /account/login /shipping /returns /buyer-protection /contact /terms /privacy)
+          printf '{"routes":[' > "$EVIDENCE_DIR/live-route-crawl.json"
+          first=true
+          for route in "${routes[@]}"; do
+            code="$(curl -L -sS --max-time 45 -o /dev/null -w '%{http_code}' "https://truelycollectables.com$route")"
+            $first || printf ',' >> "$EVIDENCE_DIR/live-route-crawl.json"
+            first=false
+            printf '{"route":"%s","status":%s}' "$route" "$code" >> "$EVIDENCE_DIR/live-route-crawl.json"
+            test "$code" = 200
+          done
+          printf '],"exactMainSha":"%s","verifiedAt":"%s"}\n' "$EXPECTED_MAIN_SHA" "$(date -u +%FT%TZ)" >> "$EVIDENCE_DIR/live-route-crawl.json"
+
+          public_product=""
+          while IFS= read -r id; do
+            test -n "$id" || continue
+            code="$(curl -L -sS --max-time 30 -o "$RUNNER_TEMP/launch2-a59e78-live/product.html" -w '%{http_code}' "https://truelycollectables.com/product/$id" || true)"
+            if [ "$code" = 200 ] && ! grep -q "Product Not Found" "$RUNNER_TEMP/launch2-a59e78-live/product.html"; then
+              public_product="$id"
+              break
+            fi
+          done < "$RUNNER_TEMP/launch2-a59e78-live/product-ids.txt"
+          test -n "$public_product"
+          printf '{"ok":true,"productPath":"/product/%s","status":200,"verifiedAt":"%s"}\n' "$public_product" "$(date -u +%FT%TZ)" > "$EVIDENCE_DIR/live-product-receipt.json"
+          rm -f "$RUNNER_TEMP/launch2-a59e78-live/product.html"
+
+      - name: Verify privileged routes fail closed and unsigned webhook is rejected
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '{"boundaries":[' > "$EVIDENCE_DIR/privileged-live-boundaries.json"
+          first=true
+          for path in /admin /admin/orders /admin/products /api/admin/order-notifications/retry /api/admin/orders/mark-fulfilled /api/release/order-email-lifecycle-self-test; do
+            code="$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' "https://truelycollectables.com$path" || true)"
+            $first || printf ',' >> "$EVIDENCE_DIR/privileged-live-boundaries.json"
+            first=false
+            printf '{"path":"%s","status":%s}' "$path" "${code:-0}" >> "$EVIDENCE_DIR/privileged-live-boundaries.json"
+            test "$code" != 200
+          done
+          webhook="$(curl -sS --max-time 30 -X POST -H 'content-type: application/json' --data '{}' -o /dev/null -w '%{http_code}' https://truelycollectables.com/api/webhook || true)"
+          test "$webhook" != 200
+          printf '],"unsignedWebhook":%s,"verifiedAt":"%s"}\n' "$webhook" "$(date -u +%FT%TZ)" >> "$EVIDENCE_DIR/privileged-live-boundaries.json"
+
+      - name: Run Production Lighthouse gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --global lighthouse@12.8.2 >/dev/null
+          for spec in home:/ shop:/shop signup:/account/signup cart:/cart; do
+            page="${spec%%:*}"
+            path="${spec#*:}"
+            lighthouse "https://truelycollectables.com$path" --quiet --chrome-flags='--headless --no-sandbox --disable-gpu' --output=json --output-path="$EVIDENCE_DIR/lighthouse-$page.json"
+          done
+          EVIDENCE="$EVIDENCE_DIR" node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const receipt={ok:true,pages:{},verifiedAt:new Date().toISOString()};
+          for(const page of ['home','shop','signup','cart']){const report=JSON.parse(fs.readFileSync(`${process.env.EVIDENCE}/lighthouse-${page}.json`,'utf8'));const categories=report.categories;const scores={performance:categories.performance.score,accessibility:categories.accessibility.score,bestPractices:categories['best-practices'].score,seo:categories.seo.score};if(scores.performance<.70||scores.accessibility<.95||scores.bestPractices<.95)throw new Error(`${page} Lighthouse blocker ${JSON.stringify(scores)}`);if(['home','shop'].includes(page)&&scores.seo<.95)throw new Error(`${page} SEO blocker ${scores.seo}`);receipt.pages[page]=scores;}
+          fs.writeFileSync(`${process.env.EVIDENCE}/lighthouse-summary.json`,JSON.stringify(receipt,null,2));
+          NODE
+
+      - name: Write exact Production live supplement certificate
+        shell: bash
+        run: |
+          cat > "$EVIDENCE_DIR/live-supplement-certificate.json" <<EOF
+          {
+            "schema":"truelycollectables.launch2LiveSupplementCertificate.v1",
+            "status":"PASS",
+            "exactProductionSha":"$EXPECTED_MAIN_SHA",
+            "productionDeployment":"https://truely-collectables-h9p38ujfi-truelycollectables-projects.vercel.app",
+            "baseRun":30522211460,
+            "baseRunPassedThroughEmailRuntimeAndCleanup":true,
+            "publicRoutesAndProductPassed":true,
+            "privilegedBoundariesPassed":true,
+            "lighthousePassed":true,
+            "gmailInspectionPending":true,
+            "realMoneyCharge":false,
+            "realPostagePurchase":false,
+            "carrierAcceptanceScan":false,
+            "physicalDelivery":false,
+            "refundOrDispute":false,
+            "certifiedAt":"$(date -u +%FT%TZ)"
+          }
+          EOF
+
+      - name: Upload sanitized live supplement evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launch2-final-a59e78-live-${{ env.EXPECTED_MAIN_SHA }}
+          path: ${{ env.EVIDENCE_DIR }}
+          if-no-files-found: error
+          retention-days: 30
