@@ -205,9 +205,9 @@ function adminCookieValues(req: NextRequest) {
 }
 
 async function validAdminCookie(req: NextRequest) {
-  for (const cookieValue of adminCookieValues(req)) {
-    if (await isValidAdminSessionValue(cookieValue)) {
-      return cookieValue;
+  for (const adminCookie of adminCookieValues(req)) {
+    if (await isValidAdminSessionValue(adminCookie)) {
+      return adminCookie;
     }
   }
 
