@@ -1,0 +1,85 @@
+name: Deal Hunter Cycle 20260730 0900
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/deal-hunter-cycle-20260730-0900.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  fetch-native-ebay:
+    if: github.event.pull_request.head.ref == 'ops/deal-hunter-cycle-20260730-0900'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch required Production native eBay scopes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          curl --fail --silent --show-error --max-time 180 \
+            'https://truelycollectables.com/api/tcos/deal-hunter-native-ebay?scope=wnba&perQuery=20' \
+            -o evidence/wnba.json
+          curl --fail --silent --show-error --max-time 180 \
+            'https://truelycollectables.com/api/tcos/deal-hunter-native-ebay?scope=ivan_demidov&perQuery=20' \
+            -o evidence/ivan.json
+          curl --fail --silent --show-error --max-time 180 \
+            'https://truelycollectables.com/api/tcos/deal-hunter-native-ebay?scope=baseball_prospects&perQuery=20&players=Jesus%20Made%2CLeo%20De%20Vries%2CJosue%20De%20Paula%2CFranklin%20Arias%2CGeorge%20Lombard%20Jr' \
+            -o evidence/prospects.json
+          curl --fail --silent --show-error --max-time 180 \
+            'https://truelycollectables.com/api/tcos/deal-hunter-native-ebay?scope=signed_baseballs&perQuery=20&players=Jesus%20Made%2CLeo%20De%20Vries%2CJosue%20De%20Paula%2CFranklin%20Arias%2CGeorge%20Lombard%20Jr' \
+            -o evidence/signed-baseballs.json
+
+      - name: Validate gateway contracts and write summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const files = ['wnba','ivan','prospects','signed-baseballs'];
+          const payloads = Object.fromEntries(files.map((name) => [name, JSON.parse(fs.readFileSync(`evidence/${name}.json`, 'utf8'))]));
+          const failures = [];
+          for (const [name, p] of Object.entries(payloads)) {
+            if (p.schema !== 'TCOS_NATIVE_EBAY_FEED_V1') failures.push(`${name}:schema=${p.schema}`);
+            if (p.ok !== true) failures.push(`${name}:ok=${p.ok}`);
+            if (p.nativeEbayUsed !== true) failures.push(`${name}:nativeEbayUsed=${p.nativeEbayUsed}`);
+            if (p.tokenMode !== 'client_credentials') failures.push(`${name}:tokenMode=${p.tokenMode}`);
+            if (Number(p.successfulQueryCount) !== Number(p.queryFamilyCount)) failures.push(`${name}:successful=${p.successfulQueryCount}/${p.queryFamilyCount}`);
+            if (Number(p.failedQueryCount) !== 0) failures.push(`${name}:failed=${p.failedQueryCount}`);
+            if (!Array.isArray(p.sourceCoverage) || p.sourceCoverage.some((row) => row.status !== 'COMPLETE')) failures.push(`${name}:coverage_incomplete`);
+            if (p.boundaries?.arbitraryQueryAccepted !== false || p.boundaries?.purchaseCapability !== false || p.boundaries?.ledgerMutationCapability !== false) failures.push(`${name}:boundary_failure`);
+            if (Array.isArray(p.results) && p.results.some((r) => !/^https:\/\/(www\.)?ebay\.com\//i.test(r.listingUrl || r.url || ''))) failures.push(`${name}:non_ebay_url`);
+          }
+          const w = payloads.wnba;
+          if (Number(w.queryFamilyCount) !== 15 || Number(w.successfulQueryCount) !== 15 || Number(w.requiredWnbaFamilyCount) !== 15 || w.requiredWnbaFamiliesExecuted !== true || w.sourceCoverage?.length !== 15) {
+            failures.push('wnba:15_family_contract_failed');
+          }
+          const summary = {
+            checkedAt: new Date().toISOString(),
+            ok: failures.length === 0,
+            failures,
+            counts: Object.fromEntries(Object.entries(payloads).map(([name,p]) => [name, {
+              queryFamilyCount: p.queryFamilyCount,
+              successfulQueryCount: p.successfulQueryCount,
+              failedQueryCount: p.failedQueryCount,
+              resultCount: Array.isArray(p.results) ? p.results.length : 0,
+              coverageCount: Array.isArray(p.sourceCoverage) ? p.sourceCoverage.length : 0,
+              tokenMode: p.tokenMode,
+              deploymentRevision: p.deploymentRevision || p.searchEngineVersion || null,
+            }]))
+          };
+          fs.writeFileSync('evidence/summary.json', JSON.stringify(summary, null, 2));
+          if (failures.length) throw new Error(failures.join('; '));
+          NODE
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: deal-hunter-cycle-20260730-0900
+          path: evidence
+          if-no-files-found: error
+          retention-days: 30
