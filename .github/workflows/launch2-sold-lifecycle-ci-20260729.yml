@@ -6,6 +6,7 @@ on:
     paths:
       - ".github/workflows/launch2-sold-lifecycle-ci-20260729.yml"
       - "scripts/run-sold-lifecycle-simulations.mjs"
+      - "src/app/admin/products/[id]/layout.tsx"
       - "src/app/admin/sales-history/**"
       - "src/app/api/cron/ebay-order-sale-sync/**"
       - "src/app/api/cron/sold-collectible-archive/**"
