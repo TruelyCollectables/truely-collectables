@@ -171,143 +171,152 @@ async function readAll(client: any, table: string) {
   throw new Error(`${table} pagination exceeded 50,000 rows`);
 }
 
-const envFile = process.env.PRODUCTION_ENV_FILE;
-if (!envFile) throw new Error("PRODUCTION_ENV_FILE is required");
-const env = parseEnvFile(envFile);
-const url = env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceRole = env.SUPABASE_SERVICE_ROLE_KEY;
-if (!url || !serviceRole) throw new Error("Production Supabase credentials were not pulled");
-
-const supabase = createClient(url, serviceRole, {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
-
-const [products, inventoryItems] = await Promise.all([
-  readAll(supabase, "products"),
-  readAll(supabase, "inventory_items"),
-]);
-const inventoryByLegacyId = new Map<number, Row>();
-for (const item of inventoryItems) {
-  const legacyId = Number(item.legacy_product_id);
-  if (Number.isFinite(legacyId)) inventoryByLegacyId.set(legacyId, item);
-}
-
-const activeProducts = products.filter(
-  (product) =>
-    Number(product.quantity || 0) > 0 &&
-    Number(product.price || 0) > 0 &&
-    !product.archived_at,
-);
-
-const currentCounts = {
-  autograph: 0,
-  memorabilia: 0,
-  rookie: 0,
-  graded: 0,
-  numbered: 0,
-};
-const strictCounts = { ...currentCounts };
-const suspects: Record<string, Row[]> = {
-  autograph: [],
-  memorabilia: [],
-  rookie: [],
-  graded: [],
-  numbered: [],
-};
-const sections = new Map<string, number>();
-const needsReview: Row[] = [];
-
-for (const product of activeProducts) {
-  const inventory = inventoryByLegacyId.get(Number(product.id));
-  const metadata = record(inventory?.metadata);
-  const title = String(inventory?.title || product.title || "Untitled");
-  const description = inventory?.description ?? product.description ?? null;
-  const classification = classifyStorefrontItem({
-    title,
-    description,
-    rawSport: product.sport,
-    primaryCategory: inventory?.category ?? null,
-    metadata,
-  });
-  const strict = strictFeatures({
-    title,
-    section: classification.section,
-    metadata,
-  });
-  sections.set(
-    classification.section,
-    (sections.get(classification.section) || 0) + 1,
-  );
-  if (classification.section === "Needs Review") {
-    needsReview.push({
-      id: product.id,
-      title,
-      sport: product.sport,
-      category: inventory?.category,
-    });
+async function main() {
+  const envFile = process.env.PRODUCTION_ENV_FILE;
+  if (!envFile) throw new Error("PRODUCTION_ENV_FILE is required");
+  const env = parseEnvFile(envFile);
+  const url = env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRole = env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !serviceRole) {
+    throw new Error("Production Supabase credentials were not pulled");
   }
 
-  for (const feature of Object.keys(currentCounts) as Array<
-    keyof typeof currentCounts
-  >) {
-    if (classification.features[feature]) currentCounts[feature] += 1;
-    if (strict[feature]) strictCounts[feature] += 1;
-    if (classification.features[feature] && !strict[feature]) {
-      const aspects = record(metadata.source_aspects);
-      suspects[feature].push({
+  const supabase = createClient(url, serviceRole, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  const [products, inventoryItems] = await Promise.all([
+    readAll(supabase, "products"),
+    readAll(supabase, "inventory_items"),
+  ]);
+  const inventoryByLegacyId = new Map<number, Row>();
+  for (const item of inventoryItems) {
+    const legacyId = Number(item.legacy_product_id);
+    if (Number.isFinite(legacyId)) inventoryByLegacyId.set(legacyId, item);
+  }
+
+  const activeProducts = products.filter(
+    (product) =>
+      Number(product.quantity || 0) > 0 &&
+      Number(product.price || 0) > 0 &&
+      !product.archived_at,
+  );
+
+  const currentCounts = {
+    autograph: 0,
+    memorabilia: 0,
+    rookie: 0,
+    graded: 0,
+    numbered: 0,
+  };
+  const strictCounts = { ...currentCounts };
+  const suspects: Record<string, Row[]> = {
+    autograph: [],
+    memorabilia: [],
+    rookie: [],
+    graded: [],
+    numbered: [],
+  };
+  const sections = new Map<string, number>();
+  const needsReview: Row[] = [];
+
+  for (const product of activeProducts) {
+    const inventory = inventoryByLegacyId.get(Number(product.id));
+    const metadata = record(inventory?.metadata);
+    const title = String(inventory?.title || product.title || "Untitled");
+    const description = inventory?.description ?? product.description ?? null;
+    const classification = classifyStorefrontItem({
+      title,
+      description,
+      rawSport: product.sport,
+      primaryCategory: inventory?.category ?? null,
+      metadata,
+    });
+    const strict = strictFeatures({
+      title,
+      section: classification.section,
+      metadata,
+    });
+    sections.set(
+      classification.section,
+      (sections.get(classification.section) || 0) + 1,
+    );
+    if (classification.section === "Needs Review") {
+      needsReview.push({
         id: product.id,
-        ebayItemId: product.ebay_item_id,
         title,
-        section: classification.section,
-        primaryCategory: inventory?.category ?? null,
-        autographedAspect: aspects.Autographed ?? null,
-        signedBy: aspects["Signed By"] ?? null,
-        autographAuthentication: aspects["Autograph Authentication"] ?? null,
-        gradedAspect: aspects.Graded ?? null,
-        professionalGrader: aspects["Professional Grader"] ?? null,
-        featuresAspect: aspects.Features ?? null,
-        parallelAspect: aspects["Parallel/Variety"] ?? null,
+        sport: product.sport,
+        category: inventory?.category,
       });
     }
+
+    for (const feature of Object.keys(currentCounts) as Array<
+      keyof typeof currentCounts
+    >) {
+      if (classification.features[feature]) currentCounts[feature] += 1;
+      if (strict[feature]) strictCounts[feature] += 1;
+      if (classification.features[feature] && !strict[feature]) {
+        const aspects = record(metadata.source_aspects);
+        suspects[feature].push({
+          id: product.id,
+          ebayItemId: product.ebay_item_id,
+          title,
+          section: classification.section,
+          primaryCategory: inventory?.category ?? null,
+          autographedAspect: aspects.Autographed ?? null,
+          signedBy: aspects["Signed By"] ?? null,
+          autographAuthentication: aspects["Autograph Authentication"] ?? null,
+          gradedAspect: aspects.Graded ?? null,
+          professionalGrader: aspects["Professional Grader"] ?? null,
+          featuresAspect: aspects.Features ?? null,
+          parallelAspect: aspects["Parallel/Variety"] ?? null,
+        });
+      }
+    }
   }
+
+  const report = {
+    generatedAt: new Date().toISOString(),
+    activeProducts: activeProducts.length,
+    inventoryItems: inventoryItems.length,
+    currentCounts,
+    strictCounts,
+    suspectCounts: Object.fromEntries(
+      Object.entries(suspects).map(([key, rows]) => [key, rows.length]),
+    ),
+    sectionCounts: Object.fromEntries(
+      Array.from(sections.entries()).sort((a, b) => b[1] - a[1]),
+    ),
+    needsReviewCount: needsReview.length,
+    needsReview,
+    suspects,
+  };
+
+  const output = path.resolve(
+    process.env.AUDIT_OUTPUT || "live-taxonomy-audit.json",
+  );
+  fs.writeFileSync(output, JSON.stringify(report, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        generatedAt: report.generatedAt,
+        activeProducts: report.activeProducts,
+        currentCounts: report.currentCounts,
+        strictCounts: report.strictCounts,
+        suspectCounts: report.suspectCounts,
+        needsReviewCount: report.needsReviewCount,
+        sectionCounts: report.sectionCounts,
+        autographSuspects: report.suspects.autograph,
+        gradedSuspects: report.suspects.graded,
+        numberedSuspects: report.suspects.numbered,
+      },
+      null,
+      2,
+    ),
+  );
 }
 
-const report = {
-  generatedAt: new Date().toISOString(),
-  activeProducts: activeProducts.length,
-  inventoryItems: inventoryItems.length,
-  currentCounts,
-  strictCounts,
-  suspectCounts: Object.fromEntries(
-    Object.entries(suspects).map(([key, rows]) => [key, rows.length]),
-  ),
-  sectionCounts: Object.fromEntries(
-    Array.from(sections.entries()).sort((a, b) => b[1] - a[1]),
-  ),
-  needsReviewCount: needsReview.length,
-  needsReview,
-  suspects,
-};
-
-const output = path.resolve(
-  process.env.AUDIT_OUTPUT || "live-taxonomy-audit.json",
-);
-fs.writeFileSync(output, JSON.stringify(report, null, 2));
-console.log(
-  JSON.stringify(
-    {
-      generatedAt: report.generatedAt,
-      activeProducts: report.activeProducts,
-      currentCounts: report.currentCounts,
-      strictCounts: report.strictCounts,
-      suspectCounts: report.suspectCounts,
-      needsReviewCount: report.needsReviewCount,
-      sectionCounts: report.sectionCounts,
-      autographSuspects: report.suspects.autograph,
-      gradedSuspects: report.suspects.graded,
-      numberedSuspects: report.suspects.numbered,
-    },
-    null,
-    2,
-  ),
-);
+void main().catch((error: unknown) => {
+  console.error(error);
+  process.exitCode = 1;
+});
