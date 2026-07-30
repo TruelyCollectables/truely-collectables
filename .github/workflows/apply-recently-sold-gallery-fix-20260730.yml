@@ -1,0 +1,165 @@
+name: Apply Recently Sold And Gallery Fix 20260730
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/apply-recently-sold-gallery-fix-20260730.yml"
+      - "src/app/components/ProductImageGallery.tsx"
+      - "src/app/components/Navbar.tsx"
+      - "src/app/components/Footer.tsx"
+      - "src/app/recently-sold/**"
+      - "src/app/product/[id]/page.tsx"
+      - "src/app/product/[id]/layout.tsx"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-recently-sold-gallery-fix-20260730
+  cancel-in-progress: false
+
+jobs:
+  patch-test-and-commit:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'fix/recently-sold-and-back-images-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
+      ADMIN_SESSION_SECRET: build-validation-session-secret-that-is-long-enough
+      ADMIN_PASSWORD: build-validation-admin-password
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      STRIPE_SECRET_KEY: sk_test_build_validation
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_validation
+      STRIPE_WEBHOOK_SECRET: whsec_build_validation
+      EBAY_CLIENT_ID: build-validation-client-id
+      EBAY_CLIENT_SECRET: build-validation-client-secret
+      EBAY_ENVIRONMENT: production
+      CRON_SECRET: build-validation-cron-secret-that-is-long-enough
+      RESEND_API_KEY: re_build_validation
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+
+    steps:
+      - name: Check out exact feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/recently-sold-and-back-images-20260730
+          fetch-depth: 0
+
+      - name: Fail closed on branch and required files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "fix/recently-sold-and-back-images-20260730"
+          test -f src/app/components/ProductImageGallery.tsx
+          test -f src/app/recently-sold/page.tsx
+          git diff --check
+
+      - name: Patch active and sold product pages to use gallery
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          page_path = Path("src/app/product/[id]/page.tsx")
+          page = page_path.read_text()
+          if 'import ProductImageGallery from "../../components/ProductImageGallery";' not in page:
+              old_import = 'import Link from "next/link";\nimport Image from "next/image";\nimport type { Metadata } from "next";'
+              new_import = 'import Link from "next/link";\nimport type { Metadata } from "next";\nimport ProductImageGallery from "../../components/ProductImageGallery";'
+              if old_import not in page:
+                  raise SystemExit("Active product import block was not found.")
+              page = page.replace(old_import, new_import, 1)
+
+          old_gallery = '''        <div>
+          <div className="relative min-h-[320px] overflow-hidden rounded border bg-neutral-50 lg:min-h-[620px]">
+            <Image
+              src={product.imageUrl || "/placeholder.png"}
+              alt={product.title}
+              fill
+              sizes="(min-width: 1024px) calc(100vw - 540px), 100vw"
+              unoptimized
+              className="object-contain"
+            />
+          </div>
+        </div>'''
+          new_gallery = '''        <ProductImageGallery
+          inventoryItemId={product.inventoryItemId}
+          primaryImageUrl={product.imageUrl}
+          title={product.title}
+        />'''
+          if old_gallery in page:
+              page = page.replace(old_gallery, new_gallery, 1)
+          elif new_gallery not in page:
+              raise SystemExit("Active product image block was not found.")
+          page_path.write_text(page)
+
+          layout_path = Path("src/app/product/[id]/layout.tsx")
+          layout = layout_path.read_text()
+          layout = layout.replace('import Image from "next/image";\n', '', 1)
+          layout = layout.replace('import SoldOverlay from "../../../components/SoldOverlay";\n', '', 1)
+          if 'import ProductImageGallery from "../../components/ProductImageGallery";' not in layout:
+              marker = 'import Link from "next/link";\n'
+              if marker not in layout:
+                  raise SystemExit("Sold layout import marker was not found.")
+              layout = layout.replace(
+                  marker,
+                  marker + 'import ProductImageGallery from "../../components/ProductImageGallery";\n',
+                  1,
+              )
+
+          old_sold_gallery = '''          <div className="relative min-h-[360px] overflow-hidden rounded border-2 border-red-800 bg-neutral-100 lg:min-h-[680px]">
+            <Image
+              src={product.imageUrl}
+              alt={product.title}
+              fill
+              unoptimized
+              sizes="(min-width: 1024px) calc(100vw - 540px), 100vw"
+              className="object-contain p-3"
+            />
+            <SoldOverlay />
+          </div>'''
+          new_sold_gallery = '''          <ProductImageGallery
+            inventoryItemId={product.inventoryItemId}
+            primaryImageUrl={product.imageUrl}
+            title={product.title}
+            sold
+          />'''
+          if old_sold_gallery in layout:
+              layout = layout.replace(old_sold_gallery, new_sold_gallery, 1)
+          elif new_sold_gallery not in layout:
+              raise SystemExit("Sold product image block was not found.")
+          layout_path.write_text(layout)
+          PY
+          git diff --check
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Run lint TypeScript and Production build
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run lint
+          npx tsc --noEmit --pretty false
+          npm run build
+          git diff --check
+
+      - name: Commit durable page wiring
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add src/app/product/'[id]'/page.tsx src/app/product/'[id]'/layout.tsx
+          if git diff --cached --quiet; then
+            echo "Product gallery wiring is already committed."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Show front and back photos on product pages"
+          git push origin HEAD:fix/recently-sold-and-back-images-20260730
