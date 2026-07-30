@@ -9,6 +9,8 @@ on:
     paths:
       - ".github/workflows/live-storefront-taxonomy-audit-20260730.yml"
       - "scripts/run-live-storefront-taxonomy-audit.ts"
+      - "scripts/run-storefront-feature-evidence-regressions.ts"
+      - "src/lib/storefront-feature-evidence.ts"
       - "src/lib/storefront-taxonomy.ts"
       - "src/lib/server-inventory-engine.ts"
   pull_request:
@@ -16,6 +18,8 @@ on:
     paths:
       - ".github/workflows/live-storefront-taxonomy-audit-20260730.yml"
       - "scripts/run-live-storefront-taxonomy-audit.ts"
+      - "scripts/run-storefront-feature-evidence-regressions.ts"
+      - "src/lib/storefront-feature-evidence.ts"
       - "src/lib/storefront-taxonomy.ts"
       - "src/lib/server-inventory-engine.ts"
   workflow_dispatch:
@@ -45,6 +49,9 @@ jobs:
 
       - name: Install exact dependencies
         run: npm ci
+
+      - name: Run storefront feature evidence regressions
+        run: npx tsx scripts/run-storefront-feature-evidence-regressions.ts
 
       - name: Pull Production environment
         shell: bash
