@@ -20,6 +20,15 @@ export class InventoryEngine extends BaseInventoryEngine {
     cart: CheckoutCartItem[],
   ): Promise<UniversalInventoryItem[]> {
     const items = await super.requireAvailableCartItems(cart);
+    const blockedItem = items.find((item) => !isLaunchSportsCard(item));
+
+    if (blockedItem) {
+      throw new InventoryEngineError(
+        `Product ${blockedItem.legacyProductId} is not available for purchase`,
+        400,
+      );
+    }
+
     const supabase = createSupabaseServerClient({ admin: true });
     const { data, error } = await supabase
       .from("collx_only_inventory_boundary_violations")
@@ -40,15 +49,13 @@ export class InventoryEngine extends BaseInventoryEngine {
     const collxOnlyProductIds = new Set(
       (data || []).map((row: any) => Number(row.legacy_product_id)),
     );
-    const blockedItem = items.find(
-      (item) =>
-        !isLaunchSportsCard(item) ||
-        collxOnlyProductIds.has(item.legacyProductId),
+    const collxOnlyItem = items.find((item) =>
+      collxOnlyProductIds.has(item.legacyProductId),
     );
 
-    if (blockedItem) {
+    if (collxOnlyItem) {
       throw new InventoryEngineError(
-        `Product ${blockedItem.legacyProductId} is not available for purchase`,
+        `Product ${collxOnlyItem.legacyProductId} is not available for purchase`,
         400,
       );
     }
