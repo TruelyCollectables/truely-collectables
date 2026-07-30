@@ -1,8 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { recordCollectibleSale } from "./collectible-sale-history";
 import { canonicalLegacyProductIdForEbayItemId } from "./ebay-merged-listing-groups";
 import { getStoreSettings } from "./store-settings";
-import { inventoryEngine } from "../modules/inventory";
 
 const TRADING_API_VERSION = "1409";
 const PAGE_SIZE = 100;
@@ -355,39 +353,32 @@ export async function syncRecentEbayOrderSales(params: {
           continue;
         }
 
-        const currentQuantity = Math.max(0, Number(product.quantity || 0));
-        if (currentQuantity > 0) {
-          await inventoryEngine.decrementAfterSale({
-            legacyProductId: Number(product.id),
-            quantity: Math.min(sale.quantity, currentQuantity),
-            source: "ebay-order-sale-sync",
-          });
-        }
-
-        await recordCollectibleSale({
-          supabase: params.supabase,
-          storeId: params.storeId,
-          legacyProductId: Number(product.id),
-          eventKey: sale.eventKey,
-          sourceMarketplace: "ebay",
-          sourceReference: sale.orderLineItemId,
-          soldQuantity: sale.quantity,
-          soldPrice: sale.unitPrice,
-          currency: sale.currency,
-          soldAt: sale.soldAt,
-          evidenceStatus: sale.unitPrice === null ? "unresolved" : "verified",
-          evidence: {
-            order_id: sale.orderId,
-            order_line_item_id: sale.orderLineItemId,
-            ebay_item_id: sale.itemId,
-            matched_product_ebay_item_id: product.ebay_item_id,
-            canonical_legacy_product_id: canonicalLegacyProductId,
-            title: sale.title,
-            order_status_filter: "Completed",
-            evidence_source: "ebay_get_orders",
+        const { error: applyError } = await params.supabase.rpc(
+          "apply_ebay_order_collectible_sale",
+          {
+            p_store_id: params.storeId,
+            p_legacy_product_id: Number(product.id),
+            p_event_key: sale.eventKey,
+            p_source_reference: sale.orderLineItemId,
+            p_sold_quantity: sale.quantity,
+            p_sold_price: sale.unitPrice,
+            p_currency: sale.currency,
+            p_sold_at: sale.soldAt,
+            p_evidence_status:
+              sale.unitPrice === null ? "unresolved" : "verified",
+            p_evidence: {
+              order_id: sale.orderId,
+              order_line_item_id: sale.orderLineItemId,
+              ebay_item_id: sale.itemId,
+              matched_product_ebay_item_id: product.ebay_item_id,
+              canonical_legacy_product_id: canonicalLegacyProductId,
+              title: sale.title,
+              order_status_filter: "Completed",
+              evidence_source: "ebay_get_orders",
+            },
           },
-          forceZero: false,
-        });
+        );
+        if (applyError) throw applyError;
         result.recorded += 1;
       } catch (error) {
         result.failed += 1;
