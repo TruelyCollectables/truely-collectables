@@ -126,8 +126,14 @@ jobs:
           const body=await response.text();
           if(!response.ok)throw new Error(`Guarded repair HTTP ${response.status}: ${body.slice(0,1600)}`);
           const receipt=JSON.parse(body)?.[0]?.repair_receipt||{};
-          if(receipt.ok!==true||Number(receipt.remaining_violations)!==0||Number(receipt.repaired_count)<0||Number(receipt.repaired_count)>2||receipt.all_repaired_quantities_zero!==true)throw new Error(`Guarded repair receipt invalid: ${JSON.stringify(receipt)}`);
-          fs.writeFileSync(process.env.EVIDENCE_DIR+'/sold-stock-repair-receipt.json',JSON.stringify(receipt,null,2));
+          if(receipt.ok!==true||Number(receipt.repaired_count)<0||Number(receipt.repaired_count)>2||receipt.all_repaired_quantities_zero!==true)throw new Error(`Guarded repair receipt invalid: ${JSON.stringify(receipt)}`);
+          const verifyResponse=await fetch(endpoint,{method:'POST',headers:{Authorization:`Bearer ${process.env.SUPABASE_ACCESS_TOKEN}`,'Content-Type':'application/json'},body:JSON.stringify({read_only:true,parameters:[],query:`select count(*)::int as remaining_violations from public.products where sold_at is not null and quantity > 0;`})});
+          const verifyBody=await verifyResponse.text();
+          if(!verifyResponse.ok)throw new Error(`Guarded repair verification HTTP ${verifyResponse.status}: ${verifyBody.slice(0,1200)}`);
+          const remaining=Number(JSON.parse(verifyBody)?.[0]?.remaining_violations);
+          const verifiedReceipt={...receipt,remaining_violations:remaining,verified_after_commit:true};
+          if(remaining!==0)throw new Error(`Guarded repair did not clear violations: ${JSON.stringify(verifiedReceipt)}`);
+          fs.writeFileSync(process.env.EVIDENCE_DIR+'/sold-stock-repair-receipt.json',JSON.stringify(verifiedReceipt,null,2));
           NODE
 
       - name: Verify exact live Production deployment and boundaries
