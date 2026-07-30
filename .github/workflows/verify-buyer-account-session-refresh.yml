@@ -1,0 +1,66 @@
+name: Verify Buyer Account Session Refresh
+
+on:
+  pull_request:
+    paths:
+      - "src/app/account/account-session.ts"
+      - "src/app/account/AccountSessionBoundary.tsx"
+      - "src/app/account/layout.tsx"
+      - "src/app/account/orders/page.tsx"
+      - "scripts/verify-buyer-account-session-refresh.mjs"
+      - ".github/workflows/verify-buyer-account-session-refresh.yml"
+  push:
+    branches: [main]
+    paths:
+      - "src/app/account/account-session.ts"
+      - "src/app/account/AccountSessionBoundary.tsx"
+      - "src/app/account/layout.tsx"
+      - "src/app/account/orders/page.tsx"
+      - "scripts/verify-buyer-account-session-refresh.mjs"
+      - ".github/workflows/verify-buyer-account-session-refresh.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-buyer-account-session-refresh-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
+  SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
+  ADMIN_SESSION_SECRET: build-validation-admin-session-secret-that-is-long-enough
+  ADMIN_PASSWORD: build-validation-admin-password
+  NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+  STRIPE_SECRET_KEY: sk_test_build_validation
+  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_validation
+  STRIPE_WEBHOOK_SECRET: whsec_build_validation
+  EBAY_CLIENT_ID: build-validation-client-id
+  EBAY_CLIENT_SECRET: build-validation-client-secret
+  EBAY_ENVIRONMENT: production
+  CRON_SECRET: build-validation-cron-secret-that-is-long-enough
+  TCOS_LIVE_PAYMENTS_ENABLED: "false"
+  TCOS_SHIPPING_PURCHASE_MODE: dry_run
+  TCOS_LIVE_SHIPPING_ENABLED: "false"
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Verify buyer session refresh contract
+        run: node scripts/verify-buyer-account-session-refresh.mjs
+      - name: Lint
+        run: npm run lint
+      - name: TypeScript
+        run: npx tsc --noEmit --pretty false
+      - name: Production build
+        run: npm run build
