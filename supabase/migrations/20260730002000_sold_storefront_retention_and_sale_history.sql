@@ -94,7 +94,7 @@ create index if not exists collectible_sales_verified_comp_idx
   where sold_price is not null and evidence_status in ('verified','manual');
 
 alter table public.collectible_sales enable row level security;
-revoke all on table public.collectible_sales from anon, authenticated;
+revoke all on table public.collectible_sales from public, anon, authenticated;
 grant select, insert on table public.collectible_sales to service_role;
 
 create or replace function public.reject_collectible_append_only_mutation()
@@ -128,7 +128,12 @@ declare
   existing_asset_id uuid;
   created_asset_id uuid;
   mapped_status text;
+  source_key text;
 begin
+  perform pg_advisory_xact_lock(
+    hashtextextended(p_store_id::text || ':asset:' || p_legacy_product_id::text, 0)
+  );
+
   select * into product_row
   from public.products
   where store_id = p_store_id and id = p_legacy_product_id;
@@ -138,11 +143,17 @@ begin
       using errcode = 'P0002';
   end if;
 
+  source_key := 'legacy-product:' || p_legacy_product_id::text;
+
   select * into inventory_row
   from public.inventory_items
   where store_id = p_store_id
-    and (legacy_product_id = p_legacy_product_id or (product_row.sku is not null and sku = product_row.sku))
-  order by case when legacy_product_id = p_legacy_product_id then 0 else 1 end, created_at asc
+    and (
+      legacy_product_id = p_legacy_product_id
+      or (product_row.sku is not null and sku = product_row.sku)
+    )
+  order by case when legacy_product_id = p_legacy_product_id then 0 else 1 end,
+    created_at asc
   limit 1;
 
   select id into existing_asset_id
@@ -151,6 +162,10 @@ begin
     and (
       legacy_product_id = p_legacy_product_id
       or (inventory_row.id is not null and inventory_item_id = inventory_row.id)
+      or (
+        source_system = 'legacy_product_backfill'
+        and source_record_key = source_key
+      )
     )
   order by created_at asc
   limit 1;
@@ -158,7 +173,8 @@ begin
   mapped_status := case
     when product_row.archived_at is not null then 'archived'
     when coalesce(inventory_row.status, '') = 'archived' then 'archived'
-    when coalesce(product_row.quantity, 0) <= 0 or coalesce(inventory_row.status, '') = 'sold' then 'sold'
+    when coalesce(product_row.quantity, 0) <= 0
+      or coalesce(inventory_row.status, '') = 'sold' then 'sold'
     when coalesce(inventory_row.status, '') = 'reserved' then 'reserved'
     when coalesce(inventory_row.status, '') = 'draft' then 'pending_listing'
     else 'active'
@@ -170,14 +186,16 @@ begin
            inventory_item_id = coalesce(inventory_item_id, inventory_row.id),
            listing_price = coalesce(listing_price, product_row.price),
            lifecycle_status = case
-             when lifecycle_status in ('pending_listing','active','reserved') then mapped_status
+             when lifecycle_status in ('pending_listing','active','reserved')
+               then mapped_status
              else lifecycle_status
            end,
-           metadata = coalesce(metadata, '{}'::jsonb) || jsonb_strip_nulls(jsonb_build_object(
-             'legacy_product_id', p_legacy_product_id,
-             'ebay_item_id', product_row.ebay_item_id,
-             'image_url', product_row.image_url
-           ))
+           metadata = coalesce(metadata, '{}'::jsonb)
+             || jsonb_strip_nulls(jsonb_build_object(
+               'legacy_product_id', p_legacy_product_id,
+               'ebay_item_id', product_row.ebay_item_id,
+               'image_url', product_row.image_url
+             ))
      where id = existing_asset_id;
     return existing_asset_id;
   end if;
@@ -209,7 +227,7 @@ begin
     inventory_row.id,
     p_legacy_product_id,
     'legacy_product_backfill',
-    'legacy-product:' || p_legacy_product_id::text,
+    source_key,
     mapped_status,
     product_row.title,
     product_row.player,
@@ -229,9 +247,6 @@ begin
       'image_url', product_row.image_url
     ))
   )
-  on conflict (store_id, source_record_key) do update
-    set inventory_item_id = coalesce(public.collectible_assets.inventory_item_id, excluded.inventory_item_id),
-        legacy_product_id = coalesce(public.collectible_assets.legacy_product_id, excluded.legacy_product_id)
   returning id into created_asset_id;
 
   return created_asset_id;
@@ -278,10 +293,15 @@ begin
     raise exception 'Sold price cannot be negative.' using errcode = '22023';
   end if;
 
-  normalized_source := lower(coalesce(nullif(btrim(p_source_marketplace), ''), 'unknown'));
-  normalized_status := lower(coalesce(nullif(btrim(p_evidence_status), ''), 'unresolved'));
+  normalized_source := lower(
+    coalesce(nullif(btrim(p_source_marketplace), ''), 'unknown')
+  );
+  normalized_status := lower(
+    coalesce(nullif(btrim(p_evidence_status), ''), 'unresolved')
+  );
   if normalized_status not in ('verified','manual','unresolved') then
-    raise exception 'Unsupported sale evidence status: %', normalized_status using errcode = '22023';
+    raise exception 'Unsupported sale evidence status: %', normalized_status
+      using errcode = '22023';
   end if;
   effective_sold_at := coalesce(p_sold_at, now());
 
@@ -297,12 +317,19 @@ begin
   select * into inventory_row
   from public.inventory_items
   where store_id = p_store_id
-    and (legacy_product_id = p_legacy_product_id or (product_row.sku is not null and sku = product_row.sku))
-  order by case when legacy_product_id = p_legacy_product_id then 0 else 1 end, created_at asc
+    and (
+      legacy_product_id = p_legacy_product_id
+      or (product_row.sku is not null and sku = product_row.sku)
+    )
+  order by case when legacy_product_id = p_legacy_product_id then 0 else 1 end,
+    created_at asc
   limit 1
   for update;
 
-  asset_id_value := public.ensure_collectible_asset_for_product(p_store_id, p_legacy_product_id);
+  asset_id_value := public.ensure_collectible_asset_for_product(
+    p_store_id,
+    p_legacy_product_id
+  );
 
   insert into public.collectible_sales (
     store_id,
@@ -347,8 +374,11 @@ begin
   end if;
 
   final_sold := p_force_zero
-    or coalesce(product_row.quantity, 0) <= 0
-    or (inventory_row.id is not null and coalesce(inventory_row.quantity, 0) <= 0);
+    or coalesce(product_row.quantity, 0) <= p_sold_quantity
+    or (
+      inventory_row.id is not null
+      and coalesce(inventory_row.quantity, 0) <= p_sold_quantity
+    );
 
   should_replace_price := p_sold_price is not null and (
     product_row.sold_price is null
@@ -373,13 +403,16 @@ begin
   if final_sold then
     update public.products
        set sold_at = coalesce(sold_at, effective_sold_at),
-           sold_price = case when should_replace_price then p_sold_price else sold_price end,
+           sold_price = case
+             when should_replace_price then p_sold_price else sold_price
+           end,
            sold_source = case
              when should_replace_price or sold_source is null then normalized_source
              else sold_source
            end,
            sold_reference = case
-             when should_replace_price or sold_reference is null then nullif(btrim(coalesce(p_source_reference, '')), '')
+             when should_replace_price or sold_reference is null
+               then nullif(btrim(coalesce(p_source_reference, '')), '')
              else sold_reference
            end,
            sold_price_status = case
@@ -388,22 +421,29 @@ begin
              else sold_price_status
            end,
            sold_evidence = case
-             when should_replace_price or sold_evidence = '{}'::jsonb then coalesce(p_evidence, '{}'::jsonb)
+             when should_replace_price or sold_evidence = '{}'::jsonb
+               then coalesce(p_evidence, '{}'::jsonb)
              else sold_evidence
            end,
-           archive_after = coalesce(archive_after, effective_sold_at + interval '7 days')
+           archive_after = coalesce(
+             archive_after,
+             effective_sold_at + interval '7 days'
+           )
      where store_id = p_store_id and id = p_legacy_product_id;
 
     if inventory_row.id is not null then
       update public.inventory_items
          set sold_at = coalesce(sold_at, effective_sold_at),
-             sold_price = case when should_replace_price then p_sold_price else sold_price end,
+             sold_price = case
+               when should_replace_price then p_sold_price else sold_price
+             end,
              sold_source = case
                when should_replace_price or sold_source is null then normalized_source
                else sold_source
              end,
              sold_reference = case
-               when should_replace_price or sold_reference is null then nullif(btrim(coalesce(p_source_reference, '')), '')
+               when should_replace_price or sold_reference is null
+                 then nullif(btrim(coalesce(p_source_reference, '')), '')
                else sold_reference
              end,
              sold_price_status = case
@@ -412,10 +452,14 @@ begin
                else sold_price_status
              end,
              sold_evidence = case
-               when should_replace_price or sold_evidence = '{}'::jsonb then coalesce(p_evidence, '{}'::jsonb)
+               when should_replace_price or sold_evidence = '{}'::jsonb
+                 then coalesce(p_evidence, '{}'::jsonb)
                else sold_evidence
              end,
-             archive_after = coalesce(archive_after, effective_sold_at + interval '7 days')
+             archive_after = coalesce(
+               archive_after,
+               effective_sold_at + interval '7 days'
+             )
        where id = inventory_row.id and store_id = p_store_id;
     end if;
 
@@ -423,7 +467,9 @@ begin
        set lifecycle_status = 'sold',
            sold_price = case
              when p_sold_price is not null and (
-               sold_price is null or sold_price_status = 'unresolved' or normalized_status in ('verified','manual')
+               sold_price is null
+               or sold_price_status = 'unresolved'
+               or normalized_status in ('verified','manual')
              ) then p_sold_price
              else sold_price
            end,
@@ -433,10 +479,13 @@ begin
              else sold_source
            end,
            sold_reference = case
-             when p_sold_price is not null or sold_reference is null then nullif(btrim(coalesce(p_source_reference, '')), '')
+             when p_sold_price is not null or sold_reference is null
+               then nullif(btrim(coalesce(p_source_reference, '')), '')
              else sold_reference
            end,
-           sold_currency = upper(coalesce(nullif(btrim(p_currency), ''), 'USD')),
+           sold_currency = upper(
+             coalesce(nullif(btrim(p_currency), ''), 'USD')
+           ),
            sold_quantity = coalesce(sold_quantity, 0) + p_sold_quantity,
            sold_price_status = case
              when p_sold_price is not null then normalized_status
@@ -444,11 +493,18 @@ begin
              else sold_price_status
            end,
            sold_price_evidence = case
-             when p_sold_price is not null or sold_price_evidence = '{}'::jsonb then coalesce(p_evidence, '{}'::jsonb)
+             when p_sold_price is not null or sold_price_evidence = '{}'::jsonb
+               then coalesce(p_evidence, '{}'::jsonb)
              else sold_price_evidence
            end,
-           archive_after = coalesce(archive_after, effective_sold_at + interval '7 days'),
-           sold_order_id = coalesce(sold_order_id, nullif(btrim(coalesce(p_source_reference, '')), ''))
+           archive_after = coalesce(
+             archive_after,
+             effective_sold_at + interval '7 days'
+           ),
+           sold_order_id = coalesce(
+             sold_order_id,
+             nullif(btrim(coalesce(p_source_reference, '')), '')
+           )
      where id = asset_id_value;
   end if;
 
@@ -479,7 +535,8 @@ begin
       'sold_price', p_sold_price,
       'currency', upper(coalesce(nullif(btrim(p_currency), ''), 'USD')),
       'evidence_status', normalized_status,
-      'force_zero', p_force_zero
+      'force_zero', p_force_zero,
+      'consumes_remaining_quantity', final_sold
     ) || coalesce(p_evidence, '{}'::jsonb)
   );
 
@@ -518,7 +575,8 @@ begin
 end;
 $$;
 
-drop trigger if exists mark_collectible_asset_sold_from_order_item on public.order_items;
+drop trigger if exists mark_collectible_asset_sold_from_order_item
+  on public.order_items;
 create trigger mark_collectible_asset_sold_from_order_item
 after insert on public.order_items
 for each row execute function public.mark_collectible_asset_sold_from_order_item();
@@ -577,12 +635,20 @@ begin
 end;
 $$;
 
-revoke all on function public.ensure_collectible_asset_for_product(uuid,bigint) from public, anon, authenticated;
-revoke all on function public.record_collectible_sale(uuid,bigint,text,text,text,integer,numeric,text,timestamptz,text,jsonb,boolean) from public, anon, authenticated;
-revoke all on function public.archive_expired_collectible_sales(uuid) from public, anon, authenticated;
-grant execute on function public.ensure_collectible_asset_for_product(uuid,bigint) to service_role;
-grant execute on function public.record_collectible_sale(uuid,bigint,text,text,text,integer,numeric,text,timestamptz,text,jsonb,boolean) to service_role;
-grant execute on function public.archive_expired_collectible_sales(uuid) to service_role;
+revoke all on function public.ensure_collectible_asset_for_product(uuid,bigint)
+  from public, anon, authenticated;
+revoke all on function public.record_collectible_sale(
+  uuid,bigint,text,text,text,integer,numeric,text,timestamptz,text,jsonb,boolean
+) from public, anon, authenticated;
+revoke all on function public.archive_expired_collectible_sales(uuid)
+  from public, anon, authenticated;
+grant execute on function public.ensure_collectible_asset_for_product(uuid,bigint)
+  to service_role;
+grant execute on function public.record_collectible_sale(
+  uuid,bigint,text,text,text,integer,numeric,text,timestamptz,text,jsonb,boolean
+) to service_role;
+grant execute on function public.archive_expired_collectible_sales(uuid)
+  to service_role;
 
 do $$
 declare
@@ -591,7 +657,10 @@ begin
   for product_row in
     select store_id, id from public.products order by id
   loop
-    perform public.ensure_collectible_asset_for_product(product_row.store_id, product_row.id);
+    perform public.ensure_collectible_asset_for_product(
+      product_row.store_id,
+      product_row.id
+    );
   end loop;
 end
 $$;
@@ -609,14 +678,16 @@ begin
       oi.price,
       o.created_at
     from public.order_items oi
-    join public.orders o on o.id = oi.order_id and o.store_id = oi.store_id
+    join public.orders o
+      on o.id = oi.order_id and o.store_id = oi.store_id
     where o.created_at < timestamptz '2026-07-28 00:00:00+00'
     order by o.created_at, oi.order_id, oi.product_id
   loop
     perform public.record_collectible_sale(
       order_row.store_id,
       order_row.product_id,
-      'website:order:' || order_row.order_id::text || ':product:' || order_row.product_id::text,
+      'website:order:' || order_row.order_id::text
+        || ':product:' || order_row.product_id::text,
       'website',
       order_row.order_id::text,
       greatest(coalesce(order_row.quantity, 1), 1),
@@ -689,7 +760,8 @@ join public.collectible_assets a on a.id = s.asset_id
 where s.sold_price is not null
   and s.evidence_status in ('verified','manual');
 
-revoke all on table public.instacomp_internal_sold_comps from public, anon, authenticated;
+revoke all on table public.instacomp_internal_sold_comps
+  from public, anon, authenticated;
 grant select on table public.instacomp_internal_sold_comps to service_role;
 
 comment on table public.collectible_sales is
