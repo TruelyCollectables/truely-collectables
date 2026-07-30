@@ -1,19 +1,32 @@
 begin;
 
-alter function public.record_collectible_sale(
-  uuid,
-  bigint,
-  text,
-  text,
-  text,
-  integer,
-  numeric,
-  text,
-  timestamptz,
-  text,
-  jsonb,
-  boolean
-) rename to record_collectible_sale_unsafe_20260730;
+do $$
+declare
+  public_function_oid oid := to_regprocedure(
+    'public.record_collectible_sale(uuid,bigint,text,text,text,integer,numeric,text,timestamp with time zone,text,jsonb,boolean)'
+  );
+  unsafe_function_oid oid := to_regprocedure(
+    'public.record_collectible_sale_unsafe_20260730(uuid,bigint,text,text,text,integer,numeric,text,timestamp with time zone,text,jsonb,boolean)'
+  );
+  current_definition text;
+begin
+  if public_function_oid is null and unsafe_function_oid is null then
+    raise exception 'record_collectible_sale prerequisite function is missing.'
+      using errcode = '42883';
+  end if;
+
+  if public_function_oid is not null then
+    current_definition := pg_get_functiondef(public_function_oid);
+
+    if unsafe_function_oid is null then
+      execute 'alter function public.record_collectible_sale(uuid,bigint,text,text,text,integer,numeric,text,timestamptz,text,jsonb,boolean) rename to record_collectible_sale_unsafe_20260730';
+    elsif position('record_collectible_sale_unsafe_20260730' in current_definition) = 0 then
+      execute 'drop function public.record_collectible_sale_unsafe_20260730(uuid,bigint,text,text,text,integer,numeric,text,timestamptz,text,jsonb,boolean)';
+      execute 'alter function public.record_collectible_sale(uuid,bigint,text,text,text,integer,numeric,text,timestamptz,text,jsonb,boolean) rename to record_collectible_sale_unsafe_20260730';
+    end if;
+  end if;
+end
+$$;
 
 create or replace function public.record_collectible_sale(
   p_store_id uuid,
