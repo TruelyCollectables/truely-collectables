@@ -15,6 +15,8 @@ on:
       - "src/app/shop/page.tsx"
       - "src/components/SoldOverlay.tsx"
       - "src/lib/collectible-sale-history.ts"
+      - "src/lib/server-inventory-engine.ts"
+      - "src/modules/inventory/checkout-engine.ts"
       - "src/lib/ebay-merged-listing-groups.ts"
       - "src/lib/ebay-order-sale-sync.ts"
       - "src/modules/inventory/types.ts"
@@ -27,6 +29,7 @@ on:
       - "supabase/migrations/20260730002500_reset_sold_presentation_on_restock.sql"
       - "supabase/migrations/20260730002600_atomic_ebay_order_sales_and_outbox_scope.sql"
       - "supabase/migrations/20260730002700_run_sale_guards_before_restock_reset.sql"
+      - "supabase/migrations/20260730002800_enforce_collx_inventory_boundary.sql"
       - "vercel.json"
   workflow_dispatch:
 
