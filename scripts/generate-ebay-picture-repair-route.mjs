@@ -95,7 +95,6 @@ async function getPublicListingImages(itemId: string) {
     const decoded = html
       .replace(/\\\\u002F/gi, "/")
       .replace(/\\\\u0026/gi, "&")
-      .replace(/\\\\\//g, "/")
       .replace(/&amp;/g, "&");
 
     const structured: string[] = [];
