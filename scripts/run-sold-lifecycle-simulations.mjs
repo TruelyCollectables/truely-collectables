@@ -1,0 +1,109 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+
+function read(path) {
+  return fs.readFileSync(path, "utf8");
+}
+
+const saleMigration = read(
+  "supabase/migrations/20260730002000_sold_storefront_retention_and_sale_history.sql",
+);
+const outboxMigration = read(
+  "supabase/migrations/20260730002100_manual_sale_ebay_outbox.sql",
+);
+const saleHistory = read("src/lib/collectible-sale-history.ts");
+const ebayOrders = read("src/lib/ebay-order-sale-sync.ts");
+const overlay = read("src/components/SoldOverlay.tsx");
+const shop = read("src/app/shop/page.tsx");
+const productLayout = read("src/app/product/[id]/layout.tsx");
+const admin = read("src/app/admin/sales-history/page.tsx");
+const archiveCron = read("src/app/api/cron/sold-collectible-archive/route.ts");
+const ebayOrderCron = read("src/app/api/cron/ebay-order-sale-sync/route.ts");
+const vercel = JSON.parse(read("vercel.json"));
+
+assert.match(saleMigration, /create table if not exists public\.collectible_sales/);
+assert.match(saleMigration, /unique \(store_id, event_key\)/);
+assert.match(saleMigration, /collectible_sales_append_only/);
+assert.match(saleMigration, /record_collectible_sale/);
+assert.match(saleMigration, /archive_after[^;]+interval '7 days'/s);
+assert.match(saleMigration, /archive_expired_collectible_sales/);
+assert.match(saleMigration, /instacomp_internal_sold_comps/);
+assert.match(saleMigration, /evidence_status in \('verified','manual'\)/);
+assert.match(saleMigration, /2026-07-28 00:00:00\+00/);
+assert.match(saleMigration, /historical_order_items_backfill/);
+assert.match(saleMigration, /sold_price_status = 'unresolved'/);
+
+assert.match(outboxMigration, /'manual_sale'/);
+assert.match(outboxMigration, /desired_quantity,\s*status/s);
+assert.match(outboxMigration, /\n    0,\n    'pending'/);
+assert.match(outboxMigration, /after insert on public\.collectible_sales/);
+
+assert.match(saleHistory, /SOLD_STOREFRONT_RETENTION_DAYS = 7/);
+assert.match(saleHistory, /listRecentSoldStorefrontItems/);
+assert.match(saleHistory, /\.gte\("sold_at", cutoff\)/);
+assert.match(saleHistory, /\.is\("archived_at", null\)/);
+assert.match(saleHistory, /listAdminSaleHistory/);
+assert.match(saleHistory, /\.is\("sold_price", null\)/);
+
+assert.match(overlay, /-rotate-\[32deg\]/);
+assert.match(overlay, /bg-red-600/);
+assert.match(overlay, />\s*\{label\}\s*</);
+
+assert.match(shop, /Recently sold collectibles/);
+assert.match(shop, /<SoldOverlay compact \/>/);
+assert.match(shop, /Sold price pending verification/);
+assert.match(shop, /locked from checkout, offers, and cart actions/);
+assert.doesNotMatch(shop, /SoldProductCard[\s\S]*ProductActions/);
+assert.doesNotMatch(shop, /SoldProductCard[\s\S]*OfferForm/);
+
+assert.match(productLayout, /Sold · Research only/);
+assert.match(productLayout, /locked from cart, checkout, Buy Now, and Best/);
+assert.match(productLayout, /<SoldOverlay \/>/);
+assert.doesNotMatch(productLayout, /ProductActions/);
+assert.doesNotMatch(productLayout, /OfferForm/);
+
+assert.match(admin, /Mark Sold Elsewhere/);
+assert.match(admin, /forceZero: true/);
+assert.match(admin, /Sold Price Unresolved/);
+assert.match(admin, /Original Listing Price/);
+assert.match(admin, /Actual sold price/);
+
+assert.match(ebayOrders, /GetOrders/);
+assert.match(ebayOrders, /TransactionPrice/);
+assert.match(ebayOrders, /OrderLineItemID/);
+assert.match(ebayOrders, /evidence_source: "ebay_get_orders"/);
+assert.match(ebayOrders, /decrementAfterSale/);
+assert.match(ebayOrders, /alreadyRecorded/);
+assert.match(ebayOrderCron, /lookbackDays: 90/);
+
+assert.match(archiveCron, /archiveExpiredCollectibleSales/);
+assert.match(archiveCron, /timingSafeEqual/);
+
+const cronByPath = new Map(
+  (vercel.crons || []).map((cron) => [cron.path, cron.schedule]),
+);
+assert.equal(cronByPath.get("/api/cron/ebay-order-sale-sync"), "*/5 * * * *");
+assert.equal(
+  cronByPath.get("/api/cron/ebay-store-fixed-price-sync"),
+  "2,17,32,47 * * * *",
+);
+assert.equal(
+  cronByPath.get("/api/cron/seller-ebay-reconciliation"),
+  "7,22,37,52 * * * *",
+);
+assert.equal(cronByPath.get("/api/cron/sold-collectible-archive"), "11 * * * *");
+
+console.log(
+  JSON.stringify(
+    {
+      ok: true,
+      contract: "Launch 2.0 issue #253",
+      soldRetentionDays: 7,
+      ebayOrderPollingMinutes: 5,
+      authoritativeEbayPollingMinutes: 15,
+      checks: 48,
+    },
+    null,
+    2,
+  ),
+);
