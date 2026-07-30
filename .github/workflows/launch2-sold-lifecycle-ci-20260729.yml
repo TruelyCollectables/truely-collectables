@@ -14,6 +14,7 @@ on:
       - "src/app/shop/page.tsx"
       - "src/components/SoldOverlay.tsx"
       - "src/lib/collectible-sale-history.ts"
+      - "src/lib/ebay-merged-listing-groups.ts"
       - "src/lib/ebay-order-sale-sync.ts"
       - "src/modules/inventory/types.ts"
       - "supabase/migrations/20260730001950_correct_offer_order_item_paid_prices.sql"
@@ -21,6 +22,8 @@ on:
       - "supabase/migrations/20260730002100_manual_sale_ebay_outbox.sql"
       - "supabase/migrations/20260730002200_capture_ebay_inactive_sale_state.sql"
       - "supabase/migrations/20260730002300_refine_verified_sale_timestamps.sql"
+      - "supabase/migrations/20260730002400_make_sale_recording_idempotent.sql"
+      - "supabase/migrations/20260730002500_reset_sold_presentation_on_restock.sql"
       - "vercel.json"
   workflow_dispatch:
 
