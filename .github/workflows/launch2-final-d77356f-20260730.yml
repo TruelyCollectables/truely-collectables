@@ -1,0 +1,249 @@
+name: Launch 2 Final D77356F 20260730
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/launch2-final-d77356f-20260730.yml"
+      - "ops/send-controlled-launch-emails-d773.mts"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: launch2-final-d77356f-20260730
+  cancel-in-progress: false
+
+env:
+  EXPECTED_MAIN_SHA: d77356f55100f473ee767c2799e4212230ab9707
+  BASELINE_SHA: b30f084775775d258e02affafd695028261c12c9
+  EXPECTED_BRANCH: ops/launch2-final-d77356f-20260730
+  ISSUE253_RUN_ID: "30517862374"
+  ISSUE253_ARTIFACT: launch2-final-production-b30f084-boundary-retry
+  EMAIL_GATE_RUN_ID: "30517743867"
+  PERFORMANCE_GATE_RUN_ID: "30518380494"
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_PROJECT: truely-collectables
+  PROJECT_REF: rfdzsoykhnngzdnvzlhz
+  EVIDENCE_DIR: .audit/launch2-final-d77356f
+  NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
+  SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
+  ADMIN_SESSION_SECRET: build-validation-session-secret-that-is-long-enough
+  ADMIN_PASSWORD: build-validation-admin-password
+  NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+  STRIPE_SECRET_KEY: sk_test_build_validation
+  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_validation
+  STRIPE_WEBHOOK_SECRET: whsec_build_validation
+  EBAY_CLIENT_ID: build-validation-client-id
+  EBAY_CLIENT_SECRET: build-validation-client-secret
+  EBAY_ENVIRONMENT: production
+  CRON_SECRET: build-validation-cron-secret-that-is-long-enough
+  TCOS_LIVE_PAYMENTS_ENABLED: "false"
+  TCOS_SHIPPING_PURCHASE_MODE: dry_run
+  TCOS_LIVE_SHIPPING_ENABLED: "false"
+
+jobs:
+  certify:
+    if: github.event.pull_request.head.ref == 'ops/launch2-final-d77356f-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      GH_API_TOKEN: ${{ github.token }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - name: Check out guarded operations branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on exact source and operations-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          test "$(git merge-base "$EXPECTED_MAIN_SHA" HEAD)" = "$EXPECTED_MAIN_SHA"
+          mapfile -t changed < <(git diff --name-only "$EXPECTED_MAIN_SHA"...HEAD | sort)
+          expected=(
+            .github/workflows/launch2-final-d77356f-20260730.yml
+            ops/send-controlled-launch-emails-d773.mts
+          )
+          test "${#changed[@]}" -eq "${#expected[@]}"
+          test "$(printf '%s\n' "${changed[@]}")" = "$(printf '%s\n' "${expected[@]}")"
+          git diff --check "$EXPECTED_MAIN_SHA"...HEAD
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$VERCEL_TOKEN"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          mkdir -p "$EVIDENCE_DIR" "$RUNNER_TEMP/launch2-final-d77356f"
+          printf '%s\n' "$EXPECTED_MAIN_SHA" > "$EVIDENCE_DIR/exact-main-sha.txt"
+          git worktree add --detach "$RUNNER_TEMP/exact-main" "$EXPECTED_MAIN_SHA"
+          git worktree add --detach "$RUNNER_TEMP/baseline-main" "$BASELINE_SHA"
+
+      - name: Bind successful issue 253 email lifecycle and performance gates
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.ISSUE253_ARTIFACT }}
+          path: ${{ runner.temp }}/issue253
+          github-token: ${{ github.token }}
+          repository: TruelyCollectables/truely-collectables
+          run-id: ${{ env.ISSUE253_RUN_ID }}
+
+      - name: Verify immutable prior gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -e --arg sha "$BASELINE_SHA" '.result=="PASS" and .blockerCount==0 and .exactProductionSha==$sha and .issue253ImmutableSaleHistory==true and .sevenDaySoldPresentationAndArchive==true and .authoritativeHistoricalBackfill==true and .indirectCollXViaLinkedEbayChain==true and .collxOnlyExcluded==true and .noInboundSoldStockRestoration==true' "$RUNNER_TEMP/issue253/final-production-certificate.json" >/dev/null
+          for spec in "$EMAIL_GATE_RUN_ID|validate|Validate order notification hardening" "$PERFORMANCE_GATE_RUN_ID|verify|Verify prefetch contract and affected lifecycle gates"; do
+            run="${spec%%|*}"; rest="${spec#*|}"; job="${rest%%|*}"; step="${rest#*|}"
+            curl --fail --silent --show-error -H "Authorization: Bearer $GH_API_TOKEN" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs?per_page=100" > "$RUNNER_TEMP/jobs-$run.json"
+            jq -e --arg job "$job" --arg step "$step" '.jobs[]|select(.name==$job and .conclusion=="success")|.steps[]|select(.name==$step and .conclusion=="success")' "$RUNNER_TEMP/jobs-$run.json" >/dev/null
+          done
+          jq -n --arg sha "$EXPECTED_MAIN_SHA" --arg baseline "$BASELINE_SHA" --arg issue "$ISSUE253_RUN_ID" --arg email "$EMAIL_GATE_RUN_ID" --arg performance "$PERFORMANCE_GATE_RUN_ID" '{ok:true,exactMainSha:$sha,issue253CertifiedSha:$baseline,issue253RunId:($issue|tonumber),emailLifecycleRunId:($email|tonumber),performanceRunId:($performance|tonumber),verifiedAt:(now|todate)}' > "$EVIDENCE_DIR/prior-gate-binding.json"
+          rm -f "$RUNNER_TEMP"/jobs-*.json
+
+      - name: Compare exact known-fixture source secret baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in "baseline|$RUNNER_TEMP/baseline-main" "current|$RUNNER_TEMP/exact-main"; do
+            name="${spec%%|*}"; source="${spec#*|}"
+            docker run --rm -v "$source:/repo" zricethezav/gitleaks:v8.24.3 detect --source=/repo --no-git --redact --report-format=json --report-path=/repo/.gitleaks.json --exit-code=0 >/dev/null
+            mv "$source/.gitleaks.json" "$RUNNER_TEMP/$name-gitleaks.json"
+          done
+          BASE="$RUNNER_TEMP/baseline-gitleaks.json" CURRENT="$RUNNER_TEMP/current-gitleaks.json" OUT="$EVIDENCE_DIR/secret-scan-receipt.json" node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const normalize=(file)=>JSON.parse(fs.readFileSync(file,'utf8')).map((v)=>({rule:String(v.RuleID||''),file:String(v.File||''),start:Number(v.StartLine||0),end:Number(v.EndLine||0),fingerprint:String(v.Fingerprint||'')})).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)));
+          const baseline=normalize(process.env.BASE);const current=normalize(process.env.CURRENT);if(JSON.stringify(baseline)!==JSON.stringify(current))throw new Error(`Secret fixture changed: baseline=${baseline.length} current=${current.length}`);fs.writeFileSync(process.env.OUT,JSON.stringify({ok:true,exactMainSha:process.env.EXPECTED_MAIN_SHA,knownFixtureFindings:current.length,newMovedMissingOrChanged:0,redacted:true,verifiedAt:new Date().toISOString()},null,2));
+          NODE
+          rm -f "$RUNNER_TEMP/"*-gitleaks.json
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Run exact current customer email postage marketplace admin and security gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run simulate:order-lifecycle-emails | tee "$EVIDENCE_DIR/order-email-lifecycle.log"
+          node --import tsx scripts/run-order-notification-hardening-simulations.ts | tee "$EVIDENCE_DIR/order-notification-hardening.log"
+          npm run verify:shipping | tee "$EVIDENCE_DIR/postage-simulations.log"
+          npm run simulate:post-sale-ebay-sync | tee "$EVIDENCE_DIR/post-sale-ebay-sync.log"
+          npm run simulate:accepted-offer-reservations | tee "$EVIDENCE_DIR/accepted-offer-reservations.log"
+          node scripts/run-sold-lifecycle-simulations.mjs | tee "$EVIDENCE_DIR/sold-lifecycle.log"
+          node scripts/run-sold-trigger-order-simulation.mjs | tee "$EVIDENCE_DIR/sold-trigger.log"
+          node scripts/verify-issue253-marketplace-runtime-self-test-contract.mjs | tee "$EVIDENCE_DIR/marketplace-runtime-contract.log"
+          npm run simulate:privileged-route-auth | tee "$EVIDENCE_DIR/privileged-route-auth.log"
+          npm run simulate:admin-login | tee "$EVIDENCE_DIR/admin-login.log"
+          npm run simulate:admin-dashboard-actions | tee "$EVIDENCE_DIR/admin-dashboard-actions.log"
+          npm run simulate:admin-order-review-actions | tee "$EVIDENCE_DIR/admin-order-review-actions.log"
+          npm run simulate:admin-shipping-actions | tee "$EVIDENCE_DIR/admin-shipping-actions.log"
+          npm run simulate:admin-financial-reconciliation | tee "$EVIDENCE_DIR/admin-financial-reconciliation.log"
+          npm run check:admin-routes | tee "$EVIDENCE_DIR/admin-routes.log"
+          npm run check:admin-controls | tee "$EVIDENCE_DIR/admin-controls.log"
+          npm run check:admin-live-regions | tee "$EVIDENCE_DIR/admin-live-regions.log"
+          node scripts/run-privileged-api-route-audit.mjs | tee "$EVIDENCE_DIR/privileged-route-audit.log"
+          npm audit --audit-level=high
+          npm run lint
+          npx tsc --noEmit --pretty false
+          npm run build
+          git diff --check
+
+      - name: Apply notification migration and verify combined Production state
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const endpoint=`https://api.supabase.com/v1/projects/${process.env.PROJECT_REF}/database/query`;
+          const query=async(sql,readOnly=false)=>{const response=await fetch(endpoint,{method:'POST',headers:{Authorization:`Bearer ${process.env.SUPABASE_ACCESS_TOKEN}`,'Content-Type':'application/json'},body:JSON.stringify({query:sql,parameters:[],read_only:readOnly})});const body=await response.text();if(!response.ok)throw new Error(`Supabase HTTP ${response.status}: ${body.slice(0,1200)}`);return body?JSON.parse(body):[];};
+          await query(fs.readFileSync('supabase/migrations/20260730070000_expand_order_notification_lifecycle.sql','utf8'));
+          const rows=await query(`select json_build_object('customer_phone',exists(select 1 from information_schema.columns where table_schema='public' and table_name='orders' and column_name='customer_phone'),'tax_amount',exists(select 1 from information_schema.columns where table_schema='public' and table_name='orders' and column_name='tax_amount'),'fulfilled_at',exists(select 1 from information_schema.columns where table_schema='public' and table_name='orders' and column_name='fulfilled_at'),'notification_constraint',exists(select 1 from pg_constraint where conname='order_notification_deliveries_notification_type_check'),'negative_products',(select count(*) from public.products where quantity<0 or price<0),'negative_inventory',(select count(*) from public.inventory_items where quantity<0),'duplicate_notifications',(select count(*) from(select store_id,idempotency_key from public.order_notification_deliveries group by store_id,idempotency_key having count(*)>1)d),'collx_only_boundary_violations',(select count(*) from public.collx_only_inventory_boundary_violations),'sold_stock_restoration_violations',(select count(*) from public.products where sold_at is not null and quantity>0),'indirect_chain_rows',(select count(*) from public.collectible_sales where source_marketplace='ebay_or_collx_via_ebay' and evidence->>'source_chain'='collx_or_ebay_to_ebay_to_truely_collectables'),'historical_sold_without_sale_record',(select count(*) from public.products p where p.sold_at<timestamptz '2026-07-28 00:00:00+00' and not exists(select 1 from public.collectible_sales s where s.store_id=p.store_id and s.legacy_product_id=p.id)),'captured_at',now()) receipt;`,true);const receipt=rows?.[0]?.receipt||rows;for(const key of ['customer_phone','tax_amount','fulfilled_at','notification_constraint'])if(receipt[key]!==true)throw new Error(`${key} missing`);for(const key of ['negative_products','negative_inventory','duplicate_notifications','collx_only_boundary_violations','sold_stock_restoration_violations','historical_sold_without_sale_record'])if(Number(receipt[key])!==0)throw new Error(`${key}=${receipt[key]}`);if(Number(receipt.indirect_chain_rows||0)<1)throw new Error('Indirect CollX/eBay chain evidence missing');fs.writeFileSync(process.env.EVIDENCE_DIR+'/production-database-receipt.json',JSON.stringify({ok:true,exactMainSha:process.env.EXPECTED_MAIN_SHA,receipt,aggregateOnly:true,verifiedAt:new Date().toISOString()},null,2));
+          NODE
+
+      - name: Reconfirm exact main before Production deployment
+        run: git fetch origin main && test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+
+      - name: Link pull Production environment and deploy detached exact main
+        shell: bash
+        run: |
+          set -euo pipefail
+          exact="$RUNNER_TEMP/exact-main"
+          mkdir -p "$exact/.vercel"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > "$exact/.vercel/project.json"; else (cd "$exact" && npx vercel@56.2.0 link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null); fi
+          (cd "$exact" && npx vercel@56.2.0 env pull .env.production.local --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null)
+          output="$(cd "$exact" && npx vercel@56.2.0 deploy --prod --yes --force --archive=tgz --meta "githubCommitSha=$EXPECTED_MAIN_SHA" --meta "launchGate=launch2-final-d77356f" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN")"
+          url="$(printf '%s\n' "$output"|grep -Eo 'https://[^[:space:]]+\.vercel\.app'|tail -n1)";test -n "$url";host="${url#https://}";printf 'DEPLOYMENT_URL=%s\nDEPLOYMENT_HOST=%s\n' "$url" "$host" >> "$GITHUB_ENV";printf '%s\n' "$url" > "$EVIDENCE_DIR/deployment-url.txt"
+          curl --fail --silent --show-error -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v13/deployments/$host?slug=$VERCEL_SCOPE" > "$RUNNER_TEMP/deployment.json"
+          DEPLOYMENT_JSON="$(cat "$RUNNER_TEMP/deployment.json")" node --input-type=module - <<'NODE'
+          import fs from 'node:fs';const v=JSON.parse(process.env.DEPLOYMENT_JSON||'{}');const aliases=Array.isArray(v.alias)?v.alias:Array.isArray(v.aliases)?v.aliases:[];const sha=String(v?.meta?.githubCommitSha||'');if(String(v.target).toLowerCase()!=='production'||String(v.readyState).toUpperCase()!=='READY'||sha!==process.env.EXPECTED_MAIN_SHA||!aliases.includes('truelycollectables.com'))throw new Error(`Deployment metadata failed: ${JSON.stringify({target:v.target,readyState:v.readyState,sha,aliases})}`);fs.writeFileSync(process.env.EVIDENCE_DIR+'/deployment-receipt.json',JSON.stringify({ok:true,deploymentId:v.id,deploymentHost:v.url,exactMainSha:sha,customDomainAlias:'truelycollectables.com',verifiedAt:new Date().toISOString()},null,2));
+          NODE
+          rm -f "$RUNNER_TEMP/deployment.json"
+
+      - name: Send six controlled Production lifecycle emails and prove idempotency
+        shell: bash
+        run: |
+          set -euo pipefail
+          receipt="$GITHUB_WORKSPACE/$EVIDENCE_DIR/controlled-email-send-receipt.json"
+          env -u NEXT_PUBLIC_SUPABASE_URL -u NEXT_PUBLIC_SUPABASE_ANON_KEY -u SUPABASE_SERVICE_ROLE_KEY -u RESEND_API_KEY -u NEXT_PUBLIC_SITE_URL \
+            EXPECTED_MAIN_SHA="$EXPECTED_MAIN_SHA" LAUNCH_EMAIL_RECEIPT_PATH="$receipt" \
+            node --env-file="$RUNNER_TEMP/exact-main/.env.production.local" --import tsx ops/send-controlled-launch-emails-d773.mts
+          jq -e '.ok==true and .expectedMessages==6 and .duplicateRowsAfterReplay==0 and .attachments.renderingValidated==true and .realPayment==false and .realPostagePurchase==false' "$receipt" >/dev/null
+
+      - name: Verify live boundaries and protected marketplace convergence
+        shell: bash
+        run: |
+          set -euo pipefail
+          success=false
+          for attempt in $(seq 1 36); do home="$(curl -L -sS --max-time 60 -o /dev/null -w '%{http_code}' https://truelycollectables.com/||true)";shop="$(curl -L -sS --max-time 60 -o /dev/null -w '%{http_code}' https://truelycollectables.com/shop||true)";cart="$(curl -L -sS --max-time 60 -o /dev/null -w '%{http_code}' https://truelycollectables.com/cart||true)";signup="$(curl -L -sS --max-time 60 -o /dev/null -w '%{http_code}' https://truelycollectables.com/account/signup||true)";admin="$(curl -sS --max-time 60 -o /dev/null -w '%{http_code}' https://truelycollectables.com/admin||true)";health="$(curl -sS --max-time 60 -o /dev/null -w '%{http_code}' https://truelycollectables.com/api/admin-orders-health||true)";webhook="$(curl -sS --max-time 60 -X POST -H 'content-type: application/json' --data '{}' -o /dev/null -w '%{http_code}' https://truelycollectables.com/api/webhook||true)";if [ "$home" = 200 ]&&[ "$shop" = 200 ]&&[ "$cart" = 200 ]&&[ "$signup" = 200 ]&&{ [ "$admin" = 307 ]||[ "$admin" = 302 ]; }&&[ "$health" = 401 ]&&[ "$webhook" != 200 ];then success=true;break;fi;sleep 10;done
+          test "$success" = true
+          jq -n --arg sha "$EXPECTED_MAIN_SHA" --arg verified "$(date -u +%FT%TZ)" '{ok:true,exactMainSha:$sha,publicRoutesPassed:true,privilegedRoutesProtected:true,unsignedWebhookRejected:true,verifiedAt:$verified}' > "$EVIDENCE_DIR/live-boundary-receipt.json"
+          for step in ebay-order-sales ebay-full-sync seller-reconciliation sold-archive; do code="$(curl -sS --max-time 320 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" -o "$EVIDENCE_DIR/runtime-${step}.json" -w '%{http_code}' "https://truelycollectables.com/api/release/issue253-marketplace-self-test?step=${step}")";if [ "$code" != 200 ]||!jq -e --arg step "$step" '.success==true and .cronSecretConfigured==true and .upstreamStatus==200 and .step==$step' "$EVIDENCE_DIR/runtime-${step}.json" >/dev/null;then cat "$EVIDENCE_DIR/runtime-${step}.json" >&2;exit 1;fi;done
+
+      - name: Run exact Production Lighthouse gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE_DIR/lighthouse"
+          for spec in 'home|/' 'shop|/shop' 'signup|/account/signup' 'cart|/cart'; do name="${spec%%|*}";route="${spec#*|}";npx --yes lighthouse@12.8.2 "https://truelycollectables.com$route" --quiet --chrome-flags='--headless --no-sandbox' --output=json --output-path="$EVIDENCE_DIR/lighthouse/$name.json";done
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';const rows=[];const blockers=[];for(const page of ['home','shop','signup','cart']){const v=JSON.parse(fs.readFileSync(`${process.env.EVIDENCE_DIR}/lighthouse/${page}.json`,'utf8'));const c=v.categories||{};const row={page,performance:Math.round((c.performance?.score||0)*100),accessibility:Math.round((c.accessibility?.score||0)*100),bestPractices:Math.round((c['best-practices']?.score||0)*100),seo:Math.round((c.seo?.score||0)*100)};rows.push(row);if(row.performance<70)blockers.push(`${page} performance ${row.performance}`);if(row.accessibility<95)blockers.push(`${page} accessibility ${row.accessibility}`);if(row.bestPractices<95)blockers.push(`${page} best-practices ${row.bestPractices}`);if(['home','shop'].includes(page)&&row.seo<95)blockers.push(`${page} SEO ${row.seo}`);}fs.writeFileSync(process.env.EVIDENCE_DIR+'/lighthouse-summary.json',JSON.stringify({ok:blockers.length===0,rows,blockers},null,2));if(blockers.length)throw new Error(blockers.join('; '));
+          NODE
+
+      - name: Write exact-current certificate pending connected Gmail inspection
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -e '.ok==true and .expectedMessages==6' "$EVIDENCE_DIR/controlled-email-send-receipt.json" >/dev/null
+          jq -e '.ok==true and (.blockers|length)==0' "$EVIDENCE_DIR/lighthouse-summary.json" >/dev/null
+          jq -n --arg sha "$EXPECTED_MAIN_SHA" --arg deployment "$DEPLOYMENT_URL" --arg marker "$(jq -r '.marker' "$EVIDENCE_DIR/controlled-email-send-receipt.json")" --arg run "$GITHUB_RUN_ID" '{schema:"truelycollectables.launch2FinalProductionCertificate.v3",status:"PASS_PENDING_CONNECTED_GMAIL_RECEIPT_INSPECTION",exactProductionSha:$sha,exactProductionDeployment:$deployment,workflowRunId:($run|tonumber),issue253CertificateBound:true,orderLifecycleEmailsProviderAccepted:6,buyerInvoiceAttachment:true,ownerInvoiceAndPackingSlip:true,fulfillmentEmails:true,shipmentTrackingEmails:true,emailIdempotency:true,connectedGmailMarker:$marker,postageSimulation:true,marketplaceConvergence:true,liveBoundaries:true,lighthouseExactProduction:true,realMarketplaceOrder:false,realMoneyCharge:false,realPostagePurchase:false,carrierAcceptanceScan:false,physicalDelivery:false,refundOrDispute:false,inboxReceiptNotYetClaimed:true,issuedAt:(now|todate)}' > "$EVIDENCE_DIR/final-certificate-pending-gmail.json"
+
+      - name: Upload sanitized exact Production evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launch2-final-d77356f-production-evidence
+          path: .audit/launch2-final-d77356f
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Remove pulled Production environment and worktrees
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/exact-main/.env.production.local"
+          git worktree remove --force "$RUNNER_TEMP/exact-main" || true
+          git worktree remove --force "$RUNNER_TEMP/baseline-main" || true
