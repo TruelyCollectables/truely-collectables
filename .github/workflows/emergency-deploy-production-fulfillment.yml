@@ -11,6 +11,7 @@ permissions:
 
 env:
   VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_PROJECT: truely-collectables
   EXPECTED_MARKER: fulfillment-hotfix-2026-07-29-2018-mt
 
 jobs:
@@ -19,8 +20,6 @@ jobs:
     timeout-minutes: 30
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
     steps:
       - name: Checkout current Production source
         uses: actions/checkout@v4
@@ -34,17 +33,21 @@ jobs:
           set -euo pipefail
           grep -Fq 'createSupabaseServerClient({ admin: true })' src/app/admin/orders/page.tsx
           grep -Fq "$EXPECTED_MARKER" src/app/api/build-info/route.ts
-          grep -Fq 'admin-orders-service-role' src/app/api/admin-orders-health/route.ts
+          grep -Fq 'fulfillment-service-role' src/app/api/fulfillment-health/route.ts
 
-      - name: Require existing Vercel project credentials
+      - name: Require Vercel token
         shell: bash
         run: |
           set -euo pipefail
           [ -n "${VERCEL_TOKEN:-}" ] || { echo 'VERCEL_TOKEN is unavailable to this workflow.'; exit 20; }
-          [ -n "${VERCEL_ORG_ID:-}" ] || { echo 'VERCEL_ORG_ID is unavailable to this workflow.'; exit 21; }
-          [ -n "${VERCEL_PROJECT_ID:-}" ] || { echo 'VERCEL_PROJECT_ID is unavailable to this workflow.'; exit 22; }
-          mkdir -p .vercel
-          printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+
+      - name: Confirm existing Vercel project
+        shell: bash
+        run: npm exec --yes --package=vercel@56.2.0 -- vercel project inspect "$VERCEL_PROJECT" --token="$VERCEL_TOKEN" --scope "$VERCEL_SCOPE"
+
+      - name: Link existing Vercel project
+        shell: bash
+        run: npm exec --yes --package=vercel@56.2.0 -- vercel link --yes --project "$VERCEL_PROJECT" --token="$VERCEL_TOKEN" --scope "$VERCEL_SCOPE"
 
       - name: Pull Production environment
         shell: bash
@@ -63,7 +66,7 @@ jobs:
         run: |
           set -euo pipefail
           build_url='https://truelycollectables.com/api/build-info'
-          health_url='https://truelycollectables.com/api/admin-orders-health'
+          health_url='https://truelycollectables.com/api/fulfillment-health'
 
           for attempt in $(seq 1 36); do
             build_body="$(curl --location --silent --show-error --max-time 20 "$build_url" || true)"
@@ -71,9 +74,9 @@ jobs:
 
             if printf '%s' "$build_body" | grep -Fq "$EXPECTED_MARKER" && \
                printf '%s' "$health_body" | grep -Eq '"ok"[[:space:]]*:[[:space:]]*true' && \
-               printf '%s' "$health_body" | grep -Fq 'admin-orders-service-role'; then
+               printf '%s' "$health_body" | grep -Fq 'fulfillment-service-role'; then
               echo "LIVE_PRODUCTION_BUILD_VERIFIED=$EXPECTED_MARKER"
-              echo "LIVE_ADMIN_ORDERS_SERVICE_ROLE_VERIFIED=true"
+              echo "LIVE_FULFILLMENT_SERVICE_ROLE_VERIFIED=true"
               exit 0
             fi
 
