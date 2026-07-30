@@ -654,7 +654,7 @@ export default function SellerInventoryAdminPage() {
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      {item.legacyProductId ? (
+                      {item.legacyProductId && item.status === "active" && item.quantity > 0 && item.imageUrl ? (
                         <Link href={`/product/${item.legacyProductId}`} className="rounded-xl border border-neutral-300 px-3 py-2 text-sm font-black hover:bg-neutral-50">Storefront</Link>
                       ) : null}
                       {item.ebayItemId ? (
