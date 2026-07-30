@@ -23,6 +23,11 @@ const PROHIBITED_LISTING =
 const PREMIUM_TIER =
   /\b(silver|prizm|refractor|holo|optic|parallel|numbered|ssp|sp\b|case hit|downtown|kaboom|gold|blue|red|green|purple|orange|pink|ice|wave|shimmer|scope|disco|fast break|choice|variation|courtside|premier|concourse|auto|autograph|signature|patch|relic|memorabilia)\b|\/\d{1,4}\b/i;
 const EXPLICIT_BASE = /\bbase(?: card)?\b/i;
+const MICHKOV_NAME_OR_MISSPELLING =
+  /\b(michkov|michov|mikhkov|mitchkov)\b/i;
+const MICHKOV_CANONICAL_NAME = /\bmatvei\s+michkov\b/i;
+const YOUNG_GUNS_SIGNAL = /\b(young guns?|yg)\b/i;
+const UPPER_DECK_SIGNAL = /\bupper deck\b|\bud\b/i;
 
 function slug(value) {
   return String(value || "")
@@ -117,6 +122,29 @@ function ivanFamilies() {
   ];
 }
 
+function michkovYoungGunsFamilies() {
+  const definitions = [
+    ["exact-young-guns", "Matvei Michkov Young Guns rookie"],
+    ["young-guns-parallels", "Matvei Michkov Young Guns parallel"],
+    ["yg-abbreviation", "Matvei Michkov YG Philadelphia Flyers"],
+    ["matvey-first-name", "Matvey Michkov Young Guns"],
+    ["matei-first-name", "Matei Michkov Young Guns"],
+    ["michov-surname", "Matvei Michov Young Guns"],
+    ["mikhkov-surname", "Matvei Mikhkov Young Guns"],
+    ["mitchkov-surname", "Mitchkov Young Guns Philadelphia Flyers"],
+  ];
+
+  return definitions.map(([family, query]) => ({
+    familyId: `matvei-michkov.${family}`,
+    scope: "matvei_michkov_young_guns",
+    lane: "young_guns_deal_and_misspelling",
+    watchedPerson: "Matvei Michkov",
+    itemType: "young_guns_rookie_card",
+    query,
+    required: true,
+  }));
+}
+
 function prospectFamilies(players) {
   return players.flatMap((player) => {
     const id = slug(player);
@@ -167,6 +195,9 @@ export function buildDealHunterEbayQueryFamilies({
 
   if (normalizedScope === "wnba") return wnbaFamilies();
   if (normalizedScope === "ivan_demidov") return ivanFamilies();
+  if (normalizedScope === "matvei_michkov_young_guns") {
+    return michkovYoungGunsFamilies();
+  }
   if (normalizedScope === "baseball_prospects") {
     return prospectFamilies(prospectPlayers);
   }
@@ -177,6 +208,7 @@ export function buildDealHunterEbayQueryFamilies({
     return [
       ...wnbaFamilies(),
       ...ivanFamilies(),
+      ...michkovYoungGunsFamilies(),
       ...prospectFamilies(prospectPlayers),
       ...signedBaseballFamilies(prospectPlayers),
     ];
@@ -202,6 +234,24 @@ export function screenDealHunterEbayTitle({ title, family }) {
       rejectionReasons.push("explicit_ordinary_base");
     } else if (!PREMIUM_TIER.test(value)) {
       reviewReasons.push("tier_not_proven_from_title_image_review_required");
+    }
+  }
+
+  if (family?.scope === "matvei_michkov_young_guns") {
+    if (!MICHKOV_NAME_OR_MISSPELLING.test(value)) {
+      rejectionReasons.push("michkov_name_or_misspelling_not_claimed");
+    }
+    if (!YOUNG_GUNS_SIGNAL.test(value)) {
+      rejectionReasons.push("young_guns_not_claimed");
+    }
+    if (/\bchecklist\b/i.test(value)) {
+      rejectionReasons.push("young_guns_checklist_not_player_card");
+    }
+    if (!MICHKOV_CANONICAL_NAME.test(value)) {
+      reviewReasons.push("seller_name_variant_or_misspelling_detected_verify_images");
+    }
+    if (!UPPER_DECK_SIGNAL.test(value)) {
+      reviewReasons.push("upper_deck_not_explicit_verify_product");
     }
   }
 
@@ -237,3 +287,4 @@ export function extractEbayItemId(value) {
 }
 
 export const DEAL_HUNTER_WNBA_QUERY_FAMILY_COUNT = 15;
+export const DEAL_HUNTER_MICHKOV_QUERY_FAMILY_COUNT = 8;
