@@ -897,6 +897,7 @@ export default async function AdminDashboard() {
         { href: "/admin/orders", label: "Orders" },
         { href: "/admin/order-review-cases", label: "Review Cases" },
         { href: "/admin/order-notifications", label: "Order Notifications" },
+        { href: "/admin/sales-history", label: "Sales History" },
         { href: "/admin/offers", label: "Offers" },
         { href: "/admin/accounts", label: "Accounts" },
         { href: "/admin/owner-seller-account", label: "Owner Seller Login" },

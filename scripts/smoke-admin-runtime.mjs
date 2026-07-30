@@ -59,6 +59,11 @@ const smokeRoutes = [
     expectedText: "Order Notification Delivery",
   },
   {
+    path: "/admin/sales-history",
+    auth: true,
+    expectedText: "Sold Collectibles",
+  },
+  {
     path: "/admin/offers",
     auth: true,
     expectedText: "Offers",
