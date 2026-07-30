@@ -22,6 +22,7 @@ const verifiedTimeMigration = read(
 );
 const saleHistory = read("src/lib/collectible-sale-history.ts");
 const ebayOrders = read("src/lib/ebay-order-sale-sync.ts");
+const ebayAuth = read("src/app/api/ebay/auth/route.ts");
 const overlay = read("src/components/SoldOverlay.tsx");
 const shop = read("src/app/shop/page.tsx");
 const productLayout = read("src/app/product/[id]/layout.tsx");
@@ -109,13 +110,20 @@ assert.match(adminProductLayout, /collectible_sales/);
 assert.match(adminProductLayout, /evidence_status/);
 assert.match(adminProductLayout, /Open Sale History/);
 
+assert.match(ebayAuth, /https:\/\/api\.ebay\.com\/oauth\/api_scope/);
 assert.match(ebayOrders, /GetOrders/);
+assert.match(ebayOrders, /<OrderStatus>Completed<\/OrderStatus>/);
+assert.doesNotMatch(ebayOrders, /<OrderStatus>All<\/OrderStatus>/);
 assert.match(ebayOrders, /TransactionPrice/);
 assert.match(ebayOrders, /OrderLineItemID/);
+assert.match(ebayOrders, /orderPaidAt/);
+assert.match(ebayOrders, /xmlMoney/);
+assert.match(ebayOrders, /DEFAULT_LOOKBACK_DAYS = 2/);
 assert.match(ebayOrders, /evidence_source: "ebay_get_orders"/);
 assert.match(ebayOrders, /decrementAfterSale/);
 assert.match(ebayOrders, /alreadyRecorded/);
-assert.match(ebayOrderCron, /lookbackDays: 90/);
+assert.match(ebayOrderCron, /safeLookbackDays/);
+assert.match(ebayOrderCron, /Math\.min\(Math\.max\(Math\.floor\(requested\), 1\), 90\)/);
 
 assert.match(archiveCron, /archiveExpiredCollectibleSales/);
 assert.match(archiveCron, /timingSafeEqual/);
@@ -123,7 +131,10 @@ assert.match(archiveCron, /timingSafeEqual/);
 const cronByPath = new Map(
   (vercel.crons || []).map((cron) => [cron.path, cron.schedule]),
 );
-assert.equal(cronByPath.get("/api/cron/ebay-order-sale-sync"), "*/5 * * * *");
+assert.equal(
+  cronByPath.get("/api/cron/ebay-order-sale-sync?lookbackDays=2"),
+  "*/5 * * * *",
+);
 assert.equal(
   cronByPath.get("/api/cron/ebay-store-fixed-price-sync"),
   "2,17,32,47 * * * *",
@@ -141,8 +152,9 @@ console.log(
       contract: "Launch 2.0 issue #253",
       soldRetentionDays: 7,
       ebayOrderPollingMinutes: 5,
+      ebayOrderRecurringLookbackDays: 2,
       authoritativeEbayPollingMinutes: 15,
-      checks: 78,
+      checks: 91,
     },
     null,
     2,
