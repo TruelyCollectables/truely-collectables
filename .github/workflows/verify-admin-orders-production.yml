@@ -1,0 +1,68 @@
+name: Verify Admin Orders Production
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/proxy.ts"
+      - "src/app/admin/template.tsx"
+      - "src/app/api/admin/session/refresh/route.ts"
+      - "src/app/api/admin/reconcile-platform-fees/route.ts"
+      - "src/app/api/orders/refund/route.ts"
+      - "src/lib/seller-payout-ledger.ts"
+      - "src/app/api/build-info/route.ts"
+      - "scripts/verify-live-admin-orders-release.mjs"
+      - ".github/workflows/verify-admin-orders-production.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-admin-orders-production
+  cancel-in-progress: false
+
+jobs:
+  verify-live-production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Link existing Vercel project
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        shell: bash
+        run: |
+          test -n "$VERCEL_TOKEN"
+          npm exec --yes --package=vercel@56.2.0 -- vercel link \
+            --yes \
+            --project truely-collectables \
+            --scope truelycollectables-projects \
+            --token "$VERCEL_TOKEN"
+
+      - name: Pull Production environment
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        shell: bash
+        run: |
+          npm exec --yes --package=vercel@56.2.0 -- vercel pull \
+            --yes \
+            --environment=production \
+            --scope truelycollectables-projects \
+            --token "$VERCEL_TOKEN"
+
+      - name: Verify live admin orders release
+        shell: bash
+        run: |
+          set -a
+          source .vercel/.env.production.local
+          set +a
+          EXPECTED_ADMIN_RELEASE=admin-session-refund-fee-fix-2026-07-29-2115-mt \
+            node scripts/verify-live-admin-orders-release.mjs
