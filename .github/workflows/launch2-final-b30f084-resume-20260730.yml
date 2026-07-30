@@ -97,6 +97,9 @@ jobs:
           git worktree add --detach "$exact" "$EXPECTED_MAIN_SHA"
           test "$(git -C "$exact" rev-parse HEAD)" = "$EXPECTED_MAIN_SHA"
           printf 'EXACT_APP_DIR=%s\n' "$exact" >> "$GITHUB_ENV"
+          absolute_evidence="$GITHUB_WORKSPACE/$EVIDENCE_DIR"
+          mkdir -p "$absolute_evidence"
+          printf 'EVIDENCE_DIR=%s\n' "$absolute_evidence" >> "$GITHUB_ENV"
           runner="$RUNNER_TEMP/launch2-final-b30f084/issue253-cutover.mjs"
           git show "origin/$SOURCE_AUDIT_BRANCH:scripts/run-issue253-hosted-cutover-v3.mjs" > "$runner"
           RUNNER_PATH="$runner" node --input-type=module - <<'NODE'
@@ -117,6 +120,11 @@ jobs:
           const applyCount=text.split(staleApply).length-1;
           if(applyCount!==1)throw new Error(`Expected one stale apply-sale signature, found ${applyCount}.`);
           text=text.replace(staleApply,currentApply);
+          const exactRecordCheck=`to_regprocedure('${currentRecord}') is not null`;
+          const exactApplyCheck=`to_regprocedure('${currentApply}') is not null`;
+          if(!text.includes(exactRecordCheck)||!text.includes(exactApplyCheck))throw new Error('Expected canonical function checks were not found.');
+          text=text.replace(exactRecordCheck,"exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='record_collectible_sale')");
+          text=text.replace(exactApplyCheck,"exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='apply_ebay_order_collectible_sale')");
           const staleEligibility=`      select i.* into target
       from public.inventory_items i
       join public.products p
