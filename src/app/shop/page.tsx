@@ -187,7 +187,7 @@ export default async function Shop({
 
   try {
     const inventoryEngine = createServerInventoryEngine();
-    const supabase = createSupabaseServerClient();
+    const supabase = createSupabaseServerClient({ admin: true });
     const storeId = getActiveStoreId();
     [products, soldProducts, sections] = await Promise.all([
       inventoryEngine.listAvailable({
