@@ -6,6 +6,7 @@ const navigationLinks = [
   { href: "/shop?q=rookie", label: "Rookies" },
   { href: "/shop?q=autograph", label: "Autos" },
   { href: "/shop?q=PSA", label: "Graded" },
+  { href: "/recently-sold", label: "Recently Sold" },
   { href: "/account/orders", label: "Orders" },
   { href: "/account", label: "Account" },
 ];
