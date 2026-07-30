@@ -28,6 +28,21 @@ const sources = {
     new URL("../src/app/admin/shipping/simulations/page.tsx", import.meta.url),
     "utf8",
   ),
+  fulfillmentQueue: await readFile(
+    new URL("../src/app/admin/orders/page.tsx", import.meta.url),
+    "utf8",
+  ),
+  orderDetail: await readFile(
+    new URL("../src/app/admin/orders/[id]/page.tsx", import.meta.url),
+    "utf8",
+  ),
+  packingSlip: await readFile(
+    new URL(
+      "../src/app/admin/orders/[id]/packing-slip/page.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  ),
 };
 
 const scenarios = [];
@@ -237,6 +252,40 @@ scenario("shipping simulation lab uses professional reliability presentation", (
       `Expected shipping simulation lab to avoid rough shell fragment ${roughShell}.`,
     );
   }
+});
+
+scenario("fulfillment pages avoid ambiguous orders/order_items embeds", () => {
+  for (const [name, source] of [
+    ["fulfillment queue", sources.fulfillmentQueue],
+    ["order detail", sources.orderDetail],
+    ["packing slip", sources.packingSlip],
+  ]) {
+    assert(
+      !source.includes("order_items ("),
+      "Expected " + name + " to avoid an ambiguous embedded order_items relationship.",
+    );
+    assert(
+      source.includes('.from("order_items")'),
+      "Expected " + name + " to load order_items explicitly.",
+    );
+    assert(
+      source.includes('.select("*")'),
+      "Expected " + name + " to load its order row without a relationship embed.",
+    );
+  }
+
+  assert(
+    sources.fulfillmentQueue.includes('.in("order_id", orderIds)'),
+    "Expected the fulfillment queue to fetch items for all loaded order IDs.",
+  );
+  assert(
+    sources.orderDetail.includes('.eq("order_id", order.id)'),
+    "Expected the order detail to fetch items for the selected order.",
+  );
+  assert(
+    sources.packingSlip.includes('.eq("order_id", order.id)'),
+    "Expected the packing slip to fetch items for the selected order.",
+  );
 });
 
 const failed = [];

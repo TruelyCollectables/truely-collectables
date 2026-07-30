@@ -17,6 +17,7 @@ export const revalidate = 0;
 
 type OrderItem = {
   id: number;
+  order_id: number;
   seller_account_id?: string | null;
   title: string;
   quantity: number;
@@ -158,22 +159,23 @@ export default async function AdminOrdersPage({
   const activeTab = safeTab(params?.tab);
   const storeId = getActiveStoreId();
 
-  const { data: orders, error } = await supabase
+  const { data: orders, error: ordersError } = await supabase
     .from("orders")
-    .select(
-      `
-      *,
-      order_items (
-        id,
-        seller_account_id,
-        title,
-        quantity,
-        price
-      )
-    `
-    )
+    .select("*")
     .eq("store_id", storeId)
     .order("created_at", { ascending: false });
+
+  const orderIds = (orders || [])
+    .map((order) => Number(order.id))
+    .filter((orderId) => Number.isFinite(orderId));
+  const { data: orderItems, error: orderItemsError } =
+    orderIds.length === 0
+      ? { data: [], error: null }
+      : await supabase
+          .from("order_items")
+          .select("id,order_id,seller_account_id,title,quantity,price")
+          .in("order_id", orderIds);
+  const error = ordersError || orderItemsError;
 
   if (error) {
     const orderLoadErrorMessage = safeErrorMessage(error);
@@ -233,7 +235,17 @@ export default async function AdminOrdersPage({
     );
   }
 
-  const typedOrders = (orders || []) as Order[];
+  const orderItemsByOrderId = new Map<number, OrderItem[]>();
+  for (const item of (orderItems || []) as OrderItem[]) {
+    const orderId = Number(item.order_id);
+    const items = orderItemsByOrderId.get(orderId) || [];
+    items.push(item);
+    orderItemsByOrderId.set(orderId, items);
+  }
+  const typedOrders = ((orders || []) as Order[]).map((order) => ({
+    ...order,
+    order_items: orderItemsByOrderId.get(Number(order.id)) || [],
+  }));
   let accountProfiles = new Map<string, AccountProfileSummary>();
   let accountProfilesError: { message?: string } | null = null;
 
