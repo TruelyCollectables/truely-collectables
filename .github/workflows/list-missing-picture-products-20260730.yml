@@ -1,0 +1,70 @@
+name: List Missing Picture Products 20260730
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/list-missing-picture-products-20260730.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  list-products:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'ops/list-missing-picture-products-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Read public product titles
+        shell: bash
+        run: |
+          node <<'NODE'
+          const ids = [
+            1682,1692,1709,1723,1779,1863,1976,1983,1988,1992,
+            2003,2019,2036,2052,2094,2103,2117,2183,2210,2211,
+            2213,2228,2240,2241,2260,2273,2286,2291,2313,2315,
+            2336,2366,2373,2386,2391,2411,2413,2419,2448,10650,
+            10658,10664,10665,10666,10684,10685,10688,10689,10692,10699,
+          ];
+
+          function decode(value) {
+            return String(value || '')
+              .replace(/<[^>]+>/g, ' ')
+              .replace(/&amp;/g, '&')
+              .replace(/&quot;/g, '"')
+              .replace(/&#39;|&apos;/g, "'")
+              .replace(/&lt;/g, '<')
+              .replace(/&gt;/g, '>')
+              .replace(/&#x2F;/gi, '/')
+              .replace(/&#(\d+);/g, (_, value) => String.fromCodePoint(Number(value)))
+              .replace(/\s+/g, ' ')
+              .trim();
+          }
+
+          async function read(id) {
+            const url = `https://truelycollectables.com/product/${id}?missing_picture_list=${Date.now()}`;
+            const response = await fetch(url, {
+              redirect: 'follow',
+              headers: { 'user-agent': 'TruelyCollectables inventory audit' },
+              signal: AbortSignal.timeout(30000),
+            });
+            const html = await response.text();
+            const h1 = /<h1\b[^>]*>([\s\S]*?)<\/h1>/i.exec(html)?.[1];
+            const title = /<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1];
+            return {
+              productId: id,
+              status: response.status,
+              title: decode(h1 || title || 'Title not found').replace(/\s*\|\s*Truely Collectables\s*$/i, ''),
+            };
+          }
+
+          const results = [];
+          for (let index = 0; index < ids.length; index += 5) {
+            const batch = ids.slice(index, index + 5);
+            results.push(...await Promise.all(batch.map(read)));
+          }
+          console.log('MISSING_BACK_PRODUCTS_JSON=' + JSON.stringify(results));
+          console.log(JSON.stringify({ count: results.length, products: results }, null, 2));
+          if (results.length !== 50) throw new Error(`Expected 50 products, received ${results.length}.`);
+          NODE
