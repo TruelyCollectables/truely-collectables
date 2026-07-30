@@ -20,8 +20,15 @@ const inactiveSaleMigration = read(
 const verifiedTimeMigration = read(
   "supabase/migrations/20260730002300_refine_verified_sale_timestamps.sql",
 );
+const idempotencyMigration = read(
+  "supabase/migrations/20260730002400_make_sale_recording_idempotent.sql",
+);
+const restockMigration = read(
+  "supabase/migrations/20260730002500_reset_sold_presentation_on_restock.sql",
+);
 const saleHistory = read("src/lib/collectible-sale-history.ts");
 const ebayOrders = read("src/lib/ebay-order-sale-sync.ts");
+const ebayAliases = read("src/lib/ebay-merged-listing-groups.ts");
 const ebayAuth = read("src/app/api/ebay/auth/route.ts");
 const overlay = read("src/components/SoldOverlay.tsx");
 const shop = read("src/app/shop/page.tsx");
@@ -68,6 +75,21 @@ assert.match(verifiedTimeMigration, /new\.sold_at \+ interval '7 days'/);
 assert.match(verifiedTimeMigration, /quantity <= 0/);
 assert.match(verifiedTimeMigration, /lifecycle_status = 'sold'/);
 
+assert.match(idempotencyMigration, /record_collectible_sale_unsafe_20260730/);
+assert.match(idempotencyMigration, /pg_advisory_xact_lock/);
+assert.match(idempotencyMigration, /store_id = p_store_id/);
+assert.match(idempotencyMigration, /event_key = normalized_event_key/);
+assert.match(idempotencyMigration, /return existing_sale_id/);
+assert.match(idempotencyMigration, /from public, anon, authenticated, service_role/);
+
+assert.match(restockMigration, /reset_product_sold_presentation_on_restock/);
+assert.match(restockMigration, /reset_inventory_sold_presentation_on_restock/);
+assert.match(restockMigration, /reset_collectible_asset_sold_presentation_on_restock/);
+assert.match(restockMigration, /new\.sold_at := null/);
+assert.match(restockMigration, /sold_price_evidence = '\{\}'::jsonb/);
+assert.match(restockMigration, /immutable collectible_sales history remains untouched/);
+assert.doesNotMatch(restockMigration, /delete\s+from\s+public\.collectible_sales/i);
+
 assert.match(saleHistory, /SOLD_STOREFRONT_RETENTION_DAYS = 7/);
 assert.match(saleHistory, /listRecentSoldStorefrontItems/);
 assert.match(saleHistory, /\.gte\("sold_at", cutoff\)/);
@@ -110,6 +132,8 @@ assert.match(adminProductLayout, /collectible_sales/);
 assert.match(adminProductLayout, /evidence_status/);
 assert.match(adminProductLayout, /Open Sale History/);
 
+assert.match(ebayAliases, /canonicalLegacyProductIdForEbayItemId/);
+assert.match(ebayAliases, /aliasItemIds\.some/);
 assert.match(ebayAuth, /https:\/\/api\.ebay\.com\/oauth\/api_scope/);
 assert.match(ebayOrders, /GetOrders/);
 assert.match(ebayOrders, /<OrderStatus>Completed<\/OrderStatus>/);
@@ -119,6 +143,9 @@ assert.match(ebayOrders, /OrderLineItemID/);
 assert.match(ebayOrders, /orderPaidAt/);
 assert.match(ebayOrders, /xmlMoney/);
 assert.match(ebayOrders, /DEFAULT_LOOKBACK_DAYS = 2/);
+assert.match(ebayOrders, /canonicalLegacyProductIdForEbayItemId/);
+assert.match(ebayOrders, /canonical_legacy_product_id/);
+assert.match(ebayOrders, /matched_product_ebay_item_id/);
 assert.match(ebayOrders, /evidence_source: "ebay_get_orders"/);
 assert.match(ebayOrders, /decrementAfterSale/);
 assert.match(ebayOrders, /alreadyRecorded/);
@@ -154,7 +181,7 @@ console.log(
       ebayOrderPollingMinutes: 5,
       ebayOrderRecurringLookbackDays: 2,
       authoritativeEbayPollingMinutes: 15,
-      checks: 91,
+      checks: 116,
     },
     null,
     2,
