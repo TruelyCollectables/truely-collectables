@@ -1,0 +1,45 @@
+import { timingSafeEqual } from "node:crypto";
+import { createSupabaseServerClient } from "../../../../lib/supabase-server";
+
+export const dynamic = "force-dynamic";
+export const maxDuration = 300;
+
+const STORE_ID = "00000000-0000-4000-8000-000000000001";
+const TARGET_IDS = new Set(["317233212716","317232808508","317251220254","317251220252","317251219908","317153485405","317299498993"]);
+
+function safeEqual(a: string, b: string) { const x=Buffer.from(a); const y=Buffer.from(b); return x.length===y.length && timingSafeEqual(x,y); }
+function decodeXml(value: string) { return value.trim().replace(/^<!\[CDATA\[/,"").replace(/\]\]>$/,"").replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&amp;/g,"&"); }
+function block(xml: string, tag: string) { return new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`,"i").exec(xml)?.[1]||null; }
+function blocks(xml: string, tag: string) { return Array.from(xml.matchAll(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`,"gi")),m=>m[1]); }
+function text(xml: string, tag: string) { const b=block(xml,tag); return b===null?null:decodeXml(b); }
+
+export async function POST(request: Request) {
+  const expected=process.env.EBAY_SELLER_SKU_DIAGNOSTIC_TOKEN_20260730||"";
+  const supplied=request.headers.get("x-tcos-diagnostic-token")||"";
+  if(!expected||!safeEqual(expected,supplied)) return Response.json({error:"Unauthorized"},{status:401});
+  let stage="start";
+  try {
+    stage="credentials";
+    const clientId=process.env.EBAY_CLIENT_ID; const clientSecret=process.env.EBAY_CLIENT_SECRET;
+    if(!clientId||!clientSecret) throw new Error("Missing eBay client credentials");
+    stage="refresh_token_read";
+    const supabase=createSupabaseServerClient({admin:true});
+    const {data,error}=await supabase.from("ebay_tokens").select("refresh_token").eq("store_id",STORE_ID).order("created_at",{ascending:false}).limit(1).maybeSingle();
+    if(error) throw error; if(!data?.refresh_token) throw new Error("No refresh token");
+    stage="oauth_refresh";
+    const tokenResponse=await fetch("https://api.ebay.com/identity/v1/oauth2/token",{method:"POST",headers:{Authorization:`Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,"Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams({grant_type:"refresh_token",refresh_token:String(data.refresh_token),scope:"https://api.ebay.com/oauth/api_scope https://api.ebay.com/oauth/api_scope/sell.inventory"}),signal:AbortSignal.timeout(20000)});
+    const tokenBody=await tokenResponse.json().catch(()=>({})); if(!tokenResponse.ok||!tokenBody.access_token) throw new Error(JSON.stringify(tokenBody).slice(0,1000)); const token=String(tokenBody.access_token);
+    stage="get_seller_list";
+    const now=Date.now(); const from=new Date(now-5*60*1000).toISOString(); const to=new Date(now+119*24*60*60*1000).toISOString();
+    const response=await fetch("https://api.ebay.com/ws/api.dll",{method:"POST",headers:{"Content-Type":"text/xml","X-EBAY-API-CALL-NAME":"GetSellerList","X-EBAY-API-COMPATIBILITY-LEVEL":"1409","X-EBAY-API-SITEID":"0","X-EBAY-API-IAF-TOKEN":token},body:`<?xml version="1.0" encoding="utf-8"?><GetSellerListRequest xmlns="urn:ebay:apis:eBLBaseComponents"><DetailLevel>ReturnAll</DetailLevel><EndTimeFrom>${from}</EndTimeFrom><EndTimeTo>${to}</EndTimeTo><Pagination><EntriesPerPage>200</EntriesPerPage><PageNumber>1</PageNumber></Pagination></GetSellerListRequest>`,signal:AbortSignal.timeout(60000)});
+    const xml=await response.text(); const ack=text(xml,"Ack")||"Failure"; if(!response.ok||!["Success","Warning"].includes(ack)) throw new Error(text(block(xml,"Errors")||xml,"LongMessage")||text(block(xml,"Errors")||xml,"ShortMessage")||`HTTP ${response.status}`);
+    const items=blocks(block(xml,"ItemArray")||"","Item").map(item=>({itemId:text(item,"ItemID")||"",sku:text(item,"SKU")||"",pictureUrls:blocks(block(item,"PictureDetails")||"","PictureURL").map(decodeXml)}));
+    const targets=items.filter(item=>TARGET_IDS.has(item.itemId));
+    stage="inventory_api";
+    const inventoryResults=[];
+    for(const item of targets){ const r=await fetch(`https://api.ebay.com/sell/inventory/v1/inventory_item/${encodeURIComponent(item.sku)}`,{headers:{Authorization:`Bearer ${token}`,"Content-Language":"en-US"},signal:AbortSignal.timeout(20000)}); const body=await r.json().catch(()=>({})); inventoryResults.push({itemId:item.itemId,sku:item.sku,sellerPictureCount:item.pictureUrls.length,status:r.status,imageUrls:Array.isArray(body?.product?.imageUrls)?body.product.imageUrls:[],error:r.ok?null:body}); }
+    return Response.json({success:true,stage,totalItems:items.length,totalPages:Number(text(block(xml,"PaginationResult")||"","TotalNumberOfPages")||1),targets,inventoryResults},{headers:{"Cache-Control":"no-store"}});
+  } catch(error) {
+    return Response.json({success:false,stage,error:error instanceof Error?error.message:String(error)},{status:200,headers:{"Cache-Control":"no-store"}});
+  }
+}
