@@ -118,7 +118,13 @@ async function requireDirectStoreFeeCleanup(cookie: string) {
   const firstBody = await first.json().catch(() => ({}));
 
   if (first.status !== 200 || firstBody?.success !== true) {
-    throw new Error(`Direct-store fee cleanup failed with status ${first.status}.`);
+    const detail = String(firstBody?.error || "Unknown fee cleanup error")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 500);
+    throw new Error(
+      `Direct-store fee cleanup failed with status ${first.status}: ${detail}`,
+    );
   }
 
   const second = await adminRequest(
