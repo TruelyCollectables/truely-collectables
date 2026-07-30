@@ -133,9 +133,6 @@ jobs:
             live-app \
             "$RUNNER_TEMP/launch2-issue253-finalize-production/production.env" \
             "$RUNNER_TEMP/launch2-issue253-finalize-evidence"
-          cd live-app
-          npx vercel@56.2.0 env pull "$RUNNER_TEMP/launch2-issue253-finalize-production/production.env" \
-            --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
 
       - name: Apply migration 02900, deploy exact main, and verify live Production
         shell: bash
