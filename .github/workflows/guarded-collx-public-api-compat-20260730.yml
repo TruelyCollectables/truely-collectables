@@ -1,0 +1,89 @@
+name: Guarded CollX Public API Compatibility 20260730
+
+on:
+  pull_request:
+    branches:
+      - fix/launch2-sold-lifecycle-certify-20260730
+    paths:
+      - ".github/workflows/guarded-collx-public-api-compat-20260730.yml"
+      - "src/lib/server-inventory-engine.ts"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: guarded-collx-public-api-compat-20260730
+  cancel-in-progress: false
+
+env:
+  EXPECTED_BRANCH: fix/launch2-collx-public-api-compat-20260730
+  EXPECTED_SOURCE_SHA: c26a8e67eca60a474170015334cd7d7a3f1482d4
+  EXPECTED_BASE_SHA: 7088811858f39327a17c2bdc93e6c1151b134008
+  NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
+  SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
+  ADMIN_SESSION_SECRET: build-validation-session-secret-that-is-long-enough
+  ADMIN_PASSWORD: build-validation-admin-password
+  NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+  STRIPE_SECRET_KEY: sk_test_build_validation
+  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_validation
+  STRIPE_WEBHOOK_SECRET: whsec_build_validation
+  EBAY_CLIENT_ID: build-validation-client-id
+  EBAY_CLIENT_SECRET: build-validation-client-secret
+  EBAY_ENVIRONMENT: production
+  CRON_SECRET: build-validation-cron-secret-that-is-long-enough
+  TCOS_LIVE_PAYMENTS_ENABLED: "false"
+  TCOS_SHIPPING_PURCHASE_MODE: dry_run
+  TCOS_LIVE_SHIPPING_ENABLED: "false"
+
+jobs:
+  validate:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'fix/launch2-collx-public-api-compat-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out guarded branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on exact source scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_SOURCE_SHA"
+          test "$(git diff-tree --no-commit-id --name-only -r HEAD)" = ".github/workflows/guarded-collx-public-api-compat-20260730.yml"
+          git fetch origin fix/launch2-sold-lifecycle-certify-20260730
+          test "$(git rev-parse origin/fix/launch2-sold-lifecycle-certify-20260730)" = "$EXPECTED_BASE_SHA"
+          test "$(git diff --name-only "$EXPECTED_BASE_SHA"..."$EXPECTED_SOURCE_SHA")" = "src/lib/server-inventory-engine.ts"
+          test -z "$(git status --porcelain)"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Run eBay admin client compatibility regression
+        run: node --import tsx scripts/run-ebay-import-admin-client-simulations.ts
+
+      - name: Run issue 253 and CollX boundary simulations
+        run: node scripts/run-sold-lifecycle-simulations.mjs
+
+      - name: Run privileged route audits
+        run: |
+          node scripts/run-privileged-api-route-audit.mjs
+          npm run simulate:privileged-route-auth
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Run standalone TypeScript
+        run: npx tsc --noEmit --pretty false
+
+      - name: Run Production build
+        run: npm run build
