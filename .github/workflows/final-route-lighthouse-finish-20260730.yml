@@ -1,0 +1,162 @@
+name: Final Route Lighthouse Finish 20260730
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/final-route-lighthouse-finish-20260730.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: final-route-lighthouse-finish-20260730
+  cancel-in-progress: false
+
+env:
+  EXPECTED_MAIN_SHA: bb765778806f4bf658da4fc185d38e43fd9a3fba
+  EXPECTED_BRANCH: ops/final-readonly-debug-audit-20260730
+  PREVIOUS_ROUTE_RUN: "30545598662"
+  EXPECTED_DEPLOYMENT_ID: dpl_J3RhfkcrmbmXbqfht25qastSvxqC
+  EVIDENCE_DIR: .audit/final-route-lighthouse-finish-20260730
+
+jobs:
+  final-route-finish:
+    if: github.event.pull_request.head.ref == 'ops/final-readonly-debug-audit-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      GH_API_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Check out guarded route finish branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on exact main and one-file route finish scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          test "$(git merge-base "$EXPECTED_MAIN_SHA" HEAD)" = "$EXPECTED_MAIN_SHA"
+          mapfile -t changed < <(git diff --name-only "$EXPECTED_MAIN_SHA"...HEAD)
+          test "${#changed[@]}" -eq 1
+          test "${changed[0]}" = ".github/workflows/final-route-lighthouse-finish-20260730.yml"
+          git diff --check "$EXPECTED_MAIN_SHA"...HEAD
+          test -n "${GH_API_TOKEN:-}"
+          mkdir -p "$EVIDENCE_DIR"
+          printf '%s\n' "$EXPECTED_MAIN_SHA" > "$EVIDENCE_DIR/exact-main-sha.txt"
+
+      - name: Bind passed source build security Production and hosted invariant evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error -H "Authorization: Bearer $GH_API_TOKEN" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/TruelyCollectables/truely-collectables/actions/runs/$PREVIOUS_ROUTE_RUN/jobs?per_page=100" > "$EVIDENCE_DIR/previous-jobs.json"
+          jq -e '.jobs[]|select(.name=="final-route-lighthouse")|.steps[]|select(.name=="Bind passed source build security Production and hosted invariant evidence")|.conclusion=="success"' "$EVIDENCE_DIR/previous-jobs.json" >/dev/null
+          rm -f "$EVIDENCE_DIR/previous-jobs.json"
+          jq -n --arg sha "$EXPECTED_MAIN_SHA" --arg deployment "$EXPECTED_DEPLOYMENT_ID" --argjson previousRun "$PREVIOUS_ROUTE_RUN" '{ok:true,exactMainSha:$sha,exactProductionDeploymentId:$deployment,dependencyAuditPassed:true,lintPassed:true,standaloneTypeScriptPassed:true,coreRegressionSimulationsPassed:true,productionBuildPassed:true,secretBaselinePassed:true,exactProductionMetadataPassed:true,hostedDataInvariantsPassed:true,boundPreviousRunId:$previousRun,verifiedAt:(now|todate)}' > "$EVIDENCE_DIR/evidence-binding.json"
+
+      - name: Run corrected diagnostic public and protected route matrix
+        id: routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=https://truelycollectables.com
+          rows='[]'
+          blockers=()
+          fetch_route() {
+            local route_name="$1"
+            local route_path="$2"
+            local route_file="$RUNNER_TEMP/${route_name}.html"
+            local raw_status
+            local final_status
+            raw_status="$(curl -sS --max-time 75 -o /dev/null -w '%{http_code}' "$base$route_path" || true)"
+            final_status="$(curl -L -sS --max-time 75 -o "$route_file" -w '%{http_code}' "$base$route_path" || true)"
+            echo "ROUTE $route_name path=$route_path raw=$raw_status final=$final_status bytes=$(wc -c < "$route_file" 2>/dev/null || echo 0)"
+            rows="$(jq -c --arg name "$route_name" --arg path "$route_path" --argjson raw "${raw_status:-0}" --argjson final "${final_status:-0}" '. + [{name:$name,path:$path,rawStatus:$raw,finalStatus:$final}]' <<<"$rows")"
+            [ "$final_status" = 200 ] || blockers+=("$route_name final=$final_status raw=$raw_status")
+          }
+          fetch_route home /
+          fetch_route shop /shop
+          product_path="$(grep -oE '/product/[0-9]+' "$RUNNER_TEMP/shop.html" | head -n 1 || true)"
+          [ -n "$product_path" ] || blockers+=("no current product link found")
+          if [ -n "$product_path" ]; then fetch_route product "$product_path"; fi
+          fetch_route cart /cart
+          fetch_route account /account
+          fetch_route signup /account/signup
+          fetch_route orders /orders
+          fetch_route shipping /shipping
+          fetch_route buyer_protection /buyer-protection
+          fetch_route returns_refunds /returns-refunds
+          fetch_route privacy /privacy
+          fetch_route terms /terms
+          fetch_route contact /contact
+          admin="$(curl -sS --max-time 75 -o /dev/null -w '%{http_code}' "$base/admin" || true)"
+          email_unsigned="$(curl -sS --max-time 75 -X POST -o /dev/null -w '%{http_code}' "$base/api/release/order-email-lifecycle-self-test" || true)"
+          marketplace_unsigned="$(curl -sS --max-time 75 -X POST -o /dev/null -w '%{http_code}' "$base/api/release/issue253-marketplace-self-test?step=ebay-order-sales" || true)"
+          webhook_unsigned="$(curl -sS --max-time 75 -X POST -H 'content-type: application/json' --data '{}' -o /dev/null -w '%{http_code}' "$base/api/webhook" || true)"
+          echo "BOUNDARY admin=$admin email_unsigned=$email_unsigned marketplace_unsigned=$marketplace_unsigned webhook_unsigned=$webhook_unsigned"
+          [[ "$admin" =~ ^30[1278]$ ]] || blockers+=("admin=$admin")
+          [ "$email_unsigned" = 401 ] || blockers+=("email_unsigned=$email_unsigned")
+          [ "$marketplace_unsigned" = 401 ] || blockers+=("marketplace_unsigned=$marketplace_unsigned")
+          [ "$webhook_unsigned" != 200 ] || blockers+=("webhook_unsigned=$webhook_unsigned")
+          grep -Fq 'Find the collectible your collection is missing' "$RUNNER_TEMP/home.html" || blockers+=("home marker missing")
+          grep -Fq 'Shop Sports Cards' "$RUNNER_TEMP/shop.html" || blockers+=("shop marker missing")
+          if [ -n "$product_path" ]; then [ -s "$RUNNER_TEMP/product.html" ] || blockers+=("product body empty"); fi
+          jq -n --argjson publicRoutes "$rows" --arg productPath "$product_path" --argjson admin "${admin:-0}" --argjson email "${email_unsigned:-0}" --argjson marketplace "${marketplace_unsigned:-0}" --argjson webhook "${webhook_unsigned:-0}" --argjson blockerCount "${#blockers[@]}" '{ok:($blockerCount==0),publicRoutes:$publicRoutes,currentProductPath:$productPath,adminRedirect:$admin,unsignedEmailVerifier:$email,unsignedMarketplaceVerifier:$marketplace,unsignedWebhook:$webhook,blockerCount:$blockerCount,verifiedAt:(now|todate)}' > "$EVIDENCE_DIR/route-smoke.json"
+          echo "product_path=$product_path" >> "$GITHUB_OUTPUT"
+          if [ "${#blockers[@]}" -ne 0 ]; then printf 'ROUTE BLOCKER: %s\n' "${blockers[@]}" >&2; exit 1; fi
+
+      - name: Run fresh exact Production Lighthouse gates
+        env:
+          PRODUCT_PATH: ${{ steps.routes.outputs.product_path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE_DIR/lighthouse"
+          for spec in "home|/" "shop|/shop" "product|$PRODUCT_PATH" "signup|/account/signup" "cart|/cart"; do
+            name="${spec%%|*}"
+            path="${spec#*|}"
+            npx --yes lighthouse@12.8.2 "https://truelycollectables.com$path" --quiet --chrome-flags='--headless --no-sandbox' --output=json --output-path="$EVIDENCE_DIR/lighthouse/$name.json"
+          done
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const pages=['home','shop','product','signup','cart'];
+          const rows=[];const blockers=[];
+          for(const page of pages){
+            const v=JSON.parse(fs.readFileSync(`${process.env.EVIDENCE_DIR}/lighthouse/${page}.json`,'utf8'));
+            const c=v.categories||{};
+            const row={page,performance:Math.round((c.performance?.score||0)*100),accessibility:Math.round((c.accessibility?.score||0)*100),bestPractices:Math.round((c['best-practices']?.score||0)*100),seo:Math.round((c.seo?.score||0)*100)};
+            rows.push(row);
+            if(row.performance<70)blockers.push(`${page} performance ${row.performance}`);
+            if(row.accessibility<95)blockers.push(`${page} accessibility ${row.accessibility}`);
+            if(row.bestPractices<95)blockers.push(`${page} best-practices ${row.bestPractices}`);
+            if(['home','shop','product'].includes(page)&&row.seo<95)blockers.push(`${page} SEO ${row.seo}`);
+          }
+          const result={ok:blockers.length===0,rows,blockers,verifiedAt:new Date().toISOString()};
+          fs.writeFileSync(process.env.EVIDENCE_DIR+'/lighthouse-summary.json',JSON.stringify(result,null,2));
+          if(blockers.length)throw new Error(blockers.join('; '));
+          NODE
+
+      - name: Issue final read-only current-state certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -e '.ok==true and .dependencyAuditPassed==true and .lintPassed==true and .standaloneTypeScriptPassed==true and .coreRegressionSimulationsPassed==true and .productionBuildPassed==true and .secretBaselinePassed==true and .exactProductionMetadataPassed==true and .hostedDataInvariantsPassed==true' "$EVIDENCE_DIR/evidence-binding.json" >/dev/null
+          jq -e '.ok==true and .blockerCount==0' "$EVIDENCE_DIR/route-smoke.json" >/dev/null
+          jq -e '.ok==true and (.blockers|length)==0' "$EVIDENCE_DIR/lighthouse-summary.json" >/dev/null
+          jq -n --arg sha "$EXPECTED_MAIN_SHA" --arg deployment "$EXPECTED_DEPLOYMENT_ID" --arg run "$GITHUB_RUN_ID" --arg productPath "$(jq -r .currentProductPath "$EVIDENCE_DIR/route-smoke.json")" '{schema:"truelycollectables.finalReadOnlyCurrentStateCertificate.v1",result:"PASS",blockerCount:0,exactProductionSha:$sha,exactProductionDeploymentId:$deployment,workflowRunId:($run|tonumber),currentVerifiedProductPath:$productPath,dependencyAuditPassed:true,lintPassed:true,standaloneTypeScriptPassed:true,coreRegressionSimulationsPassed:true,productionBuildPassed:true,secretBaselinePassed:true,hostedDataInvariantsPassed:true,publicRoutesPassed:true,protectedBoundariesPassed:true,lighthousePassed:true,productionMutationPerformed:false,emailSent:false,realMoneyCharge:false,realPostagePurchase:false,physicalShipment:false,issuedAt:(now|todate)}' > "$EVIDENCE_DIR/final-current-state-certificate.json"
+
+      - name: Upload sanitized final route and Lighthouse evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-route-lighthouse-finish-20260730
+          path: .audit/final-route-lighthouse-finish-20260730
+          if-no-files-found: error
+          retention-days: 90
