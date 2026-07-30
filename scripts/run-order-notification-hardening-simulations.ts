@@ -67,10 +67,17 @@ assert.match(helper, /status: "sent"/);
 assert.match(helper, /provider_message_id/);
 assert.match(helper, /escapeOrderNotificationHtml/);
 assert.match(helper, /notificationType: OrderNotificationType/);
+assert.match(helper, /payload\.audience === "store"/);
+assert.match(helper, /New paid/);
+assert.match(helper, /Open order in fulfillment/);
 
 assert.match(checkout, /notificationType: "payment_confirmation"/);
 assert.match(checkout, /enqueueAndAttemptOrderNotification/);
 assert.match(checkout, /if \(!isE2ETest\)/);
+assert.match(checkout, /recipientEmail: storeSettings\.salesEmail/);
+assert.match(checkout, /store_order_received\//);
+assert.match(checkout, /audience: "store"/);
+assert.match(checkout, /adminOrderUrl/);
 
 assert.match(shipped, /notificationType: "shipment_confirmation"/);
 assert.match(shipped, /order\.shipped_at \|\| new Date\(\)\.toISOString\(\)/);
