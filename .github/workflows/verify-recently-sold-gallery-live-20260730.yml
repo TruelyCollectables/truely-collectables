@@ -1,0 +1,71 @@
+name: Verify Recently Sold Gallery Live 20260730
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/verify-recently-sold-gallery-live-20260730.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-recently-sold-gallery-live-20260730
+  cancel-in-progress: false
+
+jobs:
+  verify-live:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'ops/deploy-recently-sold-gallery-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Verify public routes and a real two-photo listing
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 18); do
+            shop_file="$RUNNER_TEMP/shop-${attempt}.html"
+            sold_file="$RUNNER_TEMP/sold-${attempt}.html"
+            shop_status="$(curl -sS -L --max-time 45 -o "$shop_file" -w '%{http_code}' "https://truelycollectables.com/shop?live_verify=${GITHUB_RUN_ID}&attempt=${attempt}" || true)"
+            sold_status="$(curl -sS -L --max-time 45 -o "$sold_file" -w '%{http_code}' "https://truelycollectables.com/recently-sold?live_verify=${GITHUB_RUN_ID}&attempt=${attempt}" || true)"
+            route_status="$(curl -sS -L --max-time 45 -o /dev/null -w '%{http_code}' -X POST "https://truelycollectables.com/api/internal/recently-sold-gallery-sync?live_verify=${GITHUB_RUN_ID}&attempt=${attempt}" || true)"
+
+            shop_link=false
+            sold_page=false
+            product_id=""
+            if [ "$shop_status" = "200" ] && grep -Fq 'Recently Sold' "$shop_file"; then
+              shop_link=true
+            fi
+            if [ "$sold_status" = "200" ] && grep -Fq 'See What You Missed' "$sold_file"; then
+              sold_page=true
+            fi
+
+            mapfile -t product_ids < <(grep -Eo '/product/[0-9]+' "$shop_file" | sed 's#.*/##' | awk '!seen[$0]++' | head -n 30)
+            for candidate in "${product_ids[@]:-}"; do
+              [ -n "$candidate" ] || continue
+              product_file="$RUNNER_TEMP/product-${candidate}.html"
+              product_status="$(curl -sS -L --max-time 45 -o "$product_file" -w '%{http_code}' "https://truelycollectables.com/product/${candidate}?live_verify=${GITHUB_RUN_ID}&attempt=${attempt}" || true)"
+              if [ "$product_status" = "200" ] \
+                && grep -Fq 'Front photo' "$product_file" \
+                && grep -Fq 'Back photo' "$product_file"; then
+                product_id="$candidate"
+                break
+              fi
+            done
+
+            echo "attempt=${attempt} shop_status=${shop_status} shop_link=${shop_link} sold_status=${sold_status} sold_page=${sold_page} route_status=${route_status} two_photo_product=${product_id:-none}"
+
+            if [ "$shop_link" = true ] \
+              && [ "$sold_page" = true ] \
+              && [ -n "$product_id" ] \
+              && [ "$route_status" != "200" ] \
+              && [ "$route_status" != "401" ]; then
+              echo "Live Recently Sold page and front/back product gallery verified with product ${product_id}."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Live Recently Sold or front/back gallery verification failed." >&2
+          exit 1
