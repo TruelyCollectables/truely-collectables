@@ -84,6 +84,7 @@ export default async function AdminResetPasswordPage({
               </label>
               <AdminSubmitButton
                 className="w-full rounded-2xl bg-neutral-950 px-4 py-3 font-black text-white shadow-sm transition hover:bg-neutral-800"
+                title="Save the new permanent owner password, replace the temporary reset credential, and open the protected Admin Command Center."
                 pendingChildren="Saving permanent password..."
               >
                 Save Password and Open Admin

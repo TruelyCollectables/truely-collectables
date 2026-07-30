@@ -140,6 +140,7 @@ export default function DuckAiWitness() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [confirmingClear, setConfirmingClear] = useState(false);
 
   const prompt = useMemo(
     () =>
@@ -253,16 +254,9 @@ export default function DuckAiWitness() {
   }
 
   function clearLedger() {
-    if (
-      !window.confirm(
-        "Delete all locally saved Duck.ai witness records from this browser?",
-      )
-    ) {
-      return;
-    }
-
     localStorage.removeItem(STORAGE_KEY);
     setSavedWitnesses([]);
+    setConfirmingClear(false);
     setMessage("Duck.ai witness history cleared from this browser.");
     setError("");
   }
@@ -414,13 +408,48 @@ export default function DuckAiWitness() {
             </button>
             <button
               type="button"
-              onClick={clearLedger}
-              disabled={savedWitnesses.length === 0}
+              onClick={() => {
+                setConfirmingClear(true);
+                setMessage("");
+                setError("");
+              }}
+              disabled={savedWitnesses.length === 0 || confirmingClear}
               className="min-h-12 rounded-xl border border-neutral-300 px-4 font-bold disabled:opacity-40"
             >
               Clear Local History
             </button>
           </div>
+
+          {confirmingClear ? (
+            <div
+              role="alertdialog"
+              aria-labelledby="duck-ai-clear-title"
+              className="rounded-2xl border-2 border-rose-300 bg-rose-50 p-4 text-rose-950"
+            >
+              <p id="duck-ai-clear-title" className="font-black">
+                Delete every locally saved Duck.ai witness record from this browser?
+              </p>
+              <p className="mt-1 text-sm font-semibold">
+                This removes the local witness ledger only. Export it first when the evidence must be retained.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={clearLedger}
+                  className="rounded-xl bg-rose-700 px-4 py-2 text-sm font-black text-white"
+                >
+                  Delete All Local Witness Records
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingClear(false)}
+                  className="rounded-xl border border-rose-300 bg-white px-4 py-2 text-sm font-black"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : null}
 
           {error ? (
             <div className="rounded-xl border-2 border-rose-300 bg-rose-50 p-4 font-bold text-rose-900">
