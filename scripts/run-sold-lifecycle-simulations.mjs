@@ -26,6 +26,7 @@ const overlay = read("src/components/SoldOverlay.tsx");
 const shop = read("src/app/shop/page.tsx");
 const productLayout = read("src/app/product/[id]/layout.tsx");
 const admin = read("src/app/admin/sales-history/page.tsx");
+const adminProductLayout = read("src/app/admin/products/[id]/layout.tsx");
 const archiveCron = read("src/app/api/cron/sold-collectible-archive/route.ts");
 const ebayOrderCron = read("src/app/api/cron/ebay-order-sale-sync/route.ts");
 const vercel = JSON.parse(read("vercel.json"));
@@ -89,6 +90,9 @@ assert.doesNotMatch(shop, /SoldProductCard[\s\S]*OfferForm/);
 assert.match(productLayout, /Sold · Research only/);
 assert.match(productLayout, /locked from cart, checkout, Buy Now, and Best/);
 assert.match(productLayout, /<SoldOverlay \/>/);
+assert.match(productLayout, /soldRetentionExpired/);
+assert.match(productLayout, /notFound\(\)/);
+assert.match(productLayout, /archiveTime <= Date\.now\(\)/);
 assert.doesNotMatch(productLayout, /ProductActions/);
 assert.doesNotMatch(productLayout, /OfferForm/);
 
@@ -97,6 +101,13 @@ assert.match(admin, /forceZero: true/);
 assert.match(admin, /Sold Price Unresolved/);
 assert.match(admin, /Original Listing Price/);
 assert.match(admin, /Actual sold price/);
+
+assert.match(adminProductLayout, /Actual sale evidence/);
+assert.match(adminProductLayout, /Original listing price/);
+assert.match(adminProductLayout, /Actual sold price/);
+assert.match(adminProductLayout, /collectible_sales/);
+assert.match(adminProductLayout, /evidence_status/);
+assert.match(adminProductLayout, /Open Sale History/);
 
 assert.match(ebayOrders, /GetOrders/);
 assert.match(ebayOrders, /TransactionPrice/);
@@ -131,7 +142,7 @@ console.log(
       soldRetentionDays: 7,
       ebayOrderPollingMinutes: 5,
       authoritativeEbayPollingMinutes: 15,
-      checks: 66,
+      checks: 78,
     },
     null,
     2,
