@@ -1,0 +1,85 @@
+name: Apply Product Gallery Aggregation 20260730
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-product-gallery-aggregation-20260730
+  cancel-in-progress: true
+
+jobs:
+  patch-test-commit:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'fix/product-image-duplicate-inventory-aggregation-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
+      ADMIN_SESSION_SECRET: build-validation-session-secret-that-is-long-enough
+      ADMIN_PASSWORD: build-validation-admin-password
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      STRIPE_SECRET_KEY: sk_test_build_validation
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_validation
+      STRIPE_WEBHOOK_SECRET: whsec_build_validation
+      EBAY_CLIENT_ID: build-validation-client-id
+      EBAY_CLIENT_SECRET: build-validation-client-secret
+      EBAY_ENVIRONMENT: production
+      CRON_SECRET: build-validation-cron-secret-that-is-long-enough
+      RESEND_API_KEY: re_build_validation
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+
+    steps:
+      - name: Check out exact repair branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/product-image-duplicate-inventory-aggregation-20260730
+          fetch-depth: 0
+
+      - name: Fail closed on exact repair scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "fix/product-image-duplicate-inventory-aggregation-20260730"
+          test -f src/lib/storefront-product-images.ts
+          test -f scripts/apply-product-gallery-aggregation-wiring.mjs
+          test -f scripts/run-product-gallery-aggregation-contracts.mjs
+          git diff --check
+
+      - name: Wire active and sold product galleries
+        run: node scripts/apply-product-gallery-aggregation-wiring.mjs
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Run focused aggregation contracts
+        run: node --import tsx scripts/run-product-gallery-aggregation-contracts.mjs
+
+      - name: Run TypeScript and Production build
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx tsc --noEmit --pretty false
+          npm run build
+          git diff --check
+
+      - name: Commit durable page wiring
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add src/app/product/'[id]'/page.tsx src/app/product/'[id]'/layout.tsx
+          if git diff --cached --quiet; then
+            echo "Product gallery aggregation wiring is already committed."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Aggregate product images across linked inventory rows"
+          git push origin HEAD:fix/product-image-duplicate-inventory-aggregation-20260730
