@@ -1,0 +1,90 @@
+name: Launch 2 Sold Lifecycle CI 20260729
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/launch2-sold-lifecycle-ci-20260729.yml"
+      - "scripts/run-sold-lifecycle-simulations.mjs"
+      - "src/app/admin/sales-history/**"
+      - "src/app/api/cron/ebay-order-sale-sync/**"
+      - "src/app/api/cron/sold-collectible-archive/**"
+      - "src/app/product/[id]/layout.tsx"
+      - "src/app/shop/page.tsx"
+      - "src/components/SoldOverlay.tsx"
+      - "src/lib/collectible-sale-history.ts"
+      - "src/lib/ebay-order-sale-sync.ts"
+      - "src/modules/inventory/types.ts"
+      - "supabase/migrations/20260730002000_sold_storefront_retention_and_sale_history.sql"
+      - "supabase/migrations/20260730002100_manual_sale_ebay_outbox.sql"
+      - "vercel.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: launch2-sold-lifecycle-ci-20260729
+  cancel-in-progress: false
+
+jobs:
+  sold-lifecycle-gates:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'fix/launch2-sold-lifecycle-20260729'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
+      ADMIN_SESSION_SECRET: build-validation-session-secret-that-is-long-enough
+      ADMIN_PASSWORD: build-validation-admin-password
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      STRIPE_SECRET_KEY: sk_test_build_validation
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_validation
+      STRIPE_WEBHOOK_SECRET: whsec_build_validation
+      EBAY_CLIENT_ID: build-validation-client-id
+      EBAY_CLIENT_SECRET: build-validation-client-secret
+      EBAY_ENVIRONMENT: production
+      CRON_SECRET: build-validation-cron-secret-that-is-long-enough
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+    steps:
+      - name: Check out guarded remediation branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fail closed on branch scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "fix/launch2-sold-lifecycle-20260729"
+          git fetch origin main
+          git diff --check origin/main...HEAD
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Run issue 253 sold lifecycle simulations
+        run: node scripts/run-sold-lifecycle-simulations.mjs
+
+      - name: Run privileged route audit
+        run: |
+          node scripts/run-privileged-api-route-audit.mjs
+          npm run simulate:privileged-route-auth
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Run standalone TypeScript
+        run: npx tsc --noEmit --pretty false
+
+      - name: Run Production build
+        run: npm run build
