@@ -1,0 +1,357 @@
+import { timingSafeEqual } from "node:crypto";
+import { createSupabaseServerClient } from "../../../../lib/supabase-server";
+
+export const dynamic = "force-dynamic";
+export const maxDuration = 300;
+
+const STORE_ID = "00000000-0000-4000-8000-000000000001";
+const TARGET_IDS = [
+  1682,1692,1709,1723,1779,1863,1976,1983,1988,1992,
+  2003,2019,2036,2052,2094,2103,2117,2183,2210,2211,
+  2213,2228,2240,2241,2260,2273,2286,2291,2313,2315,
+  2336,2366,2373,2386,2391,2411,2413,2419,2448,10650,
+  10658,10664,10665,10666,10684,10685,10688,10689,10692,10699,
+];
+const CONCURRENCY = 5;
+const MAX_IMAGES = 20;
+
+type ProductRow = { id: number; title: string; ebay_item_id: string | null; image_url: string | null };
+type InventoryRow = { id: string; legacy_product_id: number; title: string };
+type ImageRow = { id: string; inventory_item_id: string; image_url: string; sort_order: number; is_primary: boolean };
+
+function safeEqual(left: string, right: string) {
+  const a = Buffer.from(left);
+  const b = Buffer.from(right);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+function hi(value: unknown) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  return text.replace(/\/s-l\d+\.(jpg|jpeg|png|webp)(\?.*)?$/i, "/s-l1600.$1$2");
+}
+
+function identity(value: unknown) {
+  const text = hi(value);
+  if (!text) return "";
+  try {
+    const url = new URL(text);
+    if (url.hostname.toLowerCase() === "i.ebayimg.com") {
+      const modern = /^\/images\/g\/([^/]+)\//i.exec(url.pathname)?.[1];
+      const legacy = /\/z\/([^/]+)\/\$_\d+\.(?:jpe?g|png|webp)$/i.exec(url.pathname)?.[1];
+      if (modern || legacy) return `ebay:${modern || legacy}`;
+    }
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return text;
+  }
+}
+
+function normalize(values: unknown[]) {
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    const url = hi(value);
+    const key = identity(url);
+    if (!url || !key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(url);
+    if (result.length >= MAX_IMAGES) break;
+  }
+  return result;
+}
+
+function isExplicitFront(value: string) {
+  try { return /(?:^|[-_/])front(?=\.[a-z0-9]+$)/i.test(new URL(value).pathname); }
+  catch { return /(?:^|[-_/])front(?=\.[a-z0-9]+(?:[?#].*)?$)/i.test(value); }
+}
+
+function backVariants(value: string) {
+  const candidates: string[] = [];
+  try {
+    const url = new URL(value);
+    const path = url.pathname;
+    for (const replacement of ["$1back", "$1Back", "$1BACK"]) {
+      const next = path.replace(/(^|[-_/])front(?=\.[a-z0-9]+$)/i, replacement);
+      if (next !== path) {
+        const copy = new URL(url.toString());
+        copy.pathname = next;
+        candidates.push(copy.toString());
+      }
+    }
+  } catch {
+    const next = value.replace(/(^|[-_/])front(?=\.[a-z0-9]+(?:[?#].*)?$)/i, "$1back");
+    if (next !== value) candidates.push(next);
+  }
+  return normalize(candidates);
+}
+
+async function verifyImage(url: string) {
+  const request = async (method: "HEAD" | "GET") => fetch(url, {
+    method,
+    redirect: "follow",
+    headers: method === "GET" ? { Range: "bytes=0-16" } : undefined,
+    signal: AbortSignal.timeout(15000),
+  });
+  try {
+    let response = await request("HEAD");
+    if (![200, 206].includes(response.status) || !(response.headers.get("content-type") || "").toLowerCase().startsWith("image/")) {
+      response = await request("GET");
+    }
+    const type = response.headers.get("content-type") || "";
+    return [200, 206].includes(response.status) && type.toLowerCase().startsWith("image/");
+  } catch {
+    return false;
+  }
+}
+
+async function workers<T>(items: T[], worker: (item: T) => Promise<void>) {
+  let cursor = 0;
+  async function run() {
+    while (cursor < items.length) await worker(items[cursor++]);
+  }
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, Math.max(items.length, 1)) }, () => run()));
+}
+
+function collectPictureUrls(value: unknown, key = "", target: string[] = []) {
+  if (typeof value === "string") {
+    if (/pictureurl|galleryurl|imageurl/i.test(key) && /^https:\/\//i.test(value)) target.push(value);
+    return target;
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) collectPictureUrls(entry, key, target);
+    return target;
+  }
+  if (!value || typeof value !== "object") return target;
+  for (const [childKey, entry] of Object.entries(value as Record<string, unknown>)) {
+    collectPictureUrls(entry, childKey, target);
+  }
+  return target;
+}
+
+async function shoppingPictures(itemId: string) {
+  const appId = process.env.EBAY_CLIENT_ID;
+  if (!appId) return { status: 0, ack: "MissingAppId", images: [] as string[], errors: ["Missing EBAY_CLIENT_ID"] };
+  const url = new URL("https://open.api.ebay.com/shopping");
+  url.searchParams.set("callname", "GetSingleItem");
+  url.searchParams.set("responseencoding", "JSON");
+  url.searchParams.set("appid", appId);
+  url.searchParams.set("siteid", "0");
+  url.searchParams.set("version", "1193");
+  url.searchParams.set("ItemID", itemId);
+  url.searchParams.set("IncludeSelector", "Details,Description,ItemSpecifics");
+  try {
+    const response = await fetch(url, {
+      headers: { "user-agent": "TruelyCollectables image synchronization" },
+      signal: AbortSignal.timeout(30000),
+    });
+    const payload = await response.json().catch(() => ({}));
+    const errors = Array.isArray(payload?.Errors)
+      ? payload.Errors.map((entry: any) => entry?.LongMessage || entry?.ShortMessage || String(entry))
+      : [];
+    return {
+      status: response.status,
+      ack: String(payload?.Ack || ""),
+      images: normalize(collectPictureUrls(payload)),
+      errors,
+    };
+  } catch (error) {
+    return {
+      status: 0,
+      ack: "FetchFailure",
+      images: [] as string[],
+      errors: [error instanceof Error ? error.message : String(error)],
+    };
+  }
+}
+
+async function storageSiblings(frontUrl: string) {
+  const candidates = backVariants(frontUrl);
+  const listingStatuses: Array<{ url: string; status: number }> = [];
+  try {
+    const parsed = new URL(frontUrl);
+    if (parsed.hostname === "storage.googleapis.com") {
+      const pieces = parsed.pathname.split("/").filter(Boolean);
+      const bucket = pieces.shift() || "";
+      const objectName = pieces.join("/");
+      const directory = objectName.includes("/") ? objectName.slice(0, objectName.lastIndexOf("/") + 1) : "";
+      const filename = objectName.slice(objectName.lastIndexOf("/") + 1);
+      const stem = filename.replace(/(?:[-_]front)?\.[^.]+$/i, "");
+      if (bucket && stem) {
+        const listUrl = new URL(`https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(bucket)}/o`);
+        listUrl.searchParams.set("prefix", `${directory}${stem}`);
+        const response = await fetch(listUrl, { signal: AbortSignal.timeout(15000) });
+        listingStatuses.push({ url: listUrl.toString(), status: response.status });
+        if (response.ok) {
+          const payload = await response.json().catch(() => ({}));
+          for (const item of Array.isArray(payload?.items) ? payload.items : []) {
+            const name = String(item?.name || "");
+            if (/back/i.test(name)) candidates.push(`https://storage.googleapis.com/${bucket}/${name.split("/").map(encodeURIComponent).join("/")}`);
+          }
+        }
+      }
+    }
+  } catch {
+    // Direct variants are still checked.
+  }
+  const verified: string[] = [];
+  for (const candidate of normalize(candidates)) {
+    if (await verifyImage(candidate)) verified.push(candidate);
+  }
+  return { images: normalize(verified), listingStatuses };
+}
+
+async function rewriteImages(
+  supabase: ReturnType<typeof createSupabaseServerClient>,
+  inventory: InventoryRow,
+  existing: ImageRow[],
+  shopping: string[],
+  discoveredBacks: string[],
+) {
+  const current = normalize(existing.slice().sort((a, b) => a.sort_order - b.sort_order).map((row) => row.image_url));
+  const currentPrimary = current[0] || "";
+  const explicitFronts = current.filter(isExplicitFront);
+  const otherCurrent = current.filter((url) => !isExplicitFront(url));
+  const ordered = shopping.length >= 2
+    ? [...shopping, ...discoveredBacks, ...otherCurrent, ...explicitFronts]
+    : shopping.length === 1 && discoveredBacks.length
+      ? [shopping[0], ...discoveredBacks, ...otherCurrent, ...explicitFronts]
+      : discoveredBacks.length
+        ? [currentPrimary, ...discoveredBacks, ...otherCurrent.slice(1), ...explicitFronts]
+        : current;
+  const finalImages = normalize(ordered);
+  const changed = current.length !== finalImages.length || current.some((url, index) => identity(url) !== identity(finalImages[index]));
+  if (!changed || !finalImages.length) return { finalImages, changed: false };
+  const { error: deleteError } = await supabase.from("inventory_images").delete().eq("inventory_item_id", inventory.id);
+  if (deleteError) throw deleteError;
+  const { error: insertError } = await supabase.from("inventory_images").insert(finalImages.map((imageUrl, index) => ({
+    inventory_item_id: inventory.id,
+    image_url: imageUrl,
+    alt_text: `${inventory.title} ${index === 0 ? "front" : index === 1 ? "back" : `detail ${index + 1}`}`,
+    sort_order: index,
+    is_primary: index === 0,
+  })));
+  if (insertError) throw insertError;
+  return { finalImages, changed: true };
+}
+
+export async function POST(request: Request) {
+  const expected = process.env.EBAY_SHOPPING_IMAGE_REPAIR_TOKEN_20260730 || "";
+  const supplied = request.headers.get("x-tcos-repair-token") || "";
+  if (!expected || !safeEqual(expected, supplied)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+
+  const supabase = createSupabaseServerClient({ admin: true });
+  const { data: productData, error: productError } = await supabase
+    .from("products")
+    .select("id,title,ebay_item_id,image_url")
+    .eq("store_id", STORE_ID)
+    .in("id", TARGET_IDS)
+    .order("id", { ascending: true });
+  if (productError) throw productError;
+  const products = (productData || []) as ProductRow[];
+
+  const { data: inventoryData, error: inventoryError } = await supabase
+    .from("inventory_items")
+    .select("id,legacy_product_id,title")
+    .eq("store_id", STORE_ID)
+    .in("legacy_product_id", TARGET_IDS)
+    .order("legacy_product_id", { ascending: true });
+  if (inventoryError) throw inventoryError;
+  const inventories = (inventoryData || []) as InventoryRow[];
+  const imageRows: ImageRow[] = [];
+  const inventoryIds = inventories.map((row) => row.id);
+  for (let index = 0; index < inventoryIds.length; index += 20) {
+    const { data, error } = await supabase
+      .from("inventory_images")
+      .select("id,inventory_item_id,image_url,sort_order,is_primary")
+      .in("inventory_item_id", inventoryIds.slice(index, index + 20))
+      .order("inventory_item_id", { ascending: true })
+      .order("sort_order", { ascending: true });
+    if (error) throw error;
+    imageRows.push(...((data || []) as ImageRow[]));
+  }
+
+  const inventoriesByProduct = new Map<number, InventoryRow[]>();
+  for (const row of inventories) {
+    const list = inventoriesByProduct.get(Number(row.legacy_product_id)) || [];
+    list.push(row);
+    inventoriesByProduct.set(Number(row.legacy_product_id), list);
+  }
+  const imagesByInventory = new Map<string, ImageRow[]>();
+  for (const row of imageRows) {
+    const list = imagesByInventory.get(row.inventory_item_id) || [];
+    list.push(row);
+    imagesByInventory.set(row.inventory_item_id, list);
+  }
+
+  const results: Array<Record<string, unknown>> = [];
+  await workers(products, async (product) => {
+    try {
+      const linked = inventoriesByProduct.get(Number(product.id)) || [];
+      const currentUrls = normalize(linked.flatMap((row) => (imagesByInventory.get(row.id) || []).map((image) => image.image_url)));
+      const shopping = product.ebay_item_id
+        ? await shoppingPictures(String(product.ebay_item_id))
+        : { status: 0, ack: "NoItemId", images: [], errors: ["No eBay item ID"] };
+      const discoveredBacks: string[] = [];
+      const storageListings: Array<{ url: string; status: number }> = [];
+      for (const front of currentUrls.filter(isExplicitFront)) {
+        const discovery = await storageSiblings(front);
+        discoveredBacks.push(...discovery.images);
+        storageListings.push(...discovery.listingStatuses);
+      }
+      const verifiedShopping: string[] = [];
+      for (const image of shopping.images) if (await verifyImage(image)) verifiedShopping.push(image);
+      const finalSets: string[][] = [];
+      let changedInventoryRows = 0;
+      for (const inventory of linked) {
+        const rewritten = await rewriteImages(
+          supabase,
+          inventory,
+          imagesByInventory.get(inventory.id) || [],
+          normalize(verifiedShopping),
+          normalize(discoveredBacks),
+        );
+        finalSets.push(rewritten.finalImages);
+        if (rewritten.changed) changedInventoryRows += 1;
+      }
+      const combined = normalize(finalSets.flat());
+      if (combined[0]) {
+        const { error } = await supabase.from("products").update({ image_url: combined[0] }).eq("store_id", STORE_ID).eq("id", product.id);
+        if (error) throw error;
+      }
+      const hasBack = normalize(verifiedShopping).length >= 2 || normalize(discoveredBacks).length >= 1;
+      results.push({
+        productId: product.id,
+        title: product.title,
+        ebayItemId: product.ebay_item_id,
+        shoppingStatus: shopping.status,
+        shoppingAck: shopping.ack,
+        shoppingErrors: shopping.errors,
+        shoppingImages: shopping.images,
+        verifiedShoppingImages: normalize(verifiedShopping),
+        discoveredBacks: normalize(discoveredBacks),
+        storageListings,
+        finalImages: combined,
+        finalImageCount: combined.length,
+        changedInventoryRows,
+        hasBack,
+      });
+    } catch (error) {
+      results.push({ productId: product.id, title: product.title, error: error instanceof Error ? error.message.slice(0, 500) : String(error), hasBack: false });
+    }
+  });
+
+  results.sort((a, b) => Number(a.productId) - Number(b.productId));
+  const stillMissing = results.filter((row) => row.hasBack !== true).map((row) => ({ productId: row.productId, title: row.title, shoppingStatus: row.shoppingStatus || null, shoppingAck: row.shoppingAck || null, shoppingErrors: row.shoppingErrors || [], error: row.error || null }));
+  return Response.json({
+    success: true,
+    event: "ebay_shopping_picture_repair_completed",
+    requestedProducts: TARGET_IDS.length,
+    foundProducts: products.length,
+    productsWithVerifiedBack: results.filter((row) => row.hasBack === true).length,
+    stillMissingCount: stillMissing.length,
+    stillMissing,
+    results,
+  }, { headers: { "Cache-Control": "no-store" } });
+}
