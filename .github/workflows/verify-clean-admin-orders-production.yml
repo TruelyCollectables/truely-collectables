@@ -1,0 +1,107 @@
+name: Verify Clean Admin Orders Production
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/verify-clean-admin-orders-production.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-clean-production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout cleaned source
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Confirm manual deployment guard in source
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e '
+            const config = require("./vercel.json");
+            const enabled = config?.git?.deploymentEnabled;
+            if (!enabled || enabled["*"] !== false || enabled.main !== false) {
+              throw new Error("Manual-only Vercel Git deployment guard is not restored.");
+            }
+            console.log("SOURCE_MANUAL_VERCEL_DEPLOYMENT_GUARD=passed");
+          '
+
+      - name: Link existing Vercel project
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$VERCEL_TOKEN"
+          npm exec --yes --package=vercel@56.2.0 -- vercel link \
+            --yes \
+            --project truely-collectables \
+            --scope truelycollectables-projects \
+            --token "$VERCEL_TOKEN"
+
+      - name: Deploy cleaned source to Production
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm exec --yes --package=vercel@56.2.0 -- vercel \
+            --prod \
+            --yes \
+            --scope truelycollectables-projects \
+            --token "$VERCEL_TOKEN"
+
+      - name: Verify cleaned live Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          origin='https://truelycollectables.com'
+
+          wait_for_status() {
+            local path="$1"
+            local expected="$2"
+            local method="${3:-GET}"
+            local body="${4:-}"
+            local content_type="${5:-}"
+
+            for attempt in $(seq 1 72); do
+              args=(--silent --show-error --max-time 30 --request "$method" --output /tmp/verify-body --write-out '%{http_code}')
+              if [ -n "$content_type" ]; then args+=(--header "Content-Type: $content_type"); fi
+              if [ -n "$body" ]; then args+=(--data "$body"); fi
+              status="$(curl "${args[@]}" "$origin$path" || true)"
+              if [ "$status" = "$expected" ]; then
+                echo "LIVE_STATUS_${path//[^A-Za-z0-9]/_}=$status"
+                return 0
+              fi
+              echo "Attempt $attempt/72: $method $path returned $status; expected $expected."
+              sleep 10
+            done
+            return 1
+          }
+
+          wait_for_status '/' '200'
+          wait_for_status '/admin/login' '200'
+          wait_for_status '/api/release/admin-orders-self-test' '404'
+          wait_for_status '/api/build-info' '404'
+          wait_for_status '/api/orders/refund' '401' 'POST' '{"orderId":6,"reason":"Verification only","confirmed":false}' 'application/json'
+          wait_for_status '/api/admin/session/refresh' '401' 'POST'
+          wait_for_status '/api/admin/reconcile-platform-fees' '401' 'POST'
+
+          headers="$(curl --silent --show-error --max-time 30 --request GET --dump-header - --output /dev/null "$origin/admin/orders")"
+          status="$(printf '%s' "$headers" | awk 'NR==1 {print $2}')"
+          location="$(printf '%s' "$headers" | awk 'BEGIN{IGNORECASE=1} /^location:/ {sub(/^[^:]+:[[:space:]]*/,""); sub(/\r$/,""); print; exit}')"
+          case "$status" in 301|302|303|307|308) ;; *) echo "Unexpected admin orders status: $status"; exit 1 ;; esac
+          printf '%s' "$location" | grep -F '/admin/login'
+          echo "LIVE_ADMIN_ORDERS_UNAUTHENTICATED_REDIRECT=passed"
+          echo "LIVE_TEMPORARY_VERIFIER_ROUTES_REMOVED=passed"
+          echo "LIVE_ADMIN_API_AUTHORIZATION=passed"
