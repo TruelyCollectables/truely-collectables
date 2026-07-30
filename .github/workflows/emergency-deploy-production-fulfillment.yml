@@ -1,0 +1,85 @@
+name: Emergency Deploy Production Fulfillment
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/emergency-deploy-production-fulfillment.yml"
+
+permissions:
+  contents: read
+
+env:
+  VERCEL_SCOPE: truelycollectables-projects
+  EXPECTED_MARKER: fulfillment-hotfix-2026-07-29-2018-mt
+
+jobs:
+  deploy-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - name: Checkout current Production source
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Confirm fulfillment hotfix source is present
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'createSupabaseServerClient({ admin: true })' src/app/admin/orders/page.tsx
+          grep -Fq "$EXPECTED_MARKER" src/app/api/build-info/route.ts
+          grep -Fq 'admin-orders-service-role' src/app/api/admin-orders-health/route.ts
+
+      - name: Require existing Vercel project credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -n "${VERCEL_TOKEN:-}" ] || { echo 'VERCEL_TOKEN is unavailable to this workflow.'; exit 20; }
+          [ -n "${VERCEL_ORG_ID:-}" ] || { echo 'VERCEL_ORG_ID is unavailable to this workflow.'; exit 21; }
+          [ -n "${VERCEL_PROJECT_ID:-}" ] || { echo 'VERCEL_PROJECT_ID is unavailable to this workflow.'; exit 22; }
+          mkdir -p .vercel
+          printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+
+      - name: Pull Production environment
+        shell: bash
+        run: npm exec --yes --package=vercel@56.2.0 -- vercel pull --yes --environment=production --token="$VERCEL_TOKEN" --scope "$VERCEL_SCOPE"
+
+      - name: Build Production artifact
+        shell: bash
+        run: npm exec --yes --package=vercel@56.2.0 -- vercel build --prod --token="$VERCEL_TOKEN" --scope "$VERCEL_SCOPE"
+
+      - name: Deploy Production artifact
+        shell: bash
+        run: npm exec --yes --package=vercel@56.2.0 -- vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN" --scope "$VERCEL_SCOPE"
+
+      - name: Verify live fulfillment hotfix
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_url='https://truelycollectables.com/api/build-info'
+          health_url='https://truelycollectables.com/api/admin-orders-health'
+
+          for attempt in $(seq 1 36); do
+            build_body="$(curl --location --silent --show-error --max-time 20 "$build_url" || true)"
+            health_body="$(curl --location --silent --show-error --max-time 20 "$health_url" || true)"
+
+            if printf '%s' "$build_body" | grep -Fq "$EXPECTED_MARKER" && \
+               printf '%s' "$health_body" | grep -Eq '"ok"[[:space:]]*:[[:space:]]*true' && \
+               printf '%s' "$health_body" | grep -Fq 'admin-orders-service-role'; then
+              echo "LIVE_PRODUCTION_BUILD_VERIFIED=$EXPECTED_MARKER"
+              echo "LIVE_ADMIN_ORDERS_SERVICE_ROLE_VERIFIED=true"
+              exit 0
+            fi
+
+            echo "Attempt $attempt/36: waiting for the clean Production domain to serve the deployed hotfix."
+            sleep 10
+          done
+
+          echo 'Production deployment completed, but live verification did not pass.'
+          exit 1
