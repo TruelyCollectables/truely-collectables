@@ -5,6 +5,7 @@ on:
     paths:
       - "src/app/account/AccountSellerAdminBar.tsx"
       - "src/app/account/layout.tsx"
+      - "src/app/account/login/page.tsx"
       - "src/app/seller/admin/inventory/page.tsx"
       - "src/app/api/account/seller/inventory-admin/route.ts"
       - "src/lib/seller-inventory-access.ts"
@@ -15,6 +16,7 @@ on:
     paths:
       - "src/app/account/AccountSellerAdminBar.tsx"
       - "src/app/account/layout.tsx"
+      - "src/app/account/login/page.tsx"
       - "src/app/seller/admin/inventory/page.tsx"
       - "src/app/api/account/seller/inventory-admin/route.ts"
       - "src/lib/seller-inventory-access.ts"
