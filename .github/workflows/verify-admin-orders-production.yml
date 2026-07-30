@@ -61,8 +61,6 @@ jobs:
       - name: Verify live admin orders release
         shell: bash
         run: |
-          set -a
-          source .vercel/.env.production.local
-          set +a
           EXPECTED_ADMIN_RELEASE=admin-session-refund-fee-fix-2026-07-29-2115-mt \
-            node scripts/verify-live-admin-orders-release.mjs
+            node --env-file=.vercel/.env.production.local \
+            scripts/verify-live-admin-orders-release.mjs
