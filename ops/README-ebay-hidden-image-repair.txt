@@ -1,0 +1,1 @@
+One-time protected Production operation. The workflow inspects Trading GetItem, Sell Inventory product.imageUrls, and trusted listing-description image sources for the 50 products still lacking a displayable back photo, reconciles every linked inventory row, removes the temporary route and token, and redeploys clean latest main. Do not merge this operations branch.
