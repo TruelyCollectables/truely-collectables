@@ -1,0 +1,93 @@
+name: Verify Homepage Prefetch Fix Main720
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/verify-home-prefetch-main720-20260730.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-home-prefetch-main720
+  cancel-in-progress: false
+
+env:
+  EXPECTED_MAIN_SHA: 72059e32559219d4a0991adee8940c14bc172150
+  EXPECTED_OPS_BRANCH: ops/verify-home-prefetch-main720-20260730
+  FIX_BRANCH: fix/home-link-prefetch-performance-main720-20260730
+  FIX_SHA: 8a5474f93272fa1a9637a9fc3c28e132cb946ff4
+  NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
+  SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
+  ADMIN_SESSION_SECRET: build-validation-session-secret-that-is-long-enough
+  ADMIN_PASSWORD: build-validation-admin-password
+  NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+  STRIPE_SECRET_KEY: sk_test_build_validation
+  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_validation
+  STRIPE_WEBHOOK_SECRET: whsec_build_validation
+  EBAY_CLIENT_ID: build-validation-client-id
+  EBAY_CLIENT_SECRET: build-validation-client-secret
+  EBAY_ENVIRONMENT: production
+  CRON_SECRET: build-validation-cron-secret-that-is-long-enough
+  RESEND_API_KEY: re_build_validation
+  TCOS_LIVE_PAYMENTS_ENABLED: "false"
+  TCOS_SHIPPING_PURCHASE_MODE: dry_run
+  TCOS_LIVE_SHIPPING_ENABLED: "false"
+
+jobs:
+  verify:
+    if: github.event.pull_request.head.ref == 'ops/verify-home-prefetch-main720-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out guarded operations branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_OPS_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed and check out exact fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_OPS_BRANCH"
+          git fetch origin main
+          git fetch origin "+refs/heads/$FIX_BRANCH:refs/remotes/origin/$FIX_BRANCH"
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          test "$(git rev-parse origin/$FIX_BRANCH)" = "$FIX_SHA"
+          mapfile -t ops_changed < <(git diff --name-only "$EXPECTED_MAIN_SHA"...HEAD)
+          test "${#ops_changed[@]}" -eq 1
+          test "${ops_changed[0]}" = ".github/workflows/verify-home-prefetch-main720-20260730.yml"
+          mapfile -t fix_changed < <(git diff --name-only "$EXPECTED_MAIN_SHA"..."$FIX_SHA")
+          test "${#fix_changed[@]}" -eq 1
+          test "${fix_changed[0]}" = "src/app/components/Navbar.tsx"
+          git diff --check "$EXPECTED_MAIN_SHA"..."$FIX_SHA"
+          git worktree add --detach "$RUNNER_TEMP/home-prefetch-fix" "$FIX_SHA"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Verify prefetch contract and affected lifecycle gates
+        working-directory: ${{ runner.temp }}/home-prefetch-fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          count="$(grep -c 'prefetch={false}' src/app/components/Navbar.tsx)"
+          test "$count" -eq 3
+          npm ci
+          node --import tsx scripts/run-order-lifecycle-email-simulations.ts
+          node scripts/run-sold-lifecycle-simulations.mjs
+          node scripts/run-sold-trigger-order-simulation.mjs
+          node scripts/run-privileged-api-route-audit.mjs
+          npm run simulate:privileged-route-auth
+          npm audit --audit-level=high
+          npm run lint
+          npx tsc --noEmit --pretty false
+          npm run build
+          git diff --check
