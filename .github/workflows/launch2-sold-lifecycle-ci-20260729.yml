@@ -31,6 +31,7 @@ on:
       - "supabase/migrations/20260730002600_atomic_ebay_order_sales_and_outbox_scope.sql"
       - "supabase/migrations/20260730002700_run_sale_guards_before_restock_reset.sql"
       - "supabase/migrations/20260730002800_enforce_collx_inventory_boundary.sql"
+      - "supabase/migrations/20260730002900_protect_inactive_marketplace_sales.sql"
       - "vercel.json"
   workflow_dispatch:
 
@@ -38,12 +39,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: launch2-sold-lifecycle-certification-20260730
-  cancel-in-progress: true
+  group: launch2-sold-lifecycle-certification-20260730-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
   sold-lifecycle-gates:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'fix/launch2-sold-lifecycle-certify-20260730'
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.pull_request.head.ref, 'fix/issue253-') || github.event.pull_request.head.ref == 'fix/launch2-sold-lifecycle-certify-20260730'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
@@ -69,7 +70,7 @@ jobs:
       VERCEL_SCOPE: truelycollectables-projects
       GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
     steps:
-      - name: Check out stable certification branch
+      - name: Check out certification branch
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -78,7 +79,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "fix/launch2-sold-lifecycle-certify-20260730"
+          case "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" in
+            fix/launch2-sold-lifecycle-certify-20260730|fix/issue253-*) ;;
+            *) exit 1 ;;
+          esac
           git fetch origin main
           git diff --check origin/main...HEAD
 
@@ -167,6 +171,7 @@ jobs:
             '20260730002600_atomic_ebay_order_sales_and_outbox_scope.sql',
             '20260730002700_run_sale_guards_before_restock_reset.sql',
             '20260730002800_enforce_collx_inventory_boundary.sql',
+            '20260730002900_protect_inactive_marketplace_sales.sql',
           ];
           const sqlParts = [];
           for (const name of migrations) {
@@ -224,6 +229,7 @@ jobs:
                       'collectible_market_snapshots',
                       'collectible_sales',
                       'collectible_sale_evidence',
+                      'ebay_inbound_sale_guards',
                       'collx_only_inventory_boundary_violations'
                     )
                 ) x
@@ -245,6 +251,7 @@ jobs:
                 where n.nspname = 'public'
                   and p.proname in (
                     'record_collectible_sale',
+                    'capture_ebay_inactive_collectible_sale',
                     'archive_expired_sold_collectibles',
                     'mark_collectible_sold_elsewhere'
                   )
@@ -264,6 +271,7 @@ jobs:
               ok: true,
               migrationCount: migrations.length,
               includesCollectibleAssetPrerequisite: true,
+              includesInactiveMarketplaceGuard: true,
               productionSchemaFingerprintPreserved: true,
               validatedAt: new Date().toISOString(),
             }, null, 2),

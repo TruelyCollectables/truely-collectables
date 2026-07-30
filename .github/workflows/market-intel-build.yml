@@ -27,6 +27,9 @@ jobs:
       - name: Verify admin orders privileged data access
         run: node scripts/verify-admin-orders-data-access.mjs
 
+      - name: Verify admin session refund and fee contract
+        run: node scripts/verify-admin-session-refund-fee-contract.mjs
+
       - name: Build
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
