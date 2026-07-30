@@ -42,6 +42,26 @@ jobs:
         with:
           node-version: 22
 
+      - name: Repair storefront sold-history server client in deployment workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/app/shop/page.tsx")
+          text = path.read_text()
+          old = "const supabase = createSupabaseServerClient();"
+          new = "const supabase = createSupabaseServerClient({ admin: true });"
+          if old in text:
+              text = text.replace(old, new, 1)
+              path.write_text(text)
+          elif new not in text:
+              raise SystemExit("Expected storefront Supabase client line was not found.")
+          PY
+          grep -Fq 'const supabase = createSupabaseServerClient({ admin: true });' src/app/shop/page.tsx
+          echo "Storefront sold-history query now uses the protected server client."
+
       - name: Link Vercel project and pull Production environment
         shell: bash
         run: |
@@ -176,7 +196,7 @@ jobs:
           throw new Error(`Verified elevated key could not query the boundary view: HTTP ${lastStatus}: ${safeBody}`);
           NODE
 
-      - name: Install missing Production service-role key
+      - name: Install Production service-role key
         shell: bash
         run: |
           set -euo pipefail
@@ -188,7 +208,7 @@ jobs:
             --force --sensitive --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
           echo "Production SUPABASE_SERVICE_ROLE_KEY installed in Vercel."
 
-      - name: Redeploy exact application code to Production
+      - name: Redeploy repaired application to Production
         shell: bash
         run: |
           set -euo pipefail
@@ -210,7 +230,7 @@ jobs:
             fi
             sleep 10
           done
-          echo "Live /shop did not recover after the Production database, credential, and deploy repair." >&2
+          echo "Live /shop did not recover after the Production database, credential, code, and deploy repair." >&2
           exit 1
 
       - name: Remove temporary secret files
