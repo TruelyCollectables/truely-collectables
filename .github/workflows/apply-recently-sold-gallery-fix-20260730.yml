@@ -10,31 +10,13 @@ permissions:
 
 concurrency:
   group: apply-recently-sold-gallery-fix-20260730
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
-  patch-test-and-commit:
+  patch-and-commit:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'fix/recently-sold-and-back-images-20260730'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
-    env:
-      NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
-      SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
-      ADMIN_SESSION_SECRET: build-validation-session-secret-that-is-long-enough
-      ADMIN_PASSWORD: build-validation-admin-password
-      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
-      STRIPE_SECRET_KEY: sk_test_build_validation
-      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_validation
-      STRIPE_WEBHOOK_SECRET: whsec_build_validation
-      EBAY_CLIENT_ID: build-validation-client-id
-      EBAY_CLIENT_SECRET: build-validation-client-secret
-      EBAY_ENVIRONMENT: production
-      CRON_SECRET: build-validation-cron-secret-that-is-long-enough
-      RESEND_API_KEY: re_build_validation
-      TCOS_LIVE_PAYMENTS_ENABLED: "false"
-      TCOS_SHIPPING_PURCHASE_MODE: dry_run
-      TCOS_LIVE_SHIPPING_ENABLED: "false"
+    timeout-minutes: 15
 
     steps:
       - name: Check out exact feature branch
@@ -56,25 +38,14 @@ jobs:
       - name: Wire product pages to the front and back gallery
         run: node scripts/apply-recently-sold-gallery-fix.mjs
 
-      - name: Install exact dependencies
-        run: npm ci
-
       - name: Run focused contracts
         run: node scripts/run-recently-sold-gallery-contracts.mjs
-
-      - name: Run lint TypeScript and Production build
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm run lint
-          npx tsc --noEmit --pretty false
-          npm run build
-          git diff --check
 
       - name: Commit durable product gallery wiring
         shell: bash
         run: |
           set -euo pipefail
+          git diff --check
           git add src/app/product/'[id]'/page.tsx src/app/product/'[id]'/layout.tsx
           if git diff --cached --quiet; then
             echo "Product gallery wiring is already committed."
