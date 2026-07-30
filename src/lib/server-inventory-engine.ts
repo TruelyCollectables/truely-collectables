@@ -25,14 +25,9 @@ async function collxOnlyLegacyProductIds() {
   );
 }
 
-function isPublicStorefrontItem(
-  item: UniversalInventoryItem,
-  collxOnlyProductIds: Set<number>,
-) {
+function isPublicStorefrontItem(item: UniversalInventoryItem) {
   return (
-    isLaunchCollectible(item) &&
-    !collxOnlyProductIds.has(item.legacyProductId) &&
-    !isMergedEbayAliasItemId(item.ebayItemId)
+    isLaunchCollectible(item) && !isMergedEbayAliasItemId(item.ebayItemId)
   );
 }
 
@@ -51,9 +46,9 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
       super.listAvailable(params),
       collxOnlyLegacyProductIds(),
     ]);
-    return items.filter((item) =>
-      isPublicStorefrontItem(item, collxOnlyProductIds),
-    );
+    return items
+      .filter(isPublicStorefrontItem)
+      .filter((item) => !collxOnlyProductIds.has(item.legacyProductId));
   }
 
   async listAvailableSports(): Promise<string[]> {
@@ -71,19 +66,19 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
       super.getByLegacyProductId(legacyProductId),
       collxOnlyLegacyProductIds(),
     ]);
-    return item && isPublicStorefrontItem(item, collxOnlyProductIds)
-      ? item
-      : null;
+    if (item && collxOnlyProductIds.has(item.legacyProductId)) return null;
+    return item && isPublicStorefrontItem(item) ? item : null;
   }
 
   async getByLegacyProductIds(legacyProductIds: number[]) {
-    const [items, collxOnlyProductIds] = await Promise.all([
+    const [rawItems, collxOnlyProductIds] = await Promise.all([
       super.getByLegacyProductIds(legacyProductIds),
       collxOnlyLegacyProductIds(),
     ]);
-    return items.filter((item) =>
-      isPublicStorefrontItem(item, collxOnlyProductIds),
+    const items = rawItems.filter(
+      (item) => !collxOnlyProductIds.has(item.legacyProductId),
     );
+    return items.filter(isPublicStorefrontItem);
   }
 }
 
