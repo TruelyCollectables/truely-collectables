@@ -139,9 +139,169 @@ async function getPublicListingImages(itemId: string) {
   }
 }
 
+async function getApplicationAccessToken() {
+  const clientId = process.env.EBAY_CLIENT_ID;
+  const clientSecret = process.env.EBAY_CLIENT_SECRET;
+  if (!clientId || !clientSecret) {
+    throw new Error("Missing eBay client credentials for Browse API.");
+  }
+  const response = await fetch(
+    "https://api.ebay.com/identity/v1/oauth2/token",
+    {
+      method: "POST",
+      headers: {
+        Authorization:
+          "Basic " +
+          Buffer.from(clientId + ":" + clientSecret).toString("base64"),
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        grant_type: "client_credentials",
+        scope: "https://api.ebay.com/oauth/api_scope",
+      }),
+      signal: AbortSignal.timeout(20_000),
+    },
+  );
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !payload.access_token) {
+    throw new Error(
+      payload.error_description ||
+        payload.error ||
+        "eBay application token request failed.",
+    );
+  }
+  return String(payload.access_token);
+}
+
+async function getBrowseImages(accessToken: string, itemId: string) {
+  try {
+    const url = new URL(
+      "https://api.ebay.com/buy/browse/v1/item/get_item_by_legacy_id",
+    );
+    url.searchParams.set("legacy_item_id", itemId);
+    const response = await fetch(url, {
+      headers: {
+        Authorization: "Bearer " + accessToken,
+        "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
+      },
+      signal: AbortSignal.timeout(30_000),
+    });
+    const payload = await response.json().catch(() => ({}));
+    const additional = Array.isArray(payload.additionalImages)
+      ? payload.additionalImages
+          .map((entry: { imageUrl?: string }) => entry?.imageUrl)
+          .filter(Boolean)
+      : [];
+    const thumbnails = Array.isArray(payload.thumbnailImages)
+      ? payload.thumbnailImages
+          .map((entry: { imageUrl?: string }) => entry?.imageUrl)
+          .filter(Boolean)
+      : [];
+    const productAdditional = Array.isArray(payload?.product?.additionalImages)
+      ? payload.product.additionalImages
+          .map((entry: { imageUrl?: string }) => entry?.imageUrl)
+          .filter(Boolean)
+      : [];
+    return {
+      status: response.status,
+      browseItemId: payload.itemId || null,
+      images: normalize([
+        payload?.image?.imageUrl,
+        ...additional,
+        ...thumbnails,
+        payload?.product?.image?.imageUrl,
+        ...productAdditional,
+      ]),
+      error: response.ok
+        ? null
+        : JSON.stringify(payload?.errors || payload).slice(0, 500),
+    };
+  } catch (error) {
+    return {
+      status: 0,
+      browseItemId: null,
+      images: [] as string[],
+      error:
+        error instanceof Error ? error.message.slice(0, 500) : String(error),
+    };
+  }
+}
+
+async function getShoppingImages(itemId: string) {
+  try {
+    const clientId = process.env.EBAY_CLIENT_ID;
+    if (!clientId) throw new Error("Missing eBay client ID for Shopping API.");
+    const url = new URL("https://open.api.ebay.com/shopping");
+    url.searchParams.set("callname", "GetSingleItem");
+    url.searchParams.set("responseencoding", "JSON");
+    url.searchParams.set("appid", clientId);
+    url.searchParams.set("siteid", "0");
+    url.searchParams.set("version", "1199");
+    url.searchParams.set("ItemID", itemId);
+    url.searchParams.set("IncludeSelector", "Details,Description");
+    const response = await fetch(url, {
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(30_000),
+    });
+    const payload = await response.json().catch(() => ({}));
+    const item = payload?.Item || {};
+    const directPictures = Array.isArray(item.PictureURL)
+      ? item.PictureURL
+      : item.PictureURL
+        ? [item.PictureURL]
+        : [];
+    const detailPictures = Array.isArray(item?.PictureDetails?.PictureURL)
+      ? item.PictureDetails.PictureURL
+      : item?.PictureDetails?.PictureURL
+        ? [item.PictureDetails.PictureURL]
+        : [];
+    return {
+      status: response.status,
+      images: normalize([
+        ...directPictures,
+        ...detailPictures,
+        item.GalleryURL,
+      ]),
+      error:
+        response.ok && !payload?.Errors
+          ? null
+          : JSON.stringify(payload?.Errors || payload).slice(0, 500),
+    };
+  } catch (error) {
+    return {
+      status: 0,
+      images: [] as string[],
+      error:
+        error instanceof Error ? error.message.slice(0, 500) : String(error),
+    };
+  }
+}
+
 `;
 
 source = source.replace(inventoryMarker, publicReader + inventoryMarker);
+
+const accessTokenMarker =
+  "const accessToken = await refreshAccessToken(supabase, storeId);";
+if (!source.includes(accessTokenMarker)) {
+  throw new Error("User access token marker was not found.");
+}
+source = source.replace(
+  accessTokenMarker,
+  [
+    accessTokenMarker,
+    'let applicationAccessToken = "";',
+    "let applicationTokenError: string | null = null;",
+    "try {",
+    "  applicationAccessToken = await getApplicationAccessToken();",
+    "} catch (error) {",
+    "  applicationTokenError =",
+    "    error instanceof Error",
+    "      ? error.message.slice(0, 500)",
+    "      : String(error);",
+    "}",
+  ].join("\n"),
+);
 
 const tradingStart = source.indexOf(
   "const trading = product.ebay_item_id ? await getItemSources(accessToken, String(product.ebay_item_id))",
@@ -200,11 +360,28 @@ const safeSources = [
   `${indent}      : String(error);`,
   `${indent}}`,
   `${indent}`,
+  `${indent}const browse =`,
+  `${indent}  applicationAccessToken && product.ebay_item_id`,
+  `${indent}    ? await getBrowseImages(`,
+  `${indent}        applicationAccessToken,`,
+  `${indent}        String(product.ebay_item_id),`,
+  `${indent}      )`,
+  `${indent}    : {`,
+  `${indent}        status: 0,`,
+  `${indent}        browseItemId: null,`,
+  `${indent}        images: [] as string[],`,
+  `${indent}        error: applicationTokenError,`,
+  `${indent}      };`,
+  `${indent}const shopping = product.ebay_item_id`,
+  `${indent}  ? await getShoppingImages(String(product.ebay_item_id))`,
+  `${indent}  : { status: 0, images: [] as string[], error: null };`,
   `${indent}const publicListing = product.ebay_item_id`,
   `${indent}  ? await getPublicListingImages(String(product.ebay_item_id))`,
   `${indent}  : { status: 0, htmlLength: 0, images: [] as string[] };`,
   `${indent}const trustedRemote = normalize([`,
   `${indent}  ...inventoryApi.images,`,
+  `${indent}  ...browse.images,`,
+  `${indent}  ...shopping.images,`,
   `${indent}  ...trading.pictureUrls,`,
   `${indent}  ...trading.descriptionImages,`,
   `${indent}  ...publicListing.images,`,
@@ -225,6 +402,14 @@ const receiptIndent = source.slice(receiptLineStart, receiptIndex);
 const receiptFields = [
   `${receiptIndent}tradingError: trading.error,`,
   `${receiptIndent}inventoryApiError: inventoryApi.error,`,
+  `${receiptIndent}applicationTokenError,`,
+  `${receiptIndent}browseStatus: browse.status,`,
+  `${receiptIndent}browseItemId: browse.browseItemId,`,
+  `${receiptIndent}browseImages: browse.images,`,
+  `${receiptIndent}browseError: browse.error,`,
+  `${receiptIndent}shoppingStatus: shopping.status,`,
+  `${receiptIndent}shoppingImages: shopping.images,`,
+  `${receiptIndent}shoppingError: shopping.error,`,
   `${receiptIndent}publicListingStatus: publicListing.status,`,
   `${receiptIndent}publicListingHtmlLength: publicListing.htmlLength,`,
   `${receiptIndent}publicListingImages: publicListing.images,`,
