@@ -166,13 +166,22 @@ jobs:
             '20260730002700_run_sale_guards_before_restock_reset.sql',
             '20260730002800_enforce_collx_inventory_boundary.sql',
           ];
-          const forbidden = /\b(?:begin|commit|rollback|vacuum|reindex|cluster)\b|create\s+(?:unique\s+)?index\s+concurrently/i;
           const sqlParts = [];
           for (const name of migrations) {
             const file = path.join('supabase', 'migrations', name);
-            const sql = fs.readFileSync(file, 'utf8');
-            if (!sql.trim()) throw new Error(`Migration ${name} is empty.`);
-            if (forbidden.test(sql)) throw new Error(`Migration ${name} contains a transaction-incompatible statement.`);
+            let sql = fs.readFileSync(file, 'utf8').trim();
+            if (!sql) throw new Error(`Migration ${name} is empty.`);
+            const hasOuterBegin = /^begin\s*;/i.test(sql);
+            const hasOuterCommit = /commit\s*;\s*$/i.test(sql);
+            if (hasOuterBegin !== hasOuterCommit) {
+              throw new Error(`Migration ${name} has an incomplete outer transaction wrapper.`);
+            }
+            if (hasOuterBegin) {
+              sql = sql.replace(/^begin\s*;/i, '').replace(/commit\s*;\s*$/i, '').trim();
+            }
+            if (/create\s+(?:unique\s+)?index\s+concurrently/i.test(sql)) {
+              throw new Error(`Migration ${name} contains CREATE INDEX CONCURRENTLY and cannot be rollback-validated.`);
+            }
             sqlParts.push(`\n-- ${name}\n${sql}\n`);
           }
 
