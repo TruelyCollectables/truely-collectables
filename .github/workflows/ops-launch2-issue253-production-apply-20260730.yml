@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  EXPECTED_MAIN_SHA: 4bb20535f68d5d28bb83434ecda93a6ed8d96e9a
+  EXPECTED_MAIN_SHA: 11b95609b4af979283c1d72cf1019f1bc0e9fc85
   VERCEL_SCOPE: truelycollectables-projects
   VERCEL_PROJECT: truely-collectables
 
@@ -28,7 +28,6 @@ jobs:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-      CRON_SECRET: ${{ secrets.CRON_SECRET }}
       NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
       NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
       SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
@@ -104,6 +103,12 @@ jobs:
           fi
           npx vercel@56.2.0 env pull "$RUNNER_TEMP/launch2-issue253-production/production.env" \
             --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          set -a
+          source "$RUNNER_TEMP/launch2-issue253-production/production.env"
+          set +a
+          test -n "${CRON_SECRET:-}"
+          echo "::add-mask::$CRON_SECRET"
+          printf 'CRON_SECRET=%s\n' "$CRON_SECRET" >> "$GITHUB_ENV"
 
       - name: Apply issue 253 migrations and authoritative backfills
         shell: bash
@@ -185,6 +190,7 @@ jobs:
             '20260730002600_atomic_ebay_order_sales_and_outbox_scope.sql',
             '20260730002700_run_sale_guards_before_restock_reset.sql',
             '20260730002800_enforce_collx_inventory_boundary.sql',
+            '20260730002900_protect_inactive_marketplace_sales.sql',
           ];
 
           const applied = [];
@@ -199,6 +205,8 @@ jobs:
 
           await request(`
             do $$
+            declare
+              inactive_function oid;
             begin
               if to_regclass('public.collectible_assets') is null then raise exception 'ISSUE253_RELATION_MISSING: collectible_assets'; end if;
               if to_regclass('public.collectible_asset_events') is null then raise exception 'ISSUE253_RELATION_MISSING: collectible_asset_events'; end if;
@@ -208,6 +216,9 @@ jobs:
               if to_regclass('public.ebay_inbound_sale_guards') is null then raise exception 'ISSUE253_RELATION_MISSING: ebay_inbound_sale_guards'; end if;
               if not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='record_collectible_sale') then raise exception 'ISSUE253_FUNCTION_MISSING: record_collectible_sale'; end if;
               if not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='archive_expired_collectible_sales') then raise exception 'ISSUE253_FUNCTION_MISSING: archive_expired_collectible_sales'; end if;
+              inactive_function := to_regprocedure('public.capture_ebay_inactive_collectible_sale()');
+              if inactive_function is null then raise exception 'ISSUE253_FUNCTION_MISSING: capture_ebay_inactive_collectible_sale'; end if;
+              if position('ebay_inbound_sale_guards' in pg_get_functiondef(inactive_function)) = 0 then raise exception 'ISSUE253_INACTIVE_GUARD_NOT_INSTALLED'; end if;
               if not exists (select 1 from pg_trigger where tgname='enforce_collx_inventory_boundary' and not tgisinternal) then raise exception 'ISSUE253_TRIGGER_MISSING: enforce_collx_inventory_boundary'; end if;
               if exists (
                 select 1 from public.collectible_sales
@@ -216,6 +227,12 @@ jobs:
               if exists (select 1 from public.products where quantity < 0) then raise exception 'ISSUE253_NEGATIVE_PRODUCT_QUANTITY'; end if;
               if exists (select 1 from public.inventory_items where quantity < 0) then raise exception 'ISSUE253_NEGATIVE_INVENTORY_QUANTITY'; end if;
               if exists (select 1 from public.products where sold_at is not null and quantity > 0) then raise exception 'ISSUE253_SOLD_STOCK_RESTORED'; end if;
+              if exists (
+                select 1
+                from public.collectible_sales
+                where evidence_status in ('verified','manual')
+                  and sold_price is null
+              ) then raise exception 'ISSUE253_VERIFIED_SALE_PRICE_MISSING'; end if;
             end
             $$;
           `, false);
@@ -243,6 +260,9 @@ jobs:
               ),
               'collx_only_excluded_inventory_rows', (
                 select count(*) from public.collx_only_inventory_boundary_violations
+              ),
+              'active_inbound_sale_guards', (
+                select count(*) from public.ebay_inbound_sale_guards where active
               ),
               'negative_product_quantities', (select count(*) from public.products where quantity < 0),
               'negative_inventory_quantities', (select count(*) from public.inventory_items where quantity < 0),
@@ -272,7 +292,6 @@ jobs:
           );
           console.log(`Applied and verified ${applied.length} migrations against hosted Production.`);
           NODE
-          rm -f "$RUNNER_TEMP/launch2-issue253-production/production.env"
 
       - name: Deploy the exact certified main SHA to Vercel Production
         shell: bash
@@ -327,6 +346,7 @@ jobs:
             sleep 10
           done
           test "$success" = true
+          rm -f "$RUNNER_TEMP/launch2-issue253-production/production.env"
           rm -f "$evidence/home.html" "$evidence/shop.html" "$evidence/admin-orders-health.json" "$evidence/deployment-stderr.txt"
 
       - name: Upload sanitized issue 253 Production evidence
