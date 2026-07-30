@@ -180,9 +180,10 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
       collxOnlyLegacyProductIds(),
     ]);
     if (item && collxOnlyProductIds.has(item.legacyProductId)) return null;
-    return item && isPublicStorefrontItem(item)
-      ? enforceStrictStorefrontFeatures(item)
-      : null;
+    const publicItem = (() => {
+      return item && isPublicStorefrontItem(item) ? item : null;
+    })();
+    return publicItem ? enforceStrictStorefrontFeatures(publicItem) : null;
   }
 
   async getByLegacyProductIds(legacyProductIds: number[]) {
@@ -190,10 +191,13 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
       super.getByLegacyProductIds(legacyProductIds),
       collxOnlyLegacyProductIds(),
     ]);
-    return rawItems
-      .filter((item) => !collxOnlyProductIds.has(item.legacyProductId))
-      .filter(isPublicStorefrontItem)
-      .map(enforceStrictStorefrontFeatures);
+    const items = rawItems.filter(
+      (item) => !collxOnlyProductIds.has(item.legacyProductId),
+    );
+    const publicItems = (() => {
+      return items.filter(isPublicStorefrontItem);
+    })();
+    return publicItems.map(enforceStrictStorefrontFeatures);
   }
 }
 
