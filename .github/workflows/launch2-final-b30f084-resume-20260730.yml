@@ -103,10 +103,16 @@ jobs:
           import fs from 'node:fs';
           const file=process.env.RUNNER_PATH;
           let text=fs.readFileSync(file,'utf8');
-          const stale="coalesce(metadata->>'sold_price_status', '')";
-          const count=text.split(stale).length-1;
-          if(count!==2)throw new Error(`Expected two stale sold-price checks, found ${count}.`);
-          fs.writeFileSync(file,text.replaceAll(stale,"coalesce(sold_price_status, '')"));
+          const stalePrice="coalesce(metadata->>'sold_price_status', '')";
+          const priceCount=text.split(stalePrice).length-1;
+          if(priceCount!==2)throw new Error(`Expected two stale sold-price checks, found ${priceCount}.`);
+          text=text.replaceAll(stalePrice,"coalesce(sold_price_status, '')");
+          const staleApply="public.apply_ebay_order_collectible_sale(uuid,bigint,text,text,text,integer,numeric,text,timestamptz,jsonb)";
+          const currentApply="public.apply_ebay_order_collectible_sale(uuid,bigint,text,text,text,integer,numeric,text,timestamptz,text,jsonb)";
+          const applyCount=text.split(staleApply).length-1;
+          if(applyCount!==1)throw new Error(`Expected one stale apply-sale signature, found ${applyCount}.`);
+          text=text.replace(staleApply,currentApply);
+          fs.writeFileSync(file,text);
           NODE
           printf 'HOSTED_RUNNER=%s\n' "$runner" >> "$GITHUB_ENV"
 
