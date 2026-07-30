@@ -523,23 +523,21 @@ export default async function AdminOrderDetailPage({
   const shippingAction = String(resolvedSearchParams.shippingAction || "").trim();
   const storeId = getActiveStoreId();
 
-  const { data: order, error } = await supabase
+  const { data: order, error: orderError } = await supabase
     .from("orders")
-    .select(
-      `
-      *,
-      order_items (
-        id,
-        seller_account_id,
-        title,
-        quantity,
-        price
-      )
-    `
-    )
+    .select("*")
     .eq("id", id)
     .eq("store_id", storeId)
     .single();
+
+  const { data: orderItems, error: orderItemsError } = order
+    ? await supabase
+        .from("order_items")
+        .select("id,seller_account_id,title,quantity,price")
+        .eq("order_id", order.id)
+        .order("id", { ascending: true })
+    : { data: [], error: null };
+  const error = orderError || orderItemsError;
 
   if (error || !order) {
     return (
@@ -565,7 +563,10 @@ export default async function AdminOrderDetailPage({
     );
   }
 
-  const typedOrder = order as Order;
+  const typedOrder = {
+    ...(order as Order),
+    order_items: (orderItems || []) as OrderItem[],
+  } as Order;
   const sellerAccountIds = Array.from(
     new Set(
       (typedOrder.order_items || [])
