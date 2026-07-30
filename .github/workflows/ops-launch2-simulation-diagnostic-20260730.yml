@@ -1,0 +1,97 @@
+name: Ops Launch 2 Simulation Diagnostic
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/ops-launch2-simulation-diagnostic-20260730.yml"
+
+permissions:
+  contents: read
+
+env:
+  EXPECTED_MAIN_SHA: 5996991c2a2d9f2b6606715e62dfcb1d8332d4f0
+
+jobs:
+  diagnose:
+    if: github.event.pull_request.head.ref == 'ops/launch2-issue253-production-apply-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
+      ADMIN_SESSION_SECRET: build-validation-session-secret-that-is-long-enough
+      ADMIN_PASSWORD: build-validation-admin-password
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      STRIPE_SECRET_KEY: sk_test_build_validation
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_validation
+      STRIPE_WEBHOOK_SECRET: whsec_build_validation
+      EBAY_CLIENT_ID: build-validation-client-id
+      EBAY_CLIENT_SECRET: build-validation-client-secret
+      EBAY_ENVIRONMENT: production
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Pin exact source and fetch immutable audit runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git fetch origin +refs/heads/ops/truely-full-launch-audit-20260729:refs/remotes/origin/ops/truely-full-launch-audit-20260729
+          test "$(git rev-parse HEAD)" = "$EXPECTED_MAIN_SHA"
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          git show origin/ops/truely-full-launch-audit-20260729:scripts/run-truely-launch-audit-20260729.mjs > scripts/.simulation-diagnostic-runner.mjs
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Execute all shards and expose exact failures
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .audit/simulations
+          for shard in 0 1 2 3 4 5; do
+            node scripts/.simulation-diagnostic-runner.mjs simulations --shard="$shard" --shards=6 || true
+          done
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          const dir = '.audit/simulations';
+          const files = fs.readdirSync(dir).filter((name) => /^simulation-shard-\d+\.json$/.test(name)).sort();
+          if (files.length !== 6) throw new Error(`Expected 6 reports, found ${files.length}.`);
+          const failures = [];
+          let selected = 0;
+          let passed = 0;
+          for (const name of files) {
+            const value = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8'));
+            selected += Number(value.selectedCount || 0);
+            passed += Number(value.passed || 0);
+            for (const row of value.results || []) {
+              if (row.status !== 'passed') failures.push({ shard: value.shard, name: row.name, status: row.status, exitCode: row.exitCode, stdoutTail: String(row.stdoutTail || '').slice(-3000), stderrTail: String(row.stderrTail || '').slice(-3000) });
+            }
+          }
+          const receipt = { exactMainSha: process.env.EXPECTED_MAIN_SHA, reports: files.length, selected, passed, failed: failures.length, failures, capturedAt: new Date().toISOString() };
+          fs.writeFileSync(path.join(dir, 'simulation-diagnostic-receipt.json'), JSON.stringify(receipt, null, 2));
+          console.log(JSON.stringify(receipt, null, 2));
+          if (failures.length) process.exit(1);
+          NODE
+
+      - name: Upload simulation diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launch2-simulation-diagnostic-${{ env.EXPECTED_MAIN_SHA }}
+          path: .audit/simulations
+          if-no-files-found: error
+          retention-days: 14
