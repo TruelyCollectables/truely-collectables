@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { extractAuthenticityProfile } from "./authenticity";
+import { isMergedEbayAliasItemId } from "./ebay-merged-listing-groups";
+import { isLaunchCollectible } from "./sports-card-launch-scope";
 import {
   classifyStorefrontItem,
   matchesStorefrontFilters,
@@ -214,6 +216,8 @@ export async function listRecentSoldStorefrontItems(params: {
       } satisfies UniversalInventoryItem;
     })
     .filter((item) => item.imageUrl && item.soldAt)
+    .filter((item) => isLaunchCollectible(item))
+    .filter((item) => !isMergedEbayAliasItemId(item.ebayItemId))
     .filter((item) =>
       matchesStorefrontFilters(item, {
         query: params.query,
