@@ -1,0 +1,135 @@
+{
+  "allContractsPass": true,
+  "checksumMaterialSha256": "02b7f4b072645e0f53178ba901d2fea642ff9b2b45d15911e8329859813a7ab2",
+  "endpoints": {
+    "baseball_prospects": {
+      "allCoverageComplete": true,
+      "contractPass": true,
+      "curlExit": 0,
+      "deployment": {
+        "commitSha": "8eef48590b58",
+        "environment": "production",
+        "region": "iad1"
+      },
+      "directUrlsOnly": true,
+      "errors": [],
+      "failedQueryCount": 0,
+      "httpStatus": 200,
+      "nativeEbayUsed": true,
+      "ok": true,
+      "queryFamilyCount": 10,
+      "resultCount": 107,
+      "schema": "TCOS_NATIVE_EBAY_FEED_V1",
+      "successfulQueryCount": 10,
+      "tokenMode": "client_credentials"
+    },
+    "ivan_demidov": {
+      "allCoverageComplete": true,
+      "contractPass": true,
+      "curlExit": 0,
+      "deployment": {
+        "commitSha": "8eef48590b58",
+        "environment": "production",
+        "region": "iad1"
+      },
+      "directUrlsOnly": true,
+      "errors": [],
+      "failedQueryCount": 0,
+      "httpStatus": 200,
+      "nativeEbayUsed": true,
+      "ok": true,
+      "queryFamilyCount": 3,
+      "resultCount": 46,
+      "schema": "TCOS_NATIVE_EBAY_FEED_V1",
+      "successfulQueryCount": 3,
+      "tokenMode": "client_credentials"
+    },
+    "matvei_michkov_opc_platinum": {
+      "allCoverageComplete": true,
+      "contractPass": true,
+      "curlExit": 0,
+      "deployment": {
+        "commitSha": "8eef48590b58",
+        "environment": "production",
+        "region": "iad1"
+      },
+      "directUrlsOnly": true,
+      "errors": [],
+      "failedQueryCount": 0,
+      "httpStatus": 200,
+      "nativeEbayUsed": true,
+      "ok": true,
+      "queryFamilyCount": 10,
+      "resultCount": 41,
+      "schema": "TCOS_NATIVE_EBAY_FEED_V1",
+      "successfulQueryCount": 10,
+      "tokenMode": "client_credentials"
+    },
+    "matvei_michkov_young_guns": {
+      "allCoverageComplete": true,
+      "contractPass": true,
+      "curlExit": 0,
+      "deployment": {
+        "commitSha": "8eef48590b58",
+        "environment": "production",
+        "region": "iad1"
+      },
+      "directUrlsOnly": true,
+      "errors": [],
+      "failedQueryCount": 0,
+      "httpStatus": 200,
+      "nativeEbayUsed": true,
+      "ok": true,
+      "queryFamilyCount": 8,
+      "resultCount": 65,
+      "schema": "TCOS_NATIVE_EBAY_FEED_V1",
+      "successfulQueryCount": 8,
+      "tokenMode": "client_credentials"
+    },
+    "signed_baseballs": {
+      "allCoverageComplete": true,
+      "contractPass": true,
+      "curlExit": 0,
+      "deployment": {
+        "commitSha": "8eef48590b58",
+        "environment": "production",
+        "region": "iad1"
+      },
+      "directUrlsOnly": true,
+      "errors": [],
+      "failedQueryCount": 0,
+      "httpStatus": 200,
+      "nativeEbayUsed": true,
+      "ok": true,
+      "queryFamilyCount": 5,
+      "resultCount": 82,
+      "schema": "TCOS_NATIVE_EBAY_FEED_V1",
+      "successfulQueryCount": 5,
+      "tokenMode": "client_credentials"
+    },
+    "wnba": {
+      "allCoverageComplete": true,
+      "contractPass": true,
+      "curlExit": 0,
+      "deployment": {
+        "commitSha": "8eef48590b58",
+        "environment": "production",
+        "region": "iad1"
+      },
+      "directUrlsOnly": true,
+      "errors": [],
+      "failedQueryCount": 0,
+      "httpStatus": 200,
+      "nativeEbayUsed": true,
+      "ok": true,
+      "queryFamilyCount": 15,
+      "resultCount": 136,
+      "schema": "TCOS_NATIVE_EBAY_FEED_V1",
+      "successfulQueryCount": 15,
+      "tokenMode": "client_credentials"
+    }
+  },
+  "fetchedAt": "2026-07-30T17:05:44.524826+00:00",
+  "totalCoverageRows": 51,
+  "totalResults": 477
+}
