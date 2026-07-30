@@ -2,12 +2,15 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
   companionBackListingImageUrl,
+  listingImageIdentity,
   listingImageSide,
   selectFrontBackListingImages,
 } from "../src/lib/listing-image-utils.ts";
 
 const ebayFront =
   "https://i.ebayimg.com/images/g/front-identity/s-l1600.jpg";
+const ebayGalleryAlias =
+  "https://i.ebayimg.com/00/s/NDgwWDY0MA==/z/front-identity/$_1.JPG?set_id=8800005007";
 const ebayBack =
   "https://i.ebayimg.com/images/g/back-identity/s-l1600.jpg";
 const collxFront =
@@ -19,6 +22,18 @@ assert.equal(listingImageSide(collxFront), "front");
 assert.equal(listingImageSide(collxBack), "back");
 assert.equal(listingImageSide(ebayFront), null);
 assert.equal(companionBackListingImageUrl(collxFront), collxBack);
+assert.equal(
+  listingImageIdentity(ebayGalleryAlias),
+  listingImageIdentity(ebayFront),
+);
+assert.deepEqual(
+  selectFrontBackListingImages([ebayFront, ebayGalleryAlias]),
+  [ebayFront],
+);
+assert.deepEqual(
+  selectFrontBackListingImages([ebayFront, ebayGalleryAlias, ebayBack]),
+  [ebayFront, ebayBack],
+);
 assert.deepEqual(selectFrontBackListingImages([ebayFront, collxFront]), [
   ebayFront,
 ]);
@@ -63,6 +78,7 @@ console.log(
     {
       ok: true,
       rejectsMislabeledFrontAsBack: true,
+      deduplicatesEbayGalleryAlias: true,
       preservesCompleteVerifiedPair: true,
       acceptsVerifiedCompanionBack: true,
       acceptsSecondEbayImage: true,
