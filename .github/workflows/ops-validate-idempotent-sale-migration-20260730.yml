@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 env:
-  EXPECTED_PARENT_SHA: 1b0b9e418466070137d0bc6db9569dde20dfd89f
+  EXPECTED_PARENT_SHA: 6556c248e796d795bb5dea67e21ce22e8141914d
   VERCEL_SCOPE: truelycollectables-projects
 
 jobs:
