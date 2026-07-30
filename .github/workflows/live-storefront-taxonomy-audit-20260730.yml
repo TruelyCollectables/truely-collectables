@@ -8,7 +8,7 @@ on:
       - agent/run-live-taxonomy-audit-20260730
     paths:
       - ".github/workflows/live-storefront-taxonomy-audit-20260730.yml"
-      - "scripts/run-live-storefront-taxonomy-audit-v2.mts"
+      - "scripts/run-live-storefront-taxonomy-audit-v3.mts"
       - "scripts/run-storefront-feature-evidence-regressions.ts"
       - "src/lib/storefront-feature-evidence.ts"
       - "src/lib/storefront-taxonomy.ts"
@@ -17,7 +17,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/live-storefront-taxonomy-audit-20260730.yml"
-      - "scripts/run-live-storefront-taxonomy-audit-v2.mts"
+      - "scripts/run-live-storefront-taxonomy-audit-v3.mts"
       - "scripts/run-storefront-feature-evidence-regressions.ts"
       - "src/lib/storefront-feature-evidence.ts"
       - "src/lib/storefront-taxonomy.ts"
@@ -32,6 +32,7 @@ env:
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
   VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
   VERCEL_SCOPE: truelycollectables-projects
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
 jobs:
   audit-production-taxonomy:
@@ -58,6 +59,8 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
           mkdir -p .vercel "$RUNNER_TEMP/live-taxonomy-audit"
           if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
             printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
@@ -74,7 +77,7 @@ jobs:
           AUDIT_OUTPUT: ${{ runner.temp }}/live-taxonomy-audit/live-taxonomy-audit.json
         run: |
           set -euo pipefail
-          npx tsx scripts/run-live-storefront-taxonomy-audit-v2.mts | tee "$RUNNER_TEMP/live-taxonomy-audit/summary.log"
+          npx tsx scripts/run-live-storefront-taxonomy-audit-v3.mts | tee "$RUNNER_TEMP/live-taxonomy-audit/summary.log"
           rm -f "$PRODUCTION_ENV_FILE"
 
       - name: Record latest audit receipt on main
