@@ -310,7 +310,8 @@ export async function POST(request: Request) {
       rows?.length !== 6 ||
       rows.some((row) => row.status !== "sent") ||
       firstResults.some(
-        (result, index) => result.notificationId !== replayResults[index]?.notificationId,
+        (result, index) =>
+          result?.notificationId !== replayResults[index]?.notificationId,
       )
     ) {
       throw new Error("Controlled delivery or idempotency verification failed.");
