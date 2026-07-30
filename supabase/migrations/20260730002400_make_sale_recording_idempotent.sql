@@ -1,19 +1,27 @@
 begin;
 
-alter function public.record_collectible_sale(
-  uuid,
-  bigint,
-  text,
-  text,
-  text,
-  integer,
-  numeric,
-  text,
-  timestamptz,
-  text,
-  jsonb,
-  boolean
-) rename to record_collectible_sale_unsafe_20260730;
+do $$
+begin
+  if to_regprocedure(
+    'public.record_collectible_sale_unsafe_20260730(uuid,bigint,text,text,text,integer,numeric,text,timestamptz,text,jsonb,boolean)'
+  ) is null then
+    alter function public.record_collectible_sale(
+      uuid,
+      bigint,
+      text,
+      text,
+      text,
+      integer,
+      numeric,
+      text,
+      timestamptz,
+      text,
+      jsonb,
+      boolean
+    ) rename to record_collectible_sale_unsafe_20260730;
+  end if;
+end
+$$;
 
 create or replace function public.record_collectible_sale(
   p_store_id uuid,
