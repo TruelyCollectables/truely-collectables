@@ -20,7 +20,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -68,6 +68,24 @@ jobs:
           set -euo pipefail
           npx tsx scripts/run-live-storefront-taxonomy-audit.ts | tee "$RUNNER_TEMP/live-taxonomy-audit/summary.log"
           rm -f "$PRODUCTION_ENV_FILE"
+
+      - name: Record latest audit receipt on main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audits
+          cp "$RUNNER_TEMP/live-taxonomy-audit/live-taxonomy-audit.json" audits/live-taxonomy-audit-latest.json
+          cp "$RUNNER_TEMP/live-taxonomy-audit/summary.log" audits/live-taxonomy-audit-summary-latest.log
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add audits/live-taxonomy-audit-latest.json audits/live-taxonomy-audit-summary-latest.log
+          if git diff --cached --quiet; then
+            echo "Audit receipt is unchanged."
+            exit 0
+          fi
+          git commit -m "Record live storefront taxonomy audit [skip ci]"
+          git push
 
       - name: Upload taxonomy audit receipt
         uses: actions/upload-artifact@v4
