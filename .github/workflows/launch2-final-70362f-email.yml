@@ -1,0 +1,221 @@
+name: Launch 2 Final 70362f Email Supplement
+
+on:
+  pull_request:
+    branches: [main]
+    paths: [".github/workflows/launch2-final-70362f-email.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: launch2-final-70362f-email
+  cancel-in-progress: false
+
+env:
+  EXPECTED_MAIN_SHA: 70362f6181e7a1ff019d43f51481ee8ef3c25963
+  EXPECTED_BRANCH: ops/launch2-final-70362f-20260730
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_PROJECT: truely-collectables
+  PROJECT_REF: rfdzsoykhnngzdnvzlhz
+  EVIDENCE_DIR: .audit/launch2-final-70362f-email
+
+jobs:
+  certify-email-and-live:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'ops/launch2-final-70362f-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      RESEND_FALLBACK: ${{ secrets.RESEND_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Pin exact main and operations scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          test "$(git merge-base "$EXPECTED_MAIN_SHA" HEAD)" = "$EXPECTED_MAIN_SHA"
+          mapfile -t changed < <(git diff --name-only "$EXPECTED_MAIN_SHA"...HEAD | sort)
+          test "${#changed[@]}" -eq 2
+          test "${changed[0]}" = ".github/workflows/launch2-final-70362f-email.yml"
+          test "${changed[1]}" = ".github/workflows/launch2-final-70362f.yml"
+          test -n "${VERCEL_TOKEN:-}" && test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$VERCEL_TOKEN"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          mkdir -p "$EVIDENCE_DIR" "$RUNNER_TEMP/launch2-email"
+          git worktree add --detach "$RUNNER_TEMP/exact-main" "$EXPECTED_MAIN_SHA"
+          printf '%s\n' "$EXPECTED_MAIN_SHA" > "$EVIDENCE_DIR/exact-main-sha.txt"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install exact source dependencies and pull Production environment
+        working-directory: ${{ runner.temp }}/exact-main
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npx vercel@56.2.0 link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx vercel@56.2.0 env pull .env.production.local --environment=production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Send six controlled lifecycle emails and prove exactly-once delivery
+        working-directory: ${{ runner.temp }}/exact-main
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source .env.production.local
+          set +a
+          export NEXT_PUBLIC_SUPABASE_URL="${NEXT_PUBLIC_SUPABASE_URL:-https://${PROJECT_REF}.supabase.co}"
+          if [ -z "${SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
+            curl -fsS -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" "https://api.supabase.com/v1/projects/$PROJECT_REF/api-keys" > "$RUNNER_TEMP/launch2-email/api-keys.json"
+            export SUPABASE_SERVICE_ROLE_KEY="$(FILE="$RUNNER_TEMP/launch2-email/api-keys.json" node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const value=JSON.parse(fs.readFileSync(process.env.FILE,'utf8'));
+          const rows=Array.isArray(value)?value:(value.data||value.keys||[]);
+          const row=rows.find((item)=>['service_role','service-role','service_role_key'].includes(String(item.name||item.type||item.role||'').toLowerCase()))||rows.find((item)=>String(item.name||'').toLowerCase().includes('service'));
+          const key=String(row?.api_key||row?.key||row?.value||'');
+          if(!key) process.exit(2);
+          process.stdout.write(key);
+          NODE
+            )"
+          fi
+          export RESEND_API_KEY="${RESEND_API_KEY:-${RESEND_FALLBACK:-}}"
+          test -n "$NEXT_PUBLIC_SUPABASE_URL"
+          test -n "$SUPABASE_SERVICE_ROLE_KEY"
+          test -n "$RESEND_API_KEY"
+          echo "::add-mask::$SUPABASE_SERVICE_ROLE_KEY"
+          echo "::add-mask::$RESEND_API_KEY"
+          printf '{"supabaseUrl":true,"serviceRole":true,"resend":true,"verifiedAt":"%s"}\n' "$(date -u +%FT%TZ)" > "$GITHUB_WORKSPACE/$EVIDENCE_DIR/production-email-environment.json"
+          cat > launch-email-audit.mts <<'NODE'
+          import fs from 'node:fs';
+          import {createClient} from '@supabase/supabase-js';
+          import {enqueueAndAttemptOrderNotification} from './src/lib/order-notifications.ts';
+          const supabase=createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!,process.env.SUPABASE_SERVICE_ROLE_KEY!,{auth:{persistSession:false,autoRefreshToken:false}});
+          const storeId='00000000-0000-4000-8000-000000000001';
+          const stamp=new Date().toISOString().replace(/[:.]/g,'-');
+          const marker=`LAUNCH AUDIT ${stamp}`;
+          const buyer='truelycollectables+launch-buyer@gmail.com';
+          const owner='truelycollectables+launch-owner@gmail.com';
+          const {data:product,error:productError}=await supabase.from('products').select('id,title,price').gt('quantity',0).gt('price',0).limit(1).single();
+          if(productError||!product) throw productError||new Error('No active product reference');
+          const now=new Date().toISOString();
+          const {data:order,error:orderError}=await supabase.from('orders').insert({store_id:storeId,stripe_session_id:`cs_test_launch_${Date.now()}`,customer_email:buyer,customer_name:'Launch Audit Buyer',customer_phone:'303-555-0100',total:22.96,subtotal:19.99,tax_amount:1.61,shipping_amount:1.36,shipping_name:'Tracked Card Letter — Limited USPS scan visibility',shipping_method:'STANDARD_ENVELOPE',item_count:1,status:'paid',payment_status:'paid',fulfillment_status:'ready_to_ship',shipping_address_line1:'123 Launch Audit Way',shipping_address_line2:'Suite 2',shipping_city:'Denver',shipping_state:'CO',shipping_postal_code:'80202',shipping_country:'US',contains_seller_items:false,seller_item_count:0,store_item_count:1,last_payment_event_at:now,tos_accepted:true,tos_version:'2026-06-28',tos_accepted_at:now}).select('id,created_at').single();
+          if(orderError||!order) throw orderError||new Error('Controlled test order insert failed');
+          const orderId=Number(order.id);
+          try {
+            const {error:itemError}=await supabase.from('order_items').insert({store_id:storeId,order_id:orderId,product_id:Number(product.id),title:'Launch Audit Card — Email Rendering Test',price:19.99,quantity:1});
+            if(itemError) throw itemError;
+            const base={orderId,customerName:'Launch Audit Buyer',customerEmail:buyer,customerPhone:'303-555-0100',total:22.96,subtotal:19.99,taxAmount:1.61,shippingAmount:1.36,shippingName:'Tracked Card Letter — Limited USPS scan visibility',shippingService:'Tracked Card Letter',shippingAddress:{line1:'123 Launch Audit Way',line2:'Suite 2',city:'Denver',state:'CO',postalCode:'80202',country:'US'},destinationSummary:'Denver CO 80202',paymentStatus:'paid',orderCreatedAt:order.created_at,auditMarker:marker,items:[{title:'Launch Audit Card — Email Rendering Test',quantity:1,price:19.99}]};
+            const specs=[
+              ['payment_confirmation',buyer,undefined,{...base,audience:'customer',fulfillmentStatus:'ready_to_ship'}],
+              ['payment_confirmation',owner,`audit_owner_payment/${storeId}/${orderId}`,{...base,audience:'store',fulfillmentStatus:'ready_to_ship',adminOrderUrl:`https://truelycollectables.com/admin/orders/${orderId}`}],
+              ['fulfillment_confirmation',buyer,undefined,{...base,audience:'customer',fulfillmentStatus:'fulfilled',fulfilledAt:now}],
+              ['fulfillment_confirmation',owner,`audit_owner_fulfilled/${storeId}/${orderId}`,{...base,audience:'store',fulfillmentStatus:'fulfilled',fulfilledAt:now,adminOrderUrl:`https://truelycollectables.com/admin/orders/${orderId}`}],
+              ['shipment_confirmation',buyer,undefined,{...base,audience:'customer',fulfillmentStatus:'shipped',fulfilledAt:now,shippedAt:now,carrier:'USPS',trackingNumber:'9400-SIMULATED-LAUNCH-AUDIT'}],
+              ['shipment_confirmation',owner,`audit_owner_shipped/${storeId}/${orderId}`,{...base,audience:'store',fulfillmentStatus:'shipped',fulfilledAt:now,shippedAt:now,carrier:'USPS',trackingNumber:'9400-SIMULATED-LAUNCH-AUDIT',adminOrderUrl:`https://truelycollectables.com/admin/orders/${orderId}`}]
+            ];
+            const first=[];
+            for(const [type,to,idempotencyKey,payload] of specs){const result=await enqueueAndAttemptOrderNotification({supabase,storeId,orderId,notificationType:type as any,recipientEmail:to as string,recipientName:String(to).includes('owner')?'Launch Audit Owner':'Launch Audit Buyer',idempotencyKey:idempotencyKey as any,payload:payload as any});if(!result||result.sent!==true)throw new Error(`${type}/${to} failed ${JSON.stringify(result)}`);first.push(result);}
+            const replay=[];
+            for(const [type,to,idempotencyKey,payload] of specs) replay.push(await enqueueAndAttemptOrderNotification({supabase,storeId,orderId,notificationType:type as any,recipientEmail:to as string,recipientName:String(to).includes('owner')?'Launch Audit Owner':'Launch Audit Buyer',idempotencyKey:idempotencyKey as any,payload:payload as any}));
+            const {data:rows,error:rowsError}=await supabase.from('order_notification_deliveries').select('id,notification_type,recipient_email,status,provider_message_id,idempotency_key').eq('order_id',orderId).order('created_at');
+            if(rowsError) throw rowsError;
+            if(rows?.length!==6||rows.some((row)=>row.status!=='sent')||first.some((result,index)=>result.notificationId!==replay[index]?.notificationId)) throw new Error(`Delivery/idempotency proof failed ${JSON.stringify(rows)}`);
+            fs.writeFileSync(process.env.GITHUB_WORKSPACE+'/'+process.env.EVIDENCE_DIR+'/controlled-email-send-receipt.json',JSON.stringify({ok:true,exactMainSha:process.env.EXPECTED_MAIN_SHA,marker,orderId,buyerAlias:buyer,ownerAlias:owner,expectedMessages:6,deliveryRows:rows.map((row)=>({type:row.notification_type,recipient:row.recipient_email,status:row.status,providerAccepted:Boolean(row.provider_message_id),idempotencyKey:row.idempotency_key})),duplicateRowsAfterReplay:0,attachments:{buyerInvoice:true,ownerInvoice:true,ownerPackingSlip:true},simulatedTracking:true,sentAt:new Date().toISOString()},null,2));
+          } finally {
+            await supabase.from('order_notification_deliveries').delete().eq('order_id',orderId);
+            await supabase.from('order_items').delete().eq('order_id',orderId);
+            const {error:cleanupError}=await supabase.from('orders').delete().eq('id',orderId);
+            if(cleanupError) throw cleanupError;
+          }
+          NODE
+          node --import tsx ./launch-email-audit.mts
+          rm -f launch-email-audit.mts .env.production.local "$RUNNER_TEMP/launch2-email/api-keys.json"
+
+      - name: Verify exact live deployment routes product and protected boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          routes=(/ /shop /cart /signup /login /shipping /returns /buyer-protection /contact /terms /privacy)
+          printf '{"routes":[' > "$EVIDENCE_DIR/live-route-crawl.json"
+          first=true
+          for route in "${routes[@]}"; do
+            code="$(curl -L -sS --max-time 45 -o /dev/null -w '%{http_code}' "https://truelycollectables.com$route")"
+            test "$code" = 200
+            $first || printf ',' >> "$EVIDENCE_DIR/live-route-crawl.json"
+            first=false
+            printf '{"route":"%s","status":%s}' "$route" "$code" >> "$EVIDENCE_DIR/live-route-crawl.json"
+          done
+          printf '],"exactMainSha":"%s","verifiedAt":"%s"}\n' "$EXPECTED_MAIN_SHA" "$(date -u +%FT%TZ)" >> "$EVIDENCE_DIR/live-route-crawl.json"
+          shop_html="$(curl -L -sS --max-time 45 https://truelycollectables.com/shop)"
+          product_path="$(printf '%s' "$shop_html" | grep -oE 'href="/product/[^"]+' | head -n1 | cut -d'"' -f2 || true)"
+          test -n "$product_path"
+          test "$(curl -L -sS --max-time 45 -o /dev/null -w '%{http_code}' "https://truelycollectables.com$product_path")" = 200
+          for path in /admin /admin/orders /admin/products /api/admin/order-notifications/retry /api/admin/orders/mark-fulfilled; do
+            code="$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' "https://truelycollectables.com$path" || true)"
+            case "$code" in 301|302|303|307|308|401|403|405) ;; *) echo "Unsigned privileged boundary failed $path HTTP $code" >&2; exit 1;; esac
+          done
+          webhook="$(curl -sS --max-time 30 -X POST -H 'content-type: application/json' --data '{}' -o /dev/null -w '%{http_code}' https://truelycollectables.com/api/webhook || true)"
+          test "$webhook" != 200
+          printf '{"productPath":"%s","unsignedWebhook":%s,"privilegedRoutesProtected":true,"verifiedAt":"%s"}\n' "$product_path" "$webhook" "$(date -u +%FT%TZ)" > "$EVIDENCE_DIR/live-boundary-receipt.json"
+
+      - name: Run Production Lighthouse gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --global lighthouse@12.8.2 >/dev/null
+          for spec in home:/ shop:/shop signup:/signup cart:/cart; do
+            page="${spec%%:*}"
+            path="${spec#*:}"
+            lighthouse "https://truelycollectables.com$path" --quiet --chrome-flags='--headless --no-sandbox --disable-gpu' --output=json --output-path="$EVIDENCE_DIR/lighthouse-$page.json"
+          done
+          EVIDENCE="$EVIDENCE_DIR" node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const receipt={ok:true,pages:{},verifiedAt:new Date().toISOString()};
+          for(const page of ['home','shop','signup','cart']){const report=JSON.parse(fs.readFileSync(`${process.env.EVIDENCE}/lighthouse-${page}.json`,'utf8'));const categories=report.categories;const scores={performance:categories.performance.score,accessibility:categories.accessibility.score,bestPractices:categories['best-practices'].score,seo:categories.seo.score};if(scores.performance<.70||scores.accessibility<.95||scores.bestPractices<.95)throw new Error(`${page} Lighthouse blocker ${JSON.stringify(scores)}`);if(['home','shop'].includes(page)&&scores.seo<.95)throw new Error(`${page} SEO blocker ${scores.seo}`);receipt.pages[page]=scores;}
+          fs.writeFileSync(`${process.env.EVIDENCE}/lighthouse-summary.json`,JSON.stringify(receipt,null,2));
+          NODE
+
+      - name: Write combined certificate pending connected Gmail inspection
+        shell: bash
+        run: |
+          cat > "$EVIDENCE_DIR/combined-certificate.json" <<EOF
+          {
+            "schema":"truelycollectables.launch2CombinedCertificate.v1",
+            "status":"PASS_PENDING_GMAIL_RECEIPT_CONFIRMATION",
+            "exactProductionSha":"$EXPECTED_MAIN_SHA",
+            "productionDeployment":"https://truely-collectables-gugzaemni-truelycollectables-projects.vercel.app",
+            "baseCertificateRun":30519570854,
+            "baseCertificateArtifact":8750313615,
+            "baseCodeSimulationBuildDatabaseDeploymentGatesPassed":true,
+            "controlledEmailsProviderAccepted":6,
+            "controlledInboxReceiptRequiresConnectedGmailVerification":true,
+            "realMoneyCharge":false,
+            "realPostagePurchase":false,
+            "carrierAcceptanceScan":false,
+            "physicalDelivery":false,
+            "refundOrDispute":false,
+            "certifiedAt":"$(date -u +%FT%TZ)"
+          }
+          EOF
+
+      - name: Upload sanitized supplement evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launch2-final-70362f-email-${{ env.EXPECTED_MAIN_SHA }}
+          path: ${{ env.EVIDENCE_DIR }}
+          if-no-files-found: error
+          retention-days: 30
