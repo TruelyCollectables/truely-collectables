@@ -1,0 +1,367 @@
+name: Ops Launch 2 Issue 253 Production Resume
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/ops-launch2-issue253-production-resume-20260730.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ops-launch2-issue253-production-resume-20260730
+  cancel-in-progress: false
+
+env:
+  EXPECTED_MAIN_SHA: 25cbf17fa5ca74b8bd787f070909a848ad52c4a0
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_PROJECT: truely-collectables
+
+jobs:
+  resume-apply-and-verify:
+    if: github.event.pull_request.head.ref == 'ops/launch2-issue253-production-resume-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
+      ADMIN_SESSION_SECRET: build-validation-session-secret-that-is-long-enough
+      ADMIN_PASSWORD: build-validation-admin-password
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      STRIPE_SECRET_KEY: sk_test_build_validation
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_validation
+      STRIPE_WEBHOOK_SECRET: whsec_build_validation
+      EBAY_CLIENT_ID: build-validation-client-id
+      EBAY_CLIENT_SECRET: build-validation-client-secret
+      EBAY_ENVIRONMENT: production
+      CRON_SECRET: build-validation-cron-secret-that-is-long-enough
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+    steps:
+      - name: Check out exact current main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Fail closed unless main is the certified SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          test "$(git rev-parse HEAD)" = "$EXPECTED_MAIN_SHA"
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          git diff --check
+          mkdir -p "$RUNNER_TEMP/launch2-issue253-resume-evidence"
+          printf '%s\n' "$EXPECTED_MAIN_SHA" > "$RUNNER_TEMP/launch2-issue253-resume-evidence/exact-main-sha.txt"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Re-run issue 253 and privileged-route simulations
+        run: |
+          set -euo pipefail
+          node scripts/run-sold-lifecycle-simulations.mjs
+          node scripts/run-sold-trigger-order-simulation.mjs
+          node scripts/run-privileged-api-route-audit.mjs
+          npm run simulate:privileged-route-auth
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Run standalone TypeScript
+        run: npx tsc --noEmit --pretty false
+
+      - name: Run Production build
+        run: npm run build
+
+      - name: Link existing Vercel Production and pull runtime environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$VERCEL_TOKEN"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          mkdir -p .vercel "$RUNNER_TEMP/launch2-issue253-resume-production"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/launch2-issue253-resume-production/production.env" \
+            --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Resume hosted migrations 02400 through 02800 and verify aggregates
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+
+          const evidenceDir = path.join(process.env.RUNNER_TEMP, 'launch2-issue253-resume-evidence');
+          const envPath = path.join(process.env.RUNNER_TEMP, 'launch2-issue253-resume-production', 'production.env');
+          const text = fs.readFileSync(envPath, 'utf8');
+          const parsed = {};
+          for (const rawLine of text.split(/\r?\n/)) {
+            const line = rawLine.trim();
+            if (!line || line.startsWith('#')) continue;
+            const index = line.indexOf('=');
+            if (index < 1) continue;
+            const key = line.slice(0, index).trim();
+            let value = line.slice(index + 1).trim();
+            if (value.startsWith('"') && value.endsWith('"')) {
+              try { value = JSON.parse(value); } catch { value = value.slice(1, -1); }
+            } else if (value.startsWith("'") && value.endsWith("'")) {
+              value = value.slice(1, -1);
+            }
+            parsed[key] = value;
+          }
+
+          const productionUrl = parsed.NEXT_PUBLIC_SUPABASE_URL;
+          if (!productionUrl || !/^https:\/\//.test(productionUrl)) {
+            throw new Error('Production NEXT_PUBLIC_SUPABASE_URL was not pulled from Vercel.');
+          }
+          const projectRef = new URL(productionUrl).hostname.split('.')[0];
+          if (!projectRef) throw new Error('Unable to derive the Supabase project reference.');
+          const token = process.env.GH_SUPABASE_ACCESS_TOKEN;
+          if (!token) throw new Error('SUPABASE_ACCESS_TOKEN is unavailable.');
+
+          const endpoint = `https://api.supabase.com/v1/projects/${projectRef}/database/query`;
+          const request = async (query, readOnly = false) => {
+            const response = await fetch(endpoint, {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ query, parameters: [], read_only: readOnly }),
+            });
+            const body = await response.text();
+            if (!response.ok) {
+              const safe = body
+                .replace(/postgres(?:ql)?:\/\/[^\s"']+/gi, 'postgresql://[REDACTED]')
+                .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [REDACTED]')
+                .slice(0, 5000);
+              throw new Error(`Supabase Production query failed with HTTP ${response.status}: ${safe}`);
+            }
+            return body ? JSON.parse(body) : [];
+          };
+
+          await request(`
+            do $$
+            begin
+              if to_regclass('public.collectible_assets') is null then raise exception 'RESUME_PREREQUISITE_MISSING: collectible_assets'; end if;
+              if to_regclass('public.collectible_sales') is null then raise exception 'RESUME_PREREQUISITE_MISSING: collectible_sales'; end if;
+              if to_regprocedure('public.record_collectible_sale(uuid,bigint,text,text,text,integer,numeric,text,timestamp with time zone,text,jsonb,boolean)') is null then raise exception 'RESUME_PREREQUISITE_MISSING: record_collectible_sale'; end if;
+              if to_regprocedure('public.record_collectible_sale_unsafe_20260730(uuid,bigint,text,text,text,integer,numeric,text,timestamp with time zone,text,jsonb,boolean)') is null then raise exception 'RESUME_PREREQUISITE_MISSING: unsafe recorder'; end if;
+            end
+            $$;
+          `, true);
+
+          const migrations = [
+            '20260730002400_make_sale_recording_idempotent.sql',
+            '20260730002500_reset_sold_presentation_on_restock.sql',
+            '20260730002600_atomic_ebay_order_sales_and_outbox_scope.sql',
+            '20260730002700_run_sale_guards_before_restock_reset.sql',
+            '20260730002800_enforce_collx_inventory_boundary.sql',
+          ];
+          const applied = [];
+          for (const name of migrations) {
+            const sql = fs.readFileSync(path.join('supabase', 'migrations', name), 'utf8').trim();
+            if (!sql) throw new Error(`Migration ${name} is empty.`);
+            await request(sql, false);
+            applied.push(name);
+            console.log(`Applied ${name}`);
+          }
+
+          await request(`
+            do $$
+            begin
+              if to_regclass('public.collectible_asset_events') is null then raise exception 'ISSUE253_RELATION_MISSING: collectible_asset_events'; end if;
+              if to_regclass('public.instacomp_internal_sold_comps') is null then raise exception 'ISSUE253_RELATION_MISSING: instacomp_internal_sold_comps'; end if;
+              if to_regclass('public.collx_only_inventory_boundary_violations') is null then raise exception 'ISSUE253_RELATION_MISSING: collx boundary view'; end if;
+              if to_regclass('public.ebay_inbound_sale_guards') is null then raise exception 'ISSUE253_RELATION_MISSING: ebay guards'; end if;
+              if not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='apply_ebay_order_collectible_sale') then raise exception 'ISSUE253_FUNCTION_MISSING: apply_ebay_order_collectible_sale'; end if;
+              if not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='archive_expired_collectible_sales') then raise exception 'ISSUE253_FUNCTION_MISSING: archive_expired_collectible_sales'; end if;
+              if not exists (select 1 from pg_trigger where tgname='enforce_collx_inventory_boundary' and not tgisinternal) then raise exception 'ISSUE253_TRIGGER_MISSING: CollX boundary'; end if;
+              if exists (select 1 from public.collectible_sales group by store_id,event_key having count(*) > 1) then raise exception 'ISSUE253_DUPLICATE_SALE_EVENTS'; end if;
+              if exists (select 1 from public.products where quantity < 0) then raise exception 'ISSUE253_NEGATIVE_PRODUCT_QUANTITY'; end if;
+              if exists (select 1 from public.inventory_items where quantity < 0) then raise exception 'ISSUE253_NEGATIVE_INVENTORY_QUANTITY'; end if;
+              if exists (select 1 from public.products where sold_at is not null and quantity > 0) then raise exception 'ISSUE253_PROTECTED_SOLD_STOCK_RESTORED'; end if;
+            end
+            $$;
+          `, false);
+
+          const aggregate = await request(`
+            select json_build_object(
+              'sale_records_total', (select count(*) from public.collectible_sales),
+              'sale_records_verified', (select count(*) from public.collectible_sales where evidence_status='verified'),
+              'sale_records_manual', (select count(*) from public.collectible_sales where evidence_status='manual'),
+              'sale_records_unresolved', (select count(*) from public.collectible_sales where evidence_status='unresolved'),
+              'website_pre_cutoff_sale_records', (
+                select count(*) from public.collectible_sales
+                where source_marketplace='website' and sold_at < timestamptz '2026-07-28 00:00:00+00'
+              ),
+              'zero_quantity_products_sold_price_unresolved', (
+                select count(*) from public.products where quantity <= 0 and sold_price is null
+              ),
+              'collx_only_excluded_inventory_rows', (
+                select count(*) from public.collx_only_inventory_boundary_violations
+              ),
+              'duplicate_sale_event_groups', (
+                select count(*) from (
+                  select store_id,event_key from public.collectible_sales
+                  group by store_id,event_key having count(*) > 1
+                ) d
+              ),
+              'negative_product_quantities', (select count(*) from public.products where quantity < 0),
+              'negative_inventory_quantities', (select count(*) from public.inventory_items where quantity < 0),
+              'sold_stock_restoration_violations', (
+                select count(*) from public.products where sold_at is not null and quantity > 0
+              ),
+              'captured_at', now()
+            ) as launch2_issue253_resume_receipt;
+          `, true);
+
+          fs.writeFileSync(
+            path.join(evidenceDir, 'production-migration-resume-and-backfill-receipt.json'),
+            JSON.stringify({
+              ok: true,
+              exactMainSha: process.env.EXPECTED_MAIN_SHA,
+              appliedMigrations: applied,
+              aggregate,
+              containsOnlyAggregateCounts: true,
+              generatedAt: new Date().toISOString(),
+            }, null, 2),
+          );
+          console.log(`Applied and verified ${applied.length} remaining issue #253 migrations.`);
+          NODE
+
+      - name: Deploy exact certified main SHA to Vercel Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/launch2-issue253-resume-evidence"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_MAIN_SHA"
+          npx vercel@56.2.0 deploy --prod --yes --force --archive=tgz \
+            --meta "githubCommitSha=$EXPECTED_MAIN_SHA" \
+            --meta "launchGate=issue253-resume" \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" \
+            > "$evidence/deployment-url.txt" 2> "$evidence/deployment-stderr.txt"
+          deployment_url="$(tr -d '\r\n' < "$evidence/deployment-url.txt")"
+          test -n "$deployment_url"
+          printf 'DEPLOYMENT_URL=%s\n' "$deployment_url" >> "$GITHUB_ENV"
+
+          deployment_host="${deployment_url#https://}"
+          org_id="$(node -p "require('./.vercel/project.json').orgId")"
+          test -n "$org_id"
+          success=false
+          for attempt in $(seq 1 72); do
+            curl --silent --show-error --fail-with-body \
+              --header "Authorization: Bearer $VERCEL_TOKEN" \
+              --get --data-urlencode "teamId=$org_id" \
+              "https://api.vercel.com/v13/deployments/$deployment_host" \
+              > "$evidence/deployment-api.json" || true
+            if node --input-type=module - "$EXPECTED_MAIN_SHA" "$deployment_host" "$evidence/deployment-api.json" <<'NODE'
+              import fs from 'node:fs';
+              const [expectedSha, deploymentHost, file] = process.argv.slice(2);
+              const body = JSON.parse(fs.readFileSync(file, 'utf8'));
+              const aliases = [...(body.alias || []), ...(body.aliases || [])]
+                .map((value) => String(value).replace(/^https?:\/\//, '').replace(/\/$/, ''));
+              if (body.readyState !== 'READY') process.exit(1);
+              if (body.target !== 'production') process.exit(1);
+              if (body.url !== deploymentHost) process.exit(1);
+              if (body.meta?.githubCommitSha !== expectedSha) process.exit(1);
+              if (!aliases.includes('truelycollectables.com')) process.exit(1);
+            NODE
+            then
+              success=true
+              break
+            fi
+            echo "Attempt $attempt/72: waiting for exact Vercel metadata and Production alias."
+            sleep 10
+          done
+          test "$success" = true
+          npx vercel@56.2.0 inspect "$deployment_url" --wait --timeout=10m --no-color \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" \
+            > "$evidence/deployment-inspect.txt"
+          rm -f "$evidence/deployment-stderr.txt"
+
+      - name: Verify live custom domain and protected admin health
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/launch2-issue253-resume-evidence"
+          env_file="$RUNNER_TEMP/launch2-issue253-resume-production/production.env"
+          cron_secret="$(node --input-type=module - "$env_file" <<'NODE'
+            import fs from 'node:fs';
+            const text = fs.readFileSync(process.argv[2], 'utf8');
+            const parsed = {};
+            for (const rawLine of text.split(/\r?\n/)) {
+              const line = rawLine.trim();
+              if (!line || line.startsWith('#')) continue;
+              const index = line.indexOf('=');
+              if (index < 1) continue;
+              const key = line.slice(0, index).trim();
+              let value = line.slice(index + 1).trim();
+              if (value.startsWith('"') && value.endsWith('"')) {
+                try { value = JSON.parse(value); } catch { value = value.slice(1, -1); }
+              } else if (value.startsWith("'") && value.endsWith("'")) {
+                value = value.slice(1, -1);
+              }
+              parsed[key] = value;
+            }
+            process.stdout.write(parsed.CRON_SECRET || '');
+          NODE
+          )"
+          test -n "$cron_secret"
+          echo "::add-mask::$cron_secret"
+
+          success=false
+          for attempt in $(seq 1 72); do
+            home_code="$(curl --location --silent --show-error --max-time 20 --output "$evidence/home.html" --write-out '%{http_code}' https://truelycollectables.com/ || true)"
+            shop_code="$(curl --location --silent --show-error --max-time 20 --output "$evidence/shop.html" --write-out '%{http_code}' https://truelycollectables.com/shop || true)"
+            authorized_code="$(curl --location --silent --show-error --max-time 20 \
+              --header "Authorization: Bearer $cron_secret" \
+              --output "$evidence/admin-orders-health.json" --write-out '%{http_code}' \
+              https://truelycollectables.com/api/admin-orders-health || true)"
+            unsigned_code="$(curl --location --silent --show-error --max-time 20 \
+              --output /dev/null --write-out '%{http_code}' \
+              https://truelycollectables.com/api/admin-orders-health || true)"
+            if [ "$home_code" = "200" ] && [ "$shop_code" = "200" ] && \
+               [ "$authorized_code" = "200" ] && [ "$unsigned_code" = "401" ] && \
+               grep -Eq '"ok"[[:space:]]*:[[:space:]]*true' "$evidence/admin-orders-health.json"; then
+              success=true
+              printf '{"home":%s,"shop":%s,"authorizedHealth":%s,"unsignedHealth":%s,"deploymentUrl":"%s","exactMainSha":"%s","verifiedAt":"%s"}\n' \
+                "$home_code" "$shop_code" "$authorized_code" "$unsigned_code" "$DEPLOYMENT_URL" "$EXPECTED_MAIN_SHA" "$(date -u +%FT%TZ)" \
+                > "$evidence/live-production-boundary-receipt.json"
+              break
+            fi
+            echo "Attempt $attempt/72: waiting for live custom-domain readiness."
+            sleep 10
+          done
+          test "$success" = true
+          rm -f "$evidence/home.html" "$evidence/shop.html" "$evidence/admin-orders-health.json" "$env_file"
+
+      - name: Upload sanitized Production resume evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: launch2-issue253-production-resume-${{ env.EXPECTED_MAIN_SHA }}
+          path: ${{ runner.temp }}/launch2-issue253-resume-evidence
+          if-no-files-found: error
+          retention-days: 30
