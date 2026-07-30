@@ -1,9 +1,9 @@
 name: Apply Seller Inventory Live Link Fix
 
 on:
-  push:
+  pull_request:
     branches:
-      - fix/seller-inventory-live-link-20260730
+      - main
     paths:
       - ".github/workflows/apply-seller-inventory-live-link-fix.yml"
 
@@ -12,6 +12,7 @@ permissions:
 
 jobs:
   apply:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'fix/seller-inventory-live-link-20260730'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
