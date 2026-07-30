@@ -95,6 +95,7 @@ jobs:
           test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
           echo "::add-mask::$VERCEL_TOKEN"
           echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          evidence="$RUNNER_TEMP/launch2-issue253-evidence"
           mkdir -p .vercel "$RUNNER_TEMP/launch2-issue253-production"
           if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
             printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
@@ -104,8 +105,7 @@ jobs:
           env_path="$RUNNER_TEMP/launch2-issue253-production/production.env"
           npx vercel@56.2.0 env pull "$env_path" \
             --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
-          admin_session_value="$(ENV_PATH="$env_path" node --input-type=module - <<'NODE'
-          import { createHmac } from 'node:crypto';
+          admin_session_secret="$(ENV_PATH="$env_path" node --input-type=module - <<'NODE'
           import fs from 'node:fs';
           const text = fs.readFileSync(process.env.ENV_PATH, 'utf8');
           const parsed = {};
@@ -123,8 +123,28 @@ jobs:
             }
             parsed[key] = value;
           }
-          const secret = String(parsed.ADMIN_SESSION_SECRET || '').trim();
-          if (!secret) throw new Error('Production ADMIN_SESSION_SECRET is missing from the pulled Vercel environment.');
+          process.stdout.write(String(parsed.ADMIN_SESSION_SECRET || '').trim());
+          NODE
+          )"
+          admin_secret_rotated=false
+          if [ -z "$admin_session_secret" ]; then
+            admin_session_secret="$(node --input-type=module - <<'NODE'
+            import { randomBytes } from 'node:crypto';
+            process.stdout.write(randomBytes(48).toString('base64url'));
+            NODE
+            )"
+            test -n "$admin_session_secret"
+            echo "::add-mask::$admin_session_secret"
+            printf '%s\n' "$admin_session_secret" | npx vercel@56.2.0 env add ADMIN_SESSION_SECRET production \
+              --force --sensitive --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+            admin_secret_rotated=true
+          else
+            echo "::add-mask::$admin_session_secret"
+          fi
+          admin_session_value="$(ADMIN_SESSION_SECRET_VALUE="$admin_session_secret" node --input-type=module - <<'NODE'
+          import { createHmac } from 'node:crypto';
+          const secret = String(process.env.ADMIN_SESSION_SECRET_VALUE || '').trim();
+          if (!secret) throw new Error('ADMIN_SESSION_SECRET is unavailable after guarded provisioning.');
           const issuedAt = String(Math.floor(Date.now() / 1000));
           const signature = createHmac('sha256', secret).update(issuedAt).digest('base64url');
           process.stdout.write(`${issuedAt}.${signature}`);
@@ -133,6 +153,8 @@ jobs:
           test -n "$admin_session_value"
           echo "::add-mask::$admin_session_value"
           printf 'ADMIN_SESSION_VALUE=%s\n' "$admin_session_value" >> "$GITHUB_ENV"
+          printf '{"adminSessionSecretCreatedOrRotated":%s,"recordedAt":"%s"}\n' \
+            "$admin_secret_rotated" "$(date -u +%FT%TZ)" > "$evidence/admin-session-environment-receipt.json"
 
       - name: Apply issue 253 migrations and authoritative backfills
         shell: bash
