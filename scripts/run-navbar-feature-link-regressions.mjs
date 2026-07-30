@@ -11,6 +11,7 @@ assert.match(navbar, /<MobileNavigation links=\{navigationLinks\} \/>/);
 assert.doesNotMatch(navbar, /\/shop\?q=rookie/);
 assert.doesNotMatch(navbar, /\/shop\?q=autograph/);
 assert.doesNotMatch(navbar, /\/shop\?q=PSA/i);
+assert.doesNotMatch(navbar, /label: "(?:Rookies|Autos|Graded)"[\s\S]{0,100}href: "\/shop\?q=/);
 
 console.log(
   JSON.stringify(
@@ -18,6 +19,7 @@ console.log(
       ok: true,
       realFeatureFilters: ["rookie", "autograph", "graded"],
       desktopAndMobileShareFixedLinks: true,
+      keywordCategoryShortcutsRejected: true,
     },
     null,
     2,
