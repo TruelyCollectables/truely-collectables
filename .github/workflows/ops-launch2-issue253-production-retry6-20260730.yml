@@ -48,7 +48,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin main ops/truely-full-launch-audit-20260729
+          git fetch origin main
+          git fetch origin +refs/heads/ops/truely-full-launch-audit-20260729:refs/remotes/origin/ops/truely-full-launch-audit-20260729
           test "$(git rev-parse HEAD)" = "$EXPECTED_MAIN_SHA"
           test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
           test -n "${VERCEL_TOKEN:-}"
