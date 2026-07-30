@@ -9,6 +9,7 @@ on:
     paths:
       - ".github/workflows/live-storefront-taxonomy-audit-20260730.yml"
       - "scripts/run-live-storefront-taxonomy-audit-v3.mts"
+      - "scripts/run-autograph-image-contact-sheet.mts"
       - "scripts/run-storefront-feature-evidence-regressions.ts"
       - "src/lib/storefront-feature-evidence.ts"
       - "src/lib/storefront-taxonomy.ts"
@@ -18,6 +19,7 @@ on:
     paths:
       - ".github/workflows/live-storefront-taxonomy-audit-20260730.yml"
       - "scripts/run-live-storefront-taxonomy-audit-v3.mts"
+      - "scripts/run-autograph-image-contact-sheet.mts"
       - "scripts/run-storefront-feature-evidence-regressions.ts"
       - "src/lib/storefront-feature-evidence.ts"
       - "src/lib/storefront-taxonomy.ts"
@@ -37,7 +39,7 @@ env:
 jobs:
   audit-production-taxonomy:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Check out audit branch
         uses: actions/checkout@v4
@@ -78,6 +80,15 @@ jobs:
         run: |
           set -euo pipefail
           npx tsx scripts/run-live-storefront-taxonomy-audit-v3.mts | tee "$RUNNER_TEMP/live-taxonomy-audit/summary.log"
+
+      - name: Build autograph image contact sheets
+        shell: bash
+        env:
+          PRODUCTION_ENV_FILE: ${{ runner.temp }}/live-taxonomy-audit/production.env
+          AUTOGRAPH_SHEET_DIR: ${{ runner.temp }}/live-taxonomy-audit/autograph-contact-sheets
+        run: |
+          set -euo pipefail
+          npx tsx scripts/run-autograph-image-contact-sheet.mts | tee "$RUNNER_TEMP/live-taxonomy-audit/autograph-contact-sheet-summary.log"
           rm -f "$PRODUCTION_ENV_FILE"
 
       - name: Record latest audit receipt on main
@@ -98,12 +109,14 @@ jobs:
           git commit -m "Record live storefront taxonomy audit [skip ci]"
           git push
 
-      - name: Upload taxonomy audit receipt
+      - name: Upload taxonomy and image audit receipt
         uses: actions/upload-artifact@v4
         with:
           name: live-taxonomy-audit-20260730
           path: |
             ${{ runner.temp }}/live-taxonomy-audit/live-taxonomy-audit.json
             ${{ runner.temp }}/live-taxonomy-audit/summary.log
+            ${{ runner.temp }}/live-taxonomy-audit/autograph-contact-sheet-summary.log
+            ${{ runner.temp }}/live-taxonomy-audit/autograph-contact-sheets/**
           if-no-files-found: error
           retention-days: 7
