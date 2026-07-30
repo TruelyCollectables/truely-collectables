@@ -28,6 +28,10 @@ assert.match(files.page, /Apply Values to/);
 assert.match(files.page, /Edit complete listing/);
 assert.match(files.page, /Open eBay/);
 assert.match(files.page, /fetchWithAccountSession/);
+assert.match(
+  files.page,
+  /item\.legacyProductId && item\.status === "active" && item\.quantity > 0 && item\.imageUrl/,
+);
 assert.match(files.route, /MAX_BULK_EDITS = 100/);
 assert.match(files.route, /canManageSellerInventoryRow/);
 assert.match(files.route, /isStoreOwnerSellerAccount/);
