@@ -58,6 +58,13 @@ jobs:
             --scope truelycollectables-projects \
             --token "$VERCEL_TOKEN"
 
+      - name: Check live Production release marker
+        shell: bash
+        run: |
+          body="$(curl --fail --location --silent --show-error --max-time 30 https://truelycollectables.com/api/build-info)"
+          echo "LIVE_BUILD_INFO=$body"
+          printf '%s' "$body" | grep -F 'admin-session-refund-fee-fix-2026-07-29-2115-mt'
+
       - name: Diagnose required Production variable presence
         shell: bash
         run: |
