@@ -29,8 +29,13 @@ const restockMigration = read(
 const atomicEbayMigration = read(
   "supabase/migrations/20260730002600_atomic_ebay_order_sales_and_outbox_scope.sql",
 );
+const collxBoundaryMigration = read(
+  "supabase/migrations/20260730002800_enforce_collx_inventory_boundary.sql",
+);
+const inactiveGuardMigration = read(
+  "supabase/migrations/20260730002900_protect_inactive_marketplace_sales.sql",
+);
 const saleHistory = read("src/lib/collectible-sale-history.ts");
-const collxBoundaryMigration = read("supabase/migrations/20260730002800_enforce_collx_inventory_boundary.sql");
 const checkoutEngine = read("src/modules/inventory/checkout-engine.ts");
 const publicInventoryEngine = read("src/lib/server-inventory-engine.ts");
 const ebayOrders = read("src/lib/ebay-order-sale-sync.ts");
@@ -75,6 +80,14 @@ assert.match(inactiveSaleMigration, /previous_inactive_at_text is not distinct f
 assert.match(inactiveSaleMigration, /ebay_or_collx_via_ebay/);
 assert.match(inactiveSaleMigration, /source_chain/);
 assert.match(inactiveSaleMigration, /force_zero|,\s*true\s*\)/s);
+
+assert.match(inactiveGuardMigration, /capture_ebay_inactive_collectible_sale/);
+assert.match(inactiveGuardMigration, /sale_id_value := public\.record_collectible_sale/);
+assert.match(inactiveGuardMigration, /insert into public\.ebay_inbound_sale_guards as existing/);
+assert.match(inactiveGuardMigration, /protected_quantity,\s*active/s);
+assert.match(inactiveGuardMigration, /\n    0,\n    true,/);
+assert.match(inactiveGuardMigration, /protected_quantity = least\(existing\.protected_quantity, excluded\.protected_quantity\)/);
+assert.match(inactiveGuardMigration, /stale inbound synchronization cannot restore sold stock/);
 
 assert.match(verifiedTimeMigration, /refine_collectible_sold_time_from_verified_sale/);
 assert.match(verifiedTimeMigration, /new\.evidence_status not in \('verified', 'manual'\)/);
@@ -231,7 +244,7 @@ console.log(
       ebayOrderPollingMinutes: 5,
       ebayOrderRecurringLookbackDays: 2,
       authoritativeEbayPollingMinutes: 15,
-      checks: 162,
+      checks: 169,
     },
     null,
     2,
