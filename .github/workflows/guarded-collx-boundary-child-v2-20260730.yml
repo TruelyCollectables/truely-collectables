@@ -1,0 +1,123 @@
+name: Guarded CollX Boundary Child V2 20260730
+
+on:
+  pull_request:
+    branches:
+      - fix/launch2-sold-lifecycle-certify-20260730
+    paths:
+      - ".github/workflows/guarded-collx-boundary-child-v2-20260730.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: guarded-collx-boundary-child-v2-20260730
+  cancel-in-progress: false
+
+env:
+  EXPECTED_BRANCH: fix/launch2-collx-boundary-20260730
+  EXPECTED_BASE_SHA: 49a3f74861bd09e0065de2830442475cac525571
+  NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
+  SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
+  ADMIN_SESSION_SECRET: build-validation-session-secret-that-is-long-enough
+  ADMIN_PASSWORD: build-validation-admin-password
+  NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+  STRIPE_SECRET_KEY: sk_test_build_validation
+  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_validation
+  STRIPE_WEBHOOK_SECRET: whsec_build_validation
+  EBAY_CLIENT_ID: build-validation-client-id
+  EBAY_CLIENT_SECRET: build-validation-client-secret
+  EBAY_ENVIRONMENT: production
+  CRON_SECRET: build-validation-cron-secret-that-is-long-enough
+  TCOS_LIVE_PAYMENTS_ENABLED: "false"
+  TCOS_SHIPPING_PURCHASE_MODE: dry_run
+  TCOS_LIVE_SHIPPING_ENABLED: "false"
+
+jobs:
+  patch-and-validate:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'fix/launch2-collx-boundary-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Check out guarded child branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on exact child scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$EXPECTED_BASE_SHA" HEAD
+          unexpected="$(git diff --name-only "$EXPECTED_BASE_SHA"...HEAD | grep -Ev '^\.github/workflows/guarded-collx-boundary-child(-v2)?-20260730\.yml$' || true)"
+          test -z "$unexpected" || { printf 'Unexpected child source drift:\n%s\n' "$unexpected" >&2; exit 1; }
+          git fetch origin fix/launch2-sold-lifecycle-certify-20260730
+          test "$(git rev-parse origin/fix/launch2-sold-lifecycle-certify-20260730)" = "$EXPECTED_BASE_SHA"
+          test -z "$(git status --porcelain)"
+
+      - name: Apply exact reviewed CollX boundary patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          ruby -ryaml -e '
+            doc = YAML.load_file(".github/workflows/guarded-collx-boundary-child-20260730.yml", aliases: true)
+            step = doc.fetch("jobs").fetch("patch-and-validate").fetch("steps").find { |row| row["name"] == "Apply CollX-only inventory boundary" }
+            abort("Reviewed boundary patch step missing") unless step && step["run"]
+            print step["run"]
+          ' > "$RUNNER_TEMP/apply-collx-boundary.sh"
+          bash -n "$RUNNER_TEMP/apply-collx-boundary.sh"
+          bash "$RUNNER_TEMP/apply-collx-boundary.sh"
+          git diff --check
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Run issue 253 and CollX boundary simulations
+        run: node scripts/run-sold-lifecycle-simulations.mjs
+
+      - name: Run privileged route audit
+        run: |
+          node scripts/run-privileged-api-route-audit.mjs
+          npm run simulate:privileged-route-auth
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Run standalone TypeScript
+        run: npx tsc --noEmit --pretty false
+
+      - name: Run Production build
+        run: npm run build
+
+      - name: Commit only validated boundary source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout -- next-env.d.ts 2>/dev/null || true
+          git diff --check
+          mapfile -t changed < <(git status --porcelain=v1 -uall | cut -c4- | sort)
+          printf 'Changed paths after validation:\n%s\n' "$(printf '%s\n' "${changed[@]}")"
+          expected=(
+            .github/workflows/launch2-sold-lifecycle-ci-20260729.yml
+            scripts/run-sold-lifecycle-simulations.mjs
+            src/lib/collectible-sale-history.ts
+            src/lib/server-inventory-engine.ts
+            src/modules/inventory/checkout-engine.ts
+            supabase/migrations/20260730002800_enforce_collx_inventory_boundary.sql
+          )
+          test "${#changed[@]}" -eq "${#expected[@]}"
+          test "$(printf '%s\n' "${changed[@]}")" = "$(printf '%s\n' "${expected[@]}")"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add "${expected[@]}"
+          git commit -m "Enforce the CollX-only inventory launch boundary"
+          git push origin "HEAD:$EXPECTED_BRANCH"
