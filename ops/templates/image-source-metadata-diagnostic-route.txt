@@ -1,0 +1,246 @@
+import { timingSafeEqual } from "node:crypto";
+import { createSupabaseServerClient } from "../../../../lib/supabase-server";
+
+export const dynamic = "force-dynamic";
+export const maxDuration = 300;
+
+const STORE_ID = "00000000-0000-4000-8000-000000000001";
+const TARGET_IDS = [
+  1682,1692,1709,1723,1779,1863,1976,1983,1988,1992,
+  2003,2019,2036,2052,2094,2103,2117,2183,2210,2211,
+  2213,2228,2240,2241,2260,2273,2286,2291,2313,2315,
+  2336,2366,2373,2386,2391,2411,2413,2419,2448,10650,
+  10658,10664,10665,10666,10684,10685,10688,10689,10692,10699,
+];
+
+type ImageRow = {
+  inventory_item_id: string;
+  image_url: string;
+  alt_text: string | null;
+  sort_order: number;
+  is_primary: boolean;
+};
+
+function safeEqual(left: string, right: string) {
+  const a = Buffer.from(left);
+  const b = Buffer.from(right);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+function decodeText(value: string) {
+  return value
+    .replace(/\\u002f/gi, "/")
+    .replace(/\\\//g, "/")
+    .replace(/&quot;|&#34;/gi, '"')
+    .replace(/&amp;/gi, "&")
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">");
+}
+
+function extractUrls(value: string) {
+  const decoded = decodeText(value);
+  const urls: string[] = [];
+  for (const match of decoded.matchAll(/https?:\/\/[^\s"'<>\\)\]]+/gi)) {
+    urls.push(match[0].replace(/[.,;:]+$/, ""));
+  }
+  return Array.from(new Set(urls));
+}
+
+function collectEvidence(
+  value: unknown,
+  path: string,
+  urls: Array<{ path: string; url: string }>,
+  hints: Array<{ path: string; value: string }>,
+  depth = 0,
+) {
+  if (depth > 12) return;
+  if (typeof value === "string") {
+    for (const url of extractUrls(value)) urls.push({ path, url });
+    const lowerPath = path.toLowerCase();
+    const lower = value.toLowerCase();
+    if (
+      lowerPath.includes("image") ||
+      lowerPath.includes("photo") ||
+      lowerPath.includes("picture") ||
+      lowerPath.includes("description") ||
+      lowerPath.includes("source") ||
+      lowerPath.includes("raw") ||
+      lower.includes("-front.") ||
+      lower.includes("-back.") ||
+      lower.includes("pictureurl") ||
+      lower.includes("imageurl")
+    ) {
+      hints.push({ path, value: value.slice(0, 1200) });
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => collectEvidence(entry, `${path}[${index}]`, urls, hints, depth + 1));
+    return;
+  }
+  if (!value || typeof value !== "object") return;
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    collectEvidence(entry, path ? `${path}.${key}` : key, urls, hints, depth + 1);
+  }
+}
+
+function uniqueEvidence<T extends { path: string; url?: string; value?: string }>(rows: T[]) {
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    const key = `${row.path}|${row.url || row.value || ""}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function storageBatchFromUrl(value: string) {
+  try {
+    const url = new URL(value);
+    if (url.hostname !== "storage.googleapis.com") return null;
+    const pieces = url.pathname.split("/").filter(Boolean);
+    const bucket = pieces.shift();
+    const batch = pieces.shift();
+    if (!bucket || !batch) return null;
+    return { bucket, batch, objectName: pieces.join("/") };
+  } catch {
+    return null;
+  }
+}
+
+async function listStorageBatch(bucket: string, batch: string) {
+  const url = new URL(`https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(bucket)}/o`);
+  url.searchParams.set("prefix", `${batch}/`);
+  url.searchParams.set("maxResults", "1000");
+  const response = await fetch(url, { signal: AbortSignal.timeout(30000) });
+  const payload = await response.json().catch(() => ({}));
+  const names = Array.isArray(payload?.items)
+    ? payload.items.map((entry: any) => String(entry?.name || "")).filter(Boolean)
+    : [];
+  return {
+    status: response.status,
+    count: names.length,
+    backNamed: names.filter((name: string) => /back/i.test(name)),
+    frontNamed: names.filter((name: string) => /front/i.test(name)),
+    allNames: names,
+  };
+}
+
+export async function POST(request: Request) {
+  const expected = process.env.IMAGE_SOURCE_METADATA_DIAGNOSTIC_TOKEN_20260730 || "";
+  const supplied = request.headers.get("x-tcos-diagnostic-token") || "";
+  if (!expected || !safeEqual(expected, supplied)) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const supabase = createSupabaseServerClient({ admin: true });
+  const { data: productRows, error: productError } = await supabase
+    .from("products")
+    .select("*")
+    .eq("store_id", STORE_ID)
+    .in("id", TARGET_IDS)
+    .order("id", { ascending: true });
+  if (productError) throw productError;
+
+  const { data: inventoryRows, error: inventoryError } = await supabase
+    .from("inventory_items")
+    .select("*")
+    .eq("store_id", STORE_ID)
+    .in("legacy_product_id", TARGET_IDS)
+    .order("legacy_product_id", { ascending: true });
+  if (inventoryError) throw inventoryError;
+
+  const inventories = inventoryRows || [];
+  const inventoryIds = inventories.map((row: any) => String(row.id));
+  const imageRows: ImageRow[] = [];
+  for (let index = 0; index < inventoryIds.length; index += 20) {
+    const { data, error } = await supabase
+      .from("inventory_images")
+      .select("inventory_item_id,image_url,alt_text,sort_order,is_primary")
+      .in("inventory_item_id", inventoryIds.slice(index, index + 20))
+      .order("inventory_item_id", { ascending: true })
+      .order("sort_order", { ascending: true });
+    if (error) throw error;
+    imageRows.push(...((data || []) as ImageRow[]));
+  }
+
+  const productsById = new Map((productRows || []).map((row: any) => [Number(row.id), row]));
+  const inventoriesByProduct = new Map<number, any[]>();
+  for (const row of inventories) {
+    const id = Number((row as any).legacy_product_id);
+    const list = inventoriesByProduct.get(id) || [];
+    list.push(row);
+    inventoriesByProduct.set(id, list);
+  }
+  const imagesByInventory = new Map<string, ImageRow[]>();
+  for (const image of imageRows) {
+    const list = imagesByInventory.get(image.inventory_item_id) || [];
+    list.push(image);
+    imagesByInventory.set(image.inventory_item_id, list);
+  }
+
+  const productEvidence: Array<Record<string, unknown>> = [];
+  const uniqueBatches = new Map<string, { bucket: string; batch: string }>();
+  for (const id of TARGET_IDS) {
+    const product = productsById.get(id) || null;
+    const linked = inventoriesByProduct.get(id) || [];
+    const productUrls: Array<{ path: string; url: string }> = [];
+    const productHints: Array<{ path: string; value: string }> = [];
+    if (product) collectEvidence(product, "product", productUrls, productHints);
+    const inventoryEvidence = linked.map((inventory: any) => {
+      const urls: Array<{ path: string; url: string }> = [];
+      const hints: Array<{ path: string; value: string }> = [];
+      collectEvidence(inventory, "inventory", urls, hints);
+      const images = imagesByInventory.get(String(inventory.id)) || [];
+      for (const image of images) {
+        urls.push({ path: `inventory_images[${image.sort_order}]`, url: image.image_url });
+      }
+      return {
+        inventoryItemId: inventory.id,
+        rowKeys: Object.keys(inventory).sort(),
+        urls: uniqueEvidence(urls),
+        hints: uniqueEvidence(hints).slice(0, 40),
+        images,
+      };
+    });
+    const allUrls = [
+      ...productUrls,
+      ...inventoryEvidence.flatMap((entry: any) => entry.urls),
+    ];
+    for (const entry of allUrls) {
+      const batch = storageBatchFromUrl(entry.url);
+      if (batch) uniqueBatches.set(`${batch.bucket}/${batch.batch}`, { bucket: batch.bucket, batch: batch.batch });
+    }
+    productEvidence.push({
+      productId: id,
+      title: product?.title || null,
+      productRowKeys: product ? Object.keys(product).sort() : [],
+      productUrls: uniqueEvidence(productUrls),
+      productHints: uniqueEvidence(productHints).slice(0, 40),
+      inventoryEvidence,
+    });
+  }
+
+  const batchListings: Array<Record<string, unknown>> = [];
+  for (const [key, batch] of uniqueBatches) {
+    try {
+      batchListings.push({ key, ...(await listStorageBatch(batch.bucket, batch.batch)) });
+    } catch (error) {
+      batchListings.push({ key, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  return Response.json(
+    {
+      success: true,
+      targetCount: TARGET_IDS.length,
+      productCount: (productRows || []).length,
+      inventoryCount: inventories.length,
+      imageRowCount: imageRows.length,
+      productEvidence,
+      batchListings,
+    },
+    { headers: { "Cache-Control": "no-store" } },
+  );
+}
