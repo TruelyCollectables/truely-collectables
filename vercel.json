@@ -44,6 +44,10 @@
       "schedule": "0 14 * * *"
     },
     {
+      "path": "/api/cron/ebay-order-sale-sync",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/ebay-store-fixed-price-sync",
       "schedule": "2,17,32,47 * * * *"
     },
