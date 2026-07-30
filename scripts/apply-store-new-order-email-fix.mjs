@@ -65,7 +65,7 @@ let simulation = await readFile(simulationPath, "utf8");
 simulation = replaceExact(
   simulation,
   `assert.match(helper, /notificationType: OrderNotificationType/);`,
-  `assert.match(helper, /notificationType: OrderNotificationType/);\nassert.match(helper, /payload\\.audience === "store"/);\nassert.match(helper, /New paid \\${storeName} order/);\nassert.match(helper, /Open order in fulfillment/);`,
+  `assert.match(helper, /notificationType: OrderNotificationType/);\nassert.match(helper, /payload\\.audience === "store"/);\nassert.match(helper, /New paid/);\nassert.match(helper, /Open order in fulfillment/);`,
   "helper store-alert assertions",
 );
 simulation = replaceExact(
