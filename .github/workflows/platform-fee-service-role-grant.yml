@@ -1,0 +1,176 @@
+name: Platform Fee Service Role Grant
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "supabase/migrations/20260730050000_grant_platform_fee_delete_service_role.sql"
+      - "scripts/verify-platform-fee-service-role-delete-grant.mjs"
+      - "src/app/api/admin/reconcile-platform-fees/route.ts"
+      - ".github/workflows/platform-fee-service-role-grant.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify narrow grant contract
+        run: node scripts/verify-platform-fee-service-role-delete-grant.mjs
+
+      - name: Validate grant against Production schema with rollback
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$VERCEL_TOKEN"
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          mkdir -p .vercel "$RUNNER_TEMP/platform-fee-grant-validation"
+          npm exec --yes --package=vercel@56.2.0 -- vercel link \
+            --yes \
+            --project truely-collectables \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" >/dev/null
+          npm exec --yes --package=vercel@56.2.0 -- vercel env pull \
+            "$RUNNER_TEMP/platform-fee-grant-validation/production.env" \
+            --yes \
+            --environment production \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" >/dev/null
+
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+
+          const envPath = path.join(
+            process.env.RUNNER_TEMP,
+            'platform-fee-grant-validation',
+            'production.env',
+          );
+          const text = fs.readFileSync(envPath, 'utf8');
+          const parsed = {};
+          for (const rawLine of text.split(/\r?\n/)) {
+            const line = rawLine.trim();
+            if (!line || line.startsWith('#')) continue;
+            const index = line.indexOf('=');
+            if (index < 1) continue;
+            const key = line.slice(0, index).trim();
+            let value = line.slice(index + 1).trim();
+            if (value.startsWith('"') && value.endsWith('"')) {
+              try { value = JSON.parse(value); } catch { value = value.slice(1, -1); }
+            } else if (value.startsWith("'") && value.endsWith("'")) {
+              value = value.slice(1, -1);
+            }
+            parsed[key] = value;
+          }
+
+          const productionUrl = parsed.NEXT_PUBLIC_SUPABASE_URL;
+          if (!productionUrl || !/^https:\/\//.test(productionUrl)) {
+            throw new Error('Production NEXT_PUBLIC_SUPABASE_URL was not pulled from Vercel.');
+          }
+          const projectRef = new URL(productionUrl).hostname.split('.')[0];
+          const token = process.env.SUPABASE_ACCESS_TOKEN;
+          if (!projectRef || !token) throw new Error('Supabase Production validation inputs are unavailable.');
+
+          const endpoint = `https://api.supabase.com/v1/projects/${projectRef}/database/query`;
+          const request = async (query, readOnly) => {
+            const response = await fetch(endpoint, {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ query, parameters: [], read_only: readOnly }),
+            });
+            const body = await response.text();
+            if (!response.ok) {
+              const safe = body
+                .replace(/postgres(?:ql)?:\/\/[^\s"']+/gi, 'postgresql://[REDACTED]')
+                .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [REDACTED]')
+                .slice(0, 4000);
+              throw new Error(`Supabase Production grant validation failed with HTTP ${response.status}: ${safe}`);
+            }
+            return body ? JSON.parse(body) : [];
+          };
+
+          const privilegeSql = `
+            select
+              has_table_privilege('service_role', 'public.platform_fee_ledger_entries', 'DELETE') as service_role_delete,
+              has_table_privilege('anon', 'public.platform_fee_ledger_entries', 'DELETE') as anon_delete,
+              has_table_privilege('authenticated', 'public.platform_fee_ledger_entries', 'DELETE') as authenticated_delete;
+          `;
+          const before = await request(privilegeSql, true);
+          const beforeRow = before?.[0] || {};
+          if (beforeRow.anon_delete === true || beforeRow.authenticated_delete === true) {
+            throw new Error('A public role already has DELETE permission on the platform fee ledger.');
+          }
+
+          const migrationPath = path.join(
+            'supabase',
+            'migrations',
+            '20260730050000_grant_platform_fee_delete_service_role.sql',
+          );
+          let migration = fs.readFileSync(migrationPath, 'utf8').trim();
+          migration = migration
+            .replace(/^begin\s*;/i, '')
+            .replace(/commit\s*;\s*$/i, '')
+            .trim();
+
+          const validationSql = `
+            begin;
+            ${migration}
+            do $verify$
+            begin
+              if not has_table_privilege('service_role', 'public.platform_fee_ledger_entries', 'DELETE') then
+                raise exception 'service_role DELETE grant was not effective';
+              end if;
+              if has_table_privilege('anon', 'public.platform_fee_ledger_entries', 'DELETE')
+                 or has_table_privilege('authenticated', 'public.platform_fee_ledger_entries', 'DELETE') then
+                raise exception 'public role received platform fee DELETE access';
+              end if;
+            end
+            $verify$;
+            rollback;
+          `;
+          await request(validationSql, false);
+
+          const after = await request(privilegeSql, true);
+          if (JSON.stringify(before) !== JSON.stringify(after)) {
+            throw new Error('Rollback validation changed Production privilege state.');
+          }
+
+          console.log(`PRODUCTION_PLATFORM_FEE_DELETE_BEFORE=${beforeRow.service_role_delete === true}`);
+          console.log('PRODUCTION_PLATFORM_FEE_DELETE_ROLLBACK_VALIDATION=passed');
+          NODE
+
+          rm -f "$RUNNER_TEMP/platform-fee-grant-validation/production.env"
+
+      - name: Build Production application
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key
+          NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+          ADMIN_SESSION_SECRET: placeholder-admin-session-secret
+          STRIPE_SECRET_KEY: sk_test_placeholder
+          STRIPE_WEBHOOK_SECRET: whsec_placeholder
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_placeholder
+        run: npm run build
