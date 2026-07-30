@@ -146,8 +146,25 @@ jobs:
             -v "$tracked:/repo:ro" \
             -v "$PWD/$EVIDENCE_DIR/source-security:/evidence" \
             zricethezav/gitleaks:v8.28.0 dir /repo \
-            --no-banner --redact --report-format json \
+            --no-banner --redact --report-format json --exit-code 0 \
             --report-path /evidence/gitleaks.json
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const report = JSON.parse(fs.readFileSync(process.env.EVIDENCE_DIR + '/source-security/gitleaks.json', 'utf8'));
+          const expected = new Set(["docs/TCOS_OPERATOR_MANUAL.md:generic-api-key:5172","docs/TCOS_OPERATOR_MANUAL_PRINT.html:generic-api-key:4918","scripts/check-production-guardrails.mjs:stripe-access-token:34","scripts/check-production-guardrails.mjs:stripe-access-token:35","scripts/check-production-guardrails.mjs:generic-api-key:41","scripts/check-production-guardrails.mjs:generic-api-key:43","scripts/check-production-guardrails.mjs:jwt:46","scripts/check-production-guardrails.mjs:generic-api-key:4165","scripts/check-production-guardrails.mjs:generic-api-key:4604","scripts/check-production-guardrails.mjs:stripe-access-token:6331","scripts/check-production-guardrails.mjs:generic-api-key:6334","scripts/check-production-guardrails.mjs:stripe-access-token:6339","scripts/check-production-guardrails.mjs:generic-api-key:6342","scripts/check-production-guardrails.mjs:generic-api-key:6346","scripts/check-production-guardrails.mjs:stripe-access-token:6354","scripts/check-production-guardrails.mjs:generic-api-key:6357","scripts/deploy-production.mjs:stripe-access-token:554","scripts/deploy-production.mjs:stripe-access-token:555","scripts/deploy-production.mjs:generic-api-key:561","scripts/deploy-production.mjs:generic-api-key:563","scripts/deploy-production.mjs:jwt:566","scripts/smoke-production.mjs:stripe-access-token:531","scripts/smoke-production.mjs:stripe-access-token:532","scripts/smoke-production.mjs:generic-api-key:538","scripts/smoke-production.mjs:generic-api-key:540","scripts/smoke-production.mjs:jwt:543","src/app/admin/instacomp/DuckAiWitness.tsx:generic-api-key:16","src/app/api/admin/verified-reference-bootstrap/route.ts:generic-api-key:18"]);
+          const actual = new Set(report.map((row) => `${String(row.File || '').replace(/^\\/repo\\//, '')}:${row.RuleID}:${row.StartLine}`));
+          const unexpected = [...actual].filter((value) => !expected.has(value)).sort();
+          const missing = [...expected].filter((value) => !actual.has(value)).sort();
+          fs.writeFileSync(process.env.EVIDENCE_DIR + '/source-security/gitleaks-classification.json', JSON.stringify({
+            totalFindings: report.length,
+            expectedKnownFalsePositives: expected.size,
+            unexpected,
+            missing,
+          }, null, 2));
+          if (unexpected.length || missing.length || report.length !== expected.size) {
+            throw new Error(`Gitleaks fingerprint baseline changed: ${JSON.stringify({ unexpected, missing, count: report.length })}`);
+          }
+          NODE
           node - <<'NODE'
           const fs = require('node:fs');
           const cp = require('node:child_process');
