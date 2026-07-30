@@ -8,6 +8,7 @@ on:
       - agent/run-live-taxonomy-audit-20260730
     paths:
       - ".github/workflows/live-storefront-taxonomy-audit-20260730.yml"
+      - "scripts/apply-production-collx-boundary-grant.mts"
       - "scripts/run-live-storefront-taxonomy-audit-v3.mts"
       - "scripts/run-autograph-image-contact-sheet.mts"
       - "scripts/run-storefront-feature-evidence-regressions.ts"
@@ -18,6 +19,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/live-storefront-taxonomy-audit-20260730.yml"
+      - "scripts/apply-production-collx-boundary-grant.mts"
       - "scripts/run-live-storefront-taxonomy-audit-v3.mts"
       - "scripts/run-autograph-image-contact-sheet.mts"
       - "scripts/run-storefront-feature-evidence-regressions.ts"
@@ -72,6 +74,14 @@ jobs:
           npx vercel@56.2.0 env pull "$RUNNER_TEMP/live-taxonomy-audit/production.env" \
             --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
 
+      - name: Repair Production CollX boundary grant
+        shell: bash
+        env:
+          PRODUCTION_ENV_FILE: ${{ runner.temp }}/live-taxonomy-audit/production.env
+        run: |
+          set -euo pipefail
+          npx tsx scripts/apply-production-collx-boundary-grant.mts | tee "$RUNNER_TEMP/live-taxonomy-audit/collx-boundary-grant.log"
+
       - name: Audit every active Production listing
         shell: bash
         env:
@@ -114,6 +124,7 @@ jobs:
         with:
           name: live-taxonomy-audit-20260730
           path: |
+            ${{ runner.temp }}/live-taxonomy-audit/collx-boundary-grant.log
             ${{ runner.temp }}/live-taxonomy-audit/live-taxonomy-audit.json
             ${{ runner.temp }}/live-taxonomy-audit/summary.log
             ${{ runner.temp }}/live-taxonomy-audit/autograph-contact-sheet-summary.log
