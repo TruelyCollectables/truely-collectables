@@ -42,7 +42,7 @@ jobs:
         with:
           node-version: 22
 
-      - name: Apply least-privilege Production grant and verify ACL
+      - name: Apply Production grant, reload PostgREST, and verify runtime key
         shell: bash
         run: |
           set -euo pipefail
@@ -60,6 +60,7 @@ jobs:
           node --input-type=module - <<'NODE'
           import fs from 'node:fs';
           import path from 'node:path';
+          import { setTimeout as sleep } from 'node:timers/promises';
 
           const envPath = path.join(process.env.RUNNER_TEMP, 'collx-storefront-repair', 'production.env');
           const text = fs.readFileSync(envPath, 'utf8');
@@ -80,9 +81,15 @@ jobs:
           }
 
           const productionUrl = parsed.NEXT_PUBLIC_SUPABASE_URL;
+          const serviceRoleKey = parsed.SUPABASE_SERVICE_ROLE_KEY;
           if (!productionUrl || !/^https:\/\//.test(productionUrl)) {
             throw new Error('Production NEXT_PUBLIC_SUPABASE_URL was not pulled from Vercel.');
           }
+          if (!serviceRoleKey?.trim()) {
+            throw new Error('Production SUPABASE_SERVICE_ROLE_KEY was not pulled from Vercel.');
+          }
+          console.log('::add-mask::' + serviceRoleKey);
+
           const projectRef = new URL(productionUrl).hostname.split('.')[0];
           const token = process.env.GH_SUPABASE_ACCESS_TOKEN;
           if (!projectRef || !token) throw new Error('Production Supabase credentials are unavailable.');
@@ -112,6 +119,7 @@ jobs:
           const migrationSql = fs.readFileSync(migrationPath, 'utf8').trim();
           if (!migrationSql) throw new Error('Emergency grant migration is empty.');
           await request(migrationSql, false);
+          await request("notify pgrst, 'reload schema';", false);
 
           const verification = await request(`
             select
@@ -124,7 +132,29 @@ jobs:
           if (!row?.view_exists || !row?.service_role_can_select || row?.anon_can_select || row?.authenticated_can_select) {
             throw new Error(`Unexpected CollX boundary ACL verification: ${JSON.stringify(verification).slice(0, 1000)}`);
           }
-          console.log('Production CollX boundary view grant applied and ACL verified.');
+
+          let lastStatus = 0;
+          let lastBody = '';
+          for (let attempt = 1; attempt <= 12; attempt += 1) {
+            const response = await fetch(
+              `${productionUrl}/rest/v1/collx_only_inventory_boundary_violations?select=legacy_product_id&limit=1`,
+              {
+                headers: {
+                  apikey: serviceRoleKey,
+                  Authorization: `Bearer ${serviceRoleKey}`,
+                },
+              },
+            );
+            lastStatus = response.status;
+            lastBody = await response.text();
+            if (response.ok) {
+              console.log(`Production service-role REST access verified after PostgREST reload on attempt ${attempt}.`);
+              process.exit(0);
+            }
+            await sleep(5000);
+          }
+          const safeBody = lastBody.replaceAll(serviceRoleKey, '[REDACTED]').slice(0, 2000);
+          throw new Error(`Production service-role REST check failed with HTTP ${lastStatus}: ${safeBody}`);
           NODE
           rm -f "$RUNNER_TEMP/collx-storefront-repair/production.env"
 
@@ -142,5 +172,5 @@ jobs:
             fi
             sleep 10
           done
-          echo "Live /shop did not recover after the Production ACL repair." >&2
+          echo "Live /shop did not recover after the Production ACL repair and PostgREST reload." >&2
           exit 1
