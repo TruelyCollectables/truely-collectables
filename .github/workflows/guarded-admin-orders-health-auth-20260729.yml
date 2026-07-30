@@ -1,0 +1,86 @@
+name: Guarded Admin Orders Health Auth 20260729
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/guarded-admin-orders-health-auth-20260729.yml"
+      - "src/app/api/admin-orders-health/route.ts"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: guarded-admin-orders-health-auth-20260729
+  cancel-in-progress: false
+
+env:
+  EXPECTED_MAIN_SHA: 1b75fef62756ee9d76393b3d3b7aff056977f952
+  EXPECTED_BRANCH: fix/admin-orders-health-auth-20260729
+  NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
+  SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
+  ADMIN_SESSION_SECRET: build-validation-session-secret-that-is-long-enough
+  ADMIN_PASSWORD: build-validation-admin-password
+  CRON_SECRET: build-validation-cron-secret-that-is-long-enough
+  NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+  STRIPE_SECRET_KEY: sk_test_build_validation
+  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_validation
+  STRIPE_WEBHOOK_SECRET: whsec_build_validation
+  EBAY_CLIENT_ID: build-validation-client-id
+  EBAY_CLIENT_SECRET: build-validation-client-secret
+  EBAY_ENVIRONMENT: production
+  TCOS_LIVE_PAYMENTS_ENABLED: "false"
+  TCOS_SHIPPING_PURCHASE_MODE: dry_run
+  TCOS_LIVE_SHIPPING_ENABLED: "false"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on exact branch scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          unexpected="$(git diff --name-only "$EXPECTED_MAIN_SHA"...HEAD | grep -Ev '^(\.github/workflows/guarded-admin-orders-health-auth-20260729\.yml|src/app/api/admin-orders-health/route\.ts)$' || true)"
+          test -z "$unexpected" || { printf 'Unexpected branch changes:\n%s\n' "$unexpected" >&2; exit 1; }
+          git diff --check "$EXPECTED_MAIN_SHA"...HEAD
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Prove route authorization contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          route='src/app/api/admin-orders-health/route.ts'
+          grep -Fq 'validCronAuthorization(request)' "$route"
+          grep -Fq 'isValidAdminSessionValue' "$route"
+          grep -Fq 'status: 401' "$route"
+          grep -Fq 'timingSafeEqual' "$route"
+          node scripts/run-privileged-api-route-audit.mjs
+          npm run simulate:privileged-route-auth
+
+      - name: Run focused lint
+        run: npx eslint src/app/api/admin-orders-health/route.ts
+
+      - name: Run standalone TypeScript
+        run: npx tsc --noEmit --pretty false
+
+      - name: Run full Production build
+        run: npm run build
