@@ -1,0 +1,96 @@
+name: eBay Shopping Picture Repair 20260730
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ebay-shopping-picture-repair-20260730
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'ops/ebay-shopping-picture-repair-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/ebay-shopping-picture-repair-20260730
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Prepare protected Shopping repair route
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/ebay-shopping-picture-repair"
+          mkdir -p "$work" .vercel src/app/api/internal/ebay-shopping-picture-repair
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          cp ops/templates/ebay-shopping-picture-repair-route.txt src/app/api/internal/ebay-shopping-picture-repair/route.ts
+          token="$(openssl rand -hex 32)"
+          printf '%s' "$token" > "$work/token"
+          echo "::add-mask::$token"
+          printf '%s\n' "$token" | npx vercel@56.2.0 env add EBAY_SHOPPING_IMAGE_REPAIR_TOKEN_20260730 production --force --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx tsc --noEmit --pretty false
+
+      - name: Deploy Shopping repair runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/ebay-shopping-picture-repair"
+          npx vercel@56.2.0 deploy --prod --yes --force --archive=tgz --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" | tee "$work/deploy.log"
+          url="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$work/deploy.log" | tail -1)"
+          test -n "$url"
+          printf '%s' "$url" > "$work/url"
+
+      - name: Pull every Shopping PictureURL and verified storage back
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/ebay-shopping-picture-repair"
+          token="$(cat "$work/token")"
+          url="$(cat "$work/url")"
+          response="$work/response.json"
+          status="$(curl -sS --max-time 330 -H "x-tcos-repair-token: $token" -X POST -o "$response" -w '%{http_code}' "$url/api/internal/ebay-shopping-picture-repair?run=${GITHUB_RUN_ID}" || true)"
+          echo "repair_status=$status"
+          cat "$response"
+          echo
+          test "$status" = "200"
+          node -e 'const r=require(process.argv[1]); const s={requestedProducts:r.requestedProducts,foundProducts:r.foundProducts,productsWithVerifiedBack:r.productsWithVerifiedBack,stillMissingCount:r.stillMissingCount,stillMissing:r.stillMissing,sourceSummary:r.results.map(x=>({productId:x.productId,title:x.title,shoppingStatus:x.shoppingStatus,shoppingAck:x.shoppingAck,shoppingCount:(x.shoppingImages||[]).length,verifiedShoppingCount:(x.verifiedShoppingImages||[]).length,discoveredBackCount:(x.discoveredBacks||[]).length,finalImageCount:x.finalImageCount||0,changedInventoryRows:x.changedInventoryRows||0,hasBack:x.hasBack,shoppingErrors:x.shoppingErrors||[],error:x.error||null}))}; console.log("SHOPPING_PICTURE_REPAIR_SUMMARY="+JSON.stringify(s));' "$response"
+
+      - name: Restore clean production
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 env rm EBAY_SHOPPING_IMAGE_REPAIR_TOKEN_20260730 production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null || true
+          git fetch origin main
+          git reset --hard origin/main
+          git clean -fd
+          npx vercel@56.2.0 deploy --prod --yes --force --archive=tgz --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/ebay-shopping-picture-repair"
