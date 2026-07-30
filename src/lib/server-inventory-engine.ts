@@ -99,15 +99,25 @@ async function collxOnlyLegacyProductIds() {
   for (const inventory of inventoryItems) {
     if (!metadataMentionsCollx(inventory.metadata)) continue;
 
-    const legacyProductId = Number(inventory.legacy_product_id);
-    const linkedProduct = Number.isFinite(legacyProductId)
-      ? productById.get(legacyProductId)
-      : productBySku.get(String(inventory.sku || "").trim());
+    const rawLegacyProductId = inventory.legacy_product_id;
+    const legacyProductId =
+      rawLegacyProductId === null ||
+      rawLegacyProductId === undefined ||
+      rawLegacyProductId === ""
+        ? null
+        : Number(rawLegacyProductId);
+    const inventorySku = String(inventory.sku || "").trim();
+    const linkedProduct =
+      legacyProductId !== null && Number.isFinite(legacyProductId)
+        ? productById.get(legacyProductId)
+        : inventorySku
+          ? productBySku.get(inventorySku)
+          : undefined;
     const linkedEbayItemId = String(linkedProduct?.ebay_item_id || "").trim();
     if (linkedEbayItemId) continue;
 
-    const blockedId = Number(linkedProduct?.id ?? inventory.legacy_product_id);
-    if (Number.isFinite(blockedId)) blocked.add(blockedId);
+    const blockedId = Number(linkedProduct?.id ?? legacyProductId);
+    if (Number.isFinite(blockedId) && blockedId > 0) blocked.add(blockedId);
   }
 
   return blocked;
