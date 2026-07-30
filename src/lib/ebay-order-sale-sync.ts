@@ -6,11 +6,12 @@ import { inventoryEngine } from "../modules/inventory";
 const TRADING_API_VERSION = "1409";
 const PAGE_SIZE = 100;
 const MAX_PAGES = 20;
-const DEFAULT_LOOKBACK_DAYS = 90;
+const DEFAULT_LOOKBACK_DAYS = 2;
 
 export type EbayOrderSaleSyncResult = {
   startedAt: string;
   completedAt: string;
+  lookbackDays: number;
   pagesRead: number;
   ordersRead: number;
   transactionsRead: number;
@@ -71,6 +72,19 @@ function xmlBlocks(xml: string, tag: string) {
 function xmlText(xml: string, tag: string) {
   const block = xmlBlock(xml, tag);
   return block === null ? null : decodeXml(block);
+}
+
+function xmlMoney(xml: string, tag: string) {
+  const match = new RegExp(
+    `<${tag}([^>]*)>([\\s\\S]*?)<\\/${tag}>`,
+    "i",
+  ).exec(xml);
+  if (!match) return { value: null, currency: "USD" };
+
+  return {
+    value: nullableMoney(decodeXml(match[2].replace(/<[^>]+>/g, ""))),
+    currency: /currencyID=["']([^"']+)["']/i.exec(match[1])?.[1] || "USD",
+  };
 }
 
 function positiveInteger(value: unknown) {
@@ -154,6 +168,7 @@ function parseTransactions(xml: string): EbaySaleTransaction[] {
     const orderId = xmlText(orderXml, "OrderID")?.trim() || "unknown-order";
     const orderCreated =
       xmlText(orderXml, "CreatedTime") || new Date().toISOString();
+    const orderPaidAt = xmlText(orderXml, "PaidTime");
     const transactionArray = xmlBlock(orderXml, "TransactionArray") || "";
 
     for (const transactionXml of xmlBlocks(transactionArray, "Transaction")) {
@@ -164,13 +179,10 @@ function parseTransactions(xml: string): EbaySaleTransaction[] {
       const orderLineItemId =
         xmlText(transactionXml, "OrderLineItemID")?.trim() ||
         `${itemId}:${xmlText(transactionXml, "TransactionID") || "unknown"}`;
-      const priceXml = xmlBlock(transactionXml, "TransactionPrice") || "";
-      const unitPrice = nullableMoney(decodeXml(priceXml.replace(/<[^>]+>/g, "")));
-      const currency =
-        /currencyID=["']([^"']+)["']/i.exec(priceXml)?.[1] || "USD";
+      const transactionPrice = xmlMoney(transactionXml, "TransactionPrice");
       const soldAt =
+        orderPaidAt ||
         xmlText(transactionXml, "CreatedDate") ||
-        xmlText(transactionXml, "PaidTime") ||
         orderCreated;
 
       transactions.push({
@@ -179,8 +191,8 @@ function parseTransactions(xml: string): EbaySaleTransaction[] {
         orderLineItemId,
         itemId,
         quantity: positiveInteger(xmlText(transactionXml, "QuantityPurchased")),
-        unitPrice,
-        currency,
+        unitPrice: transactionPrice.value,
+        currency: transactionPrice.currency,
         soldAt,
         title: xmlText(itemXml, "Title")?.trim() || null,
       });
@@ -210,7 +222,7 @@ async function fetchOrderPage(params: {
 <GetOrdersRequest xmlns="urn:ebay:apis:eBLBaseComponents">
   <DetailLevel>ReturnAll</DetailLevel>
   <OrderRole>Seller</OrderRole>
-  <OrderStatus>All</OrderStatus>
+  <OrderStatus>Completed</OrderStatus>
   <CreateTimeFrom>${params.createTimeFrom}</CreateTimeFrom>
   <CreateTimeTo>${params.createTimeTo}</CreateTimeTo>
   <Pagination>
@@ -271,6 +283,7 @@ export async function syncRecentEbayOrderSales(params: {
   const result: EbayOrderSaleSyncResult = {
     startedAt,
     completedAt: startedAt,
+    lookbackDays,
     pagesRead: 0,
     ordersRead: 0,
     transactionsRead: 0,
@@ -347,6 +360,7 @@ export async function syncRecentEbayOrderSales(params: {
             order_line_item_id: sale.orderLineItemId,
             ebay_item_id: sale.itemId,
             title: sale.title,
+            order_status_filter: "Completed",
             evidence_source: "ebay_get_orders",
           },
           forceZero: false,
@@ -370,4 +384,5 @@ export const ebayOrderSaleSyncTestHelpers = {
   parseTransactions,
   xmlText,
   xmlBlocks,
+  xmlMoney,
 };
