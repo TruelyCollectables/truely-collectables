@@ -1,0 +1,80 @@
+name: Remove Unprotected Fulfillment Health 20260729
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/remove-unprotected-fulfillment-health-20260729.yml"
+      - "src/app/api/fulfillment-health/route.ts"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: remove-unprotected-fulfillment-health-20260729
+  cancel-in-progress: false
+
+env:
+  EXPECTED_MAIN_SHA: c3b1ffaecb9043446dd572dae87f6a3e2e103c99
+  EXPECTED_BRANCH: fix/remove-unprotected-fulfillment-health-20260729
+  NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
+  SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
+  ADMIN_SESSION_SECRET: build-validation-session-secret-that-is-long-enough
+  ADMIN_PASSWORD: build-validation-admin-password
+  CRON_SECRET: build-validation-cron-secret-that-is-long-enough
+  NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+  STRIPE_SECRET_KEY: sk_test_build_validation
+  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_validation
+  STRIPE_WEBHOOK_SECRET: whsec_build_validation
+  EBAY_CLIENT_ID: build-validation-client-id
+  EBAY_CLIENT_SECRET: build-validation-client-secret
+  EBAY_ENVIRONMENT: production
+  TCOS_LIVE_PAYMENTS_ENABLED: "false"
+  TCOS_SHIPPING_PURCHASE_MODE: dry_run
+  TCOS_LIVE_SHIPPING_ENABLED: "false"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on exact branch scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          unexpected="$(git diff --name-only "$EXPECTED_MAIN_SHA"...HEAD | grep -Ev '^(\.github/workflows/remove-unprotected-fulfillment-health-20260729\.yml|src/app/api/fulfillment-health/route\.ts)$' || true)"
+          test -z "$unexpected" || { printf 'Unexpected branch changes:\n%s\n' "$unexpected" >&2; exit 1; }
+          test ! -e src/app/api/fulfillment-health/route.ts
+          git diff --check "$EXPECTED_MAIN_SHA"...HEAD
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Run privileged route gates
+        run: |
+          node scripts/run-privileged-api-route-audit.mjs
+          npm run simulate:privileged-route-auth
+
+      - name: Run repository lint
+        run: npm run lint
+
+      - name: Run standalone TypeScript
+        run: npx tsc --noEmit --pretty false
+
+      - name: Run full Production build
+        run: npm run build
