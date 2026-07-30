@@ -1,0 +1,164 @@
+name: Launch 2 B30F084 Production Certificate Resume 2
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/launch2-final-b30f084-resume2-20260730.yml"
+      - "ops/patch-issue253-hosted-runner-b30f084.mjs"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: launch2-final-b30f084-resume2-20260730
+  cancel-in-progress: false
+
+env:
+  EXPECTED_MAIN_SHA: b30f084775775d258e02affafd695028261c12c9
+  EXPECTED_BRANCH: ops/launch2-final-b30f084-resume-20260730
+  SOURCE_AUDIT_BRANCH: deploy/issue253-hosted-cutover-v3-20260730
+  SOURCE_GATE_RUN_ID: "30516210697"
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_PROJECT: truely-collectables
+  EVIDENCE_DIR: .audit/launch2-final-b30f084-resume2
+
+jobs:
+  certify-exact-production:
+    if: github.event.pull_request.head.ref == 'ops/launch2-final-b30f084-resume-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      GH_API_TOKEN: ${{ github.token }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - name: Check out guarded operations branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on exact source and operations-only files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main
+          git fetch origin "+refs/heads/$SOURCE_AUDIT_BRANCH:refs/remotes/origin/$SOURCE_AUDIT_BRANCH"
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          test "$(git merge-base "$EXPECTED_MAIN_SHA" HEAD)" = "$EXPECTED_MAIN_SHA"
+          mapfile -t changed < <(git diff --name-only "$EXPECTED_MAIN_SHA"...HEAD | sort)
+          expected=(
+            .github/workflows/launch2-final-b30f084-resume-20260730.yml
+            .github/workflows/launch2-final-b30f084-resume2-20260730.yml
+            ops/launch2-final-b30f084-resume.mjs
+            ops/patch-issue253-hosted-runner-b30f084.mjs
+          )
+          test "${#changed[@]}" -eq "${#expected[@]}"
+          test "$(printf '%s\n' "${changed[@]}")" = "$(printf '%s\n' "${expected[@]}")"
+          git diff --check "$EXPECTED_MAIN_SHA"...HEAD
+          mkdir -p "$EVIDENCE_DIR" "$RUNNER_TEMP/launch2-final-b30f084-resume2"
+          printf '%s\n' "$EXPECTED_MAIN_SHA" > "$EVIDENCE_DIR/exact-main-sha.txt"
+
+      - name: Bind immutable exact-main source gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            --header "Authorization: Bearer $GH_API_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_GATE_RUN_ID/jobs?per_page=100" \
+            > "$RUNNER_TEMP/launch2-final-b30f084-resume2/source-gate.json"
+          jq -e '.jobs[] | select(.name=="certify-production") | .steps[] | select(.name=="Revalidate cleaned exact main") | select(.conclusion=="success")' \
+            "$RUNNER_TEMP/launch2-final-b30f084-resume2/source-gate.json" >/dev/null
+          jq --arg sha "$EXPECTED_MAIN_SHA" --argjson run "$SOURCE_GATE_RUN_ID" \
+            '{ok:true,exactMainSha:$sha,sourceGateRunId:$run,verifiedAt:(now|todate)}' \
+            > "$EVIDENCE_DIR/immutable-source-gate.json"
+          rm -f "$RUNNER_TEMP/launch2-final-b30f084-resume2/source-gate.json"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Prepare exact main and patched hosted runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          exact="$RUNNER_TEMP/launch2-final-b30f084-resume2/exact-main"
+          git worktree add --detach "$exact" "$EXPECTED_MAIN_SHA"
+          test "$(git -C "$exact" rev-parse HEAD)" = "$EXPECTED_MAIN_SHA"
+          raw="$RUNNER_TEMP/launch2-final-b30f084-resume2/issue253-cutover-raw.mjs"
+          runner="$RUNNER_TEMP/launch2-final-b30f084-resume2/issue253-cutover.mjs"
+          git show "origin/$SOURCE_AUDIT_BRANCH:scripts/run-issue253-hosted-cutover-v3.mjs" > "$raw"
+          node ops/patch-issue253-hosted-runner-b30f084.mjs "$raw" "$runner"
+          printf 'EXACT_APP_DIR=%s\nHOSTED_RUNNER=%s\n' "$exact" "$runner" >> "$GITHUB_ENV"
+
+      - name: Link exact main and pull Production environment
+        working-directory: ${{ env.EXACT_APP_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$VERCEL_TOKEN"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          mkdir -p .vercel
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          fi
+          envfile="$RUNNER_TEMP/launch2-final-b30f084-resume2/production.env"
+          npx vercel@56.2.0 env pull "$envfile" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          test -s "$envfile"
+          printf 'PRODUCTION_ENV_FILE=%s\n' "$envfile" >> "$GITHUB_ENV"
+
+      - name: Reconfirm exact main before hosted mutation
+        run: git fetch origin main && test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+
+      - name: Apply repeatable issue 253 migrations and backfill
+        working-directory: ${{ env.EXACT_APP_DIR }}
+        run: node "$HOSTED_RUNNER" migrate
+
+      - name: Run rollback-only race retry and stock-protection proof
+        working-directory: ${{ env.EXACT_APP_DIR }}
+        run: node "$HOSTED_RUNNER" rollback-proof
+
+      - name: Reconfirm exact main before deployment
+        run: git fetch origin main && test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+
+      - name: Deploy and certify exact current Production
+        run: node ops/launch2-final-b30f084-resume.mjs "$EXACT_APP_DIR" "$EVIDENCE_DIR"
+
+      - name: Run final hosted post-sync audit
+        working-directory: ${{ env.EXACT_APP_DIR }}
+        run: node "$HOSTED_RUNNER" post-sync-audit
+
+      - name: Reconfirm exact main through certificate
+        run: git fetch origin main && test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+
+      - name: Upload sanitized Production certificate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launch2-final-b30f084-production-certificate-resume2
+          path: .audit/launch2-final-b30f084-resume2
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Remove sensitive environment and exact worktree
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/launch2-final-b30f084-resume2/production.env"
+          rm -f "$RUNNER_TEMP/launch2-final-b30f084-resume2/issue253-cutover-raw.mjs"
+          git worktree remove --force "$RUNNER_TEMP/launch2-final-b30f084-resume2/exact-main" || true
