@@ -103,6 +103,16 @@ assert.match(atomicEbayMigration, /next_inventory_quantity/);
 assert.match(atomicEbayMigration, /record_collectible_sale_unsafe_20260730/);
 assert.match(atomicEbayMigration, /'website',\s*'ebay',\s*'ebay_or_collx_via_ebay'/s);
 assert.match(atomicEbayMigration, /new\.source_marketplace in/);
+assert.match(atomicEbayMigration, /create table if not exists public\.ebay_inbound_sale_guards/);
+assert.match(atomicEbayMigration, /protected_quantity integer not null/);
+assert.match(atomicEbayMigration, /truely_protect_ebay_order_product_quantity/);
+assert.match(atomicEbayMigration, /truely_protect_ebay_order_inventory_quantity/);
+assert.match(atomicEbayMigration, /new\.quantity > guarded_quantity/);
+assert.match(atomicEbayMigration, /release_ebay_inbound_sale_guard/);
+assert.match(atomicEbayMigration, /A restock release reason is required/);
+assert.match(atomicEbayMigration, /insert into public\.ebay_inbound_sale_guards as existing/);
+assert.match(atomicEbayMigration, /protected_quantity = least\(existing\.protected_quantity, excluded\.protected_quantity\)/);
+assert.match(atomicEbayMigration, /Durable lower-bound inventory protection/);
 
 assert.match(saleHistory, /SOLD_STOREFRONT_RETENTION_DAYS = 7/);
 assert.match(saleHistory, /listRecentSoldStorefrontItems/);
@@ -197,7 +207,7 @@ console.log(
       ebayOrderPollingMinutes: 5,
       ebayOrderRecurringLookbackDays: 2,
       authoritativeEbayPollingMinutes: 15,
-      checks: 134,
+      checks: 144,
     },
     null,
     2,
