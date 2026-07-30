@@ -41,7 +41,7 @@ jobs:
   sold-lifecycle-gates:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'fix/launch2-sold-lifecycle-20260729'
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     env:
       NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
       NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
@@ -100,3 +100,23 @@ jobs:
 
       - name: Run Production build
         run: npm run build
+
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.48.3
+
+      - name: Replay all Supabase migrations locally
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f supabase/config.toml ]; then
+            supabase init --force
+          fi
+          supabase start -x studio,imgproxy,inbucket,storage-api,edge-runtime,logflare,vector,supavisor
+          supabase db reset --local
+          git diff --check
+
+      - name: Stop local Supabase
+        if: always()
+        run: supabase stop --no-backup || true
