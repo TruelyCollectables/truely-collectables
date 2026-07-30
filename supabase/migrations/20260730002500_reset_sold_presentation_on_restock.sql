@@ -58,6 +58,8 @@ begin
     new.sold_evidence := '{}'::jsonb;
     new.archive_after := null;
     new.archived_at := null;
+    new.metadata := coalesce(new.metadata, '{}'::jsonb)
+      - 'ebay_not_active_at_last_full_sync';
   end if;
 
   return new;
