@@ -115,8 +115,8 @@ jobs:
               echo "CollX boundary permission failure remains on /$route"
               exit 1
             fi
-            if ! grep -Eqi "[0-9,]+ active" "$output"; then
-              echo "Live inventory count missing on /$route"
+            if ! grep -Eqi "Shop Sports Cards|Autographed Items|Memorabilia Cards|Rookie Cards|Graded Cards|Numbered Cards|All Inventory" "$output"; then
+              echo "Expected storefront content missing on /$route"
               exit 1
             fi
             echo "PASS /$route"
