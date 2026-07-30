@@ -49,17 +49,9 @@ jobs:
         shell: bash
         run: npm exec --yes --package=vercel@56.2.0 -- vercel link --yes --project "$VERCEL_PROJECT" --token="$VERCEL_TOKEN" --scope "$VERCEL_SCOPE"
 
-      - name: Pull Production environment
+      - name: Deploy source with Vercel Production environment
         shell: bash
-        run: npm exec --yes --package=vercel@56.2.0 -- vercel pull --yes --environment=production --token="$VERCEL_TOKEN" --scope "$VERCEL_SCOPE"
-
-      - name: Build Production artifact
-        shell: bash
-        run: npm exec --yes --package=vercel@56.2.0 -- vercel build --prod --token="$VERCEL_TOKEN" --scope "$VERCEL_SCOPE"
-
-      - name: Deploy Production artifact
-        shell: bash
-        run: npm exec --yes --package=vercel@56.2.0 -- vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN" --scope "$VERCEL_SCOPE"
+        run: npm exec --yes --package=vercel@56.2.0 -- vercel deploy --prod --yes --token="$VERCEL_TOKEN" --scope "$VERCEL_SCOPE"
 
       - name: Verify live fulfillment hotfix
         shell: bash
