@@ -13,8 +13,41 @@ permissions:
 jobs:
   verify-live-production:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
+      - name: Checkout tested source
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Link existing Vercel project
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$VERCEL_TOKEN"
+          npm exec --yes --package=vercel@56.2.0 -- vercel link \
+            --yes \
+            --project truely-collectables \
+            --scope truelycollectables-projects \
+            --token "$VERCEL_TOKEN"
+
+      - name: Deploy tested source to Production
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm exec --yes --package=vercel@56.2.0 -- vercel \
+            --prod \
+            --yes \
+            --scope truelycollectables-projects \
+            --token "$VERCEL_TOKEN"
+
       - name: Verify live runtime admin orders release
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
