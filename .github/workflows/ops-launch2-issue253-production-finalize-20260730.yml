@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  EXPECTED_MAIN_SHA: eff61e573154f4ad2ccc05eae0fe3fa542e94a95
+  EXPECTED_MAIN_SHA: 12b1988c7a0a822303ee77ba80b56c75c339c33c
   VERCEL_SCOPE: truelycollectables-projects
   VERCEL_PROJECT: truely-collectables
 
