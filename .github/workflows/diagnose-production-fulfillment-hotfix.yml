@@ -1,0 +1,30 @@
+name: Diagnose Production Fulfillment Hotfix
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/diagnose-production-fulfillment-hotfix.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose-live-production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Capture live Production responses
+        shell: bash
+        run: |
+          set -u
+          build_url='https://truelycollectables.com/api/build-info'
+          health_url='https://truelycollectables.com/api/admin-orders-health'
+
+          for attempt in 1 2 3; do
+            echo "=== ATTEMPT $attempt: BUILD INFO ==="
+            curl --location --silent --show-error --max-time 20 --write-out '\nHTTP_STATUS=%{http_code}\n' "$build_url" || true
+            echo "=== ATTEMPT $attempt: ADMIN ORDERS HEALTH ==="
+            curl --location --silent --show-error --max-time 20 --write-out '\nHTTP_STATUS=%{http_code}\n' "$health_url" || true
+            sleep 10
+          done
