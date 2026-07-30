@@ -24,6 +24,7 @@ on:
       - "supabase/migrations/20260730002300_refine_verified_sale_timestamps.sql"
       - "supabase/migrations/20260730002400_make_sale_recording_idempotent.sql"
       - "supabase/migrations/20260730002500_reset_sold_presentation_on_restock.sql"
+      - "supabase/migrations/20260730002600_atomic_ebay_order_sales_and_outbox_scope.sql"
       - "vercel.json"
   workflow_dispatch:
 
