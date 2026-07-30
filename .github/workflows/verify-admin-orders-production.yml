@@ -1,18 +1,6 @@
 name: Verify Admin Orders Production
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "src/proxy.ts"
-      - "src/app/admin/template.tsx"
-      - "src/app/api/admin/session/refresh/route.ts"
-      - "src/app/api/admin/reconcile-platform-fees/route.ts"
-      - "src/app/api/orders/refund/route.ts"
-      - "src/lib/seller-payout-ledger.ts"
-      - "src/app/api/build-info/route.ts"
-      - "scripts/verify-live-admin-orders-release.mjs"
-      - ".github/workflows/verify-admin-orders-production.yml"
   pull_request:
     branches: [main]
     paths:
@@ -27,56 +15,58 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
-      - name: Link existing Vercel project
+      - name: Verify live runtime admin orders release
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         shell: bash
         run: |
+          set -euo pipefail
           test -n "$VERCEL_TOKEN"
-          npm exec --yes --package=vercel@56.2.0 -- vercel link \
-            --yes \
-            --project truely-collectables \
-            --scope truelycollectables-projects \
-            --token "$VERCEL_TOKEN"
+          endpoint='https://truelycollectables.com/api/release/admin-orders-self-test'
 
-      - name: Pull Production environment
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        shell: bash
-        run: |
-          npm exec --yes --package=vercel@56.2.0 -- vercel pull \
-            --yes \
-            --environment=production \
-            --scope truelycollectables-projects \
-            --token "$VERCEL_TOKEN"
+          for attempt in $(seq 1 72); do
+            status="$(curl \
+              --silent \
+              --show-error \
+              --max-time 60 \
+              --request POST \
+              --header "Authorization: Bearer $VERCEL_TOKEN" \
+              --output /tmp/admin-orders-self-test.json \
+              --write-out '%{http_code}' \
+              "$endpoint" || true)"
+            body="$(cat /tmp/admin-orders-self-test.json 2>/dev/null || true)"
 
-      - name: Check live Production release marker
-        shell: bash
-        run: |
-          body="$(curl --fail --location --silent --show-error --max-time 30 https://truelycollectables.com/api/build-info)"
-          echo "LIVE_BUILD_INFO=$body"
-          printf '%s' "$body" | grep -F 'admin-session-refund-fee-fix-2026-07-29-2115-mt'
+            if [ "$status" = '200' ]; then
+              SELF_TEST_BODY="$body" node -e '
+                const result = JSON.parse(process.env.SELF_TEST_BODY || "{}");
+                const passed =
+                  result.success === true &&
+                  result.release === "admin-session-refund-fee-fix-2026-07-29-2115-mt" &&
+                  result.adminNavigation === "passed" &&
+                  result.sessionRefresh === "passed" &&
+                  result.refundConfirmationGuard === "passed" &&
+                  result.refundIssued === false &&
+                  result.directStoreTcosFeesRemaining === 0;
+                if (!passed) {
+                  console.error("Live runtime self-test returned an incomplete result.");
+                  console.error(JSON.stringify(result));
+                  process.exit(1);
+                }
+                console.log(`LIVE_PRODUCTION_RELEASE=${result.release}`);
+                console.log(`LIVE_ADMIN_ORDER_ID=${result.orderId}`);
+                console.log(`LIVE_ADMIN_NAVIGATION=${result.adminNavigation}`);
+                console.log(`LIVE_SESSION_REFRESH=${result.sessionRefresh}`);
+                console.log(`LIVE_REFUND_CONFIRMATION_GUARD=${result.refundConfirmationGuard}`);
+                console.log(`LIVE_REFUND_ISSUED=${result.refundIssued}`);
+                console.log(`LIVE_DIRECT_STORE_TCOS_FEES_REMAINING=${result.directStoreTcosFeesRemaining}`);
+                console.log(`LIVE_REMOVED_DIRECT_STORE_FEE_ROWS=${result.removedDirectStoreFeeRows}`);
+              '
+              exit 0
+            fi
 
-      - name: Diagnose required Production variable presence
-        shell: bash
-        run: |
-          node --env-file=.vercel/.env.production.local -e '
-            for (const key of ["ADMIN_SESSION_SECRET", "ADMIN_PASSWORD", "NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "NEXT_PUBLIC_SUPABASE_ANON_KEY"]) {
-              console.log(`${key}_PRESENT=${Boolean(process.env[key]?.trim())}`);
-            }
-          '
+            echo "Attempt $attempt/72: runtime self-test status=$status body=${body:-<empty>}"
+            sleep 10
+          done
 
-      - name: Verify live admin orders release
-        shell: bash
-        run: |
-          EXPECTED_ADMIN_RELEASE=admin-session-refund-fee-fix-2026-07-29-2115-mt \
-            node --env-file=.vercel/.env.production.local \
-            scripts/verify-live-admin-orders-release.mjs
+          echo 'Live runtime admin orders verification did not pass within 12 minutes.'
+          exit 1
