@@ -112,12 +112,12 @@ export default function ChecklistRegistryImporter() {
     <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
       <section className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
         <p className="text-xs font-black uppercase tracking-[0.18em] text-cyan-700">
-          Official source intake
+          Trusted source intake
         </p>
         <h2 className="mt-1 text-2xl font-black">Validate, then import</h2>
         <p className="mt-2 text-sm font-semibold leading-6 text-neutral-600">
-          The first adapter accepts the private Panini structured JSON format.
-          More manufacturer adapters can be added without changing the Registry.
+          Import structured Panini checklists or Pokémon TCG repository snapshots.
+          Every source is validated before exact identities enter InstaComp.
         </p>
 
         <div className="mt-5 space-y-4">
@@ -135,11 +135,11 @@ export default function ChecklistRegistryImporter() {
           </label>
 
           <label className="block text-sm font-black">
-            Official URL or manual source reference
+            Source URL or manual source reference
             <input
               value={sourceUrl}
               onChange={(event) => setSourceUrl(event.target.value)}
-              placeholder="https://manufacturer.example/checklist or manual://source-name"
+              placeholder="https://manufacturer.example/checklist or approved dataset URL"
               className="mt-1 min-h-12 w-full rounded-xl border border-neutral-300 px-3 text-base font-semibold"
             />
           </label>
@@ -154,6 +154,7 @@ export default function ChecklistRegistryImporter() {
               <option value="manual_official_file">Official file uploaded manually</option>
               <option value="official_manufacturer">Official manufacturer URL</option>
               <option value="approved_distributor">Approved distributor</option>
+              <option value="approved_dataset">Approved checklist dataset</option>
             </select>
           </label>
 
