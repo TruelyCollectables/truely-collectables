@@ -1,0 +1,198 @@
+name: Deploy and verify InstaComp Mobile live
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "src/app/admin/instacomp/mobile/**"
+      - "src/app/admin/page.tsx"
+      - "src/app/admin/products/**"
+      - ".github/workflows/deploy-verify-instacomp-mobile-live.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-verify-instacomp-mobile-live
+  cancel-in-progress: false
+
+jobs:
+  deploy-and-verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+      PRODUCTION_ORIGIN: https://truelycollectables.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify mobile source before deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F 'MobileInstaCompScanner' src/app/admin/instacomp/mobile/page.tsx
+          grep -F 'Built for portrait mode' src/app/admin/instacomp/mobile/page.tsx
+          grep -F 'Run InstaComp' src/app/admin/instacomp/mobile/MobileInstaCompScanner.tsx
+          grep -F 'Sold comps (' src/app/admin/instacomp/mobile/MobileInstaCompScanner.tsx
+          grep -F 'Current listings (' src/app/admin/instacomp/mobile/MobileInstaCompScanner.tsx
+          if grep -Fq 'InstaComp™ Auto-Pilot' src/app/admin/instacomp/mobile/page.tsx; then
+            echo 'Mobile page still imports Auto-Pilot copy.' >&2
+            exit 1
+          fi
+          if grep -Fq 'InstaCompScanner' src/app/admin/instacomp/mobile/page.tsx && ! grep -Fq 'MobileInstaCompScanner' src/app/admin/instacomp/mobile/page.tsx; then
+            echo 'Mobile page still imports the desktop scanner.' >&2
+            exit 1
+          fi
+
+      - name: Link Vercel project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$VERCEL_TOKEN"
+          npx vercel@56.2.0 link --yes \
+            --project truely-collectables \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Deploy current main to Production
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          deployment_output="$(npx vercel@56.2.0 deploy --prod --yes --no-color \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" 2>&1)"
+          printf '%s\n' "$deployment_output"
+          deployment_url="$(printf '%s\n' "$deployment_output" | grep -Eo 'https://[A-Za-z0-9.-]+\.vercel\.app' | tail -n 1)"
+          test -n "$deployment_url"
+          echo "deployment_url=$deployment_url" >> "$GITHUB_OUTPUT"
+
+      - name: Pull Production admin credential without printing it
+        shell: bash
+        run: |
+          set -euo pipefail
+          env_file="$RUNNER_TEMP/vercel-production.env"
+          password_file="$RUNNER_TEMP/admin-password"
+          npx vercel@56.2.0 env pull "$env_file" --yes \
+            --environment=production \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" >/dev/null
+          chmod 600 "$env_file"
+          node - "$env_file" "$password_file" <<'NODE'
+          const fs = require('node:fs');
+          const text = fs.readFileSync(process.argv[2], 'utf8');
+          const match = text.match(/^ADMIN_PASSWORD=(.*)$/m);
+          if (!match) throw new Error('ADMIN_PASSWORD is not present in Vercel Production.');
+          let value = match[1].trim();
+          if (value.startsWith('"')) value = JSON.parse(value);
+          else if (value.startsWith("'") && value.endsWith("'")) value = value.slice(1, -1);
+          if (!value) throw new Error('ADMIN_PASSWORD is empty in Vercel Production.');
+          fs.writeFileSync(process.argv[3], value, { mode: 0o600 });
+          NODE
+          password="$(cat "$password_file")"
+          echo "::add-mask::$password"
+
+      - name: Wait for the deployed revision on Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 30); do
+            status="$(curl --silent --show-error --location \
+              --max-time 60 \
+              --output "$RUNNER_TEMP/mobile-public.html" \
+              --write-out '%{http_code}' \
+              -H 'Cache-Control: no-cache' \
+              -H 'Pragma: no-cache' \
+              -A 'TCOSInstaCompMobileVerification/1.0' \
+              "$PRODUCTION_ORIGIN/admin/instacomp/mobile?verify=${GITHUB_SHA}-${attempt}")"
+            if [ "$status" = "200" ] || [ "$status" = "307" ] || [ "$status" = "302" ]; then
+              break
+            fi
+            sleep 10
+          done
+
+      - name: Log into Production Admin
+        shell: bash
+        run: |
+          set -euo pipefail
+          password="$(cat "$RUNNER_TEMP/admin-password")"
+          login_status="$(curl --silent --show-error --location \
+            --max-time 60 \
+            --cookie-jar "$RUNNER_TEMP/admin.cookies" \
+            --output "$RUNNER_TEMP/admin-login.json" \
+            --write-out '%{http_code}' \
+            -H 'Content-Type: application/json' \
+            -H 'Cache-Control: no-cache' \
+            -A 'TCOSInstaCompMobileVerification/1.0' \
+            --data "$(node -e 'process.stdout.write(JSON.stringify({password: process.argv[1], nextPath: "/admin"}))' "$password")" \
+            "$PRODUCTION_ORIGIN/api/admin/login")"
+          test "$login_status" = "200"
+          node - "$RUNNER_TEMP/admin-login.json" <<'NODE'
+          const fs = require('node:fs');
+          const payload = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          if (!payload.success) throw new Error(`Production admin login failed: ${payload.code || payload.error || 'unknown'}`);
+          NODE
+
+      - name: Verify every required live page
+        shell: bash
+        run: |
+          set -euo pipefail
+          fetch_page() {
+            local route="$1"
+            local output="$2"
+            local status
+            status="$(curl --silent --show-error --location \
+              --max-time 60 \
+              --cookie "$RUNNER_TEMP/admin.cookies" \
+              --output "$output" \
+              --write-out '%{http_code}' \
+              -H 'Cache-Control: no-cache' \
+              -H 'Pragma: no-cache' \
+              -A 'TCOSInstaCompMobileVerification/1.0' \
+              "$PRODUCTION_ORIGIN${route}?verify=${GITHUB_SHA}-$(date +%s%N)")"
+            test "$status" = "200"
+            if grep -Fq '/admin/login' "$output"; then
+              echo "$route redirected to the admin login page." >&2
+              exit 1
+            fi
+          }
+
+          fetch_page '/admin' "$RUNNER_TEMP/admin.html"
+          grep -F 'InstaComp Mobile' "$RUNNER_TEMP/admin.html"
+          grep -F 'Card Studio' "$RUNNER_TEMP/admin.html"
+
+          fetch_page '/admin/instacomp/mobile' "$RUNNER_TEMP/instacomp-mobile.html"
+          grep -F 'Built for portrait mode' "$RUNNER_TEMP/instacomp-mobile.html"
+          grep -F 'Run InstaComp' "$RUNNER_TEMP/instacomp-mobile.html"
+          grep -F 'Scan one card' "$RUNNER_TEMP/instacomp-mobile.html"
+          if grep -Fq 'Auto-Pilot' "$RUNNER_TEMP/instacomp-mobile.html"; then
+            echo 'LIVE FAILURE: Auto-Pilot still appears on InstaComp Mobile.' >&2
+            exit 1
+          fi
+          if grep -Fq 'Batch Scan Up To 500 Cards' "$RUNNER_TEMP/instacomp-mobile.html"; then
+            echo 'LIVE FAILURE: desktop batch scanner still appears on InstaComp Mobile.' >&2
+            exit 1
+          fi
+          if grep -Fq 'Parallel Scans' "$RUNNER_TEMP/instacomp-mobile.html"; then
+            echo 'LIVE FAILURE: desktop parallel-scan controls still appear on InstaComp Mobile.' >&2
+            exit 1
+          fi
+
+          fetch_page '/admin/products/new' "$RUNNER_TEMP/card-studio.html"
+          grep -Eiq 'Card Studio|Add Product|New Product|Create Product' "$RUNNER_TEMP/card-studio.html"
+
+          echo 'LIVE_ADMIN_DASHBOARD=passed'
+          echo 'LIVE_INSTACOMP_MOBILE_PORTRAIT=passed'
+          echo 'LIVE_INSTACOMP_MOBILE_NO_AUTOPILOT=passed'
+          echo 'LIVE_CARD_STUDIO=passed'
+          echo "LIVE_DEPLOYMENT_URL=${{ steps.deploy.outputs.deployment_url }}"
