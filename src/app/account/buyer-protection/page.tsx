@@ -15,6 +15,8 @@ type Preference = {
   terms_accepted_at: string | null;
 } | null;
 
+type ShipmentProtectionClaimReason = "not_received" | "damaged";
+
 type ProtectionRecord = {
   id: string;
   order_id: number;
@@ -26,6 +28,7 @@ type ProtectionRecord = {
   claim?: {
     id: string;
     status: string;
+    reason?: ShipmentProtectionClaimReason;
     submitted_at: string;
     decision_note: string | null;
     reimbursement_amount: number;
@@ -100,6 +103,9 @@ export default function BuyerProtectionAccountPage() {
   const [statementByOrder, setStatementByOrder] = useState<Record<number, string>>(
     {},
   );
+  const [reasonByOrder, setReasonByOrder] = useState<
+    Record<number, ShipmentProtectionClaimReason>
+  >({});
   const [loading, setLoading] = useState(Boolean(accessToken));
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -195,6 +201,7 @@ export default function BuyerProtectionAccountPage() {
   async function submitClaim(orderId: number) {
     if (!accessToken) return;
     const statement = statementByOrder[orderId] || "";
+    const reason = reasonByOrder[orderId] || "not_received";
     setSaving(true);
     setError("");
     setMessage("");
@@ -206,7 +213,7 @@ export default function BuyerProtectionAccountPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({ orderId, statement }),
+        body: JSON.stringify({ orderId, statement, reason }),
       });
       const payload = await response.json();
       if (!response.ok) {
@@ -215,6 +222,10 @@ export default function BuyerProtectionAccountPage() {
 
       setMessage(`Claim submitted for order #${orderId}.`);
       setStatementByOrder((current) => ({ ...current, [orderId]: "" }));
+      setReasonByOrder((current) => ({
+        ...current,
+        [orderId]: "not_received",
+      }));
       await reload();
     } catch (claimError) {
       setError(
@@ -394,7 +405,7 @@ export default function BuyerProtectionAccountPage() {
                       Claim {protection.claim.status.replaceAll("_", " ")}
                     </p>
                     <p className="mt-1">
-                      Submitted {dateLabel(protection.claim.submitted_at)}.
+                      Reason: {protection.claim.reason === "damaged" ? "Damaged" : "Not received"}. Submitted {dateLabel(protection.claim.submitted_at)}.
                       {protection.claim.reimbursement_amount > 0
                         ? ` Reimbursement: ${money(protection.claim.reimbursement_amount)}.`
                         : ""}
@@ -409,6 +420,28 @@ export default function BuyerProtectionAccountPage() {
                   <div className="mt-4">
                     <label
                       className="block font-black"
+                      htmlFor={`claim-reason-${protection.order_id}`}
+                    >
+                      What happened?
+                    </label>
+                    <select
+                      id={`claim-reason-${protection.order_id}`}
+                      value={reasonByOrder[protection.order_id] || "not_received"}
+                      onChange={(event) =>
+                        setReasonByOrder((current) => ({
+                          ...current,
+                          [protection.order_id]: event.target
+                            .value as ShipmentProtectionClaimReason,
+                        }))
+                      }
+                      className="mt-2 min-h-12 w-full rounded border bg-white px-3 font-bold"
+                    >
+                      <option value="not_received">Shipment was not received</option>
+                      <option value="damaged">Shipment or card arrived damaged</option>
+                    </select>
+
+                    <label
+                      className="mt-4 block font-black"
                       htmlFor={`claim-${protection.order_id}`}
                     >
                       Describe the lost or damaged shipment
@@ -425,6 +458,9 @@ export default function BuyerProtectionAccountPage() {
                       maxLength={1200}
                       className="mt-2 min-h-28 w-full rounded border p-3"
                     />
+                    <p className="mt-2 text-xs font-semibold text-neutral-600">
+                      Damage claims require clear photographs of the card, packaging, and mailer. All claims are reviewed against order and carrier evidence.
+                    </p>
                     <button
                       type="button"
                       disabled={saving}
