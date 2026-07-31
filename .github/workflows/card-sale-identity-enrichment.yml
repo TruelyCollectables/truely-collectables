@@ -84,7 +84,7 @@ jobs:
             --token "$VERCEL_TOKEN"
           chmod 600 .env.production.local
 
-      - name: Invoke protected runtime backfill
+      - name: Invoke verified production backfill
         shell: bash
         run: |
           set -euo pipefail
@@ -92,10 +92,11 @@ jobs:
           process.loadEnvFile('.env.production.local');
           const site = process.env.NEXT_PUBLIC_SITE_URL || 'https://truelycollectables.com';
           const token = process.env.VERCEL_TOKEN;
+          const expectedRevision = 'player-name-v3';
           if (!token) throw new Error('VERCEL_TOKEN is required');
           const endpoint = new URL('/api/internal/card-sale-identity-backfill', site).toString();
           let lastError = 'endpoint unavailable';
-          for (let attempt = 1; attempt <= 20; attempt += 1) {
+          for (let attempt = 1; attempt <= 30; attempt += 1) {
             try {
               const response = await fetch(endpoint, {
                 method: 'POST',
@@ -103,14 +104,26 @@ jobs:
               });
               const body = await response.text();
               if (response.ok) {
-                console.log(body);
-                process.exit(0);
+                let result = null;
+                try {
+                  result = JSON.parse(body);
+                } catch {
+                  lastError = `Production endpoint returned invalid JSON: ${body}`;
+                }
+                if (result?.revision === expectedRevision) {
+                  console.log(body);
+                  process.exit(0);
+                }
+                if (result) {
+                  lastError = `Production still has revision ${result.revision || 'missing'}; expected ${expectedRevision}`;
+                }
+              } else {
+                lastError = `HTTP ${response.status}: ${body}`;
               }
-              lastError = `HTTP ${response.status}: ${body}`;
             } catch (error) {
               lastError = error instanceof Error ? error.message : String(error);
             }
-            console.log(`Attempt ${attempt} waiting for deployed runtime endpoint: ${lastError}`);
+            console.log(`Attempt ${attempt} waiting for verified production revision: ${lastError}`);
             await new Promise((resolve) => setTimeout(resolve, 15000));
           }
           throw new Error(lastError);
