@@ -196,7 +196,7 @@ async function getSellerAccessToken(params: {
   }
 
   const inventoryScope = "https://api.ebay.com/oauth/api_scope/sell.inventory";
-  const accountScope = "https://api.ebay.com/oauth/api_scope/sell.account";
+  const accountScope = "https://api.ebay.com/oauth/api_scope/sell.account.readonly";
   let token: { accessToken: string; expiresIn: number };
   let accountScopeAvailable = true;
 
