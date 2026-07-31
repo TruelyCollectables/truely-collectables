@@ -53,6 +53,14 @@ function normalizeCategoryCondition(item: UnknownRecord) {
   return { ...item, cardCondition: normalizedCondition };
 }
 
+function editorCondition(item: UnknownRecord) {
+  const condition = text(item.cardCondition);
+  if (condition === "Lightly Played (Excellent)") return "Excellent";
+  if (condition === "Moderately Played (Very Good)") return "Very Good";
+  if (condition === "Heavily Played (Poor)") return "Poor";
+  return condition;
+}
+
 function prewriteProblems(item: UnknownRecord) {
   const problems: string[] = [];
   const websiteTitle = text(item.websiteTitle);
@@ -85,8 +93,10 @@ function prewriteProblems(item: UnknownRecord) {
 }
 
 async function listingRows(request: Request) {
+  const url = new URL(request.url);
+  url.searchParams.set("includeReadiness", "0");
   const response = await handleDualMarketplaceGet(
-    new Request(request.url, {
+    new Request(url, {
       method: "GET",
       headers: request.headers,
     }),
@@ -97,14 +107,18 @@ async function listingRows(request: Request) {
 }
 
 function normalizeReconciliationRow(row: UnknownRecord) {
+  const normalizedRow = {
+    ...row,
+    cardCondition: editorCondition(row),
+  };
   const lastError = text(row.lastError);
   if (/^Website is active,/i.test(lastError)) {
-    return { ...row, websiteStatus: "reconciliation_required" };
+    return { ...normalizedRow, websiteStatus: "reconciliation_required" };
   }
   if (/^eBay is live,/i.test(lastError)) {
-    return { ...row, ebayStatus: "reconciliation_required" };
+    return { ...normalizedRow, ebayStatus: "reconciliation_required" };
   }
-  return row;
+  return normalizedRow;
 }
 
 export async function handleGuardedDualMarketplaceGet(request: Request) {
