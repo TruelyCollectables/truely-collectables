@@ -199,7 +199,11 @@ export default function SimpleListingQueue() {
     return Array.from(new Set(problems));
   }
 
-  async function runAction(action: DualMarketplaceAction, ids = selectedIds) {
+  async function runAction(
+    action: DualMarketplaceAction,
+    ids = selectedIds,
+    confirmed = false,
+  ) {
     if (working) return;
     const idSet = new Set(ids);
     const targets = rowsRef.current.filter((row) => idSet.has(row.inventoryItemId));
@@ -217,7 +221,7 @@ export default function SimpleListingQueue() {
       setError(problems.slice(0, 6).join(" | "));
       return;
     }
-    if (includesEbay && !pendingPublish) {
+    if (includesEbay && !confirmed) {
       setPendingPublish({ action: action as "publish-both" | "publish-ebay", ids });
       setError("");
       return;
@@ -296,7 +300,7 @@ export default function SimpleListingQueue() {
             This will publish {pendingPublish.ids.length} selected card{pendingPublish.ids.length === 1 ? "" : "s"} to {pendingPublish.action === "publish-both" ? "the website and eBay" : "eBay"}. Real marketplace listings and inventory changes may occur.
           </p>
           <div className="mt-3 flex gap-2">
-            <button type="button" onClick={() => void runAction(pendingPublish.action, pendingPublish.ids)} className="rounded-xl bg-red-800 px-5 py-3 font-black text-white">Yes, list selected cards</button>
+            <button type="button" onClick={() => void runAction(pendingPublish.action, pendingPublish.ids, true)} className="rounded-xl bg-red-800 px-5 py-3 font-black text-white">Yes, list selected cards</button>
             <button type="button" onClick={() => setPendingPublish(null)} className="rounded-xl border-2 border-neutral-950 bg-white px-5 py-3 font-black">Cancel</button>
           </div>
         </div>
