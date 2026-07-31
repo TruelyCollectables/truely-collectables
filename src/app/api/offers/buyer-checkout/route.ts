@@ -2,9 +2,8 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { getAuthenticatedAccountFromRequest } from "../../../../lib/account-auth";
 import {
-  BUYER_PROTECTION_FEE,
   BUYER_PROTECTION_POLICY_VERSION,
-  getBuyerProtectionEligibility,
+  getBuyerProtectionQuote,
 } from "../../../../lib/buyer-protection";
 import {
   isCurrentAlwaysOnPreference,
@@ -144,9 +143,12 @@ export async function POST(request: Request) {
       method: resolvedShipping.method,
     });
     const protectionRequested = body.buyerProtectionSelected === true;
-    const protectionEligibility = getBuyerProtectionEligibility({
+    const protectionDeclineAcknowledged =
+      body.buyerProtectionDeclineAcknowledged === true;
+    const protectionQuote = getBuyerProtectionQuote({
       shippingMethod: resolvedShipping.method,
       itemSubtotal: saleSubtotal,
+      shippingAmount,
       itemCount: 1,
     });
     const existingProtectionConsent = Boolean(
@@ -156,15 +158,29 @@ export async function POST(request: Request) {
       offer.buyer_protection_terms_accepted_at,
     );
 
+    if (
+      protectionQuote.eligible &&
+      !protectionRequested &&
+      !protectionDeclineAcknowledged
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Acknowledge the Shipment Protection opt-out before continuing.",
+        },
+        { status: 400 },
+      );
+    }
+
     let buyerProtectionSelected = false;
     let protectionTermsAcceptedAt: string | null = null;
     let protectionConsentSource: string | null = null;
     let protectionPreferenceMode: "always_on" | "one_time" | null = null;
 
     if (protectionRequested) {
-      if (!protectionEligibility.eligible) {
+      if (!protectionQuote.eligible) {
         return NextResponse.json(
-          { error: protectionEligibility.reason },
+          { error: protectionQuote.reason },
           { status: 409 },
         );
       }
@@ -202,7 +218,7 @@ export async function POST(request: Request) {
             return NextResponse.json(
               {
                 error:
-                  "The current Buyer Protection terms must be accepted before protection is added",
+                  "The current Shipment Protection terms must be accepted before protection is added",
               },
               { status: 400 },
             );
@@ -259,15 +275,15 @@ export async function POST(request: Request) {
         price_data: {
           currency: "usd",
           product_data: {
-            name: "Truely Collectables Buyer Protection",
+            name: "Truely Collectables Shipment Protection",
             description:
-              "Optional item-subtotal reimbursement program, up to $20; shipping and fee excluded.",
+              "Optional reimbursement program for reviewed carrier loss or damage. The protected accepted price and shipping are covered; the protection fee is excluded.",
             metadata: {
               tcos_line_type: "buyer_protection",
               policy_version: BUYER_PROTECTION_POLICY_VERSION,
             },
           },
-          unit_amount: Math.round(BUYER_PROTECTION_FEE * 100),
+          unit_amount: Math.round(protectionQuote.feeAmount * 100),
         },
         quantity: 1,
       });
@@ -308,18 +324,29 @@ export async function POST(request: Request) {
         ),
         buyer_protection_selected: buyerProtectionSelected ? "true" : "false",
         buyer_protection_fee: buyerProtectionSelected
-          ? BUYER_PROTECTION_FEE.toFixed(2)
+          ? protectionQuote.feeAmount.toFixed(2)
           : "0.00",
+        buyer_protection_fee_base: protectionQuote.feeBase.toFixed(2),
         buyer_protection_covered_amount: buyerProtectionSelected
-          ? protectionEligibility.coveredAmount.toFixed(2)
+          ? protectionQuote.coveredAmount.toFixed(2)
           : "0.00",
         buyer_protection_policy_version: buyerProtectionSelected
           ? BUYER_PROTECTION_POLICY_VERSION
-          : "",
+          : protectionQuote.eligible
+            ? BUYER_PROTECTION_POLICY_VERSION
+            : "",
         buyer_protection_terms_accepted_at: protectionTermsAcceptedAt || "",
         buyer_protection_consent_source: protectionConsentSource || "",
         buyer_protection_preference_mode:
           protectionPreferenceMode || "one_time",
+        buyer_protection_decline_acknowledged_at:
+          protectionQuote.eligible && !buyerProtectionSelected
+            ? new Date().toISOString()
+            : "",
+        buyer_protection_decline_consent_source:
+          protectionQuote.eligible && !buyerProtectionSelected
+            ? "offer_checkout_decline_acknowledgment"
+            : "",
         buyer_protection_consent_ip_address:
           identity.ipAddress || offer.tos_ip_address || "",
         buyer_protection_consent_user_agent:
@@ -361,10 +388,10 @@ export async function POST(request: Request) {
         stripe_session_id: session.id,
         buyer_protection_selected: buyerProtectionSelected,
         buyer_protection_fee: buyerProtectionSelected
-          ? BUYER_PROTECTION_FEE
+          ? protectionQuote.feeAmount
           : 0,
         buyer_protection_covered_amount: buyerProtectionSelected
-          ? protectionEligibility.coveredAmount
+          ? protectionQuote.coveredAmount
           : 0,
         buyer_protection_policy_version: buyerProtectionSelected
           ? BUYER_PROTECTION_POLICY_VERSION
