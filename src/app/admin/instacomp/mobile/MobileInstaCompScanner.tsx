@@ -90,7 +90,7 @@ export default function MobileInstaCompScanner() {
         method: "POST",
         body: form,
       });
-      const data = (await response.json()) as ScanResult;
+      const data = (await response.json().catch(() => ({}))) as ScanResult;
 
       if (!response.ok || data.ok === false) {
         throw new Error(data.error || "InstaComp could not finish this scan.");
@@ -118,7 +118,7 @@ export default function MobileInstaCompScanner() {
     }
   }
 
-  const cardStudioParams = new URLSearchParams({
+  const listParams = new URLSearchParams({
     source: "instacomp-mobile",
     player: fields.player || "",
     year: fields.year || "",
@@ -175,8 +175,8 @@ export default function MobileInstaCompScanner() {
                 </label>
               ))}
             </div>
-            <Link href={`/admin/products/new?${cardStudioParams.toString()}`} className="mt-4 block min-h-12 rounded-xl bg-amber-300 px-4 py-3 text-center text-base font-black text-neutral-950">
-              Continue to Card Studio
+            <Link href={`/list?${listParams.toString()}`} className="mt-4 block min-h-12 rounded-xl bg-amber-300 px-4 py-3 text-center text-base font-black text-neutral-950">
+              Open List Cards
             </Link>
           </section>
 
