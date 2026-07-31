@@ -40,10 +40,6 @@ async function fetchProtectedPage(origin: string, route: string, sessionValue: s
   };
 }
 
-function includesAny(value: string, candidates: string[]) {
-  return candidates.some((candidate) => value.includes(candidate));
-}
-
 export async function GET(request: Request) {
   const configuredSecret = String(
     process.env.INSTACOMP_LIVE_VERIFY_SECRET || "",
@@ -86,12 +82,8 @@ export async function GET(request: Request) {
         !mobile.body.includes("/admin/login"),
       cardStudio:
         cardStudio.status === 200 &&
-        includesAny(cardStudio.body, [
-          "Card Studio",
-          "Add Product",
-          "New Product",
-          "Create Product",
-        ]) &&
+        cardStudio.body.includes("Scan Once. List Everywhere.") &&
+        cardStudio.body.includes("Manual product entry") &&
         !cardStudio.body.includes("/admin/login"),
       noAutoPilot: !mobile.body.includes("Auto-Pilot"),
       noBatchControls:
@@ -101,9 +93,10 @@ export async function GET(request: Request) {
         mobile.body.includes("portrait-v2") &&
         mobile.body.includes('data-live-verification="final"'),
       compSource:
-        mobile.body.includes("Sold comps (") &&
-        mobile.body.includes("Current listings (") &&
-        mobile.body.includes("Approx total"),
+        mobile.body.includes("sold comps") &&
+        mobile.body.includes("current listings") &&
+        mobile.body.includes("estimated shipping") &&
+        mobile.body.includes("approximate totals"),
     };
     const ok = Object.values(checks).every(Boolean);
 
