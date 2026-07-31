@@ -15,7 +15,7 @@ const checkoutButton = read("src/app/components/CheckoutButton.tsx");
 
 assert.match(
   navbar,
-  /<MobileNavigation links=\{navigationLinks\} \/>/,
+  /<MobileNavigation links=\{mobileNavigationLinks\} \/>/,
   "The storefront header must render the phone navigation component.",
 );
 assert.match(
@@ -41,6 +41,7 @@ for (const path of [
   "/recently-sold",
   "/account/orders",
   "/account",
+  "/admin",
 ]) {
   assert.ok(
     navbar.includes(`href: "${path}"`),
