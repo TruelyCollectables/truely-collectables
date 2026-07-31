@@ -64,6 +64,7 @@ jobs:
           src/lib/dual-marketplace-workflow.ts
           src/lib/ebay-inventory-publisher.ts
           src/lib/ebay-inventory-publisher-audited.ts
+          src/lib/ebay-inventory-publisher-strict.ts
           src/lib/ebay-listing-content.ts
           scripts/run-dual-marketplace-audit-simulations.ts
           scripts/run-dual-marketplace-edge-audit-simulations.ts
