@@ -66,7 +66,9 @@ export default function AccountLoginPage() {
         <h1 className="mt-2 text-3xl font-black">Account Login</h1>
         <p className="mt-2 text-sm leading-6 text-neutral-600">
           Log in to view linked orders and manage buyer or seller inventory tools.
-          Protected platform-admin access remains separate.
+          No card verification is required for buyer accounts. Seller verification
+          remains part of TCOS seller onboarding, and protected platform-admin
+          access remains separate.
         </p>
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
