@@ -10,8 +10,8 @@ const adminMobileLinks = [
     icon: "📱",
   },
   {
-    href: "/admin/products/new",
-    label: "Card Studio",
+    href: "/list",
+    label: "List Cards",
     icon: "📸",
   },
   {
@@ -33,7 +33,7 @@ export default function AdminInstaCompMobileShortcut() {
 
   return (
     <aside
-      aria-label="Mobile admin quick tools"
+      aria-label="Admin quick tools"
       className="fixed inset-x-3 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-[70] rounded-2xl border border-white/10 bg-neutral-950/95 p-2 text-white shadow-2xl shadow-neutral-950/40 backdrop-blur sm:left-auto sm:right-4 sm:w-auto"
     >
       <div className="grid grid-cols-4 gap-1 sm:flex sm:items-center sm:gap-2">
