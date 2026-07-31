@@ -1,0 +1,235 @@
+name: Release PR 393 Production
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/release-pr393-production.yml"
+      - "supabase/migrations/20260731040000_shipment_protection_v2.sql"
+      - "supabase/migrations/20260731044000_grant_collx_boundary_view_to_service_role.sql"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-pr393-production
+  cancel-in-progress: false
+
+jobs:
+  migrate-deploy-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - name: Check out merged main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Verify hardened release contents
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq '"@hono/node-server": "2.0.12"' package.json
+          grep -Fq 'STANDARD_ENVELOPE_RATES_FROM_JULY_12_2026 = [0.82, 1.11, 1.4]' src/lib/shipping.ts
+          grep -Fq 'standardEnvelopeMachinableAttested' 'src/app/api/admin/orders/[id]/shipping-labels/route.ts'
+          grep -Fq 'Shipment Protection' src/lib/buyer-protection.ts
+          test -f supabase/migrations/20260731040000_shipment_protection_v2.sql
+          test -f supabase/migrations/20260731044000_grant_collx_boundary_view_to_service_role.sql
+          npm audit --omit=dev --audit-level=moderate
+          node --import tsx scripts/run-shipping-simulations.ts
+          node --import tsx scripts/run-storefront-shipment-protection-simulations.ts
+
+      - name: Link Vercel project and pull Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$VERCEL_TOKEN"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          mkdir -p .vercel "$RUNNER_TEMP/pr393-release"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          fi
+          npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/pr393-release/production.env" \
+            --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Apply and verify Production database migrations
+        shell: bash
+        env:
+          PRODUCTION_ENV_FILE: ${{ runner.temp }}/pr393-release/production.env
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+
+          function parseEnvFile(file) {
+            const parsed = {};
+            for (const rawLine of fs.readFileSync(file, "utf8").split(/\r?\n/)) {
+              const line = rawLine.trim();
+              if (!line || line.startsWith("#")) continue;
+              const index = line.indexOf("=");
+              if (index < 1) continue;
+              const key = line.slice(0, index).trim();
+              let value = line.slice(index + 1).trim();
+              if (value.startsWith('"') && value.endsWith('"')) {
+                try { value = JSON.parse(value); } catch { value = value.slice(1, -1); }
+              } else if (value.startsWith("'") && value.endsWith("'")) {
+                value = value.slice(1, -1);
+              }
+              parsed[key] = value;
+            }
+            return parsed;
+          }
+
+          const envFile = process.env.PRODUCTION_ENV_FILE;
+          const accessToken = process.env.GH_SUPABASE_ACCESS_TOKEN;
+          if (!envFile || !accessToken) {
+            throw new Error("Production environment file and Supabase access token are required.");
+          }
+          const env = parseEnvFile(envFile);
+          const productionUrl = env.NEXT_PUBLIC_SUPABASE_URL;
+          if (!productionUrl || !/^https:\/\//.test(productionUrl)) {
+            throw new Error("Production Supabase URL was not pulled from Vercel.");
+          }
+          const projectRef = new URL(productionUrl).hostname.split(".")[0];
+          const endpoint = `https://api.supabase.com/v1/projects/${projectRef}/database/query`;
+
+          async function databaseQuery(query, readOnly = false) {
+            const response = await fetch(endpoint, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ query, parameters: [], read_only: readOnly }),
+            });
+            const body = await response.text();
+            if (!response.ok) {
+              throw new Error(`Supabase query failed with HTTP ${response.status}: ${body.slice(0, 2000)}`);
+            }
+            return body;
+          }
+
+          const migrationFiles = [
+            "supabase/migrations/20260731040000_shipment_protection_v2.sql",
+            "supabase/migrations/20260731044000_grant_collx_boundary_view_to_service_role.sql",
+          ];
+          for (const file of migrationFiles) {
+            await databaseQuery(fs.readFileSync(file, "utf8"), false);
+            console.log(`Applied ${file}`);
+          }
+
+          const verification = await databaseQuery(`
+            select
+              has_table_privilege(
+                'service_role',
+                'public.collx_only_inventory_boundary_violations',
+                'select'
+              ) as service_role_can_select,
+              exists(
+                select 1 from pg_constraint
+                where conname = 'order_buyer_protections_fee_amount_check'
+              ) as shipment_fee_constraint,
+              exists(
+                select 1 from pg_constraint
+                where conname = 'buyer_protection_claims_reason_check'
+              ) as claim_reason_constraint,
+              exists(
+                select 1 from pg_constraint
+                where conname = 'offers_buyer_protection_fee_check'
+              ) as offer_fee_constraint;
+          `, true);
+          for (const required of [
+            '"service_role_can_select":true',
+            '"shipment_fee_constraint":true',
+            '"claim_reason_constraint":true',
+            '"offer_fee_constraint":true',
+          ]) {
+            if (!verification.replaceAll(" ", "").includes(required)) {
+              throw new Error(`Production migration verification missing ${required}: ${verification.slice(0, 2000)}`);
+            }
+          }
+          console.log(`Production migrations verified for project ${projectRef}.`);
+          NODE
+          rm -f "$PRODUCTION_ENV_FILE"
+
+      - name: Run supported Production deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run deploy:production
+
+      - name: Run repository Production smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run smoke:production
+
+      - name: Verify live PR 393 surfaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          stamp="${GITHUB_SHA:0:12}-$(date +%s)"
+          routes=(
+            ""
+            "shop"
+            "account"
+            "account/login"
+            "cart"
+            "buyer-protection"
+            "robots.txt"
+            "sitemap.xml"
+          )
+          mkdir -p "$RUNNER_TEMP/pr393-release/live"
+          for index in "${!routes[@]}"; do
+            route="${routes[$index]}"
+            separator="?"
+            if [[ "$route" == *"?"* ]]; then separator="&"; fi
+            output="$RUNNER_TEMP/pr393-release/live/route-$index.txt"
+            curl --fail --silent --show-error --location --retry 5 --retry-all-errors \
+              -H "Cache-Control: no-cache" \
+              -A "TruelyCollectablesPR393Release/1.0" \
+              "https://truelycollectables.com/${route}${separator}pr393_release=${stamp}-${index}" \
+              -o "$output"
+            if grep -Eqi "Error loading products|permission denied for view|Missing Supabase environment variables|Internal Server Error" "$output"; then
+              echo "Live route failed: /$route" >&2
+              grep -Ei "Error loading products|permission denied for view|Missing Supabase environment variables|Internal Server Error" "$output" || true
+              exit 1
+            fi
+            echo "PASS /$route"
+          done
+
+          home="$RUNNER_TEMP/pr393-release/live/route-0.txt"
+          shop="$RUNNER_TEMP/pr393-release/live/route-1.txt"
+          account="$RUNNER_TEMP/pr393-release/live/route-2.txt"
+          protection="$RUNNER_TEMP/pr393-release/live/route-5.txt"
+          grep -Fq "Find the collectible your collection is missing" "$home"
+          grep -Fq "Shop Sports Cards" "$shop"
+          grep -Fq "Open Card Intake Studio" "$account" || true
+          grep -Fq "Shipment Protection" "$protection"
+
+          headers="$RUNNER_TEMP/pr393-release/live/headers.txt"
+          curl --fail --silent --show-error --location --head \
+            "https://truelycollectables.com/?pr393_headers=$stamp" -o "$headers"
+          grep -Eqi '^strict-transport-security:' "$headers"
+          grep -Eqi '^content-security-policy:' "$headers"
+          grep -Eqi '^x-content-type-options:[[:space:]]*nosniff' "$headers"
+          echo "Production PR #393 deployment and live smoke verification passed."
