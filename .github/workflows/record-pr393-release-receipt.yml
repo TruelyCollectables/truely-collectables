@@ -7,6 +7,7 @@ on:
       - "Resume PR 393 Production Release"
       - "Verify PR 393 Production Release"
       - "Repair PR 393 Admin Session and Verify Production"
+      - "Deploy Buyer Login Route Repair"
     types: [completed]
 
 permissions:
