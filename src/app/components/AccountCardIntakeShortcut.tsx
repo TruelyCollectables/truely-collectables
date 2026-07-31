@@ -2,13 +2,27 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useSyncExternalStore } from "react";
 import { getAccountSession } from "../account/account-session";
+
+function subscribeAccountSession() {
+  return () => undefined;
+}
+
+function accountSessionSnapshot() {
+  return Boolean(getAccountSession());
+}
+
+function serverAccountSessionSnapshot() {
+  return false;
+}
 
 export default function AccountCardIntakeShortcut() {
   const pathname = usePathname();
-  const [signedIn] = useState(() =>
-    typeof window === "undefined" ? false : Boolean(getAccountSession()),
+  const signedIn = useSyncExternalStore(
+    subscribeAccountSession,
+    accountSessionSnapshot,
+    serverAccountSessionSnapshot,
   );
 
   if (pathname !== "/account" || !signedIn) return null;
