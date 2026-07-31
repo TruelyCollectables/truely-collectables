@@ -15,10 +15,139 @@ text = text.replace(
     'import { createClient, type SupabaseClient } from "@supabase/supabase-js";',
     'import { createClient } from "@supabase/supabase-js";',
 )
-text = text.replace(
-    "function registryCatalogEvidence(match: RegistryMatch) {",
-    "export function buildChecklistRegistryCatalogEvidence(match: RegistryMatch) {",
-)
+
+import_marker = 'import { createClient } from "@supabase/supabase-js";\n'
+import_with_type = '''import { createClient } from "@supabase/supabase-js";
+import type { InstaCompCatalogEvidenceSnapshot } from "./instacomp-catalog-identity";
+'''
+text = replace_once(text, import_marker, import_with_type, "catalog evidence type import")
+
+old_helper = '''function registryCatalogEvidence(match: RegistryMatch) {
+  return {
+    schema: "instacomp.checklistRegistryEvidence.v1",
+    status: "catalog_confirmed",
+    operatorState: "ready_for_exact_comps",
+    catalogConfirmed: true,
+    selectedMatch: {
+      catalogId: match.identityId,
+      sourceLabel: match.sourceLabel,
+      score: match.score,
+      matchedEvidence: match.matchedEvidence,
+      mismatchedEvidence: [],
+      identity: {
+        player: match.player,
+        year: match.year,
+        setName: match.setName,
+        cardNumber: match.cardNumber,
+        parallel: match.parallel,
+        serialRun: match.serialRun,
+      },
+    },
+    reviewReasons: [],
+    suggestedQuestion: null,
+    operatorAction: "Checklist Registry exact identity confirmed.",
+    safeUseBoundary:
+      "The Registry confirms identity. Market price still comes only from included live and sold evidence.",
+    sourceAttribution: {
+      sourceLabel: match.sourceLabel,
+      catalogId: match.identityId,
+    },
+    actionPermissions: {
+      exactCompSearchAllowed: true,
+      trustedForExactComps: true,
+      publicListingClaimAllowed: true,
+      autoPriceAllowed: true,
+      tradeValueRecommendationAllowed: true,
+    },
+  };
+}
+'''
+new_helper = '''export function buildChecklistRegistryCatalogEvidence(
+  match: RegistryMatch,
+): InstaCompCatalogEvidenceSnapshot {
+  const source = "instacomp_checklist_registry";
+  const sourceUrl = `tcos://instacomp/checklist-registry/${match.identityId}`;
+  const serialRun = match.serialRun ? `/${match.serialRun}` : null;
+  const identity = {
+    player: match.player,
+    year: match.year,
+    setName: match.setName,
+    cardNumber: match.cardNumber,
+    parallel: match.parallel,
+    variation: match.parallel,
+    serialRun,
+  };
+  const matchExplanation = [
+    "Exact Checklist Registry identity confirmed.",
+    ...match.matchedEvidence,
+  ].join(" ");
+
+  return {
+    schema: "tcos.instacomp.catalogEvidence.v1",
+    capturedAt: new Date().toISOString(),
+    status: "catalog_confirmed",
+    operatorState: "ready_for_exact_comps",
+    catalogConfirmed: true,
+    selectedMatch: {
+      catalogId: match.identityId,
+      source,
+      sourceLabel: match.sourceLabel,
+      sourceUrl,
+      score: match.score,
+      matchedEvidence: match.matchedEvidence,
+      mismatchedEvidence: [],
+      missingEvidence: [],
+      criticalMismatch: false,
+      identity,
+    },
+    alternateMatches: [],
+    providerSummaries: [
+      {
+        source,
+        sourceLabel: match.sourceLabel,
+        policyStatus: "approved",
+        resultStatus: "fulfilled",
+        candidateCount: 1,
+        usableCandidateCount: 1,
+        reasons: ["Private normalized checklist identity matched exactly."],
+      },
+    ],
+    providerWarnings: [],
+    reviewReasons: [],
+    suggestedQuestion: null,
+    operatorAction: "Checklist Registry exact identity confirmed.",
+    safeUseBoundary:
+      "The Registry confirms identity. Market price still comes only from included live and sold evidence.",
+    actionPermissions: {
+      exactCompSearchAllowed: true,
+      trustedForExactComps: true,
+      publicListingClaimAllowed: true,
+      autoPriceAllowed: true,
+      tradeValueRecommendationAllowed: true,
+    },
+    compIdentity: {
+      ...identity,
+      catalogId: match.identityId,
+      catalogSource: source,
+      catalogSourceLabel: match.sourceLabel,
+      catalogSourceUrl: sourceUrl,
+      catalogMatchExplanation: matchExplanation,
+    },
+    sourceAttribution: {
+      source,
+      sourceLabel: match.sourceLabel,
+      sourceUrl,
+      catalogId: match.identityId,
+    },
+    auditFlags: [
+      "private_registry_source",
+      "exact_identity_fingerprint",
+      "pricing_requires_live_market_evidence",
+    ],
+  };
+}
+'''
+text = replace_once(text, old_helper, new_helper, "complete Registry evidence builder")
 text = text.replace(
     "catalogEvidence: registryCatalogEvidence(registryMatch),",
     "catalogEvidence: buildChecklistRegistryCatalogEvidence(registryMatch),",
@@ -79,6 +208,8 @@ new = '''    const registryMatch = await findChecklistRegistryMatch(guardedAi);
           reasons: [
             `Checklist Registry exact identity ${registryMatch.identityId} confirmed before secondary readers.`,
           ],
+          explanation:
+            "Primary vision and printed evidence matched a private exact Checklist Registry identity, so secondary AI readers were not required.",
         }
       : baselineConsensusEscalation;
 '''
