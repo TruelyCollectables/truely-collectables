@@ -432,7 +432,7 @@ export default function QuickListWorkbench() {
       if (row.back) formData.append("backImage", row.back);
       formData.append("aiCouncilTier", "adaptive");
 
-      const response = await fetch("/api/instacomp/scan", {
+      const response = await fetch("/api/instacomp/scan-fast", {
         method: "POST",
         body: formData,
       });

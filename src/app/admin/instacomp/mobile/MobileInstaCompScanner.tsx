@@ -33,6 +33,22 @@ type ScanAi = {
 type ScanResult = Omit<InstaCompV2ScanInput, "ai" | "sourceCoverage"> & {
   ok?: boolean;
   error?: string;
+  scanId?: string | null;
+  knowledge?: {
+    mode?: string | null;
+    cacheHit?: boolean;
+    cacheId?: string | null;
+    knowledgeEntryId?: string | null;
+    confirmationStatus?: string | null;
+    identityConfidence?: number | null;
+    trustedForPricing?: boolean;
+    marketExpiresAt?: string | null;
+    registryMatch?: {
+      identityId?: string | null;
+      score?: number | null;
+      sourceLabel?: string | null;
+    } | null;
+  } | null;
   ai?: ScanAi;
   searchQuery?: string;
   stats?: InstaCompV2Stats;
@@ -131,6 +147,9 @@ export default function MobileInstaCompScanner() {
   const [shippingEstimate, setShippingEstimate] = useState("5.99");
   const [fields, setFields] = useState<Record<string, string>>({});
   const [dealInputs, setDealInputs] = useState<DealInputs>(DEFAULT_DEAL_INPUTS);
+  const [knowledgeSaving, setKnowledgeSaving] = useState(false);
+  const [knowledgeMessage, setKnowledgeMessage] = useState<string | null>(null);
+  const [knowledgeError, setKnowledgeError] = useState<string | null>(null);
 
   const soldComps = useMemo(
     () => uniqueComps(result?.soldComps || []),
@@ -176,6 +195,8 @@ export default function MobileInstaCompScanner() {
     setLoading(true);
     setError(null);
     setResult(null);
+    setKnowledgeMessage(null);
+    setKnowledgeError(null);
 
     try {
       const form = new FormData();
@@ -183,7 +204,7 @@ export default function MobileInstaCompScanner() {
       form.append("aiCouncilTier", "adaptive");
       if (backImage) form.append("backImage", backImage);
 
-      const response = await fetch("/api/instacomp/scan", {
+      const response = await fetch("/api/instacomp/scan-fast", {
         method: "POST",
         body: form,
       });
@@ -221,6 +242,81 @@ export default function MobileInstaCompScanner() {
       );
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function confirmKnowledge(
+    status: "operator_confirmed" | "operator_rejected" | "needs_more_info",
+  ) {
+    if (!result?.scanId) {
+      setKnowledgeError(
+        "This result does not have a saved scan ID yet. Run InstaComp again before teaching it.",
+      );
+      return;
+    }
+
+    setKnowledgeSaving(true);
+    setKnowledgeMessage(null);
+    setKnowledgeError(null);
+
+    try {
+      const response = await fetch("/api/instacomp/knowledge/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          scanId: result.scanId,
+          status,
+          corrections: {
+            player: fields.player,
+            year: fields.year,
+            brand: fields.brand,
+            setName: fields.setName,
+            cardNumber: fields.cardNumber,
+            parallel: fields.parallel,
+            serialNumber: fields.serialNumber,
+            team: fields.team,
+            sport: fields.sport,
+            conditionGuess: fields.condition,
+            isRookie: result.ai?.isRookie === true,
+            isAuto: result.ai?.isAuto === true,
+            isRelic: result.ai?.isRelic === true,
+          },
+        }),
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        entry?: {
+          trustStatus?: string;
+          observationCount?: number;
+          confirmedCount?: number;
+        };
+      };
+
+      if (!response.ok || data.ok === false) {
+        throw new Error(data.error || "Could not save this InstaComp correction.");
+      }
+
+      const label =
+        status === "operator_confirmed"
+          ? "Identity confirmed"
+          : status === "operator_rejected"
+            ? "Scan marked wrong"
+            : "Scan marked for more information";
+      const totals = data.entry
+        ? ` · ${data.entry.observationCount ?? 0} observations · ${
+            data.entry.confirmedCount ?? 0
+          } confirmed`
+        : "";
+      setKnowledgeMessage(`${label}${totals}. InstaComp will use this correction.`);
+    } catch (saveError) {
+      setKnowledgeError(
+        saveError instanceof Error
+          ? saveError.message
+          : "Could not save this InstaComp correction.",
+      );
+    } finally {
+      setKnowledgeSaving(false);
     }
   }
 
@@ -484,6 +580,74 @@ export default function MobileInstaCompScanner() {
                 </label>
               ))}
             </div>
+            <div className="mt-4 rounded-2xl border border-cyan-200 bg-cyan-50 p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.16em] text-cyan-800">
+                    InstaComp learning
+                  </p>
+                  <p className="mt-1 text-sm font-semibold leading-5 text-cyan-950">
+                    Every successful scan is saved as an observation whether you own
+                    the card or not. Confirm the edited identity to make the knowledge
+                    stronger; incorrect scans never become trusted automatically.
+                  </p>
+                  <p className="mt-2 text-xs font-bold text-cyan-800">
+                    {result.knowledge?.cacheHit
+                      ? "Exact-image knowledge reused"
+                      : result.knowledge?.mode === "checklist_registry_confirmed"
+                        ? "Official Checklist Registry identity confirmed"
+                        : "New learning observation saved"}
+                    {result.knowledge?.confirmationStatus
+                      ? ` · ${result.knowledge.confirmationStatus.replaceAll("_", " ")}`
+                      : ""}
+                  </p>
+                </div>
+                <span className="shrink-0 rounded-full bg-cyan-900 px-3 py-1 text-xs font-black text-white">
+                  {result.scanId
+                    ? `Scan ${result.scanId.slice(0, 8)}`
+                    : "Saved scan pending"}
+                </span>
+              </div>
+
+              <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                <button
+                  type="button"
+                  disabled={knowledgeSaving || !result.scanId}
+                  onClick={() => confirmKnowledge("operator_confirmed")}
+                  className="min-h-11 rounded-xl bg-emerald-600 px-3 py-2 text-sm font-black text-white disabled:opacity-50"
+                >
+                  {knowledgeSaving ? "Saving…" : "Confirm & Teach InstaComp"}
+                </button>
+                <button
+                  type="button"
+                  disabled={knowledgeSaving || !result.scanId}
+                  onClick={() => confirmKnowledge("needs_more_info")}
+                  className="min-h-11 rounded-xl border border-amber-300 bg-amber-100 px-3 py-2 text-sm font-black text-amber-950 disabled:opacity-50"
+                >
+                  Needs More Info
+                </button>
+                <button
+                  type="button"
+                  disabled={knowledgeSaving || !result.scanId}
+                  onClick={() => confirmKnowledge("operator_rejected")}
+                  className="min-h-11 rounded-xl border border-rose-300 bg-rose-100 px-3 py-2 text-sm font-black text-rose-950 disabled:opacity-50"
+                >
+                  Mark Scan Wrong
+                </button>
+              </div>
+
+              {knowledgeMessage ? (
+                <p className="mt-3 rounded-xl border border-emerald-200 bg-white p-3 text-sm font-black text-emerald-800">
+                  {knowledgeMessage}
+                </p>
+              ) : null}
+              {knowledgeError ? (
+                <p className="mt-3 rounded-xl border border-rose-200 bg-white p-3 text-sm font-black text-rose-800">
+                  {knowledgeError}
+                </p>
+              ) : null}
+            </div>
+
             <Link
               href={`/list?${listParams.toString()}`}
               className="mt-4 block min-h-12 rounded-xl bg-amber-300 px-4 py-3 text-center text-base font-black text-neutral-950"

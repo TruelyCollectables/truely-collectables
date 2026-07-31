@@ -40,6 +40,12 @@ export default function InstaCompV2Page() {
               Scan Lab
             </Link>
             <Link
+              href="/admin/instacomp/checklists"
+              className="rounded-full border border-cyan-300/40 bg-cyan-300/10 px-4 py-2 text-sm font-black text-cyan-100 hover:bg-cyan-300/15"
+            >
+              Checklist Registry
+            </Link>
+            <Link
               href="/list"
               className="rounded-full bg-amber-300 px-4 py-2 text-sm font-black text-neutral-950 hover:bg-amber-200"
             >

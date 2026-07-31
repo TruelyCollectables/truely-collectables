@@ -179,7 +179,7 @@ export default function SimpleListIntake() {
     if (row.backFile) formData.append("backImage", row.backFile);
     formData.append("aiCouncilTier", "adaptive");
 
-    const response = await fetch("/api/instacomp/scan", {
+    const response = await fetch("/api/instacomp/scan-fast", {
       method: "POST",
       body: formData,
       credentials: "same-origin",
