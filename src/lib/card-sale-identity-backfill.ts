@@ -3,6 +3,7 @@ import { deriveCardIdentity, isLikelyPlayerName } from "./card-identity";
 
 const PAGE_SIZE = 1000;
 const SAMPLE_LIMIT = 25;
+const WRITE_CONCURRENCY = 25;
 
 type ProductRow = {
   id: number | string;
@@ -36,6 +37,16 @@ type RepairSample = {
   action: "updated" | "cleared" | "unresolved";
 };
 
+type ProductPlayerUpdate = {
+  id: number | string;
+  player: string | null;
+};
+
+type InventoryMetadataUpdate = {
+  id: string;
+  metadata: Record<string, unknown>;
+};
+
 async function readAll<T>(
   queryFactory: (
     from: number,
@@ -55,12 +66,38 @@ async function readAll<T>(
   }
 }
 
+async function runConcurrentBatches<T>(params: {
+  items: T[];
+  worker: (item: T) => Promise<void>;
+}) {
+  for (let index = 0; index < params.items.length; index += WRITE_CONCURRENCY) {
+    await Promise.all(
+      params.items
+        .slice(index, index + WRITE_CONCURRENCY)
+        .map((item) => params.worker(item)),
+    );
+  }
+}
+
 function normalizePlayer(value: unknown) {
   return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
 }
 
 function samePlayer(left: string, right: string) {
   return left.localeCompare(right, undefined, { sensitivity: "base" }) === 0;
+}
+
+function recordValue(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function sameSnapshot(
+  previous: Record<string, unknown>,
+  next: Record<string, unknown>,
+) {
+  return Object.entries(next).every(([key, value]) => previous[key] === value);
 }
 
 export async function backfillCardSaleIdentities(params: {
@@ -97,10 +134,11 @@ export async function backfillCardSaleIdentities(params: {
   let playersCleared = 0;
   let playersVerified = 0;
   let invalidExistingPlayers = 0;
-  let metadataUpdated = 0;
   let unresolved = 0;
   const repairSamples: RepairSample[] = [];
   const unresolvedSamples: RepairSample[] = [];
+  const productUpdates: ProductPlayerUpdate[] = [];
+  const inventoryUpdates: InventoryMetadataUpdate[] = [];
 
   for (const product of products) {
     const title = product.title || "Untitled";
@@ -117,12 +155,7 @@ export async function backfillCardSaleIdentities(params: {
 
     if (resolvedPlayer) {
       if (!samePlayer(currentPlayer, resolvedPlayer)) {
-        const { error } = await params.supabase
-          .from("products")
-          .update({ player: resolvedPlayer })
-          .eq("id", product.id)
-          .eq("store_id", params.storeId);
-        if (error) throw new Error(error.message || "Player update failed");
+        productUpdates.push({ id: product.id, player: resolvedPlayer });
         playersUpdated += 1;
         if (repairSamples.length < SAMPLE_LIMIT) {
           repairSamples.push({
@@ -142,12 +175,7 @@ export async function backfillCardSaleIdentities(params: {
       // Never leave a card brand, set, league, or parallel in Player / Subject.
       // If no real person can be resolved, clear the polluted value for review.
       if (currentPlayer && !currentIsValid) {
-        const { error } = await params.supabase
-          .from("products")
-          .update({ player: null })
-          .eq("id", product.id)
-          .eq("store_id", params.storeId);
-        if (error) throw new Error(error.message || "Player clear failed");
+        productUpdates.push({ id: product.id, player: null });
         playersCleared += 1;
         finalPlayer = null;
         if (repairSamples.length < SAMPLE_LIMIT) {
@@ -174,49 +202,79 @@ export async function backfillCardSaleIdentities(params: {
 
     const inventory = inventoryByProduct.get(Number(product.id));
     if (!inventory) continue;
-    const previousMetadata =
-      inventory.metadata &&
-      typeof inventory.metadata === "object" &&
-      !Array.isArray(inventory.metadata)
-        ? inventory.metadata
-        : {};
-    const cardIdentity = {
+
+    const previousMetadata = recordValue(inventory.metadata);
+    const confidence =
+      identity.confidence === "aspect"
+        ? "cataloged"
+        : identity.confidence === "title"
+          ? "title_derived"
+          : "unresolved";
+    const cardIdentitySnapshot: Record<string, unknown> = {
       exact_title: identity.exactTitle,
       player: finalPlayer,
       card_number: identity.cardNumber,
       year: identity.year,
-      confidence:
-        identity.confidence === "aspect"
-          ? "cataloged"
-          : identity.confidence === "title"
-            ? "title_derived"
-            : "unresolved",
-      enriched_at: new Date().toISOString(),
+      confidence,
     };
-    const nextMetadata = {
-      ...previousMetadata,
-      card_identity: cardIdentity,
-      sale_identity: {
-        exact_title: identity.exactTitle,
-        player: finalPlayer,
-        card_number: identity.cardNumber,
-        year: identity.year,
-        sold_at: inventory.sold_at ?? product.sold_at ?? null,
-        sold_price: inventory.sold_price ?? product.sold_price ?? null,
-        sold_source: inventory.sold_source ?? product.sold_source ?? null,
-        sold_reference: inventory.sold_reference ?? product.sold_reference ?? null,
-        sold_price_status:
-          inventory.sold_price_status ?? product.sold_price_status ?? null,
+    const saleIdentitySnapshot: Record<string, unknown> = {
+      exact_title: identity.exactTitle,
+      player: finalPlayer,
+      card_number: identity.cardNumber,
+      year: identity.year,
+      sold_at: inventory.sold_at ?? product.sold_at ?? null,
+      sold_price: inventory.sold_price ?? product.sold_price ?? null,
+      sold_source: inventory.sold_source ?? product.sold_source ?? null,
+      sold_reference: inventory.sold_reference ?? product.sold_reference ?? null,
+      sold_price_status:
+        inventory.sold_price_status ?? product.sold_price_status ?? null,
+    };
+    const previousCardIdentity = recordValue(previousMetadata.card_identity);
+    const previousSaleIdentity = recordValue(previousMetadata.sale_identity);
+
+    if (
+      sameSnapshot(previousCardIdentity, cardIdentitySnapshot) &&
+      sameSnapshot(previousSaleIdentity, saleIdentitySnapshot)
+    ) {
+      continue;
+    }
+
+    inventoryUpdates.push({
+      id: inventory.id,
+      metadata: {
+        ...previousMetadata,
+        card_identity: {
+          ...cardIdentitySnapshot,
+          enriched_at: new Date().toISOString(),
+        },
+        sale_identity: saleIdentitySnapshot,
       },
-    };
-    const { error } = await params.supabase
-      .from("inventory_items")
-      .update({ metadata: nextMetadata })
-      .eq("id", inventory.id)
-      .eq("store_id", params.storeId);
-    if (error) throw new Error(error.message || "Identity metadata update failed");
-    metadataUpdated += 1;
+    });
   }
+
+  await runConcurrentBatches({
+    items: productUpdates,
+    worker: async (update) => {
+      const { error } = await params.supabase
+        .from("products")
+        .update({ player: update.player })
+        .eq("id", update.id)
+        .eq("store_id", params.storeId);
+      if (error) throw new Error(error.message || "Player update failed");
+    },
+  });
+
+  await runConcurrentBatches({
+    items: inventoryUpdates,
+    worker: async (update) => {
+      const { error } = await params.supabase
+        .from("inventory_items")
+        .update({ metadata: update.metadata })
+        .eq("id", update.id)
+        .eq("store_id", params.storeId);
+      if (error) throw new Error(error.message || "Identity metadata update failed");
+    },
+  });
 
   return {
     success: true,
@@ -226,7 +284,7 @@ export async function backfillCardSaleIdentities(params: {
     playersCleared,
     playersVerified,
     invalidExistingPlayers,
-    metadataUpdated,
+    metadataUpdated: inventoryUpdates.length,
     unresolved,
     repairSamples,
     unresolvedSamples,
