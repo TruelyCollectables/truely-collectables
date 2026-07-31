@@ -4,6 +4,7 @@ import {
   InventoryRepository,
   type UniversalInventoryItem,
 } from "../modules/inventory";
+import { deriveCardIdentity } from "./card-identity";
 import { isLaunchCollectible } from "./sports-card-launch-scope";
 import { isMergedEbayAliasItemId } from "./ebay-merged-listing-groups";
 import { deriveStrictStorefrontFeatures } from "./storefront-feature-evidence";
@@ -154,74 +155,18 @@ async function collxOnlyLegacyProductIds() {
   return deriveCollxOnlyLegacyProductIds({ products, inventoryItems });
 }
 
-const PLAYER_SUFFIX_WORDS = new Set([
-  "rc",
-  "rookie",
-  "rookies",
-  "auto",
-  "autograph",
-  "autographs",
-  "signed",
-  "refractor",
-  "prizm",
-  "parallel",
-  "insert",
-  "variation",
-  "crystal",
-  "traditions",
-  "collector's",
-  "collectors",
-  "edition",
-  "numbered",
-  "serial",
-  "foil",
-  "chrome",
-  "silver",
-  "gold",
-  "red",
-  "blue",
-  "green",
-  "purple",
-  "orange",
-  "black",
-  "white",
-  "pink",
-  "yellow",
-  "wave",
-  "pulsar",
-  "scope",
-  "mosaic",
-  "holo",
-  "die-cut",
-  "diecut",
-]);
-
-function derivePlayerFromTitle(title: string) {
-  const normalized = String(title || "").replace(/\s+/g, " ").trim();
-  if (!normalized) return null;
-
-  const afterCardNumber = normalized.match(/#\s*[A-Za-z0-9.-]+\s+(.+)$/)?.[1];
-  if (!afterCardNumber) return null;
-
-  const tokens = afterCardNumber.split(" ");
-  const stopIndex = tokens.findIndex((token) =>
-    PLAYER_SUFFIX_WORDS.has(token.toLowerCase().replace(/[,:;()[\]]+$/g, "")),
-  );
-  const candidateTokens = (stopIndex >= 0 ? tokens.slice(0, stopIndex) : tokens).slice(0, 4);
-  const candidate = candidateTokens.join(" ").replace(/[,:;\-]+$/g, "").trim();
-
-  if (candidateTokens.length < 2 || candidate.length < 4) return null;
-  if (/\b(card|baseball|basketball|football|hockey|nba|nfl|nhl|mlb)\b/i.test(candidate)) {
-    return null;
-  }
-
-  return candidate;
-}
-
 function enforceStrictStorefrontFeatures(item: UniversalInventoryItem) {
+  const identity = deriveCardIdentity({
+    title: item.title,
+    aspectPlayer: item.player,
+  });
+
   return {
     ...item,
-    player: item.player?.trim() || derivePlayerFromTitle(item.title),
+    // Resolve the visible player on every request. This prevents a polluted
+    // database value such as "Panini WNBA" or "Artifacts Hockey" from ever
+    // appearing as the Player / Subject while the production backfill runs.
+    player: identity.player,
     features: deriveStrictStorefrontFeatures({
       title: item.title,
       section: item.storefrontSection || item.sport,
