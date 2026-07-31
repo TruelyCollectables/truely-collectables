@@ -24,8 +24,15 @@ assert.throws(
   /2,000 characters/,
 );
 assert.deepEqual(
-  validatedHttpsImageUrls(["https://cdn.example.com/card.jpg"]),
-  ["https://cdn.example.com/card.jpg"],
+  validatedHttpsImageUrls([
+    "https://cdn.example.com/card.jpg",
+    "https://fcdn.example.com/card.jpg",
+  ]),
+  [
+    "https://cdn.example.com/card.jpg",
+    "https://fcdn.example.com/card.jpg",
+  ],
+  "Public CDN hostnames that merely begin with an IPv6-looking prefix must stay allowed.",
 );
 
 const adminRoute = fs.readFileSync(
