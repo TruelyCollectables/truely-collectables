@@ -1,5 +1,6 @@
 name: Patch List Regressions and Mobile Parser
 
+# Trigger after the workflow definition exists on the branch.
 on:
   push:
     branches: [agent/simplified-list-route]
