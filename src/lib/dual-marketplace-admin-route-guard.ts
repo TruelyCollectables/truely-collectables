@@ -84,6 +84,29 @@ function prewriteProblems(item: UnknownRecord) {
   return Array.from(new Set(problems));
 }
 
+async function listingRows(request: Request) {
+  const response = await handleDualMarketplaceGet(
+    new Request(request.url, {
+      method: "GET",
+      headers: request.headers,
+    }),
+  );
+  if (!response.ok) return [];
+  const data = await response.json().catch(() => null);
+  return Array.isArray(data?.rows) ? (data.rows as UnknownRecord[]) : [];
+}
+
+function normalizeReconciliationRow(row: UnknownRecord) {
+  const lastError = text(row.lastError);
+  if (/^Website is active,/i.test(lastError)) {
+    return { ...row, websiteStatus: "reconciliation_required" };
+  }
+  if (/^eBay is live,/i.test(lastError)) {
+    return { ...row, ebayStatus: "reconciliation_required" };
+  }
+  return row;
+}
+
 export async function handleGuardedDualMarketplaceGet(request: Request) {
   normalizePercentEnvironment();
   const response = await handleDualMarketplaceGet(request);
@@ -91,18 +114,7 @@ export async function handleGuardedDualMarketplaceGet(request: Request) {
 
   const data = await response.json().catch(() => null);
   if (!data || !Array.isArray(data.rows)) return Response.json(data);
-
-  data.rows = data.rows.map((row: UnknownRecord) => {
-    const lastError = text(row.lastError);
-    if (/^Website is active,/i.test(lastError)) {
-      return { ...row, websiteStatus: "reconciliation_required" };
-    }
-    if (/^eBay is live,/i.test(lastError)) {
-      return { ...row, ebayStatus: "reconciliation_required" };
-    }
-    return row;
-  });
-
+  data.rows = data.rows.map((row: UnknownRecord) => normalizeReconciliationRow(row));
   return Response.json(data);
 }
 
@@ -160,5 +172,44 @@ export async function handleGuardedDualMarketplacePost(request: Request) {
     headers,
     body: JSON.stringify({ ...body, items }),
   });
-  return handleDualMarketplacePost(forwardedRequest);
+  const response = await handleDualMarketplacePost(forwardedRequest);
+  const data = await response.json().catch(() => null);
+
+  if (!data || !Array.isArray(data.errors) || !data.errors.length) {
+    return data ? Response.json(data, { status: response.status }) : response;
+  }
+
+  const action = text(body.action);
+  if (action !== "publish-both" && action !== "publish-ebay") {
+    return Response.json(data, { status: response.status });
+  }
+
+  const currentRows = await listingRows(request);
+  const rowsById = new Map(
+    currentRows.map((row) => [text(row.inventoryItemId), normalizeReconciliationRow(row)]),
+  );
+  data.errors = data.errors.map((rawError: unknown) => {
+    const error = record(rawError);
+    if (error.externalPublished === true) return error;
+    const row = rowsById.get(text(error.inventoryItemId));
+    if (!row) return error;
+    const ebayStatus = text(row.ebayStatus);
+    const ebayListingId = text(row.ebayItemId);
+    const ebayAlreadyLive =
+      ebayStatus === "active" ||
+      ebayStatus === "reconciliation_required" ||
+      Boolean(ebayListingId);
+
+    return ebayAlreadyLive
+      ? {
+          ...error,
+          externalPublished: true,
+          channel: "ebay",
+          ebayListingId: ebayListingId || null,
+          error: `${text(error.error) || "The remaining channel failed."} eBay is already live; do not blindly republish this row.`,
+        }
+      : error;
+  });
+
+  return Response.json(data, { status: response.status });
 }
