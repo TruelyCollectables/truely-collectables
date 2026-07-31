@@ -1,3 +1,5 @@
+import { resolveKnownPlayerTitleOverride } from "./card-player-title-overrides";
+
 export type CardIdentity = {
   player: string | null;
   cardNumber: string | null;
@@ -9,7 +11,7 @@ export type CardIdentity = {
 const HARD_CONTEXT_WORDS = new Set([
   "RC", "ROOKIE", "ROOKIES", "AUTO", "AUTOGRAPH", "AUTOGRAPHS", "AUTOGRAPHED", "SIGNED",
   "SIGNATURE", "SIGNATURES", "REFRACTOR", "REFRACTORS", "PRIZM", "PRIZMS", "PARALLEL",
-  "INSERT", "PATCH", "RELIC", "JERSEY", "RPA", "PSA", "BGS", "SGC", "CGC", "HGA",
+  "INSERT", "PATCH", "RELIC", "RELICS", "JERSEY", "RPA", "PSA", "BGS", "SGC", "CGC", "HGA",
   "GEM", "MINT", "NM", "EX", "CARD", "CARDS", "LOT", "SP", "SSP", "NUMBERED",
   "SERIAL", "EDITION", "COLLECTOR'S", "COLLECTORS", "BASEBALL", "FOOTBALL", "BASKETBALL",
   "HOCKEY", "SOCCER", "GOLF", "WNBA", "NBA", "NFL", "NHL", "MLB", "NCAA", "WWE",
@@ -24,7 +26,8 @@ const HARD_CONTEXT_WORDS = new Set([
   "ULTIMATE", "CLEARLY", "TOTALLY", "VAULT", "FIRST", "BLANK", "BACK", "ONE", "POP",
   "INTRODUCTIONS", "LEGENDARY", "EMERGENT", "MOJO", "ONYX", "REIGNING", "NIGHTS",
   "LIMITED", "RETRO", "TV", "DRAFT", "1ST", "PROSPECT", "PROSPECTS", "PLATINUM",
-  "SUPERFRACTOR", "NON", "DUAL", "DRAFTEES",
+  "SUPERFRACTOR", "NON", "DUAL", "DRAFTEES", "STERLING", "NOIR", "LIQUID", "MINE",
+  "MEM", "MARQUEE", "CHECKERS", "PIXELS", "SELECTIONS",
 ]);
 
 const DESCRIPTOR_WORDS = new Set([
@@ -34,6 +37,7 @@ const DESCRIPTOR_WORDS = new Set([
   "SHIMMER", "SPARKLE", "ICE", "CRACKED", "ACETATE", "CLEAR", "NEGATIVE", "SEPIA", "GALACTIC",
   "COSMIC", "DISCO", "CHOICE", "FAST", "BREAK", "NO-HUDDLE", "NOHUDDLE", "COLORBLAST",
   "COLOR", "BLAST", "IMAGE", "PHOTO", "REFLECTOR", "REFLECTIVE", "PREMIUM", "DELUXE",
+  "LIQUID", "METAL", "PRISM", "VIOLET", "SWEET",
 ]);
 
 const CONTEXT_PHRASES = new Set([
@@ -43,12 +47,14 @@ const CONTEXT_PHRASES = new Set([
   "NO HUDDLE", "FIRST EDITION", "DRAFT PICKS", "PRIZM WNBA", "ARTIFACTS HOCKEY",
   "ULTIMATE COLLECTION", "CLEARLY AUTHENTIC", "TOTALLY CERTIFIED", "BLANK BACK", "PANINI ONE",
   "POP CENTURY", "BOWMAN PLATINUM", "PLATINUM PROSPECTS", "DUAL DRAFTEES",
+  "BOWMAN STERLING", "PANINI NOIR", "LIQUID METAL", "RED PRISM", "DIAMOND MINE",
+  "O-PEE-CHEE PLATINUM", "OPC PLATINUM",
 ]);
 
 const LEADING_CARD_WORDS = new Set([
   "UPPER", "PANINI", "TOPPS", "FLEER", "DONRUSS", "BOWMAN", "LEAF", "SCORE", "SELECT",
   "PRIZM", "OPTIC", "ARTIFACTS", "ARTIFACT", "SKYBOX", "PACIFIC", "PINNACLE", "HOOPS",
-  "ULTIMATE", "TOTALLY", "CLEARLY", "VAULT", "POP", "PLATINUM",
+  "ULTIMATE", "TOTALLY", "CLEARLY", "VAULT", "POP", "PLATINUM", "STERLING", "NOIR",
 ]);
 
 const NAME_CONNECTORS = new Set([
@@ -364,6 +370,9 @@ export function inferPlayerFromCardTitle(title: string): string | null {
   const cleaned = clean(title);
   if (!cleaned) return null;
 
+  const knownOverride = resolveKnownPlayerTitleOverride(cleaned);
+  if (knownOverride) return knownOverride;
+
   const afterCardNumber = cleaned.match(
     /(?:^|\s)(?:#\s*|NO\.?\s+)[A-Z0-9.-]+\s+(.+)$/i,
   )?.[1];
@@ -456,8 +465,6 @@ export function deriveCardIdentity(params: {
     /(?:^|\s)((?:19|20)\d{2}(?:-\d{2,4})?)(?:\s|$)/,
   )?.[1] ?? null;
 
-  // A multi-subject title must win over a catalog value containing only one
-  // of the athletes on the card.
   if (titlePlayer?.includes(" / ") && validTitlePlayer) {
     return {
       player: titlePlayer,
@@ -468,8 +475,6 @@ export function deriveCardIdentity(params: {
     };
   }
 
-  // Preserve a valid cataloged name when the exact name appears in the title.
-  // This protects legitimate three- and four-part names from being shortened.
   if (validAspectPlayer && titleContainsPlayer(exactTitle, aspectPlayer)) {
     return {
       player: aspectPlayer,
@@ -480,8 +485,6 @@ export function deriveCardIdentity(params: {
     };
   }
 
-  // A validated title-derived athlete wins over polluted values such as
-  // "Panini WNBA", "Artifacts Hockey", or "Upper Deck".
   if (titlePlayer && validTitlePlayer) {
     return {
       player: titlePlayer,
