@@ -30,7 +30,7 @@ env:
 
 jobs:
   core-release:
-    name: Core release, database, lint and build
+    name: Core release, database, dependencies, lint and build
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -40,6 +40,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Reject moderate-or-higher production dependency vulnerabilities
+        run: npm audit --omit=dev --audit-level=moderate
+      - name: Reject high-or-critical vulnerabilities anywhere in the dependency tree
+        run: npm audit --audit-level=high
       - name: Validate launch contract
         run: node --import tsx scripts/run-sunday-launch-one-build.ts
       - name: Validate database schema definitions
