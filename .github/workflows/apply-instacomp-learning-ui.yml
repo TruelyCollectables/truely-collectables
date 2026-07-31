@@ -1,0 +1,332 @@
+name: Apply InstaComp Learning UI
+
+on:
+  push:
+    branches:
+      - feature/instacomp-learning-registry-v1
+    paths:
+      - .github/workflows/apply-instacomp-learning-ui.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+      ADMIN_SESSION_SECRET: build-only-placeholder-admin-session-secret
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/instacomp-learning-registry-v1
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Apply learning-first UI wiring
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          root = Path('src/app')
+          endpoint_replacements = 0
+          for path in root.rglob('*'):
+              if path.suffix not in {'.ts', '.tsx'} or 'api' in path.parts:
+                  continue
+              text = path.read_text()
+              changed = text.replace('"/api/instacomp/scan"', '"/api/instacomp/scan-fast"')
+              changed = changed.replace("'/api/instacomp/scan'", "'/api/instacomp/scan-fast'")
+              if changed != text:
+                  endpoint_replacements += text.count('/api/instacomp/scan')
+                  path.write_text(changed)
+
+          if endpoint_replacements < 2:
+              raise SystemExit(f'Expected at least two client scan endpoint replacements, found {endpoint_replacements}')
+
+          mobile = Path('src/app/admin/instacomp/mobile/MobileInstaCompScanner.tsx')
+          text = mobile.read_text()
+
+          old = '''type ScanResult = Omit<InstaCompV2ScanInput, "ai" | "sourceCoverage"> & {
+            ok?: boolean;
+            error?: string;
+            ai?: ScanAi;'''.replace('            ', '')
+          new = '''type ScanResult = Omit<InstaCompV2ScanInput, "ai" | "sourceCoverage"> & {
+            ok?: boolean;
+            error?: string;
+            scanId?: string | null;
+            knowledge?: {
+              mode?: string | null;
+              cacheHit?: boolean;
+              cacheId?: string | null;
+              knowledgeEntryId?: string | null;
+              confirmationStatus?: string | null;
+              identityConfidence?: number | null;
+              trustedForPricing?: boolean;
+              marketExpiresAt?: string | null;
+              registryMatch?: {
+                identityId?: string | null;
+                score?: number | null;
+                sourceLabel?: string | null;
+              } | null;
+            } | null;
+            ai?: ScanAi;'''.replace('            ', '')
+          if old not in text:
+              raise SystemExit('ScanResult insertion point not found')
+          text = text.replace(old, new, 1)
+
+          old = '''  const [dealInputs, setDealInputs] = useState<DealInputs>(DEFAULT_DEAL_INPUTS);
+'''
+          new = '''  const [dealInputs, setDealInputs] = useState<DealInputs>(DEFAULT_DEAL_INPUTS);
+  const [knowledgeSaving, setKnowledgeSaving] = useState(false);
+  const [knowledgeMessage, setKnowledgeMessage] = useState<string | null>(null);
+  const [knowledgeError, setKnowledgeError] = useState<string | null>(null);
+'''
+          if old not in text:
+              raise SystemExit('State insertion point not found')
+          text = text.replace(old, new, 1)
+
+          old = '''    setLoading(true);
+    setError(null);
+    setResult(null);
+'''
+          new = '''    setLoading(true);
+    setError(null);
+    setResult(null);
+    setKnowledgeMessage(null);
+    setKnowledgeError(null);
+'''
+          if old not in text:
+              raise SystemExit('runScan reset insertion point not found')
+          text = text.replace(old, new, 1)
+
+          marker = '''  const listParams = new URLSearchParams({
+'''
+          confirm_function = '''  async function confirmKnowledge(
+    status: "operator_confirmed" | "operator_rejected" | "needs_more_info",
+  ) {
+    if (!result?.scanId) {
+      setKnowledgeError(
+        "This result does not have a saved scan ID yet. Run InstaComp again before teaching it.",
+      );
+      return;
+    }
+
+    setKnowledgeSaving(true);
+    setKnowledgeMessage(null);
+    setKnowledgeError(null);
+
+    try {
+      const response = await fetch("/api/instacomp/knowledge/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          scanId: result.scanId,
+          status,
+          corrections: {
+            player: fields.player,
+            year: fields.year,
+            brand: fields.brand,
+            setName: fields.setName,
+            cardNumber: fields.cardNumber,
+            parallel: fields.parallel,
+            serialNumber: fields.serialNumber,
+            team: fields.team,
+            sport: fields.sport,
+            conditionGuess: fields.condition,
+            isRookie: result.ai?.isRookie === true,
+            isAuto: result.ai?.isAuto === true,
+            isRelic: result.ai?.isRelic === true,
+          },
+        }),
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        entry?: {
+          trustStatus?: string;
+          observationCount?: number;
+          confirmedCount?: number;
+        };
+      };
+
+      if (!response.ok || data.ok === false) {
+        throw new Error(data.error || "Could not save this InstaComp correction.");
+      }
+
+      const label =
+        status === "operator_confirmed"
+          ? "Identity confirmed"
+          : status === "operator_rejected"
+            ? "Scan marked wrong"
+            : "Scan marked for more information";
+      const totals = data.entry
+        ? ` · ${data.entry.observationCount ?? 0} observations · ${
+            data.entry.confirmedCount ?? 0
+          } confirmed`
+        : "";
+      setKnowledgeMessage(`${label}${totals}. InstaComp will use this correction.`);
+    } catch (saveError) {
+      setKnowledgeError(
+        saveError instanceof Error
+          ? saveError.message
+          : "Could not save this InstaComp correction.",
+      );
+    } finally {
+      setKnowledgeSaving(false);
+    }
+  }
+
+'''
+          if marker not in text:
+              raise SystemExit('listParams insertion point not found')
+          text = text.replace(marker, confirm_function + marker, 1)
+
+          old = '''            </div>
+            <Link
+              href={`/list?${listParams.toString()}`}
+'''
+          new = '''            </div>
+
+            <div className="mt-4 rounded-2xl border border-cyan-200 bg-cyan-50 p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.16em] text-cyan-800">
+                    InstaComp learning
+                  </p>
+                  <p className="mt-1 text-sm font-semibold leading-5 text-cyan-950">
+                    Every successful scan is saved as an observation whether you own
+                    the card or not. Confirm the edited identity to make the knowledge
+                    stronger; incorrect scans never become trusted automatically.
+                  </p>
+                  <p className="mt-2 text-xs font-bold text-cyan-800">
+                    {result.knowledge?.cacheHit
+                      ? "Exact-image knowledge reused"
+                      : result.knowledge?.mode === "checklist_registry_confirmed"
+                        ? "Official Checklist Registry identity confirmed"
+                        : "New learning observation saved"}
+                    {result.knowledge?.confirmationStatus
+                      ? ` · ${result.knowledge.confirmationStatus.replaceAll("_", " ")}`
+                      : ""}
+                  </p>
+                </div>
+                <span className="shrink-0 rounded-full bg-cyan-900 px-3 py-1 text-xs font-black text-white">
+                  {result.scanId ? `Scan ${result.scanId.slice(0, 8)}` : "Saved scan pending"}
+                </span>
+              </div>
+
+              <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                <button
+                  type="button"
+                  disabled={knowledgeSaving || !result.scanId}
+                  onClick={() => confirmKnowledge("operator_confirmed")}
+                  className="min-h-11 rounded-xl bg-emerald-600 px-3 py-2 text-sm font-black text-white disabled:opacity-50"
+                >
+                  {knowledgeSaving ? "Saving…" : "Confirm & Teach InstaComp"}
+                </button>
+                <button
+                  type="button"
+                  disabled={knowledgeSaving || !result.scanId}
+                  onClick={() => confirmKnowledge("needs_more_info")}
+                  className="min-h-11 rounded-xl border border-amber-300 bg-amber-100 px-3 py-2 text-sm font-black text-amber-950 disabled:opacity-50"
+                >
+                  Needs More Info
+                </button>
+                <button
+                  type="button"
+                  disabled={knowledgeSaving || !result.scanId}
+                  onClick={() => confirmKnowledge("operator_rejected")}
+                  className="min-h-11 rounded-xl border border-rose-300 bg-rose-100 px-3 py-2 text-sm font-black text-rose-950 disabled:opacity-50"
+                >
+                  Mark Scan Wrong
+                </button>
+              </div>
+
+              {knowledgeMessage ? (
+                <p className="mt-3 rounded-xl border border-emerald-200 bg-white p-3 text-sm font-black text-emerald-800">
+                  {knowledgeMessage}
+                </p>
+              ) : null}
+              {knowledgeError ? (
+                <p className="mt-3 rounded-xl border border-rose-200 bg-white p-3 text-sm font-black text-rose-800">
+                  {knowledgeError}
+                </p>
+              ) : null}
+            </div>
+
+            <Link
+              href={`/list?${listParams.toString()}`}
+'''
+          if old not in text:
+              raise SystemExit('Learning panel insertion point not found')
+          text = text.replace(old, new, 1)
+          mobile.write_text(text)
+
+          v2 = Path('src/app/admin/instacomp/v2/page.tsx')
+          text = v2.read_text()
+          old = '''            <Link
+              href="/list"
+              className="rounded-full bg-amber-300 px-4 py-2 text-sm font-black text-neutral-950 hover:bg-amber-200"
+            >
+              List Cards
+            </Link>
+'''
+          new = '''            <Link
+              href="/admin/instacomp/checklists"
+              className="rounded-full border border-cyan-300/40 bg-cyan-300/10 px-4 py-2 text-sm font-black text-cyan-100 hover:bg-cyan-300/15"
+            >
+              Checklist Registry
+            </Link>
+            <Link
+              href="/list"
+              className="rounded-full bg-amber-300 px-4 py-2 text-sm font-black text-neutral-950 hover:bg-amber-200"
+            >
+              List Cards
+            </Link>
+'''
+          if old not in text:
+              raise SystemExit('InstaComp 2.0 navigation insertion point not found')
+          v2.write_text(text.replace(old, new, 1))
+          PY
+
+      - name: Verify learning UI contracts
+        run: |
+          grep -R --line-number '/api/instacomp/scan-fast' src/app --include='*.ts' --include='*.tsx'
+          ! grep -R --line-number 'fetch("/api/instacomp/scan"' src/app --exclude-dir=api --include='*.ts' --include='*.tsx'
+          grep -F 'Confirm & Teach InstaComp' src/app/admin/instacomp/mobile/MobileInstaCompScanner.tsx
+          grep -F 'Checklist Registry' src/app/admin/instacomp/v2/page.tsx
+
+      - name: Lint changed application files
+        run: |
+          npx eslint \
+            src/app/admin/instacomp/mobile/MobileInstaCompScanner.tsx \
+            src/app/admin/instacomp/v2/page.tsx \
+            src/app/admin/instacomp/checklists/page.tsx \
+            src/app/admin/instacomp/checklists/ChecklistRegistryImporter.tsx \
+            src/app/api/instacomp/scan-fast/route.ts \
+            src/app/api/instacomp/knowledge/confirm/route.ts \
+            src/app/api/admin/instacomp/checklists/import/route.ts \
+            src/lib/instacomp-learning-server.ts \
+            src/lib/checklist-registry/server.ts
+
+      - name: Build application
+        run: npm run build
+
+      - name: Commit verified integration and remove one-time workflow
+        run: |
+          rm .github/workflows/apply-instacomp-learning-ui.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app src/lib .github/workflows/apply-instacomp-learning-ui.yml
+          git commit -m "Wire every InstaComp UI scan into automatic learning"
+          git push origin HEAD:feature/instacomp-learning-registry-v1
