@@ -1,10 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { deriveCardIdentity, isLikelyPlayerName } from "./card-identity";
 
-export const CARD_IDENTITY_BACKFILL_REVISION = "player-name-v4";
+export const CARD_IDENTITY_BACKFILL_REVISION = "player-name-v5";
 
 const PAGE_SIZE = 1000;
-const SAMPLE_LIMIT = 25;
+const SAMPLE_LIMIT = 100;
 const WRITE_CONCURRENCY = 25;
 
 type ProductRow = {
