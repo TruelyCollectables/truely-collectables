@@ -1,7 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import {
-  paniniStructuredChecklistAdapter,
-} from "./panini-structured";
+import { paniniStructuredChecklistAdapter } from "./panini-structured";
 import type {
   ChecklistImportPlan,
   ChecklistSourceAdapter,
@@ -27,7 +25,9 @@ function serviceClient() {
 }
 
 function selectAdapter(artifact: ChecklistSourceArtifact) {
-  const adapter = CHECKLIST_ADAPTERS.find((candidate) => candidate.supports(artifact));
+  const adapter = CHECKLIST_ADAPTERS.find((candidate) =>
+    candidate.supports(artifact),
+  );
   if (!adapter) {
     throw new Error(
       `No Checklist Registry adapter supports ${artifact.mimeType}.`,
@@ -47,7 +47,11 @@ export async function importChecklistArtifact(params: {
   const adapter = selectAdapter(params.artifact);
   const plan = adapter.parse(params.artifact);
 
-  if (params.validateOnly || plan.validation.status !== "passed" || planHasErrors(plan)) {
+  if (
+    params.validateOnly ||
+    plan.validation.status !== "passed" ||
+    planHasErrors(plan)
+  ) {
     return {
       ok: plan.validation.status === "passed",
       validatedOnly: true,
@@ -70,13 +74,17 @@ export async function importChecklistArtifact(params: {
     .upload(storage.objectPath, content, {
       contentType: storage.mimeType,
       upsert: false,
-      cacheControl: "private, max-age=0, no-store",
+      cacheControl: "0",
     });
 
   if (uploadError) {
-    const duplicate = /already exists|duplicate|409/i.test(uploadError.message || "");
+    const duplicate = /already exists|duplicate|409/i.test(
+      uploadError.message || "",
+    );
     if (!duplicate) {
-      throw new Error(`Could not archive checklist source: ${uploadError.message}`);
+      throw new Error(
+        `Could not archive checklist source: ${uploadError.message}`,
+      );
     }
   } else {
     uploadedByThisRequest = true;
@@ -98,7 +106,9 @@ export async function importChecklistArtifact(params: {
         .from(CHECKLIST_SOURCE_BUCKET)
         .remove([storage.objectPath]);
     }
-    throw new Error(`Checklist Registry transaction failed: ${error.message}`);
+    throw new Error(
+      `Checklist Registry transaction failed: ${error.message}`,
+    );
   }
 
   return {
