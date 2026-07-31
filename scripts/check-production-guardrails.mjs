@@ -5117,7 +5117,7 @@ assertFileIncludes(
     "The active shipping label is a TCOS dry-run simulation. Buy or record a real label before marking it shipped.",
     'fulfillment_status: "shipped"',
     "refreshTransactionEvidenceReportForOrder",
-    'fetch("https://api.resend.com/emails"',
+    "enqueueAndAttemptOrderNotification",
   ],
 );
 assertFileOrder(
@@ -5132,7 +5132,7 @@ assertFileOrder(
     '.from("orders")',
     'fulfillment_status: "shipped"',
     "refreshTransactionEvidenceReportForOrder",
-    'fetch("https://api.resend.com/emails"',
+    "enqueueAndAttemptOrderNotification",
   ],
 );
 assertFileIncludes(
