@@ -152,6 +152,18 @@ text = replace_once(
   }''',
     "old manual-product scenario block",
 )
+text = replace_once(
+    text,
+    '    "Remove bad scan rows, merge selected quantities, retry OCR",',
+    '    "Upload, InstaComp™, edit, and list cards",',
+    "retired scan-desk action-map expectation",
+)
+text = replace_once(
+    text,
+    '    "Open InstaComp™ Direct",',
+    '    "Open List Cards",',
+    "retired scan-desk CTA expectation",
+)
 sim.write_text(text)
 
 print("Applied exact admin /list navigation and regression updates.")
