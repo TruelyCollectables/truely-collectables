@@ -15,6 +15,9 @@ concurrency:
   group: deploy-buyer-login-route-repair
   cancel-in-progress: false
 
+env:
+  RELEASE_TRIGGER: "2026-07-31T14:54Z"
+
 jobs:
   clean-deploy-and-prove:
     runs-on: ubuntu-24.04
