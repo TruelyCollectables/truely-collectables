@@ -24,18 +24,8 @@ jobs:
           from pathlib import Path
           path = Path('scripts/smoke-admin-runtime.mjs')
           text = path.read_text()
-          marker = '''  {
-            path: "/admin/inventory",
-            auth: true,
-            expectedText: "Inventory Bridge",
-          },
-          '''
-          addition = '''  {
-            path: "/admin/instacomp/checklists",
-            auth: true,
-            expectedText: "Checklist Registry",
-          },
-          ''' + marker
+          marker = '  {\n    path: "/admin/inventory",\n    auth: true,\n    expectedText: "Inventory Bridge",\n  },\n'
+          addition = '  {\n    path: "/admin/instacomp/checklists",\n    auth: true,\n    expectedText: "Checklist Registry",\n  },\n' + marker
           if '/admin/instacomp/checklists' in text:
               raise SystemExit('Checklist Registry smoke route already exists')
           if marker not in text:
