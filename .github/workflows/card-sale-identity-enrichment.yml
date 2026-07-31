@@ -5,11 +5,14 @@ on:
     branches: [main]
     paths:
       - "src/lib/card-identity.ts"
-      - "scripts/backfill-card-sale-identities.mjs"
+      - "src/lib/card-sale-identity-backfill.ts"
+      - "src/app/api/internal/card-sale-identity-backfill/route.ts"
       - ".github/workflows/card-sale-identity-enrichment.yml"
   pull_request:
     branches: [main]
     paths:
+      - "src/lib/card-sale-identity-backfill.ts"
+      - "src/app/api/internal/card-sale-identity-backfill/route.ts"
       - ".github/workflows/card-sale-identity-enrichment.yml"
   schedule:
     - cron: "17 * * * *"
@@ -45,7 +48,15 @@ jobs:
       - name: Install exact dependencies
         run: npm ci
 
+      - name: Validate staged runtime endpoint
+        if: github.event_name == 'pull_request'
+        run: |
+          test -f src/lib/card-sale-identity-backfill.ts
+          test -f src/app/api/internal/card-sale-identity-backfill/route.ts
+          echo "Protected runtime backfill endpoint is staged for deployment."
+
       - name: Link Production project
+        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
@@ -57,6 +68,7 @@ jobs:
             --token "$VERCEL_TOKEN"
 
       - name: Pull Production environment securely
+        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
@@ -66,11 +78,35 @@ jobs:
             --token "$VERCEL_TOKEN"
           chmod 600 .env.production.local
 
-      - name: Measure credential availability without exposing values
+      - name: Invoke protected runtime backfill
+        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
-          awk -F= '/^(NEXT_PUBLIC_SUPABASE_URL|SUPABASE_SERVICE_ROLE_KEY)=/{ value=substr($0,index($0,"=")+1); print $1 " encoded_length=" length(value) }' .env.production.local
-          node --input-type=module -e "process.loadEnvFile('.env.production.local'); console.log('url_loaded=' + Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL) + ' service_loaded=' + Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY)); process.exit(1)"
-
-# Safe credential-length diagnostic: 2026-07-31T15:50:00Z
+          node --input-type=module <<'NODE'
+          process.loadEnvFile('.env.production.local');
+          const secret = process.env.CRON_SECRET;
+          const site = process.env.NEXT_PUBLIC_SITE_URL || 'https://truelycollectables.com';
+          if (!secret) throw new Error('CRON_SECRET is required');
+          const endpoint = new URL('/api/internal/card-sale-identity-backfill', site).toString();
+          let lastError = 'endpoint unavailable';
+          for (let attempt = 1; attempt <= 20; attempt += 1) {
+            try {
+              const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${secret}` },
+              });
+              const body = await response.text();
+              if (response.ok) {
+                console.log(body);
+                process.exit(0);
+              }
+              lastError = `HTTP ${response.status}: ${body}`;
+            } catch (error) {
+              lastError = error instanceof Error ? error.message : String(error);
+            }
+            console.log(`Attempt ${attempt} waiting for deployed runtime endpoint: ${lastError}`);
+            await new Promise((resolve) => setTimeout(resolve, 15000));
+          }
+          throw new Error(lastError);
+          NODE
