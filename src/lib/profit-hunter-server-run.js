@@ -569,7 +569,7 @@ function buildMarkdown({ schedule, discovery, hotWatch, actionableDeals }) {
 async function saveReport({ schedule, discovery, hotWatch, actionableDeals, markdown }) {
   const supabase = createSupabaseServerClient({ admin: true });
   const generatedAt = new Date().toISOString();
-  const reportType = `profit_hunter_cycle_${schedule.slot}`;
+  const reportType = "hourly_deals";
   const status = discovery.complete ? "generated" : "failed";
   const headline = discovery.complete
     ? `${discovery.successfulQueryCount}/${discovery.queryFamilyCount} native families; ${actionableDeals.length} exact-comp deal${actionableDeals.length === 1 ? "" : "s"}`
@@ -699,7 +699,7 @@ async function previousProfitHunterRun() {
   const { data, error } = await supabase
     .from("tcos_mi_report_runs")
     .select("id,status,generated_at,report_type")
-    .like("report_type", "profit_hunter_cycle_%")
+    .eq("report_type", "hourly_deals")
     .order("generated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
