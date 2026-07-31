@@ -1,0 +1,33 @@
+name: Diagnose Production Guardrail
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Apply reviewed patch in diagnostic workspace
+        run: node scripts/apply-fbi-audit-fixes.mjs
+      - name: Regenerate lockfile
+        run: npm install --package-lock-only --ignore-scripts
+      - name: Install patched tree
+        run: npm ci
+      - name: Run only production guardrails
+        run: |
+          set +e
+          npm run check:production-guardrails 2>&1 | tee /tmp/guardrail.log
+          status=${PIPESTATUS[0]}
+          echo "----- FINAL GUARDRAIL OUTPUT -----"
+          tail -n 120 /tmp/guardrail.log
+          exit "$status"
