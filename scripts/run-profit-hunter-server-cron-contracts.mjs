@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-// Production deployment trigger: 2026-07-31 after the approved hourly_deals
-// report-type repair. This connector-authored commit intentionally launches the
-// deploy-and-force-run workflow; bot-authored repair commits do not trigger it.
+// Production deployment trigger: 2026-07-31 after the Hot Watch
+// tcos_mi_listings.listing_status repair. This connector-authored commit launches
+// the deploy-and-force-run workflow from the corrected current main.
 const runner = readFileSync("src/lib/profit-hunter-server-run.js", "utf8");
 const route = readFileSync("src/app/api/cron/profit-hunter/route.js", "utf8");
+const hotWatch = readFileSync("src/lib/market-intel-hot-watch.ts", "utf8");
 const vercel = JSON.parse(readFileSync("vercel.json", "utf8"));
 
 assert.match(runner, /const PROFIT_HUNTER_HOURS = Object\.freeze\(\[7, 9, 11, 13, 15, 17, 19, 21\]\)/);
@@ -32,6 +33,15 @@ assert.match(route, /runProfitHunterServerCycle/);
 assert.match(route, /PROFIT_HUNTER_SERVER_CRON_READY/);
 assert.match(route, /maxDuration = 300/);
 
+assert.match(
+  hotWatch,
+  /\.from\("tcos_mi_listings"\)[\s\S]{0,160}\.eq\("listing_status", "active"\)/,
+);
+assert.doesNotMatch(
+  hotWatch,
+  /\.from\("tcos_mi_listings"\)[\s\S]{0,160}\.eq\("status", "active"\)/,
+);
+
 const profitCron = vercel.crons.find(
   (entry) => entry.path === "/api/cron/profit-hunter?perQuery=20",
 );
@@ -53,6 +63,7 @@ console.log(
       exactCompMinimumSales: 2,
       minimumNetRoiPercent: 20,
       approvedReportType: "hourly_deals",
+      hotWatchListingStatusColumn: "listing_status",
       legacyChatGptNetworkDependency: false,
       outcomeRecorderRequired: true,
     },
