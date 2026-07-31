@@ -22,8 +22,8 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: card-sale-identity-enrichment
-  cancel-in-progress: true
+  group: card-sale-identity-enrichment-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   enrich:
@@ -105,4 +105,4 @@ jobs:
           throw new Error(lastError);
           NODE
 
-# Force-deploy production verification: 2026-07-31T16:18:00Z
+# Isolated force-deploy verification: 2026-07-31T16:27:00Z
