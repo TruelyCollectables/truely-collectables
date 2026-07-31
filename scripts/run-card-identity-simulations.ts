@@ -76,6 +76,41 @@ const cases = [
     currentPlayer: null,
     expected: "A.J. Green",
   },
+  {
+    title: "2024 Panini Prizm WWE #6 \"Dirty\" Dominik Mysterio Emergent Mojo Prizms #/25",
+    currentPlayer: null,
+    expected: "Dominik Mysterio",
+  },
+  {
+    title: "2017-18 Ultimate Collection Alex Tuch Ultimate Introductions RC Onyx /25",
+    currentPlayer: null,
+    expected: "Alex Tuch",
+  },
+  {
+    title: "2021 Topps Clearly Authentic Gary Sheffield 1986 Autographs Red /50",
+    currentPlayer: null,
+    expected: "Gary Sheffield",
+  },
+  {
+    title: "2013-14 Totally Certified Nick Van Exel Totally Gold Signatures /3 PSA 9 POP 1",
+    currentPlayer: null,
+    expected: "Nick Van Exel",
+  },
+  {
+    title: "2014 Topps Vault First Edition Blank Back Donovan Solano 1/1 BGS AUTHENTIC 1st",
+    currentPlayer: null,
+    expected: "Donovan Solano",
+  },
+  {
+    title: "2023 Panini One RC Tank Bigsby RPA Premium Patch On Card Auto Gold /10 Jaguars",
+    currentPlayer: null,
+    expected: "Tank Bigsby",
+  },
+  {
+    title: "2024 WWE Prizm Booker T Gold Legendary Signatures Disco Variation /10 Booker-T",
+    currentPlayer: null,
+    expected: "Booker T",
+  },
 ] as const;
 
 for (const testCase of cases) {
