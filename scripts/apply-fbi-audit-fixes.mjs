@@ -10,6 +10,13 @@ function replaceExact(file, before, after, expectedCount = 1) {
   console.log(`PATCH ${file}: ${count} replacement(s)`);
 }
 
+const packageFile = "package.json";
+replaceExact(
+  packageFile,
+  `  "overrides": {\n    "postcss": "8.5.23",`,
+  `  "overrides": {\n    "@hono/node-server": "2.0.5",\n    "postcss": "8.5.23",`,
+);
+
 const shippingFile = "src/lib/shipping.ts";
 replaceExact(
   shippingFile,
@@ -105,4 +112,19 @@ replaceExact(
   1,
 );
 
-console.log("Conservative postage and Standard Envelope machinability fixes applied.");
+const studioFile =
+  "src/app/admin/products/new/AuditedDualMarketplaceListingStudio.tsx";
+replaceExact(
+  studioFile,
+  `<p aria-live="polite" className="mt-4 rounded-2xl border border-emerald-300 bg-emerald-50 p-3 text-sm font-bold text-emerald-900">`,
+  `<p role="status" aria-live="polite" className="mt-4 rounded-2xl border border-emerald-300 bg-emerald-50 p-3 text-sm font-bold text-emerald-900">`,
+);
+
+const adminDashboardFile = "src/app/admin/page.tsx";
+replaceExact(
+  adminDashboardFile,
+  `                    {launchGateDrill.shipping\n                      .standardEnvelopeEvidenceContractReady`,
+  `                    {launchGateDrill.shipping.standardEnvelopeEvidenceContractReady`,
+);
+
+console.log("Complete FBI/CIA audit fix set applied.");
