@@ -19,12 +19,12 @@ for (const allowed of [
   "Moderately Played (Very Good)",
   "Heavily Played (Poor)",
 ]) {
-  assert.ok(source.includes(`\"${allowed}\"`), `Missing exact allowed condition: ${allowed}`);
+  assert.ok(source.includes(`"${allowed}"`), `Missing exact allowed condition: ${allowed}`);
 }
 
 assert.doesNotMatch(
   source,
-  /^\s*\"Good\",?\s*$/m,
+  /^\s*"Good",?\s*$/m,
   "Generic Good must never be accepted because fuzzy eBay matching can overstate it as Very Good.",
 );
 assert.match(
