@@ -8,11 +8,12 @@ export type CardIdentity = {
 
 const HARD_CONTEXT_WORDS = new Set([
   "RC", "ROOKIE", "ROOKIES", "AUTO", "AUTOGRAPH", "AUTOGRAPHS", "AUTOGRAPHED", "SIGNED",
-  "REFRACTOR", "REFRACTORS", "PRIZM", "PRIZMS", "PARALLEL", "INSERT", "PATCH", "RELIC", "JERSEY",
-  "PSA", "BGS", "SGC", "CGC", "HGA", "GEM", "MINT", "NM", "EX", "CARD", "CARDS", "LOT",
-  "SP", "SSP", "NUMBERED", "SERIAL", "EDITION", "COLLECTOR'S", "COLLECTORS", "BASEBALL",
-  "FOOTBALL", "BASKETBALL", "HOCKEY", "SOCCER", "GOLF", "WNBA", "NBA", "NFL", "NHL", "MLB",
-  "NCAA", "TRADING", "SPORT", "SPORTS", "COLLECTIBLE", "COLLECTIBLES", "ROOKIECARD", "ROOKIE-CARD",
+  "SIGNATURE", "SIGNATURES", "REFRACTOR", "REFRACTORS", "PRIZM", "PRIZMS", "PARALLEL",
+  "INSERT", "PATCH", "RELIC", "JERSEY", "RPA", "PSA", "BGS", "SGC", "CGC", "HGA",
+  "GEM", "MINT", "NM", "EX", "CARD", "CARDS", "LOT", "SP", "SSP", "NUMBERED",
+  "SERIAL", "EDITION", "COLLECTOR'S", "COLLECTORS", "BASEBALL", "FOOTBALL", "BASKETBALL",
+  "HOCKEY", "SOCCER", "GOLF", "WNBA", "NBA", "NFL", "NHL", "MLB", "NCAA", "WWE",
+  "TRADING", "SPORT", "SPORTS", "COLLECTIBLE", "COLLECTIBLES", "ROOKIECARD", "ROOKIE-CARD",
   "UPPER", "DECK", "ARTIFACTS", "ARTIFACT", "TOPPS", "PANINI", "FLEER", "DONRUSS", "SCORE",
   "SELECT", "OPTIC", "CONTENDERS", "MOSAIC", "BOWMAN", "STADIUM", "CLUB", "AUTHENTIC", "UD",
   "O-PEE-CHEE", "OPC", "LEAF", "PINNACLE", "PACIFIC", "SKYBOX", "HOOPS", "PRESTIGE",
@@ -20,6 +21,8 @@ const HARD_CONTEXT_WORDS = new Set([
   "CERTIFIED", "ABSOLUTE", "NATIONAL", "TREASURES", "IMMACULATE", "FLAWLESS", "REVOLUTION",
   "ORIGINS", "SPECTRA", "OBSIDIAN", "PHOENIX", "ILLUSIONS", "PLAYOFF", "TICKET", "LEGENDS",
   "MASTERPIECES", "PORTRAITS", "UPDATE", "SERIES", "SET", "COLLECTION", "COLLECTOR",
+  "ULTIMATE", "CLEARLY", "TOTALLY", "VAULT", "FIRST", "BLANK", "BACK", "ONE", "POP",
+  "INTRODUCTIONS", "LEGENDARY", "EMERGENT", "MOJO", "ONYX",
 ]);
 
 const DESCRIPTOR_WORDS = new Set([
@@ -36,11 +39,13 @@ const CONTEXT_PHRASES = new Set([
   "METAL UNIVERSE", "SP AUTHENTIC", "TOPPS CHROME", "BOWMAN CHROME", "PANINI PRIZM",
   "ROOKIE CARD", "COLLECTOR'S EDITION", "COLLECTORS EDITION", "COLOR BLAST", "CRACKED ICE",
   "NO HUDDLE", "FIRST EDITION", "DRAFT PICKS", "PRIZM WNBA", "ARTIFACTS HOCKEY",
+  "ULTIMATE COLLECTION", "CLEARLY AUTHENTIC", "TOTALLY CERTIFIED", "BLANK BACK", "PANINI ONE",
 ]);
 
 const LEADING_CARD_WORDS = new Set([
   "UPPER", "PANINI", "TOPPS", "FLEER", "DONRUSS", "BOWMAN", "LEAF", "SCORE", "SELECT",
   "PRIZM", "OPTIC", "ARTIFACTS", "ARTIFACT", "SKYBOX", "PACIFIC", "PINNACLE", "HOOPS",
+  "ULTIMATE", "TOTALLY", "CLEARLY", "VAULT",
 ]);
 
 const NAME_CONNECTORS = new Set([
@@ -63,6 +68,8 @@ function normalizeToken(token: string) {
 
 function normalizedTokens(value: string) {
   return value
+    .replace(/["“][^"”]+["”]/g, " ")
+    .replace(/["“”]+/g, " ")
     .replace(/[|/&]+/g, " ")
     .replace(/[()[\]{},:;!?]+/g, " ")
     .replace(/\s+/g, " ")
@@ -396,6 +403,7 @@ export function deriveCardIdentity(params: {
 }): CardIdentity {
   const exactTitle = clean(params.title) || "Untitled";
   const titlePlayer = inferPlayerFromCardTitle(exactTitle);
+  const validTitlePlayer = isLikelyPlayerName(titlePlayer);
   const aspectPlayer = clean(params.aspectPlayer);
   const validAspectPlayer = isLikelyPlayerName(aspectPlayer);
   const cardNumber = exactTitle.match(
@@ -417,9 +425,9 @@ export function deriveCardIdentity(params: {
     };
   }
 
-  // A card-number-anchored title wins over polluted values such as
+  // A validated title-derived athlete wins over polluted values such as
   // "Panini WNBA", "Artifacts Hockey", or "Upper Deck".
-  if (titlePlayer) {
+  if (titlePlayer && validTitlePlayer) {
     return {
       player: titlePlayer,
       cardNumber,
