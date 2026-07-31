@@ -1,5 +1,6 @@
 name: Patch Simplified List Build and Mobile Regression
 
+# Retrigger after the workflow definition exists on the branch.
 on:
   push:
     branches: [agent/simplified-list-route]
