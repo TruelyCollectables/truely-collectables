@@ -68,3 +68,5 @@ jobs:
 
       - name: Backfill player and exact sale identities
         run: node --env-file=.env.production.local scripts/backfill-card-sale-identities.mjs
+
+# Observable green-run request: 2026-07-31T15:38:00Z
