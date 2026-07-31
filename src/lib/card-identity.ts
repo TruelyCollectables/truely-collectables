@@ -7,11 +7,15 @@ export type CardIdentity = {
 };
 
 const STOP_WORDS = new Set([
-  "RC", "ROOKIE", "ROOKIES", "AUTO", "AUTOGRAPH", "AUTOGRAPHED", "SIGNED",
+  "RC", "ROOKIE", "ROOKIES", "AUTO", "AUTOGRAPH", "AUTOGRAPHS", "AUTOGRAPHED", "SIGNED",
   "REFRACTOR", "PRIZM", "PARALLEL", "INSERT", "PATCH", "RELIC", "JERSEY",
   "PSA", "BGS", "SGC", "CGC", "HGA", "GEM", "MINT", "NM", "EX", "CARD",
   "CARDS", "LOT", "SP", "SSP", "NUMBERED", "SERIAL", "EDITION", "COLLECTOR'S",
   "COLLECTORS", "BASEBALL", "FOOTBALL", "BASKETBALL", "HOCKEY", "SOCCER", "GOLF",
+  "CRYSTAL", "TRADITIONS", "VARIATION", "FOIL", "CHROME", "SILVER", "GOLD", "RED",
+  "BLUE", "GREEN", "PURPLE", "ORANGE", "BLACK", "WHITE", "PINK", "YELLOW", "WAVE",
+  "PULSAR", "SCOPE", "MOSAIC", "HOLO", "DIE-CUT", "DIECUT", "BASE", "SHORT", "PRINT",
+  "REF", "REFRACTORS", "PRIZMS", "ROOKIECARD", "ROOKIE-CARD",
 ]);
 
 function clean(value: unknown) {
@@ -21,16 +25,28 @@ function clean(value: unknown) {
 function titleCaseName(value: string) {
   return value
     .split(/\s+/)
-    .map((part) => part ? part.charAt(0).toUpperCase() + part.slice(1).toLowerCase() : part)
+    .map((part) => {
+      if (!part) return part;
+      if (/^(II|III|IV|JR\.?|SR\.?)$/i.test(part)) return part.toUpperCase().replace("JR.", "Jr.").replace("SR.", "Sr.");
+      return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
+    })
     .join(" ")
     .replace(/\b(Mc)([a-z])/g, (_, prefix, letter) => `${prefix}${letter.toUpperCase()}`)
     .replace(/\b(O')([a-z])/g, (_, prefix, letter) => `${prefix}${letter.toUpperCase()}`);
 }
 
+function candidateTitleSection(title: string) {
+  const cleaned = clean(title);
+  const afterNumber = cleaned.match(/(?:^|\s)#\s*[A-Z0-9.-]+\s+(.+)$/i)?.[1];
+  if (afterNumber) return afterNumber;
+
+  return cleaned
+    .replace(/^\s*(?:19|20)\d{2}(?:-\d{2,4})?\s+/, "")
+    .replace(/^\s*#?[A-Z0-9-]+\s+/i, "");
+}
+
 export function inferPlayerFromCardTitle(title: string): string | null {
-  const normalized = clean(title)
-    .replace(/^\s*#?[A-Z0-9-]+\s+/i, "")
-    .replace(/^\s*(?:19|20)\d{2}(?:-\d{2})?\s+/, "")
+  const normalized = candidateTitleSection(title)
     .replace(/[|/]/g, " ")
     .replace(/[()[\]{}.,:;!?]+/g, " ")
     .replace(/\s+/g, " ")
@@ -62,8 +78,8 @@ export function deriveCardIdentity(params: {
 }): CardIdentity {
   const exactTitle = clean(params.title) || "Untitled";
   const aspectPlayer = clean(params.aspectPlayer);
-  const cardNumber = exactTitle.match(/(?:^|\s)#([A-Z0-9-]+)/i)?.[1] ?? null;
-  const year = exactTitle.match(/(?:^|\s)((?:19|20)\d{2}(?:-\d{2})?)(?:\s|$)/)?.[1] ?? null;
+  const cardNumber = exactTitle.match(/(?:^|\s)#\s*([A-Z0-9.-]+)/i)?.[1] ?? null;
+  const year = exactTitle.match(/(?:^|\s)((?:19|20)\d{2}(?:-\d{2,4})?)(?:\s|$)/)?.[1] ?? null;
 
   if (aspectPlayer) {
     return { player: aspectPlayer, cardNumber, year, exactTitle, confidence: "aspect" };
