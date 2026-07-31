@@ -6,6 +6,10 @@ on:
     paths:
       - "src/app/admin/instacomp/mobile/**"
       - "src/app/api/internal/instacomp-mobile-live-verify/**"
+      - "src/app/list/**"
+      - "src/app/api/admin/simple-list-drafts/**"
+      - "src/app/admin/products/new/page.tsx"
+      - "src/app/admin/page.tsx"
       - ".github/workflows/verify-instacomp-mobile-release-pr.yml"
 
 permissions:
@@ -41,6 +45,13 @@ jobs:
           grep -F 'Current listings (' src/app/admin/instacomp/mobile/MobileInstaCompScanner.tsx
           grep -F 'Approx total' src/app/admin/instacomp/mobile/MobileInstaCompScanner.tsx
           ! grep -Fq 'InstaComp™ Auto-Pilot' src/app/admin/instacomp/mobile/page.tsx
+          grep -F 'SimpleListIntake' src/app/list/page.tsx
+          grep -F 'SimpleListingQueue' src/app/list/page.tsx
+          grep -F 'isValidAdminSessionValue' src/app/list/layout.tsx
+          grep -F 'redirect("/list")' src/app/admin/products/new/page.tsx
+          grep -F 'href: "/list"' src/app/admin/page.tsx
+          grep -F 'Run InstaComp™ on Selected' src/app/list/SimpleListIntake.tsx
+          grep -F 'Yes, list selected cards' src/app/list/SimpleListingQueue.tsx
 
       - name: Link Vercel project
         run: |
@@ -88,6 +99,37 @@ jobs:
           console.log('LIVE_INSTACOMP_MOBILE=passed');
           console.log('LIVE_CARD_STUDIO=passed');
           NODE
+
+      - name: Verify protected List Cards route live
+        run: |
+          set -euo pipefail
+          code=""
+          location=""
+          for attempt in $(seq 1 24); do
+            rm -f "$RUNNER_TEMP/list-headers.txt" "$RUNNER_TEMP/list-body.html"
+            code="$(curl -sS --max-time 120 -o "$RUNNER_TEMP/list-body.html" -D "$RUNNER_TEMP/list-headers.txt" -w '%{http_code}' -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' -A 'TCOSListReleaseAudit/1.0' "$PRODUCTION_ORIGIN/list?attempt=$attempt&sha=$GITHUB_SHA")"
+            location="$(awk 'BEGIN{IGNORECASE=1} /^location:/ {sub(/\r$/, ""); print substr($0, index($0, ":") + 2); exit}' "$RUNNER_TEMP/list-headers.txt")"
+            if { [ "$code" = "302" ] || [ "$code" = "303" ] || [ "$code" = "307" ] || [ "$code" = "308" ]; } && printf '%s' "$location" | grep -Eiq '/admin/login\?next=%2[fF]list'; then
+              break
+            fi
+            if [ "$code" = "200" ] && grep -Fq 'Admin password' "$RUNNER_TEMP/list-body.html"; then
+              break
+            fi
+            sleep 10
+          done
+          echo "LIVE_LIST_HTTP_STATUS=$code"
+          echo "LIVE_LIST_LOCATION=$location"
+          if [ "$code" = "200" ]; then
+            grep -F 'Admin password' "$RUNNER_TEMP/list-body.html"
+          else
+            case "$code" in
+              302|303|307|308) ;;
+              *) echo "Unexpected /list status: $code"; exit 1 ;;
+            esac
+            printf '%s' "$location" | grep -Eiq '/admin/login\?next=%2[fF]list'
+          fi
+          echo 'LIVE_LIST_ROUTE=passed'
+          echo 'LIVE_LIST_PASSWORD_BOUNDARY=passed'
 
       - name: Remove temporary verification secret
         if: always()
