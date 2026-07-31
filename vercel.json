@@ -44,6 +44,10 @@
       "schedule": "0 14 * * *"
     },
     {
+      "path": "/api/cron/market-intel/reports/daily-catchup",
+      "schedule": "25 15,17 * * *"
+    },
+    {
       "path": "/api/cron/ebay-order-sale-sync?lookbackDays=2",
       "schedule": "*/5 * * * *"
     },
