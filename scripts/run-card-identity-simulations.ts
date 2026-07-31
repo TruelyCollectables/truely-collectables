@@ -136,6 +136,16 @@ const cases = [
     currentPlayer: "Blue Ref",
     expected: "Sandy Alcantara",
   },
+  {
+    title: "2014 Bowman Draft Blake Anderson Tyler Kolek Dual Draftees Autographs /25",
+    currentPlayer: "Blake Anderson",
+    expected: "Blake Anderson / Tyler Kolek",
+  },
+  {
+    title: "2013 Bowman Platinum Prospects Justin Nicolino Superfractor /1 BGS 9.5 Non Auto",
+    currentPlayer: "Platinum Prospects",
+    expected: "Justin Nicolino",
+  },
 ] as const;
 
 for (const testCase of cases) {
@@ -162,16 +172,18 @@ assert.equal(isLikelyPlayerName("Fleer Shaquille O'Neal"), false);
 assert.equal(isLikelyPlayerName("Caitlin Clark Fractal"), false);
 assert.equal(isLikelyPlayerName("Reigning Nights"), false);
 assert.equal(isLikelyPlayerName("Blue Ref"), false);
+assert.equal(isLikelyPlayerName("Platinum Prospects"), false);
 assert.equal(isLikelyPlayerName("Caitlin Clark"), true);
 assert.equal(isLikelyPlayerName("Mark Stone"), true);
 assert.equal(isLikelyPlayerName("Trae Young"), true);
 assert.equal(isLikelyPlayerName("Elly De La Cruz"), true);
 assert.equal(isLikelyPlayerName("Ed Marinaro"), true);
+assert.equal(isLikelyPlayerName("Blake Anderson / Tyler Kolek"), true);
 
 console.log(
   JSON.stringify({
     success: true,
     casesChecked: cases.length,
-    pollutedValuesRejected: 7,
+    pollutedValuesRejected: 8,
   }),
 );
