@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
+// This contract change intentionally triggers the Production workflow after the
+// independent workflow-result recorder is present on main.
 const runner = readFileSync("src/lib/profit-hunter-server-run.js", "utf8");
 const route = readFileSync("src/app/api/cron/profit-hunter/route.js", "utf8");
 const vercel = JSON.parse(readFileSync("vercel.json", "utf8"));
@@ -46,6 +48,7 @@ console.log(
       exactCompMinimumSales: 2,
       minimumNetRoiPercent: 20,
       legacyChatGptNetworkDependency: false,
+      outcomeRecorderRequired: true,
     },
     null,
     2,
