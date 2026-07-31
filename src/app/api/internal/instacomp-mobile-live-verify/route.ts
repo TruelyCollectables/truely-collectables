@@ -166,9 +166,10 @@ export async function GET(request: Request) {
         },
       },
       {
-        status: ok ? 200 : 500,
+        status: 200,
         headers: {
           "Cache-Control": "no-store, max-age=0",
+          "X-TCOS-Diagnostic-Only": ok ? "false" : "true",
         },
       },
     );
