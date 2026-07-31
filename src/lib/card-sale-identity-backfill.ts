@@ -38,6 +38,23 @@ async function readAll<T>(queryFactory: (from: number, to: number) => PromiseLik
   }
 }
 
+function normalizePlayer(value: unknown) {
+  return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
+}
+
+function shouldRepairPlayer(currentPlayer: string, derivedPlayer: string | null) {
+  if (!derivedPlayer) return false;
+  if (!currentPlayer || currentPlayer.toLowerCase() === "not cataloged") return true;
+
+  const current = currentPlayer.toLowerCase();
+  const derived = derivedPlayer.toLowerCase();
+  if (current === derived) return false;
+
+  // Repairs prior title-derived values that accidentally included a card brand/set
+  // before the actual player name, such as "Fleer Shaquille O'Neal".
+  return current.endsWith(` ${derived}`);
+}
+
 export async function backfillCardSaleIdentities(params: {
   supabase: SupabaseClient;
   storeId: string;
@@ -69,13 +86,18 @@ export async function backfillCardSaleIdentities(params: {
   let unresolved = 0;
 
   for (const product of products) {
+    const title = product.title || "Untitled";
+    const currentPlayer = normalizePlayer(product.player);
+    const titleIdentity = deriveCardIdentity({ title });
+    const repairPlayer = shouldRepairPlayer(currentPlayer, titleIdentity.player);
     const identity = deriveCardIdentity({
-      title: product.title || "Untitled",
-      aspectPlayer: product.player,
+      title,
+      aspectPlayer: repairPlayer ? undefined : currentPlayer,
     });
+
     if (!identity.player) unresolved += 1;
 
-    if (!product.player?.trim() && identity.player) {
+    if (repairPlayer && identity.player) {
       const { error } = await params.supabase
         .from("products")
         .update({ player: identity.player })
