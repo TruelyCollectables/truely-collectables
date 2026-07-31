@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { backfillCardSaleIdentities } from "../../../../lib/card-sale-identity-backfill";
+import {
+  backfillCardSaleIdentities,
+  CARD_IDENTITY_BACKFILL_REVISION,
+} from "../../../../lib/card-sale-identity-backfill";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 
@@ -33,6 +36,14 @@ async function authorized(request: Request) {
 async function run(request: Request) {
   if (!(await authorized(request))) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+  }
+
+  const url = new URL(request.url);
+  if (url.searchParams.get("revision") === "1") {
+    return NextResponse.json({
+      success: true,
+      revision: CARD_IDENTITY_BACKFILL_REVISION,
+    });
   }
 
   try {
