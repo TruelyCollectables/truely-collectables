@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-// Manual Production deployment trigger: 2026-07-31 08:58 America/Denver.
-// This contract change intentionally triggers the Production workflow after the
-// Vercel project-link ordering fix and independent workflow-result recorder.
+// Production deployment trigger: 2026-07-31 after the approved hourly_deals
+// report-type repair. This connector-authored commit intentionally launches the
+// deploy-and-force-run workflow; bot-authored repair commits do not trigger it.
 const runner = readFileSync("src/lib/profit-hunter-server-run.js", "utf8");
 const route = readFileSync("src/app/api/cron/profit-hunter/route.js", "utf8");
 const vercel = JSON.parse(readFileSync("vercel.json", "utf8"));
@@ -19,10 +19,14 @@ assert.match(runner, /getMarketIntelDealWorkbench/);
 assert.match(runner, /expectedNetRoiPercent >= 20/);
 assert.match(runner, /Number\(deal\.exactSoldCount \|\| 0\) >= 2/);
 assert.match(runner, /maximumDeliveredCostFor20PercentRoi/);
+assert.match(runner, /const reportType = "hourly_deals";/);
+assert.match(runner, /\.eq\("report_type", "hourly_deals"\)/);
+assert.doesNotMatch(runner, /profit_hunter_cycle_/);
 assert.match(runner, /vercel_server_cron/);
 assert.doesNotMatch(runner, /fetch\([\s\S]{0,100}truelycollectables\.com/i);
 
 assert.match(route, /isAuthorizedMarketIntelIngest/);
+assert.match(route, /PROFIT_HUNTER_RUN_SECRET/);
 assert.match(route, /OUTSIDE_PROFIT_HUNTER_MOUNTAIN_SCHEDULE/);
 assert.match(route, /runProfitHunterServerCycle/);
 assert.match(route, /PROFIT_HUNTER_SERVER_CRON_READY/);
@@ -48,6 +52,7 @@ console.log(
       expectedNativeFamilies: 51,
       exactCompMinimumSales: 2,
       minimumNetRoiPercent: 20,
+      approvedReportType: "hourly_deals",
       legacyChatGptNetworkDependency: false,
       outcomeRecorderRequired: true,
     },
