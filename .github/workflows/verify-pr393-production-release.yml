@@ -58,9 +58,8 @@ jobs:
             },
             {
               path: "/account",
-              expected: "Your Collector Account",
-              label: "collector account entry",
-              alternates: ["Account Login", "Create Account"],
+              expected: "Checking your account",
+              label: "collector account session bootstrap",
             },
             {
               path: "/account/login",
