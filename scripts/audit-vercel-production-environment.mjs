@@ -54,6 +54,22 @@ function normalizeVercelScope(value) {
   return trimmed;
 }
 
+function normalizeVercelProject(value) {
+  const trimmed = String(value).trim();
+  if (
+    !trimmed ||
+    trimmed.startsWith("-") ||
+    trimmed.length > 100 ||
+    /[\s/\\:?#@.]/.test(trimmed) ||
+    !/^[a-z\d](?:[a-z\d-]*[a-z\d])?$/.test(trimmed)
+  ) {
+    throw new Error(
+      "VERCEL_PROJECT_NAME must be a simple lowercase Vercel project slug using only letters, numbers, and hyphens.",
+    );
+  }
+  return trimmed;
+}
+
 function redactSecrets(text) {
   return String(text)
     .replace(/\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9_=-]{8,}\b/g, "[redacted-stripe-secret]")
@@ -88,11 +104,12 @@ function auditEnvironmentListing(output, requiredKeys = requiredProductionKeys) 
   };
 }
 
-function buildPayload(audit, scope) {
+function buildPayload(audit, scope, linkedProject) {
   return {
-    schema: "tcos.vercelProductionEnvironmentAudit.v2",
+    schema: "tcos.vercelProductionEnvironmentAudit.v3",
     generatedAt: new Date().toISOString(),
     scope,
+    linkedProject,
     environment: "production",
     requiredCount: requiredProductionKeys.length,
     configuredCount: audit.configured.length,
@@ -106,8 +123,61 @@ function buildPayload(audit, scope) {
       ? "Production environment names are staged. Continue normal launch verification; do not deploy until the final launch window."
       : `Add the missing Production environment variable name${audit.missing.length === 1 ? "" : "s"} in Vercel before production deployment.`,
     readOnlyGuarantee:
-      "This audit lists Vercel Production environment variable names only. It does not pull, print, write, update, or remove values; start a build or deployment; change aliases; open Checkout; buy postage; approve launch; or change runtime switches.",
+      "This audit may create local .vercel project-link metadata when CI starts from a clean checkout. It lists Vercel Production environment variable names only and does not pull, print, write, update, or remove remote values; start a build or deployment; change aliases; open Checkout; buy postage; approve launch; or change runtime switches.",
   };
+}
+
+function runPinnedVercel(args) {
+  return spawnSync(
+    "npm",
+    [
+      "--prefix",
+      vercelCliCacheDir,
+      "exec",
+      "--yes",
+      `--package=${vercelCliPackage}`,
+      "--",
+      "vercel",
+      "--cwd",
+      process.cwd(),
+      ...args,
+    ],
+    {
+      encoding: "utf8",
+      shell: process.platform === "win32",
+    },
+  );
+}
+
+function ensureVercelProjectLink({ scope, project }) {
+  const linkFile = path.join(process.cwd(), ".vercel", "project.json");
+  if (fs.existsSync(linkFile)) return false;
+
+  const token = String(process.env.VERCEL_TOKEN || "").trim();
+  if (!token) {
+    throw new Error(
+      "The checkout is not linked to Vercel and VERCEL_TOKEN is unavailable, so the Production environment audit cannot establish the local project link.",
+    );
+  }
+
+  const result = runPinnedVercel([
+    "link",
+    "--yes",
+    "--project",
+    project,
+    "--scope",
+    scope,
+    "--token",
+    token,
+    "--no-color",
+  ]);
+  const output = `${result.stdout || ""}${result.stderr || ""}`;
+  if (result.status !== 0 || !fs.existsSync(linkFile)) {
+    throw new Error(
+      `Could not establish the local Vercel project link with command-pinned Vercel CLI ${vercelCliVersion}. No deployment was started. Diagnostic: ${diagnosticSnippet(output)}`,
+    );
+  }
+  return true;
 }
 
 function runSelfTest() {
@@ -161,8 +231,23 @@ function runSelfTest() {
     }
   }
 
+  for (const invalidProject of ["", "--prod", "Project.Name", "team/project"]) {
+    try {
+      normalizeVercelProject(invalidProject);
+      throw new Error(`Project self-test accepted invalid value: ${invalidProject}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        message.includes("accepted invalid value") ||
+        !message.includes("VERCEL_PROJECT_NAME")
+      ) {
+        throw error;
+      }
+    }
+  }
+
   console.log(
-    "Vercel production environment audit self-test passed: exact-name matching, complete launch-variable coverage, missing service-role detection, and scope validation are fail closed.",
+    "Vercel production environment audit self-test passed: exact-name matching, complete launch-variable coverage, missing service-role detection, scope validation, and project-name validation are fail closed.",
   );
 }
 
@@ -174,31 +259,19 @@ if (selfTest) {
 const scope = normalizeVercelScope(
   process.env.VERCEL_SCOPE ?? "truelycollectables-projects",
 );
-fs.mkdirSync(vercelCliCacheDir, { recursive: true });
-const result = spawnSync(
-  "npm",
-  [
-    "--prefix",
-    vercelCliCacheDir,
-    "exec",
-    "--yes",
-    `--package=${vercelCliPackage}`,
-    "--",
-    "vercel",
-    "--cwd",
-    process.cwd(),
-    "env",
-    "ls",
-    "production",
-    "--scope",
-    scope,
-    "--no-color",
-  ],
-  {
-    encoding: "utf8",
-    shell: process.platform === "win32",
-  },
+const project = normalizeVercelProject(
+  process.env.VERCEL_PROJECT_NAME ?? "truely-collectables",
 );
+fs.mkdirSync(vercelCliCacheDir, { recursive: true });
+const linkedLocally = ensureVercelProjectLink({ scope, project });
+const result = runPinnedVercel([
+  "env",
+  "ls",
+  "production",
+  "--scope",
+  scope,
+  "--no-color",
+]);
 const output = `${result.stdout || ""}${result.stderr || ""}`;
 
 if (result.status !== 0) {
@@ -208,13 +281,16 @@ if (result.status !== 0) {
 }
 
 const audit = auditEnvironmentListing(output);
-const payload = buildPayload(audit, scope);
+const payload = buildPayload(audit, scope, project);
+payload.localProjectLinkCreated = linkedLocally;
 
 if (jsonOutput) {
   console.log(JSON.stringify(payload, null, 2));
 } else {
   console.log("Vercel Production environment audit:");
   console.log(`- scope: ${payload.scope}`);
+  console.log(`- linked project: ${payload.linkedProject}`);
+  console.log(`- local project link created: ${payload.localProjectLinkCreated ? "yes" : "no"}`);
   console.log(`- environment: ${payload.environment}`);
   console.log(
     `- required names found: ${payload.configuredCount}/${payload.requiredCount}`,
