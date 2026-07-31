@@ -349,7 +349,7 @@ async function hotTargets(maxSubjects: number, maxIdentities: number) {
       supabase
         .from("tcos_mi_listings")
         .select("collectible_identity_id,suspected_mislisting")
-        .eq("status", "active")
+        .eq("listing_status", "active")
         .eq("suspected_mislisting", true)
         .in("collectible_identity_id", identityIds),
     ]);
