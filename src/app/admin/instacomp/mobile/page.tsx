@@ -5,9 +5,9 @@ import InstaCompScanner from "../InstaCompScanner";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Mobile InstaComp Scan | Truely Collectables",
+  title: "InstaComp Mobile | Truely Collectables",
   description:
-    "Phone-first InstaComp workspace for scanning, identifying, comping, and pricing trading cards.",
+    "Phone-first InstaComp workspace for scanning, comping, editing, and preparing trading cards for listing.",
   robots: {
     index: false,
     follow: false,
@@ -22,6 +22,29 @@ export const viewport: Viewport = {
   themeColor: "#0a0a0a",
 };
 
+const workflow = [
+  {
+    step: "1",
+    title: "Add card photos",
+    detail: "Use your phone camera for front, back, serial, autograph, patch, or grading-label images.",
+  },
+  {
+    step: "2",
+    title: "Run current InstaComp",
+    detail: "The page uses the same live InstaComp scanner and API as the main lab, including every future engine update.",
+  },
+  {
+    step: "3",
+    title: "Review market evidence",
+    detail: "Check sold comps separately from current listings, including the prices and marketplace links returned by the live providers.",
+  },
+  {
+    step: "4",
+    title: "Edit and prepare listing",
+    detail: "Correct the title, player, year, brand, set, card number, parallel, serial, sport, team, condition, quantity, and price before creating the website draft.",
+  },
+];
+
 export default function MobileInstaCompPage() {
   return (
     <main className="min-h-dvh bg-neutral-100 pb-[max(1rem,env(safe-area-inset-bottom))] text-neutral-950">
@@ -29,7 +52,7 @@ export default function MobileInstaCompPage() {
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-cyan-300">
-              Phone scan workspace
+              Scan → comp → edit → draft
             </p>
             <h1 className="truncate text-xl font-black tracking-tight">
               InstaComp™ Mobile
@@ -48,12 +71,40 @@ export default function MobileInstaCompPage() {
       <div className="mx-auto max-w-3xl px-3 py-3 sm:px-4">
         <section className="mb-3 rounded-2xl border border-cyan-200 bg-cyan-50 p-4 shadow-sm">
           <p className="text-xs font-black uppercase tracking-[0.16em] text-cyan-800">
-            Scan from your phone
+            Add cards from your phone
           </p>
           <p className="mt-1 text-sm font-semibold leading-5 text-cyan-950">
-            Take clear front and back photos, add detail shots for serial numbers,
-            autographs, patches, or grading labels, then run InstaComp to identify
-            the exact card and pull pricing evidence.
+            Photograph a card, run the latest InstaComp identification and comp search, review sold and active market evidence, edit the listing fields, and create a website-ready draft.
+          </p>
+        </section>
+
+        <section className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {workflow.map((item) => (
+            <article
+              key={item.step}
+              className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm"
+            >
+              <div className="flex items-start gap-3">
+                <span className="grid size-8 shrink-0 place-items-center rounded-full bg-neutral-950 text-sm font-black text-white">
+                  {item.step}
+                </span>
+                <div>
+                  <h2 className="font-black">{item.title}</h2>
+                  <p className="mt-1 text-sm font-semibold leading-5 text-neutral-600">
+                    {item.detail}
+                  </p>
+                </div>
+              </div>
+            </article>
+          ))}
+        </section>
+
+        <section className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
+          <p className="text-xs font-black uppercase tracking-[0.16em] text-amber-800">
+            Market totals
+          </p>
+          <p className="mt-1 text-sm font-semibold leading-5 text-amber-950">
+            Sold results and current listings remain separate. Use sold totals for market value; use current listing prices as availability evidence. When a provider supplies shipping, the displayed marketplace total should be treated as item price plus shipping; otherwise it remains an approximate item-price comparison.
           </p>
         </section>
 
