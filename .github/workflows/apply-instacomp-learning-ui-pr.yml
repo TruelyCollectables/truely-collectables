@@ -37,14 +37,17 @@ jobs:
         run: |
           python <<'PY'
           from pathlib import Path
-          import textwrap
 
           workflow = Path('.github/workflows/apply-instacomp-learning-ui.yml').read_text()
           opening = "          python <<'PY'\n"
           closing = "\n          PY\n"
           start = workflow.index(opening) + len(opening)
           end = workflow.index(closing, start)
-          script = textwrap.dedent(workflow[start:end])
+          raw = workflow[start:end]
+          script = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in raw.splitlines()
+          )
           exec(compile(script, 'apply-instacomp-learning-ui.py', 'exec'))
           PY
 
