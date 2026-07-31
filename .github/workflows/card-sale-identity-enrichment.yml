@@ -29,6 +29,8 @@ jobs:
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_SCOPE: truelycollectables-projects
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
     steps:
       - name: Check out current main
         uses: actions/checkout@v4
@@ -70,9 +72,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          set -a
-          source .env.production.local
-          set +a
+          test -n "${NEXT_PUBLIC_SUPABASE_URL:-}"
+          test -n "${SUPABASE_SERVICE_ROLE_KEY:-}"
           node scripts/backfill-card-sale-identities.mjs
 
-# Observable green-run request: 2026-07-31T15:41:00Z
+# Observable green-run request: 2026-07-31T15:44:00Z
