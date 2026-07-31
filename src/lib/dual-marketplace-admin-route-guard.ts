@@ -106,8 +106,8 @@ async function listingRows(request: Request) {
   return Array.isArray(data?.rows) ? (data.rows as UnknownRecord[]) : [];
 }
 
-function normalizeReconciliationRow(row: UnknownRecord) {
-  const normalizedRow = {
+function normalizeReconciliationRow(row: UnknownRecord): UnknownRecord {
+  const normalizedRow: UnknownRecord = {
     ...row,
     cardCondition: editorCondition(row),
   };
@@ -199,7 +199,7 @@ export async function handleGuardedDualMarketplacePost(request: Request) {
   }
 
   const currentRows = await listingRows(request);
-  const rowsById = new Map(
+  const rowsById = new Map<string, UnknownRecord>(
     currentRows.map((row) => [text(row.inventoryItemId), normalizeReconciliationRow(row)]),
   );
   data.errors = data.errors.map((rawError: unknown) => {
