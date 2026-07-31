@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import {
   ACCOUNT_SESSION_CHANGE_EVENT,
   getAccountSession,
@@ -12,6 +13,7 @@ import {
 const REFRESH_AHEAD_SECONDS = 5 * 60;
 const MIN_RETRY_MS = 15_000;
 const MAX_TIMER_MS = 2_147_000_000;
+const PUBLIC_ACCOUNT_ROUTES = new Set(["/account/login", "/account/signup"]);
 
 function sessionVersion(session: StoredAccountSession | null) {
   if (!session?.access_token) return "guest";
@@ -38,10 +40,14 @@ export default function AccountSessionBoundary({
 }: {
   children: ReactNode;
 }) {
+  const pathname = usePathname();
+  const isPublicAccountRoute = PUBLIC_ACCOUNT_ROUTES.has(pathname);
   const [ready, setReady] = useState(false);
   const [version, setVersion] = useState("initial");
 
   useEffect(() => {
+    if (isPublicAccountRoute) return;
+
     let cancelled = false;
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -110,7 +116,11 @@ export default function AccountSessionBoundary({
       window.removeEventListener("focus", handleWindowFocus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, []);
+  }, [isPublicAccountRoute]);
+
+  if (isPublicAccountRoute) {
+    return <div className="contents">{children}</div>;
+  }
 
   if (!ready) {
     return (
