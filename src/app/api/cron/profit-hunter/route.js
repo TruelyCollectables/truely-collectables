@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { isAuthorizedMarketIntelIngest } from "../../../../lib/market-intel-ingestion";
 import {
@@ -32,6 +33,39 @@ function json(payload, status = 200) {
   });
 }
 
+function secureEqual(left, right) {
+  const leftBuffer = Buffer.from(String(left || ""));
+  const rightBuffer = Buffer.from(String(right || ""));
+  if (leftBuffer.length !== rightBuffer.length) return false;
+  return timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function isAuthorizedProfitHunterCron(request) {
+  if (isAuthorizedMarketIntelIngest(request)) return true;
+
+  const authorization = request.headers.get("authorization") || "";
+  const bearer = authorization.toLowerCase().startsWith("bearer ")
+    ? authorization.slice(7).trim()
+    : "";
+  const supplied = (
+    request.headers.get("x-market-intel-key") || bearer
+  ).trim();
+  if (!supplied) return false;
+
+  const configuredSecrets = Array.from(
+    new Set(
+      [
+        process.env.MARKET_INTEL_INGEST_SECRET,
+        process.env.CRON_SECRET,
+      ]
+        .map((value) => String(value || "").trim())
+        .filter(Boolean),
+    ),
+  );
+
+  return configuredSecrets.some((secret) => secureEqual(secret, supplied));
+}
+
 async function run(request) {
   const schedule = getProfitHunterScheduleState();
   const statusOnly = request.nextUrl.searchParams.get("statusOnly") === "1";
@@ -46,7 +80,7 @@ async function run(request) {
     });
   }
 
-  if (!isAuthorizedMarketIntelIngest(request)) {
+  if (!isAuthorizedProfitHunterCron(request)) {
     return json(
       {
         ok: false,
