@@ -4,6 +4,7 @@ import type { ChecklistSourceStorageReceipt } from "./storage";
 export type ChecklistSourceAuthority =
   | "official_manufacturer"
   | "approved_distributor"
+  | "approved_dataset"
   | "manual_official_file";
 
 export type ChecklistSourceArtifact = {
@@ -34,6 +35,7 @@ export type ChecklistImportSet = {
     | "autograph"
     | "memorabilia"
     | "other";
+  metadata?: Record<string, unknown>;
 };
 
 export type ChecklistImportCard = {
@@ -48,6 +50,7 @@ export type ChecklistImportCard = {
   memorabiliaStatus: string;
   variation: string | null;
   sourceNotes: string | null;
+  metadata?: Record<string, unknown>;
 };
 
 export type ChecklistImportParallel = {
@@ -56,6 +59,7 @@ export type ChecklistImportParallel = {
   name: string;
   serialRun: number | null;
   configurationExclusivity: string | null;
+  metadata?: Record<string, unknown>;
 };
 
 export type ChecklistImportIdentity = {
@@ -76,6 +80,7 @@ export type ChecklistImportPlan = {
     privateArchiveRequired: true;
     normalizedFactsInternalOnly: true;
     storage: ChecklistSourceStorageReceipt;
+    metadata?: Record<string, unknown>;
   };
   release: {
     manufacturer: string;
@@ -86,6 +91,7 @@ export type ChecklistImportPlan = {
     sport: string;
     league: string | null;
     releaseSlug: string;
+    metadata?: Record<string, unknown>;
   };
   sets: ChecklistImportSet[];
   cards: ChecklistImportCard[];

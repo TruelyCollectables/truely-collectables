@@ -8,8 +8,12 @@ on:
       - "supabase/migrations/20260725_tcos_checklist_registry_core.sql"
       - "supabase/migrations/20260725_tcos_checklist_source_storage.sql"
       - "supabase/migrations/20260731161500_checklist_registry_transactional_writer.sql"
+      - "supabase/migrations/20260731174500_checklist_registry_metadata_writer_v2.sql"
       - "src/lib/checklist-registry/**"
       - "src/lib/instacomp-learning-server.ts"
+      - "scripts/build-pokemon-tcg-registry-snapshots.ts"
+      - "scripts/run-checklist-registry-pokemon-tcg-simulations.ts"
+      - "scripts/fixtures/checklist-registry/pokemon-tcg-repository.fixture.json"
       - "scripts/write-checklist-registry-integration-plan.ts"
       - "scripts/verify-instacomp-learning-registry.sql"
       - ".github/workflows/instacomp-learning-registry-postgres.yml"
@@ -47,6 +51,7 @@ jobs:
       REGISTRY_CORE_MIGRATION: supabase/migrations/20260725_tcos_checklist_registry_core.sql
       REGISTRY_STORAGE_MIGRATION: supabase/migrations/20260725_tcos_checklist_source_storage.sql
       REGISTRY_WRITER_MIGRATION: supabase/migrations/20260731161500_checklist_registry_transactional_writer.sql
+      REGISTRY_METADATA_WRITER_MIGRATION: supabase/migrations/20260731174500_checklist_registry_metadata_writer_v2.sql
 
     steps:
       - uses: actions/checkout@v4
@@ -57,6 +62,9 @@ jobs:
           cache: npm
 
       - run: npm ci
+
+      - name: Verify Pokémon TCG repository adapter
+        run: npx tsx scripts/run-checklist-registry-pokemon-tcg-simulations.ts
 
       - name: Generate a validated official checklist import plan
         run: |
@@ -147,6 +155,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 --file "$REGISTRY_CORE_MIGRATION"
           psql -v ON_ERROR_STOP=1 --file "$REGISTRY_STORAGE_MIGRATION"
           psql -v ON_ERROR_STOP=1 --file "$REGISTRY_WRITER_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$REGISTRY_METADATA_WRITER_MIGRATION"
 
       - name: Reapply additive migrations to prove idempotence
         run: |
@@ -154,6 +163,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 --file "$REGISTRY_CORE_MIGRATION"
           psql -v ON_ERROR_STOP=1 --file "$REGISTRY_STORAGE_MIGRATION"
           psql -v ON_ERROR_STOP=1 --file "$REGISTRY_WRITER_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$REGISTRY_METADATA_WRITER_MIGRATION"
 
       - name: Verify learning, trust, cache, backfill, and Registry transactions
         run: psql -v ON_ERROR_STOP=1 --file scripts/verify-instacomp-learning-registry.sql
