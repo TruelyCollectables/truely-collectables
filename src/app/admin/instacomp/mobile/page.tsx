@@ -58,8 +58,8 @@ export default function MobileInstaCompPage() {
         <MobileInstaCompScanner />
 
         <nav className="mt-4 grid grid-cols-2 gap-3" aria-label="InstaComp shortcuts">
-          <Link href="/admin/products/new" className="rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-center text-sm font-black shadow-sm">
-            Card Studio
+          <Link href="/list" className="rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-center text-sm font-black shadow-sm">
+            List Cards
           </Link>
           <Link href="/admin/products" className="rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-center text-sm font-black shadow-sm">
             Products
