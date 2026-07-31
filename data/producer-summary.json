@@ -1,0 +1,146 @@
+{
+  "ok": true,
+  "generatedAt": "2026-07-31T18:50:02.266Z",
+  "artifactSchema": "TRUELY_COLLECTABLES_DEAL_HUNTER_ARTIFACT_V1",
+  "nativeSchema": "TCOS_NATIVE_EBAY_FEED_V1",
+  "repository": "TruelyCollectables/truely-collectables",
+  "commitSha": "7ccd3e9a2372993b58b0b8aa692d9be52350cc35",
+  "runId": "30656721923",
+  "runAttempt": "1",
+  "expectedFeedCount": 6,
+  "successfulFeedCount": 6,
+  "failedFeedCount": 0,
+  "expectedQueryFamilyCount": 51,
+  "successfulQueryFamilyCount": 51,
+  "rawResultCount": 583,
+  "feedDeduplicatedResultCount": 476,
+  "globallyDeduplicatedListingCount": 475,
+  "feeds": [
+    {
+      "key": "wnba",
+      "ok": true,
+      "host": "https://truelycollectables.com",
+      "url": "https://truelycollectables.com/api/tcos/deal-hunter-native-ebay?perQuery=20&scope=wnba",
+      "validation": {
+        "familyCount": 15,
+        "successfulCount": 15,
+        "failedCount": 0,
+        "rawResultCount": 140,
+        "deduplicatedResultCount": 135,
+        "resultCount": 135,
+        "coverageCount": 15,
+        "deployment": {
+          "environment": "production",
+          "commitSha": "e4c50a10bbeb",
+          "region": "iad1"
+        }
+      },
+      "attempts": []
+    },
+    {
+      "key": "ivan_demidov",
+      "ok": true,
+      "host": "https://truelycollectables.com",
+      "url": "https://truelycollectables.com/api/tcos/deal-hunter-native-ebay?perQuery=20&scope=ivan_demidov",
+      "validation": {
+        "familyCount": 3,
+        "successfulCount": 3,
+        "failedCount": 0,
+        "rawResultCount": 47,
+        "deduplicatedResultCount": 45,
+        "resultCount": 45,
+        "coverageCount": 3,
+        "deployment": {
+          "environment": "production",
+          "commitSha": "e4c50a10bbeb",
+          "region": "iad1"
+        }
+      },
+      "attempts": []
+    },
+    {
+      "key": "matvei_michkov_young_guns",
+      "ok": true,
+      "host": "https://truelycollectables.com",
+      "url": "https://truelycollectables.com/api/tcos/deal-hunter-native-ebay?perQuery=20&scope=matvei_michkov_young_guns",
+      "validation": {
+        "familyCount": 8,
+        "successfulCount": 8,
+        "failedCount": 0,
+        "rawResultCount": 95,
+        "deduplicatedResultCount": 66,
+        "resultCount": 66,
+        "coverageCount": 8,
+        "deployment": {
+          "environment": "production",
+          "commitSha": "e4c50a10bbeb",
+          "region": "iad1"
+        }
+      },
+      "attempts": []
+    },
+    {
+      "key": "matvei_michkov_opc_platinum",
+      "ok": true,
+      "host": "https://truelycollectables.com",
+      "url": "https://truelycollectables.com/api/tcos/deal-hunter-michkov-opc-platinum?perQuery=20",
+      "validation": {
+        "familyCount": 10,
+        "successfulCount": 10,
+        "failedCount": 0,
+        "rawResultCount": 94,
+        "deduplicatedResultCount": 40,
+        "resultCount": 40,
+        "coverageCount": 10,
+        "deployment": {
+          "environment": "production",
+          "commitSha": "e4c50a10bbeb",
+          "region": "iad1"
+        }
+      },
+      "attempts": []
+    },
+    {
+      "key": "baseball_prospects",
+      "ok": true,
+      "host": "https://truelycollectables.com",
+      "url": "https://truelycollectables.com/api/tcos/deal-hunter-native-ebay?perQuery=20&scope=baseball_prospects",
+      "validation": {
+        "familyCount": 10,
+        "successfulCount": 10,
+        "failedCount": 0,
+        "rawResultCount": 107,
+        "deduplicatedResultCount": 107,
+        "resultCount": 107,
+        "coverageCount": 10,
+        "deployment": {
+          "environment": "production",
+          "commitSha": "e4c50a10bbeb",
+          "region": "iad1"
+        }
+      },
+      "attempts": []
+    },
+    {
+      "key": "signed_baseballs",
+      "ok": true,
+      "host": "https://truelycollectables.com",
+      "url": "https://truelycollectables.com/api/tcos/deal-hunter-native-ebay?perQuery=20&scope=signed_baseballs",
+      "validation": {
+        "familyCount": 5,
+        "successfulCount": 5,
+        "failedCount": 0,
+        "rawResultCount": 100,
+        "deduplicatedResultCount": 83,
+        "resultCount": 83,
+        "coverageCount": 5,
+        "deployment": {
+          "environment": "production",
+          "commitSha": "e4c50a10bbeb",
+          "region": "iad1"
+        }
+      },
+      "attempts": []
+    }
+  ]
+}
