@@ -1,0 +1,252 @@
+name: Deploy Buyer Login Route Repair
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/deploy-account-login-route-repair.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: deploy-buyer-login-route-repair
+  cancel-in-progress: false
+
+jobs:
+  clean-deploy-and-prove:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+      PRODUCTION_ORIGIN: https://truelycollectables.com
+    steps:
+      - name: Check out current main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Link Vercel Production project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          echo "::add-mask::$VERCEL_TOKEN"
+          npx vercel@56.2.0 link --yes \
+            --project truely-collectables \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN"
+
+      - name: Force a clean Production build from newest main
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            echo "Clean login-route deployment attempt $attempt/3"
+            git fetch --prune origin main
+            git reset --hard origin/main
+            source_sha=$(git rev-parse HEAD)
+            echo "Candidate source SHA: $source_sha"
+
+            test -f src/app/account/login/AccountLoginClient.tsx
+            grep -Fq 'export const dynamic = "force-dynamic"' src/app/account/login/page.tsx
+            grep -Fq 'No card verification is required for buyer accounts' src/app/account/login/AccountLoginClient.tsx
+
+            npm ci
+            npm run lint
+
+            git fetch origin main
+            latest_sha=$(git rev-parse origin/main)
+            if [ "$latest_sha" != "$source_sha" ]; then
+              echo "main advanced before upload; refreshing instead of deploying stale code."
+              continue
+            fi
+
+            deploy_log="$RUNNER_TEMP/buyer-login-deploy-$attempt.log"
+            set +e
+            npx vercel@56.2.0 --prod --yes --force \
+              --scope "$VERCEL_SCOPE" \
+              --token "$VERCEL_TOKEN" 2>&1 | tee "$deploy_log"
+            deploy_status=${PIPESTATUS[0]}
+            set -e
+
+            if [ "$deploy_status" -ne 0 ]; then
+              echo "Vercel clean deployment failed." >&2
+              exit "$deploy_status"
+            fi
+
+            deployed_url=$(grep -Eo 'https://[A-Za-z0-9.-]+\.vercel\.app' "$deploy_log" | tail -1)
+            test -n "$deployed_url"
+            echo "Clean deployment URL: $deployed_url"
+
+            npx vercel@56.2.0 alias set "$deployed_url" truelycollectables.com \
+              --scope "$VERCEL_SCOPE" \
+              --token "$VERCEL_TOKEN"
+
+            echo "DEPLOYED_URL=$deployed_url" >> "$GITHUB_ENV"
+            echo "DEPLOYED_SOURCE_SHA=$source_sha" >> "$GITHUB_ENV"
+            echo "deployed_url=$deployed_url" >> "$GITHUB_OUTPUT"
+            echo "deployed_source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+            exit 0
+          done
+
+          echo "Unable to obtain a stable newest-main checkout for deployment." >&2
+          exit 1
+
+      - name: Prove repaired buyer login route and critical Production boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          const origin = String(process.env.PRODUCTION_ORIGIN || "").replace(/\/$/, "");
+          const deployedSourceSha = String(process.env.DEPLOYED_SOURCE_SHA || "");
+          if (!deployedSourceSha) throw new Error("Missing deployed source SHA.");
+          const stamp = `${deployedSourceSha.slice(0, 12)}-${Date.now()}`;
+
+          async function request(path, redirect = "manual") {
+            let lastError;
+            for (let attempt = 1; attempt <= 8; attempt += 1) {
+              try {
+                const response = await fetch(`${origin}${path}`, {
+                  redirect,
+                  headers: {
+                    "cache-control": "no-cache",
+                    pragma: "no-cache",
+                    "user-agent": "TruelyCollectablesBuyerLoginRepair/1.0",
+                  },
+                  signal: AbortSignal.timeout(60_000),
+                });
+                if (response.status >= 500 && attempt < 8) {
+                  await new Promise((resolve) => setTimeout(resolve, attempt * 1_500));
+                  continue;
+                }
+                return response;
+              } catch (error) {
+                lastError = error;
+                if (attempt < 8) {
+                  await new Promise((resolve) => setTimeout(resolve, attempt * 1_500));
+                  continue;
+                }
+              }
+            }
+            throw lastError || new Error(`Request failed: ${path}`);
+          }
+
+          function visibleText(value) {
+            return value
+              .replace(/<!--[\s\S]*?-->/g, " ")
+              .replace(/<script[\s\S]*?<\/script>/gi, " ")
+              .replace(/<style[\s\S]*?<\/style>/gi, " ")
+              .replace(/<[^>]+>/g, " ")
+              .replace(/&nbsp;/gi, " ")
+              .replace(/&amp;/gi, "&")
+              .replace(/\s+/g, " ")
+              .trim();
+          }
+
+          const loginPath = `/account/login?buyer_login_repair=${stamp}`;
+          const login = await request(loginPath, "manual");
+          const loginBody = await login.text();
+          const loginText = visibleText(loginBody);
+          const loginUrl = new URL(login.url);
+          const loginLocation = login.headers.get("location") || "";
+
+          if (login.status !== 200 || loginLocation) {
+            throw new Error(
+              `Buyer login must return direct HTTP 200; status=${login.status}; location=${loginLocation || "none"}`,
+            );
+          }
+          if (loginUrl.pathname !== "/account/login") {
+            throw new Error(`Buyer login resolved to wrong path: ${login.url}`);
+          }
+          for (const expected of [
+            "Account Login",
+            "No card verification is required for buyer accounts",
+            "Create one",
+          ]) {
+            if (!loginBody.includes(expected) && !loginText.includes(expected)) {
+              throw new Error(`Buyer login missed expected text: ${expected}`);
+            }
+          }
+          if (loginText.includes("Checking your account")) {
+            throw new Error("Buyer login still renders the account bootstrap page.");
+          }
+          console.log("PASS repaired /account/login direct route and buyer policy");
+
+          const criticalChecks = [
+            ["/", "Find the collectible your collection is missing"],
+            ["/shop", "Shop Sports Cards & Collectibles"],
+            ["/buyer-protection", "Truely Collectables Shipment Protection"],
+          ];
+          for (let index = 0; index < criticalChecks.length; index += 1) {
+            const [path, expected] = criticalChecks[index];
+            const response = await request(`${path}?buyer_login_repair=${stamp}-${index}`, "follow");
+            const body = await response.text();
+            if (response.status !== 200 || !body.includes(expected)) {
+              throw new Error(`${path} failed after login-route repair; status=${response.status}`);
+            }
+            for (const fatal of [
+              "Error loading products",
+              "permission denied for view",
+              "Missing Supabase environment variables",
+              "Internal Server Error",
+            ]) {
+              if (body.includes(fatal)) throw new Error(`${path} exposed ${fatal}`);
+            }
+            console.log(`PASS ${path}`);
+          }
+
+          const home = await request(`/?buyer_login_headers=${stamp}`, "manual");
+          for (const header of [
+            "strict-transport-security",
+            "content-security-policy",
+            "x-content-type-options",
+            "x-frame-options",
+          ]) {
+            const value = home.headers.get(header);
+            if (!value) throw new Error(`Missing security header: ${header}`);
+            if (header === "x-content-type-options" && value.toLowerCase() !== "nosniff") {
+              throw new Error(`x-content-type-options must be nosniff; received ${value}`);
+            }
+          }
+          console.log("PASS Production security headers");
+
+          for (const path of ["/admin", "/admin/products/new", "/admin/orders"]) {
+            const response = await request(`${path}?buyer_login_boundary=${stamp}`, "manual");
+            const location = response.headers.get("location") || "";
+            if (![302, 303, 307, 308].includes(response.status) || !location.includes("/admin/login")) {
+              throw new Error(
+                `Unauthenticated ${path} boundary failed; status=${response.status}; location=${location || "none"}`,
+              );
+            }
+          }
+          console.log("PASS protected admin boundaries");
+          console.log(`BUYER_LOGIN_ROUTE_REPAIR=passed`);
+          console.log(`DEPLOYED_SOURCE_SHA=${deployedSourceSha}`);
+          NODE
+
+      - name: Launch final Production certification
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            --request POST \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/verify-pr393-production-release.yml/dispatches" \
+            --data '{"ref":"main"}'
+          echo "Final Production certification dispatched."
