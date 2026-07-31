@@ -35,9 +35,11 @@ assert.match(
 );
 for (const path of [
   "/shop",
-  "/shop?q=rookie",
-  "/shop?q=autograph",
-  "/shop?q=PSA",
+  "/shop?feature=rookie",
+  "/shop?feature=autograph",
+  "/shop?feature=graded",
+  "/recently-sold",
+  "/account/orders",
   "/account",
 ]) {
   assert.ok(
