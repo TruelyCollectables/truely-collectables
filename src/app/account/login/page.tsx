@@ -5,6 +5,9 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { saveAccountSession } from "../account-session";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 function safeAccountReturnPath() {
   if (typeof window === "undefined") return "/account";
 
@@ -35,9 +38,7 @@ export default function AccountLoginPage() {
     try {
       const response = await fetch("/api/account/login", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
       const data = await response.json().catch(() => ({}));
