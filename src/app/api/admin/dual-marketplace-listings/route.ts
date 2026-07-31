@@ -1,11 +1,11 @@
 import {
-  handleDualMarketplaceGet,
-  handleDualMarketplacePost,
-} from "../../../../lib/dual-marketplace-admin-route";
+  handleGuardedDualMarketplaceGet,
+  handleGuardedDualMarketplacePost,
+} from "../../../../lib/dual-marketplace-admin-route-guard";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const maxDuration = 300;
 
-export const GET = handleDualMarketplaceGet;
-export const POST = handleDualMarketplacePost;
+export const GET = handleGuardedDualMarketplaceGet;
+export const POST = handleGuardedDualMarketplacePost;
