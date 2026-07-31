@@ -342,8 +342,8 @@ scenario("new product intake keeps manual creation safe and professional", () =>
     "max-w-[1500px]",
     "border border-white/15 bg-white/10",
     "focus:ring-4 focus:ring-black/10",
-    "HeaderStat label=\"Scanner\"",
-    "HeaderStat label=\"Manual\"",
+    "HeaderStat label=\"Upload\"",
+    "HeaderStat label=\"AI\"",
     "HeaderStat label=\"Publish\"",
     "CommandLink href=\"/admin/products\" label=\"Products\" primary",
     "CommandLink href=\"/admin/instacomp-direct\" label=\"InstaComp direct\"",
@@ -352,7 +352,7 @@ scenario("new product intake keeps manual creation safe and professional", () =>
     "rounded-3xl border border-neutral-200 bg-white/95",
     "rounded-xl border border-neutral-300 bg-white",
     "Create one manual store product from the form fields without publishing it to eBay.",
-    "marketplace publishing remains a separate admin step",
+    "Adds the product to TCOS inventory only",
   ]) {
     assert(
       newProductPageSource.includes(fragment),

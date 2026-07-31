@@ -8,6 +8,7 @@ import {
 } from "../lib/legal";
 import { configuredSiteOrigin } from "../lib/site-origin";
 import "./globals.css";
+import AccountCardIntakeShortcut from "./components/AccountCardIntakeShortcut";
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
 
@@ -82,6 +83,7 @@ export default function RootLayout({
           }}
         />
         <Navbar />
+        <AccountCardIntakeShortcut />
         {children}
         <Footer />
       </body>

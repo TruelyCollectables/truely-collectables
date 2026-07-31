@@ -21,7 +21,7 @@ function read(relativePath: string) {
 const requiredPages = [
   ["src/app/privacy/page.tsx", "Privacy Policy"],
   ["src/app/shipping/page.tsx", "Shipping Policy"],
-  ["src/app/buyer-protection/page.tsx", "Truely Collectables Buyer Protection"],
+  ["src/app/buyer-protection/page.tsx", "Truely Collectables Shipment Protection"],
   ["src/app/returns/page.tsx", "Returns & Refunds"],
   ["src/app/contact/page.tsx", "Contact Truely Collectables"],
 ] as const;
@@ -128,21 +128,23 @@ assert.ok(
 const buyerProtection = read("src/app/buyer-protection/page.tsx");
 for (const token of [
   "BUYER_PROTECTION_POLICY_VERSION",
-  "BUYER_PROTECTION_FEE",
-  "BUYER_PROTECTION_MAX_COVERAGE",
+  "BUYER_PROTECTION_RATE",
+  "BUYER_PROTECTION_MAX_ITEM_SUBTOTAL",
   "BUYER_PROTECTION_MIN_CLAIM_DAYS",
   "BUYER_PROTECTION_CLAIM_DEADLINE_DAYS",
   "not insurance",
-  "Shipping charges and the protection fee are never reimbursed",
+  "protection fee itself is not reimbursed",
+  "does not waive",
+  "carrier loss or damage",
 ]) {
   assert.ok(
     buyerProtection.includes(token),
-    `Buyer Protection terms must include ${token}.`,
+    `Shipment Protection terms must include ${token}.`,
   );
 }
 assert.ok(
-  BUYER_PROTECTION_POLICY_VERSION.startsWith("truely-buyer-protection-v"),
-  "Buyer Protection consent must use an explicit policy version.",
+  BUYER_PROTECTION_POLICY_VERSION.startsWith("truely-shipment-protection-v"),
+  "Shipment Protection consent must use an explicit policy version.",
 );
 
 const privacy = read("src/app/privacy/page.tsx");

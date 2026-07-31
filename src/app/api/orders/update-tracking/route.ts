@@ -42,7 +42,10 @@ export async function POST(req: Request) {
 
     if (isDryRunShippingReference(trackingNumber)) {
       return NextResponse.json(
-        { error: "TCOS dry-run tracking cannot be saved manually. Buy or record a real label before saving tracking." },
+        {
+          error:
+            "TCOS dry-run tracking cannot be saved manually. Buy or record a real label before saving tracking.",
+        },
         { status: 409 },
       );
     }
@@ -65,42 +68,68 @@ export async function POST(req: Request) {
     try {
       const { data: label, error: labelLookupError } = await supabase
         .from("order_shipping_labels")
-        .select("id,metadata,provider_label_id,provider_shipment_id,tracking_number,coverage_policy_id")
+        .select(
+          "id,metadata,provider_label_id,provider_shipment_id,tracking_number,coverage_policy_id",
+        )
         .eq("store_id", storeId)
         .eq("order_id", orderId)
         .not("label_status", "in", "(voided,failed)")
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
-      if (labelLookupError && !isMissingShippingInfrastructure(labelLookupError)) throw labelLookupError;
+      if (
+        labelLookupError &&
+        !isMissingShippingInfrastructure(labelLookupError)
+      ) {
+        throw labelLookupError;
+      }
       activeShippingLabel = (label || null) as ActiveShippingLabel | null;
     } catch (labelLookupError: any) {
-      if (!isMissingShippingInfrastructure(labelLookupError)) throw labelLookupError;
+      if (!isMissingShippingInfrastructure(labelLookupError)) {
+        throw labelLookupError;
+      }
     }
 
     if (isDryRunShippingLabel(activeShippingLabel)) {
       return NextResponse.json(
-        { error: "The active shipping label is a TCOS dry-run simulation. Record a real external label before saving tracking." },
+        {
+          error:
+            "The active shipping label is a TCOS dry-run simulation. Record a real external label before saving tracking.",
+        },
         { status: 409 },
       );
     }
 
     const { error } = await supabase
       .from("orders")
-      .update({ carrier, tracking_number: trackingNumber })
+      .update({
+        carrier,
+        tracking_number: trackingNumber,
+      })
       .eq("id", orderId)
       .eq("store_id", storeId);
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
 
     try {
       const now = new Date().toISOString();
       if (activeShippingLabel?.id) {
         const { error: labelUpdateError } = await supabase
           .from("order_shipping_labels")
-          .update({ carrier, tracking_number: trackingNumber, updated_at: now })
+          .update({
+            carrier,
+            tracking_number: trackingNumber,
+            updated_at: now,
+          })
           .eq("id", activeShippingLabel.id)
           .eq("store_id", storeId);
-        if (labelUpdateError && !isMissingShippingInfrastructure(labelUpdateError)) throw labelUpdateError;
+        if (
+          labelUpdateError &&
+          !isMissingShippingInfrastructure(labelUpdateError)
+        ) {
+          throw labelUpdateError;
+        }
       }
       const { error: eventError } = await supabase
         .from("order_shipping_tracking_events")
@@ -117,17 +146,29 @@ export async function POST(req: Request) {
           occurred_at: now,
           raw_payload: { carrier, tracking_number: trackingNumber },
         });
-      if (eventError && !isMissingShippingInfrastructure(eventError)) throw eventError;
+      if (eventError && !isMissingShippingInfrastructure(eventError)) {
+        throw eventError;
+      }
     } catch (shippingEventError: any) {
       if (!isMissingShippingInfrastructure(shippingEventError)) {
-        console.error("Shipping tracking event update failed:", shippingEventError.message || shippingEventError);
+        console.error(
+          "Shipping tracking event update failed:",
+          shippingEventError.message || shippingEventError,
+        );
       }
     }
 
     try {
-      await refreshTransactionEvidenceReportForOrder({ supabase, orderId, storeId });
+      await refreshTransactionEvidenceReportForOrder({
+        supabase,
+        orderId,
+        storeId,
+      });
     } catch (reportError: any) {
-      console.error("Evidence report refresh after tracking update failed:", reportError.message || reportError);
+      console.error(
+        "Evidence report refresh after tracking update failed:",
+        reportError.message || reportError,
+      );
     }
 
     let customerNotification = null;
@@ -147,9 +188,15 @@ export async function POST(req: Request) {
           quantity: Number(item.quantity || 1),
           price: Number(item.price || 0),
         }));
-        const updatedOrder = { ...order, carrier, tracking_number: trackingNumber };
+        const updatedOrder = {
+          ...order,
+          carrier,
+          tracking_number: trackingNumber,
+        };
         const settings = await getStoreSettings(supabase, storeId);
-        const baseSiteUrl = String(process.env.NEXT_PUBLIC_SITE_URL || "https://truelycollectables.com").replace(/\/+$/, "");
+        const baseSiteUrl = String(
+          process.env.NEXT_PUBLIC_SITE_URL || "https://truelycollectables.com",
+        ).replace(/\/+$/, "");
         customerNotification = await enqueueAndAttemptOrderNotification({
           supabase,
           storeId,
@@ -172,7 +219,11 @@ export async function POST(req: Request) {
           notificationType: "tracking_updated",
           recipientEmail: settings.salesEmail,
           recipientName: "Fulfillment",
-          idempotencyKey: `store_tracking_updated/${storeId}/${orderId}/${carrier}/${trackingNumber}`.slice(0, 256),
+          idempotencyKey:
+            `store_tracking_updated/${storeId}/${orderId}/${carrier}/${trackingNumber}`.slice(
+              0,
+              256,
+            ),
           payload: buildOrderNotificationPayload({
             order: updatedOrder,
             items,
@@ -183,7 +234,9 @@ export async function POST(req: Request) {
           }),
         });
       } catch (notificationFailure: any) {
-        notificationError = notificationFailure?.message || "Tracking update notification failed";
+        notificationError =
+          notificationFailure?.message ||
+          "Tracking update notification failed";
         console.error("Tracking update notification failed:", notificationError);
       }
     }
@@ -197,9 +250,15 @@ export async function POST(req: Request) {
       ownerEmailSent: ownerNotification?.sent === true,
       ownerNotificationId: ownerNotification?.notificationId || null,
       ownerNotificationStatus: ownerNotification?.status || null,
-      emailError: customerNotification?.error || ownerNotification?.error || notificationError,
+      emailError:
+        customerNotification?.error ||
+        ownerNotification?.error ||
+        notificationError,
     });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message || "Tracking update failed" }, { status: 500 });
+    return NextResponse.json(
+      { error: error.message || "Tracking update failed" },
+      { status: 500 },
+    );
   }
 }

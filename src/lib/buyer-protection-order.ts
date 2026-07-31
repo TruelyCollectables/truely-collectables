@@ -1,8 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
-  BUYER_PROTECTION_FEE,
   BUYER_PROTECTION_MAX_COVERAGE,
   BUYER_PROTECTION_POLICY_VERSION,
+  calculateBuyerProtectionFee,
 } from "./buyer-protection";
 
 function money(value: unknown) {
@@ -22,9 +22,17 @@ export async function persistBuyerProtectionForOrder(params: {
   if (params.metadata.buyer_protection_selected !== "true") return null;
 
   const feeAmount = money(params.metadata.buyer_protection_fee);
+  const feeBase = money(params.metadata.buyer_protection_fee_base);
   const coveredAmount = money(
     params.metadata.buyer_protection_covered_amount,
   );
+  const itemSubtotal = money(params.metadata.subtotal);
+  const shippingAmount = money(params.metadata.shipping_amount);
+  const expectedFee = calculateBuyerProtectionFee({
+    itemSubtotal,
+    shippingAmount,
+  });
+  const expectedFeeBase = money(itemSubtotal + shippingAmount);
   const policyVersion = params.metadata.buyer_protection_policy_version;
   const termsAcceptedAt =
     params.metadata.buyer_protection_terms_accepted_at;
@@ -34,23 +42,29 @@ export async function persistBuyerProtectionForOrder(params: {
 
   if (params.shippingMethod !== "STANDARD_ENVELOPE") {
     throw new Error(
-      "Paid Buyer Protection cannot be attached to a non-letter shipment.",
+      "Paid Shipment Protection cannot be attached to a non-letter shipment.",
     );
   }
-  if (feeAmount !== BUYER_PROTECTION_FEE) {
-    throw new Error("Paid Buyer Protection fee did not match the policy fee.");
+  if (feeAmount !== expectedFee || feeBase !== expectedFeeBase) {
+    throw new Error(
+      "Paid Shipment Protection fee did not match 10% of the protected order total.",
+    );
   }
-  if (coveredAmount <= 0 || coveredAmount > BUYER_PROTECTION_MAX_COVERAGE) {
-    throw new Error("Paid Buyer Protection coverage amount is invalid.");
+  if (
+    coveredAmount !== expectedFeeBase ||
+    coveredAmount <= 0 ||
+    coveredAmount > BUYER_PROTECTION_MAX_COVERAGE
+  ) {
+    throw new Error("Paid Shipment Protection coverage amount is invalid.");
   }
   if (policyVersion !== BUYER_PROTECTION_POLICY_VERSION) {
-    throw new Error("Paid Buyer Protection used a stale policy version.");
+    throw new Error("Paid Shipment Protection used a stale policy version.");
   }
   if (!termsAcceptedAt || !consentSource) {
-    throw new Error("Paid Buyer Protection is missing consent evidence.");
+    throw new Error("Paid Shipment Protection is missing consent evidence.");
   }
   if (!["always_on", "one_time"].includes(preferenceMode)) {
-    throw new Error("Paid Buyer Protection preference mode is invalid.");
+    throw new Error("Paid Shipment Protection preference mode is invalid.");
   }
 
   const now = new Date().toISOString();
@@ -68,7 +82,7 @@ export async function persistBuyerProtectionForOrder(params: {
         terms_accepted_at: termsAcceptedAt,
         consent_source: consentSource,
         preference_mode: preferenceMode,
-        shipping_reimbursable: false,
+        shipping_reimbursable: true,
         protection_fee_reimbursable: false,
         consent_ip_address:
           params.metadata.buyer_protection_consent_ip_address ||
@@ -89,7 +103,11 @@ export async function persistBuyerProtectionForOrder(params: {
         metadata: {
           stripe_checkout_metadata_verified: true,
           is_test: params.isTest === true,
-          non_reimbursable: ["shipping", "buyer_protection_fee"],
+          protection_rate: 0.1,
+          fee_base: feeBase,
+          covered_components: ["item_subtotal", "shipping"],
+          non_reimbursable: ["buyer_protection_fee"],
+          covered_events: ["reviewed_carrier_loss", "reviewed_carrier_damage"],
           claim_minimum_days_after_shipment: 7,
           claim_deadline_days_after_shipment: 21,
         },
@@ -102,7 +120,7 @@ export async function persistBuyerProtectionForOrder(params: {
 
   if (error || !data?.id) {
     throw new Error(
-      error?.message || "Buyer Protection order record could not be saved.",
+      error?.message || "Shipment Protection order record could not be saved.",
     );
   }
 

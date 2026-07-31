@@ -7,10 +7,12 @@ export default function ShippingLabelActions({
   orderId,
   activeDryRunLabel = false,
   initialAction = "",
+  shippingMethod,
 }: {
   orderId: number;
   activeDryRunLabel?: boolean;
   initialAction?: string;
+  shippingMethod?: string | null;
 }) {
   const [preparing, setPreparing] = useState(false);
   const [purchasing, setPurchasing] = useState(false);
@@ -24,6 +26,9 @@ export default function ShippingLabelActions({
   const [showVoidForm, setShowVoidForm] = useState(
     initialAction === "recordVoid",
   );
+  const standardEnvelopeSelected = shippingMethod === "STANDARD_ENVELOPE";
+  const [standardEnvelopeMachinableAttested, setStandardEnvelopeMachinableAttested] =
+    useState(false);
   const shippingActionRunningRef = useRef(false);
   const [manualForm, setManualForm] = useState({
     provider: "",
@@ -100,6 +105,9 @@ export default function ShippingLabelActions({
     !manualForm.carrier.trim() ? "carrier" : null,
     !manualForm.trackingNumber.trim() ? "tracking / IMb" : null,
     !manualForm.postageAmount.trim() ? "postage amount" : null,
+    standardEnvelopeSelected && !standardEnvelopeMachinableAttested
+      ? "machinable packaging attestation"
+      : null,
     manualForm.note.trim().length < 8 ? "audit note" : null,
   ].filter(Boolean);
   const voidMissing = [
@@ -312,6 +320,7 @@ export default function ShippingLabelActions({
           },
           body: JSON.stringify({
             action: "record_manual_purchase",
+            standardEnvelopeMachinableAttested,
             ...trimRecord(manualForm),
           }),
         },
@@ -515,6 +524,24 @@ export default function ShippingLabelActions({
             </p>
           </div>
 
+          {standardEnvelopeSelected ? (
+            <label className="mb-4 flex items-start gap-3 rounded-2xl border-2 border-amber-300 bg-amber-50 p-4 text-sm font-bold text-amber-950">
+              <input
+                type="checkbox"
+                checked={standardEnvelopeMachinableAttested}
+                onChange={(event) =>
+                  setStandardEnvelopeMachinableAttested(event.target.checked)
+                }
+                className="mt-1 h-5 w-5 shrink-0"
+              />
+              <span>
+                I verified this card letter uses approved flexible, uniformly thick,
+                machinable packaging. It is not in a rigid mailer or top loader that
+                requires a nonmachinable surcharge or parcel service.
+              </span>
+            </label>
+          ) : null}
+
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <TextField
               label="Label Provider"
@@ -537,7 +564,7 @@ export default function ShippingLabelActions({
             <TextField
               label="Postage Amount"
               value={manualForm.postageAmount}
-              placeholder="1.32"
+              placeholder={standardEnvelopeSelected ? "1.40" : "Carrier receipt amount"}
               onChange={(value) => updateManualForm("postageAmount", value)}
             />
             <TextField

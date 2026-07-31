@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
-  BUYER_PROTECTION_FEE,
   BUYER_PROTECTION_PATH,
   BUYER_PROTECTION_POLICY_VERSION,
+  BUYER_PROTECTION_RATE,
 } from "../../../lib/buyer-protection";
 import { getAccountSession } from "../account-session";
 
@@ -14,6 +14,8 @@ type Preference = {
   policy_version: string | null;
   terms_accepted_at: string | null;
 } | null;
+
+type ShipmentProtectionClaimReason = "not_received" | "damaged";
 
 type ProtectionRecord = {
   id: string;
@@ -26,6 +28,7 @@ type ProtectionRecord = {
   claim?: {
     id: string;
     status: string;
+    reason?: ShipmentProtectionClaimReason;
     submitted_at: string;
     decision_note: string | null;
     reimbursement_amount: number;
@@ -100,6 +103,9 @@ export default function BuyerProtectionAccountPage() {
   const [statementByOrder, setStatementByOrder] = useState<Record<number, string>>(
     {},
   );
+  const [reasonByOrder, setReasonByOrder] = useState<
+    Record<number, ShipmentProtectionClaimReason>
+  >({});
   const [loading, setLoading] = useState(Boolean(accessToken));
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -122,7 +128,7 @@ export default function BuyerProtectionAccountPage() {
       })
       .catch((loadError: Error) => {
         if (!cancelled) {
-          setError(loadError.message || "Could not load Buyer Protection");
+          setError(loadError.message || "Could not load Shipment Protection");
         }
       })
       .finally(() => {
@@ -144,7 +150,7 @@ export default function BuyerProtectionAccountPage() {
     if (!accessToken) return;
     if (mode === "always_on" && !termsAccepted) {
       setError(
-        "Accept the current Buyer Protection terms before enabling Always On.",
+        "Accept the current Shipment Protection terms before enabling Always On.",
       );
       return;
     }
@@ -176,8 +182,8 @@ export default function BuyerProtectionAccountPage() {
 
       setMessage(
         mode === "always_on"
-          ? "Always On is active for the current protection policy."
-          : "Buyer Protection is off for future orders.",
+          ? "Always On is active for the current Shipment Protection policy."
+          : "Shipment Protection is off for future orders. A per-order decline acknowledgment is still required at checkout.",
       );
       setTermsAccepted(false);
       await reload();
@@ -195,6 +201,7 @@ export default function BuyerProtectionAccountPage() {
   async function submitClaim(orderId: number) {
     if (!accessToken) return;
     const statement = statementByOrder[orderId] || "";
+    const reason = reasonByOrder[orderId] || "not_received";
     setSaving(true);
     setError("");
     setMessage("");
@@ -206,7 +213,7 @@ export default function BuyerProtectionAccountPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({ orderId, statement }),
+        body: JSON.stringify({ orderId, statement, reason }),
       });
       const payload = await response.json();
       if (!response.ok) {
@@ -215,6 +222,10 @@ export default function BuyerProtectionAccountPage() {
 
       setMessage(`Claim submitted for order #${orderId}.`);
       setStatementByOrder((current) => ({ ...current, [orderId]: "" }));
+      setReasonByOrder((current) => ({
+        ...current,
+        [orderId]: "not_received",
+      }));
       await reload();
     } catch (claimError) {
       setError(
@@ -230,7 +241,7 @@ export default function BuyerProtectionAccountPage() {
   if (!accessToken && !loading) {
     return (
       <main className="mx-auto max-w-4xl px-4 py-10 sm:px-6">
-        <h1 className="text-4xl font-black">Buyer Protection</h1>
+        <h1 className="text-4xl font-black">Shipment Protection</h1>
         <p className="mt-3 text-neutral-600">
           Log in to manage Always On consent and submit protected-order claims.
         </p>
@@ -257,12 +268,11 @@ export default function BuyerProtectionAccountPage() {
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-neutral-200 pb-6">
         <div>
           <p className="text-sm font-black uppercase tracking-wide text-violet-700">
-            Optional reimbursement program
+            Optional shipment reimbursement program
           </p>
-          <h1 className="mt-2 text-4xl font-black">Buyer Protection</h1>
+          <h1 className="mt-2 text-4xl font-black">Shipment Protection</h1>
           <p className="mt-3 max-w-3xl text-neutral-600">
-            ${BUYER_PROTECTION_FEE.toFixed(2)} per qualifying Tracked Card Letter
-            order. Item subtotal only, up to $20. Shipping and the fee are excluded.
+            {(BUYER_PROTECTION_RATE * 100).toFixed(0)}% of the item subtotal plus shipping for qualifying under-$20 Tracked Card Letter orders. Approved loss or damage claims cover the protected item subtotal and shipping; the protection fee is excluded.
           </p>
         </div>
         <Link
@@ -292,8 +302,7 @@ export default function BuyerProtectionAccountPage() {
         </p>
         {requiresReacceptance ? (
           <p className="mt-3 rounded border border-amber-200 bg-amber-50 p-3 font-bold text-amber-950">
-            Your prior consent is stale because the terms changed. Accept the current
-            version to turn Always On back on.
+            Your prior consent is stale because the terms changed. Accept the current version to turn Always On back on.
           </p>
         ) : null}
 
@@ -306,9 +315,7 @@ export default function BuyerProtectionAccountPage() {
               className="mt-1 h-5 w-5 shrink-0"
             />
             <span>
-              I accept Buyer Protection version {BUYER_PROTECTION_POLICY_VERSION}. I
-              understand claims open after 7 full days and expire 21 calendar days
-              after shipment. Reimbursement excludes shipping and the protection fee.
+              I accept Shipment Protection version {BUYER_PROTECTION_POLICY_VERSION}. I understand approved carrier loss or damage reimbursement covers the protected item subtotal and shipping, but not the protection fee, and all claims require review and evidence.
             </span>
           </label>
         ) : null}
@@ -341,7 +348,7 @@ export default function BuyerProtectionAccountPage() {
           <div>
             <h2 className="text-2xl font-black">Protected Orders and Claims</h2>
             <p className="mt-1 text-sm font-semibold text-neutral-600">
-              Claims are accepted from day 7 through day 21 after shipment.
+              Claims are accepted from day 7 through day 21 after shipment and require supporting loss or damage evidence.
             </p>
           </div>
           <Link href="/account/orders" className="font-black underline">
@@ -365,8 +372,7 @@ export default function BuyerProtectionAccountPage() {
                       Order #{protection.order_id}
                     </h3>
                     <p className="mt-1 text-sm font-semibold text-neutral-600">
-                      Covered item amount: {money(protection.covered_item_amount)} ·
-                      Status: {protection.status.replaceAll("_", " ")}
+                      Covered order amount: {money(protection.covered_item_amount)} · Status: {protection.status.replaceAll("_", " ")}
                     </p>
                   </div>
                   <span className="rounded border border-neutral-300 px-3 py-1 text-xs font-black uppercase">
@@ -399,7 +405,7 @@ export default function BuyerProtectionAccountPage() {
                       Claim {protection.claim.status.replaceAll("_", " ")}
                     </p>
                     <p className="mt-1">
-                      Submitted {dateLabel(protection.claim.submitted_at)}.
+                      Reason: {protection.claim.reason === "damaged" ? "Damaged" : "Not received"}. Submitted {dateLabel(protection.claim.submitted_at)}.
                       {protection.claim.reimbursement_amount > 0
                         ? ` Reimbursement: ${money(protection.claim.reimbursement_amount)}.`
                         : ""}
@@ -414,9 +420,31 @@ export default function BuyerProtectionAccountPage() {
                   <div className="mt-4">
                     <label
                       className="block font-black"
+                      htmlFor={`claim-reason-${protection.order_id}`}
+                    >
+                      What happened?
+                    </label>
+                    <select
+                      id={`claim-reason-${protection.order_id}`}
+                      value={reasonByOrder[protection.order_id] || "not_received"}
+                      onChange={(event) =>
+                        setReasonByOrder((current) => ({
+                          ...current,
+                          [protection.order_id]: event.target
+                            .value as ShipmentProtectionClaimReason,
+                        }))
+                      }
+                      className="mt-2 min-h-12 w-full rounded border bg-white px-3 font-bold"
+                    >
+                      <option value="not_received">Shipment was not received</option>
+                      <option value="damaged">Shipment or card arrived damaged</option>
+                    </select>
+
+                    <label
+                      className="mt-4 block font-black"
                       htmlFor={`claim-${protection.order_id}`}
                     >
-                      Describe the missing shipment
+                      Describe the lost or damaged shipment
                     </label>
                     <textarea
                       id={`claim-${protection.order_id}`}
@@ -430,13 +458,16 @@ export default function BuyerProtectionAccountPage() {
                       maxLength={1200}
                       className="mt-2 min-h-28 w-full rounded border p-3"
                     />
+                    <p className="mt-2 text-xs font-semibold text-neutral-600">
+                      Damage claims require clear photographs of the card, packaging, and mailer. All claims are reviewed against order and carrier evidence.
+                    </p>
                     <button
                       type="button"
                       disabled={saving}
                       onClick={() => submitClaim(protection.order_id)}
                       className="mt-3 rounded bg-neutral-950 px-4 py-3 font-black text-white disabled:opacity-50"
                     >
-                      Submit Missing-Mail Claim
+                      Submit Loss or Damage Claim
                     </button>
                   </div>
                 ) : null}

@@ -1318,6 +1318,7 @@ export default async function AdminOrderDetailPage({
             orderId={typedOrder.id}
             activeDryRunLabel={activeDryRunShippingLabel}
             initialAction={shippingAction}
+            shippingMethod={typedOrder.shipping_method}
           />
         </div>
 

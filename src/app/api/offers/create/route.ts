@@ -18,9 +18,7 @@ import {
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 import { createServerInventoryEngine } from "../../../../lib/server-inventory-engine";
 import { buildOfferShippingSnapshot } from "../../../../lib/offer-shipping";
-import {
-  BUYER_PROTECTION_POLICY_VERSION,
-} from "../../../../lib/buyer-protection";
+import { BUYER_PROTECTION_POLICY_VERSION } from "../../../../lib/buyer-protection";
 import { resolveBuyerProtectionSelection } from "../../../../lib/buyer-protection-server";
 
 const MAX_NAME_LENGTH = 120;
@@ -139,10 +137,13 @@ export async function POST(req: Request) {
       accountId: account?.id || null,
       shippingMethod: minimumShipping.method,
       itemSubtotal: offerAmount,
+      shippingAmount: minimumShipping.amount,
       itemCount: 1,
       requestedSelected: body.buyerProtectionSelected === true,
       requestedPreferenceMode: body.buyerProtectionPreferenceMode,
       termsAccepted: body.buyerProtectionTermsAccepted === true,
+      declineAcknowledged:
+        body.buyerProtectionDeclineAcknowledged === true,
       policyVersion:
         body.buyerProtectionPolicyVersion || BUYER_PROTECTION_POLICY_VERSION,
       identity: clientIdentity,
@@ -182,7 +183,13 @@ export async function POST(req: Request) {
       tos_user_agent: clientIdentity.userAgent,
       tos_ip_risk: clientIdentity.risk,
       tos_ip_block_reason: clientIdentity.blockReason,
-      tos_ip_evidence: clientIdentity.evidence,
+      tos_ip_evidence: {
+        ...clientIdentity.evidence,
+        shipment_protection_decline_acknowledged_at:
+          buyerProtection.declineAcknowledgedAt,
+        shipment_protection_decline_consent_source:
+          buyerProtection.declineConsentSource,
+      },
     };
 
     const { data: offer, error } = await supabase
@@ -209,7 +216,7 @@ export async function POST(req: Request) {
           <p><strong>Original Listing Price:</strong> $${listingPriceAtOffer.toFixed(2)}</p>
           <p><strong>Offer Amount:</strong> $${Number(offer.offer_amount).toFixed(2)}</p>
           <p><strong>Minimum Shipping:</strong> ${escapeHtml(minimumShipping.name)} — $${minimumShipping.amount.toFixed(2)}</p>
-          <p><strong>Buyer Protection:</strong> ${buyerProtection.selected ? `$${buyerProtection.feeAmount.toFixed(2)} covering $${buyerProtection.coveredAmount.toFixed(2)}` : "Not selected"}</p>
+          <p><strong>Shipment Protection:</strong> ${buyerProtection.selected ? `$${buyerProtection.feeAmount.toFixed(2)} covering $${buyerProtection.coveredAmount.toFixed(2)}` : buyerProtection.declineAcknowledgedAt ? "Declined and acknowledged" : "Not applicable"}</p>
           <p>The buyer may upgrade shipping during payment, but the original listing price controls the minimum tier.</p>
           <hr />
           <p><strong>Customer Name:</strong> ${escapeHtml(offer.customer_name)}</p>

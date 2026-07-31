@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
+import { BUYER_PROTECTION_MAX_COVERAGE } from "../../../../../../lib/buyer-protection";
 import { buildLetterTrackDeliveryEvidenceSummary } from "../../../../../../lib/lettertrack-delivery-evidence";
 import {
   getStripeLiveSecretKey,
@@ -52,7 +53,7 @@ export async function POST(request: Request) {
     const { data: claim, error: claimError } = await supabase
       .from("buyer_protection_claims")
       .select(
-        "id,protection_id,order_id,status,submitted_at,reimbursement_amount,stripe_refund_id,metadata",
+        "id,protection_id,order_id,status,reason,submitted_at,reimbursement_amount,stripe_refund_id,metadata",
       )
       .eq("id", claimId)
       .eq("store_id", storeId)
@@ -101,6 +102,7 @@ export async function POST(request: Request) {
     );
     if (
       ["approved", "reimbursed"].includes(action) &&
+      claim.reason !== "damaged" &&
       evidence.deliveredEvidencePresent &&
       !hasDeliveredOverride(note)
     ) {
@@ -121,6 +123,7 @@ export async function POST(request: Request) {
         action,
         note: note || null,
         acted_at: now,
+        claim_reason: claim.reason,
         lettertrack_evidence: evidence,
       },
     };
@@ -165,7 +168,10 @@ export async function POST(request: Request) {
 
       const reimbursementAmount = Number(protection.covered_item_amount || 0);
       const refundAmountCents = Math.round(reimbursementAmount * 100);
-      if (refundAmountCents <= 0 || refundAmountCents > 2000) {
+      if (
+        refundAmountCents <= 0 ||
+        refundAmountCents > Math.round(BUYER_PROTECTION_MAX_COVERAGE * 100)
+      ) {
         return NextResponse.json(
           { error: "Protected reimbursement amount is invalid" },
           { status: 409 },
@@ -184,8 +190,9 @@ export async function POST(request: Request) {
             store_id: storeId,
             order_id: String(order.id),
             buyer_protection_claim_id: claim.id,
-            reimbursement_scope: "item_subtotal_only",
-            shipping_refunded: "false",
+            reimbursement_scope: "item_subtotal_and_shipping",
+            claim_reason: String(claim.reason || "not_received"),
+            shipping_refunded: "true",
             protection_fee_refunded: "false",
           },
         },
@@ -202,7 +209,8 @@ export async function POST(request: Request) {
           stripe_refund_id: refund.id,
           reimbursed_at: now,
           reviewed_at: now,
-          decision_note: note || "Approved protected item reimbursement.",
+          decision_note:
+            note || "Approved Shipment Protection reimbursement.",
           metadata,
           updated_at: now,
         })
@@ -258,7 +266,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, status: action });
   } catch (error: any) {
     return NextResponse.json(
-      { error: error.message || "Could not update Buyer Protection claim" },
+      { error: error.message || "Could not update Shipment Protection claim" },
       { status: 500 },
     );
   }

@@ -3,10 +3,12 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
-  BUYER_PROTECTION_FEE,
+  BUYER_PROTECTION_DECLINE_ACKNOWLEDGMENT,
   BUYER_PROTECTION_PATH,
   BUYER_PROTECTION_POLICY_VERSION,
+  BUYER_PROTECTION_RATE,
   BUYER_PROTECTION_TERMS_SUMMARY,
+  calculateBuyerProtectionFee,
   type BuyerProtectionPreferenceMode,
 } from "../../lib/buyer-protection";
 import { getAccountSession } from "../account/account-session";
@@ -15,6 +17,7 @@ export type BuyerProtectionCheckoutChoice = {
   selected: boolean;
   preferenceMode: BuyerProtectionPreferenceMode;
   termsAccepted: boolean;
+  declineAcknowledged: boolean;
   policyVersion: string;
   storedConsentCurrent: boolean;
 };
@@ -23,31 +26,43 @@ const EMPTY_CHOICE: BuyerProtectionCheckoutChoice = {
   selected: false,
   preferenceMode: "one_time",
   termsAccepted: false,
+  declineAcknowledged: false,
   policyVersion: BUYER_PROTECTION_POLICY_VERSION,
   storedConsentCurrent: false,
 };
 
 export default function BuyerProtectionOption({
   available,
+  itemSubtotal,
+  shippingAmount,
   onChange,
 }: {
   available: boolean;
+  itemSubtotal: number;
+  shippingAmount: number;
   onChange: (choice: BuyerProtectionCheckoutChoice) => void;
 }) {
   const [session] = useState(() =>
     typeof window === "undefined" ? null : getAccountSession(),
   );
   const signedIn = Boolean(session?.access_token);
-  const [choice, setChoice] = useState<BuyerProtectionCheckoutChoice>(EMPTY_CHOICE);
+  const [choice, setChoice] =
+    useState<BuyerProtectionCheckoutChoice>(EMPTY_CHOICE);
   const [loading, setLoading] = useState(signedIn);
   const [requiresReacceptance, setRequiresReacceptance] = useState(false);
+  const feeAmount = calculateBuyerProtectionFee({
+    itemSubtotal,
+    shippingAmount,
+  });
 
   function update(next: BuyerProtectionCheckoutChoice) {
-    setChoice(next);
-    onChange({
+    const resolved = {
       ...next,
       selected: available && next.selected,
-    });
+      declineAcknowledged: available ? next.declineAcknowledged : false,
+    };
+    setChoice(resolved);
+    onChange(resolved);
   }
 
   useEffect(() => {
@@ -74,6 +89,7 @@ export default function BuyerProtectionOption({
               selected: true,
               preferenceMode: "always_on",
               termsAccepted: true,
+              declineAcknowledged: false,
               policyVersion: BUYER_PROTECTION_POLICY_VERSION,
               storedConsentCurrent: true,
             }
@@ -102,8 +118,7 @@ export default function BuyerProtectionOption({
     };
   }, [session?.access_token, onChange]);
 
-  const needsAcceptance =
-    choice.selected && !choice.storedConsentCurrent;
+  const needsAcceptance = choice.selected && !choice.storedConsentCurrent;
 
   function selectMode(mode: BuyerProtectionPreferenceMode) {
     if (mode === "always_off") {
@@ -118,6 +133,7 @@ export default function BuyerProtectionOption({
       selected: true,
       preferenceMode: signedIn ? mode : "one_time",
       termsAccepted: choice.storedConsentCurrent,
+      declineAcknowledged: false,
       policyVersion: BUYER_PROTECTION_POLICY_VERSION,
       storedConsentCurrent:
         mode === "always_on" && choice.storedConsentCurrent,
@@ -129,11 +145,14 @@ export default function BuyerProtectionOption({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-xs font-black uppercase tracking-wide text-violet-700">
-            Optional reimbursement program
+            Optional shipment reimbursement program
           </p>
           <h3 className="mt-1 text-lg font-black">
-            Truely Collectables Buyer Protection — ${BUYER_PROTECTION_FEE.toFixed(2)}
+            Shipment Protection — {(BUYER_PROTECTION_RATE * 100).toFixed(0)}% (${feeAmount.toFixed(2)})
           </h3>
+          <p className="mt-1 text-sm font-semibold">
+            The fee is 10% of the item subtotal plus shipping, calculated before the protection fee is added.
+          </p>
         </div>
         <Link
           href={BUYER_PROTECTION_PATH}
@@ -146,7 +165,7 @@ export default function BuyerProtectionOption({
 
       {!available ? (
         <p className="mt-3 rounded border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-950">
-          Available only when Tracked Card Letter is the selected shipping method.
+          Available only for qualifying under-$20 Tracked Card Letter orders.
         </p>
       ) : loading ? (
         <p className="mt-3 text-sm font-bold">Loading your protection preference…</p>
@@ -158,7 +177,7 @@ export default function BuyerProtectionOption({
               {[
                 ["always_on", "Always add to qualifying orders"],
                 ["one_time", "Add to this order only"],
-                ["always_off", "Do not add protection"],
+                ["always_off", "Decline for this order and future orders"],
               ].map(([mode, label]) => (
                 <label
                   key={mode}
@@ -190,7 +209,7 @@ export default function BuyerProtectionOption({
                 }
                 className="mt-1 h-5 w-5"
               />
-              Add Buyer Protection to this order for ${BUYER_PROTECTION_FEE.toFixed(2)}.
+              Add Shipment Protection to this order for ${feeAmount.toFixed(2)}.
             </label>
           )}
 
@@ -209,13 +228,14 @@ export default function BuyerProtectionOption({
                   update({
                     ...choice,
                     termsAccepted: event.target.checked,
+                    declineAcknowledged: false,
                     policyVersion: BUYER_PROTECTION_POLICY_VERSION,
                   })
                 }
                 className="mt-1 h-5 w-5 shrink-0"
               />
               <span>
-                I accept Buyer Protection version {BUYER_PROTECTION_POLICY_VERSION}. I understand the shipment must remain undelivered for at least 7 full days, and my claim must be submitted within 21 calendar days after shipment. Reimbursement covers only the protected item subtotal up to $20, not shipping or the protection fee.
+                I accept Shipment Protection version {BUYER_PROTECTION_POLICY_VERSION}. I understand approved loss or damage reimbursement covers the protected item subtotal and shipping shown at checkout, but not the protection fee. Claims require review and supporting evidence.
               </span>
             </label>
           ) : choice.selected && choice.storedConsentCurrent ? (
@@ -224,8 +244,26 @@ export default function BuyerProtectionOption({
             </p>
           ) : null}
 
+          {!choice.selected ? (
+            <label className="mt-3 flex items-start gap-3 rounded border-2 border-amber-400 bg-amber-50 p-3 text-sm font-bold leading-6 text-amber-950">
+              <input
+                type="checkbox"
+                checked={choice.declineAcknowledged}
+                onChange={(event) =>
+                  update({
+                    ...choice,
+                    termsAccepted: false,
+                    declineAcknowledged: event.target.checked,
+                  })
+                }
+                className="mt-1 h-5 w-5 shrink-0"
+              />
+              <span>{BUYER_PROTECTION_DECLINE_ACKNOWLEDGMENT}</span>
+            </label>
+          ) : null}
+
           <ul className="mt-3 list-disc space-y-1 pl-5 text-xs font-semibold">
-            {BUYER_PROTECTION_TERMS_SUMMARY.slice(1, 6).map((term) => (
+            {BUYER_PROTECTION_TERMS_SUMMARY.map((term) => (
               <li key={term}>{term}</li>
             ))}
           </ul>

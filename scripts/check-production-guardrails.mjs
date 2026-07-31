@@ -285,16 +285,16 @@ assertFileIncludes("command-pinned Vercel CLI handoff", "CHAT_HANDOFF.md", [
 ]);
 
 if (
-  packageJson.dependencies?.next !== "16.2.10" ||
-  packageJson.devDependencies?.["eslint-config-next"] !== "16.2.10"
+  packageJson.dependencies?.next !== "16.2.12" ||
+  packageJson.devDependencies?.["eslint-config-next"] !== "16.2.12"
 ) {
   throw new Error(
-    "Next.js and eslint-config-next must stay aligned on patched release 16.2.10.",
+    "Next.js and eslint-config-next must stay aligned on patched release 16.2.12.",
   );
 }
-if (packageJson.overrides?.postcss !== "8.5.15") {
+if (packageJson.overrides?.postcss !== "8.5.23") {
   throw new Error(
-    "package.json must keep PostCSS 8.5.15 overridden until Next.js stops pinning the vulnerable 8.4.31 release.",
+    "package.json must keep PostCSS 8.5.23 overridden until the framework dependency chain no longer requires an explicit patched override.",
   );
 }
 console.log("PASS patched Next.js and PostCSS dependency contract");
@@ -5117,7 +5117,7 @@ assertFileIncludes(
     "The active shipping label is a TCOS dry-run simulation. Buy or record a real label before marking it shipped.",
     'fulfillment_status: "shipped"',
     "refreshTransactionEvidenceReportForOrder",
-    'fetch("https://api.resend.com/emails"',
+    "enqueueAndAttemptOrderNotification",
   ],
 );
 assertFileOrder(
@@ -5132,7 +5132,7 @@ assertFileOrder(
     '.from("orders")',
     'fulfillment_status: "shipped"',
     "refreshTransactionEvidenceReportForOrder",
-    'fetch("https://api.resend.com/emails"',
+    "enqueueAndAttemptOrderNotification",
   ],
 );
 assertFileIncludes(
@@ -5175,13 +5175,25 @@ assertFileIncludes(
     'status: "missing_credentials"',
     'status: "blocked"',
     'status: "invalid_credentials"',
-    'status: "payment_verification_required"',
+    'status: "seller_payment_verification_required"',
     'status: "inactive"',
     'status: "authenticated"',
-    'cardVerification: "required"',
-    'cardVerification: profile?.card_verified ? "verified" : "active"',
+    "shouldActivateLegacyBuyerAccount",
+    "buyer_card_verification_requirement_removed",
+    "Seller verification must be completed through TCOS seller onboarding",
+    'cardVerification: "seller_only"',
+    'cardVerification: buyerAccount ? "not_required" : "seller_only"',
     'session: "issued"',
     'membership: "buyer"',
+  ],
+);
+assertFileExcludes(
+  "account login retired buyer card-verification contract",
+  "src/app/api/account/login/route.ts",
+  [
+    'status: "payment_verification_required"',
+    'cardVerification: "required"',
+    'cardVerification: profile?.card_verified ? "verified" : "active"',
   ],
 );
 assertFileIncludes(
@@ -5194,14 +5206,50 @@ assertFileIncludes(
     'status: "weak_password"',
     'status: "terms_required"',
     'status: "blocked"',
-    'status: "payment_runtime_unavailable"',
     'status: "signup_failed"',
-    '"created_pending_card_verification"',
-    '"created_active"',
-    "stripeSessionId",
-    "cardVerificationUrl",
-    '!cardVerificationRequired && data.session ? "issued" : "not_issued"',
+    'status: "created_active_buyer"',
+    "BUYER_ACCOUNT_ACTIVE_STATUS",
+    "BUYER_CARD_VERIFICATION_REQUIRED",
+    "BUYER_MEMBERSHIP_ACTIVE_STATUS",
+    "cardVerificationRequired: BUYER_CARD_VERIFICATION_REQUIRED",
+    "stripeSessionId: null",
+    "cardVerificationUrl: null",
+    'cardVerification: "not_required"',
+    'session: data.session ? "issued" : "not_issued"',
     'membership: "buyer"',
+  ],
+);
+assertFileExcludes(
+  "account signup retired buyer card-verification contract",
+  "src/app/api/account/signup/route.ts",
+  [
+    'status: "payment_runtime_unavailable"',
+    '"created_pending_card_verification"',
+    'from "stripe"',
+    "getStripePaymentRuntime",
+    "checkout.sessions.create",
+  ],
+);
+assertFileIncludes(
+  "buyer account no-card policy",
+  "src/lib/buyer-account-policy.ts",
+  [
+    "BUYER_CARD_VERIFICATION_REQUIRED = false",
+    'BUYER_ACCOUNT_ACTIVE_STATUS = "active"',
+    'BUYER_MEMBERSHIP_ACTIVE_STATUS = "active"',
+    "shouldActivateLegacyBuyerAccount",
+    'normalized(params.accountStatus) === "payment_verification_required"',
+    "isBuyerAccountType(params.defaultAccountType, params.authAccountType)",
+  ],
+);
+assertFileIncludes(
+  "buyer account no-card regression suite",
+  "scripts/run-buyer-account-no-card-regressions.ts",
+  [
+    "BUYER_CARD_VERIFICATION_REQUIRED",
+    "shouldActivateLegacyBuyerAccount",
+    "Seller verification must be completed through TCOS seller onboarding",
+    "Buyer account signup without card verification regressions passed.",
   ],
 );
 assertFileIncludes(

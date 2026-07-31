@@ -321,11 +321,17 @@ export async function PATCH(
       const providerLabelId = cleanText(body.providerLabelId);
       const providerShipmentId = cleanText(body.providerShipmentId);
       const note = cleanText(body.note);
+      const standardEnvelopeMachinableAttested =
+        body.standardEnvelopeMachinableAttested === true;
       const requiredMissing = [
         !provider ? "label provider" : null,
         !carrier ? "carrier" : null,
         !trackingNumber ? "tracking / IMb" : null,
         postageAmount === null ? "valid postage amount" : null,
+        label.resolved_shipping_method === "STANDARD_ENVELOPE" &&
+        !standardEnvelopeMachinableAttested
+          ? "machinable packaging attestation"
+          : null,
         !note || note.length < 8 ? "audit note" : null,
       ].filter(Boolean);
 
@@ -408,6 +414,8 @@ export async function PATCH(
               coverage_policy_id: coveragePolicyId,
               label_status: labelStatus,
               coverage_status: coverageStatus,
+              standard_envelope_machinable_attested:
+                standardEnvelopeMachinableAttested,
             },
           },
         })
@@ -453,6 +461,8 @@ export async function PATCH(
           coverage_policy_id: coveragePolicyId,
           coverage_amount: coverageAmount,
           coverage_status: coverageStatus,
+          standard_envelope_machinable_attested:
+            standardEnvelopeMachinableAttested,
           note,
         },
       });
