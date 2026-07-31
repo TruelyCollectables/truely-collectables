@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { deriveCardIdentity, isLikelyPlayerName } from "./card-identity";
 
-export const CARD_IDENTITY_BACKFILL_REVISION = "player-name-v6";
+export const CARD_IDENTITY_BACKFILL_REVISION = "player-name-v7";
 
 const PAGE_SIZE = 1000;
 const SAMPLE_LIMIT = 100;
@@ -174,8 +174,6 @@ export async function backfillCardSaleIdentities(params: {
     } else {
       unresolved += 1;
 
-      // Never leave a card brand, set, league, or parallel in Player / Subject.
-      // If no real person can be resolved, clear the polluted value for review.
       if (currentPlayer && !currentIsValid) {
         productUpdates.push({ id: product.id, player: null });
         playersCleared += 1;
