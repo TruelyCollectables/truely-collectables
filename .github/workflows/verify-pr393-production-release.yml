@@ -1,0 +1,134 @@
+name: Verify PR 393 Production Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/verify-pr393-production-release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-pr393-production-release
+  cancel-in-progress: false
+
+jobs:
+  authenticated-smoke-and-live-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+    steps:
+      - name: Check out current main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Link project and pull Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          echo "::add-mask::$VERCEL_TOKEN"
+          npx vercel@56.2.0 link --yes \
+            --project truely-collectables \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN"
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/pr393-production.env" \
+            --yes --environment production \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          test -s "$RUNNER_TEMP/pr393-production.env"
+
+      - name: Run authenticated repository Production smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source "$RUNNER_TEMP/pr393-production.env"
+          set +a
+          test -n "${ADMIN_PASSWORD:-}"
+          echo "::add-mask::$ADMIN_PASSWORD"
+          SMOKE_ADMIN_PASSWORD="$ADMIN_PASSWORD" \
+            SMOKE_BASE_URL="https://truelycollectables.com" \
+            npm run smoke:production
+          rm -f "$RUNNER_TEMP/pr393-production.env" .env.local
+
+      - name: Verify live public routes and cache-bypassed content
+        shell: bash
+        run: |
+          set -euo pipefail
+          stamp="${GITHUB_SHA:0:12}-$(date +%s)"
+          root="$RUNNER_TEMP/pr393-live"
+          mkdir -p "$root"
+          routes=(
+            ""
+            "shop"
+            "account"
+            "account/login"
+            "cart"
+            "buyer-protection"
+            "robots.txt"
+            "sitemap.xml"
+          )
+          for index in "${!routes[@]}"; do
+            route="${routes[$index]}"
+            output="$root/route-$index.txt"
+            curl --fail --silent --show-error --location \
+              --retry 6 --retry-all-errors --max-time 45 \
+              -H "Cache-Control: no-cache" \
+              -H "Pragma: no-cache" \
+              -A "TruelyCollectablesPR393Verify/1.0" \
+              "https://truelycollectables.com/${route}?pr393_verify=${stamp}-${index}" \
+              -o "$output"
+            if grep -Eqi "Error loading products|permission denied for view|Missing Supabase environment variables|Internal Server Error" "$output"; then
+              echo "Live route failed: /$route" >&2
+              grep -Ei "Error loading products|permission denied for view|Missing Supabase environment variables|Internal Server Error" "$output" || true
+              exit 1
+            fi
+            echo "PASS /$route"
+          done
+
+          grep -Fq "Find the collectible your collection is missing" "$root/route-0.txt"
+          grep -Fq "Shop Sports Cards" "$root/route-1.txt"
+          grep -Fq "No card verification is required for buyer accounts" "$root/route-3.txt"
+          grep -Fq "Shopping Cart" "$root/route-4.txt"
+          grep -Fq "Shipment Protection" "$root/route-5.txt"
+          grep -Fq "User-agent" "$root/route-6.txt"
+          grep -Fq "urlset" "$root/route-7.txt"
+
+      - name: Verify live security headers and protected admin boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          stamp="${GITHUB_SHA:0:12}-$(date +%s)"
+          headers="$RUNNER_TEMP/pr393-headers.txt"
+          curl --fail --silent --show-error --head \
+            --retry 5 --retry-all-errors --max-time 45 \
+            -H "Cache-Control: no-cache" \
+            -A "TruelyCollectablesPR393Headers/1.0" \
+            "https://truelycollectables.com/?pr393_headers=$stamp" \
+            -o "$headers"
+          grep -Eqi '^strict-transport-security:' "$headers"
+          grep -Eqi '^content-security-policy:' "$headers"
+          grep -Eqi '^x-content-type-options:[[:space:]]*nosniff' "$headers"
+          grep -Eqi '^x-frame-options:' "$headers"
+
+          admin_headers="$RUNNER_TEMP/pr393-admin-headers.txt"
+          curl --silent --show-error --head --max-time 45 \
+            -A "TruelyCollectablesPR393AdminBoundary/1.0" \
+            "https://truelycollectables.com/admin" \
+            -o "$admin_headers"
+          grep -Eqi '^location:.*\/admin\/login|^HTTP\/[0-9.]+ (302|303|307|308)' "$admin_headers"
+          echo "PR #393 Production authenticated smoke, public routes, headers, and admin boundary passed."
