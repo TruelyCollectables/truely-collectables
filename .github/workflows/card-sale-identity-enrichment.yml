@@ -67,6 +67,12 @@ jobs:
           chmod 600 .env.production.local
 
       - name: Backfill player and exact sale identities
-        run: node --env-file=.env.production.local scripts/backfill-card-sale-identities.mjs
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source .env.production.local
+          set +a
+          node scripts/backfill-card-sale-identities.mjs
 
-# Observable green-run request: 2026-07-31T15:38:00Z
+# Observable green-run request: 2026-07-31T15:41:00Z
