@@ -12,6 +12,11 @@ const navigationLinks = [
   { href: "/account", label: "Account" },
 ];
 
+const mobileNavigationLinks = [
+  ...navigationLinks,
+  { href: "/admin", label: "Admin" },
+];
+
 function storeMark(value: string) {
   const initials = value
     .split(/\s+/)
@@ -70,6 +75,14 @@ export default function Navbar() {
               </div>
 
               <Link
+                href="/admin"
+                prefetch={false}
+                className="inline-flex min-h-11 items-center justify-center border-2 border-neutral-950 bg-white px-3 py-2 text-sm font-black text-neutral-950 shadow-[3px_3px_0_#111318] transition hover:-translate-y-0.5 sm:px-4"
+              >
+                Admin
+              </Link>
+
+              <Link
                 href="/cart"
                 prefetch={false}
                 className="inline-flex min-h-11 items-center justify-center border-2 border-neutral-950 bg-yellow-300 px-4 py-2 text-sm font-black text-neutral-950 shadow-[3px_3px_0_#111318] transition hover:-translate-y-0.5"
@@ -79,7 +92,7 @@ export default function Navbar() {
             </div>
           </div>
 
-          <MobileNavigation links={navigationLinks} />
+          <MobileNavigation links={mobileNavigationLinks} />
         </div>
       </nav>
     </>
