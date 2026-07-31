@@ -15,33 +15,100 @@ concurrency:
   group: verify-buyer-login-route-convergence
   cancel-in-progress: true
 
-env:
-  CONVERGENCE_TRIGGER: "2026-07-31T15:00Z"
-
 jobs:
-  prove-deployment-and-alias:
+  deploy-and-certify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 45
     env:
-      DEPLOYMENT_ORIGIN: https://truely-collectables-j303t3ahn-truelycollectables-projects.vercel.app
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
       PRODUCTION_ORIGIN: https://truelycollectables.com
     steps:
-      - name: Check out current main
+      - name: Check out newest main
         uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
 
-      - name: Verify clean deployment artifact and Production alias convergence
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Validate public account route boundary source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --prune origin main
+          git reset --hard origin/main
+          grep -Fq 'PUBLIC_ACCOUNT_ROUTES' src/app/account/AccountSessionBoundary.tsx
+          grep -Fq '"/account/login"' src/app/account/AccountSessionBoundary.tsx
+          grep -Fq '"/account/signup"' src/app/account/AccountSessionBoundary.tsx
+          grep -Fq 'if (isPublicAccountRoute)' src/app/account/AccountSessionBoundary.tsx
+          grep -Fq 'export const dynamic = "force-dynamic"' src/app/account/login/page.tsx
+          test -f src/app/account/login/AccountLoginClient.tsx
+          grep -Fq 'No card verification is required for buyer accounts' src/app/account/login/AccountLoginClient.tsx
+          npm ci
+          npm run lint
+
+      - name: Link Vercel project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          echo "::add-mask::$VERCEL_TOKEN"
+          npx vercel@56.2.0 link --yes \
+            --project truely-collectables \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN"
+
+      - name: Force clean Production deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git reset --hard origin/main
+          source_sha=$(git rev-parse HEAD)
+          echo "Deploying source SHA: $source_sha"
+
+          test -f src/app/account/login/AccountLoginClient.tsx
+          grep -Fq 'PUBLIC_ACCOUNT_ROUTES' src/app/account/AccountSessionBoundary.tsx
+          grep -Fq 'export const dynamic = "force-dynamic"' src/app/account/login/page.tsx
+
+          deploy_log="$RUNNER_TEMP/account-boundary-deploy.log"
+          set +e
+          npx vercel@56.2.0 --prod --yes --force \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" 2>&1 | tee "$deploy_log"
+          deploy_status=${PIPESTATUS[0]}
+          set -e
+          test "$deploy_status" -eq 0
+
+          deployed_url=$(grep -Eo 'https://[A-Za-z0-9.-]+\.vercel\.app' "$deploy_log" | tail -1)
+          test -n "$deployed_url"
+          echo "Immutable deployment: $deployed_url"
+
+          npx vercel@56.2.0 alias set "$deployed_url" truelycollectables.com \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN"
+
+          echo "DEPLOYMENT_ORIGIN=$deployed_url" >> "$GITHUB_ENV"
+          echo "DEPLOYED_SOURCE_SHA=$source_sha" >> "$GITHUB_ENV"
+
+      - name: Prove immutable deployment and live alias
         shell: bash
         run: |
           set -euo pipefail
           node --input-type=module <<'NODE'
           const deploymentOrigin = String(process.env.DEPLOYMENT_ORIGIN || "").replace(/\/$/, "");
           const productionOrigin = String(process.env.PRODUCTION_ORIGIN || "").replace(/\/$/, "");
-          const sourceSha = process.env.GITHUB_SHA || "unknown";
+          const sourceSha = String(process.env.DEPLOYED_SOURCE_SHA || "unknown");
+          if (!deploymentOrigin.endsWith(".vercel.app")) {
+            throw new Error(`Invalid immutable deployment origin: ${deploymentOrigin || "missing"}`);
+          }
           const stamp = `${sourceSha.slice(0, 12)}-${Date.now()}`;
-          const requiredLoginText = [
+          const loginText = [
             "Account Login",
             "No card verification is required for buyer accounts",
             "Create one",
@@ -61,11 +128,11 @@ jobs:
               .trim();
           }
 
-          function safeDiagnostic(value) {
+          function diagnostic(value) {
             return visibleText(value)
               .replace(/\b(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9_=-]{8,}\b/g, "[redacted]")
               .replace(/\bwhsec_[A-Za-z0-9_=-]{8,}\b/g, "[redacted]")
-              .slice(0, 360);
+              .slice(0, 420);
           }
 
           async function fetchPage(origin, path, redirect = "manual") {
@@ -74,66 +141,69 @@ jobs:
               headers: {
                 "cache-control": "no-cache, no-store, max-age=0",
                 pragma: "no-cache",
-                "user-agent": "TruelyCollectablesBuyerLoginConvergence/1.0",
+                "user-agent": "TruelyCollectablesAccountBoundaryCertification/1.0",
               },
               signal: AbortSignal.timeout(60_000),
             });
             const body = await response.text();
-            return {
-              response,
-              body,
-              text: visibleText(body),
-            };
+            return { response, body, text: visibleText(body) };
           }
 
-          function loginResultIsCorrect(result) {
-            const url = new URL(result.response.url);
+          function correctLogin(result) {
+            const finalUrl = new URL(result.response.url);
             return (
               result.response.status === 200 &&
-              url.pathname === "/account/login" &&
-              requiredLoginText.every(
-                (expected) => result.body.includes(expected) || result.text.includes(expected),
-              ) &&
+              finalUrl.pathname === "/account/login" &&
+              loginText.every((text) => result.body.includes(text) || result.text.includes(text)) &&
               !result.text.includes("Checking your account")
             );
           }
 
-          async function requireCorrectLogin(origin, label, attempts, delayMs) {
+          async function requireLogin(origin, label, attempts, delayMs) {
             let lastResult;
             for (let attempt = 1; attempt <= attempts; attempt += 1) {
-              const separator = "/account/login".includes("?") ? "&" : "?";
               const result = await fetchPage(
                 origin,
-                `/account/login${separator}buyer_login_convergence=${stamp}-${label}-${attempt}`,
+                `/account/login?account_boundary=${stamp}-${label}-${attempt}`,
                 "manual",
               );
               lastResult = result;
-              const location = result.response.headers.get("location") || "";
-              const cache = result.response.headers.get("x-vercel-cache") || "";
-              const age = result.response.headers.get("age") || "";
               console.log(
-                `${label} attempt ${attempt}/${attempts}: status=${result.response.status}; final=${result.response.url}; location=${location || "none"}; x-vercel-cache=${cache || "none"}; age=${age || "none"}`,
+                `${label} ${attempt}/${attempts}: status=${result.response.status}; url=${result.response.url}; cache=${result.response.headers.get("x-vercel-cache") || "none"}; age=${result.response.headers.get("age") || "none"}`,
               );
-
-              if (loginResultIsCorrect(result)) {
-                console.log(`PASS ${label} buyer login route`);
-                return result;
+              if (correctLogin(result)) {
+                console.log(`PASS ${label} /account/login`);
+                return;
               }
-
               if (attempt < attempts) {
                 await new Promise((resolve) => setTimeout(resolve, delayMs));
               }
             }
-
             throw new Error(
-              `${label} buyer login did not converge; diagnostic=${safeDiagnostic(lastResult?.body || "")}`,
+              `${label} /account/login failed; diagnostic=${diagnostic(lastResult?.body || "")}`,
             );
           }
 
-          await requireCorrectLogin(deploymentOrigin, "deployment", 4, 2_000);
-          await requireCorrectLogin(productionOrigin, "production-alias", 24, 5_000);
+          await requireLogin(deploymentOrigin, "immutable-deployment", 10, 3_000);
+          await requireLogin(productionOrigin, "production-alias", 30, 5_000);
 
-          const criticalChecks = [
+          const signup = await fetchPage(
+            productionOrigin,
+            `/account/signup?account_boundary=${stamp}-signup`,
+            "manual",
+          );
+          if (
+            signup.response.status !== 200 ||
+            signup.text.includes("Checking your account") ||
+            (!signup.body.includes("Create") && !signup.text.includes("Create"))
+          ) {
+            throw new Error(
+              `Public signup route is still session-gated; diagnostic=${diagnostic(signup.body)}`,
+            );
+          }
+          console.log("PASS public /account/signup bypass");
+
+          const routeChecks = [
             ["/", "Find the collectible your collection is missing"],
             ["/shop", "Shop Sports Cards & Collectibles"],
             ["/account", "Checking your account"],
@@ -142,11 +212,11 @@ jobs:
             ["/robots.txt", "User-agent"],
             ["/sitemap.xml", "urlset"],
           ];
-          for (let index = 0; index < criticalChecks.length; index += 1) {
-            const [path, expected] = criticalChecks[index];
+          for (let index = 0; index < routeChecks.length; index += 1) {
+            const [path, expected] = routeChecks[index];
             const result = await fetchPage(
               productionOrigin,
-              `${path}?buyer_login_convergence_check=${stamp}-${index}`,
+              `${path}?account_boundary_check=${stamp}-${index}`,
               "follow",
             );
             if (
@@ -154,7 +224,7 @@ jobs:
               (!result.body.includes(expected) && !result.text.includes(expected))
             ) {
               throw new Error(
-                `${path} failed after alias convergence; status=${result.response.status}; diagnostic=${safeDiagnostic(result.body)}`,
+                `${path} failed; status=${result.response.status}; diagnostic=${diagnostic(result.body)}`,
               );
             }
             for (const fatal of [
@@ -170,12 +240,11 @@ jobs:
             console.log(`PASS ${path}`);
           }
 
-          const home = await fetch(`${productionOrigin}/?buyer_login_convergence_headers=${stamp}`, {
+          const home = await fetch(`${productionOrigin}/?account_boundary_headers=${stamp}`, {
             redirect: "manual",
             headers: {
               "cache-control": "no-cache, no-store, max-age=0",
-              pragma: "no-cache",
-              "user-agent": "TruelyCollectablesBuyerLoginConvergenceHeaders/1.0",
+              "user-agent": "TruelyCollectablesAccountBoundaryHeaders/1.0",
             },
             signal: AbortSignal.timeout(60_000),
           });
@@ -195,12 +264,12 @@ jobs:
 
           for (const path of ["/admin", "/admin/products/new", "/admin/orders"]) {
             const response = await fetch(
-              `${productionOrigin}${path}?buyer_login_convergence_boundary=${stamp}`,
+              `${productionOrigin}${path}?account_boundary_admin=${stamp}`,
               {
                 redirect: "manual",
                 headers: {
                   "cache-control": "no-cache, no-store, max-age=0",
-                  "user-agent": "TruelyCollectablesBuyerLoginConvergenceBoundary/1.0",
+                  "user-agent": "TruelyCollectablesAccountBoundaryAdmin/1.0",
                 },
                 signal: AbortSignal.timeout(60_000),
               },
@@ -214,7 +283,8 @@ jobs:
             console.log(`PASS admin boundary ${path}`);
           }
 
-          console.log("BUYER_LOGIN_DEPLOYMENT_AND_ALIAS_CONVERGENCE=passed");
+          console.log("ACCOUNT_PUBLIC_ROUTE_BOUNDARY_FIX=passed");
+          console.log(`DEPLOYED_SOURCE_SHA=${sourceSha}`);
           NODE
 
       - name: Launch final Production certification
