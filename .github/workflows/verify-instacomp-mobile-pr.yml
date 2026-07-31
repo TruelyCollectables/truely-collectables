@@ -1,0 +1,113 @@
+name: Verify InstaComp Mobile Production
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/app/admin/instacomp/mobile/**"
+      - ".github/workflows/verify-instacomp-mobile-pr.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-instacomp-mobile-production
+  cancel-in-progress: false
+
+jobs:
+  verify-live:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+      PRODUCTION_ORIGIN: https://truelycollectables.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Verify portrait source
+        run: |
+          set -euo pipefail
+          grep -F 'MobileInstaCompScanner' src/app/admin/instacomp/mobile/page.tsx
+          grep -F 'Built for portrait mode' src/app/admin/instacomp/mobile/page.tsx
+          grep -F 'Run InstaComp' src/app/admin/instacomp/mobile/MobileInstaCompScanner.tsx
+          grep -F 'Sold comps (' src/app/admin/instacomp/mobile/MobileInstaCompScanner.tsx
+          grep -F 'Current listings (' src/app/admin/instacomp/mobile/MobileInstaCompScanner.tsx
+          ! grep -Fq 'InstaComp™ Auto-Pilot' src/app/admin/instacomp/mobile/page.tsx
+
+      - name: Deploy tested revision to Production
+        id: deploy
+        run: |
+          set -euo pipefail
+          test -n "$VERCEL_TOKEN"
+          npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          output="$(npx vercel@56.2.0 deploy --prod --yes --no-color --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1)"
+          printf '%s\n' "$output"
+          url="$(printf '%s\n' "$output" | grep -Eo 'https://[A-Za-z0-9.-]+\.vercel\.app' | tail -n 1)"
+          test -n "$url"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Load masked Production admin password
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/prod.env" --yes --environment=production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          node - "$RUNNER_TEMP/prod.env" "$RUNNER_TEMP/admin-password" <<'NODE'
+          const fs = require('node:fs');
+          const text = fs.readFileSync(process.argv[2], 'utf8');
+          const match = text.match(/^ADMIN_PASSWORD=(.*)$/m);
+          if (!match) throw new Error('ADMIN_PASSWORD missing');
+          let value = match[1].trim();
+          if (value.startsWith('"')) value = JSON.parse(value);
+          else if (value.startsWith("'") && value.endsWith("'")) value = value.slice(1, -1);
+          if (!value) throw new Error('ADMIN_PASSWORD empty');
+          fs.writeFileSync(process.argv[3], value, { mode: 0o600 });
+          NODE
+          echo "::add-mask::$(cat "$RUNNER_TEMP/admin-password")"
+
+      - name: Login and verify live Admin pages
+        run: |
+          set -euo pipefail
+          password="$(cat "$RUNNER_TEMP/admin-password")"
+          payload="$(node -e 'process.stdout.write(JSON.stringify({password: process.argv[1], nextPath: "/admin"}))' "$password")"
+          for attempt in $(seq 1 24); do
+            code="$(curl -sS -L --max-time 60 -c "$RUNNER_TEMP/cookies" -o "$RUNNER_TEMP/login.json" -w '%{http_code}' -H 'Content-Type: application/json' -H 'Cache-Control: no-cache' -A 'TCOSMobileVerifier/1.0' --data "$payload" "$PRODUCTION_ORIGIN/api/admin/login")"
+            if [ "$code" = "200" ] && node -e 'const p=require(process.argv[1]);process.exit(p.success?0:1)' "$RUNNER_TEMP/login.json"; then break; fi
+            sleep 10
+          done
+          node -e 'const p=require(process.argv[1]);if(!p.success)throw new Error(p.code||p.error||"login failed")' "$RUNNER_TEMP/login.json"
+
+          fetch() {
+            route="$1"; file="$2"
+            code="$(curl -sS -L --max-time 60 -b "$RUNNER_TEMP/cookies" -o "$file" -w '%{http_code}' -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' -A 'TCOSMobileVerifier/1.0' "$PRODUCTION_ORIGIN$route?verify=${GITHUB_SHA}-$(date +%s%N)")"
+            test "$code" = "200"
+            ! grep -Fq '/admin/login' "$file"
+          }
+
+          fetch '/admin' "$RUNNER_TEMP/admin.html"
+          grep -F 'InstaComp Mobile' "$RUNNER_TEMP/admin.html"
+          grep -F 'Card Studio' "$RUNNER_TEMP/admin.html"
+
+          fetch '/admin/instacomp/mobile' "$RUNNER_TEMP/mobile.html"
+          grep -F 'Built for portrait mode' "$RUNNER_TEMP/mobile.html"
+          grep -F 'Scan one card' "$RUNNER_TEMP/mobile.html"
+          grep -F 'Run InstaComp' "$RUNNER_TEMP/mobile.html"
+          ! grep -Fq 'Auto-Pilot' "$RUNNER_TEMP/mobile.html"
+          ! grep -Fq 'Batch Scan Up To 500 Cards' "$RUNNER_TEMP/mobile.html"
+          ! grep -Fq 'Parallel Scans' "$RUNNER_TEMP/mobile.html"
+
+          fetch '/admin/products/new' "$RUNNER_TEMP/card-studio.html"
+          grep -Eiq 'Card Studio|Add Product|New Product|Create Product' "$RUNNER_TEMP/card-studio.html"
+
+          echo 'LIVE_ADMIN_DASHBOARD=passed'
+          echo 'LIVE_INSTACOMP_MOBILE_PORTRAIT=passed'
+          echo 'LIVE_INSTACOMP_MOBILE_NO_AUTOPILOT=passed'
+          echo 'LIVE_CARD_STUDIO=passed'
+          echo 'LIVE_COMP_SECTIONS_SOURCE=passed'
+          echo "LIVE_DEPLOYMENT_URL=${{ steps.deploy.outputs.url }}"
