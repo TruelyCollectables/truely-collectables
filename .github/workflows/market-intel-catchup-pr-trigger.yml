@@ -45,13 +45,41 @@ jobs:
             --project truely-collectables \
             --scope "$VERCEL_SCOPE" \
             --token "$VERCEL_TOKEN" >/dev/null
+          env_file="$RUNNER_TEMP/market-intel-production.env"
           secret_file="$RUNNER_TEMP/market-intel-run-secret"
-          export MARKET_INTEL_SECRET_FILE="$secret_file"
-          npx vercel@56.2.0 env run \
+          npx vercel@56.2.0 env pull "$env_file" \
+            --yes \
             --environment=production \
             --scope "$VERCEL_SCOPE" \
-            --token "$VERCEL_TOKEN" \
-            -- bash -lc 'set -euo pipefail; secret="${MARKET_INTEL_INGEST_SECRET:-${CRON_SECRET:-}}"; test -n "$secret"; printf "%s" "$secret" > "$MARKET_INTEL_SECRET_FILE"; chmod 600 "$MARKET_INTEL_SECRET_FILE"'
+            --token "$VERCEL_TOKEN" >/dev/null
+          chmod 600 "$env_file"
+          node - "$env_file" "$secret_file" <<'NODE'
+          const fs = require("node:fs");
+          const input = fs.readFileSync(process.argv[2], "utf8");
+          function readValue(key) {
+            const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const match = input.match(new RegExp(`^${escaped}=(.*)$`, "m"));
+            if (!match) return "";
+            const encoded = match[1].trim();
+            try {
+              if (encoded.startsWith('"')) return JSON.parse(encoded);
+            } catch {}
+            if (encoded.startsWith("'") && encoded.endsWith("'")) return encoded.slice(1, -1);
+            return encoded;
+          }
+          const candidates = [
+            ["MARKET_INTEL_INGEST_SECRET", readValue("MARKET_INTEL_INGEST_SECRET")],
+            ["CRON_SECRET", readValue("CRON_SECRET")],
+          ];
+          for (const [key, value] of candidates) {
+            console.log(`${key}_AVAILABLE=${Boolean(value)}`);
+            console.log(`${key}_LENGTH=${String(value).length}`);
+          }
+          const selected = candidates.find(([, value]) => Boolean(value));
+          if (!selected) throw new Error("No Market Intel authorization value was returned from Vercel Production.");
+          fs.writeFileSync(process.argv[3], String(selected[1]), { mode: 0o600 });
+          console.log(`MARKET_INTEL_AUTHORIZATION_SOURCE=${selected[0]}`);
+          NODE
           run_secret="$(cat "$secret_file")"
           test -n "$run_secret"
           echo "::add-mask::$run_secret"
