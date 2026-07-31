@@ -12,10 +12,14 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: apply-fbi-audit-fixes
+  cancel-in-progress: true
+
 jobs:
   apply:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -24,18 +28,40 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
       - name: Apply exact reviewed patches
         run: node scripts/apply-fbi-audit-fixes.mjs
+      - name: Regenerate lockfile for the security override
+        run: npm install --package-lock-only --ignore-scripts
+      - name: Validate patched source before commit
+        run: |
+          npm ci
+          npm audit --omit=dev --audit-level=moderate
+          node scripts/run-shipping-simulations.ts
+          npm run verify:admin-dashboard
+          npm run check:production-guardrails
+          npm run lint -- \
+            src/lib/shipping.ts \
+            src/lib/shipping-simulations.ts \
+            'src/app/admin/orders/[id]/ShippingLabelActions.tsx' \
+            'src/app/admin/orders/[id]/page.tsx' \
+            'src/app/api/admin/orders/[id]/shipping-labels/route.ts' \
+            src/app/admin/products/new/AuditedDualMarketplaceListingStudio.tsx \
+            src/app/admin/page.tsx
       - name: Commit patched audit fixes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add \
-            scripts/check-production-guardrails.mjs \
-            scripts/run-admin-product-status-simulations.mjs \
-            scripts/run-live-production-surface-audit.mjs \
-            scripts/run-dual-marketplace-edge-audit-simulations.ts \
-            src/app/admin/products/new/AuditedDualMarketplaceListingStudio.tsx
+            package.json \
+            package-lock.json \
+            src/lib/shipping.ts \
+            src/lib/shipping-simulations.ts \
+            'src/app/admin/orders/[id]/ShippingLabelActions.tsx' \
+            'src/app/admin/orders/[id]/page.tsx' \
+            'src/app/api/admin/orders/[id]/shipping-labels/route.ts' \
+            src/app/admin/products/new/AuditedDualMarketplaceListingStudio.tsx \
+            src/app/admin/page.tsx
           git diff --cached --check
-          git commit -m "Fix audit blockers and inline eBay confirmation"
+          git commit -m "Harden postage, packaging and production dependencies"
           git push origin HEAD:agent/dual-marketplace-card-intake
