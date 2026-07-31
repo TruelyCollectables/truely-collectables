@@ -49,7 +49,7 @@ export default function MobileInstaCompPage() {
       <div className="mx-auto w-full max-w-xl px-3 py-3">
         <section className="mb-3 rounded-2xl border border-cyan-200 bg-cyan-50 p-4 shadow-sm">
           <p className="text-xs font-black uppercase tracking-[0.16em] text-cyan-800">
-            Built for buying decisions
+            Built for portrait mode · InstaComp 2.0 decisions
           </p>
           <p className="mt-1 text-sm font-semibold leading-5 text-cyan-950">
             Scan one card, verify the exact identity, see sold comps and current
