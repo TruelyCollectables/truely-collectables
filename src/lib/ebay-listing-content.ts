@@ -76,6 +76,45 @@ export function normalizeEbayAspects(value: Record<string, string[]>) {
   return output;
 }
 
+function isPrivateOrLocalHostname(hostname: string) {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (
+    host === "localhost" ||
+    host === "::1" ||
+    host === "0.0.0.0" ||
+    host.endsWith(".localhost") ||
+    host.endsWith(".local") ||
+    host.endsWith(".internal")
+  ) {
+    return true;
+  }
+
+  const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipv4) {
+    const octets = ipv4.slice(1).map(Number);
+    if (octets.some((octet) => octet < 0 || octet > 255)) return true;
+    const [first, second] = octets;
+    return (
+      first === 0 ||
+      first === 10 ||
+      first === 127 ||
+      (first === 169 && second === 254) ||
+      (first === 172 && second >= 16 && second <= 31) ||
+      (first === 192 && second === 168) ||
+      (first === 100 && second >= 64 && second <= 127)
+    );
+  }
+
+  return (
+    host.startsWith("fc") ||
+    host.startsWith("fd") ||
+    host.startsWith("fe8") ||
+    host.startsWith("fe9") ||
+    host.startsWith("fea") ||
+    host.startsWith("feb")
+  );
+}
+
 export function validatedHttpsImageUrls(values: string[], maximum = 24) {
   const output: string[] = [];
   const seen = new Set<string>();
@@ -83,6 +122,9 @@ export function validatedHttpsImageUrls(values: string[], maximum = 24) {
   for (const rawValue of values || []) {
     const value = String(rawValue || "").trim();
     if (!value || seen.has(value)) continue;
+    if (value.length > 2_000) {
+      throw new Error("eBay image URLs must be 2,000 characters or fewer.");
+    }
 
     let parsed: URL;
     try {
@@ -91,7 +133,13 @@ export function validatedHttpsImageUrls(values: string[], maximum = 24) {
       throw new Error("eBay images must use valid public HTTPS URLs.");
     }
 
-    if (parsed.protocol !== "https:" || !parsed.hostname || parsed.username || parsed.password) {
+    if (
+      parsed.protocol !== "https:" ||
+      !parsed.hostname ||
+      parsed.username ||
+      parsed.password ||
+      isPrivateOrLocalHostname(parsed.hostname)
+    ) {
       throw new Error("eBay images must use valid public HTTPS URLs.");
     }
 
