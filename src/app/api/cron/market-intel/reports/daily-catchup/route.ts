@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { deliverFreshDailyMarketIntelReport } from "../../../../../../../lib/market-intel-daily-delivery";
-import { generateFreshDailyMarketIntelReport } from "../../../../../../../lib/market-intel-daily-refresh";
-import { getMarketIntelDeliveryConfig } from "../../../../../../../lib/market-intel-delivery";
-import { isAuthorizedMarketIntelIngest } from "../../../../../../../lib/market-intel-ingestion";
-import { createSupabaseServerClient } from "../../../../../../../lib/supabase-server";
+import { deliverFreshDailyMarketIntelReport } from "../../../../../../lib/market-intel-daily-delivery";
+import { generateFreshDailyMarketIntelReport } from "../../../../../../lib/market-intel-daily-refresh";
+import { getMarketIntelDeliveryConfig } from "../../../../../../lib/market-intel-delivery";
+import { isAuthorizedMarketIntelIngest } from "../../../../../../lib/market-intel-ingestion";
+import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
