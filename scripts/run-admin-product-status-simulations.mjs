@@ -24,6 +24,18 @@ const newProductPageSource = await readFile(
   new URL("../src/app/admin/products/new/page.tsx", import.meta.url),
   "utf8",
 );
+const simplifiedListPageSource = await readFile(
+  new URL("../src/app/list/page.tsx", import.meta.url),
+  "utf8",
+);
+const simplifiedListLayoutSource = await readFile(
+  new URL("../src/app/list/layout.tsx", import.meta.url),
+  "utf8",
+);
+const simpleListDraftRouteSource = await readFile(
+  new URL("../src/app/api/admin/simple-list-drafts/route.ts", import.meta.url),
+  "utf8",
+);
 const productSaveRouteSource = await readFile(
   new URL("../src/app/api/admin/products/[id]/save/route.ts", import.meta.url),
   "utf8",
@@ -332,42 +344,48 @@ scenario("product list uses professional inventory command presentation", () => 
   }
 });
 
-scenario("new product intake keeps manual creation safe and professional", () => {
+scenario("new product intake redirects to the protected simplified listing workspace", () => {
+  assert(
+    newProductPageSource.includes('redirect("/list")'),
+    "Expected the legacy new-product route to redirect to /list.",
+  );
+
   for (const fragment of [
-    "adminProductActionFailureMessage",
-    "Manual product could not be created.",
-    "Inventory intake",
-    "rounded-[2rem] border border-neutral-900 bg-neutral-950",
-    "shadow-2xl shadow-neutral-950/10",
-    "max-w-[1500px]",
-    "border border-white/15 bg-white/10",
-    "focus:ring-4 focus:ring-black/10",
-    "HeaderStat label=\"Upload\"",
-    "HeaderStat label=\"AI\"",
-    "HeaderStat label=\"Publish\"",
-    "CommandLink href=\"/admin/products\" label=\"Products\" primary",
-    "CommandLink href=\"/admin/instacomp-direct\" label=\"InstaComp direct\"",
-    "role=\"alert\"",
-    "aria-live=\"assertive\"",
-    "rounded-3xl border border-neutral-200 bg-white/95",
-    "rounded-xl border border-neutral-300 bg-white",
-    "Create one manual store product from the form fields without publishing it to eBay.",
-    "Adds the product to TCOS inventory only",
+    "SimpleListIntake",
+    "SimpleListingQueue",
+    "List Cards",
+    "Upload photos",
+    "Review and list selected",
   ]) {
     assert(
-      newProductPageSource.includes(fragment),
-      `Expected new product intake fragment ${fragment}.`,
+      simplifiedListPageSource.includes(fragment),
+      `Expected simplified listing page fragment ${fragment}.`,
     );
   }
 
-  assert(
-    !newProductPageSource.includes("error.message.trim()"),
-    "Expected new product intake to avoid raw create error messages.",
-  );
-  for (const roughShell of ['bg-[#f4f1ea]', 'bg-[#101418]', "max-w-7xl"]) {
+  for (const fragment of [
+    "ADMIN_SESSION_COOKIE_NAMES",
+    "isValidAdminSessionValue",
+    "/admin/login",
+    'encodeURIComponent("/list")',
+  ]) {
     assert(
-      !newProductPageSource.includes(roughShell),
-      `Expected new product intake to avoid rough shell fragment ${roughShell}.`,
+      simplifiedListLayoutSource.includes(fragment),
+      `Expected protected /list layout fragment ${fragment}.`,
+    );
+  }
+
+  for (const fragment of [
+    'actor.type !== "admin"',
+    "A front card photo is required.",
+    "Listing title is required.",
+    "Listing price must be greater than zero.",
+    "Quantity must be at least one.",
+    "createSellerDraftProduct",
+  ]) {
+    assert(
+      simpleListDraftRouteSource.includes(fragment),
+      `Expected simplified draft route fragment ${fragment}.`,
     );
   }
 });
