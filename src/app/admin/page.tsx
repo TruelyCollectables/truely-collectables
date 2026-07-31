@@ -2146,8 +2146,7 @@ export default async function AdminDashboard() {
                   </p>
                   <p className="mt-1 text-xs font-black text-neutral-700">
                     Standard Envelope evidence validator is{" "}
-                    {launchGateDrill.shipping
-                      .standardEnvelopeEvidenceContractReady
+                    {launchGateDrill.shipping.standardEnvelopeEvidenceContractReady
                       ? "ready"
                       : "blocked"}
                     .
