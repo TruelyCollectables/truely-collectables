@@ -66,10 +66,11 @@ jobs:
             --token "$VERCEL_TOKEN"
           chmod 600 .env.production.local
 
-      - name: Backfill player and exact sale identities
+      - name: Measure credential availability without exposing values
         shell: bash
         run: |
           set -euo pipefail
-          node --input-type=module -e "process.loadEnvFile('.env.production.local'); await import('./scripts/backfill-card-sale-identities.mjs')"
+          awk -F= '/^(NEXT_PUBLIC_SUPABASE_URL|SUPABASE_SERVICE_ROLE_KEY)=/{ value=substr($0,index($0,"=")+1); print $1 " encoded_length=" length(value) }' .env.production.local
+          node --input-type=module -e "process.loadEnvFile('.env.production.local'); console.log('url_loaded=' + Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL) + ' service_loaded=' + Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY)); process.exit(1)"
 
-# Green-run credential loader: 2026-07-31T15:48:00Z
+# Safe credential-length diagnostic: 2026-07-31T15:50:00Z
