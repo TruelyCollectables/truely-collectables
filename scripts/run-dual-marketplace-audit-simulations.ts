@@ -4,6 +4,7 @@ import {
   calculateDualMarketplacePricing,
 } from "../src/lib/dual-marketplace-pricing";
 import {
+  cardConditionForCategory,
   compactEbayTitle,
   conservativeCardCondition,
   createDualMarketplaceListingDraft,
@@ -50,6 +51,20 @@ assert.equal(
 assert.equal(conservativeCardCondition("Review needed"), "");
 assert.equal(conservativeCardCondition("Not near mint"), "");
 assert.equal(conservativeCardCondition("Near Mint"), "Near Mint or Better");
+assert.equal(cardConditionForCategory("261328", "Excellent"), "Excellent");
+assert.equal(
+  cardConditionForCategory("183454", "Excellent"),
+  "Lightly Played (Excellent)",
+  "CCG cards must use eBay's CCG condition vocabulary.",
+);
+assert.equal(
+  cardConditionForCategory("183454", "Very Good"),
+  "Moderately Played (Very Good)",
+);
+assert.equal(
+  cardConditionForCategory("183454", "Poor"),
+  "Heavily Played (Poor)",
+);
 
 const draft = createDualMarketplaceListingDraft({
   title: "Fallback Card",
@@ -70,6 +85,21 @@ assert.equal(draft.cardCondition, "");
 assert.ok(!draft.websiteDescription.includes("front and back images are part"));
 assert.ok(draft.ebayDescription.includes("&lt;script&gt;"), "AI-derived HTML must be escaped.");
 assert.equal(compactEbayTitle("A ".repeat(100), 80).length <= 80, true);
+
+const pokemonDraft = createDualMarketplaceListingDraft({
+  title: "Pokemon Card",
+  category: "pokemon",
+  metadata: {
+    instacomp: {
+      ai: {
+        sport: "Pokemon",
+        conditionGuess: "Excellent",
+      },
+    },
+  },
+});
+assert.equal(pokemonDraft.ebayCategoryId, "183454");
+assert.equal(pokemonDraft.cardCondition, "Lightly Played (Excellent)");
 
 assert.throws(
   () => assertSafeEbayListingContent("<script>alert(1)</script>"),
