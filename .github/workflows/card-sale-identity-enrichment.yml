@@ -14,8 +14,6 @@ on:
       - "src/lib/card-sale-identity-backfill.ts"
       - "src/app/api/internal/card-sale-identity-backfill/route.ts"
       - ".github/workflows/card-sale-identity-enrichment.yml"
-  schedule:
-    - cron: "17 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -30,7 +28,7 @@ concurrency:
 jobs:
   enrich:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_SCOPE: truelycollectables-projects
@@ -64,56 +62,40 @@ jobs:
           set -euo pipefail
           test -n "${VERCEL_TOKEN:-}"
           echo "::add-mask::$VERCEL_TOKEN"
-          npx vercel@56.2.0 link --yes \
-            --project truely-collectables \
-            --scope "$VERCEL_SCOPE" \
-            --token "$VERCEL_TOKEN"
+          npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
 
-      - name: Pull Production environment securely
+      - name: Force fresh Production deployment
         shell: bash
         run: |
           set -euo pipefail
-          npx vercel@56.2.0 env pull .env.production.local --yes \
-            --environment=production \
-            --scope "$VERCEL_SCOPE" \
-            --token "$VERCEL_TOKEN"
-          chmod 600 .env.production.local
+          DEPLOYMENT_URL=$(npx vercel@56.2.0 deploy --prod --force --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee /tmp/vercel-deploy.log | grep -Eo 'https://[^ ]+\.vercel\.app' | tail -1)
+          test -n "$DEPLOYMENT_URL"
+          echo "DEPLOYMENT_URL=$DEPLOYMENT_URL" >> "$GITHUB_ENV"
+          echo "Deployed $DEPLOYMENT_URL"
 
       - name: Invoke protected runtime backfill
         shell: bash
         run: |
           set -euo pipefail
           node --input-type=module <<'NODE'
-          process.loadEnvFile('.env.production.local');
-          const site = process.env.NEXT_PUBLIC_SITE_URL || 'https://truelycollectables.com';
+          const site = process.env.DEPLOYMENT_URL;
           const token = process.env.VERCEL_TOKEN;
-          if (!token) throw new Error('VERCEL_TOKEN is required');
+          if (!site || !token) throw new Error('Deployment URL and Vercel token are required');
           const endpoint = new URL('/api/internal/card-sale-identity-backfill', site).toString();
           let lastError = 'endpoint unavailable';
-          for (let attempt = 1; attempt <= 4; attempt += 1) {
+          for (let attempt = 1; attempt <= 12; attempt += 1) {
             try {
-              const response = await fetch(endpoint, {
-                method: 'POST',
-                headers: { 'x-vercel-token': token },
-              });
+              const response = await fetch(endpoint, { method: 'POST', headers: { 'x-vercel-token': token } });
               const body = await response.text();
-              const report = `Production backfill response\n\n- Attempt: ${attempt}\n- HTTP status: ${response.status}\n- Body: \`${body.slice(0, 4000).replaceAll('`', "'")}\``;
+              const report = `Production backfill response\n\n- Deployment: ${site}\n- Attempt: ${attempt}\n- HTTP status: ${response.status}\n- Body: \`${body.slice(0, 4000).replaceAll('`', "'")}\``;
               if (process.env.GH_PR_NUMBER) {
                 await fetch(`https://api.github.com/repos/${process.env.GH_REPOSITORY}/issues/${process.env.GH_PR_NUMBER}/comments`, {
                   method: 'POST',
-                  headers: {
-                    Authorization: `Bearer ${process.env.GH_TOKEN}`,
-                    Accept: 'application/vnd.github+json',
-                    'X-GitHub-Api-Version': '2022-11-28',
-                    'Content-Type': 'application/json',
-                  },
+                  headers: { Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'Content-Type': 'application/json' },
                   body: JSON.stringify({ body: report }),
                 });
               }
-              if (response.ok) {
-                console.log(body);
-                process.exit(0);
-              }
+              if (response.ok) { console.log(body); process.exit(0); }
               lastError = `HTTP ${response.status}: ${body}`;
             } catch (error) {
               lastError = error instanceof Error ? error.message : String(error);
@@ -123,4 +105,4 @@ jobs:
           throw new Error(lastError);
           NODE
 
-# Sanitized production response reporter: 2026-07-31T16:15:00Z
+# Force-deploy production verification: 2026-07-31T16:18:00Z
