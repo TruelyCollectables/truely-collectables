@@ -42,19 +42,6 @@ function normalizePlayer(value: unknown) {
   return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
 }
 
-function shouldRepairPlayer(currentPlayer: string, derivedPlayer: string | null) {
-  if (!derivedPlayer) return false;
-  if (!currentPlayer || currentPlayer.toLowerCase() === "not cataloged") return true;
-
-  const current = currentPlayer.toLowerCase();
-  const derived = derivedPlayer.toLowerCase();
-  if (current === derived) return false;
-
-  // Repairs prior title-derived values that accidentally included a card brand/set
-  // before the actual player name, such as "Fleer Shaquille O'Neal".
-  return current.endsWith(` ${derived}`);
-}
-
 export async function backfillCardSaleIdentities(params: {
   supabase: SupabaseClient;
   storeId: string;
@@ -88,19 +75,17 @@ export async function backfillCardSaleIdentities(params: {
   for (const product of products) {
     const title = product.title || "Untitled";
     const currentPlayer = normalizePlayer(product.player);
-    const titleIdentity = deriveCardIdentity({ title });
-    const repairPlayer = shouldRepairPlayer(currentPlayer, titleIdentity.player);
-    const identity = deriveCardIdentity({
-      title,
-      aspectPlayer: repairPlayer ? undefined : currentPlayer,
-    });
+    const identity = deriveCardIdentity({ title, aspectPlayer: currentPlayer });
+    const derivedPlayer = normalizePlayer(identity.player);
 
-    if (!identity.player) unresolved += 1;
+    if (!derivedPlayer) unresolved += 1;
 
-    if (repairPlayer && identity.player) {
+    // Correct every mismatched value, including polluted card-set names such as
+    // "Artifacts Hockey", "Upper Deck", or "Fleer Shaquille O'Neal".
+    if (derivedPlayer && currentPlayer.toLowerCase() !== derivedPlayer.toLowerCase()) {
       const { error } = await params.supabase
         .from("products")
-        .update({ player: identity.player })
+        .update({ player: derivedPlayer })
         .eq("id", product.id)
         .eq("store_id", params.storeId);
       if (error) throw new Error(error.message || "Player update failed");
