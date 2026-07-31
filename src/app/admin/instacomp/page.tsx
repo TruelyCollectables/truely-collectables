@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
 import DuckAiWitness from "./DuckAiWitness";
 import InstaCompAdminFrame from "./InstaCompAdminFrame";
@@ -80,7 +81,7 @@ export default async function InstaCompAdminPage({
     <InstaCompAdminFrame
       eyebrow="Admin scan workbench"
       title="InstaComp™ Scan Lab"
-      description="Identify cards with AI, verify the exact card identity, remove bad rows, merge duplicate quantities, refresh comps, and turn clean scan results into priced TCOS drafts. Duck.ai is available below as a free manual council witness."
+      description="Identify cards with AI, verify the exact card identity, remove bad rows, merge duplicate quantities, refresh comps, and turn clean scan results into priced Truely Collectables listing drafts. Duck.ai is available below as a free manual council witness."
       notice={
         openedFromSellerEbayStaging ? (
           <section className="rounded-3xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
@@ -99,8 +100,8 @@ export default async function InstaCompAdminPage({
                       } selected. `
                     : ""}
                   Upload or scan the matching card fronts/backs here, review the
-                  detected identity and comps, then create TCOS seller drafts from
-                  the cleaned InstaComp™ result.
+                  detected identity and comps, then create Truely Collectables
+                  seller drafts from the cleaned InstaComp™ result.
                 </p>
               </div>
               {importedQuery ? (
@@ -113,6 +114,38 @@ export default async function InstaCompAdminPage({
         ) : null
       }
     >
+      <section className="mb-7 overflow-hidden rounded-3xl border border-cyan-200 bg-gradient-to-br from-neutral-950 via-neutral-900 to-cyan-950 text-white shadow-lg">
+        <div className="grid gap-5 p-6 lg:grid-cols-[1fr_auto] lg:items-center">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-cyan-300">
+              InstaComp 2.0 is ready
+            </p>
+            <h2 className="mt-2 text-3xl font-black tracking-tight">
+              Turn every scan into a money decision.
+            </h2>
+            <p className="mt-3 max-w-3xl text-sm font-semibold leading-6 text-neutral-300">
+              The new one-card workbench adds buy targets, actual profit and ROI,
+              market heat, liquidity, risk, trend direction, and raw-versus-graded
+              evidence without hiding the comps behind the answer.
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row lg:flex-col">
+            <Link
+              href="/admin/instacomp/v2"
+              className="rounded-2xl bg-amber-300 px-5 py-3 text-center text-sm font-black text-neutral-950 hover:bg-amber-200"
+            >
+              Open InstaComp 2.0
+            </Link>
+            <Link
+              href="/admin/instacomp/mobile"
+              className="rounded-2xl border border-white/15 bg-white/10 px-5 py-3 text-center text-sm font-black text-white hover:bg-white/15"
+            >
+              Open Phone Scanner
+            </Link>
+          </div>
+        </div>
+      </section>
+
       <InstaCompScanner />
       <DuckAiWitness />
 
