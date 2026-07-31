@@ -38,6 +38,8 @@ for (const path of [
   "/shop?feature=rookie",
   "/shop?feature=autograph",
   "/shop?feature=graded",
+  "/recently-sold",
+  "/account/orders",
   "/account",
 ]) {
   assert.ok(
