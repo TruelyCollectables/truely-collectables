@@ -1,0 +1,66 @@
+name: Card and Sale Identity Enrichment
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/lib/card-identity.ts"
+      - "scripts/backfill-card-sale-identities.mjs"
+      - ".github/workflows/card-sale-identity-enrichment.yml"
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: card-sale-identity-enrichment
+  cancel-in-progress: true
+
+jobs:
+  enrich:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+    steps:
+      - name: Check out current main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Link Production project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          echo "::add-mask::$VERCEL_TOKEN"
+          npx vercel@56.2.0 link --yes \
+            --project truely-collectables \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN"
+
+      - name: Pull Production environment securely
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 env pull .env.production.local --yes \
+            --environment=production \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN"
+          chmod 600 .env.production.local
+
+      - name: Backfill player and exact sale identities
+        run: node --env-file=.env.production.local scripts/backfill-card-sale-identities.mjs
