@@ -1,9 +1,11 @@
 name: Patch List Admin Navigation and Guards
 
-# Trigger after the workflow definition exists on the branch.
 on:
   push:
     branches: [agent/simplified-list-route]
+    paths:
+      - ".github/workflows/patch-list-admin-navigation-and-guards.yml"
+  pull_request:
     paths:
       - ".github/workflows/patch-list-admin-navigation-and-guards.yml"
 
@@ -31,13 +33,35 @@ jobs:
 
           admin = Path('src/app/admin/page.tsx')
           text = admin.read_text()
-          old_card = '''    {\n      href: "/admin/instacomp-direct",\n      eyebrow: "Scan desk",\n      title: "Fix scans before they become bad inventory",\n      detail:\n        "Remove bad scan rows, merge selected quantities, retry OCR, and turn clean InstaComp™ results into priced drafts from the focused Direct lane.",\n      cta: "Open InstaComp™ Direct",\n      tone: "border-blue-200 bg-blue-50 text-blue-950",\n    },'''
-          new_card = '''    {\n      href: "/list",\n      eyebrow: "Listing desk",\n      title: "Upload, InstaComp™, edit, and list cards",\n      detail:\n        "Use the simplified photo-first workspace to scan selected cards, edit every field and quantity, then publish one, several, or all selected cards.",\n      cta: "Open List Cards",\n      tone: "border-blue-200 bg-blue-50 text-blue-950",\n    },'''
+          old_card = '''    {
+      href: "/admin/instacomp-direct",
+      eyebrow: "Scan desk",
+      title: "Fix scans before they become bad inventory",
+      detail:
+        "Remove bad scan rows, merge selected quantities, retry OCR, and turn clean InstaComp™ results into priced drafts from the focused Direct lane.",
+      cta: "Open InstaComp™ Direct",
+      tone: "border-blue-200 bg-blue-50 text-blue-950",
+    },'''
+          new_card = '''    {
+      href: "/list",
+      eyebrow: "Listing desk",
+      title: "Upload, InstaComp™, edit, and list cards",
+      detail:
+        "Use the simplified photo-first workspace to scan selected cards, edit every field and quantity, then publish one, several, or all selected cards.",
+      cta: "Open List Cards",
+      tone: "border-blue-200 bg-blue-50 text-blue-950",
+    },'''
           if text.count(old_card) != 1:
               raise SystemExit(f'Expected one primary scan action card, found {text.count(old_card)}')
           text = text.replace(old_card, new_card)
-          old_links = '''        { href: "/admin/instacomp-direct", label: "Direct Scan Lab" },\n        { href: "/admin/instacomp", label: "Scan Lab" },\n        { href: "/admin/quick-list", label: "Quick List" },'''
-          new_links = '''        { href: "/list", label: "List Cards" },\n        { href: "/admin/instacomp/mobile", label: "InstaComp Mobile" },\n        { href: "/admin/instacomp-direct", label: "Direct Scan Lab" },\n        { href: "/admin/instacomp", label: "Scan Lab" },\n        { href: "/admin/quick-list", label: "Quick List" },'''
+          old_links = '''        { href: "/admin/instacomp-direct", label: "Direct Scan Lab" },
+        { href: "/admin/instacomp", label: "Scan Lab" },
+        { href: "/admin/quick-list", label: "Quick List" },'''
+          new_links = '''        { href: "/list", label: "List Cards" },
+        { href: "/admin/instacomp/mobile", label: "InstaComp Mobile" },
+        { href: "/admin/instacomp-direct", label: "Direct Scan Lab" },
+        { href: "/admin/instacomp", label: "Scan Lab" },
+        { href: "/admin/quick-list", label: "Quick List" },'''
           if text.count(old_links) != 1:
               raise SystemExit(f'Expected one inventory tool link block, found {text.count(old_links)}')
           text = text.replace(old_links, new_links)
@@ -49,13 +73,34 @@ jobs:
 
           smoke = Path('scripts/smoke-admin-runtime.mjs')
           text = smoke.read_text()
-          old = '''  {\n    path: "/admin/instacomp-direct",\n    auth: true,\n    expectedText: "InstaComp™ Direct Scan Lab",\n  },'''
-          new = '''  {\n    path: "/admin/instacomp-direct",\n    auth: true,\n    expectedText: "InstaComp™ Direct Scan Lab",\n  },\n  {\n    path: "/admin/instacomp/mobile",\n    auth: true,\n    expectedText: "InstaComp Mobile",\n  },'''
+          old = '''  {
+    path: "/admin/instacomp-direct",
+    auth: true,
+    expectedText: "InstaComp™ Direct Scan Lab",
+  },'''
+          new = '''  {
+    path: "/admin/instacomp-direct",
+    auth: true,
+    expectedText: "InstaComp™ Direct Scan Lab",
+  },
+  {
+    path: "/admin/instacomp/mobile",
+    auth: true,
+    expectedText: "InstaComp Mobile",
+  },'''
           if text.count(old) != 1:
               raise SystemExit(f'Expected one InstaComp Direct smoke block, found {text.count(old)}')
           text = text.replace(old, new)
-          old = '''  {\n    path: "/admin/products/new",\n    auth: true,\n    expectedText: "Add products",\n  },'''
-          new = '''  {\n    path: "/admin/products/new",\n    auth: true,\n    expectedText: "List Cards",\n  },'''
+          old = '''  {
+    path: "/admin/products/new",
+    auth: true,
+    expectedText: "Add products",
+  },'''
+          new = '''  {
+    path: "/admin/products/new",
+    auth: true,
+    expectedText: "List Cards",
+  },'''
           if text.count(old) != 1:
               raise SystemExit(f'Expected one legacy product smoke block, found {text.count(old)}')
           smoke.write_text(text.replace(old, new))
@@ -67,13 +112,54 @@ jobs:
           if text.count(old) != 1:
               raise SystemExit(f'Expected one no-dead-end exemption set, found {text.count(old)}')
           text = text.replace(old, new)
-          read_anchor = '''const adminNewProductPageSource = await readFile(\n  new URL("../src/app/admin/products/new/page.tsx", import.meta.url),\n  "utf8",\n);\n'''
-          read_insert = read_anchor + '''const simplifiedListPageSource = await readFile(\n  new URL("../src/app/list/page.tsx", import.meta.url),\n  "utf8",\n);\n'''
+          read_anchor = '''const adminNewProductPageSource = await readFile(
+  new URL("../src/app/admin/products/new/page.tsx", import.meta.url),
+  "utf8",
+);
+'''
+          read_insert = read_anchor + '''const simplifiedListPageSource = await readFile(
+  new URL("../src/app/list/page.tsx", import.meta.url),
+  "utf8",
+);
+'''
           if text.count(read_anchor) != 1:
               raise SystemExit(f'Expected one legacy product source read, found {text.count(read_anchor)}')
           text = text.replace(read_anchor, read_insert)
-          old_scenario = '''  for (const fragment of [\n    "Add manual product",\n    "Create one manual store product from the form fields without publishing it to eBay.",\n    "Adds the product to TCOS inventory only; marketplace publishing remains a separate admin step.",\n  ]) {\n    assert(\n      adminNewProductPageSource.includes(fragment),\n      `Expected manual product action-scope fragment ${fragment}.`,\n    );\n  }'''
-          new_scenario = '''  assert(\n    adminNewProductPageSource.includes('redirect("/list")'),\n    "Expected the legacy new-product route to redirect to /list.",\n  );\n  for (const fragment of [\n    "List Cards",\n    "Upload photos",\n    "Run InstaComp™",\n    "Review and list selected",\n  ]) {\n    assert(\n      simplifiedListPageSource.includes(fragment),\n      `Expected simplified list action-scope fragment ${fragment}.`,\n    );\n  }\n  for (const fragment of [\n    'href: "/list"',\n    'cta: "Open List Cards"',\n    '{ href: "/admin/instacomp/mobile", label: "InstaComp Mobile" }',\n  ]) {\n    assert(\n      adminPageSource.includes(fragment),\n      `Expected admin listing shortcut fragment ${fragment}.`,\n    );\n  }'''
+          old_scenario = '''  for (const fragment of [
+    "Add manual product",
+    "Create one manual store product from the form fields without publishing it to eBay.",
+    "Adds the product to TCOS inventory only; marketplace publishing remains a separate admin step.",
+  ]) {
+    assert(
+      adminNewProductPageSource.includes(fragment),
+      `Expected manual product action-scope fragment ${fragment}.`,
+    );
+  }'''
+          new_scenario = '''  assert(
+    adminNewProductPageSource.includes('redirect("/list")'),
+    "Expected the legacy new-product route to redirect to /list.",
+  );
+  for (const fragment of [
+    "List Cards",
+    "Upload photos",
+    "Run InstaComp™",
+    "Review and list selected",
+  ]) {
+    assert(
+      simplifiedListPageSource.includes(fragment),
+      `Expected simplified list action-scope fragment ${fragment}.`,
+    );
+  }
+  for (const fragment of [
+    'href: "/list"',
+    'cta: "Open List Cards"',
+    '{ href: "/admin/instacomp/mobile", label: "InstaComp Mobile" }',
+  ]) {
+    assert(
+      adminPageSource.includes(fragment),
+      `Expected admin listing shortcut fragment ${fragment}.`,
+    );
+  }'''
           if text.count(old_scenario) != 1:
               raise SystemExit(f'Expected one old manual-product scenario block, found {text.count(old_scenario)}')
           sim.write_text(text.replace(old_scenario, new_scenario))
