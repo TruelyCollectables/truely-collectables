@@ -1,0 +1,159 @@
+name: InstaComp Learning and Registry Postgres
+
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/20260716170000_create_tcos_card_knowledge_base.sql"
+      - "supabase/migrations/20260731160500_instacomp_automatic_learning.sql"
+      - "supabase/migrations/20260725_tcos_checklist_registry_core.sql"
+      - "supabase/migrations/20260725_tcos_checklist_source_storage.sql"
+      - "supabase/migrations/20260731161500_checklist_registry_transactional_writer.sql"
+      - "src/lib/checklist-registry/**"
+      - "src/lib/instacomp-learning-server.ts"
+      - "scripts/write-checklist-registry-integration-plan.ts"
+      - "scripts/verify-instacomp-learning-registry.sql"
+      - ".github/workflows/instacomp-learning-registry-postgres.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-learning-registry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: instacomp_learning_registry_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d instacomp_learning_registry_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: instacomp_learning_registry_test
+      KNOWLEDGE_MIGRATION: supabase/migrations/20260716170000_create_tcos_card_knowledge_base.sql
+      LEARNING_MIGRATION: supabase/migrations/20260731160500_instacomp_automatic_learning.sql
+      REGISTRY_CORE_MIGRATION: supabase/migrations/20260725_tcos_checklist_registry_core.sql
+      REGISTRY_STORAGE_MIGRATION: supabase/migrations/20260725_tcos_checklist_source_storage.sql
+      REGISTRY_WRITER_MIGRATION: supabase/migrations/20260731161500_checklist_registry_transactional_writer.sql
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Generate a validated official checklist import plan
+        run: |
+          mkdir -p .codex-run
+          node --import tsx scripts/write-checklist-registry-integration-plan.ts \
+            .codex-run/checklist-registry-integration-plan.json
+
+      - name: Create Supabase-compatible prerequisite schema
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          create extension if not exists pgcrypto;
+
+          do $$
+          begin
+            create role anon nologin;
+          exception when duplicate_object then null;
+          end;
+          $$;
+
+          do $$
+          begin
+            create role authenticated nologin;
+          exception when duplicate_object then null;
+          end;
+          $$;
+
+          do $$
+          begin
+            create role service_role nologin bypassrls;
+          exception when duplicate_object then null;
+          end;
+          $$;
+
+          create schema if not exists storage;
+          create table if not exists storage.buckets (
+            id text primary key,
+            name text not null unique,
+            public boolean not null default false,
+            file_size_limit bigint,
+            allowed_mime_types text[]
+          );
+
+          create or replace function public.tcos_touch_instacomp_scan_updated_at()
+          returns trigger
+          language plpgsql
+          as $$
+          begin
+            new.updated_at = now();
+            return new;
+          end;
+          $$;
+
+          create table if not exists public.instacomp_scan_jobs (
+            id uuid primary key default gen_random_uuid(),
+            created_at timestamptz not null default now()
+          );
+
+          create table if not exists public.instacomp_scan_items (
+            id uuid primary key default gen_random_uuid(),
+            job_id uuid references public.instacomp_scan_jobs(id) on delete cascade,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+          );
+
+          create table if not exists public.instacomp_scans (
+            id uuid primary key default gen_random_uuid(),
+            created_at timestamptz not null default now(),
+            image_filename text,
+            player text,
+            year text,
+            brand text,
+            set_name text,
+            card_number text,
+            parallel text,
+            confidence numeric,
+            search_query text,
+            suggested_price numeric,
+            ebay_sold_url text,
+            raw_ai_result jsonb not null default '{}'::jsonb,
+            raw_comp_results jsonb not null default '{}'::jsonb
+          );
+          SQL
+
+      - name: Apply knowledge, learning, and Registry migrations
+        run: |
+          psql -v ON_ERROR_STOP=1 --file "$KNOWLEDGE_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$LEARNING_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$REGISTRY_CORE_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$REGISTRY_STORAGE_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$REGISTRY_WRITER_MIGRATION"
+
+      - name: Reapply additive migrations to prove idempotence
+        run: |
+          psql -v ON_ERROR_STOP=1 --file "$LEARNING_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$REGISTRY_CORE_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$REGISTRY_STORAGE_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$REGISTRY_WRITER_MIGRATION"
+
+      - name: Verify learning, trust, cache, backfill, and Registry transactions
+        run: psql -v ON_ERROR_STOP=1 --file scripts/verify-instacomp-learning-registry.sql
