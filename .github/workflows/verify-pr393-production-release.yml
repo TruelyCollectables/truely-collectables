@@ -48,7 +48,7 @@ jobs:
             ["/account/login", "No card verification is required for buyer accounts", "buyer login"],
             ["/cart", "Shopping Cart", "cart"],
             ["/buyer-protection", "Truely Collectables Shipment Protection", "Shipment Protection"],
-            ["/robots.txt", "User-agent", "robots"],
+            ["/robots.txt", "User-Agent", "robots"],
             ["/sitemap.xml", "urlset", "sitemap"],
           ];
 
