@@ -182,6 +182,22 @@ jobs:
           fs.writeFileSync(path, text);
           NODE
 
+      - name: Normalize guarded dashboard shipping expression
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = 'src/app/admin/page.tsx';
+          let text = fs.readFileSync(path, 'utf8');
+          const pattern = /launchGateDrill\.shipping\s*\.standardEnvelopeEvidenceContractReady/g;
+          const matches = text.match(pattern) || [];
+          if (matches.length !== 1) {
+            throw new Error(`Expected one guarded dashboard shipping expression, found ${matches.length}.`);
+          }
+          text = text.replace(pattern, 'launchGateDrill.shipping.standardEnvelopeEvidenceContractReady');
+          fs.writeFileSync(path, text);
+          NODE
+
       - name: Validate buyer account policy
         run: node --import tsx scripts/run-buyer-account-no-card-regressions.ts
 
@@ -191,13 +207,13 @@ jobs:
       - name: Commit guard modernization
         shell: bash
         run: |
-          if git diff --quiet -- scripts/check-production-guardrails.mjs; then
-            echo "Guard already aligned."
+          if git diff --quiet -- scripts/check-production-guardrails.mjs src/app/admin/page.tsx; then
+            echo "Guard and source already aligned."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add scripts/check-production-guardrails.mjs
-          git commit -m "Align buyer account production guard"
+          git add scripts/check-production-guardrails.mjs src/app/admin/page.tsx
+          git commit -m "Align buyer account and dashboard production guards"
           git pull --rebase origin "${{ github.event.pull_request.head.ref }}"
           git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
