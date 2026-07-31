@@ -141,31 +141,55 @@ jobs:
           echo "Live Profit Hunter cron did not verify at expected commit $expected." >&2
           exit 1
 
-      - name: Pull Production cron authorization from Vercel
+      - name: Pull Production server authorizations from Vercel
         shell: bash
         run: |
           set -euo pipefail
           env_file="$RUNNER_TEMP/profit-hunter-production.env"
-          npx vercel env pull "$env_file" \
+          npx vercel@56.2.0 env pull "$env_file" \
             --environment=production \
             --yes \
             --token="$VERCEL_TOKEN" \
             --scope="$VERCEL_SCOPE" >/dev/null
 
-          cron_secret="$(node - "$env_file" <<'NODE'
+          node - "$env_file" "$GITHUB_ENV" <<'NODE'
           const fs = require("node:fs");
-          const lines = fs.readFileSync(process.argv[2], "utf8").split(/\r?\n/);
-          const line = lines.find((entry) => entry.startsWith("CRON_SECRET="));
-          if (!line) process.exit(2);
-          const raw = line.slice("CRON_SECRET=".length).trim();
-          let value = raw;
-          if (raw.startsWith('"')) value = JSON.parse(raw);
-          if (!value) process.exit(3);
-          process.stdout.write(value);
+          const [path, githubEnv] = process.argv.slice(2);
+          const lines = fs.readFileSync(path, "utf8").split(/\r?\n/);
+
+          function readValue(name) {
+            const prefix = `${name}=`;
+            const line = lines.find((entry) => entry.startsWith(prefix));
+            if (!line) return "";
+            const raw = line.slice(prefix.length).trim();
+            if (!raw) return "";
+            if (raw.startsWith('"')) {
+              try {
+                return String(JSON.parse(raw));
+              } catch {
+                return "";
+              }
+            }
+            return raw;
+          }
+
+          const entries = [
+            ["PROFIT_HUNTER_MARKET_SECRET", readValue("MARKET_INTEL_INGEST_SECRET")],
+            ["PROFIT_HUNTER_CRON_SECRET", readValue("CRON_SECRET")],
+          ].filter(([, value]) => value);
+
+          if (!entries.length) {
+            throw new Error(
+              "Neither MARKET_INTEL_INGEST_SECRET nor CRON_SECRET was available from Vercel Production.",
+            );
+          }
+
+          for (const [name, value] of entries) {
+            console.log(`::add-mask::${value}`);
+            fs.appendFileSync(githubEnv, `${name}=${value}\n`);
+          }
+          console.log(`Loaded ${entries.length} masked Production authorization candidate(s).`);
           NODE
-          )"
-          echo "::add-mask::$cron_secret"
-          echo "PROFIT_HUNTER_CRON_SECRET=$cron_secret" >> "$GITHUB_ENV"
 
       - name: Force and verify one complete server-side Profit Hunter cycle
         id: force_run
@@ -173,19 +197,49 @@ jobs:
         run: |
           set -euo pipefail
           response="$RUNNER_TEMP/profit-hunter-forced-run.json"
-          http_code="$(curl --silent --show-error --location \
-            --max-time 300 --retry 2 --retry-all-errors \
-            -H "Authorization: Bearer ${PROFIT_HUNTER_CRON_SECRET}" \
-            -H "Cache-Control: no-cache" \
-            -H "Pragma: no-cache" \
-            -A "TCOSProfitHunterForcedRun/1.0" \
-            -o "$response" -w '%{http_code}' \
-            "https://truelycollectables.com/api/cron/profit-hunter?force=1&perQuery=20&deploy_test=$(date +%s)")"
+          endpoint="https://truelycollectables.com/api/cron/profit-hunter?force=1&perQuery=20&deploy_test=$(date +%s)"
+          successful_secret=""
+
+          candidates=(
+            "market_intel:${PROFIT_HUNTER_MARKET_SECRET:-}"
+            "vercel_cron:${PROFIT_HUNTER_CRON_SECRET:-}"
+          )
+
+          for candidate in "${candidates[@]}"; do
+            label="${candidate%%:*}"
+            secret="${candidate#*:}"
+            if [ -z "$secret" ]; then
+              continue
+            fi
+
+            echo "Trying masked Production authorization: $label"
+            http_code="$(curl --silent --show-error --location \
+              --max-time 300 --retry 2 --retry-all-errors \
+              -H "Authorization: Bearer ${secret}" \
+              -H "Cache-Control: no-cache" \
+              -H "Pragma: no-cache" \
+              -A "TCOSProfitHunterForcedRun/1.0" \
+              -o "$response" -w '%{http_code}' \
+              "$endpoint&auth_source=$label")"
+
+            if [ "$http_code" = "200" ]; then
+              successful_secret="$label"
+              break
+            fi
+
+            echo "Authorization $label returned HTTP $http_code."
+            cat "$response"
+          done
+
+          if [ -z "$successful_secret" ]; then
+            echo "No Production authorization candidate could force the Profit Hunter run." >&2
+            exit 1
+          fi
+
           cat "$response"
-          test "$http_code" = "200"
-          node - "$response" "$GITHUB_OUTPUT" <<'NODE'
+          node - "$response" "$GITHUB_OUTPUT" "$successful_secret" <<'NODE'
           const fs = require("node:fs");
-          const [path, output] = process.argv.slice(2);
+          const [path, output, authSource] = process.argv.slice(2);
           const payload = JSON.parse(fs.readFileSync(path, "utf8"));
           if (payload.ok !== true) process.exit(1);
           if (payload.nativeEbayUsed !== true) process.exit(1);
@@ -200,6 +254,7 @@ jobs:
               `deduplicated_results=${payload.deduplicatedResultCount || 0}`,
               `actionable_count=${payload.exactCompActionableCount || 0}`,
               `duration_ms=${payload.durationMs || 0}`,
+              `auth_source=${authSource}`,
             ].join("\n") + "\n",
           );
           NODE
@@ -213,6 +268,7 @@ jobs:
           DEDUPLICATED_RESULTS: ${{ steps.force_run.outputs.deduplicated_results }}
           ACTIONABLE_COUNT: ${{ steps.force_run.outputs.actionable_count }}
           DURATION_MS: ${{ steps.force_run.outputs.duration_ms }}
+          AUTH_SOURCE: ${{ steps.force_run.outputs.auth_source }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -233,6 +289,7 @@ jobs:
           - Exact-comp actionable results: ${ACTIONABLE_COUNT}
           - Saved report ID: ${REPORT_ID}
           - Forced-run duration: ${DURATION_MS} ms
+          - Verified authorization path: ${AUTH_SOURCE}
           - Mountain schedule: 7 AM, 9 AM, 11 AM, 1 PM, 3 PM, 5 PM, 7 PM, 9 PM
           - Overnight execution: disabled by America/Denver schedule guard
           - Verified at: $(date -u +'%Y-%m-%dT%H:%M:%SZ')
