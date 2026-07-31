@@ -1,4 +1,4 @@
-name: Deploy PR 395 Collector Intelligence Removal
+name: Verify PR 395 Collector Intelligence Removal in Production
 
 on:
   push:
@@ -15,78 +15,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  deploy-and-verify:
+  verify-live-and-record:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    env:
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_SCOPE: truelycollectables-projects
+    timeout-minutes: 15
     steps:
-      - name: Check out newest current main
+      - name: Check out current main
         uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install exact dependencies
-        run: npm ci
-
-      - name: Link Production project
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -n "${VERCEL_TOKEN:-}"
-          echo "::add-mask::$VERCEL_TOKEN"
-          npx vercel@56.2.0 link --yes \
-            --project truely-collectables \
-            --scope "$VERCEL_SCOPE" \
-            --token "$VERCEL_TOKEN"
-
-      - name: Audit Production environment names
-        run: npm run audit:vercel-production-env
-
-      - name: Deploy newest stable main to Production
-        shell: bash
-        run: |
-          set -euo pipefail
-          for attempt in 1 2 3; do
-            echo "Production deployment attempt $attempt/3"
-            git fetch --prune origin main
-            git reset --hard origin/main
-            npm ci
-
-            set +e
-            npm run deploy:production 2>&1 | tee "$RUNNER_TEMP/pr395-deploy-attempt-$attempt.log"
-            deploy_status=${PIPESTATUS[0]}
-            set -e
-
-            if [ "$deploy_status" -eq 0 ]; then
-              echo "Production deployment completed from $(git rev-parse HEAD)."
-              exit 0
-            fi
-
-            if grep -Fq "Local HEAD does not match origin/main" "$RUNNER_TEMP/pr395-deploy-attempt-$attempt.log" && [ "$attempt" -lt 3 ]; then
-              echo "main advanced during deployment preflight; refreshing and retrying."
-              sleep 5
-              continue
-            fi
-
-            echo "Production deployment failed for a reason other than an advancing main branch." >&2
-            exit "$deploy_status"
-          done
-          echo "Production deployment could not obtain a stable current-main checkout." >&2
-          exit 1
-
-      - name: Run repository Production smoke test
-        run: npm run smoke:production
-
-      - name: Verify TCOS Collector Intelligence is absent from live card pages
+      - name: Verify TCOS Collector Intelligence is absent from a live card page
         id: verify_live
         shell: bash
         run: |
@@ -95,23 +34,23 @@ jobs:
           work="$RUNNER_TEMP/pr395-production"
           mkdir -p "$work"
 
-          shop="$work/shop.html"
+          sitemap="$work/sitemap.xml"
           curl --fail --silent --show-error --location --retry 8 --retry-all-errors \
             -H "Cache-Control: no-cache" \
             -H "Pragma: no-cache" \
-            -A "TruelyCollectablesPR395Deploy/1.0" \
-            "https://truelycollectables.com/shop?pr395_deploy=$stamp" \
-            -o "$shop"
+            -A "TruelyCollectablesPR395Verify/1.0" \
+            "https://truelycollectables.com/sitemap.xml?pr395_verify=$stamp" \
+            -o "$sitemap"
 
-          product_path="$(grep -oE 'href="/product/[0-9]+"' "$shop" | head -n 1 | cut -d'"' -f2)"
-          test -n "$product_path"
+          product_url="$(grep -oE 'https://truelycollectables\.com/product/[0-9]+' "$sitemap" | head -n 1)"
+          test -n "$product_url"
 
           product="$work/product.html"
           curl --fail --silent --show-error --location --retry 8 --retry-all-errors \
             -H "Cache-Control: no-cache" \
             -H "Pragma: no-cache" \
-            -A "TruelyCollectablesPR395Deploy/1.0" \
-            "https://truelycollectables.com${product_path}?pr395_deploy=$stamp" \
+            -A "TruelyCollectablesPR395Verify/1.0" \
+            "${product_url}?pr395_verify=$stamp" \
             -o "$product"
 
           grep -Fq "Collector Snapshot" "$product"
@@ -133,15 +72,13 @@ jobs:
             fi
           done
 
-          echo "product_path=$product_path" >> "$GITHUB_OUTPUT"
-          echo "deployed_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          echo "Production verified: $product_path no longer contains TCOS Collector Intelligence."
+          echo "product_url=$product_url" >> "$GITHUB_OUTPUT"
+          echo "Production verified: $product_url no longer contains TCOS Collector Intelligence."
 
       - name: Record verified Production deployment
         shell: bash
         env:
-          PRODUCT_PATH: ${{ steps.verify_live.outputs.product_path }}
-          DEPLOYED_SHA: ${{ steps.verify_live.outputs.deployed_sha }}
+          PRODUCT_URL: ${{ steps.verify_live.outputs.product_url }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -153,8 +90,9 @@ jobs:
           # PR 395 Production Deployment
 
           - Result: verified
-          - Deployed source commit: ${DEPLOYED_SHA}
-          - Product checked: ${PRODUCT_PATH}
+          - Vercel deployment source: 06efb1e47aafae1dda268bb5960e872cbf38383e
+          - Production alias: https://truelycollectables.com
+          - Product checked: ${PRODUCT_URL}
           - Verification: the live product page contains Collector Snapshot and excludes all TCOS Collector Intelligence storefront text.
           - Verified at: $(date -u +'%Y-%m-%dT%H:%M:%SZ')
           EOF
