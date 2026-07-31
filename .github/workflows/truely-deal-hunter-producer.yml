@@ -1,0 +1,54 @@
+name: Truely Collectables Deal Hunter Producer
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "10 * * * *"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/truely-deal-hunter-producer.yml"
+      - "scripts/run-truely-deal-hunter-producer.mjs"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/truely-deal-hunter-producer.yml"
+      - "scripts/run-truely-deal-hunter-producer.mjs"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: truely-deal-hunter-producer
+  cancel-in-progress: false
+
+jobs:
+  produce:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Fetch and validate all native marketplace feeds
+        id: producer
+        continue-on-error: true
+        run: node scripts/run-truely-deal-hunter-producer.mjs
+
+      - name: Upload authoritative producer artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: truely-deal-hunter-producer-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .codex-run/truely-deal-hunter-producer/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enforce producer result
+        if: steps.producer.outcome != 'success'
+        run: exit 1
