@@ -1,13 +1,19 @@
+import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { deliverFreshDailyMarketIntelReport } from "../../../../../../lib/market-intel-daily-delivery";
 import { generateFreshDailyMarketIntelReport } from "../../../../../../lib/market-intel-daily-refresh";
 import { getMarketIntelDeliveryConfig } from "../../../../../../lib/market-intel-delivery";
-import { isAuthorizedMarketIntelIngest } from "../../../../../../lib/market-intel-ingestion";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const maxDuration = 300;
+
+function authorized(request: Request, secret: string) {
+  const supplied = Buffer.from(request.headers.get("authorization") || "");
+  const expected = Buffer.from(`Bearer ${secret}`);
+  return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+}
 
 function recordValue(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -16,7 +22,14 @@ function recordValue(value: unknown): Record<string, unknown> {
 }
 
 async function run(request: NextRequest) {
-  if (!isAuthorizedMarketIntelIngest(request)) {
+  const secret = process.env.CRON_SECRET;
+  if (!secret || secret.length < 16) {
+    return NextResponse.json(
+      { error: "Market Intel daily catch-up is not configured." },
+      { status: 503 },
+    );
+  }
+  if (!authorized(request, secret)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
