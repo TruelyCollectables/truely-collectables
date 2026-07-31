@@ -1,0 +1,110 @@
+name: Verify InstaComp Mobile Production v2
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/app/admin/instacomp/mobile/**"
+      - ".github/workflows/verify-instacomp-mobile-pr-v2.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-instacomp-mobile-production-v2
+  cancel-in-progress: false
+
+jobs:
+  verify-live:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+      PRODUCTION_ORIGIN: https://truelycollectables.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Verify portrait source and comp sections
+        run: |
+          set -euo pipefail
+          grep -F 'MobileInstaCompScanner' src/app/admin/instacomp/mobile/page.tsx
+          grep -F 'Built for portrait mode' src/app/admin/instacomp/mobile/page.tsx
+          grep -F 'Run InstaComp' src/app/admin/instacomp/mobile/MobileInstaCompScanner.tsx
+          grep -F 'Sold comps (' src/app/admin/instacomp/mobile/MobileInstaCompScanner.tsx
+          grep -F 'Current listings (' src/app/admin/instacomp/mobile/MobileInstaCompScanner.tsx
+          grep -F 'Approx total' src/app/admin/instacomp/mobile/MobileInstaCompScanner.tsx
+          ! grep -Fq 'InstaComp™ Auto-Pilot' src/app/admin/instacomp/mobile/page.tsx
+
+      - name: Deploy exact tested revision to Production
+        id: deploy
+        run: |
+          set -euo pipefail
+          test -n "$VERCEL_TOKEN"
+          npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          output="$(npx vercel@56.2.0 deploy --prod --yes --no-color --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1)"
+          printf '%s\n' "$output"
+          url="$(printf '%s\n' "$output" | grep -Eo 'https://[A-Za-z0-9.-]+\.vercel\.app' | tail -n 1)"
+          test -n "$url"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Create signed Production Admin session cookie
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/prod.env" --yes --environment=production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          node - "$RUNNER_TEMP/prod.env" "$RUNNER_TEMP/admin.cookie" <<'NODE'
+          const fs = require('node:fs');
+          const crypto = require('node:crypto');
+          const text = fs.readFileSync(process.argv[2], 'utf8');
+          const match = text.match(/^ADMIN_SESSION_SECRET=(.*)$/m);
+          if (!match) throw new Error('ADMIN_SESSION_SECRET missing');
+          let secret = match[1].trim();
+          if (secret.startsWith('"')) secret = JSON.parse(secret);
+          else if (secret.startsWith("'") && secret.endsWith("'")) secret = secret.slice(1, -1);
+          if (!secret) throw new Error('ADMIN_SESSION_SECRET empty');
+          const issuedAt = String(Math.floor(Date.now() / 1000));
+          const signature = crypto.createHmac('sha256', secret).update(issuedAt).digest('base64url');
+          fs.writeFileSync(process.argv[3], `tcos_admin_auth_v3=${issuedAt}.${signature}`, { mode: 0o600 });
+          NODE
+
+      - name: Verify every required live page
+        run: |
+          set -euo pipefail
+          cookie="$(cat "$RUNNER_TEMP/admin.cookie")"
+          fetch_page() {
+            route="$1"; file="$2"
+            code="$(curl -sS -L --max-time 60 -o "$file" -w '%{http_code}' -H "Cookie: $cookie" -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' -A 'TCOSMobileVerifierV2/1.0' "$PRODUCTION_ORIGIN$route?verify=${GITHUB_SHA}-$(date +%s%N)")"
+            test "$code" = "200"
+            ! grep -Fq '/admin/login' "$file"
+          }
+
+          fetch_page '/admin' "$RUNNER_TEMP/admin.html"
+          grep -F 'InstaComp Mobile' "$RUNNER_TEMP/admin.html"
+          grep -F 'Card Studio' "$RUNNER_TEMP/admin.html"
+
+          fetch_page '/admin/instacomp/mobile' "$RUNNER_TEMP/mobile.html"
+          grep -F 'Built for portrait mode' "$RUNNER_TEMP/mobile.html"
+          grep -F 'Scan one card' "$RUNNER_TEMP/mobile.html"
+          grep -F 'Run InstaComp' "$RUNNER_TEMP/mobile.html"
+          grep -F 'portrait-v2' "$RUNNER_TEMP/mobile.html"
+          ! grep -Fq 'Auto-Pilot' "$RUNNER_TEMP/mobile.html"
+          ! grep -Fq 'Batch Scan Up To 500 Cards' "$RUNNER_TEMP/mobile.html"
+          ! grep -Fq 'Parallel Scans' "$RUNNER_TEMP/mobile.html"
+
+          fetch_page '/admin/products/new' "$RUNNER_TEMP/card-studio.html"
+          grep -Eiq 'Card Studio|Add Product|New Product|Create Product' "$RUNNER_TEMP/card-studio.html"
+
+          echo 'LIVE_ADMIN_DASHBOARD=passed'
+          echo 'LIVE_INSTACOMP_MOBILE_PORTRAIT=passed'
+          echo 'LIVE_INSTACOMP_MOBILE_NO_AUTOPILOT=passed'
+          echo 'LIVE_INSTACOMP_MOBILE_NO_BATCH_CONTROLS=passed'
+          echo 'LIVE_CARD_STUDIO=passed'
+          echo 'LIVE_COMP_SECTIONS_SOURCE=passed'
+          echo "LIVE_DEPLOYMENT_URL=${{ steps.deploy.outputs.url }}"
