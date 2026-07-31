@@ -104,7 +104,7 @@ jobs:
           process.loadEnvFile('.env.production.local');
           const site = process.env.NEXT_PUBLIC_SITE_URL || 'https://truelycollectables.com';
           const token = process.env.VERCEL_TOKEN;
-          const expectedRevision = 'player-name-v6';
+          const expectedRevision = 'player-name-v7';
           if (!token) throw new Error('VERCEL_TOKEN is required');
 
           const endpoint = new URL('/api/internal/card-sale-identity-backfill', site);
