@@ -119,14 +119,24 @@ export function conservativeCardCondition(conditionGuess: string | null) {
   if (/\bnear mint\b/.test(normalized) || normalized === "mint") {
     return "Near Mint or Better";
   }
-  if (/\bexcellent\b/.test(normalized)) return "Excellent";
-  if (/\bvery good\b/.test(normalized)) return "Very Good";
-  if (/\bgood\b/.test(normalized)) return "Good";
-  if (/\b(?:poor|damaged)\b/.test(normalized)) return "Poor";
+  if (/\b(?:lightly played|excellent)\b/.test(normalized)) return "Excellent";
+  if (/\b(?:moderately played|very good)\b/.test(normalized)) return "Very Good";
+  if (/\b(?:heavily played|poor|damaged)\b/.test(normalized)) return "Poor";
 
-  // Never invent a raw-card condition when the scanner did not provide one
-  // that maps cleanly to eBay's allowed trading-card values.
   return "";
+}
+
+export function cardConditionForCategory(
+  categoryId: string,
+  conditionGuess: string | null,
+) {
+  const base = conservativeCardCondition(conditionGuess);
+  if (categoryId !== "183454") return base;
+
+  if (base === "Excellent") return "Lightly Played (Excellent)";
+  if (base === "Very Good") return "Moderately Played (Very Good)";
+  if (base === "Poor") return "Heavily Played (Poor)";
+  return base;
 }
 
 function ebayCategoryId(identity: DualMarketplaceCardIdentity, category: string | null) {
@@ -244,7 +254,11 @@ export function createDualMarketplaceListingDraft(
   const graded = Boolean(identity.gradingCompany && identity.gradeValue);
   const websiteTitle = title.slice(0, 200);
   const ebayTitle = compactEbayTitle(title, 80);
-  const cardCondition = conservativeCardCondition(identity.conditionGuess);
+  const categoryId = ebayCategoryId(identity, text(input.category, 100));
+  const cardCondition = cardConditionForCategory(
+    categoryId,
+    identity.conditionGuess,
+  );
   const details = [
     line("Player/Subject", identity.player),
     line("Team", identity.team),
@@ -298,7 +312,7 @@ export function createDualMarketplaceListingDraft(
     websiteDescription,
     ebayTitle,
     ebayDescription,
-    ebayCategoryId: ebayCategoryId(identity, text(input.category, 100)),
+    ebayCategoryId: categoryId,
     ebayCondition: graded ? "LIKE_NEW" : "USED_VERY_GOOD",
     cardCondition,
     grader: identity.gradingCompany || "",
