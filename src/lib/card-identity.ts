@@ -23,7 +23,8 @@ const HARD_CONTEXT_WORDS = new Set([
   "MASTERPIECES", "PORTRAITS", "UPDATE", "SERIES", "SET", "COLLECTION", "COLLECTOR",
   "ULTIMATE", "CLEARLY", "TOTALLY", "VAULT", "FIRST", "BLANK", "BACK", "ONE", "POP",
   "INTRODUCTIONS", "LEGENDARY", "EMERGENT", "MOJO", "ONYX", "REIGNING", "NIGHTS",
-  "LIMITED", "RETRO", "TV", "DRAFT", "1ST", "PROSPECT", "PROSPECTS",
+  "LIMITED", "RETRO", "TV", "DRAFT", "1ST", "PROSPECT", "PROSPECTS", "PLATINUM",
+  "SUPERFRACTOR", "NON", "DUAL", "DRAFTEES",
 ]);
 
 const DESCRIPTOR_WORDS = new Set([
@@ -41,13 +42,13 @@ const CONTEXT_PHRASES = new Set([
   "ROOKIE CARD", "COLLECTOR'S EDITION", "COLLECTORS EDITION", "COLOR BLAST", "CRACKED ICE",
   "NO HUDDLE", "FIRST EDITION", "DRAFT PICKS", "PRIZM WNBA", "ARTIFACTS HOCKEY",
   "ULTIMATE COLLECTION", "CLEARLY AUTHENTIC", "TOTALLY CERTIFIED", "BLANK BACK", "PANINI ONE",
-  "POP CENTURY",
+  "POP CENTURY", "BOWMAN PLATINUM", "PLATINUM PROSPECTS", "DUAL DRAFTEES",
 ]);
 
 const LEADING_CARD_WORDS = new Set([
   "UPPER", "PANINI", "TOPPS", "FLEER", "DONRUSS", "BOWMAN", "LEAF", "SCORE", "SELECT",
   "PRIZM", "OPTIC", "ARTIFACTS", "ARTIFACT", "SKYBOX", "PACIFIC", "PINNACLE", "HOOPS",
-  "ULTIMATE", "TOTALLY", "CLEARLY", "VAULT", "POP",
+  "ULTIMATE", "TOTALLY", "CLEARLY", "VAULT", "POP", "PLATINUM",
 ]);
 
 const NAME_CONNECTORS = new Set([
@@ -72,7 +73,7 @@ function normalizedTokens(value: string) {
   return value
     .replace(/["“][^"”]+["”]/g, " ")
     .replace(/["“”]+/g, " ")
-    .replace(/[|/&]+/g, " ")
+    .replace(/[|]+/g, " ")
     .replace(/[()[\]{},:;!?]+/g, " ")
     .replace(/\s+/g, " ")
     .trim()
@@ -158,6 +159,29 @@ function smartNameCase(value: string) {
     .replace(/\bO'([a-z])/g, (_, letter: string) => `O'${letter.toUpperCase()}`);
 }
 
+function dualSubjectAt(tokens: string[], index: number) {
+  const candidate = tokens.slice(index, index + 4);
+  if (candidate.length !== 4) return null;
+  if (
+    !candidate.every(
+      (token) =>
+        isNameToken(token) &&
+        !isHardContextToken(token) &&
+        !isDescriptorToken(token),
+    )
+  ) {
+    return null;
+  }
+
+  const following = tokens.slice(index + 4, index + 6).map(normalizeToken);
+  const dualMarker = following.includes("DUAL") || following.includes("DRAFTEES");
+  if (!dualMarker) return null;
+
+  return `${smartNameCase(candidate.slice(0, 2).join(" "))} / ${smartNameCase(
+    candidate.slice(2).join(" "),
+  )}`;
+}
+
 function takeNameFromStart(value: string) {
   const tokens = normalizedTokens(value);
   let index = 0;
@@ -174,6 +198,9 @@ function takeNameFromStart(value: string) {
     }
     break;
   }
+
+  const dualSubject = dualSubjectAt(tokens, index);
+  if (dualSubject) return dualSubject;
 
   if (index >= tokens.length || !isNameToken(tokens[index])) return null;
 
@@ -358,8 +385,7 @@ export function inferPlayerFromCardTitle(title: string): string | null {
   return takeNameFromStart(withoutYear) || takeNameFromEnd(withoutYear);
 }
 
-export function isLikelyPlayerName(value: unknown) {
-  const candidate = clean(value);
+function isLikelySinglePlayerName(candidate: string) {
   const upper = candidate.toUpperCase();
   if (PLACEHOLDER_PLAYERS.has(upper)) return false;
 
@@ -381,6 +407,21 @@ export function isLikelyPlayerName(value: unknown) {
   if (tokens.length > 3 && connectorCount === 0 && suffixCount === 0) return false;
 
   return true;
+}
+
+export function isLikelyPlayerName(value: unknown) {
+  const candidate = clean(value);
+  if (!candidate) return false;
+
+  const subjects = candidate
+    .split(/\s*(?:\/|&|\band\b)\s*/i)
+    .map(clean)
+    .filter(Boolean);
+  if (subjects.length > 1) {
+    return subjects.length <= 4 && subjects.every(isLikelySinglePlayerName);
+  }
+
+  return isLikelySinglePlayerName(candidate);
 }
 
 function normalizeForMatch(value: string) {
@@ -414,6 +455,18 @@ export function deriveCardIdentity(params: {
   const year = exactTitle.match(
     /(?:^|\s)((?:19|20)\d{2}(?:-\d{2,4})?)(?:\s|$)/,
   )?.[1] ?? null;
+
+  // A multi-subject title must win over a catalog value containing only one
+  // of the athletes on the card.
+  if (titlePlayer?.includes(" / ") && validTitlePlayer) {
+    return {
+      player: titlePlayer,
+      cardNumber,
+      year,
+      exactTitle,
+      confidence: "title",
+    };
+  }
 
   // Preserve a valid cataloged name when the exact name appears in the title.
   // This protects legitimate three- and four-part names from being shortened.
