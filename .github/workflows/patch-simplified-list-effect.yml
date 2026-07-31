@@ -1,0 +1,46 @@
+name: Patch Simplified List Effect
+
+on:
+  push:
+    branches: [agent/simplified-list-route]
+    paths:
+      - ".github/workflows/patch-simplified-list-effect.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/simplified-list-route
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Apply exact deferred-load patch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('src/app/list/SimpleListingQueue.tsx')
+          text = path.read_text()
+          old = '''  useEffect(() => {\n    void loadRows();\n    const onDraftsCreated = (event: Event) => {\n      const custom = event as CustomEvent<{ inventoryItemIds?: string[] }>;\n      void loadRows(custom.detail?.inventoryItemIds || []);\n    };\n    window.addEventListener("tcos:simple-list-drafts-created", onDraftsCreated);\n    return () => window.removeEventListener("tcos:simple-list-drafts-created", onDraftsCreated);\n  }, [loadRows]);'''
+          new = '''  useEffect(() => {\n    const initialLoad = window.setTimeout(() => void loadRows(), 0);\n    const onDraftsCreated = (event: Event) => {\n      const custom = event as CustomEvent<{ inventoryItemIds?: string[] }>;\n      void loadRows(custom.detail?.inventoryItemIds || []);\n    };\n    window.addEventListener("tcos:simple-list-drafts-created", onDraftsCreated);\n    return () => {\n      window.clearTimeout(initialLoad);\n      window.removeEventListener("tcos:simple-list-drafts-created", onDraftsCreated);\n    };\n  }, [loadRows]);'''
+          if text.count(old) != 1:
+              raise SystemExit(f'Expected exactly one effect block, found {text.count(old)}')
+          path.write_text(text.replace(old, new))
+          PY
+      - name: Verify targeted lint
+        run: npx eslint src/app/list/SimpleListingQueue.tsx
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/list/SimpleListingQueue.tsx
+          git commit -m "Defer initial simplified listing queue load"
+          git push origin HEAD:agent/simplified-list-route
