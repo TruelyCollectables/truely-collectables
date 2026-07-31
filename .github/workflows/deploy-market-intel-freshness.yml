@@ -1,0 +1,170 @@
+name: Deploy Market Intel Freshness
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/deploy-market-intel-freshness.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-market-intel-freshness
+  cancel-in-progress: true
+
+jobs:
+  deploy-and-refresh:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      REQUIRED_MARKET_INTEL_SHA: 8d36bcc577947671375266312880d21c871e9e58
+    steps:
+      - name: Check out newest current main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Require the Market Intel freshness release
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --prune origin main
+          git reset --hard origin/main
+          git merge-base --is-ancestor "$REQUIRED_MARKET_INTEL_SHA" HEAD
+          echo "Market Intel freshness release is present in $(git rev-parse HEAD)."
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Link Production project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          echo "::add-mask::$VERCEL_TOKEN"
+          npx vercel@56.2.0 link --yes \
+            --project truely-collectables \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN"
+
+      - name: Audit Production environment names
+        run: npm run audit:vercel-production-env
+
+      - name: Deploy newest stable main to Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5; do
+            echo "Production deployment attempt $attempt/5"
+            git fetch --prune origin main
+            git reset --hard origin/main
+            git merge-base --is-ancestor "$REQUIRED_MARKET_INTEL_SHA" HEAD
+            npm ci
+
+            set +e
+            npm run deploy:production 2>&1 | tee "$RUNNER_TEMP/market-intel-deploy-attempt-$attempt.log"
+            deploy_status=${PIPESTATUS[0]}
+            set -e
+
+            if [ "$deploy_status" -eq 0 ]; then
+              echo "Production deployment completed from $(git rev-parse HEAD)."
+              exit 0
+            fi
+
+            if grep -Fq "Local HEAD does not match origin/main" "$RUNNER_TEMP/market-intel-deploy-attempt-$attempt.log" && [ "$attempt" -lt 5 ]; then
+              echo "main advanced during deployment preflight; refreshing and retrying."
+              sleep 5
+              continue
+            fi
+
+            echo "Production deployment failed for a reason other than an advancing main branch." >&2
+            exit "$deploy_status"
+          done
+          echo "Production deployment could not obtain a stable current-main checkout." >&2
+          exit 1
+
+      - name: Run repository Production smoke test
+        run: npm run smoke:production
+
+      - name: Verify the protected freshness catch-up route is live
+        shell: bash
+        run: |
+          set -euo pipefail
+          stamp="$(git rev-parse --short=12 HEAD)-$(date +%s)"
+          body="$RUNNER_TEMP/market-intel-unauthorized.json"
+          status="$(curl --silent --show-error --location \
+            --retry 8 --retry-all-errors \
+            --output "$body" \
+            --write-out '%{http_code}' \
+            -H 'Cache-Control: no-cache' \
+            -H 'Pragma: no-cache' \
+            -A 'TCOSMarketIntelFreshnessDeploy/1.0' \
+            "https://truelycollectables.com/api/cron/market-intel/reports/daily-catchup?deploy=$stamp")"
+          if [ "$status" != "401" ]; then
+            echo "Expected protected daily catch-up route to return 401 without credentials; received $status." >&2
+            cat "$body" >&2 || true
+            exit 1
+          fi
+          echo "Protected Market Intel daily catch-up route is live."
+
+      - name: Refresh and redeliver today's Market Intel report now
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "CRON_SECRET is not available to GitHub Actions; the scheduled 9:25 AM or 11:25 AM Mountain catch-up will perform the refresh."
+            exit 0
+          fi
+
+          echo "::add-mask::$CRON_SECRET"
+          stamp="$(git rev-parse --short=12 HEAD)-$(date +%s)"
+          body="$RUNNER_TEMP/market-intel-catchup.json"
+          status="$(curl --silent --show-error --location \
+            --retry 3 --retry-all-errors \
+            --max-time 310 \
+            --output "$body" \
+            --write-out '%{http_code}' \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H 'Cache-Control: no-cache' \
+            -H 'Pragma: no-cache' \
+            -A 'TCOSMarketIntelFreshnessDeploy/1.0' \
+            "https://truelycollectables.com/api/cron/market-intel/reports/daily-catchup?deploy=$stamp")"
+          if [ "$status" != "200" ]; then
+            echo "Market Intel daily catch-up returned HTTP $status." >&2
+            cat "$body" >&2 || true
+            exit 1
+          fi
+
+          node - "$body" <<'NODE'
+          const fs = require("node:fs");
+          const file = process.argv[2];
+          const payload = JSON.parse(fs.readFileSync(file, "utf8"));
+          const refresh = payload.refresh || {};
+          const delivery = payload.delivery || {};
+          console.log(JSON.stringify({
+            refreshed: payload.refreshed ?? false,
+            skipped: payload.skipped ?? false,
+            reason: payload.reason ?? null,
+            reportId: payload.report?.id ?? payload.reportId ?? null,
+            sourceStatus: refresh.status ?? null,
+            activeIdentityCount: refresh.activeIdentityCount ?? null,
+            successfulTargetCount: refresh.successfulTargetCount ?? null,
+            failedTargetCount: refresh.failedTargetCount ?? null,
+            refreshedAt: refresh.refreshedAt ?? payload.refreshedAt ?? null,
+            delivered: delivery.delivered ?? false,
+            alreadyDelivered: delivery.alreadyDelivered ?? false,
+            deliverySkipped: delivery.skipped ?? false,
+          }, null, 2));
+          NODE
