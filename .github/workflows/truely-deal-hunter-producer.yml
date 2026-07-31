@@ -1,6 +1,6 @@
 name: Truely Collectables Deal Hunter Producer
 
-# Sequence 14 recovery validation after the authoritative handoff STARTED row.
+# Sequence 14 recovery staging trigger 2 after the authoritative handoff STARTED row.
 on:
   workflow_dispatch:
   schedule:
