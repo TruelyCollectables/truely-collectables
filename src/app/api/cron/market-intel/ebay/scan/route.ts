@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getRotatingMarketIntelIdentityIds } from "../../../../../../lib/market-intel-daily-refresh";
 import { scanEbayForMarketIntel } from "../../../../../../lib/market-intel-ebay";
 import { isAuthorizedMarketIntelIngest } from "../../../../../../lib/market-intel-ingestion";
 
@@ -13,15 +14,32 @@ async function run(request: NextRequest) {
 
   try {
     const params = request.nextUrl.searchParams;
+    const maxTargets = Number(params.get("maxTargets") || 10);
+    const identityIds = await getRotatingMarketIntelIdentityIds(maxTargets);
+    if (identityIds.length === 0) {
+      throw new Error("No active exact-card identities are available to scan.");
+    }
+
     const result = await scanEbayForMarketIntel({
-      maxTargets: Number(params.get("maxTargets") || 10),
+      identityIds,
+      maxTargets: identityIds.length,
       resultsPerTarget: Number(params.get("resultsPerTarget") || 10),
       minimumConfidence: Number(params.get("minimumConfidence") || 70),
     });
 
-    return NextResponse.json(result, {
-      headers: { "Cache-Control": "no-store" },
-    });
+    return NextResponse.json(
+      {
+        ...result,
+        rotation: {
+          selectedIdentityCount: identityIds.length,
+          selectedIdentityIds: identityIds,
+          cadenceHours: 6,
+        },
+      },
+      {
+        headers: { "Cache-Control": "no-store" },
+      },
+    );
   } catch (error) {
     return NextResponse.json(
       {
