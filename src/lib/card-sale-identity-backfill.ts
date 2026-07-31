@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { deriveCardIdentity, isLikelyPlayerName } from "./card-identity";
 
-export const CARD_IDENTITY_BACKFILL_REVISION = "player-name-v5";
+export const CARD_IDENTITY_BACKFILL_REVISION = "player-name-v6";
 
 const PAGE_SIZE = 1000;
 const SAMPLE_LIMIT = 100;
