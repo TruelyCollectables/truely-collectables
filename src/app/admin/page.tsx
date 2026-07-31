@@ -827,6 +827,8 @@ export default async function AdminDashboard() {
       links: [
         { href: "/list", label: "List Cards" },
         { href: "/admin/instacomp/mobile", label: "InstaComp Mobile" },
+        { href: "/admin/instacomp/v2", label: "InstaComp 2.0" },
+        { href: "/admin/instacomp/checklists", label: "Checklist Registry" },
         { href: "/admin/instacomp-direct", label: "Direct Scan Lab" },
         { href: "/admin/instacomp", label: "Scan Lab" },
         { href: "/admin/quick-list", label: "Quick List" },
