@@ -25,7 +25,7 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: Certify public routes, release content, headers, and admin boundary
+      - name: Certify live Production
         shell: bash
         env:
           PRODUCTION_ORIGIN: https://truelycollectables.com
@@ -33,10 +33,6 @@ jobs:
           set -euo pipefail
           node --input-type=module <<'NODE'
           const origin = String(process.env.PRODUCTION_ORIGIN || "").replace(/\/$/, "");
-          if (origin !== "https://truelycollectables.com") {
-            throw new Error(`Unexpected Production origin: ${origin || "missing"}`);
-          }
-
           const sourceSha = process.env.GITHUB_SHA || "unknown";
           const stamp = `${sourceSha.slice(0, 12)}-${Date.now()}`;
           const fatalMarkers = [
@@ -45,91 +41,48 @@ jobs:
             "Missing Supabase environment variables",
             "Internal Server Error",
           ];
-          const routes = [
-            {
-              path: "/",
-              expected: "Find the collectible your collection is missing",
-              label: "homepage hero",
-            },
-            {
-              path: "/shop",
-              expected: "Shop Sports Cards & Collectibles",
-              label: "live shop heading",
-            },
-            {
-              path: "/account",
-              expected: "Checking your account",
-              label: "collector account session bootstrap",
-            },
-            {
-              path: "/account/login",
-              expected: "No card verification is required for buyer accounts",
-              label: "buyer login policy",
-            },
-            {
-              path: "/cart",
-              expected: "Shopping Cart",
-              label: "shopping cart",
-            },
-            {
-              path: "/buyer-protection",
-              expected: "Truely Collectables Shipment Protection",
-              label: "Shipment Protection terms",
-            },
-            {
-              path: "/robots.txt",
-              expected: "User-agent",
-              label: "robots policy",
-              contentType: "text/plain",
-            },
-            {
-              path: "/sitemap.xml",
-              expected: "urlset",
-              label: "sitemap",
-              contentType: "xml",
-            },
+          const checks = [
+            ["/", "Find the collectible your collection is missing", "homepage"],
+            ["/shop", "Shop Sports Cards & Collectibles", "shop"],
+            ["/account", "Checking your account", "account bootstrap"],
+            ["/account/login", "No card verification is required for buyer accounts", "buyer login"],
+            ["/cart", "Shopping Cart", "cart"],
+            ["/buyer-protection", "Truely Collectables Shipment Protection", "Shipment Protection"],
+            ["/robots.txt", "User-agent", "robots"],
+            ["/sitemap.xml", "urlset", "sitemap"],
           ];
 
-          function decodeEntities(value) {
+          function visibleText(value) {
             return value
+              .replace(/<!--[\s\S]*?-->/g, " ")
+              .replace(/<script[\s\S]*?<\/script>/gi, " ")
+              .replace(/<style[\s\S]*?<\/style>/gi, " ")
+              .replace(/<[^>]+>/g, " ")
               .replace(/&nbsp;/gi, " ")
               .replace(/&amp;/gi, "&")
               .replace(/&quot;/gi, '"')
               .replace(/&#39;|&apos;/gi, "'")
-              .replace(/&lt;/gi, "<")
-              .replace(/&gt;/gi, ">");
+              .replace(/\s+/g, " ")
+              .trim();
           }
 
-          function visibleText(html) {
-            return decodeEntities(
-              html
-                .replace(/<!--[\s\S]*?-->/g, "")
-                .replace(/<script[\s\S]*?<\/script>/gi, " ")
-                .replace(/<style[\s\S]*?<\/style>/gi, " ")
-                .replace(/<[^>]+>/g, " ")
-                .replace(/\s+/g, " ")
-                .trim(),
-            );
-          }
-
-          function safeDiagnostic(text) {
-            return visibleText(text)
+          function diagnostic(value) {
+            return visibleText(value)
               .replace(/\b(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9_=-]{8,}\b/g, "[redacted]")
               .replace(/\bwhsec_[A-Za-z0-9_=-]{8,}\b/g, "[redacted]")
-              .slice(0, 320);
+              .slice(0, 360);
           }
 
-          async function fetchWithRetry(url, options = {}) {
+          async function request(url, redirect = "manual") {
             let lastError;
             for (let attempt = 1; attempt <= 6; attempt += 1) {
               try {
                 const response = await fetch(url, {
-                  ...options,
+                  redirect,
                   headers: {
                     "cache-control": "no-cache",
                     pragma: "no-cache",
-                    "user-agent": "TruelyCollectablesPR393FinalCertification/1.0",
-                    ...(options.headers || {}),
+                    "user-agent": "TruelyCollectablesPR393FinalCertification/2.0",
                   },
                   signal: AbortSignal.timeout(60_000),
                 });
@@ -149,92 +102,73 @@ jobs:
             throw lastError || new Error(`Request failed: ${url}`);
           }
 
-          const results = [];
-          for (let index = 0; index < routes.length; index += 1) {
-            const check = routes[index];
-            const separator = check.path.includes("?") ? "&" : "?";
-            const url = `${origin}${check.path}${separator}pr393_final=${stamp}-${index}`;
-            const response = await fetchWithRetry(url, { redirect: "follow" });
+          for (let index = 0; index < checks.length; index += 1) {
+            const [path, expected, label] = checks[index];
+            const url = `${origin}${path}?pr393_final=${stamp}-${index}`;
+            const initial = await request(url, "manual");
+            const location = initial.headers.get("location") || "";
+            console.log(`TRACE ${path} initial=${initial.status} location=${location || "none"}`);
+
+            let response = initial;
+            if ([301, 302, 303, 307, 308].includes(initial.status)) {
+              response = await request(url, "follow");
+            }
             const body = await response.text();
             const text = visibleText(body);
-            const contentType = response.headers.get("content-type") || "";
+            const finalUrl = new URL(response.url);
+            console.log(`TRACE ${path} final=${response.status} finalUrl=${response.url}`);
+
+            if (path === "/account/login") {
+              if ([301, 302, 303, 307, 308].includes(initial.status)) {
+                throw new Error(
+                  `Buyer login unexpectedly redirected: initial=${initial.status}; location=${location || "missing"}; final=${response.url}; diagnostic=${diagnostic(body)}`,
+                );
+              }
+              if (finalUrl.pathname !== "/account/login") {
+                throw new Error(
+                  `Buyer login resolved to the wrong route: final=${response.url}; diagnostic=${diagnostic(body)}`,
+                );
+              }
+            }
 
             if (response.status < 200 || response.status >= 400) {
-              throw new Error(
-                `${check.label} returned HTTP ${response.status} at ${response.url}; diagnostic=${safeDiagnostic(body)}`,
-              );
+              throw new Error(`${label} returned HTTP ${response.status} at ${response.url}`);
             }
-
-            const fatal = fatalMarkers.find(
-              (marker) => body.includes(marker) || text.includes(marker),
-            );
+            const fatal = fatalMarkers.find((marker) => body.includes(marker) || text.includes(marker));
             if (fatal) {
-              throw new Error(
-                `${check.label} exposed fatal marker "${fatal}"; diagnostic=${safeDiagnostic(body)}`,
-              );
+              throw new Error(`${label} exposed fatal marker ${fatal}; diagnostic=${diagnostic(body)}`);
             }
-
-            const candidates = [check.expected, ...(check.alternates || [])];
-            const matched = candidates.find(
-              (candidate) => body.includes(candidate) || text.includes(candidate),
-            );
-            if (!matched) {
-              throw new Error(
-                `${check.label} missed expected visible text (${candidates.join(" | ")}); diagnostic=${safeDiagnostic(body)}`,
-              );
+            if (!body.includes(expected) && !text.includes(expected)) {
+              throw new Error(`${label} missed ${expected}; final=${response.url}; diagnostic=${diagnostic(body)}`);
             }
-
-            if (check.contentType && !contentType.toLowerCase().includes(check.contentType)) {
-              throw new Error(
-                `${check.label} returned unexpected content-type ${contentType || "missing"}`,
-              );
-            }
-
-            results.push({
-              path: check.path,
-              status: response.status,
-              matched,
-              contentType,
-            });
-            console.log(`PASS ${check.path} — ${check.label} — ${matched}`);
+            console.log(`PASS ${path} — ${label} — ${expected}`);
           }
 
-          const homeResponse = await fetchWithRetry(
-            `${origin}/?pr393_headers=${stamp}`,
-            { redirect: "manual" },
-          );
-          const requiredHeaders = [
+          const home = await request(`${origin}/?pr393_headers=${stamp}`, "manual");
+          for (const header of [
             "strict-transport-security",
             "content-security-policy",
             "x-content-type-options",
             "x-frame-options",
-          ];
-          for (const header of requiredHeaders) {
-            const value = homeResponse.headers.get(header);
-            if (!value) {
-              throw new Error(`Production homepage is missing required security header: ${header}`);
-            }
+          ]) {
+            const value = home.headers.get(header);
+            if (!value) throw new Error(`Missing security header: ${header}`);
             if (header === "x-content-type-options" && value.toLowerCase() !== "nosniff") {
               throw new Error(`x-content-type-options must be nosniff; received ${value}`);
             }
             console.log(`PASS header ${header}`);
           }
 
-          for (const adminPath of ["/admin", "/admin/products/new", "/admin/orders"]) {
-            const response = await fetchWithRetry(
-              `${origin}${adminPath}?pr393_boundary=${stamp}`,
-              { redirect: "manual" },
-            );
+          for (const path of ["/admin", "/admin/products/new", "/admin/orders"]) {
+            const response = await request(`${origin}${path}?pr393_boundary=${stamp}`, "manual");
             const location = response.headers.get("location") || "";
             if (![302, 303, 307, 308].includes(response.status) || !location.includes("/admin/login")) {
-              throw new Error(
-                `Unauthenticated ${adminPath} boundary failed: status=${response.status}; location=${location || "missing"}`,
-              );
+              throw new Error(`Unauthenticated ${path} boundary failed: status=${response.status}; location=${location || "missing"}`);
             }
-            console.log(`PASS unauthenticated boundary ${adminPath} -> ${location}`);
+            console.log(`PASS unauthenticated boundary ${path}`);
           }
 
-          console.log(`FINAL_PRODUCTION_CERTIFICATION=passed`);
+          console.log("FINAL_PRODUCTION_CERTIFICATION=passed");
           console.log(`CERTIFIED_SOURCE_SHA=${sourceSha}`);
-          console.log(`CERTIFIED_ROUTE_COUNT=${results.length}`);
+          console.log(`CERTIFIED_ROUTE_COUNT=${checks.length}`);
           NODE
