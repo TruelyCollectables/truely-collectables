@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { backfillCardSaleIdentities } from "../../../../../lib/card-sale-identity-backfill";
-import { getActiveStoreId } from "../../../../../lib/stores";
-import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
+import { backfillCardSaleIdentities } from "../../../../lib/card-sale-identity-backfill";
+import { getActiveStoreId } from "../../../../lib/stores";
+import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
