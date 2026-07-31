@@ -121,7 +121,7 @@ jobs:
           expected_content=(
             "Shipping Setup"
             "Launch Readiness"
-            "Upload / AI / Publish"
+            "Scan Once. List Everywhere."
             "Fulfillment center"
           )
 
