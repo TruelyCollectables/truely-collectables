@@ -58,12 +58,17 @@ for (const scriptName of ["preflight:production", "deploy:production"]) {
 }
 
 const auditSource = fs.readFileSync(auditPath, "utf8");
+assert.match(
+  auditSource,
+  /runPinnedVercel\s*\(\s*\[\s*"env"\s*,\s*"ls"\s*,\s*"production"\s*,/m,
+  "Vercel production audit is missing Production environment listing.",
+);
+
 for (const [label, fragment] of [
-  ["Production environment listing", '"env",\n    "ls",\n    "production"'],
   ["no deployment evidence", "deploymentStarted: false"],
   ["no secret-value evidence", "valuesReadOrPrinted: false"],
   ["missing service-role key requirement", '"SUPABASE_SERVICE_ROLE_KEY"'],
-  ["read-only guarantee", "This audit lists Vercel Production environment variable names only."],
+  ["read-only guarantee", "It lists Vercel Production environment variable names only"],
 ]) {
   assert.ok(auditSource.includes(fragment), `Vercel production audit is missing ${label}.`);
 }
