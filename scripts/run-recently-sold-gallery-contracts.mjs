@@ -19,6 +19,22 @@ assert.match(gallery, /front and back photos/);
 assert.match(productPage, /ProductImageGallery/);
 assert.match(productLayout, /ProductImageGallery/);
 
+const tcosCollectorIntelligenceSignals = [
+  /buildCollectorIntelligence/,
+  /collector-intelligence/,
+  /Collector Intelligence/,
+  /Collector Research Page/,
+  /Research before you make it yours/,
+  /TCOS only shows a public trend/,
+];
+
+for (const signal of tcosCollectorIntelligenceSignals) {
+  assert.doesNotMatch(productPage, signal);
+}
+
+assert.doesNotMatch(productPage, /TCOS shows the seller/);
+assert.match(productPage, /Truely Collectables shows the seller/);
+
 console.log(
   JSON.stringify(
     {
@@ -27,6 +43,7 @@ console.log(
       publicRecentlySoldPage: true,
       activeProductFrontBackGallery: true,
       soldProductFrontBackGallery: true,
+      truelyProductPageExcludesTcosCollectorIntelligence: true,
     },
     null,
     2,
