@@ -1,0 +1,214 @@
+name: Repair PR 393 Admin Session and Verify Production
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/repair-pr393-admin-session-production.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repair-pr393-admin-session-production
+  cancel-in-progress: false
+
+jobs:
+  repair-redeploy-verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+    steps:
+      - name: Check out current main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Link Production Vercel project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          echo "::add-mask::$VERCEL_TOKEN"
+          npx vercel@56.2.0 link --yes \
+            --project truely-collectables \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN"
+
+      - name: Generate and store private Production admin-session signing secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import crypto from "node:crypto";
+          import fs from "node:fs";
+
+          const secret = crypto.randomBytes(64).toString("base64url");
+          console.log(`::add-mask::${secret}`);
+          const delimiter = `TCOS_${crypto.randomUUID().replaceAll("-", "")}`;
+          fs.appendFileSync(
+            process.env.GITHUB_ENV,
+            `PR393_ADMIN_SESSION_SECRET<<${delimiter}\n${secret}\n${delimiter}\n`,
+          );
+          NODE
+          test -n "${PR393_ADMIN_SESSION_SECRET:-}" || true
+
+      - name: Save session-signing secret to Vercel Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${PR393_ADMIN_SESSION_SECRET:-}"
+          printf '%s' "$PR393_ADMIN_SESSION_SECRET" | npx vercel@56.2.0 env add \
+            ADMIN_SESSION_SECRET production --force \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+
+      - name: Audit Production environment names
+        run: npm run audit:vercel-production-env
+
+      - name: Redeploy current main with session signing enabled
+        run: npm run deploy:production
+
+      - name: Mint short-lived Production admin cookie
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import crypto from "node:crypto";
+          import fs from "node:fs";
+
+          const secret = process.env.PR393_ADMIN_SESSION_SECRET;
+          if (!secret) throw new Error("Generated admin-session secret is unavailable.");
+          const issuedAt = String(Math.floor(Date.now() / 1000));
+          const signature = crypto
+            .createHmac("sha256", secret)
+            .update(issuedAt, "utf8")
+            .digest("base64url");
+          const cookie = `tcos_admin_auth_v3=${issuedAt}.${signature}`;
+          console.log(`::add-mask::${cookie}`);
+          const delimiter = `TCOS_${crypto.randomUUID().replaceAll("-", "")}`;
+          fs.appendFileSync(
+            process.env.GITHUB_ENV,
+            `SMOKE_ADMIN_COOKIE<<${delimiter}\n${cookie}\n${delimiter}\n`,
+          );
+          NODE
+
+      - name: Verify protected Production admin routes and APIs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SMOKE_ADMIN_COOKIE:-}"
+          stamp="${GITHUB_SHA:0:12}-$(date +%s)"
+          root="$RUNNER_TEMP/pr393-admin-repair"
+          mkdir -p "$root"
+
+          admin_routes=(
+            "admin"
+            "admin/launch-readiness"
+            "admin/products/new"
+            "admin/orders"
+          )
+          for index in "${!admin_routes[@]}"; do
+            route="${admin_routes[$index]}"
+            output="$root/admin-$index.txt"
+            status=$(curl --silent --show-error --location \
+              --retry 6 --retry-all-errors --max-time 60 \
+              -H "Cookie: $SMOKE_ADMIN_COOKIE" \
+              -H "Cache-Control: no-cache" \
+              -A "TruelyCollectablesPR393AdminRepair/1.0" \
+              -w '%{http_code}' \
+              "https://truelycollectables.com/${route}?pr393_admin_repair=${stamp}-${index}" \
+              -o "$output")
+            test "$status" = "200"
+            if grep -Eqi "Invalid password|Admin login|Internal Server Error|Missing Supabase environment variables" "$output"; then
+              echo "Protected admin route failed: /$route" >&2
+              exit 1
+            fi
+            echo "PASS /$route"
+          done
+          grep -Fq "Shipping Setup" "$root/admin-0.txt"
+          grep -Fq "Launch Readiness" "$root/admin-1.txt"
+          grep -Fq "Upload / AI / Publish" "$root/admin-2.txt"
+
+          api_output="$root/launch-readiness.json"
+          api_status=$(curl --silent --show-error \
+            --retry 6 --retry-all-errors --max-time 60 \
+            -H "Cookie: $SMOKE_ADMIN_COOKIE" \
+            -H "Accept: application/json" \
+            -A "TruelyCollectablesPR393AdminRepairAPI/1.0" \
+            -w '%{http_code}' \
+            "https://truelycollectables.com/api/admin/launch-readiness?pr393_admin_repair_api=$stamp" \
+            -o "$api_output")
+          test "$api_status" = "200"
+          grep -Fq '"brief"' "$api_output"
+          grep -Fq '"deployment"' "$api_output"
+          grep -Fq '"standardEnvelopeEvidenceContractReady":true' "$api_output"
+          echo "Protected Production admin session and launch-readiness API passed."
+
+      - name: Verify public Production routes and release content
+        shell: bash
+        run: |
+          set -euo pipefail
+          stamp="${GITHUB_SHA:0:12}-$(date +%s)"
+          root="$RUNNER_TEMP/pr393-public-repair"
+          mkdir -p "$root"
+          routes=("" "shop" "account" "account/login" "cart" "buyer-protection" "robots.txt" "sitemap.xml")
+          for index in "${!routes[@]}"; do
+            route="${routes[$index]}"
+            output="$root/route-$index.txt"
+            curl --fail --silent --show-error --location \
+              --retry 6 --retry-all-errors --max-time 60 \
+              -H "Cache-Control: no-cache" \
+              -H "Pragma: no-cache" \
+              -A "TruelyCollectablesPR393PublicRepair/1.0" \
+              "https://truelycollectables.com/${route}?pr393_public_repair=${stamp}-${index}" \
+              -o "$output"
+            if grep -Eqi "Error loading products|permission denied for view|Missing Supabase environment variables|Internal Server Error" "$output"; then
+              echo "Live public route failed: /$route" >&2
+              exit 1
+            fi
+            echo "PASS /$route"
+          done
+          grep -Fq "Find the collectible your collection is missing" "$root/route-0.txt"
+          grep -Fq "Shop Sports Cards" "$root/route-1.txt"
+          grep -Fq "No card verification is required for buyer accounts" "$root/route-3.txt"
+          grep -Fq "Shopping Cart" "$root/route-4.txt"
+          grep -Fq "Shipment Protection" "$root/route-5.txt"
+          grep -Fq "User-agent" "$root/route-6.txt"
+          grep -Fq "urlset" "$root/route-7.txt"
+
+      - name: Verify Production security headers and unauthenticated admin boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          stamp="${GITHUB_SHA:0:12}-$(date +%s)"
+          headers="$RUNNER_TEMP/pr393-repair-headers.txt"
+          curl --fail --silent --show-error --head \
+            --retry 6 --retry-all-errors --max-time 60 \
+            -H "Cache-Control: no-cache" \
+            -A "TruelyCollectablesPR393RepairHeaders/1.0" \
+            "https://truelycollectables.com/?pr393_repair_headers=$stamp" \
+            -o "$headers"
+          grep -Eqi '^strict-transport-security:' "$headers"
+          grep -Eqi '^content-security-policy:' "$headers"
+          grep -Eqi '^x-content-type-options:[[:space:]]*nosniff' "$headers"
+          grep -Eqi '^x-frame-options:' "$headers"
+
+          admin_headers="$RUNNER_TEMP/pr393-repair-admin-boundary.txt"
+          curl --silent --show-error --head --max-time 60 \
+            -A "TruelyCollectablesPR393RepairBoundary/1.0" \
+            "https://truelycollectables.com/admin" \
+            -o "$admin_headers"
+          grep -Eqi '^location:.*\/admin\/login|^HTTP\/[0-9.]+ (302|303|307|308)' "$admin_headers"
+          echo "PR #393 Production repair, protected admin access, public routes, and security headers passed."
