@@ -105,6 +105,7 @@ function isPrivateOrLocalHostname(hostname: string) {
     );
   }
 
+  if (!host.includes(":")) return false;
   return (
     host.startsWith("fc") ||
     host.startsWith("fd") ||
