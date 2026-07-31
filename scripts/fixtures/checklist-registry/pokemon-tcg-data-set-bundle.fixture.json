@@ -1,0 +1,80 @@
+{
+  "schema": "tcos.pokemonTcgData.setBundle.v1",
+  "scope": "test_batch",
+  "language": "en",
+  "set": {
+    "id": "sv-fixture",
+    "name": "Scarlet & Violet Fixture",
+    "series": "Scarlet & Violet",
+    "printedTotal": 3,
+    "total": 3,
+    "releaseDate": "2026/07/31",
+    "updatedAt": "2026/07/31 12:00:00",
+    "ptcgoCode": "SVF",
+    "images": {
+      "symbol": "https://images.pokemontcg.io/sv-fixture/symbol.png",
+      "logo": "https://images.pokemontcg.io/sv-fixture/logo.png"
+    }
+  },
+  "cards": [
+    {
+      "id": "sv-fixture-1",
+      "name": "Pikachu",
+      "supertype": "Pokémon",
+      "subtypes": ["Basic"],
+      "number": "1",
+      "artist": "Fixture Artist",
+      "rarity": "Common",
+      "legalities": {
+        "unlimited": "Legal"
+      },
+      "images": {
+        "small": "https://images.pokemontcg.io/sv-fixture/1.png",
+        "large": "https://images.pokemontcg.io/sv-fixture/1_hires.png"
+      },
+      "tcgplayer": {
+        "prices": {
+          "normal": {
+            "market": 12345.67
+          },
+          "reverseHolofoil": {
+            "market": 23456.78
+          }
+        }
+      }
+    },
+    {
+      "id": "sv-fixture-2",
+      "name": "Charizard ex",
+      "supertype": "Pokémon",
+      "subtypes": ["Stage 2", "ex"],
+      "number": "2",
+      "artist": "Second Fixture Artist",
+      "rarity": "Double Rare",
+      "images": {
+        "small": "https://images.pokemontcg.io/sv-fixture/2.png",
+        "large": "https://images.pokemontcg.io/sv-fixture/2_hires.png"
+      },
+      "tcgplayer": {
+        "prices": {
+          "holofoil": {
+            "market": 34567.89
+          }
+        }
+      }
+    },
+    {
+      "id": "sv-fixture-3",
+      "name": "Professor's Research",
+      "supertype": "Trainer",
+      "subtypes": ["Supporter"],
+      "number": "3",
+      "artist": "Third Fixture Artist",
+      "rarity": "Uncommon",
+      "images": {
+        "small": "https://images.pokemontcg.io/sv-fixture/3.png",
+        "large": "https://images.pokemontcg.io/sv-fixture/3_hires.png"
+      }
+    }
+  ]
+}
