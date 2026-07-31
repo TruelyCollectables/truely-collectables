@@ -51,18 +51,43 @@ jobs:
             --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
           test -s "$RUNNER_TEMP/pr393-production.env"
 
+      - name: Extract and mask only the smoke credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import crypto from "node:crypto";
+          import fs from "node:fs";
+
+          const envFile = `${process.env.RUNNER_TEMP}/pr393-production.env`;
+          const raw = fs.readFileSync(envFile, "utf8");
+          const line = raw
+            .split(/\r?\n/)
+            .find((entry) => entry.trim().startsWith("ADMIN_PASSWORD="));
+          if (!line) throw new Error("ADMIN_PASSWORD is missing from the pulled Production environment.");
+
+          let value = line.slice(line.indexOf("=") + 1).trim();
+          if (value.startsWith('"') && value.endsWith('"')) {
+            value = JSON.parse(value);
+          } else if (value.startsWith("'") && value.endsWith("'")) {
+            value = value.slice(1, -1);
+          }
+          if (!value) throw new Error("ADMIN_PASSWORD is empty in the pulled Production environment.");
+
+          console.log(`::add-mask::${value}`);
+          const delimiter = `TCOS_${crypto.randomUUID().replaceAll("-", "")}`;
+          fs.appendFileSync(
+            process.env.GITHUB_ENV,
+            `SMOKE_ADMIN_PASSWORD<<${delimiter}\n${value}\n${delimiter}\n`,
+          );
+          NODE
+
       - name: Run authenticated repository Production smoke
         shell: bash
         run: |
           set -euo pipefail
-          set -a
-          source "$RUNNER_TEMP/pr393-production.env"
-          set +a
-          test -n "${ADMIN_PASSWORD:-}"
-          echo "::add-mask::$ADMIN_PASSWORD"
-          SMOKE_ADMIN_PASSWORD="$ADMIN_PASSWORD" \
-            SMOKE_BASE_URL="https://truelycollectables.com" \
-            npm run smoke:production
+          test -n "${SMOKE_ADMIN_PASSWORD:-}"
+          SMOKE_BASE_URL="https://truelycollectables.com" npm run smoke:production
           rm -f "$RUNNER_TEMP/pr393-production.env" .env.local
 
       - name: Verify live public routes and cache-bypassed content
