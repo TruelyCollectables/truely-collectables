@@ -9,6 +9,7 @@ import {
   TERMS_OF_SERVICE_PATH,
   TERMS_OF_SERVICE_VERSION,
 } from "../../../lib/legal";
+import { STANDARD_ENVELOPE_BUYER_PRICE } from "../../../lib/shipping";
 import { getAccountSession } from "../../account/account-session";
 
 type MessageTone = "success" | "error" | null;
@@ -17,6 +18,7 @@ const EMPTY_PROTECTION_CHOICE: BuyerProtectionCheckoutChoice = {
   selected: false,
   preferenceMode: "one_time",
   termsAccepted: false,
+  declineAcknowledged: false,
   policyVersion: BUYER_PROTECTION_POLICY_VERSION,
   storedConsentCurrent: false,
 };
@@ -32,8 +34,10 @@ export default function OfferForm({
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<MessageTone>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [offerAmount, setOfferAmount] = useState(price);
   const [buyerProtection, setBuyerProtection] =
     useState<BuyerProtectionCheckoutChoice>(EMPTY_PROTECTION_CHOICE);
+  const protectionAvailable = price <= 20 && offerAmount > 0 && offerAmount <= 20;
 
   async function submitOffer(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -44,7 +48,18 @@ export default function OfferForm({
       !buyerProtection.storedConsentCurrent &&
       !buyerProtection.termsAccepted
     ) {
-      setMessage("Accept the Buyer Protection terms or turn protection off.");
+      setMessage("Accept the Shipment Protection terms or turn protection off.");
+      setMessageTone("error");
+      return;
+    }
+    if (
+      protectionAvailable &&
+      !buyerProtection.selected &&
+      !buyerProtection.declineAcknowledged
+    ) {
+      setMessage(
+        "Acknowledge that you are declining optional Shipment Protection before submitting the offer.",
+      );
       setMessageTone("error");
       return;
     }
@@ -74,6 +89,8 @@ export default function OfferForm({
           buyerProtectionSelected: buyerProtection.selected,
           buyerProtectionPreferenceMode: buyerProtection.preferenceMode,
           buyerProtectionTermsAccepted: buyerProtection.termsAccepted,
+          buyerProtectionDeclineAcknowledged:
+            buyerProtection.declineAcknowledged,
           buyerProtectionPolicyVersion: buyerProtection.policyVersion,
           tosAccepted: formData.get("tosAccepted") === "on",
           tosVersion: TERMS_OF_SERVICE_VERSION,
@@ -91,6 +108,8 @@ export default function OfferForm({
       setMessage("Offer submitted successfully!");
       setMessageTone("success");
       form.reset();
+      setOfferAmount(price);
+      setBuyerProtection(EMPTY_PROTECTION_CHOICE);
     } catch {
       setMessage("Offer could not be submitted. Please try again.");
       setMessageTone("error");
@@ -142,12 +161,18 @@ export default function OfferForm({
             max={price}
             step="0.01"
             inputMode="decimal"
+            value={offerAmount}
+            onChange={(event) =>
+              setOfferAmount(Number(event.target.value || 0))
+            }
             placeholder={`Offer amount, asking $${price.toFixed(2)}`}
             className="min-h-12 w-full rounded border px-3 py-2 text-base"
           />
 
           <BuyerProtectionOption
-            available={price <= 20}
+            available={protectionAvailable}
+            itemSubtotal={offerAmount}
+            shippingAmount={STANDARD_ENVELOPE_BUYER_PRICE}
             onChange={setBuyerProtection}
           />
 
