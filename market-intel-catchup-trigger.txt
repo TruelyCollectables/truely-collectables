@@ -1,3 +1,4 @@
 Run the protected TCOS Market Intel freshness catch-up after the 2026-07-31 production deployment.
 Retry through Vercel Production authorization at 2026-07-31T15:34Z.
 Retry revision 3 with isolated CRON_SECRET parsing.
+Retry revision 4 through Vercel env run.
