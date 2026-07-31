@@ -56,6 +56,7 @@ jobs:
           src/app/admin/products/new/DualMarketplaceListingStudio.tsx
           src/app/api/admin/dual-marketplace-listings/route.ts
           src/lib/dual-marketplace-admin-route.ts
+          src/lib/dual-marketplace-admin-route-guard.ts
           src/lib/dual-marketplace-listing.ts
           src/lib/dual-marketplace-pricing.ts
           src/lib/dual-marketplace-workflow.ts
