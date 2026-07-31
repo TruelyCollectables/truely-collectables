@@ -1,0 +1,63 @@
+name: Apply InstaComp Registry Preflight
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    if: github.event.pull_request.head.ref == 'feature/instacomp-learning-registry-v1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+      ADMIN_SESSION_SECRET: build-only-placeholder-admin-session-secret
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/instacomp-learning-registry-v1
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Apply Registry-first preflight
+        run: python scripts/apply-instacomp-registry-preflight.py
+
+      - name: Verify preflight contracts
+        run: |
+          grep -F 'findChecklistRegistryMatch(guardedAi)' src/app/api/instacomp/scan/route.ts
+          grep -F 'checklist_registry_referee' src/app/api/instacomp/scan/route.ts
+          grep -F 'buildChecklistRegistryCatalogEvidence' src/lib/instacomp-learning-server.ts
+          grep -F 'v_ai := v_base_ai || jsonb_strip_nulls' supabase/migrations/20260731160500_instacomp_automatic_learning.sql
+
+      - name: Lint scanner integration
+        run: |
+          npx eslint \
+            src/app/api/instacomp/scan/route.ts \
+            src/app/api/instacomp/scan-fast/route.ts \
+            src/lib/instacomp-learning-server.ts
+
+      - name: Build application
+        run: npm run build
+
+      - name: Commit verified Registry preflight
+        run: |
+          rm .github/workflows/apply-instacomp-registry-preflight.yml
+          rm scripts/apply-instacomp-registry-preflight.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/api/instacomp src/lib/instacomp-learning-server.ts supabase/migrations scripts .github/workflows
+          git commit -m "Check trusted Checklist Registry evidence before secondary AI readers"
+          git push origin HEAD:feature/instacomp-learning-registry-v1
