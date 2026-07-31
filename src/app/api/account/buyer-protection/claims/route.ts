@@ -7,8 +7,14 @@ import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
 
 export const dynamic = "force-dynamic";
 
+type ShipmentProtectionClaimReason = "not_received" | "damaged";
+
 function cleanStatement(value: unknown) {
   return String(value || "").trim().slice(0, 1200);
+}
+
+function cleanReason(value: unknown): ShipmentProtectionClaimReason | null {
+  return value === "not_received" || value === "damaged" ? value : null;
 }
 
 export async function GET(request: Request) {
@@ -85,7 +91,7 @@ export async function GET(request: Request) {
     });
   } catch (error: any) {
     return NextResponse.json(
-      { error: error.message || "Could not load Buyer Protection claims" },
+      { error: error.message || "Could not load Shipment Protection claims" },
       { status: 500 },
     );
   }
@@ -101,15 +107,22 @@ export async function POST(request: Request) {
     const body = await request.json();
     const orderId = Number(body.orderId);
     const statement = cleanStatement(body.statement);
+    const reason = cleanReason(body.reason);
     if (!Number.isInteger(orderId) || orderId <= 0) {
       return NextResponse.json(
         { error: "A valid protected order is required" },
         { status: 400 },
       );
     }
+    if (!reason) {
+      return NextResponse.json(
+        { error: "Choose whether the shipment was lost or damaged" },
+        { status: 400 },
+      );
+    }
     if (statement.length < 10) {
       return NextResponse.json(
-        { error: "Please describe the missing shipment" },
+        { error: "Please describe the shipment loss or damage" },
         { status: 400 },
       );
     }
@@ -163,11 +176,11 @@ export async function POST(request: Request) {
 
     if (trackingError) throw trackingError;
     const evidence = buildLetterTrackDeliveryEvidenceSummary(trackingEvents || []);
-    if (evidence.deliveredEvidencePresent) {
+    if (reason === "not_received" && evidence.deliveredEvidencePresent) {
       return NextResponse.json(
         {
           error:
-            "LetterTrack/USPS evidence shows delivered status. Contact support if the delivery evidence is wrong.",
+            "LetterTrack/USPS evidence shows delivered status. Choose damaged only when the shipment arrived damaged, or contact support if the delivery evidence is wrong.",
           evidence,
         },
         { status: 409 },
@@ -183,13 +196,17 @@ export async function POST(request: Request) {
         order_id: orderId,
         account_id: account.id,
         status: "submitted",
-        reason: "not_received",
+        reason,
         buyer_statement: statement,
         submitted_at: now,
         reimbursement_amount: 0,
         metadata: {
           claim_window: claimWindow,
           lettertrack_evidence_at_submission: evidence,
+          required_evidence:
+            reason === "damaged"
+              ? ["damaged_item_photos", "mailer_photos", "buyer_statement"]
+              : ["delivery_evidence_review", "buyer_statement"],
         },
       })
       .select("*")
@@ -216,7 +233,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, claim });
   } catch (error: any) {
     return NextResponse.json(
-      { error: error.message || "Could not submit Buyer Protection claim" },
+      { error: error.message || "Could not submit Shipment Protection claim" },
       { status: 500 },
     );
   }
