@@ -770,12 +770,12 @@ export default async function AdminDashboard() {
   ];
   const operatorActionCards = [
     {
-      href: "/admin/instacomp-direct",
-      eyebrow: "Scan desk",
-      title: "Fix scans before they become bad inventory",
+      href: "/list",
+      eyebrow: "Listing desk",
+      title: "Upload, InstaComp™, edit, and list cards",
       detail:
-        "Remove bad scan rows, merge selected quantities, retry OCR, and turn clean InstaComp™ results into priced drafts from the focused Direct lane.",
-      cta: "Open InstaComp™ Direct",
+        "Use the simplified photo-first workspace to scan selected cards, edit every field and quantity, then publish one, several, or all selected cards.",
+      cta: "Open List Cards",
       tone: "border-blue-200 bg-blue-50 text-blue-950",
     },
     {
@@ -825,12 +825,14 @@ export default async function AdminDashboard() {
       title: "Inventory and scan control",
       detail: "Clean scans, review stock truth, and keep product data sane.",
       links: [
+        { href: "/list", label: "List Cards" },
+        { href: "/admin/instacomp/mobile", label: "InstaComp Mobile" },
         { href: "/admin/instacomp-direct", label: "Direct Scan Lab" },
         { href: "/admin/instacomp", label: "Scan Lab" },
         { href: "/admin/quick-list", label: "Quick List" },
         { href: "/admin/verified-reference-import", label: "Verified Intake" },
         { href: "/admin/products", label: "Products" },
-        { href: "/admin/products/new", label: "New Product" },
+        { href: "/list", label: "List Cards" },
         { href: "/admin/inventory", label: "Inventory Bridge" },
         { href: "/admin/inventory/category-review", label: "Category Review" },
       ],

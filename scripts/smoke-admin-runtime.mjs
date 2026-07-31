@@ -29,6 +29,11 @@ const smokeRoutes = [
     expectedText: "InstaComp™ Direct Scan Lab",
   },
   {
+    path: "/admin/instacomp/mobile",
+    auth: true,
+    expectedText: "InstaComp Mobile",
+  },
+  {
     path: "/admin/products",
     auth: true,
     expectedText: "Admin products",
@@ -36,7 +41,7 @@ const smokeRoutes = [
   {
     path: "/admin/products/new",
     auth: true,
-    expectedText: "Add products",
+    expectedText: "List Cards",
   },
   {
     path: "/admin/quick-list",

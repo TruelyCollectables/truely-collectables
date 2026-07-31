@@ -41,6 +41,10 @@ const adminNewProductPageSource = await readFile(
   new URL("../src/app/admin/products/new/page.tsx", import.meta.url),
   "utf8",
 );
+const simplifiedListPageSource = await readFile(
+  new URL("../src/app/list/page.tsx", import.meta.url),
+  "utf8",
+);
 const adminErrorSource = await readFile(
   new URL("../src/app/admin/error.tsx", import.meta.url),
   "utf8",
@@ -68,7 +72,7 @@ const adminRuntimeSmokeSource = await readFile(
 
 const scenarios = [];
 const adminDashboardLinkExemptions = new Set(["/admin", "/admin/login"]);
-const adminNoDeadEndExemptions = new Set(["/admin", "/admin/login"]);
+const adminNoDeadEndExemptions = new Set(["/admin", "/admin/login", "/admin/products/new"]);
 const sharedShellNavigationGuards = [
   {
     component: "InstaCompAdminFrame",
@@ -216,14 +220,29 @@ scenario("inventory bridge and manual product submits explain scope", () => {
     );
   }
 
+  assert(
+    adminNewProductPageSource.includes('redirect("/list")'),
+    "Expected the legacy new-product route to redirect to /list.",
+  );
   for (const fragment of [
-    "Add manual product",
-    "Create one manual store product from the form fields without publishing it to eBay.",
-    "Adds the product to TCOS inventory only; marketplace publishing remains a separate admin step.",
+    "List Cards",
+    "Upload photos",
+    "Run InstaComp™",
+    "Review and list selected",
   ]) {
     assert(
-      adminNewProductPageSource.includes(fragment),
-      `Expected manual product action-scope fragment ${fragment}.`,
+      simplifiedListPageSource.includes(fragment),
+      `Expected simplified list action-scope fragment ${fragment}.`,
+    );
+  }
+  for (const fragment of [
+    'href: "/list"',
+    'cta: "Open List Cards"',
+    '{ href: "/admin/instacomp/mobile", label: "InstaComp Mobile" }',
+  ]) {
+    assert(
+      adminPageSource.includes(fragment),
+      `Expected admin listing shortcut fragment ${fragment}.`,
     );
   }
 });
@@ -312,11 +331,11 @@ scenario("admin command center exposes no-dead-end operator action map", () => {
     "Operator action map",
     "No dead-end action paths",
     "scan cleanup, product control, offer decisions, and paid",
-    "Remove bad scan rows, merge selected quantities, retry OCR",
+    "Upload, InstaComp™, edit, and list cards",
     "bulk saves, sold/end-early policy checks, quantity review",
     "Accept, counter, or decline offers",
     "Review holds, dry-run tracking references, evidence errors",
-    "Open InstaComp™ Direct",
+    "Open List Cards",
     "Open Products",
     "Open Offers",
     "Open Orders",
