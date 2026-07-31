@@ -1,0 +1,82 @@
+name: Apply InstaComp Learning UI on PR
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    if: github.event.pull_request.head.ref == 'feature/instacomp-learning-registry-v1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+      ADMIN_SESSION_SECRET: build-only-placeholder-admin-session-secret
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/instacomp-learning-registry-v1
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Execute the staged UI patch
+        run: |
+          python <<'PY'
+          from pathlib import Path
+          import textwrap
+
+          workflow = Path('.github/workflows/apply-instacomp-learning-ui.yml').read_text()
+          opening = "          python <<'PY'\n"
+          closing = "\n          PY\n"
+          start = workflow.index(opening) + len(opening)
+          end = workflow.index(closing, start)
+          script = textwrap.dedent(workflow[start:end])
+          exec(compile(script, 'apply-instacomp-learning-ui.py', 'exec'))
+          PY
+
+      - name: Verify learning UI contracts
+        run: |
+          grep -R --line-number '/api/instacomp/scan-fast' src/app --include='*.ts' --include='*.tsx'
+          ! grep -R --line-number 'fetch("/api/instacomp/scan"' src/app --exclude-dir=api --include='*.ts' --include='*.tsx'
+          grep -F 'Confirm & Teach InstaComp' src/app/admin/instacomp/mobile/MobileInstaCompScanner.tsx
+          grep -F 'Checklist Registry' src/app/admin/instacomp/v2/page.tsx
+
+      - name: Lint integrated files
+        run: |
+          npx eslint \
+            src/app/admin/instacomp/mobile/MobileInstaCompScanner.tsx \
+            src/app/admin/instacomp/v2/page.tsx \
+            src/app/admin/instacomp/checklists/page.tsx \
+            src/app/admin/instacomp/checklists/ChecklistRegistryImporter.tsx \
+            src/app/api/instacomp/scan-fast/route.ts \
+            src/app/api/instacomp/knowledge/confirm/route.ts \
+            src/app/api/admin/instacomp/checklists/import/route.ts \
+            src/lib/instacomp-learning-server.ts \
+            src/lib/checklist-registry/server.ts
+
+      - name: Build application
+        run: npm run build
+
+      - name: Commit verified UI integration
+        run: |
+          rm .github/workflows/apply-instacomp-learning-ui.yml
+          rm .github/workflows/apply-instacomp-learning-ui-pr.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app src/lib .github/workflows
+          git commit -m "Wire every InstaComp UI scan into automatic learning"
+          git push origin HEAD:feature/instacomp-learning-registry-v1
