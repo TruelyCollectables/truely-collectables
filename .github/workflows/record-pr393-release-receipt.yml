@@ -5,6 +5,7 @@ on:
     workflows:
       - "Release PR 393 Production"
       - "Resume PR 393 Production Release"
+      - "Verify PR 393 Production Release"
     types: [completed]
 
 permissions:
