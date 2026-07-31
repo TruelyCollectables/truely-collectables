@@ -1,0 +1,41 @@
+name: Apply FBI Audit Fixes
+
+on:
+  push:
+    branches:
+      - agent/dual-marketplace-card-intake
+    paths:
+      - "scripts/apply-fbi-audit-fixes.mjs"
+      - ".github/workflows/apply-fbi-audit-fixes.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/dual-marketplace-card-intake
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply exact reviewed patches
+        run: node scripts/apply-fbi-audit-fixes.mjs
+      - name: Commit patched audit fixes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            scripts/check-production-guardrails.mjs \
+            scripts/run-admin-product-status-simulations.mjs \
+            scripts/run-live-production-surface-audit.mjs \
+            scripts/run-dual-marketplace-edge-audit-simulations.ts \
+            src/app/admin/products/new/AuditedDualMarketplaceListingStudio.tsx
+          git diff --cached --check
+          git commit -m "Fix audit blockers and inline eBay confirmation"
+          git push origin HEAD:agent/dual-marketplace-card-intake
