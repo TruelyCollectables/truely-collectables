@@ -143,13 +143,16 @@ export default function SimpleListingQueue() {
   }, []);
 
   useEffect(() => {
-    void loadRows();
+    const initialLoad = window.setTimeout(() => void loadRows(), 0);
     const onDraftsCreated = (event: Event) => {
       const custom = event as CustomEvent<{ inventoryItemIds?: string[] }>;
       void loadRows(custom.detail?.inventoryItemIds || []);
     };
     window.addEventListener("tcos:simple-list-drafts-created", onDraftsCreated);
-    return () => window.removeEventListener("tcos:simple-list-drafts-created", onDraftsCreated);
+    return () => {
+      window.clearTimeout(initialLoad);
+      window.removeEventListener("tcos:simple-list-drafts-created", onDraftsCreated);
+    };
   }, [loadRows]);
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
