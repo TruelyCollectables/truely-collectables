@@ -1,0 +1,76 @@
+name: Query Pending Receiving
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - scripts/query-pending-receiving.mjs
+      - .github/workflows/query-pending-receiving.yml
+      - ops_pending_receiving_audit_20260731.txt
+
+permissions:
+  contents: write
+
+jobs:
+  query-production:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+    steps:
+      - name: Check out newest main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Link Vercel Production project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          npx vercel@56.2.0 link --yes \
+            --project truely-collectables \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Pull Production environment and query pending receiving
+        shell: bash
+        run: |
+          set -euo pipefail
+          env_file="$RUNNER_TEMP/pending-receiving-production.env"
+          npx vercel@56.2.0 env pull "$env_file" \
+            --yes \
+            --environment=production \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" >/dev/null
+          chmod 600 "$env_file"
+          node --env-file="$env_file" scripts/query-pending-receiving.mjs
+          rm -f "$env_file"
+
+      - name: Commit read-only audit receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git rebase origin/main
+          git add audit/pending-receiving-current.json audit/pending-receiving-current.md
+          if git diff --cached --quiet; then
+            echo "Audit receipt unchanged."
+            exit 0
+          fi
+          git commit -m "Record current pending receiving list [skip ci]"
+          git push origin HEAD:main
