@@ -68,7 +68,7 @@ for (const [label, fragment] of [
   ["no deployment evidence", "deploymentStarted: false"],
   ["no secret-value evidence", "valuesReadOrPrinted: false"],
   ["missing service-role key requirement", '"SUPABASE_SERVICE_ROLE_KEY"'],
-  ["read-only guarantee", "It lists Vercel Production environment variable names only."],
+  ["read-only guarantee", "It lists Vercel Production environment variable names only"],
 ]) {
   assert.ok(auditSource.includes(fragment), `Vercel production audit is missing ${label}.`);
 }
