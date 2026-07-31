@@ -18,7 +18,7 @@ jobs:
       VERCEL_SCOPE: truelycollectables-projects
       PRODUCTION_ORIGIN: https://truelycollectables.com
     steps:
-      - name: Verify live protected route
+      - name: Verify live protected daily report route
         shell: bash
         run: |
           set -euo pipefail
@@ -31,11 +31,11 @@ jobs:
             -H 'Cache-Control: no-cache' \
             -H 'Pragma: no-cache' \
             -A 'TCOSMarketIntelPRCatchup/1.0' \
-            "$PRODUCTION_ORIGIN/api/cron/market-intel/reports/daily-catchup?verify=$(date +%s)")"
+            "$PRODUCTION_ORIGIN/api/cron/market-intel/reports/daily?verify=$(date +%s)")"
           test "$status" = "401"
-          echo "MARKET_INTEL_CATCHUP_ROUTE_PROTECTED=passed"
+          echo "MARKET_INTEL_DAILY_ROUTE_PROTECTED=passed"
 
-      - name: Load Production cron authorization without printing values
+      - name: Load Production Market Intel authorization without printing values
         shell: bash
         run: |
           set -euo pipefail
@@ -45,37 +45,41 @@ jobs:
             --project truely-collectables \
             --scope "$VERCEL_SCOPE" \
             --token "$VERCEL_TOKEN" >/dev/null
-          secret_file="$RUNNER_TEMP/market-intel-cron-secret"
+          secret_file="$RUNNER_TEMP/market-intel-run-secret"
           export MARKET_INTEL_SECRET_FILE="$secret_file"
           npx vercel@56.2.0 env run \
             --environment=production \
             --scope "$VERCEL_SCOPE" \
             --token "$VERCEL_TOKEN" \
-            -- bash -lc 'set -euo pipefail; test -n "${CRON_SECRET:-}"; printf "%s" "$CRON_SECRET" > "$MARKET_INTEL_SECRET_FILE"; chmod 600 "$MARKET_INTEL_SECRET_FILE"'
-          cron_secret="$(cat "$secret_file")"
-          test -n "$cron_secret"
-          echo "::add-mask::$cron_secret"
-          echo "MARKET_INTEL_CRON_AUTHORIZATION=loaded"
+            -- bash -lc 'set -euo pipefail; secret="${MARKET_INTEL_INGEST_SECRET:-${CRON_SECRET:-}}"; test -n "$secret"; printf "%s" "$secret" > "$MARKET_INTEL_SECRET_FILE"; chmod 600 "$MARKET_INTEL_SECRET_FILE"'
+          run_secret="$(cat "$secret_file")"
+          test -n "$run_secret"
+          echo "::add-mask::$run_secret"
+          echo "MARKET_INTEL_RUN_AUTHORIZATION=loaded"
 
-      - name: Refresh sources, rebuild report, and deliver
+      - name: Refresh every source, rebuild report, and deliver
         shell: bash
         run: |
           set -euo pipefail
-          cron_secret="$(cat "$RUNNER_TEMP/market-intel-cron-secret")"
-          test -n "$cron_secret"
-          echo "::add-mask::$cron_secret"
-          body="$RUNNER_TEMP/market-intel-catchup.json"
+          run_secret="$(cat "$RUNNER_TEMP/market-intel-run-secret")"
+          test -n "$run_secret"
+          echo "::add-mask::$run_secret"
+          body="$RUNNER_TEMP/market-intel-daily.json"
           status="$(curl --silent --show-error --location \
             --retry 2 --retry-all-errors \
             --max-time 310 \
             --output "$body" \
             --write-out '%{http_code}' \
-            -H "Authorization: Bearer $cron_secret" \
+            -H "Authorization: Bearer $run_secret" \
             -H 'Cache-Control: no-cache' \
             -H 'Pragma: no-cache' \
             -A 'TCOSMarketIntelPRCatchup/1.0' \
-            "$PRODUCTION_ORIGIN/api/cron/market-intel/reports/daily-catchup?run=$(date +%s)")"
-          test "$status" = "200"
+            "$PRODUCTION_ORIGIN/api/cron/market-intel/reports/daily?run=$(date +%s)")"
+          if [ "$status" != "200" ]; then
+            echo "Daily Market Intel route returned HTTP $status." >&2
+            cat "$body" >&2 || true
+            exit 1
+          fi
           node - "$body" <<'NODE'
           const fs = require("node:fs");
           const payload = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
@@ -85,11 +89,8 @@ jobs:
           console.log(`MARKET_INTEL_REPORT_ID=${payload.report?.id || payload.reportId || "unknown"}`);
           console.log(`MARKET_INTEL_REPORT_DATE=${payload.report?.report_date || "unknown"}`);
           console.log(`MARKET_INTEL_HEADLINE=${payload.report?.headline || "unknown"}`);
-          console.log(`MARKET_INTEL_REFRESHED=${payload.refreshed ?? false}`);
-          console.log(`MARKET_INTEL_SKIPPED=${payload.skipped ?? false}`);
-          console.log(`MARKET_INTEL_REASON=${payload.reason || delivery.reason || "none"}`);
           console.log(`MARKET_INTEL_SOURCE_STATUS=${refresh.status || "unknown"}`);
-          console.log(`MARKET_INTEL_REFRESHED_AT=${refresh.refreshedAt || payload.refreshedAt || "unknown"}`);
+          console.log(`MARKET_INTEL_REFRESHED_AT=${refresh.refreshedAt || "unknown"}`);
           console.log(`MARKET_INTEL_ACTIVE_IDENTITIES=${refresh.activeIdentityCount ?? "unknown"}`);
           console.log(`MARKET_INTEL_TARGETS=${refresh.targetCount ?? "unknown"}`);
           console.log(`MARKET_INTEL_SUCCESSFUL_TARGETS=${refresh.successfulTargetCount ?? "unknown"}`);
@@ -102,6 +103,7 @@ jobs:
           console.log(`MARKET_INTEL_LISTINGS_SCORED=${refresh.listingsScored ?? "unknown"}`);
           console.log(`MARKET_INTEL_ENDED_AUCTIONS=${refresh.cleanup?.endedAuctions ?? "unknown"}`);
           console.log(`MARKET_INTEL_MARKED_STALE=${refresh.cleanup?.markedStale ?? "unknown"}`);
+          console.log(`MARKET_INTEL_PENDING_ALERTS=${payload.pendingAlertCount ?? "unknown"}`);
           console.log(`MARKET_INTEL_DELIVERED=${delivery.delivered ?? false}`);
           console.log(`MARKET_INTEL_ALREADY_DELIVERED=${delivery.alreadyDelivered ?? false}`);
           console.log(`MARKET_INTEL_DELIVERY_SKIPPED=${delivery.skipped ?? false}`);
