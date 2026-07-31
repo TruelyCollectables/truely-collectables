@@ -18,7 +18,7 @@ jobs:
           ref: feature/instacomp-learning-registry-v1
           fetch-depth: 0
 
-      - name: Add Checklist Registry to Admin and protected runtime smoke
+      - name: Add InstaComp workspaces to Admin and protected runtime smoke
         run: |
           python <<'PY'
           from pathlib import Path
@@ -26,17 +26,25 @@ jobs:
           smoke = Path('scripts/smoke-admin-runtime.mjs')
           text = smoke.read_text()
           marker = '  {\n    path: "/admin/inventory",\n    auth: true,\n    expectedText: "Inventory Bridge",\n  },\n'
-          addition = '  {\n    path: "/admin/instacomp/checklists",\n    auth: true,\n    expectedText: "Checklist Registry",\n  },\n' + marker
+          blocks = ''
+          if '/admin/instacomp/v2' not in text:
+              blocks += '  {\n    path: "/admin/instacomp/v2",\n    auth: true,\n    expectedText: "InstaComp™ 2.0",\n  },\n'
           if '/admin/instacomp/checklists' not in text:
+              blocks += '  {\n    path: "/admin/instacomp/checklists",\n    auth: true,\n    expectedText: "Checklist Registry",\n  },\n'
+          if blocks:
               if marker not in text:
                   raise SystemExit('Inventory smoke route insertion point not found')
-              smoke.write_text(text.replace(marker, addition, 1))
+              smoke.write_text(text.replace(marker, blocks + marker, 1))
 
           admin = Path('src/app/admin/page.tsx')
           text = admin.read_text()
           marker = '        { href: "/admin/instacomp/mobile", label: "InstaComp Mobile" },\n'
-          addition = marker + '        { href: "/admin/instacomp/checklists", label: "Checklist Registry" },\n'
+          addition = marker
+          if '/admin/instacomp/v2' not in text:
+              addition += '        { href: "/admin/instacomp/v2", label: "InstaComp 2.0" },\n'
           if '/admin/instacomp/checklists' not in text:
+              addition += '        { href: "/admin/instacomp/checklists", label: "Checklist Registry" },\n'
+          if addition != marker:
               if marker not in text:
                   raise SystemExit('Admin InstaComp Mobile link insertion point not found')
               admin.write_text(text.replace(marker, addition, 1))
@@ -51,5 +59,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/app/admin/page.tsx scripts/smoke-admin-runtime.mjs .github/workflows/add-checklist-registry-runtime-smoke.yml
-          git commit -m "Link and smoke-test Checklist Registry from Admin"
+          git commit -m "Link and smoke-test InstaComp 2.0 Registry workspaces"
           git push origin HEAD:feature/instacomp-learning-registry-v1
