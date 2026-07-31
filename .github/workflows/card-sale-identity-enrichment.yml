@@ -105,3 +105,5 @@ jobs:
           }
           throw new Error(lastError);
           NODE
+
+# Final observable production verification: 2026-07-31T16:10:00Z
