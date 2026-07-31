@@ -14,10 +14,10 @@ const packageFile = "package.json";
 const packageJson = JSON.parse(fs.readFileSync(packageFile, "utf8"));
 packageJson.overrides = {
   ...(packageJson.overrides || {}),
-  "@hono/node-server": "2.0.5",
+  "@hono/node-server": "2.0.12",
 };
 fs.writeFileSync(packageFile, `${JSON.stringify(packageJson, null, 2)}\n`);
-console.log("PATCH package.json: pinned @hono/node-server 2.0.5");
+console.log("PATCH package.json: pinned @hono/node-server 2.0.12");
 
 replaceExact(
   "src/lib/shipping.ts",
