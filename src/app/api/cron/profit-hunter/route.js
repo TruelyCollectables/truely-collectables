@@ -55,6 +55,7 @@ function isAuthorizedProfitHunterCron(request) {
   const configuredSecrets = Array.from(
     new Set(
       [
+        process.env.PROFIT_HUNTER_RUN_SECRET,
         process.env.MARKET_INTEL_INGEST_SECRET,
         process.env.CRON_SECRET,
       ]
@@ -85,7 +86,7 @@ async function run(request) {
       {
         ok: false,
         code: "PROFIT_HUNTER_CRON_UNAUTHORIZED",
-        error: "A valid Vercel cron or Market Intel ingest secret is required.",
+        error: "A valid Profit Hunter, Vercel cron, or Market Intel server secret is required.",
         deployment: deploymentInfo(),
       },
       401,
