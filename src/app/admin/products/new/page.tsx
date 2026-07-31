@@ -283,7 +283,7 @@ export default async function NewProductPage({
                 Add manual product
               </AdminSubmitButton>
               <p className="mt-2 text-xs font-bold text-neutral-600">
-                Adds the product to TCOS inventory only. InstaComp™ card drafts use the automated listing studio above.
+                Adds the product to TCOS inventory only; marketplace publishing remains a separate admin step. InstaComp™ card drafts use the automated listing studio above.
               </p>
             </div>
           </form>
