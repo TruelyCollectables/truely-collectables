@@ -4,9 +4,11 @@ import Image from "next/image";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import {
-  BUYER_PROTECTION_FEE,
+  BUYER_PROTECTION_DECLINE_ACKNOWLEDGMENT,
   BUYER_PROTECTION_PATH,
   BUYER_PROTECTION_POLICY_VERSION,
+  BUYER_PROTECTION_RATE,
+  getBuyerProtectionQuote,
 } from "../../../lib/buyer-protection";
 import {
   calculateShipping,
@@ -48,9 +50,10 @@ export default function OfferCheckoutClient(props: {
   const [protectionTermsAccepted, setProtectionTermsAccepted] = useState(
     props.buyerProtectionSelected && props.buyerProtectionPolicyCurrent,
   );
+  const [protectionDeclineAcknowledged, setProtectionDeclineAcknowledged] =
+    useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const protectionAvailable = shippingMethod === "STANDARD_ENVELOPE";
   const shippingAmount = useMemo(
     () =>
       calculateShipping({
@@ -61,16 +64,25 @@ export default function OfferCheckoutClient(props: {
       }),
     [shippingMethod, props.saleSubtotal, props.listingPriceBasis],
   );
+  const protectionQuote = getBuyerProtectionQuote({
+    shippingMethod,
+    itemSubtotal: props.saleSubtotal,
+    shippingAmount,
+    itemCount: 1,
+  });
+  const protectionAvailable = protectionQuote.eligible;
   const protectionFee =
-    protectionAvailable && protectionSelected ? BUYER_PROTECTION_FEE : 0;
+    protectionAvailable && protectionSelected ? protectionQuote.feeAmount : 0;
   const total = props.saleSubtotal + shippingAmount + protectionFee;
   const storedConsentCurrent =
     props.buyerProtectionSelected && props.buyerProtectionPolicyCurrent;
 
   function chooseShipping(next: ShippingMethod) {
     setShippingMethod(next);
+    setProtectionDeclineAcknowledged(false);
     if (next !== "STANDARD_ENVELOPE") {
       setProtectionSelected(false);
+      setProtectionTermsAccepted(false);
     }
   }
 
@@ -81,7 +93,17 @@ export default function OfferCheckoutClient(props: {
       !storedConsentCurrent &&
       !protectionTermsAccepted
     ) {
-      setError("Accept the current Buyer Protection terms before continuing.");
+      setError("Accept the current Shipment Protection terms before continuing.");
+      return;
+    }
+    if (
+      protectionAvailable &&
+      !protectionSelected &&
+      !protectionDeclineAcknowledged
+    ) {
+      setError(
+        "Acknowledge that you are declining optional Shipment Protection before continuing.",
+      );
       return;
     }
 
@@ -105,6 +127,8 @@ export default function OfferCheckoutClient(props: {
           buyerProtectionSelected:
             protectionAvailable && protectionSelected,
           buyerProtectionTermsAccepted: protectionTermsAccepted,
+          buyerProtectionDeclineAcknowledged:
+            protectionDeclineAcknowledged,
           buyerProtectionPolicyVersion: BUYER_PROTECTION_POLICY_VERSION,
         }),
       });
@@ -188,10 +212,10 @@ export default function OfferCheckoutClient(props: {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="font-black">
-                  Buyer Protection — ${BUYER_PROTECTION_FEE.toFixed(2)}
+                  Shipment Protection — {(BUYER_PROTECTION_RATE * 100).toFixed(0)}% (${protectionQuote.feeAmount.toFixed(2)})
                 </p>
                 <p className="mt-1 text-sm font-semibold">
-                  Covers the item amount up to $20. Shipping and the fee are excluded.
+                  Approved carrier loss or damage reimbursement covers the accepted price and shipping. The protection fee is excluded.
                 </p>
               </div>
               <Link
@@ -210,18 +234,18 @@ export default function OfferCheckoutClient(props: {
                   checked={protectionSelected}
                   onChange={(event) => {
                     setProtectionSelected(event.target.checked);
+                    setProtectionDeclineAcknowledged(false);
                     if (!event.target.checked) {
                       setProtectionTermsAccepted(false);
                     }
                   }}
                   className="mt-1 h-5 w-5"
                 />
-                Add optional Buyer Protection to this order.
+                Add optional Shipment Protection to this order.
               </label>
             ) : (
               <p className="mt-3 rounded border border-neutral-200 bg-white p-3 text-sm font-bold">
-                Ground Advantage and Priority Mail use parcel tracking; the $0.75
-                Tracked Card Letter protection does not apply.
+                Shipment Protection applies only to qualifying under-$20 Tracked Card Letter orders.
               </p>
             )}
 
@@ -235,15 +259,26 @@ export default function OfferCheckoutClient(props: {
                   }
                   className="mt-1 h-5 w-5"
                 />
-                I accept version {BUYER_PROTECTION_POLICY_VERSION}. I understand a
-                shipment must be missing for 7 full days and the claim deadline is
-                21 calendar days after shipment. Reimbursement excludes shipping and
-                the protection fee.
+                I accept version {BUYER_PROTECTION_POLICY_VERSION}. I understand claims require review and supporting loss or damage evidence, and the protection fee is not reimbursed.
               </label>
             ) : protectionSelected ? (
               <p className="mt-3 rounded border border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-950">
                 Your existing current-version consent applies to this protected offer.
               </p>
+            ) : null}
+
+            {protectionAvailable && !protectionSelected ? (
+              <label className="mt-3 flex items-start gap-3 rounded border-2 border-amber-400 bg-amber-50 p-3 text-sm font-bold leading-6 text-amber-950">
+                <input
+                  type="checkbox"
+                  checked={protectionDeclineAcknowledged}
+                  onChange={(event) =>
+                    setProtectionDeclineAcknowledged(event.target.checked)
+                  }
+                  className="mt-1 h-5 w-5 shrink-0"
+                />
+                <span>{BUYER_PROTECTION_DECLINE_ACKNOWLEDGMENT}</span>
+              </label>
             ) : null}
           </div>
 
@@ -258,7 +293,7 @@ export default function OfferCheckoutClient(props: {
             </div>
             {protectionFee > 0 ? (
               <div className="flex justify-between">
-                <dt>Buyer Protection</dt>
+                <dt>Shipment Protection</dt>
                 <dd className="font-black">${protectionFee.toFixed(2)}</dd>
               </div>
             ) : null}
