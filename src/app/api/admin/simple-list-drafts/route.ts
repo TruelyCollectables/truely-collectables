@@ -347,7 +347,7 @@ export async function POST(request: Request) {
     ) {
       return instaCompJobErrorResponse(error);
     }
-    const status = error instanceof InventoryEngineError ? error.status : 500;
+    const status = error instanceof InventoryEngineError ? error.statusCode : 500;
     const message = error instanceof Error ? error.message : "Could not create the card draft.";
     console.error("Simple list draft error:", error);
     return Response.json({ success: false, error: message }, { status });
