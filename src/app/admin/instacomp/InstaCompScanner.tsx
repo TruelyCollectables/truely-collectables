@@ -4776,7 +4776,7 @@ export default function InstaCompScanner({
         const operatorSerialNumberOverride = hasSerialOverride
           ? serialOverrideByItemIdRef.current.get(claimedItem.id) ?? null
           : undefined;
-        const response = await fetchWithFreshAccountSession("/api/instacomp/scan", {
+        const response = await fetchWithFreshAccountSession("/api/instacomp/scan-fast", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           signal,
@@ -4854,7 +4854,7 @@ export default function InstaCompScanner({
 
     for (let attempt = 0; attempt < 4; attempt += 1) {
       throwIfAborted(signal);
-      const response = await fetchWithFreshAccountSession("/api/instacomp/scan", {
+      const response = await fetchWithFreshAccountSession("/api/instacomp/scan-fast", {
         method: "POST",
         signal,
         body: formData,

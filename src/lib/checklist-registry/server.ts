@@ -1,0 +1,121 @@
+import { createClient } from "@supabase/supabase-js";
+import { paniniStructuredChecklistAdapter } from "./panini-structured";
+import type {
+  ChecklistImportPlan,
+  ChecklistSourceAdapter,
+  ChecklistSourceArtifact,
+} from "./source-adapter";
+import { CHECKLIST_SOURCE_BUCKET } from "./storage";
+
+const CHECKLIST_ADAPTERS: ChecklistSourceAdapter[] = [
+  paniniStructuredChecklistAdapter,
+];
+
+function serviceClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !key) {
+    throw new Error("Checklist Registry requires Supabase service-role access.");
+  }
+
+  return createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
+
+function selectAdapter(artifact: ChecklistSourceArtifact) {
+  const adapter = CHECKLIST_ADAPTERS.find((candidate) =>
+    candidate.supports(artifact),
+  );
+  if (!adapter) {
+    throw new Error(
+      `No Checklist Registry adapter supports ${artifact.mimeType}.`,
+    );
+  }
+  return adapter;
+}
+
+function planHasErrors(plan: ChecklistImportPlan) {
+  return plan.validation.issues.some((issue) => issue.severity === "error");
+}
+
+export async function importChecklistArtifact(params: {
+  artifact: ChecklistSourceArtifact;
+  validateOnly?: boolean;
+}) {
+  const adapter = selectAdapter(params.artifact);
+  const plan = adapter.parse(params.artifact);
+
+  if (
+    params.validateOnly ||
+    plan.validation.status !== "passed" ||
+    planHasErrors(plan)
+  ) {
+    return {
+      ok: plan.validation.status === "passed",
+      validatedOnly: true,
+      adapter: { id: adapter.id, version: adapter.version },
+      plan,
+      persistence: null,
+    };
+  }
+
+  const supabase = serviceClient();
+  const content =
+    typeof params.artifact.content === "string"
+      ? Buffer.from(params.artifact.content, "utf8")
+      : Buffer.from(params.artifact.content);
+  const storage = plan.source.storage;
+  let uploadedByThisRequest = false;
+
+  const { error: uploadError } = await supabase.storage
+    .from(CHECKLIST_SOURCE_BUCKET)
+    .upload(storage.objectPath, content, {
+      contentType: storage.mimeType,
+      upsert: false,
+      cacheControl: "0",
+    });
+
+  if (uploadError) {
+    const duplicate = /already exists|duplicate|409/i.test(
+      uploadError.message || "",
+    );
+    if (!duplicate) {
+      throw new Error(
+        `Could not archive checklist source: ${uploadError.message}`,
+      );
+    }
+  } else {
+    uploadedByThisRequest = true;
+  }
+
+  const { data, error } = await supabase.rpc("tcos_apply_checklist_import_plan", {
+    p_plan: plan,
+    p_original_filename: storage.originalFilename,
+    p_mime_type: storage.mimeType,
+    p_size_bytes: storage.sizeBytes,
+    p_sha256: storage.sha256,
+    p_storage_bucket: storage.bucket,
+    p_storage_object_path: storage.objectPath,
+  });
+
+  if (error) {
+    if (uploadedByThisRequest) {
+      await supabase.storage
+        .from(CHECKLIST_SOURCE_BUCKET)
+        .remove([storage.objectPath]);
+    }
+    throw new Error(
+      `Checklist Registry transaction failed: ${error.message}`,
+    );
+  }
+
+  return {
+    ok: true,
+    validatedOnly: false,
+    adapter: { id: adapter.id, version: adapter.version },
+    plan,
+    persistence: data,
+  };
+}

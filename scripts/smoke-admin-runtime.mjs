@@ -174,6 +174,16 @@ const smokeRoutes = [
     expectedText: "InstaComp™ Scan Lab",
   },
   {
+    path: "/admin/instacomp/v2",
+    auth: true,
+    expectedText: "InstaComp™ 2.0",
+  },
+  {
+    path: "/admin/instacomp/checklists",
+    auth: true,
+    expectedText: "Checklist Registry",
+  },
+  {
     path: "/admin/inventory",
     auth: true,
     expectedText: "Inventory Bridge",

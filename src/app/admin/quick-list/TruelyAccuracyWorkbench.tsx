@@ -605,7 +605,7 @@ async function runAccuracyPass(row: AccuracyRow, passLabel: string) {
   formData.append("aiCouncilTier", "courtroom");
   formData.append("accuracyPassLabel", passLabel);
 
-  const response = await fetch("/api/instacomp/scan", {
+  const response = await fetch("/api/instacomp/scan-fast", {
     method: "POST",
     body: formData,
   });

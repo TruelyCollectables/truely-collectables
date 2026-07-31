@@ -1,0 +1,98 @@
+{
+  "schema": "tcos.panini.structuredChecklist.v1",
+  "scope": "test_batch",
+  "release": {
+    "manufacturer": "Panini",
+    "brand": "Select",
+    "product": "2025 Panini Select WNBA",
+    "releaseYear": "2025",
+    "sport": "Basketball",
+    "league": "WNBA",
+    "releaseSlug": "2025-panini-select-wnba"
+  },
+  "cardsets": [
+    {
+      "name": "Base Set - Concourse",
+      "setType": "base",
+      "cards": [
+        {
+          "cardNumber": "83",
+          "players": ["Sonia Citron"],
+          "teams": ["Washington Mystics"],
+          "rookieDesignation": true
+        }
+      ],
+      "parallels": [
+        { "name": "Silver Prizm" },
+        { "name": "White Disco Prizm", "serialRun": 75 }
+      ]
+    },
+    {
+      "name": "Base Set - Premier Level",
+      "setType": "base",
+      "cards": [
+        {
+          "cardNumber": "122",
+          "players": ["Sonia Citron"],
+          "teams": ["Washington Mystics"],
+          "rookieDesignation": true
+        }
+      ],
+      "parallels": [
+        { "name": "Silver Prizm" },
+        { "name": "White Disco Prizm", "serialRun": 75 }
+      ]
+    },
+    {
+      "name": "Base Set - Courtside",
+      "setType": "base",
+      "cards": [
+        {
+          "cardNumber": "232",
+          "players": ["Sonia Citron"],
+          "teams": ["Washington Mystics"],
+          "rookieDesignation": true
+        }
+      ],
+      "parallels": [
+        { "name": "Silver Prizm" },
+        { "name": "White Disco Prizm", "serialRun": 75 }
+      ]
+    },
+    {
+      "name": "En Fuego",
+      "setType": "insert",
+      "cards": [
+        {
+          "cardNumber": "7",
+          "players": ["Sonia Citron"],
+          "teams": ["Washington Mystics"],
+          "rookieDesignation": true
+        },
+        {
+          "cardNumber": "8",
+          "players": ["Kiki Iriafen"],
+          "teams": ["Washington Mystics"],
+          "rookieDesignation": true
+        }
+      ],
+      "parallels": [
+        { "name": "Flash Prizm" },
+        { "name": "Ice Prizm" },
+        { "name": "Silver Prizm" },
+        { "name": "Blue Flash Prizm", "serialRun": 99 },
+        { "name": "Blue Ice Prizm", "serialRun": 99 },
+        { "name": "White Disco Prizm", "serialRun": 75 },
+        { "name": "Blue Prizm", "serialRun": 49 },
+        { "name": "Tie-Dye Prizm", "serialRun": 25 },
+        { "name": "Gold Flash Prizm", "serialRun": 10 },
+        { "name": "Gold Ice Prizm", "serialRun": 10 },
+        { "name": "Gold Prizm", "serialRun": 10 },
+        { "name": "Black Pandora Prizm", "serialRun": 8 },
+        { "name": "Black Gold Prizm", "serialRun": 5 },
+        { "name": "Black Finite Prizm", "serialRun": 1 },
+        { "name": "Gold Vinyl Prizm", "serialRun": 1 }
+      ]
+    }
+  ]
+}

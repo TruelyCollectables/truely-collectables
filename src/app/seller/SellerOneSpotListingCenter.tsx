@@ -269,7 +269,7 @@ export default function SellerOneSpotListingCenter() {
     if (row.back) form.append("backImage", row.back);
     form.append("aiCouncilTier", "courtroom");
     form.append("accuracyPassLabel", label);
-    const response = await fetch("/api/instacomp/scan", {
+    const response = await fetch("/api/instacomp/scan-fast", {
       method: "POST",
       headers: authHeaders(),
       body: form,
