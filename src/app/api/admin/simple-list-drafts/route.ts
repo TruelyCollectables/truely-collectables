@@ -1,16 +1,16 @@
 import { createHash, randomUUID } from "node:crypto";
-import { sanitizeAuthenticityProfile } from "../../../../../lib/authenticity";
+import { sanitizeAuthenticityProfile } from "../../../../lib/authenticity";
 import {
   requireInstaCompJobActor,
   InstaCompJobServerError,
   instaCompJobErrorResponse,
-} from "../../../../../lib/instacomp-job-server";
-import { getActiveStoreId } from "../../../../../lib/stores";
-import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
+} from "../../../../lib/instacomp-job-server";
+import { getActiveStoreId } from "../../../../lib/stores";
+import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 import {
   inventoryEngine,
   InventoryEngineError,
-} from "../../../../../modules/inventory";
+} from "../../../../modules/inventory";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
