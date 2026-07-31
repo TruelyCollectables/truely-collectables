@@ -12,7 +12,7 @@ permissions:
 jobs:
   run-live-catchup:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 45
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_SCOPE: truelycollectables-projects
@@ -35,7 +35,7 @@ jobs:
           test "$status" = "401"
           echo "MARKET_INTEL_DAILY_ROUTE_PROTECTED=passed"
 
-      - name: Load Production Market Intel authorization without printing values
+      - name: Link Vercel Production project
         shell: bash
         run: |
           set -euo pipefail
@@ -45,45 +45,62 @@ jobs:
             --project truely-collectables \
             --scope "$VERCEL_SCOPE" \
             --token "$VERCEL_TOKEN" >/dev/null
-          env_file="$RUNNER_TEMP/market-intel-production.env"
+
+      - name: Provision secure Market Intel authorization and redeploy Production
+        shell: bash
+        run: |
+          set -euo pipefail
           secret_file="$RUNNER_TEMP/market-intel-run-secret"
-          npx vercel@56.2.0 env pull "$env_file" \
-            --yes \
-            --environment=production \
-            --scope "$VERCEL_SCOPE" \
-            --token "$VERCEL_TOKEN" >/dev/null
-          chmod 600 "$env_file"
-          node - "$env_file" "$secret_file" <<'NODE'
-          const fs = require("node:fs");
-          const input = fs.readFileSync(process.argv[2], "utf8");
-          function readValue(key) {
-            const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-            const match = input.match(new RegExp(`^${escaped}=(.*)$`, "m"));
-            if (!match) return "";
-            const encoded = match[1].trim();
-            try {
-              if (encoded.startsWith('"')) return JSON.parse(encoded);
-            } catch {}
-            if (encoded.startsWith("'") && encoded.endsWith("'")) return encoded.slice(1, -1);
-            return encoded;
-          }
-          const candidates = [
-            ["MARKET_INTEL_INGEST_SECRET", readValue("MARKET_INTEL_INGEST_SECRET")],
-            ["CRON_SECRET", readValue("CRON_SECRET")],
-          ];
-          for (const [key, value] of candidates) {
-            console.log(`${key}_AVAILABLE=${Boolean(value)}`);
-            console.log(`${key}_LENGTH=${String(value).length}`);
-          }
-          const selected = candidates.find(([, value]) => Boolean(value));
-          if (!selected) throw new Error("No Market Intel authorization value was returned from Vercel Production.");
-          fs.writeFileSync(process.argv[3], String(selected[1]), { mode: 0o600 });
-          console.log(`MARKET_INTEL_AUTHORIZATION_SOURCE=${selected[0]}`);
-          NODE
+          openssl rand -hex 32 > "$secret_file"
+          chmod 600 "$secret_file"
           run_secret="$(cat "$secret_file")"
-          test -n "$run_secret"
           echo "::add-mask::$run_secret"
-          echo "MARKET_INTEL_RUN_AUTHORIZATION=loaded"
+
+          npx vercel@56.2.0 env add MARKET_INTEL_INGEST_SECRET production \
+            --force \
+            --sensitive \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" \
+            < "$secret_file" >/dev/null
+          echo "MARKET_INTEL_PRODUCTION_AUTHORIZATION=configured"
+
+          list_output="$(npx vercel@56.2.0 list truely-collectables \
+            --prod \
+            --no-color \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" 2>&1)"
+          deployment_url="$(printf '%s\n' "$list_output" | grep -Eo 'https://[A-Za-z0-9.-]+\.vercel\.app' | head -n 1)"
+          if [ -z "$deployment_url" ]; then
+            echo "Unable to resolve the current Production deployment URL." >&2
+            printf '%s\n' "$list_output" >&2
+            exit 1
+          fi
+
+          redeployed_url="$(npx vercel@56.2.0 redeploy "$deployment_url" \
+            --target=production \
+            --no-color \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN")"
+          test -n "$redeployed_url"
+          echo "MARKET_INTEL_PRODUCTION_REDEPLOY=complete"
+
+          for attempt in 1 2 3 4 5 6 7 8; do
+            status="$(curl --silent --show-error --location \
+              --max-time 60 \
+              --output "$RUNNER_TEMP/market-intel-post-redeploy.json" \
+              --write-out '%{http_code}' \
+              -H 'Cache-Control: no-cache' \
+              -H 'Pragma: no-cache' \
+              -A 'TCOSMarketIntelPRCatchup/1.0' \
+              "$PRODUCTION_ORIGIN/api/cron/market-intel/reports/daily?postRedeploy=$(date +%s)")"
+            if [ "$status" = "401" ]; then
+              echo "MARKET_INTEL_PRODUCTION_ROUTE=ready"
+              exit 0
+            fi
+            if [ "$attempt" -lt 8 ]; then sleep 8; fi
+          done
+          echo "Production route did not become ready after redeployment." >&2
+          exit 1
 
       - name: Refresh every source, rebuild report, and deliver
         shell: bash
