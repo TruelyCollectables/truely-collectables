@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import { selectRotatingAvailableHomepageItems } from "../lib/homepage-featured-rotation";
 import { createServerInventoryEngine } from "../lib/server-inventory-engine";
 import { createSupabaseServerClient } from "../lib/supabase-server";
 import { getStoreSettings } from "../lib/store-settings";
@@ -36,7 +37,9 @@ export default async function Home() {
     console.error("Homepage inventory load failed:", error);
   }
 
-  const featured = products.slice(0, 8);
+  const featured = selectRotatingAvailableHomepageItems(products, {
+    count: 8,
+  });
   const heroCards = featured.slice(0, 4);
   const sportCounts = Array.from(
     products.reduce((counts, product) => {
@@ -164,8 +167,8 @@ export default async function Home() {
       <section className="mx-auto max-w-7xl px-6 py-12">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-700">Fresh inventory</p>
-            <h2 className="mt-2 text-4xl font-black tracking-tight sm:text-5xl">New collectibles on the wall</h2>
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-700">Rotating live inventory</p>
+            <h2 className="mt-2 text-4xl font-black tracking-tight sm:text-5xl">Available collectibles on the wall</h2>
           </div>
           <Link
             href="/shop"
