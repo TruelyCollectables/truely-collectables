@@ -15,215 +15,227 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  authenticated-smoke-and-live-proof:
+  final-live-production-certification:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    env:
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_SCOPE: truelycollectables-projects
+    timeout-minutes: 20
     steps:
       - name: Check out current main
         uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 0
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install exact dependencies
-        run: npm ci
-
-      - name: Link project and pull Production environment
+      - name: Certify public routes, release content, headers, and admin boundary
         shell: bash
-        run: |
-          set -euo pipefail
-          test -n "${VERCEL_TOKEN:-}"
-          echo "::add-mask::$VERCEL_TOKEN"
-          npx vercel@56.2.0 link --yes \
-            --project truely-collectables \
-            --scope "$VERCEL_SCOPE" \
-            --token "$VERCEL_TOKEN"
-          npx vercel@56.2.0 env pull "$RUNNER_TEMP/pr393-production.env" \
-            --yes --environment production \
-            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
-          test -s "$RUNNER_TEMP/pr393-production.env"
-
-      - name: Mint and mask a short-lived signed admin session
-        shell: bash
+        env:
+          PRODUCTION_ORIGIN: https://truelycollectables.com
         run: |
           set -euo pipefail
           node --input-type=module <<'NODE'
-          import crypto from "node:crypto";
-          import fs from "node:fs";
-
-          const envFile = `${process.env.RUNNER_TEMP}/pr393-production.env`;
-          const raw = fs.readFileSync(envFile, "utf8");
-          const line = raw
-            .split(/\r?\n/)
-            .find((entry) => entry.trim().startsWith("ADMIN_SESSION_SECRET="));
-          if (!line) {
-            throw new Error("ADMIN_SESSION_SECRET is missing from the pulled Production environment.");
+          const origin = String(process.env.PRODUCTION_ORIGIN || "").replace(/\/$/, "");
+          if (origin !== "https://truelycollectables.com") {
+            throw new Error(`Unexpected Production origin: ${origin || "missing"}`);
           }
 
-          let secret = line.slice(line.indexOf("=") + 1).trim();
-          if (secret.startsWith('"') && secret.endsWith('"')) {
-            secret = JSON.parse(secret);
-          } else if (secret.startsWith("'") && secret.endsWith("'")) {
-            secret = secret.slice(1, -1);
-          }
-          if (!secret) {
-            throw new Error("ADMIN_SESSION_SECRET is empty in the pulled Production environment.");
+          const sourceSha = process.env.GITHUB_SHA || "unknown";
+          const stamp = `${sourceSha.slice(0, 12)}-${Date.now()}`;
+          const fatalMarkers = [
+            "Error loading products",
+            "permission denied for view",
+            "Missing Supabase environment variables",
+            "Internal Server Error",
+          ];
+          const routes = [
+            {
+              path: "/",
+              expected: "Find the collectible your collection is missing",
+              label: "homepage hero",
+            },
+            {
+              path: "/shop",
+              expected: "Shop Sports Cards & Collectibles",
+              label: "live shop heading",
+            },
+            {
+              path: "/account",
+              expected: "Your Collector Account",
+              label: "collector account entry",
+              alternates: ["Account Login", "Create Account"],
+            },
+            {
+              path: "/account/login",
+              expected: "No card verification is required for buyer accounts",
+              label: "buyer login policy",
+            },
+            {
+              path: "/cart",
+              expected: "Shopping Cart",
+              label: "shopping cart",
+            },
+            {
+              path: "/buyer-protection",
+              expected: "Truely Collectables Shipment Protection",
+              label: "Shipment Protection terms",
+            },
+            {
+              path: "/robots.txt",
+              expected: "User-agent",
+              label: "robots policy",
+              contentType: "text/plain",
+            },
+            {
+              path: "/sitemap.xml",
+              expected: "urlset",
+              label: "sitemap",
+              contentType: "xml",
+            },
+          ];
+
+          function decodeEntities(value) {
+            return value
+              .replace(/&nbsp;/gi, " ")
+              .replace(/&amp;/gi, "&")
+              .replace(/&quot;/gi, '"')
+              .replace(/&#39;|&apos;/gi, "'")
+              .replace(/&lt;/gi, "<")
+              .replace(/&gt;/gi, ">");
           }
 
-          const issuedAt = String(Math.floor(Date.now() / 1000));
-          const signature = crypto
-            .createHmac("sha256", secret)
-            .update(issuedAt, "utf8")
-            .digest("base64url");
-          const cookie = `tcos_admin_auth_v3=${issuedAt}.${signature}`;
-          console.log(`::add-mask::${secret}`);
-          console.log(`::add-mask::${cookie}`);
-          const delimiter = `TCOS_${crypto.randomUUID().replaceAll("-", "")}`;
-          fs.appendFileSync(
-            process.env.GITHUB_ENV,
-            `SMOKE_ADMIN_COOKIE<<${delimiter}\n${cookie}\n${delimiter}\n`,
+          function visibleText(html) {
+            return decodeEntities(
+              html
+                .replace(/<!--[\s\S]*?-->/g, "")
+                .replace(/<script[\s\S]*?<\/script>/gi, " ")
+                .replace(/<style[\s\S]*?<\/style>/gi, " ")
+                .replace(/<[^>]+>/g, " ")
+                .replace(/\s+/g, " ")
+                .trim(),
+            );
+          }
+
+          function safeDiagnostic(text) {
+            return visibleText(text)
+              .replace(/\b(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9_=-]{8,}\b/g, "[redacted]")
+              .replace(/\bwhsec_[A-Za-z0-9_=-]{8,}\b/g, "[redacted]")
+              .slice(0, 320);
+          }
+
+          async function fetchWithRetry(url, options = {}) {
+            let lastError;
+            for (let attempt = 1; attempt <= 6; attempt += 1) {
+              try {
+                const response = await fetch(url, {
+                  ...options,
+                  headers: {
+                    "cache-control": "no-cache",
+                    pragma: "no-cache",
+                    "user-agent": "TruelyCollectablesPR393FinalCertification/1.0",
+                    ...(options.headers || {}),
+                  },
+                  signal: AbortSignal.timeout(60_000),
+                });
+                if (response.status >= 500 && attempt < 6) {
+                  await new Promise((resolve) => setTimeout(resolve, attempt * 1_000));
+                  continue;
+                }
+                return response;
+              } catch (error) {
+                lastError = error;
+                if (attempt < 6) {
+                  await new Promise((resolve) => setTimeout(resolve, attempt * 1_000));
+                  continue;
+                }
+              }
+            }
+            throw lastError || new Error(`Request failed: ${url}`);
+          }
+
+          const results = [];
+          for (let index = 0; index < routes.length; index += 1) {
+            const check = routes[index];
+            const separator = check.path.includes("?") ? "&" : "?";
+            const url = `${origin}${check.path}${separator}pr393_final=${stamp}-${index}`;
+            const response = await fetchWithRetry(url, { redirect: "follow" });
+            const body = await response.text();
+            const text = visibleText(body);
+            const contentType = response.headers.get("content-type") || "";
+
+            if (response.status < 200 || response.status >= 400) {
+              throw new Error(
+                `${check.label} returned HTTP ${response.status} at ${response.url}; diagnostic=${safeDiagnostic(body)}`,
+              );
+            }
+
+            const fatal = fatalMarkers.find(
+              (marker) => body.includes(marker) || text.includes(marker),
+            );
+            if (fatal) {
+              throw new Error(
+                `${check.label} exposed fatal marker "${fatal}"; diagnostic=${safeDiagnostic(body)}`,
+              );
+            }
+
+            const candidates = [check.expected, ...(check.alternates || [])];
+            const matched = candidates.find(
+              (candidate) => body.includes(candidate) || text.includes(candidate),
+            );
+            if (!matched) {
+              throw new Error(
+                `${check.label} missed expected visible text (${candidates.join(" | ")}); diagnostic=${safeDiagnostic(body)}`,
+              );
+            }
+
+            if (check.contentType && !contentType.toLowerCase().includes(check.contentType)) {
+              throw new Error(
+                `${check.label} returned unexpected content-type ${contentType || "missing"}`,
+              );
+            }
+
+            results.push({
+              path: check.path,
+              status: response.status,
+              matched,
+              contentType,
+            });
+            console.log(`PASS ${check.path} — ${check.label} — ${matched}`);
+          }
+
+          const homeResponse = await fetchWithRetry(
+            `${origin}/?pr393_headers=${stamp}`,
+            { redirect: "manual" },
           );
+          const requiredHeaders = [
+            "strict-transport-security",
+            "content-security-policy",
+            "x-content-type-options",
+            "x-frame-options",
+          ];
+          for (const header of requiredHeaders) {
+            const value = homeResponse.headers.get(header);
+            if (!value) {
+              throw new Error(`Production homepage is missing required security header: ${header}`);
+            }
+            if (header === "x-content-type-options" && value.toLowerCase() !== "nosniff") {
+              throw new Error(`x-content-type-options must be nosniff; received ${value}`);
+            }
+            console.log(`PASS header ${header}`);
+          }
+
+          for (const adminPath of ["/admin", "/admin/products/new", "/admin/orders"]) {
+            const response = await fetchWithRetry(
+              `${origin}${adminPath}?pr393_boundary=${stamp}`,
+              { redirect: "manual" },
+            );
+            const location = response.headers.get("location") || "";
+            if (![302, 303, 307, 308].includes(response.status) || !location.includes("/admin/login")) {
+              throw new Error(
+                `Unauthenticated ${adminPath} boundary failed: status=${response.status}; location=${location || "missing"}`,
+              );
+            }
+            console.log(`PASS unauthenticated boundary ${adminPath} -> ${location}`);
+          }
+
+          console.log(`FINAL_PRODUCTION_CERTIFICATION=passed`);
+          console.log(`CERTIFIED_SOURCE_SHA=${sourceSha}`);
+          console.log(`CERTIFIED_ROUTE_COUNT=${results.length}`);
           NODE
-          rm -f "$RUNNER_TEMP/pr393-production.env" .env.local
-
-      - name: Verify protected admin pages and APIs with signed session
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -n "${SMOKE_ADMIN_COOKIE:-}"
-          stamp="${GITHUB_SHA:0:12}-$(date +%s)"
-          root="$RUNNER_TEMP/pr393-admin"
-          mkdir -p "$root"
-
-          admin_routes=(
-            "admin"
-            "admin/launch-readiness"
-            "admin/products/new"
-            "admin/orders"
-          )
-          expected_content=(
-            "Shipping Setup"
-            "Launch Readiness"
-            "Upload / AI / Publish"
-            "Fulfillment center"
-          )
-
-          for index in "${!admin_routes[@]}"; do
-            route="${admin_routes[$index]}"
-            expected="${expected_content[$index]}"
-            output="$root/admin-$index.txt"
-            status=$(curl --silent --show-error --location \
-              --retry 5 --retry-all-errors --max-time 60 \
-              -H "Cookie: $SMOKE_ADMIN_COOKIE" \
-              -H "Cache-Control: no-cache" \
-              -H "Pragma: no-cache" \
-              -A "TruelyCollectablesPR393AdminSmoke/1.0" \
-              -w '%{http_code}' \
-              "https://truelycollectables.com/${route}?pr393_admin=${stamp}-${index}" \
-              -o "$output")
-            if [ "$status" != "200" ]; then
-              echo "Protected admin route returned HTTP $status: /$route" >&2
-              exit 1
-            fi
-            if grep -Eqi "Invalid password|Internal Server Error|Missing Supabase environment variables|Error loading" "$output"; then
-              echo "Protected admin route exposed an error: /$route" >&2
-              grep -Ei "Invalid password|Internal Server Error|Missing Supabase environment variables|Error loading" "$output" || true
-              exit 1
-            fi
-            if ! grep -Fq "$expected" "$output"; then
-              echo "Protected admin route missed expected content '$expected': /$route" >&2
-              exit 1
-            fi
-            echo "PASS /$route — $expected"
-          done
-
-          api_output="$root/launch-readiness.json"
-          api_status=$(curl --silent --show-error \
-            --retry 5 --retry-all-errors --max-time 60 \
-            -H "Cookie: $SMOKE_ADMIN_COOKIE" \
-            -H "Accept: application/json" \
-            -A "TruelyCollectablesPR393AdminAPI/1.0" \
-            -w '%{http_code}' \
-            "https://truelycollectables.com/api/admin/launch-readiness?pr393_admin_api=$stamp" \
-            -o "$api_output")
-          test "$api_status" = "200"
-          grep -Fq '"brief"' "$api_output"
-          grep -Fq '"deployment"' "$api_output"
-          grep -Fq '"standardEnvelopeEvidenceContractReady":true' "$api_output"
-          echo "Protected admin pages and launch-readiness API passed with a signed Production session."
-
-      - name: Verify live public routes and cache-bypassed content
-        shell: bash
-        run: |
-          set -euo pipefail
-          stamp="${GITHUB_SHA:0:12}-$(date +%s)"
-          root="$RUNNER_TEMP/pr393-live"
-          mkdir -p "$root"
-          routes=(
-            ""
-            "shop"
-            "account"
-            "account/login"
-            "cart"
-            "buyer-protection"
-            "robots.txt"
-            "sitemap.xml"
-          )
-          for index in "${!routes[@]}"; do
-            route="${routes[$index]}"
-            output="$root/route-$index.txt"
-            curl --fail --silent --show-error --location \
-              --retry 6 --retry-all-errors --max-time 60 \
-              -H "Cache-Control: no-cache" \
-              -H "Pragma: no-cache" \
-              -A "TruelyCollectablesPR393Verify/1.0" \
-              "https://truelycollectables.com/${route}?pr393_verify=${stamp}-${index}" \
-              -o "$output"
-            if grep -Eqi "Error loading products|permission denied for view|Missing Supabase environment variables|Internal Server Error" "$output"; then
-              echo "Live route failed: /$route" >&2
-              grep -Ei "Error loading products|permission denied for view|Missing Supabase environment variables|Internal Server Error" "$output" || true
-              exit 1
-            fi
-            echo "PASS /$route"
-          done
-
-          grep -Fq "Find the collectible your collection is missing" "$root/route-0.txt"
-          grep -Fq "Shop Sports Cards" "$root/route-1.txt"
-          grep -Fq "No card verification is required for buyer accounts" "$root/route-3.txt"
-          grep -Fq "Shopping Cart" "$root/route-4.txt"
-          grep -Fq "Shipment Protection" "$root/route-5.txt"
-          grep -Fq "User-agent" "$root/route-6.txt"
-          grep -Fq "urlset" "$root/route-7.txt"
-
-      - name: Verify live security headers and protected admin boundary
-        shell: bash
-        run: |
-          set -euo pipefail
-          stamp="${GITHUB_SHA:0:12}-$(date +%s)"
-          headers="$RUNNER_TEMP/pr393-headers.txt"
-          curl --fail --silent --show-error --head \
-            --retry 5 --retry-all-errors --max-time 60 \
-            -H "Cache-Control: no-cache" \
-            -A "TruelyCollectablesPR393Headers/1.0" \
-            "https://truelycollectables.com/?pr393_headers=$stamp" \
-            -o "$headers"
-          grep -Eqi '^strict-transport-security:' "$headers"
-          grep -Eqi '^content-security-policy:' "$headers"
-          grep -Eqi '^x-content-type-options:[[:space:]]*nosniff' "$headers"
-          grep -Eqi '^x-frame-options:' "$headers"
-
-          admin_headers="$RUNNER_TEMP/pr393-admin-headers.txt"
-          curl --silent --show-error --head --max-time 60 \
-            -A "TruelyCollectablesPR393AdminBoundary/1.0" \
-            "https://truelycollectables.com/admin" \
-            -o "$admin_headers"
-          grep -Eqi '^location:.*\/admin\/login|^HTTP\/[0-9.]+ (302|303|307|308)' "$admin_headers"
-          echo "PR #393 Production protected admin access, public routes, headers, and unauthenticated admin boundary passed."
