@@ -113,10 +113,5 @@ replaceExact(
   `<p aria-live="polite" className="mt-4 rounded-2xl border border-emerald-300 bg-emerald-50 p-3 text-sm font-bold text-emerald-900">`,
   `<p role="status" aria-live="polite" className="mt-4 rounded-2xl border border-emerald-300 bg-emerald-50 p-3 text-sm font-bold text-emerald-900">`,
 );
-replaceExact(
-  "src/app/admin/page.tsx",
-  `                    {launchGateDrill.shipping\n                      .standardEnvelopeEvidenceContractReady`,
-  `                    {launchGateDrill.shipping.standardEnvelopeEvidenceContractReady`,
-);
 
 console.log("Complete FBI/CIA audit fix set applied.");
