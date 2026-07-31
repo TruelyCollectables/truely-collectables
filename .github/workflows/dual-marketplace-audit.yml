@@ -1,0 +1,65 @@
+name: Dual Marketplace Audit
+
+on:
+  pull_request:
+    paths:
+      - "src/app/admin/products/new/**"
+      - "src/app/api/admin/dual-marketplace-listings/**"
+      - "src/lib/dual-marketplace-*.ts"
+      - "src/lib/ebay-inventory-publisher*.ts"
+      - "src/lib/ebay-listing-content.ts"
+      - "scripts/run-dual-marketplace-audit-simulations.ts"
+      - ".github/workflows/dual-marketplace-audit.yml"
+  push:
+    branches:
+      - "agent/dual-marketplace-card-intake"
+    paths:
+      - "src/app/admin/products/new/**"
+      - "src/app/api/admin/dual-marketplace-listings/**"
+      - "src/lib/dual-marketplace-*.ts"
+      - "src/lib/ebay-inventory-publisher*.ts"
+      - "src/lib/ebay-listing-content.ts"
+      - "scripts/run-dual-marketplace-audit-simulations.ts"
+      - ".github/workflows/dual-marketplace-audit.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  focused-audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      EBAY_CLIENT_ID: build-only-placeholder-client-id
+      EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+      EBAY_ENVIRONMENT: production
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Run adversarial listing simulations
+        run: node --import tsx scripts/run-dual-marketplace-audit-simulations.ts
+      - name: Lint audited listing files
+        run: >-
+          npx eslint
+          src/app/admin/products/new/AuditedDualMarketplaceListingStudio.tsx
+          src/app/admin/products/new/DualMarketplaceListingStudio.tsx
+          src/app/api/admin/dual-marketplace-listings/route.ts
+          src/lib/dual-marketplace-admin-route.ts
+          src/lib/dual-marketplace-listing.ts
+          src/lib/dual-marketplace-pricing.ts
+          src/lib/dual-marketplace-workflow.ts
+          src/lib/ebay-inventory-publisher.ts
+          src/lib/ebay-inventory-publisher-audited.ts
+          src/lib/ebay-listing-content.ts
+          scripts/run-dual-marketplace-audit-simulations.ts
