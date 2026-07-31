@@ -47,6 +47,10 @@ import {
 import { detectGradingDetails } from "../../../../lib/grading-cert";
 import { normalizeInstaCompSideImages } from "../../../../lib/instacomp-image-orientation";
 import { readValidatedInstaCompImage } from "../../../../lib/instacomp-image-safety";
+import {
+  buildChecklistRegistryCatalogEvidence,
+  findChecklistRegistryMatch,
+} from "../../../../lib/instacomp-learning-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -3549,17 +3553,40 @@ export async function POST(req: NextRequest) {
     const guardedAi = applyInstaCompIdentityGuard(mergedSerialAi, {
       externalOcrText: externalOcr?.text || null,
     });
-    const catalogEvidence = buildInstaCompCuratedChecklistEvidence({
+    const registryMatch = await findChecklistRegistryMatch(guardedAi);
+    const curatedCatalogEvidence = buildInstaCompCuratedChecklistEvidence({
       ai: guardedAi,
       externalOcrText: externalOcr?.text || null,
     });
+    const catalogEvidence = registryMatch
+      ? buildChecklistRegistryCatalogEvidence(registryMatch)
+      : curatedCatalogEvidence;
     const catalogReferee = catalogEvidenceToConsensusReferee(catalogEvidence);
-    const consensusEscalation = decideInstaCompConsensusEscalation({
+    const baselineConsensusEscalation = decideInstaCompConsensusEscalation({
       ai: guardedAi,
       externalOcrText: externalOcr?.text || null,
       hasBackImage: Boolean(backDataUrl),
       pairingConfidence: persistentContext?.pairingConfidence ?? null,
     });
+    const consensusEscalation = registryMatch
+      ? {
+          ...baselineConsensusEscalation,
+          runSecondaryVision: false,
+          speedLane: "fast_lane" as const,
+          councilMode: "fast_lane_council" as const,
+          riskTier: "low" as const,
+          scannerPlan: [
+            "primary_vision",
+            "external_ocr",
+            "checklist_registry_referee",
+          ],
+          reasons: [
+            `Checklist Registry exact identity ${registryMatch.identityId} confirmed before secondary readers.`,
+          ],
+          explanation:
+            "Primary vision and printed evidence matched a private exact Checklist Registry identity, so secondary AI readers were not required.",
+        }
+      : baselineConsensusEscalation;
     const aiCouncilRaw = await runInstaCompAiCouncil({
       runSecondaryVision: consensusEscalation.runSecondaryVision,
       requestedTier: requestedAiCouncilTier,
@@ -3684,6 +3711,15 @@ export async function POST(req: NextRequest) {
       consensus,
       consensusEscalation,
       catalogEvidence,
+      checklistRegistry: registryMatch
+        ? {
+            matched: true,
+            identityId: registryMatch.identityId,
+            fingerprintSha256: registryMatch.fingerprintSha256,
+            score: registryMatch.score,
+            sourceLabel: registryMatch.sourceLabel,
+          }
+        : null,
       imageOrientation,
       benchmarkDiagnostics: {
         ephemeral: ephemeralBenchmark,

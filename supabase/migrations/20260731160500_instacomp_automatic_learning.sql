@@ -583,7 +583,7 @@ begin
       'confidence', v_scan->'confidence'
     ) || coalesce(v_scan->'raw_ai_result', '{}'::jsonb)
   );
-  v_ai := jsonb_strip_nulls(v_base_ai || jsonb_build_object(
+  v_ai := v_base_ai || jsonb_strip_nulls(jsonb_build_object(
     'player', p_corrections->'player',
     'year', p_corrections->'year',
     'brand', p_corrections->'brand',

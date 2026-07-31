@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { createClient } from "@supabase/supabase-js";
+import type { InstaCompCatalogEvidenceSnapshot } from "./instacomp-catalog-identity";
 
 type ScanActor = {
   type: "admin" | "seller";
@@ -150,36 +151,62 @@ export async function findFreshInstaCompCache(params: {
   return row;
 }
 
-function registryCatalogEvidence(match: RegistryMatch) {
+export function buildChecklistRegistryCatalogEvidence(
+  match: RegistryMatch,
+): InstaCompCatalogEvidenceSnapshot {
+  const source = "instacomp_checklist_registry";
+  const sourceUrl = `tcos://instacomp/checklist-registry/${match.identityId}`;
+  const serialRun = match.serialRun ? `/${match.serialRun}` : null;
+  const identity = {
+    player: match.player,
+    year: match.year,
+    setName: match.setName,
+    cardNumber: match.cardNumber,
+    parallel: match.parallel,
+    variation: match.parallel,
+    serialRun,
+  };
+  const matchExplanation = [
+    "Exact Checklist Registry identity confirmed.",
+    ...match.matchedEvidence,
+  ].join(" ");
+
   return {
-    schema: "instacomp.checklistRegistryEvidence.v1",
+    schema: "tcos.instacomp.catalogEvidence.v1",
+    capturedAt: new Date().toISOString(),
     status: "catalog_confirmed",
     operatorState: "ready_for_exact_comps",
     catalogConfirmed: true,
     selectedMatch: {
       catalogId: match.identityId,
+      source,
       sourceLabel: match.sourceLabel,
+      sourceUrl,
       score: match.score,
       matchedEvidence: match.matchedEvidence,
       mismatchedEvidence: [],
-      identity: {
-        player: match.player,
-        year: match.year,
-        setName: match.setName,
-        cardNumber: match.cardNumber,
-        parallel: match.parallel,
-        serialRun: match.serialRun,
-      },
+      missingEvidence: [],
+      criticalMismatch: false,
+      identity,
     },
+    alternateMatches: [],
+    providerSummaries: [
+      {
+        source,
+        sourceLabel: match.sourceLabel,
+        policyStatus: "approved",
+        resultStatus: "fulfilled",
+        candidateCount: 1,
+        usableCandidateCount: 1,
+        reasons: ["Private normalized checklist identity matched exactly."],
+      },
+    ],
+    providerWarnings: [],
     reviewReasons: [],
     suggestedQuestion: null,
     operatorAction: "Checklist Registry exact identity confirmed.",
     safeUseBoundary:
       "The Registry confirms identity. Market price still comes only from included live and sold evidence.",
-    sourceAttribution: {
-      sourceLabel: match.sourceLabel,
-      catalogId: match.identityId,
-    },
     actionPermissions: {
       exactCompSearchAllowed: true,
       trustedForExactComps: true,
@@ -187,6 +214,25 @@ function registryCatalogEvidence(match: RegistryMatch) {
       autoPriceAllowed: true,
       tradeValueRecommendationAllowed: true,
     },
+    compIdentity: {
+      ...identity,
+      catalogId: match.identityId,
+      catalogSource: source,
+      catalogSourceLabel: match.sourceLabel,
+      catalogSourceUrl: sourceUrl,
+      catalogMatchExplanation: matchExplanation,
+    },
+    sourceAttribution: {
+      source,
+      sourceLabel: match.sourceLabel,
+      sourceUrl,
+      catalogId: match.identityId,
+    },
+    auditFlags: [
+      "private_registry_source",
+      "exact_identity_fingerprint",
+      "pricing_requires_live_market_evidence",
+    ],
   };
 }
 
@@ -350,7 +396,7 @@ export async function saveInstaCompLearningCache(params: {
   const payload = registryMatch
     ? {
         ...params.payload,
-        catalogEvidence: registryCatalogEvidence(registryMatch),
+        catalogEvidence: buildChecklistRegistryCatalogEvidence(registryMatch),
         checklistRegistry: {
           matched: true,
           identityId: registryMatch.identityId,
