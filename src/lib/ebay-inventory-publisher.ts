@@ -591,19 +591,22 @@ export async function publishEbayInventoryItem(params: {
   });
   const aspects = Object.fromEntries(
     Object.entries(params.item.aspects || {})
-      .map(([name, values]) => [
-        cleanText(name, 65),
-        Array.from(
-          new Set(
-            (Array.isArray(values) ? values : [])
-              .map((value) => cleanText(value, 65))
-              .filter((value): value is string => Boolean(value)),
-          ),
-        ),
-      ])
+      .map(
+        ([name, values]) =>
+          [
+            cleanText(name, 65),
+            Array.from(
+              new Set(
+                (Array.isArray(values) ? values : [])
+                  .map((value) => cleanText(value, 65))
+                  .filter((value): value is string => Boolean(value)),
+              ),
+            ),
+          ] as [string | null, string[]],
+      )
       .filter(
         (entry): entry is [string, string[]] =>
-          Boolean(entry[0] && entry[1].length),
+          typeof entry[0] === "string" && entry[0].length > 0 && entry[1].length > 0,
       ),
   );
 
