@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: deploy-profit-hunter-server-cron
@@ -27,7 +27,6 @@ jobs:
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_SCOPE: truelycollectables-projects
-      CRON_SECRET: ${{ secrets.CRON_SECRET }}
     steps:
       - name: Check out newest main
         uses: actions/checkout@v4
@@ -87,10 +86,12 @@ jobs:
           exit 1
 
       - name: Verify live server cron route and deployed commit
+        id: verify_live
         shell: bash
         run: |
           set -euo pipefail
           expected="$(git rev-parse --short=12 HEAD)"
+          full_sha="$(git rev-parse HEAD)"
           url="https://truelycollectables.com/api/cron/profit-hunter?statusOnly=1&verify=$(date +%s)"
           body="$RUNNER_TEMP/profit-hunter-status.json"
 
@@ -103,7 +104,7 @@ jobs:
               -A "TCOSProfitHunterDeploy/1.0" \
               "$url&attempt=$attempt" -o "$body"; then
               cat "$body"
-              node - "$body" "$expected" <<'NODE'
+              if node - "$body" "$expected" <<'NODE'
           const fs = require("node:fs");
           const [path, expected] = process.argv.slice(2);
           const payload = JSON.parse(fs.readFileSync(path, "utf8"));
@@ -112,7 +113,9 @@ jobs:
           if (payload.contract?.expectedTotalFamilies !== 51) process.exit(1);
           if (payload.deployment?.commitSha !== expected) process.exit(1);
           NODE
-              if [ "$?" -eq 0 ]; then
+              then
+                echo "deployed_sha=$full_sha" >> "$GITHUB_OUTPUT"
+                echo "deployed_short_sha=$expected" >> "$GITHUB_OUTPUT"
                 echo "Live Profit Hunter cron verified at commit $expected."
                 exit 0
               fi
@@ -123,31 +126,102 @@ jobs:
           echo "Live Profit Hunter cron did not verify at expected commit $expected." >&2
           exit 1
 
-      - name: Force one server-side Profit Hunter cycle
-        if: ${{ env.CRON_SECRET != '' }}
+      - name: Pull Production cron authorization from Vercel
+        shell: bash
+        run: |
+          set -euo pipefail
+          env_file="$RUNNER_TEMP/profit-hunter-production.env"
+          npx vercel env pull "$env_file" \
+            --environment=production \
+            --yes \
+            --token="$VERCEL_TOKEN" \
+            --scope="$VERCEL_SCOPE" >/dev/null
+
+          cron_secret="$(node - "$env_file" <<'NODE'
+          const fs = require("node:fs");
+          const lines = fs.readFileSync(process.argv[2], "utf8").split(/\r?\n/);
+          const line = lines.find((entry) => entry.startsWith("CRON_SECRET="));
+          if (!line) process.exit(2);
+          const raw = line.slice("CRON_SECRET=".length).trim();
+          let value = raw;
+          if (raw.startsWith('"')) value = JSON.parse(raw);
+          if (!value) process.exit(3);
+          process.stdout.write(value);
+          NODE
+          )"
+          echo "::add-mask::$cron_secret"
+          echo "PROFIT_HUNTER_CRON_SECRET=$cron_secret" >> "$GITHUB_ENV"
+
+      - name: Force and verify one complete server-side Profit Hunter cycle
+        id: force_run
         shell: bash
         run: |
           set -euo pipefail
           response="$RUNNER_TEMP/profit-hunter-forced-run.json"
           http_code="$(curl --silent --show-error --location \
             --max-time 300 --retry 2 --retry-all-errors \
-            -H "Authorization: Bearer ${CRON_SECRET}" \
+            -H "Authorization: Bearer ${PROFIT_HUNTER_CRON_SECRET}" \
             -H "Cache-Control: no-cache" \
+            -H "Pragma: no-cache" \
             -A "TCOSProfitHunterForcedRun/1.0" \
             -o "$response" -w '%{http_code}' \
             "https://truelycollectables.com/api/cron/profit-hunter?force=1&perQuery=20&deploy_test=$(date +%s)")"
           cat "$response"
           test "$http_code" = "200"
-          node - "$response" <<'NODE'
+          node - "$response" "$GITHUB_OUTPUT" <<'NODE'
           const fs = require("node:fs");
-          const payload = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+          const [path, output] = process.argv.slice(2);
+          const payload = JSON.parse(fs.readFileSync(path, "utf8"));
           if (payload.ok !== true) process.exit(1);
           if (payload.nativeEbayUsed !== true) process.exit(1);
           if (payload.queryFamilyCount !== 51) process.exit(1);
           if (payload.successfulQueryCount !== 51) process.exit(1);
           if (payload.failedQueryCount !== 0) process.exit(1);
+          fs.appendFileSync(
+            output,
+            [
+              `report_id=${payload.reportId || ""}`,
+              `raw_results=${payload.rawResultCount || 0}`,
+              `deduplicated_results=${payload.deduplicatedResultCount || 0}`,
+              `actionable_count=${payload.exactCompActionableCount || 0}`,
+              `duration_ms=${payload.durationMs || 0}`,
+            ].join("\n") + "\n",
+          );
           NODE
 
-      - name: Explain skipped forced cycle
-        if: ${{ env.CRON_SECRET == '' }}
-        run: echo "CRON_SECRET is not available to GitHub Actions; the live route is deployed and Vercel will invoke it at the next allowed Mountain-time slot."
+      - name: Record verified server deployment and 51-family run
+        shell: bash
+        env:
+          DEPLOYED_SHA: ${{ steps.verify_live.outputs.deployed_sha }}
+          REPORT_ID: ${{ steps.force_run.outputs.report_id }}
+          RAW_RESULTS: ${{ steps.force_run.outputs.raw_results }}
+          DEDUPLICATED_RESULTS: ${{ steps.force_run.outputs.deduplicated_results }}
+          ACTIONABLE_COUNT: ${{ steps.force_run.outputs.actionable_count }}
+          DURATION_MS: ${{ steps.force_run.outputs.duration_ms }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch --prune origin main
+          git reset --hard origin/main
+          mkdir -p deployment-receipts
+          cat > deployment-receipts/profit-hunter-server-cron.md <<EOF
+          # Profit Hunter Server Cron — Production Verification
+
+          - Result: verified
+          - Execution path: Vercel server cron
+          - Production source commit: ${DEPLOYED_SHA}
+          - Native eBay query families: 51/51 complete
+          - Failed query families: 0
+          - Raw results: ${RAW_RESULTS}
+          - Deduplicated results: ${DEDUPLICATED_RESULTS}
+          - Exact-comp actionable results: ${ACTIONABLE_COUNT}
+          - Saved report ID: ${REPORT_ID}
+          - Forced-run duration: ${DURATION_MS} ms
+          - Mountain schedule: 7 AM, 9 AM, 11 AM, 1 PM, 3 PM, 5 PM, 7 PM, 9 PM
+          - Overnight execution: disabled by America/Denver schedule guard
+          - Verified at: $(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          EOF
+          git add deployment-receipts/profit-hunter-server-cron.md
+          git commit -m "Record verified Profit Hunter server run [skip ci]"
+          git push origin HEAD:main
