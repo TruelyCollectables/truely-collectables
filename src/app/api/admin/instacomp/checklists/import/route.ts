@@ -5,6 +5,7 @@ import type { ChecklistSourceAuthority } from "@/src/lib/checklist-registry/sour
 import {
   CHECKLIST_SOURCE_ALLOWED_MIME_TYPES,
   CHECKLIST_SOURCE_MAX_BYTES,
+  type ChecklistSourceMimeType,
 } from "@/src/lib/checklist-registry/storage";
 
 export const runtime = "nodejs";
@@ -17,12 +18,20 @@ const AUTHORITIES = new Set<ChecklistSourceAuthority>([
   "manual_official_file",
 ]);
 
+function isAllowedMimeType(value: string): value is ChecklistSourceMimeType {
+  return CHECKLIST_SOURCE_ALLOWED_MIME_TYPES.some((mimeType) => mimeType === value);
+}
+
 export async function POST(request: NextRequest) {
   try {
     const actor = await requireInstaCompJobActor(request);
     if (actor.type !== "admin") {
       return NextResponse.json(
-        { ok: false, error: "Only the store owner can import Checklist Registry sources." },
+        {
+          ok: false,
+          error:
+            "Only the store owner can import Checklist Registry sources.",
+        },
         { status: 403 },
       );
     }
@@ -45,13 +54,20 @@ export async function POST(request: NextRequest) {
     }
     if (sourceFile.size > CHECKLIST_SOURCE_MAX_BYTES) {
       return NextResponse.json(
-        { ok: false, error: "Checklist source files must be 50 MiB or smaller." },
+        {
+          ok: false,
+          error: "Checklist source files must be 50 MiB or smaller.",
+        },
         { status: 413 },
       );
     }
     if (!sourceUrl) {
       return NextResponse.json(
-        { ok: false, error: "Record the official source URL or a manual source reference." },
+        {
+          ok: false,
+          error:
+            "Record the official source URL or a manual source reference.",
+        },
         { status: 400 },
       );
     }
@@ -63,9 +79,12 @@ export async function POST(request: NextRequest) {
     }
 
     const mimeType = (sourceFile.type || "application/json").toLowerCase();
-    if (!CHECKLIST_SOURCE_ALLOWED_MIME_TYPES.includes(mimeType as any)) {
+    if (!isAllowedMimeType(mimeType)) {
       return NextResponse.json(
-        { ok: false, error: `Unsupported checklist MIME type: ${mimeType}` },
+        {
+          ok: false,
+          error: `Unsupported checklist MIME type: ${mimeType}`,
+        },
         { status: 415 },
       );
     }
