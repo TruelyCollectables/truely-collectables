@@ -10,86 +10,99 @@ function replaceExact(file, before, after, expectedCount = 1) {
   console.log(`PATCH ${file}: ${count} replacement(s)`);
 }
 
+const shippingFile = "src/lib/shipping.ts";
 replaceExact(
-  "scripts/check-production-guardrails.mjs",
-  'packageJson.dependencies?.next !== "16.2.10" ||\n  packageJson.devDependencies?.["eslint-config-next"] !== "16.2.10"',
-  'packageJson.dependencies?.next !== "16.2.12" ||\n  packageJson.devDependencies?.["eslint-config-next"] !== "16.2.12"',
+  shippingFile,
+  `export const STANDARD_ENVELOPE_DELIVERY_EVIDENCE_PROVIDER =\n  "LetterTrack / USPS IMb";`,
+  `export const STANDARD_ENVELOPE_DELIVERY_EVIDENCE_PROVIDER =\n  "LetterTrack / USPS IMb";\nexport const STANDARD_ENVELOPE_POSTAGE_BASIS =\n  "USPS retail stamped single-piece letter";`,
 );
 replaceExact(
-  "scripts/check-production-guardrails.mjs",
-  "Next.js and eslint-config-next must stay aligned on patched release 16.2.10.",
-  "Next.js and eslint-config-next must stay aligned on patched release 16.2.12.",
-);
-replaceExact(
-  "scripts/check-production-guardrails.mjs",
-  'packageJson.overrides?.postcss !== "8.5.15"',
-  'packageJson.overrides?.postcss !== "8.5.23"',
-);
-replaceExact(
-  "scripts/check-production-guardrails.mjs",
-  "package.json must keep PostCSS 8.5.15 overridden until Next.js stops pinning the vulnerable 8.4.31 release.",
-  "package.json must keep PostCSS 8.5.23 overridden until the framework dependency chain no longer requires an explicit patched override.",
+  shippingFile,
+  `const STANDARD_ENVELOPE_RATE_CHANGE_UTC = Date.UTC(2026, 6, 12, 7, 0, 0);\nconst STANDARD_ENVELOPE_RATES_BEFORE_JULY_12_2026 = [0.74, 1.03, 1.32];\nconst STANDARD_ENVELOPE_RATES_FROM_JULY_12_2026 = [0.78, 1.07, 1.36];`,
+  `const STANDARD_ENVELOPE_RATE_CHANGE_UTC = Date.UTC(2026, 6, 12, 0, 0, 0);\nconst STANDARD_ENVELOPE_RATES_BEFORE_JULY_12_2026 = [0.78, 1.07, 1.36];\nconst STANDARD_ENVELOPE_RATES_FROM_JULY_12_2026 = [0.82, 1.11, 1.4];`,
 );
 
+const simulationFile = "src/lib/shipping-simulations.ts";
 replaceExact(
-  "scripts/run-admin-product-status-simulations.mjs",
-  'HeaderStat label=\\"Scanner\\"',
-  'HeaderStat label=\\"Upload\\"',
+  simulationFile,
+  `export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-14.6";`,
+  `export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-31.1";`,
 );
 replaceExact(
-  "scripts/run-admin-product-status-simulations.mjs",
-  'HeaderStat label=\\"Manual\\"',
-  'HeaderStat label=\\"AI\\"',
+  simulationFile,
+  `      standardEnvelope.method === "STANDARD_ENVELOPE" &&\n        money(standardEnvelopeRate) === 1.32,`,
+  `      standardEnvelope.method === "STANDARD_ENVELOPE" &&\n        money(standardEnvelopeRate) === 1.36 &&\n        money(currentStandardEnvelopeRate) === 1.4,`,
 );
 replaceExact(
-  "scripts/run-admin-product-status-simulations.mjs",
-  "marketplace publishing remains a separate admin step",
-  "Adds the product to TCOS inventory only",
-);
-
-replaceExact(
-  "scripts/run-live-production-surface-audit.mjs",
-  "  /this page could not be found/i,\n",
-  "",
+  simulationFile,
+  `      "A raw-card order at $19.99 and 3 estimated oz stays on Standard Envelope at the expected $1.32 pre-July-12 rate.",`,
+  `      "A raw-card order at $19.99 and 3 estimated oz uses the conservative USPS stamped-letter reserve: $1.36 before July 12 and $1.40 after the July 12, 2026 change.",`,
 );
 
+const labelActionsFile =
+  "src/app/admin/orders/[id]/ShippingLabelActions.tsx";
 replaceExact(
-  "scripts/run-dual-marketplace-edge-audit-simulations.ts",
-  `assert.match(\n  studio,\n  /window\\.confirm/,\n  "Real eBay publishing must require explicit operator confirmation.",\n);`,
-  `assert.doesNotMatch(\n  studio,\n  /window\\.confirm/,\n  "Real eBay publishing must not rely on a browser confirm dialog.",\n);\nassert.match(\n  studio,\n  /pendingEbayConfirmation/,\n  "Real eBay publishing must require explicit inline operator confirmation.",\n);\nassert.match(\n  studio,\n  /Confirm REAL eBay publish/,\n  "The inline confirmation must clearly identify the real marketplace action.",\n);`,
+  labelActionsFile,
+  `export default function ShippingLabelActions({\n  orderId,\n  activeDryRunLabel = false,\n  initialAction = "",\n}: {\n  orderId: number;\n  activeDryRunLabel?: boolean;\n  initialAction?: string;\n}) {`,
+  `export default function ShippingLabelActions({\n  orderId,\n  activeDryRunLabel = false,\n  initialAction = "",\n  shippingMethod,\n}: {\n  orderId: number;\n  activeDryRunLabel?: boolean;\n  initialAction?: string;\n  shippingMethod?: string | null;\n}) {`,
+);
+replaceExact(
+  labelActionsFile,
+  `  const [showVoidForm, setShowVoidForm] = useState(\n    initialAction === "recordVoid",\n  );\n  const shippingActionRunningRef = useRef(false);`,
+  `  const [showVoidForm, setShowVoidForm] = useState(\n    initialAction === "recordVoid",\n  );\n  const standardEnvelopeSelected = shippingMethod === "STANDARD_ENVELOPE";\n  const [standardEnvelopeMachinableAttested, setStandardEnvelopeMachinableAttested] =\n    useState(false);\n  const shippingActionRunningRef = useRef(false);`,
+);
+replaceExact(
+  labelActionsFile,
+  `    !manualForm.postageAmount.trim() ? "postage amount" : null,\n    manualForm.note.trim().length < 8 ? "audit note" : null,`,
+  `    !manualForm.postageAmount.trim() ? "postage amount" : null,\n    standardEnvelopeSelected && !standardEnvelopeMachinableAttested\n      ? "machinable packaging attestation"\n      : null,\n    manualForm.note.trim().length < 8 ? "audit note" : null,`,
+);
+replaceExact(
+  labelActionsFile,
+  `            action: "record_manual_purchase",\n            ...trimRecord(manualForm),`,
+  `            action: "record_manual_purchase",\n            standardEnvelopeMachinableAttested,\n            ...trimRecord(manualForm),`,
+);
+replaceExact(
+  labelActionsFile,
+  `          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">`,
+  `          {standardEnvelopeSelected ? (\n            <label className="mb-4 flex items-start gap-3 rounded-2xl border-2 border-amber-300 bg-amber-50 p-4 text-sm font-bold text-amber-950">\n              <input\n                type="checkbox"\n                checked={standardEnvelopeMachinableAttested}\n                onChange={(event) =>\n                  setStandardEnvelopeMachinableAttested(event.target.checked)\n                }\n                className="mt-1 h-5 w-5 shrink-0"\n              />\n              <span>\n                I verified this card letter uses approved flexible, uniformly thick,\n                machinable packaging. It is not in a rigid mailer or top loader that\n                requires a nonmachinable surcharge or parcel service.\n              </span>\n            </label>\n          ) : null}\n\n          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">`,
+  1,
+);
+replaceExact(
+  labelActionsFile,
+  `              placeholder="1.32"`,
+  `              placeholder={standardEnvelopeSelected ? "1.40" : "Carrier receipt amount"}`,
 );
 
-const studioFile =
-  "src/app/admin/products/new/AuditedDualMarketplaceListingStudio.tsx";
+const orderPageFile = "src/app/admin/orders/[id]/page.tsx";
 replaceExact(
-  studioFile,
-  `type ActionError = {\n  inventoryItemId?: string;\n  title?: string;\n  error?: string;\n  externalPublished?: boolean;\n  ebayListingId?: string | null;\n};`,
-  `type ActionError = {\n  inventoryItemId?: string;\n  title?: string;\n  error?: string;\n  externalPublished?: boolean;\n  ebayListingId?: string | null;\n};\n\ntype PendingEbayConfirmation = {\n  action: \"publish-ebay\" | \"publish-both\";\n  inventoryItemIds: string[];\n  itemCount: number;\n  totalAskingPrice: number;\n};`,
-);
-replaceExact(
-  studioFile,
-  `  const [notice, setNotice] = useState(\"\");\n  const [error, setError] = useState(\"\");`,
-  `  const [notice, setNotice] = useState(\"\");\n  const [error, setError] = useState(\"\");\n  const [pendingEbayConfirmation, setPendingEbayConfirmation] =\n    useState<PendingEbayConfirmation | null>(null);`,
-);
-replaceExact(
-  studioFile,
-  `  const busy = Boolean(workingAction);`,
-  `  const busy = Boolean(workingAction || pendingEbayConfirmation);`,
-);
-replaceExact(
-  studioFile,
-  `  async function runAction(action: DualMarketplaceAction) {\n    if (busy) return;\n    const targetRows = selectedRows.slice();`,
-  `  async function runAction(\n    action: DualMarketplaceAction,\n    confirmedInventoryItemIds?: string[],\n  ) {\n    if (workingActionRef.current) return;\n    const requestedIds = confirmedInventoryItemIds || selectedIds;\n    const requestedIdSet = new Set(requestedIds);\n    const targetRows = rowsRef.current.filter((row) =>\n      requestedIdSet.has(row.inventoryItemId),\n    );`,
-);
-replaceExact(
-  studioFile,
-  `    if (includesEbay) {\n      const total = targetRows.reduce((sum, row) => sum + row.ebayPrice, 0);\n      const confirmed = window.confirm(\n        \`Create or update \${targetRows.length} REAL eBay listing\${\n          targetRows.length === 1 ? \"\" : \"s\"\n        } with \${money(total)} in combined asking prices? TCOS will process them in safe five-card batches.\`,\n      );\n      if (!confirmed) return;\n    }\n\n    workingActionRef.current = action;`,
-  `    if (includesEbay && !confirmedInventoryItemIds) {\n      setPendingEbayConfirmation({\n        action,\n        inventoryItemIds: targetRows.map((row) => row.inventoryItemId),\n        itemCount: targetRows.length,\n        totalAskingPrice: targetRows.reduce(\n          (sum, row) => sum + row.ebayPrice,\n          0,\n        ),\n      });\n      setNotice(\"\");\n      setError(\"\");\n      return;\n    }\n\n    setPendingEbayConfirmation(null);\n    workingActionRef.current = action;`,
-);
-replaceExact(
-  studioFile,
-  `        </div>\n\n        {notice ? (`,
-  `        </div>\n\n        {pendingEbayConfirmation ? (\n          <section\n            role=\"alertdialog\"\n            aria-labelledby=\"ebay-publish-confirmation-title\"\n            aria-describedby=\"ebay-publish-confirmation-detail\"\n            className=\"mt-4 rounded-2xl border-2 border-amber-400 bg-amber-50 p-4 shadow-sm\"\n          >\n            <h3\n              id=\"ebay-publish-confirmation-title\"\n              className=\"text-lg font-black text-neutral-950\"\n            >\n              Confirm REAL eBay publish\n            </h3>\n            <p\n              id=\"ebay-publish-confirmation-detail\"\n              className=\"mt-2 text-sm font-bold leading-6 text-neutral-800\"\n            >\n              This will create or update {pendingEbayConfirmation.itemCount} real eBay\n              listing{pendingEbayConfirmation.itemCount === 1 ? \"\" : \"s\"} with{\" \"}\n              {money(pendingEbayConfirmation.totalAskingPrice)} in combined asking\n              prices. TCOS will process the selection in safe five-card batches.\n            </p>\n            <div className=\"mt-4 flex flex-wrap gap-3\">\n              <button\n                type=\"button\"\n                onClick={() => setPendingEbayConfirmation(null)}\n                className=\"rounded-xl border border-neutral-400 bg-white px-4 py-2 text-sm font-black text-neutral-900 hover:bg-neutral-100\"\n              >\n                Cancel\n              </button>\n              <button\n                type=\"button\"\n                onClick={() => {\n                  const confirmation = pendingEbayConfirmation;\n                  setPendingEbayConfirmation(null);\n                  void runAction(\n                    confirmation.action,\n                    confirmation.inventoryItemIds,\n                  );\n                }}\n                className=\"rounded-xl bg-neutral-950 px-5 py-2 text-sm font-black text-white hover:bg-neutral-800\"\n              >\n                Confirm and publish to eBay\n              </button>\n            </div>\n          </section>\n        ) : null}\n\n        {notice ? (`,
+  orderPageFile,
+  `          <ShippingLabelActions\n            orderId={typedOrder.id}\n            activeDryRunLabel={activeDryRunShippingLabel}\n            initialAction={shippingAction}\n          />`,
+  `          <ShippingLabelActions\n            orderId={typedOrder.id}\n            activeDryRunLabel={activeDryRunShippingLabel}\n            initialAction={shippingAction}\n            shippingMethod={typedOrder.shipping_method}\n          />`,
 );
 
-console.log("FBI/CIA audit fixes applied successfully.");
+const labelRouteFile =
+  "src/app/api/admin/orders/[id]/shipping-labels/route.ts";
+replaceExact(
+  labelRouteFile,
+  `      const note = cleanText(body.note);\n      const requiredMissing = [`,
+  `      const note = cleanText(body.note);\n      const standardEnvelopeMachinableAttested =\n        body.standardEnvelopeMachinableAttested === true;\n      const requiredMissing = [`,
+);
+replaceExact(
+  labelRouteFile,
+  `        postageAmount === null ? "valid postage amount" : null,\n        !note || note.length < 8 ? "audit note" : null,`,
+  `        postageAmount === null ? "valid postage amount" : null,\n        label.resolved_shipping_method === "STANDARD_ENVELOPE" &&\n        !standardEnvelopeMachinableAttested\n          ? "machinable packaging attestation"\n          : null,\n        !note || note.length < 8 ? "audit note" : null,`,
+);
+replaceExact(
+  labelRouteFile,
+  `              coverage_status: coverageStatus,\n            },`,
+  `              coverage_status: coverageStatus,\n              standard_envelope_machinable_attested:\n                standardEnvelopeMachinableAttested,\n            },`,
+  1,
+);
+replaceExact(
+  labelRouteFile,
+  `          note,\n        },`,
+  `          note,\n          standard_envelope_machinable_attested:\n            standardEnvelopeMachinableAttested,\n        },`,
+  1,
+);
+
+console.log("Conservative postage and Standard Envelope machinability fixes applied.");
