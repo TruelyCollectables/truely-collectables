@@ -269,7 +269,7 @@ async function discoverMerchantLocationKey(params: {
 async function resolveEbaySetup(params: {
   accessToken: string;
   accountScopeAvailable: boolean;
-}) {
+}): Promise<EbaySetup> {
   const marketplaceId =
     cleanText(process.env.EBAY_MARKETPLACE_ID, 40) || DEFAULT_MARKETPLACE_ID;
   let merchantLocationKey = cleanText(
@@ -335,11 +335,11 @@ async function resolveEbaySetup(params: {
 
   return {
     marketplaceId,
-    merchantLocationKey,
-    fulfillmentPolicyId,
-    paymentPolicyId,
-    returnPolicyId,
-  } satisfies EbaySetup;
+    merchantLocationKey: merchantLocationKey!,
+    fulfillmentPolicyId: fulfillmentPolicyId!,
+    paymentPolicyId: paymentPolicyId!,
+    returnPolicyId: returnPolicyId!,
+  };
 }
 
 export async function getEbayPublishingReadiness(params: {
