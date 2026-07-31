@@ -6,13 +6,18 @@ on:
     paths:
       - "src/lib/card-identity.ts"
       - "src/lib/card-sale-identity-backfill.ts"
+      - "src/lib/server-inventory-engine.ts"
       - "src/app/api/internal/card-sale-identity-backfill/route.ts"
+      - "scripts/run-card-identity-simulations.ts"
       - ".github/workflows/card-sale-identity-enrichment.yml"
   pull_request:
     branches: [main]
     paths:
+      - "src/lib/card-identity.ts"
       - "src/lib/card-sale-identity-backfill.ts"
+      - "src/lib/server-inventory-engine.ts"
       - "src/app/api/internal/card-sale-identity-backfill/route.ts"
+      - "scripts/run-card-identity-simulations.ts"
       - ".github/workflows/card-sale-identity-enrichment.yml"
   schedule:
     - cron: "17 * * * *"
@@ -48,9 +53,14 @@ jobs:
       - name: Install exact dependencies
         run: npm ci
 
+      - name: Run player identity simulations
+        run: node --import tsx scripts/run-card-identity-simulations.ts
+
       - name: Validate runtime endpoint files
         run: |
+          test -f src/lib/card-identity.ts
           test -f src/lib/card-sale-identity-backfill.ts
+          test -f src/lib/server-inventory-engine.ts
           test -f src/app/api/internal/card-sale-identity-backfill/route.ts
 
       - name: Link Production project
