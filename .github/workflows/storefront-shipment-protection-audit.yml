@@ -1,0 +1,73 @@
+name: Storefront and Shipment Protection Audit
+
+on:
+  pull_request:
+    paths:
+      - "src/app/page.tsx"
+      - "src/app/cart/**"
+      - "src/app/components/CheckoutButton.tsx"
+      - "src/app/api/checkout/route.ts"
+      - "src/app/buyer-protection/**"
+      - "src/app/account/buyer-protection/**"
+      - "src/app/api/account/buyer-protection/**"
+      - "src/lib/buyer-protection*.ts"
+      - "src/lib/homepage-featured-rotation.ts"
+      - "scripts/run-storefront-shipment-protection-simulations.ts"
+      - ".github/workflows/storefront-shipment-protection-audit.yml"
+  push:
+    branches:
+      - "agent/dual-marketplace-card-intake"
+    paths:
+      - "src/app/page.tsx"
+      - "src/app/cart/**"
+      - "src/app/components/CheckoutButton.tsx"
+      - "src/app/api/checkout/route.ts"
+      - "src/app/buyer-protection/**"
+      - "src/app/account/buyer-protection/**"
+      - "src/app/api/account/buyer-protection/**"
+      - "src/lib/buyer-protection*.ts"
+      - "src/lib/homepage-featured-rotation.ts"
+      - "scripts/run-storefront-shipment-protection-simulations.ts"
+      - ".github/workflows/storefront-shipment-protection-audit.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  focused-audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Run storefront and Shipment Protection simulations
+        run: node --import tsx scripts/run-storefront-shipment-protection-simulations.ts
+      - name: Lint changed storefront and protection files
+        run: >-
+          npx eslint
+          src/app/page.tsx
+          src/app/cart/CartClient.tsx
+          src/app/cart/BuyerProtectionOption.tsx
+          src/app/components/CheckoutButton.tsx
+          src/app/api/checkout/route.ts
+          src/app/buyer-protection/page.tsx
+          src/app/account/buyer-protection/page.tsx
+          src/app/api/account/buyer-protection/claims/route.ts
+          src/lib/buyer-protection.ts
+          src/lib/buyer-protection-server.ts
+          src/lib/buyer-protection-order.ts
+          src/lib/homepage-featured-rotation.ts
+          scripts/run-storefront-shipment-protection-simulations.ts
