@@ -8,8 +8,8 @@ import BuyerProtectionOption, {
   type BuyerProtectionCheckoutChoice,
 } from "./BuyerProtectionOption";
 import {
-  BUYER_PROTECTION_FEE,
   BUYER_PROTECTION_POLICY_VERSION,
+  getBuyerProtectionQuote,
 } from "../../lib/buyer-protection";
 import {
   calculateShipping,
@@ -38,6 +38,7 @@ const EMPTY_PROTECTION_CHOICE: BuyerProtectionCheckoutChoice = {
   selected: false,
   preferenceMode: "one_time",
   termsAccepted: false,
+  declineAcknowledged: false,
   policyVersion: BUYER_PROTECTION_POLICY_VERSION,
   storedConsentCurrent: false,
 };
@@ -133,15 +134,22 @@ export default function CartClient(props: { storeDisplayName: string }) {
     listingPriceBasis,
     method: selectedShippingMethod,
   });
-  const buyerProtectionAvailable =
-    selectedShippingMethod === "STANDARD_ENVELOPE" &&
-    standardEnvelopeEligibility.eligible;
+  const buyerProtectionQuote = getBuyerProtectionQuote({
+    shippingMethod: selectedShippingMethod,
+    itemSubtotal: subtotal,
+    shippingAmount: selectedShipping,
+    itemCount,
+  });
+  const buyerProtectionAvailable = buyerProtectionQuote.eligible;
   const resolvedBuyerProtection: BuyerProtectionCheckoutChoice = {
     ...buyerProtection,
     selected: buyerProtectionAvailable && buyerProtection.selected,
+    declineAcknowledged: buyerProtectionAvailable
+      ? buyerProtection.declineAcknowledged
+      : false,
   };
   const buyerProtectionFee = resolvedBuyerProtection.selected
-    ? BUYER_PROTECTION_FEE
+    ? buyerProtectionQuote.feeAmount
     : 0;
   const total = subtotal + selectedShipping + buyerProtectionFee;
 
@@ -337,6 +345,8 @@ export default function CartClient(props: { storeDisplayName: string }) {
 
               <BuyerProtectionOption
                 available={buyerProtectionAvailable}
+                itemSubtotal={subtotal}
+                shippingAmount={selectedShipping}
                 onChange={setBuyerProtection}
               />
             </div>
@@ -352,7 +362,7 @@ export default function CartClient(props: { storeDisplayName: string }) {
               </div>
               {buyerProtectionFee > 0 ? (
                 <div className="flex justify-between">
-                  <span>Buyer Protection</span>
+                  <span>Shipment Protection</span>
                   <strong>${buyerProtectionFee.toFixed(2)}</strong>
                 </div>
               ) : null}
@@ -392,6 +402,7 @@ export default function CartClient(props: { storeDisplayName: string }) {
                 shippingMethod={selectedShippingMethod}
                 termsAccepted={termsAccepted}
                 buyerProtection={resolvedBuyerProtection}
+                buyerProtectionAvailable={buyerProtectionAvailable}
               />
 
               <button
