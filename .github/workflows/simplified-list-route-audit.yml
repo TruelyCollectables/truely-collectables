@@ -1,0 +1,63 @@
+name: Simplified List Route Audit
+
+on:
+  pull_request:
+    paths:
+      - "src/app/list/**"
+      - "src/app/api/admin/simple-list-drafts/**"
+      - "src/app/admin/products/new/page.tsx"
+      - "src/app/components/AdminInstaCompMobileShortcut.tsx"
+      - "scripts/run-simplified-list-route-audit.mjs"
+      - ".github/workflows/simplified-list-route-audit.yml"
+  push:
+    branches:
+      - "agent/simplified-list-route"
+    paths:
+      - "src/app/list/**"
+      - "src/app/api/admin/simple-list-drafts/**"
+      - "src/app/admin/products/new/page.tsx"
+      - "src/app/components/AdminInstaCompMobileShortcut.tsx"
+      - "scripts/run-simplified-list-route-audit.mjs"
+      - ".github/workflows/simplified-list-route-audit.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  focused-audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      ADMIN_SESSION_SECRET: build-only-admin-session-secret-with-at-least-32-characters
+      EBAY_CLIENT_ID: build-only-placeholder-client-id
+      EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+      EBAY_ENVIRONMENT: production
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Run simplified route contract audit
+        run: node scripts/run-simplified-list-route-audit.mjs
+      - name: Lint simplified listing files
+        run: >-
+          npx eslint
+          src/app/list/page.tsx
+          src/app/list/layout.tsx
+          src/app/list/SimpleListIntake.tsx
+          src/app/list/SimpleListingQueue.tsx
+          src/app/api/admin/simple-list-drafts/route.ts
+          src/app/admin/products/new/page.tsx
+          src/app/components/AdminInstaCompMobileShortcut.tsx
+          scripts/run-simplified-list-route-audit.mjs
+      - name: Build production application
+        run: npm run build
