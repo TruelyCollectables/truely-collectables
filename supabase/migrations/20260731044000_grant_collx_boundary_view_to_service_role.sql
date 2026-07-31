@@ -14,3 +14,4 @@ $$;
 commit;
 
 -- Controlled Production release trigger for merged PR #393.
+-- Auditable retrigger with workflow receipt enabled.
