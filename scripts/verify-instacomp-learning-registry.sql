@@ -87,7 +87,7 @@ declare
   v_entry jsonb;
 begin
   for v_scan_number in 2..3 loop
-    v_scan_id := format('10000000-0000-0000-0000-%012s', v_scan_number)::uuid;
+    v_scan_id := ('10000000-0000-0000-0000-00000000000' || v_scan_number)::uuid;
 
     insert into public.instacomp_scans (
       id, image_filename, player, year, brand, set_name, card_number,
