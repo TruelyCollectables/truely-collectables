@@ -8,6 +8,7 @@ on:
       - "Verify PR 393 Production Release"
       - "Repair PR 393 Admin Session and Verify Production"
       - "Deploy Buyer Login Route Repair"
+      - "Verify Buyer Login Route Convergence"
     types: [completed]
 
 permissions:
