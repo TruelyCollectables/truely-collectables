@@ -6,14 +6,32 @@ import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-function authorized(request: Request) {
-  const expected = process.env.CRON_SECRET;
-  if (!expected) return false;
-  return request.headers.get("authorization") === `Bearer ${expected}`;
+async function authorized(request: Request) {
+  const authorization = request.headers.get("authorization") || "";
+  const cronSecret = process.env.CRON_SECRET;
+  if (cronSecret && authorization === `Bearer ${cronSecret}`) return true;
+
+  const vercelToken = request.headers.get("x-vercel-token");
+  if (!vercelToken) return false;
+
+  try {
+    const response = await fetch(
+      "https://api.vercel.com/v9/projects/truely-collectables?slug=truelycollectables-projects",
+      {
+        headers: { Authorization: `Bearer ${vercelToken}` },
+        cache: "no-store",
+      },
+    );
+    if (!response.ok) return false;
+    const project = (await response.json()) as { name?: string; accountId?: string };
+    return project.name === "truely-collectables" && Boolean(project.accountId);
+  } catch {
+    return false;
+  }
 }
 
 async function run(request: Request) {
-  if (!authorized(request)) {
+  if (!(await authorized(request))) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
   }
 
