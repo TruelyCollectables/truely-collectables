@@ -12,7 +12,7 @@ permissions:
 
 concurrency:
   group: repair-pr393-admin-session-production
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   repair-redeploy-verify:
@@ -25,6 +25,7 @@ jobs:
       - name: Check out current main
         uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 0
 
       - name: Set up Node.js
@@ -76,8 +77,37 @@ jobs:
       - name: Audit Production environment names
         run: npm run audit:vercel-production-env
 
-      - name: Redeploy current main with session signing enabled
-        run: npm run deploy:production
+      - name: Deploy the newest current main with session signing enabled
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            echo "Production deployment attempt $attempt/3"
+            git fetch --prune origin main
+            git reset --hard origin/main
+            npm ci
+
+            set +e
+            npm run deploy:production 2>&1 | tee "$RUNNER_TEMP/pr393-deploy-attempt-$attempt.log"
+            deploy_status=${PIPESTATUS[0]}
+            set -e
+
+            if [ "$deploy_status" -eq 0 ]; then
+              echo "Production deployment completed from $(git rev-parse HEAD)."
+              exit 0
+            fi
+
+            if grep -Fq "Local HEAD does not match origin/main" "$RUNNER_TEMP/pr393-deploy-attempt-$attempt.log" && [ "$attempt" -lt 3 ]; then
+              echo "main advanced during deployment preflight; refreshing and retrying."
+              sleep 5
+              continue
+            fi
+
+            echo "Production deployment failed for a reason other than an advancing main branch." >&2
+            exit "$deploy_status"
+          done
+          echo "Production deployment could not obtain a stable current-main checkout." >&2
+          exit 1
 
       - name: Mint short-lived Production admin cookie
         shell: bash
@@ -108,7 +138,7 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${SMOKE_ADMIN_COOKIE:-}"
-          stamp="${GITHUB_SHA:0:12}-$(date +%s)"
+          stamp="$(git rev-parse --short=12 HEAD)-$(date +%s)"
           root="$RUNNER_TEMP/pr393-admin-repair"
           mkdir -p "$root"
 
@@ -173,7 +203,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          stamp="${GITHUB_SHA:0:12}-$(date +%s)"
+          stamp="$(git rev-parse --short=12 HEAD)-$(date +%s)"
           root="$RUNNER_TEMP/pr393-public-repair"
           mkdir -p "$root"
           routes=("" "shop" "account" "account/login" "cart" "buyer-protection" "robots.txt" "sitemap.xml")
@@ -206,7 +236,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          stamp="${GITHUB_SHA:0:12}-$(date +%s)"
+          stamp="$(git rev-parse --short=12 HEAD)-$(date +%s)"
           headers="$RUNNER_TEMP/pr393-repair-headers.txt"
           curl --fail --silent --show-error --head \
             --retry 6 --retry-all-errors --max-time 60 \
