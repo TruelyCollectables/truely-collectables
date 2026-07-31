@@ -104,7 +104,7 @@ jobs:
           process.loadEnvFile('.env.production.local');
           const site = process.env.NEXT_PUBLIC_SITE_URL || 'https://truelycollectables.com';
           const token = process.env.VERCEL_TOKEN;
-          const expectedRevision = 'player-name-v5';
+          const expectedRevision = 'player-name-v6';
           if (!token) throw new Error('VERCEL_TOKEN is required');
 
           const endpoint = new URL('/api/internal/card-sale-identity-backfill', site);
@@ -114,9 +114,11 @@ jobs:
 
           for (let attempt = 1; attempt <= 40; attempt += 1) {
             try {
+              revisionEndpoint.searchParams.set('nonce', `${Date.now()}-${attempt}`);
               const response = await fetch(revisionEndpoint, {
                 method: 'GET',
                 headers: { 'x-vercel-token': token },
+                cache: 'no-store',
               });
               const body = await response.text();
               if (response.ok) {
@@ -140,20 +142,35 @@ jobs:
           if (lastError) throw new Error(lastError);
 
           async function runBackfill(label) {
-            const response = await fetch(endpoint, {
-              method: 'POST',
-              headers: { 'x-vercel-token': token },
-            });
-            const body = await response.text();
-            if (!response.ok) {
-              throw new Error(`${label} HTTP ${response.status}: ${body}`);
+            let attemptError = `${label} has not run yet`;
+            for (let attempt = 1; attempt <= 20; attempt += 1) {
+              const guardedEndpoint = new URL(endpoint);
+              guardedEndpoint.searchParams.set('expectedRevision', expectedRevision);
+              guardedEndpoint.searchParams.set('nonce', `${Date.now()}-${attempt}`);
+
+              try {
+                const response = await fetch(guardedEndpoint, {
+                  method: 'POST',
+                  headers: { 'x-vercel-token': token },
+                  cache: 'no-store',
+                });
+                const body = await response.text();
+                const result = JSON.parse(body);
+
+                if (response.ok && result?.revision === expectedRevision) {
+                  console.log(`${label}: ${body}`);
+                  return result;
+                }
+
+                attemptError = `${label} HTTP ${response.status}, revision ${result?.revision || 'missing'}: ${body}`;
+              } catch (error) {
+                attemptError = error instanceof Error ? error.message : String(error);
+              }
+
+              console.log(`Attempt ${attempt} retrying guarded ${label}: ${attemptError}`);
+              await new Promise((resolve) => setTimeout(resolve, 10_000));
             }
-            const result = JSON.parse(body);
-            if (result?.revision !== expectedRevision) {
-              throw new Error(`${label} returned revision ${result?.revision || 'missing'}; expected ${expectedRevision}`);
-            }
-            console.log(`${label}: ${body}`);
-            return result;
+            throw new Error(attemptError);
           }
 
           const firstPass = await runBackfill('First full-catalog pass');
