@@ -48,15 +48,12 @@ jobs:
       - name: Install exact dependencies
         run: npm ci
 
-      - name: Validate staged runtime endpoint
-        if: github.event_name == 'pull_request'
+      - name: Validate runtime endpoint files
         run: |
           test -f src/lib/card-sale-identity-backfill.ts
           test -f src/app/api/internal/card-sale-identity-backfill/route.ts
-          echo "Protected runtime backfill endpoint is staged for deployment."
 
       - name: Link Production project
-        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
@@ -68,7 +65,6 @@ jobs:
             --token "$VERCEL_TOKEN"
 
       - name: Pull Production environment securely
-        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
@@ -79,7 +75,6 @@ jobs:
           chmod 600 .env.production.local
 
       - name: Invoke protected runtime backfill
-        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
