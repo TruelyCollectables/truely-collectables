@@ -11,37 +11,37 @@ function replaceExact(file, before, after, expectedCount = 1) {
 }
 
 const packageFile = "package.json";
-replaceExact(
-  packageFile,
-  `  "overrides": {\n    "postcss": "8.5.23",`,
-  `  "overrides": {\n    "@hono/node-server": "2.0.5",\n    "postcss": "8.5.23",`,
-);
+const packageJson = JSON.parse(fs.readFileSync(packageFile, "utf8"));
+packageJson.overrides = {
+  ...(packageJson.overrides || {}),
+  "@hono/node-server": "2.0.5",
+};
+fs.writeFileSync(packageFile, `${JSON.stringify(packageJson, null, 2)}\n`);
+console.log("PATCH package.json: pinned @hono/node-server 2.0.5");
 
-const shippingFile = "src/lib/shipping.ts";
 replaceExact(
-  shippingFile,
+  "src/lib/shipping.ts",
   `export const STANDARD_ENVELOPE_DELIVERY_EVIDENCE_PROVIDER =\n  "LetterTrack / USPS IMb";`,
   `export const STANDARD_ENVELOPE_DELIVERY_EVIDENCE_PROVIDER =\n  "LetterTrack / USPS IMb";\nexport const STANDARD_ENVELOPE_POSTAGE_BASIS =\n  "USPS retail stamped single-piece letter";`,
 );
 replaceExact(
-  shippingFile,
+  "src/lib/shipping.ts",
   `const STANDARD_ENVELOPE_RATE_CHANGE_UTC = Date.UTC(2026, 6, 12, 7, 0, 0);\nconst STANDARD_ENVELOPE_RATES_BEFORE_JULY_12_2026 = [0.74, 1.03, 1.32];\nconst STANDARD_ENVELOPE_RATES_FROM_JULY_12_2026 = [0.78, 1.07, 1.36];`,
   `const STANDARD_ENVELOPE_RATE_CHANGE_UTC = Date.UTC(2026, 6, 12, 0, 0, 0);\nconst STANDARD_ENVELOPE_RATES_BEFORE_JULY_12_2026 = [0.78, 1.07, 1.36];\nconst STANDARD_ENVELOPE_RATES_FROM_JULY_12_2026 = [0.82, 1.11, 1.4];`,
 );
 
-const simulationFile = "src/lib/shipping-simulations.ts";
 replaceExact(
-  simulationFile,
+  "src/lib/shipping-simulations.ts",
   `export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-14.6";`,
   `export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-31.1";`,
 );
 replaceExact(
-  simulationFile,
+  "src/lib/shipping-simulations.ts",
   `      standardEnvelope.method === "STANDARD_ENVELOPE" &&\n        money(standardEnvelopeRate) === 1.32,`,
   `      standardEnvelope.method === "STANDARD_ENVELOPE" &&\n        money(standardEnvelopeRate) === 1.36 &&\n        money(currentStandardEnvelopeRate) === 1.4,`,
 );
 replaceExact(
-  simulationFile,
+  "src/lib/shipping-simulations.ts",
   `      "A raw-card order at $19.99 and 3 estimated oz stays on Standard Envelope at the expected $1.32 pre-July-12 rate.",`,
   `      "A raw-card order at $19.99 and 3 estimated oz uses the conservative USPS stamped-letter reserve: $1.36 before July 12 and $1.40 after the July 12, 2026 change.",`,
 );
@@ -79,9 +79,8 @@ replaceExact(
   `              placeholder={standardEnvelopeSelected ? "1.40" : "Carrier receipt amount"}`,
 );
 
-const orderPageFile = "src/app/admin/orders/[id]/page.tsx";
 replaceExact(
-  orderPageFile,
+  "src/app/admin/orders/[id]/page.tsx",
   `          <ShippingLabelActions\n            orderId={typedOrder.id}\n            activeDryRunLabel={activeDryRunShippingLabel}\n            initialAction={shippingAction}\n          />`,
   `          <ShippingLabelActions\n            orderId={typedOrder.id}\n            activeDryRunLabel={activeDryRunShippingLabel}\n            initialAction={shippingAction}\n            shippingMethod={typedOrder.shipping_method}\n          />`,
 );
@@ -90,8 +89,8 @@ const labelRouteFile =
   "src/app/api/admin/orders/[id]/shipping-labels/route.ts";
 replaceExact(
   labelRouteFile,
-  `      const note = cleanText(body.note);\n      const requiredMissing = [`,
-  `      const note = cleanText(body.note);\n      const standardEnvelopeMachinableAttested =\n        body.standardEnvelopeMachinableAttested === true;\n      const requiredMissing = [`,
+  `      const providerShipmentId = cleanText(body.providerShipmentId);\n      const note = cleanText(body.note);\n      const requiredMissing = [`,
+  `      const providerShipmentId = cleanText(body.providerShipmentId);\n      const note = cleanText(body.note);\n      const standardEnvelopeMachinableAttested =\n        body.standardEnvelopeMachinableAttested === true;\n      const requiredMissing = [`,
 );
 replaceExact(
   labelRouteFile,
@@ -100,28 +99,22 @@ replaceExact(
 );
 replaceExact(
   labelRouteFile,
-  `              coverage_status: coverageStatus,\n            },`,
-  `              coverage_status: coverageStatus,\n              standard_envelope_machinable_attested:\n                standardEnvelopeMachinableAttested,\n            },`,
-  1,
+  `              coverage_policy_id: coveragePolicyId,\n              label_status: labelStatus,\n              coverage_status: coverageStatus,`,
+  `              coverage_policy_id: coveragePolicyId,\n              label_status: labelStatus,\n              coverage_status: coverageStatus,\n              standard_envelope_machinable_attested:\n                standardEnvelopeMachinableAttested,`,
 );
 replaceExact(
   labelRouteFile,
-  `          note,\n        },`,
-  `          note,\n          standard_envelope_machinable_attested:\n            standardEnvelopeMachinableAttested,\n        },`,
-  1,
+  `          coverage_amount: coverageAmount,\n          coverage_status: coverageStatus,\n          note,`,
+  `          coverage_amount: coverageAmount,\n          coverage_status: coverageStatus,\n          standard_envelope_machinable_attested:\n            standardEnvelopeMachinableAttested,\n          note,`,
 );
 
-const studioFile =
-  "src/app/admin/products/new/AuditedDualMarketplaceListingStudio.tsx";
 replaceExact(
-  studioFile,
+  "src/app/admin/products/new/AuditedDualMarketplaceListingStudio.tsx",
   `<p aria-live="polite" className="mt-4 rounded-2xl border border-emerald-300 bg-emerald-50 p-3 text-sm font-bold text-emerald-900">`,
   `<p role="status" aria-live="polite" className="mt-4 rounded-2xl border border-emerald-300 bg-emerald-50 p-3 text-sm font-bold text-emerald-900">`,
 );
-
-const adminDashboardFile = "src/app/admin/page.tsx";
 replaceExact(
-  adminDashboardFile,
+  "src/app/admin/page.tsx",
   `                    {launchGateDrill.shipping\n                      .standardEnvelopeEvidenceContractReady`,
   `                    {launchGateDrill.shipping.standardEnvelopeEvidenceContractReady`,
 );
