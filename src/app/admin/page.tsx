@@ -832,7 +832,6 @@ export default async function AdminDashboard() {
         { href: "/admin/quick-list", label: "Quick List" },
         { href: "/admin/verified-reference-import", label: "Verified Intake" },
         { href: "/admin/products", label: "Products" },
-        { href: "/list", label: "List Cards" },
         { href: "/admin/inventory", label: "Inventory Bridge" },
         { href: "/admin/inventory/category-review", label: "Category Review" },
       ],
