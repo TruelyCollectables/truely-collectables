@@ -16,18 +16,27 @@ function safeEqual(left: string, right: string) {
   return timingSafeEqual(leftBuffer, rightBuffer);
 }
 
-async function fetchProtectedPage(origin: string, route: string, sessionValue: string) {
+async function fetchPage(
+  origin: string,
+  route: string,
+  sessionValue?: string,
+) {
+  const headers: Record<string, string> = {
+    "Cache-Control": "no-cache",
+    Pragma: "no-cache",
+    "User-Agent": "TCOSInstaCompRuntimeVerifier/1.0",
+  };
+
+  if (sessionValue) {
+    headers.Cookie = `${ADMIN_SESSION_COOKIE_NAME}=${sessionValue}`;
+  }
+
   const response = await fetch(
     `${origin}${route}?runtimeVerify=${Date.now()}-${Math.random().toString(36).slice(2)}`,
     {
       cache: "no-store",
       redirect: "manual",
-      headers: {
-        Cookie: `${ADMIN_SESSION_COOKIE_NAME}=${sessionValue}`,
-        "Cache-Control": "no-cache",
-        Pragma: "no-cache",
-        "User-Agent": "TCOSInstaCompRuntimeVerifier/1.0",
-      },
+      headers,
     },
   );
 
@@ -38,6 +47,34 @@ async function fetchProtectedPage(origin: string, route: string, sessionValue: s
     location: response.headers.get("location"),
     body,
   };
+}
+
+function redirectsToList(status: number, location: string | null) {
+  return (
+    [302, 303, 307, 308].includes(status) &&
+    Boolean(location && new URL(location, "https://runtime.invalid").pathname === "/list")
+  );
+}
+
+function rendersListWorkspace(status: number, body: string) {
+  return (
+    status === 200 &&
+    body.includes("List Cards") &&
+    body.includes("Upload photos") &&
+    body.includes("Select and InstaComp") &&
+    body.includes("Review and list selected") &&
+    !body.includes("/admin/login")
+  );
+}
+
+function redirectsToListLogin(status: number, location: string | null) {
+  if (![302, 303, 307, 308].includes(status) || !location) return false;
+
+  const redirect = new URL(location, "https://runtime.invalid");
+  return (
+    redirect.pathname === "/admin/login" &&
+    redirect.searchParams.get("next") === "/list"
+  );
 }
 
 export async function GET(request: Request) {
@@ -62,36 +99,47 @@ export async function GET(request: Request) {
   try {
     const origin = new URL(request.url).origin;
     const sessionValue = await createAdminSessionValue();
-    const [admin, mobile, cardStudio] = await Promise.all([
-      fetchProtectedPage(origin, "/admin", sessionValue),
-      fetchProtectedPage(origin, "/admin/instacomp/mobile", sessionValue),
-      fetchProtectedPage(origin, "/admin/products/new", sessionValue),
-    ]);
+    const [admin, mobile, legacyCardStudio, listWorkspace, listBoundary] =
+      await Promise.all([
+        fetchPage(origin, "/admin", sessionValue),
+        fetchPage(origin, "/admin/instacomp/mobile", sessionValue),
+        fetchPage(origin, "/admin/products/new", sessionValue),
+        fetchPage(origin, "/list", sessionValue),
+        fetchPage(origin, "/list"),
+      ]);
 
     const checks = {
       adminDashboard:
         admin.status === 200 &&
         admin.body.includes("InstaComp Mobile") &&
-        admin.body.includes("Card Studio") &&
+        admin.body.includes("List Cards") &&
         !admin.body.includes("/admin/login"),
       instacompMobile:
         mobile.status === 200 &&
         mobile.body.includes("Built for portrait mode") &&
         mobile.body.includes("Scan one card") &&
         mobile.body.includes("Run InstaComp") &&
+        mobile.body.includes('href="/list"') &&
+        mobile.body.includes("List Cards") &&
         !mobile.body.includes("/admin/login"),
       cardStudio:
-        cardStudio.status === 200 &&
-        cardStudio.body.includes("Scan Once. List Everywhere.") &&
-        cardStudio.body.includes("Manual product entry") &&
-        !cardStudio.body.includes("/admin/login"),
+        redirectsToList(legacyCardStudio.status, legacyCardStudio.location) ||
+        rendersListWorkspace(legacyCardStudio.status, legacyCardStudio.body),
+      listWorkspace: rendersListWorkspace(
+        listWorkspace.status,
+        listWorkspace.body,
+      ),
+      listPasswordBoundary: redirectsToListLogin(
+        listBoundary.status,
+        listBoundary.location,
+      ),
       noAutoPilot: !mobile.body.includes("Auto-Pilot"),
       noBatchControls:
         !mobile.body.includes("Batch Scan Up To 500 Cards") &&
         !mobile.body.includes("Parallel Scans"),
       portraitRevision:
         mobile.body.includes("portrait-v2") &&
-        mobile.body.includes('data-live-verification="final"'),
+        mobile.body.includes('data-live-verification="final-pass"'),
       compSource:
         mobile.body.includes("sold comps") &&
         mobile.body.includes("current listings") &&
@@ -111,8 +159,16 @@ export async function GET(request: Request) {
             location: mobile.location,
           },
           cardStudio: {
-            status: cardStudio.status,
-            location: cardStudio.location,
+            status: legacyCardStudio.status,
+            location: legacyCardStudio.location,
+          },
+          listWorkspace: {
+            status: listWorkspace.status,
+            location: listWorkspace.location,
+          },
+          listBoundary: {
+            status: listBoundary.status,
+            location: listBoundary.location,
           },
         },
       },
