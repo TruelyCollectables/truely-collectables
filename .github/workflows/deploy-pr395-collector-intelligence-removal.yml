@@ -22,9 +22,10 @@ jobs:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_SCOPE: truelycollectables-projects
     steps:
-      - name: Check out current main
+      - name: Check out newest current main
         uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 0
 
       - name: Set up Node.js
@@ -50,8 +51,37 @@ jobs:
       - name: Audit Production environment names
         run: npm run audit:vercel-production-env
 
-      - name: Deploy current main to Production
-        run: npm run deploy:production
+      - name: Deploy newest stable main to Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            echo "Production deployment attempt $attempt/3"
+            git fetch --prune origin main
+            git reset --hard origin/main
+            npm ci
+
+            set +e
+            npm run deploy:production 2>&1 | tee "$RUNNER_TEMP/pr395-deploy-attempt-$attempt.log"
+            deploy_status=${PIPESTATUS[0]}
+            set -e
+
+            if [ "$deploy_status" -eq 0 ]; then
+              echo "Production deployment completed from $(git rev-parse HEAD)."
+              exit 0
+            fi
+
+            if grep -Fq "Local HEAD does not match origin/main" "$RUNNER_TEMP/pr395-deploy-attempt-$attempt.log" && [ "$attempt" -lt 3 ]; then
+              echo "main advanced during deployment preflight; refreshing and retrying."
+              sleep 5
+              continue
+            fi
+
+            echo "Production deployment failed for a reason other than an advancing main branch." >&2
+            exit "$deploy_status"
+          done
+          echo "Production deployment could not obtain a stable current-main checkout." >&2
+          exit 1
 
       - name: Run repository Production smoke test
         run: npm run smoke:production
@@ -61,13 +91,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          stamp="${GITHUB_SHA:0:12}-$(date +%s)"
+          stamp="$(git rev-parse --short=12 HEAD)-$(date +%s)"
           work="$RUNNER_TEMP/pr395-production"
           mkdir -p "$work"
 
           shop="$work/shop.html"
           curl --fail --silent --show-error --location --retry 8 --retry-all-errors \
             -H "Cache-Control: no-cache" \
+            -H "Pragma: no-cache" \
             -A "TruelyCollectablesPR395Deploy/1.0" \
             "https://truelycollectables.com/shop?pr395_deploy=$stamp" \
             -o "$shop"
@@ -78,6 +109,7 @@ jobs:
           product="$work/product.html"
           curl --fail --silent --show-error --location --retry 8 --retry-all-errors \
             -H "Cache-Control: no-cache" \
+            -H "Pragma: no-cache" \
             -A "TruelyCollectablesPR395Deploy/1.0" \
             "https://truelycollectables.com${product_path}?pr395_deploy=$stamp" \
             -o "$product"
@@ -102,22 +134,26 @@ jobs:
           done
 
           echo "product_path=$product_path" >> "$GITHUB_OUTPUT"
+          echo "deployed_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "Production verified: $product_path no longer contains TCOS Collector Intelligence."
 
       - name: Record verified Production deployment
         shell: bash
         env:
           PRODUCT_PATH: ${{ steps.verify_live.outputs.product_path }}
+          DEPLOYED_SHA: ${{ steps.verify_live.outputs.deployed_sha }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch --prune origin main
+          git reset --hard origin/main
           mkdir -p deployment-receipts
           cat > deployment-receipts/pr395-collector-intelligence-removal.md <<EOF
           # PR 395 Production Deployment
 
           - Result: verified
-          - Source commit: ${GITHUB_SHA}
+          - Deployed source commit: ${DEPLOYED_SHA}
           - Product checked: ${PRODUCT_PATH}
           - Verification: the live product page contains Collector Snapshot and excludes all TCOS Collector Intelligence storefront text.
           - Verified at: $(date -u +'%Y-%m-%dT%H:%M:%SZ')
