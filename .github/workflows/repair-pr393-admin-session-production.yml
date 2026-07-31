@@ -63,7 +63,6 @@ jobs:
             `PR393_ADMIN_SESSION_SECRET<<${delimiter}\n${secret}\n${delimiter}\n`,
           );
           NODE
-          test -n "${PR393_ADMIN_SESSION_SECRET:-}" || true
 
       - name: Save session-signing secret to Vercel Production
         shell: bash
@@ -119,27 +118,41 @@ jobs:
             "admin/products/new"
             "admin/orders"
           )
+          expected_content=(
+            "Shipping Setup"
+            "Launch Readiness"
+            "Upload / AI / Publish"
+            "Fulfillment center"
+          )
+
           for index in "${!admin_routes[@]}"; do
             route="${admin_routes[$index]}"
+            expected="${expected_content[$index]}"
             output="$root/admin-$index.txt"
             status=$(curl --silent --show-error --location \
               --retry 6 --retry-all-errors --max-time 60 \
               -H "Cookie: $SMOKE_ADMIN_COOKIE" \
               -H "Cache-Control: no-cache" \
+              -H "Pragma: no-cache" \
               -A "TruelyCollectablesPR393AdminRepair/1.0" \
               -w '%{http_code}' \
               "https://truelycollectables.com/${route}?pr393_admin_repair=${stamp}-${index}" \
               -o "$output")
-            test "$status" = "200"
-            if grep -Eqi "Invalid password|Admin login|Internal Server Error|Missing Supabase environment variables" "$output"; then
-              echo "Protected admin route failed: /$route" >&2
+            if [ "$status" != "200" ]; then
+              echo "Protected admin route returned HTTP $status: /$route" >&2
               exit 1
             fi
-            echo "PASS /$route"
+            if grep -Eqi "Invalid password|Internal Server Error|Missing Supabase environment variables|Error loading" "$output"; then
+              echo "Protected admin route exposed an error: /$route" >&2
+              grep -Ei "Invalid password|Internal Server Error|Missing Supabase environment variables|Error loading" "$output" || true
+              exit 1
+            fi
+            if ! grep -Fq "$expected" "$output"; then
+              echo "Protected admin route missed expected content '$expected': /$route" >&2
+              exit 1
+            fi
+            echo "PASS /$route — $expected"
           done
-          grep -Fq "Shipping Setup" "$root/admin-0.txt"
-          grep -Fq "Launch Readiness" "$root/admin-1.txt"
-          grep -Fq "Upload / AI / Publish" "$root/admin-2.txt"
 
           api_output="$root/launch-readiness.json"
           api_status=$(curl --silent --show-error \
@@ -176,6 +189,7 @@ jobs:
               -o "$output"
             if grep -Eqi "Error loading products|permission denied for view|Missing Supabase environment variables|Internal Server Error" "$output"; then
               echo "Live public route failed: /$route" >&2
+              grep -Ei "Error loading products|permission denied for view|Missing Supabase environment variables|Internal Server Error" "$output" || true
               exit 1
             fi
             echo "PASS /$route"
