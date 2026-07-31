@@ -52,6 +52,17 @@ jobs:
           npx eslint src/lib/profit-hunter-server-run.js src/app/api/cron/profit-hunter/route.js scripts/run-profit-hunter-server-cron-contracts.mjs
           git diff --check
 
+      - name: Link Production Vercel project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          echo "::add-mask::$VERCEL_TOKEN"
+          npx vercel@56.2.0 link --yes \
+            --project truely-collectables \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN"
+
       - name: Audit Production environment names
         run: npm run audit:vercel-production-env
 
@@ -64,6 +75,10 @@ jobs:
             git fetch --prune origin main
             git reset --hard origin/main
             npm ci
+            npx vercel@56.2.0 link --yes \
+              --project truely-collectables \
+              --scope "$VERCEL_SCOPE" \
+              --token "$VERCEL_TOKEN"
 
             set +e
             npm run deploy:production 2>&1 | tee "$RUNNER_TEMP/profit-hunter-deploy-$attempt.log"
