@@ -33,7 +33,7 @@ import {
   under20SellerProtectionSkippedRowReasonLabel,
 } from "./under20-seller-protection-claims";
 
-export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-14.6";
+export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-31.1";
 export const SHIPPING_SIMULATION_EXPECTED_SCENARIO_KEYS = [
   "standard_envelope_under_20_and_3oz",
   "standard_envelope_over_20_forces_ground_advantage",
@@ -120,10 +120,11 @@ export async function runShippingSimulationSuite() {
     scenario_key: "standard_envelope_under_20_and_3oz",
     scenario_status: pass(
       standardEnvelope.method === "STANDARD_ENVELOPE" &&
-        money(standardEnvelopeRate) === 1.32,
+        money(standardEnvelopeRate) === 1.36 &&
+        money(currentStandardEnvelopeRate) === 1.4,
     ),
     detail:
-      "A raw-card order at $19.99 and 3 estimated oz stays on Standard Envelope at the expected $1.32 pre-July-12 rate.",
+      "A raw-card order at $19.99 and 3 estimated oz uses the conservative USPS stamped-letter reserve: $1.36 before July 12 and $1.40 after the July 12, 2026 change.",
     assertions: {
       resolved_method: standardEnvelope.method,
       estimated_ounces: standardEnvelope.standardEnvelope.estimatedOunces,
