@@ -7,6 +7,10 @@ on:
       - "src/lib/card-identity.ts"
       - "scripts/backfill-card-sale-identities.mjs"
       - ".github/workflows/card-sale-identity-enrichment.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/card-sale-identity-enrichment.yml"
   schedule:
     - cron: "17 * * * *"
   workflow_dispatch:
@@ -64,5 +68,3 @@ jobs:
 
       - name: Backfill player and exact sale identities
         run: node --env-file=.env.production.local scripts/backfill-card-sale-identities.mjs
-
-# Forced rerun: 2026-07-31T15:34:00Z
