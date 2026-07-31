@@ -111,6 +111,31 @@ const cases = [
     currentPlayer: null,
     expected: "Booker T",
   },
+  {
+    title: "2019-20 Panini Noir #RN-NVE Nick Van Exel Reigning Nights Signatures /99",
+    currentPlayer: "Reigning Nights",
+    expected: "Nick Van Exel",
+  },
+  {
+    title: "2012 Onyx Platinum Prospects #PP50 Christian Yelich Limited Edition Silver #/100",
+    currentPlayer: "Christian Yelich Limited",
+    expected: "Christian Yelich",
+  },
+  {
+    title: "2024 POP CENTURY RETRO TV AUTO ED MARINARO 1/1 AUTOGRAPH \"HILL STREET BLUES\"",
+    currentPlayer: "Century Retro Tv",
+    expected: "Ed Marinaro",
+  },
+  {
+    title: "2020 Bowman Draft Chrome 1ST RC Max Meyer AUTO IMAGE VARIATION REFRACTOR /99 SP",
+    currentPlayer: "Image Variation",
+    expected: "Max Meyer",
+  },
+  {
+    title: "2017 Bowman Chrome Prospect Autographs Sandy Alcantara Blue Ref /150 SGC 8/10",
+    currentPlayer: "Blue Ref",
+    expected: "Sandy Alcantara",
+  },
 ] as const;
 
 for (const testCase of cases) {
@@ -135,15 +160,18 @@ assert.equal(isLikelyPlayerName("Artifacts Hockey"), false);
 assert.equal(isLikelyPlayerName("Upper Deck"), false);
 assert.equal(isLikelyPlayerName("Fleer Shaquille O'Neal"), false);
 assert.equal(isLikelyPlayerName("Caitlin Clark Fractal"), false);
+assert.equal(isLikelyPlayerName("Reigning Nights"), false);
+assert.equal(isLikelyPlayerName("Blue Ref"), false);
 assert.equal(isLikelyPlayerName("Caitlin Clark"), true);
 assert.equal(isLikelyPlayerName("Mark Stone"), true);
 assert.equal(isLikelyPlayerName("Trae Young"), true);
 assert.equal(isLikelyPlayerName("Elly De La Cruz"), true);
+assert.equal(isLikelyPlayerName("Ed Marinaro"), true);
 
 console.log(
   JSON.stringify({
     success: true,
     casesChecked: cases.length,
-    pollutedValuesRejected: 5,
+    pollutedValuesRejected: 7,
   }),
 );
