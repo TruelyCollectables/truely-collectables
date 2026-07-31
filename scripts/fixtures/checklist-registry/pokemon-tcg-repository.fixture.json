@@ -1,0 +1,71 @@
+{
+  "schema": "tcos.pokemonTcg.repositorySnapshot.v1",
+  "scope": "full_set",
+  "repository": {
+    "owner": "PokemonTCG",
+    "name": "pokemon-tcg-data",
+    "ref": "fixture",
+    "setFile": "sets/en.json",
+    "cardFile": "cards/en/fixture1.json"
+  },
+  "set": {
+    "id": "fixture1",
+    "name": "TCOS Fixture Set",
+    "series": "TCOS Test Series",
+    "printedTotal": 2,
+    "total": 2,
+    "releaseDate": "2026/07/31",
+    "updatedAt": "2026/07/31 12:00:00",
+    "ptcgoCode": "TCOS",
+    "legalities": {
+      "unlimited": "Legal"
+    },
+    "images": {
+      "symbol": "https://images.pokemontcg.io/fixture1/symbol.png",
+      "logo": "https://images.pokemontcg.io/fixture1/logo.png"
+    }
+  },
+  "cards": [
+    {
+      "id": "fixture1-1",
+      "name": "Pikachu",
+      "supertype": "Pokémon",
+      "subtypes": ["Basic"],
+      "hp": "60",
+      "types": ["Lightning"],
+      "number": "1",
+      "artist": "TCOS Fixture Artist",
+      "rarity": "Common",
+      "nationalPokedexNumbers": [25],
+      "regulationMark": "I",
+      "legalities": {
+        "unlimited": "Legal"
+      },
+      "images": {
+        "small": "https://images.pokemontcg.io/fixture1/1.png",
+        "large": "https://images.pokemontcg.io/fixture1/1_hires.png"
+      },
+      "tcgplayer": {
+        "url": "https://example.test/pikachu",
+        "updatedAt": "2026/07/31",
+        "prices": {
+          "normal": {},
+          "reverseHolofoil": {}
+        }
+      }
+    },
+    {
+      "id": "fixture1-2",
+      "name": "Professor's Research",
+      "supertype": "Trainer",
+      "subtypes": ["Supporter"],
+      "number": "2",
+      "artist": "TCOS Fixture Artist",
+      "rarity": "Uncommon",
+      "images": {
+        "small": "https://images.pokemontcg.io/fixture1/2.png",
+        "large": "https://images.pokemontcg.io/fixture1/2_hires.png"
+      }
+    }
+  ]
+}
