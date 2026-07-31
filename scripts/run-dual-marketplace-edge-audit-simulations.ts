@@ -77,10 +77,20 @@ assert.match(
   /externalPublished: true/,
   "Split-channel responses must expose external publication state.",
 );
-assert.match(
+assert.doesNotMatch(
   studio,
   /window\.confirm/,
-  "Real eBay publishing must require explicit operator confirmation.",
+  "Real eBay publishing must not rely on a browser confirm dialog.",
+);
+assert.match(
+  studio,
+  /pendingEbayConfirmation/,
+  "Real eBay publishing must require explicit inline operator confirmation.",
+);
+assert.match(
+  studio,
+  /Confirm REAL eBay publish/,
+  "The inline confirmation must clearly identify the real marketplace action.",
 );
 assert.match(
   studio,

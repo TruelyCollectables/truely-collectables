@@ -83,6 +83,13 @@ type ActionError = {
   ebayListingId?: string | null;
 };
 
+type PendingEbayConfirmation = {
+  action: "publish-ebay" | "publish-both";
+  inventoryItemIds: string[];
+  itemCount: number;
+  totalAskingPrice: number;
+};
+
 function money(value: number) {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -157,6 +164,8 @@ export default function AuditedDualMarketplaceListingStudio() {
   const workingActionRef = useRef<DualMarketplaceAction | null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [pendingEbayConfirmation, setPendingEbayConfirmation] =
+    useState<PendingEbayConfirmation | null>(null);
 
   const loadRows = useCallback(
     async (options: { includeReadiness?: boolean; preserveEdits?: boolean } = {}) => {
@@ -279,7 +288,7 @@ export default function AuditedDualMarketplaceListingStudio() {
     [filteredRows],
   );
   const visibleSelectedCount = visibleIds.filter((id) => selectedSet.has(id)).length;
-  const busy = Boolean(workingAction);
+  const busy = Boolean(workingAction || pendingEbayConfirmation);
 
   function applyRows(nextRows: ListingRow[]) {
     rowsRef.current = nextRows;
@@ -431,9 +440,16 @@ export default function AuditedDualMarketplaceListingStudio() {
     return problems;
   }
 
-  async function runAction(action: DualMarketplaceAction) {
-    if (busy) return;
-    const targetRows = selectedRows.slice();
+  async function runAction(
+    action: DualMarketplaceAction,
+    confirmedInventoryItemIds?: string[],
+  ) {
+    if (workingActionRef.current) return;
+    const requestedIds = confirmedInventoryItemIds || selectedIds;
+    const requestedIdSet = new Set(requestedIds);
+    const targetRows = rowsRef.current.filter((row) =>
+      requestedIdSet.has(row.inventoryItemId),
+    );
     if (!targetRows.length) {
       setError("Select at least one listing first.");
       return;
@@ -454,16 +470,22 @@ export default function AuditedDualMarketplaceListingStudio() {
       return;
     }
 
-    if (includesEbay) {
-      const total = targetRows.reduce((sum, row) => sum + row.ebayPrice, 0);
-      const confirmed = window.confirm(
-        `Create or update ${targetRows.length} REAL eBay listing${
-          targetRows.length === 1 ? "" : "s"
-        } with ${money(total)} in combined asking prices? TCOS will process them in safe five-card batches.`,
-      );
-      if (!confirmed) return;
+    if (includesEbay && !confirmedInventoryItemIds) {
+      setPendingEbayConfirmation({
+        action,
+        inventoryItemIds: targetRows.map((row) => row.inventoryItemId),
+        itemCount: targetRows.length,
+        totalAskingPrice: targetRows.reduce(
+          (sum, row) => sum + row.ebayPrice,
+          0,
+        ),
+      });
+      setNotice("");
+      setError("");
+      return;
     }
 
+    setPendingEbayConfirmation(null);
     workingActionRef.current = action;
     setWorkingAction(action);
     setNotice("");
@@ -714,6 +736,54 @@ export default function AuditedDualMarketplaceListingStudio() {
               : `Publish Selected to Website + eBay (${selectedRows.length})`}
           </button>
         </div>
+
+        {pendingEbayConfirmation ? (
+          <section
+            role="alertdialog"
+            aria-labelledby="ebay-publish-confirmation-title"
+            aria-describedby="ebay-publish-confirmation-detail"
+            className="mt-4 rounded-2xl border-2 border-amber-400 bg-amber-50 p-4 shadow-sm"
+          >
+            <h3
+              id="ebay-publish-confirmation-title"
+              className="text-lg font-black text-neutral-950"
+            >
+              Confirm REAL eBay publish
+            </h3>
+            <p
+              id="ebay-publish-confirmation-detail"
+              className="mt-2 text-sm font-bold leading-6 text-neutral-800"
+            >
+              This will create or update {pendingEbayConfirmation.itemCount} real eBay
+              listing{pendingEbayConfirmation.itemCount === 1 ? "" : "s"} with{" "}
+              {money(pendingEbayConfirmation.totalAskingPrice)} in combined asking
+              prices. TCOS will process the selection in safe five-card batches.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => setPendingEbayConfirmation(null)}
+                className="rounded-xl border border-neutral-400 bg-white px-4 py-2 text-sm font-black text-neutral-900 hover:bg-neutral-100"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const confirmation = pendingEbayConfirmation;
+                  setPendingEbayConfirmation(null);
+                  void runAction(
+                    confirmation.action,
+                    confirmation.inventoryItemIds,
+                  );
+                }}
+                className="rounded-xl bg-neutral-950 px-5 py-2 text-sm font-black text-white hover:bg-neutral-800"
+              >
+                Confirm and publish to eBay
+              </button>
+            </div>
+          </section>
+        ) : null}
 
         {notice ? (
           <p aria-live="polite" className="mt-4 rounded-2xl border border-emerald-300 bg-emerald-50 p-3 text-sm font-bold text-emerald-900">

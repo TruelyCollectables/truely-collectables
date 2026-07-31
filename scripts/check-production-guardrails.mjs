@@ -285,16 +285,16 @@ assertFileIncludes("command-pinned Vercel CLI handoff", "CHAT_HANDOFF.md", [
 ]);
 
 if (
-  packageJson.dependencies?.next !== "16.2.10" ||
-  packageJson.devDependencies?.["eslint-config-next"] !== "16.2.10"
+  packageJson.dependencies?.next !== "16.2.12" ||
+  packageJson.devDependencies?.["eslint-config-next"] !== "16.2.12"
 ) {
   throw new Error(
-    "Next.js and eslint-config-next must stay aligned on patched release 16.2.10.",
+    "Next.js and eslint-config-next must stay aligned on patched release 16.2.12.",
   );
 }
-if (packageJson.overrides?.postcss !== "8.5.15") {
+if (packageJson.overrides?.postcss !== "8.5.23") {
   throw new Error(
-    "package.json must keep PostCSS 8.5.15 overridden until Next.js stops pinning the vulnerable 8.4.31 release.",
+    "package.json must keep PostCSS 8.5.23 overridden until the framework dependency chain no longer requires an explicit patched override.",
   );
 }
 console.log("PASS patched Next.js and PostCSS dependency contract");

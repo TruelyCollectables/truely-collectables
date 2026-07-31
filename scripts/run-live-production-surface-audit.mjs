@@ -9,7 +9,6 @@ const ERROR_PATTERNS = [
   /permission denied/i,
   /internal server error/i,
   /application error/i,
-  /this page could not be found/i,
   /unhandled runtime error/i,
 ];
 
