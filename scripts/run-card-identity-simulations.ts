@@ -5,6 +5,7 @@ import {
   isLikelyPlayerName,
 } from "../src/lib/card-identity";
 
+// Final verification gate for player-name-v3 in Production.
 const cases = [
   {
     title: "2024 Panini Prizm WNBA #1 Caitlin Clark Fractal",
