@@ -20,6 +20,42 @@ const adminSubmitButtonSource = await readFile(
   new URL("../src/app/admin/AdminSubmitButton.tsx", import.meta.url),
   "utf8",
 );
+const dailyRefreshSource = await readFile(
+  new URL("../src/lib/market-intel-daily-refresh.ts", import.meta.url),
+  "utf8",
+);
+const dailyDeliverySource = await readFile(
+  new URL("../src/lib/market-intel-daily-delivery.ts", import.meta.url),
+  "utf8",
+);
+const dailyCronSource = await readFile(
+  new URL(
+    "../src/app/api/cron/market-intel/reports/daily/route.ts",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const ebayScanCronSource = await readFile(
+  new URL(
+    "../src/app/api/cron/market-intel/ebay/scan/route.ts",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const adminGenerateReportSource = await readFile(
+  new URL(
+    "../src/app/api/admin/market-intel/reports/generate/route.ts",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const adminDeliverReportSource = await readFile(
+  new URL(
+    "../src/app/api/admin/market-intel/reports/deliver/route.ts",
+    import.meta.url,
+  ),
+  "utf8",
+);
 
 const scenarios = [];
 
@@ -122,6 +158,91 @@ scenario("reports page labels long-running outbox and report actions", () => {
     assert(
       reportsPageSource.includes(label),
       `Expected reports pending label ${label} to be present.`,
+    );
+  }
+});
+
+scenario("daily reports refresh every active exact-card source before generation", () => {
+  for (const fragment of [
+    "getAllActiveMarketIntelIdentityIds",
+    'select("id,display_name,created_at")',
+    "cleanupStaleMarketIntelListings",
+    "for (const identityBatch of chunks(identityIds, batchSize))",
+    "await scanEbayForMarketIntel",
+    "successfulTargetCount === 0",
+    'status: "complete" | "partial"',
+    '"## Data Freshness"',
+    "sourceFreshness: refresh",
+  ]) {
+    assert(
+      dailyRefreshSource.includes(fragment),
+      `Expected daily refresh contract ${fragment}.`,
+    );
+  }
+
+  assert(
+    !dailyRefreshSource.includes('.limit(maxTargets)'),
+    "Daily source refresh must not stop at the same oldest identities on every run.",
+  );
+});
+
+scenario("scheduled and manual reports both use the live source refresh", () => {
+  for (const source of [dailyCronSource, adminGenerateReportSource]) {
+    assert(
+      source.includes("generateFreshDailyMarketIntelReport"),
+      "Expected both report entry points to use the fresh report generator.",
+    );
+  }
+  assert(
+    dailyCronSource.includes("export const maxDuration = 300"),
+    "Expected the full daily refresh route to have enough runtime for all exact identities.",
+  );
+  assert(
+    dailyCronSource.includes("refresh: result.refresh"),
+    "Expected the cron receipt to expose source freshness evidence.",
+  );
+});
+
+scenario("scheduled eBay scanning rotates instead of starving newer targets", () => {
+  for (const fragment of [
+    "getRotatingMarketIntelIdentityIds",
+    "rotationSlot",
+    "selectedIdentityIds",
+    "cadenceHours: 6",
+  ]) {
+    assert(
+      `${dailyRefreshSource}\n${ebayScanCronSource}`.includes(fragment),
+      `Expected rotating scan fragment ${fragment}.`,
+    );
+  }
+  assert(
+    ebayScanCronSource.includes("identityIds,"),
+    "Expected the scheduled scan to pass its rotating exact identity batch explicitly.",
+  );
+});
+
+scenario("daily report email renders structured HTML instead of raw markdown", () => {
+  for (const fragment of [
+    "renderMarkdownReport",
+    "freshnessBanner",
+    "CURRENT SOURCE REFRESH",
+    "PARTIAL SOURCE REFRESH",
+    "structured-market-intel-v2",
+    "sourceFreshness",
+  ]) {
+    assert(
+      dailyDeliverySource.includes(fragment),
+      `Expected structured report email fragment ${fragment}.`,
+    );
+  }
+  assert(
+    !dailyDeliverySource.includes('<pre style='),
+    "Daily intelligence email must not display the report as a raw Markdown preformatted block.",
+  );
+  for (const source of [dailyCronSource, adminDeliverReportSource]) {
+    assert(
+      source.includes("deliverFreshDailyMarketIntelReport"),
+      "Expected automatic and manual delivery to use the structured renderer.",
     );
   }
 });
