@@ -137,7 +137,7 @@ export default function OfferCheckoutClient(props: {
         throw new Error(payload.error || "Could not start payment");
       }
 
-      window.location.href = payload.url;
+      window.location.assign(payload.url);
     } catch (paymentError: any) {
       setError(paymentError.message || "Could not start payment");
       setLoading(false);
