@@ -8,11 +8,11 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: deploy-pr395-collector-intelligence-removal
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   deploy-and-verify:
@@ -57,6 +57,7 @@ jobs:
         run: npm run smoke:production
 
       - name: Verify TCOS Collector Intelligence is absent from live card pages
+        id: verify_live
         shell: bash
         run: |
           set -euo pipefail
@@ -100,4 +101,27 @@ jobs:
             fi
           done
 
+          echo "product_path=$product_path" >> "$GITHUB_OUTPUT"
           echo "Production verified: $product_path no longer contains TCOS Collector Intelligence."
+
+      - name: Record verified Production deployment
+        shell: bash
+        env:
+          PRODUCT_PATH: ${{ steps.verify_live.outputs.product_path }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          mkdir -p deployment-receipts
+          cat > deployment-receipts/pr395-collector-intelligence-removal.md <<EOF
+          # PR 395 Production Deployment
+
+          - Result: verified
+          - Source commit: ${GITHUB_SHA}
+          - Product checked: ${PRODUCT_PATH}
+          - Verification: the live product page contains Collector Snapshot and excludes all TCOS Collector Intelligence storefront text.
+          - Verified at: $(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          EOF
+          git add deployment-receipts/pr395-collector-intelligence-removal.md
+          git commit -m "Record PR 395 Production deployment [skip ci]"
+          git push origin HEAD:main
