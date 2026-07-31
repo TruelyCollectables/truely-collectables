@@ -1,0 +1,91 @@
+name: Secure Market Intel Live Catch-up
+
+on:
+  pull_request_target:
+    branches: [main]
+    paths:
+      - "market-intel-secure-catchup-trigger.txt"
+
+permissions:
+  contents: read
+
+jobs:
+  run-live-catchup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      TCOS_MARKET_INTEL_INGEST_SECRET: ${{ secrets.TCOS_MARKET_INTEL_INGEST_SECRET }}
+      PRODUCTION_ORIGIN: https://truelycollectables.com
+    steps:
+      - name: Verify live protected route
+        shell: bash
+        run: |
+          set -euo pipefail
+          body="$RUNNER_TEMP/market-intel-unauthorized.json"
+          status="$(curl --silent --show-error --location \
+            --retry 5 --retry-all-errors \
+            --max-time 60 \
+            --output "$body" \
+            --write-out '%{http_code}' \
+            -H 'Cache-Control: no-cache' \
+            -H 'Pragma: no-cache' \
+            -A 'TCOSMarketIntelSecureCatchup/1.0' \
+            "$PRODUCTION_ORIGIN/api/cron/market-intel/reports/daily-catchup?verify=$(date +%s)")"
+          test "$status" = "401"
+          echo "MARKET_INTEL_CATCHUP_ROUTE_PROTECTED=passed"
+
+      - name: Refresh sources, rebuild report, and deliver
+        shell: bash
+        run: |
+          set -euo pipefail
+          secret="${CRON_SECRET:-${TCOS_MARKET_INTEL_INGEST_SECRET:-}}"
+          test -n "$secret"
+          echo "::add-mask::$secret"
+          body="$RUNNER_TEMP/market-intel-catchup.json"
+          status="$(curl --silent --show-error --location \
+            --retry 2 --retry-all-errors \
+            --max-time 310 \
+            --output "$body" \
+            --write-out '%{http_code}' \
+            -H "Authorization: Bearer $secret" \
+            -H 'Cache-Control: no-cache' \
+            -H 'Pragma: no-cache' \
+            -A 'TCOSMarketIntelSecureCatchup/1.0' \
+            "$PRODUCTION_ORIGIN/api/cron/market-intel/reports/daily-catchup?run=$(date +%s)")"
+          cat "$body"
+          echo
+          test "$status" = "200"
+          node - "$body" <<'NODE'
+          const fs = require("node:fs");
+          const payload = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+          if (payload.error) throw new Error(payload.error);
+          const refresh = payload.refresh || payload.report?.report_json?.sourceFreshness || {};
+          const delivery = payload.delivery || {};
+          const rows = {
+            MARKET_INTEL_REPORT_ID: payload.report?.id || payload.reportId || "unknown",
+            MARKET_INTEL_REPORT_DATE: payload.report?.report_date || "unknown",
+            MARKET_INTEL_HEADLINE: payload.report?.headline || "unknown",
+            MARKET_INTEL_REFRESHED: payload.refreshed ?? false,
+            MARKET_INTEL_SKIPPED: payload.skipped ?? false,
+            MARKET_INTEL_REASON: payload.reason || delivery.reason || "none",
+            MARKET_INTEL_SOURCE_STATUS: refresh.status || "unknown",
+            MARKET_INTEL_REFRESHED_AT: refresh.refreshedAt || payload.refreshedAt || "unknown",
+            MARKET_INTEL_ACTIVE_IDENTITIES: refresh.activeIdentityCount ?? "unknown",
+            MARKET_INTEL_TARGETS: refresh.targetCount ?? "unknown",
+            MARKET_INTEL_SUCCESSFUL_TARGETS: refresh.successfulTargetCount ?? "unknown",
+            MARKET_INTEL_FAILED_TARGETS: refresh.failedTargetCount ?? "unknown",
+            MARKET_INTEL_SKIPPED_IDENTITIES: refresh.skippedIdentityCount ?? "unknown",
+            MARKET_INTEL_CANDIDATES_ACCEPTED: refresh.candidatesAccepted ?? "unknown",
+            MARKET_INTEL_LISTINGS_CREATED: refresh.listingsCreated ?? "unknown",
+            MARKET_INTEL_LISTINGS_UPDATED: refresh.listingsUpdated ?? "unknown",
+            MARKET_INTEL_PRICE_CHANGES: refresh.priceChanges ?? "unknown",
+            MARKET_INTEL_LISTINGS_SCORED: refresh.listingsScored ?? "unknown",
+            MARKET_INTEL_DELIVERED: delivery.delivered ?? false,
+            MARKET_INTEL_ALREADY_DELIVERED: delivery.alreadyDelivered ?? false,
+            MARKET_INTEL_DELIVERY_SKIPPED: delivery.skipped ?? false,
+            MARKET_INTEL_DELIVERY_FAILED: delivery.failed ?? false,
+            MARKET_INTEL_DELIVERY_ERROR: delivery.error || "none",
+          };
+          for (const [key, value] of Object.entries(rows)) console.log(`${key}=${value}`);
+          NODE
