@@ -17,10 +17,7 @@ import {
   TERMS_OF_SERVICE_VERSION,
   hasAcceptedTerms,
 } from "../../../lib/legal";
-import {
-  BUYER_PROTECTION_FEE,
-  BUYER_PROTECTION_POLICY_VERSION,
-} from "../../../lib/buyer-protection";
+import { BUYER_PROTECTION_POLICY_VERSION } from "../../../lib/buyer-protection";
 import { resolveBuyerProtectionSelection } from "../../../lib/buyer-protection-server";
 import { metadataSafeIdentity } from "../../../lib/client-identity";
 import { recordTermsAcceptance } from "../../../lib/tos-acceptance";
@@ -230,10 +227,13 @@ export async function POST(request: Request) {
       accountId: account?.id || null,
       shippingMethod,
       itemSubtotal: subtotal,
+      shippingAmount,
       itemCount,
       requestedSelected: body.buyerProtectionSelected === true,
       requestedPreferenceMode: body.buyerProtectionPreferenceMode,
       termsAccepted: body.buyerProtectionTermsAccepted === true,
+      declineAcknowledged:
+        body.buyerProtectionDeclineAcknowledged === true,
       policyVersion:
         body.buyerProtectionPolicyVersion || BUYER_PROTECTION_POLICY_VERSION,
       identity: clientIdentity,
@@ -259,15 +259,15 @@ export async function POST(request: Request) {
         price_data: {
           currency: "usd",
           product_data: {
-            name: "Truely Collectables Buyer Protection",
+            name: "Truely Collectables Shipment Protection",
             description:
-              "Optional reimbursement program for a qualifying Tracked Card Letter order; item subtotal only, up to $20.",
+              "Optional reimbursement program for a qualifying under-$20 Tracked Card Letter order. Approved carrier loss or damage reimbursement covers the protected item subtotal and shipping; the protection fee is excluded.",
             metadata: {
               tcos_line_type: "buyer_protection",
               policy_version: buyerProtection.policyVersion || "",
             },
           },
-          unit_amount: Math.round(BUYER_PROTECTION_FEE * 100),
+          unit_amount: Math.round(buyerProtection.feeAmount * 100),
         },
         quantity: 1,
       });
@@ -305,6 +305,7 @@ export async function POST(request: Request) {
         shippingCoverage.buyerCharge.toFixed(2),
       buyer_protection_selected: buyerProtection.selected ? "true" : "false",
       buyer_protection_fee: buyerProtection.feeAmount.toFixed(2),
+      buyer_protection_fee_base: buyerProtection.feeBase.toFixed(2),
       buyer_protection_covered_amount:
         buyerProtection.coveredAmount.toFixed(2),
       buyer_protection_policy_version: buyerProtection.policyVersion || "",
@@ -312,6 +313,10 @@ export async function POST(request: Request) {
         buyerProtection.termsAcceptedAt || "",
       buyer_protection_consent_source: buyerProtection.consentSource || "",
       buyer_protection_preference_mode: buyerProtection.preferenceMode,
+      buyer_protection_decline_acknowledged_at:
+        buyerProtection.declineAcknowledgedAt || "",
+      buyer_protection_decline_consent_source:
+        buyerProtection.declineConsentSource || "",
       subtotal: subtotal.toFixed(2),
       item_count: String(itemCount),
       tos_accepted: "true",
