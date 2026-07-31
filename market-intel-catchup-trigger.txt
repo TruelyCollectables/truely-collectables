@@ -3,3 +3,4 @@ Retry through Vercel Production authorization at 2026-07-31T15:34Z.
 Retry revision 3 with isolated CRON_SECRET parsing.
 Retry revision 4 through Vercel env run.
 Retry revision 5 with Market Intel ingest authorization.
+Retry revision 6 with selected Vercel Production authorization.
