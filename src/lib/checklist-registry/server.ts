@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { paniniStructuredChecklistAdapter } from "./panini-structured";
+import { pokemonTcgRepositorySnapshotAdapter } from "./pokemon-tcg-repository";
 import type {
   ChecklistImportPlan,
   ChecklistSourceAdapter,
@@ -8,6 +9,7 @@ import type {
 import { CHECKLIST_SOURCE_BUCKET } from "./storage";
 
 const CHECKLIST_ADAPTERS: ChecklistSourceAdapter[] = [
+  pokemonTcgRepositorySnapshotAdapter,
   paniniStructuredChecklistAdapter,
 ];
 
@@ -90,15 +92,18 @@ export async function importChecklistArtifact(params: {
     uploadedByThisRequest = true;
   }
 
-  const { data, error } = await supabase.rpc("tcos_apply_checklist_import_plan", {
-    p_plan: plan,
-    p_original_filename: storage.originalFilename,
-    p_mime_type: storage.mimeType,
-    p_size_bytes: storage.sizeBytes,
-    p_sha256: storage.sha256,
-    p_storage_bucket: storage.bucket,
-    p_storage_object_path: storage.objectPath,
-  });
+  const { data, error } = await supabase.rpc(
+    "tcos_apply_checklist_import_plan_v2",
+    {
+      p_plan: plan,
+      p_original_filename: storage.originalFilename,
+      p_mime_type: storage.mimeType,
+      p_size_bytes: storage.sizeBytes,
+      p_sha256: storage.sha256,
+      p_storage_bucket: storage.bucket,
+      p_storage_object_path: storage.objectPath,
+    },
+  );
 
   if (error) {
     if (uploadedByThisRequest) {
