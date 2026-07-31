@@ -46,19 +46,29 @@ jobs:
             --scope "$VERCEL_SCOPE" \
             --token "$VERCEL_TOKEN" >/dev/null
           env_file="$RUNNER_TEMP/market-intel-production.env"
+          secret_file="$RUNNER_TEMP/market-intel-cron-secret"
           npx vercel@56.2.0 env pull "$env_file" \
             --yes \
             --environment=production \
             --scope "$VERCEL_SCOPE" \
             --token "$VERCEL_TOKEN" >/dev/null
           chmod 600 "$env_file"
-          set -a
-          source "$env_file"
-          set +a
-          test -n "${CRON_SECRET:-}"
-          echo "::add-mask::$CRON_SECRET"
-          printf '%s' "$CRON_SECRET" > "$RUNNER_TEMP/market-intel-cron-secret"
-          chmod 600 "$RUNNER_TEMP/market-intel-cron-secret"
+          node - "$env_file" "$secret_file" <<'NODE'
+          const fs = require("node:fs");
+          const input = fs.readFileSync(process.argv[2], "utf8");
+          const match = input.match(/^CRON_SECRET=(.*)$/m);
+          if (!match) throw new Error("CRON_SECRET is not present in the Vercel Production environment.");
+          const encoded = match[1].trim();
+          let value;
+          if (encoded.startsWith('"')) value = JSON.parse(encoded);
+          else if (encoded.startsWith("'") && encoded.endsWith("'")) value = encoded.slice(1, -1);
+          else value = encoded;
+          if (!value || value.length < 16) throw new Error("CRON_SECRET is missing or invalid.");
+          fs.writeFileSync(process.argv[3], value, { mode: 0o600 });
+          NODE
+          cron_secret="$(cat "$secret_file")"
+          echo "::add-mask::$cron_secret"
+          echo "MARKET_INTEL_CRON_AUTHORIZATION=loaded"
 
       - name: Refresh sources, rebuild report, and deliver
         shell: bash
