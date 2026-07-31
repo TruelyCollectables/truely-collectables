@@ -116,8 +116,9 @@ export default function ChecklistRegistryImporter() {
         </p>
         <h2 className="mt-1 text-2xl font-black">Validate, then import</h2>
         <p className="mt-2 text-sm font-semibold leading-6 text-neutral-600">
-          The first adapter accepts the private Panini structured JSON format.
-          More manufacturer adapters can be added without changing the Registry.
+          The Registry accepts private Panini structured JSON and Pokémon TCG
+          Data set bundles. New source adapters plug into the same neutral
+          Registry without changing InstaComp.
         </p>
 
         <div className="mt-5 space-y-4">

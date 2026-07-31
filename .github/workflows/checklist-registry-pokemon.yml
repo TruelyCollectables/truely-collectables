@@ -1,0 +1,49 @@
+name: Checklist Registry Pokémon
+
+on:
+  pull_request:
+    paths:
+      - "src/lib/checklist-registry/pokemon-tcg-data.ts"
+      - "src/lib/checklist-registry/server.ts"
+      - "scripts/build-pokemon-tcg-registry-bundles.mjs"
+      - "scripts/run-checklist-registry-pokemon-simulations.ts"
+      - "scripts/fixtures/checklist-registry/pokemon-tcg-data-set-bundle.fixture.json"
+      - ".github/workflows/checklist-registry-pokemon.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "src/lib/checklist-registry/pokemon-tcg-data.ts"
+      - "src/lib/checklist-registry/server.ts"
+      - "scripts/build-pokemon-tcg-registry-bundles.mjs"
+      - "scripts/run-checklist-registry-pokemon-simulations.ts"
+      - "scripts/fixtures/checklist-registry/pokemon-tcg-data-set-bundle.fixture.json"
+      - ".github/workflows/checklist-registry-pokemon.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-pokemon-importer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate bundle-builder syntax
+        run: node --check scripts/build-pokemon-tcg-registry-bundles.mjs
+
+      - name: Run Pokémon Checklist Registry simulations
+        run: npx tsx scripts/run-checklist-registry-pokemon-simulations.ts
