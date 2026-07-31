@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
+// Manual Production deployment trigger: 2026-07-31 08:58 America/Denver.
 // This contract change intentionally triggers the Production workflow after the
-// independent workflow-result recorder is present on main.
+// Vercel project-link ordering fix and independent workflow-result recorder.
 const runner = readFileSync("src/lib/profit-hunter-server-run.js", "utf8");
 const route = readFileSync("src/app/api/cron/profit-hunter/route.js", "utf8");
 const vercel = JSON.parse(readFileSync("vercel.json", "utf8"));
