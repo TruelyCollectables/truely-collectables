@@ -124,7 +124,7 @@ function contextPhraseLengthEndingAt(tokens: string[], index: number) {
     const start = index - length + 1;
     if (start < 0) continue;
     const phrase = tokens
-      .slice(start, index + 1)
+      .slice(start, index + length)
       .map(normalizeToken)
       .join(" ");
     if (CONTEXT_PHRASES.has(phrase)) return length;
@@ -365,13 +365,13 @@ export function inferPlayerFromCardTitle(title: string): string | null {
   if (!cleaned) return null;
 
   const afterCardNumber = cleaned.match(
-    /(?:^|\s)(?:#|NO\.?)\s*[A-Z0-9.-]+\s+(.+)$/i,
+    /(?:^|\s)(?:#\s*|NO\.?\s+)[A-Z0-9.-]+\s+(.+)$/i,
   )?.[1];
   const afterNumberPlayer = afterCardNumber ? takeNameFromStart(afterCardNumber) : null;
   if (afterNumberPlayer) return afterNumberPlayer;
 
   const beforeTrailingNumber = cleaned.match(
-    /^(.+?)\s+(?:#|NO\.?)\s*[A-Z0-9.-]+\s*$/i,
+    /^(.+?)\s+(?:#\s*|NO\.?\s+)[A-Z0-9.-]+\s*$/i,
   )?.[1];
   const beforeNumberPlayer = beforeTrailingNumber
     ? takeNameFromEnd(beforeTrailingNumber)
@@ -450,7 +450,7 @@ export function deriveCardIdentity(params: {
   const aspectPlayer = clean(params.aspectPlayer);
   const validAspectPlayer = isLikelyPlayerName(aspectPlayer);
   const cardNumber = exactTitle.match(
-    /(?:^|\s)(?:#|NO\.?)\s*([A-Z0-9.-]+)/i,
+    /(?:^|\s)(?:#\s*|NO\.?\s+)([A-Z0-9.-]+)/i,
   )?.[1] ?? null;
   const year = exactTitle.match(
     /(?:^|\s)((?:19|20)\d{2}(?:-\d{2,4})?)(?:\s|$)/,
