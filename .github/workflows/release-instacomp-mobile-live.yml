@@ -84,8 +84,13 @@ jobs:
             if [ "$code" = "200" ]; then break; fi
             sleep 10
           done
+          echo "LIVE_VERIFY_HTTP_STATUS=$code"
+          if [ -f "$RUNNER_TEMP/live-verify.json" ]; then
+            cat "$RUNNER_TEMP/live-verify.json"
+          else
+            echo '{"ok":false,"error":"Verifier returned no response body."}'
+          fi
           test "$code" = "200"
-          cat "$RUNNER_TEMP/live-verify.json"
           node - "$RUNNER_TEMP/live-verify.json" <<'NODE'
           const fs = require('node:fs');
           const payload = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
@@ -102,9 +107,9 @@ jobs:
           set +e
           npx vercel@56.2.0 env rm INSTACOMP_LIVE_VERIFY_SECRET production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null 2>&1
 
-      - name: Redeploy verified revision without temporary secret
+      - name: Redeploy clean Production without temporary secret
         id: clean_deploy
-        if: success()
+        if: always()
         run: |
           set -euo pipefail
           output="$(npx vercel@56.2.0 deploy --prod --yes --no-color --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1)"
@@ -114,7 +119,7 @@ jobs:
           echo "url=$url" >> "$GITHUB_OUTPUT"
 
       - name: Commit live verification receipt
-        if: success()
+        if: steps.verify.outcome == 'success' && steps.clean_deploy.outcome == 'success'
         run: |
           set -euo pipefail
           mkdir -p deployment-receipts
