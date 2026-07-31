@@ -96,7 +96,7 @@ jobs:
             --scope "$VERCEL_SCOPE" \
             --token "$VERCEL_TOKEN"
 
-      - name: Invoke verified production backfill
+      - name: Verify Production revision and run full backfill
         shell: bash
         run: |
           set -euo pipefail
@@ -106,37 +106,50 @@ jobs:
           const token = process.env.VERCEL_TOKEN;
           const expectedRevision = 'player-name-v3';
           if (!token) throw new Error('VERCEL_TOKEN is required');
-          const endpoint = new URL('/api/internal/card-sale-identity-backfill', site).toString();
-          let lastError = 'endpoint unavailable';
-          for (let attempt = 1; attempt <= 30; attempt += 1) {
+
+          const endpoint = new URL('/api/internal/card-sale-identity-backfill', site);
+          const revisionEndpoint = new URL(endpoint);
+          revisionEndpoint.searchParams.set('revision', '1');
+          let lastError = 'revision endpoint unavailable';
+
+          for (let attempt = 1; attempt <= 40; attempt += 1) {
             try {
-              const response = await fetch(endpoint, {
-                method: 'POST',
+              const response = await fetch(revisionEndpoint, {
+                method: 'GET',
                 headers: { 'x-vercel-token': token },
               });
               const body = await response.text();
               if (response.ok) {
-                let result = null;
-                try {
-                  result = JSON.parse(body);
-                } catch {
-                  lastError = `Production endpoint returned invalid JSON: ${body}`;
-                }
+                const result = JSON.parse(body);
                 if (result?.revision === expectedRevision) {
-                  console.log(body);
-                  process.exit(0);
+                  lastError = '';
+                  break;
                 }
-                if (result) {
-                  lastError = `Production still has revision ${result.revision || 'missing'}; expected ${expectedRevision}`;
-                }
+                lastError = `Production still has revision ${result?.revision || 'missing'}; expected ${expectedRevision}`;
               } else {
-                lastError = `HTTP ${response.status}: ${body}`;
+                lastError = `Revision check HTTP ${response.status}: ${body}`;
               }
             } catch (error) {
               lastError = error instanceof Error ? error.message : String(error);
             }
+
             console.log(`Attempt ${attempt} waiting for verified production revision: ${lastError}`);
-            await new Promise((resolve) => setTimeout(resolve, 15000));
+            await new Promise((resolve) => setTimeout(resolve, 15_000));
           }
-          throw new Error(lastError);
+
+          if (lastError) throw new Error(lastError);
+
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'x-vercel-token': token },
+          });
+          const body = await response.text();
+          if (!response.ok) {
+            throw new Error(`Backfill HTTP ${response.status}: ${body}`);
+          }
+          const result = JSON.parse(body);
+          if (result?.revision !== expectedRevision) {
+            throw new Error(`Backfill returned revision ${result?.revision || 'missing'}; expected ${expectedRevision}`);
+          }
+          console.log(body);
           NODE
