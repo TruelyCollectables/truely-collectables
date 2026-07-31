@@ -1,0 +1,58 @@
+name: Record PR 393 Release Receipt
+
+on:
+  workflow_run:
+    workflows: ["Release PR 393 Production"]
+    types: [completed]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: record-pr393-release-receipt
+  cancel-in-progress: false
+
+jobs:
+  record:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out current main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Write release receipt
+        shell: bash
+        env:
+          RELEASE_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RELEASE_RUN_ID: ${{ github.event.workflow_run.id }}
+          RELEASE_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          RELEASE_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          set -euo pipefail
+          mkdir -p audit
+          cat > audit/pr393-production-release-receipt.md <<EOF
+          # PR #393 Production Release Receipt
+
+          - Conclusion: ${RELEASE_CONCLUSION}
+          - Workflow run ID: ${RELEASE_RUN_ID}
+          - Release source SHA: ${RELEASE_HEAD_SHA}
+          - Workflow URL: ${RELEASE_URL}
+          - Recorded at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+          EOF
+
+      - name: Commit receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add audit/pr393-production-release-receipt.md
+          if git diff --cached --quiet; then
+            echo "Release receipt already current."
+            exit 0
+          fi
+          git commit -m "Record PR 393 Production release ${{ github.event.workflow_run.conclusion }} [skip ci]"
+          git pull --rebase origin main
+          git push origin HEAD:main
