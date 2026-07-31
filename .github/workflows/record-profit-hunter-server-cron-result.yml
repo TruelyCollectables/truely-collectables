@@ -1,0 +1,52 @@
+name: Record Profit Hunter Server Cron Result
+
+on:
+  workflow_run:
+    workflows: ["Deploy Profit Hunter Server Cron"]
+    types: [completed]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: record-profit-hunter-server-cron-result
+  cancel-in-progress: false
+
+jobs:
+  record-result:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out current main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Record workflow conclusion
+        shell: bash
+        env:
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch --prune origin main
+          git reset --hard origin/main
+          mkdir -p audit
+          cat > audit/profit-hunter-server-cron-workflow.md <<EOF
+          # Profit Hunter Server Cron Workflow
+
+          - Workflow: Deploy Profit Hunter Server Cron
+          - Conclusion: ${CONCLUSION}
+          - Workflow run ID: ${RUN_ID}
+          - Workflow source SHA: ${HEAD_SHA}
+          - Workflow URL: ${RUN_URL}
+          - Recorded at: $(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          EOF
+          git add audit/profit-hunter-server-cron-workflow.md
+          git commit -m "Record Profit Hunter server cron ${CONCLUSION} [skip ci]"
+          git push origin HEAD:main
