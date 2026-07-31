@@ -124,7 +124,7 @@ function contextPhraseLengthEndingAt(tokens: string[], index: number) {
     const start = index - length + 1;
     if (start < 0) continue;
     const phrase = tokens
-      .slice(start, index + length)
+      .slice(start, index + 1)
       .map(normalizeToken)
       .join(" ");
     if (CONTEXT_PHRASES.has(phrase)) return length;
