@@ -7,11 +7,17 @@ on:
       - "src/app/cart/**"
       - "src/app/components/CheckoutButton.tsx"
       - "src/app/api/checkout/route.ts"
+      - "src/app/product/**/OfferForm.tsx"
+      - "src/app/offer-checkout/**"
+      - "src/app/api/offers/**"
       - "src/app/buyer-protection/**"
       - "src/app/account/buyer-protection/**"
       - "src/app/api/account/buyer-protection/**"
+      - "src/app/api/admin/buyer-protection/**"
       - "src/lib/buyer-protection*.ts"
       - "src/lib/homepage-featured-rotation.ts"
+      - "supabase/migrations/20260731040000_shipment_protection_v2.sql"
+      - "scripts/run-buyer-protection-simulations.ts"
       - "scripts/run-storefront-shipment-protection-simulations.ts"
       - ".github/workflows/storefront-shipment-protection-audit.yml"
   push:
@@ -22,11 +28,17 @@ on:
       - "src/app/cart/**"
       - "src/app/components/CheckoutButton.tsx"
       - "src/app/api/checkout/route.ts"
+      - "src/app/product/**/OfferForm.tsx"
+      - "src/app/offer-checkout/**"
+      - "src/app/api/offers/**"
       - "src/app/buyer-protection/**"
       - "src/app/account/buyer-protection/**"
       - "src/app/api/account/buyer-protection/**"
+      - "src/app/api/admin/buyer-protection/**"
       - "src/lib/buyer-protection*.ts"
       - "src/lib/homepage-featured-rotation.ts"
+      - "supabase/migrations/20260731040000_shipment_protection_v2.sql"
+      - "scripts/run-buyer-protection-simulations.ts"
       - "scripts/run-storefront-shipment-protection-simulations.ts"
       - ".github/workflows/storefront-shipment-protection-audit.yml"
 
@@ -53,8 +65,10 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
-      - name: Run storefront and Shipment Protection simulations
+      - name: Run storefront rotation simulations
         run: node --import tsx scripts/run-storefront-shipment-protection-simulations.ts
+      - name: Run complete Shipment Protection simulations
+        run: node --import tsx scripts/run-buyer-protection-simulations.ts
       - name: Lint changed storefront and protection files
         run: >-
           npx eslint
@@ -63,11 +77,17 @@ jobs:
           src/app/cart/BuyerProtectionOption.tsx
           src/app/components/CheckoutButton.tsx
           src/app/api/checkout/route.ts
+          src/app/product/[id]/OfferForm.tsx
+          src/app/offer-checkout/[id]/OfferCheckoutClient.tsx
+          src/app/api/offers/create/route.ts
+          src/app/api/offers/buyer-checkout/route.ts
           src/app/buyer-protection/page.tsx
           src/app/account/buyer-protection/page.tsx
           src/app/api/account/buyer-protection/claims/route.ts
+          src/app/api/admin/buyer-protection/claims/update/route.ts
           src/lib/buyer-protection.ts
           src/lib/buyer-protection-server.ts
           src/lib/buyer-protection-order.ts
           src/lib/homepage-featured-rotation.ts
+          scripts/run-buyer-protection-simulations.ts
           scripts/run-storefront-shipment-protection-simulations.ts
