@@ -46,6 +46,22 @@ async function run(request: Request) {
     });
   }
 
+  const expectedRevision = url.searchParams.get("expectedRevision");
+  if (
+    expectedRevision &&
+    expectedRevision !== CARD_IDENTITY_BACKFILL_REVISION
+  ) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Production revision does not match the requested backfill revision.",
+        revision: CARD_IDENTITY_BACKFILL_REVISION,
+        expectedRevision,
+      },
+      { status: 409 },
+    );
+  }
+
   try {
     const result = await backfillCardSaleIdentities({
       supabase: createSupabaseServerClient({ admin: true }),
