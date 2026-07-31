@@ -70,9 +70,8 @@ replaceExact(
 );
 replaceExact(
   labelActionsFile,
-  `          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">`,
-  `          {standardEnvelopeSelected ? (\n            <label className="mb-4 flex items-start gap-3 rounded-2xl border-2 border-amber-300 bg-amber-50 p-4 text-sm font-bold text-amber-950">\n              <input\n                type="checkbox"\n                checked={standardEnvelopeMachinableAttested}\n                onChange={(event) =>\n                  setStandardEnvelopeMachinableAttested(event.target.checked)\n                }\n                className="mt-1 h-5 w-5 shrink-0"\n              />\n              <span>\n                I verified this card letter uses approved flexible, uniformly thick,\n                machinable packaging. It is not in a rigid mailer or top loader that\n                requires a nonmachinable surcharge or parcel service.\n              </span>\n            </label>\n          ) : null}\n\n          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">`,
-  1,
+  `          </div>\n\n          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">\n            <TextField\n              label="Label Provider"`,
+  `          </div>\n\n          {standardEnvelopeSelected ? (\n            <label className="mb-4 flex items-start gap-3 rounded-2xl border-2 border-amber-300 bg-amber-50 p-4 text-sm font-bold text-amber-950">\n              <input\n                type="checkbox"\n                checked={standardEnvelopeMachinableAttested}\n                onChange={(event) =>\n                  setStandardEnvelopeMachinableAttested(event.target.checked)\n                }\n                className="mt-1 h-5 w-5 shrink-0"\n              />\n              <span>\n                I verified this card letter uses approved flexible, uniformly thick,\n                machinable packaging. It is not in a rigid mailer or top loader that\n                requires a nonmachinable surcharge or parcel service.\n              </span>\n            </label>\n          ) : null}\n\n          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">\n            <TextField\n              label="Label Provider"`,
 );
 replaceExact(
   labelActionsFile,
