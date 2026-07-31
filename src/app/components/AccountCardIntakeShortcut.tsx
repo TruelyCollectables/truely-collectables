@@ -2,16 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { getAccountSession } from "../account/account-session";
 
 export default function AccountCardIntakeShortcut() {
   const pathname = usePathname();
-  const [signedIn, setSignedIn] = useState(false);
-
-  useEffect(() => {
-    setSignedIn(Boolean(getAccountSession()));
-  }, []);
+  const [signedIn] = useState(() =>
+    typeof window === "undefined" ? false : Boolean(getAccountSession()),
+  );
 
   if (pathname !== "/account" || !signedIn) return null;
 
