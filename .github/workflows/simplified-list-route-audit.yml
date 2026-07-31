@@ -11,7 +11,6 @@ on:
       - "scripts/run-simplified-list-route-audit.mjs"
       - "scripts/run-admin-dashboard-actions-simulations.mjs"
       - "scripts/smoke-admin-runtime.mjs"
-      - "scripts/patch-list-admin-navigation.py"
       - ".github/workflows/simplified-list-route-audit.yml"
   push:
     branches:
@@ -25,11 +24,10 @@ on:
       - "scripts/run-simplified-list-route-audit.mjs"
       - "scripts/run-admin-dashboard-actions-simulations.mjs"
       - "scripts/smoke-admin-runtime.mjs"
-      - "scripts/patch-list-admin-navigation.py"
       - ".github/workflows/simplified-list-route-audit.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   focused-audit:
@@ -56,6 +54,8 @@ jobs:
         run: npm ci
       - name: Run simplified route contract audit
         run: node scripts/run-simplified-list-route-audit.mjs
+      - name: Verify admin dashboard integration
+        run: npm run verify:admin-dashboard
       - name: Lint simplified listing files
         run: >-
           npx eslint
@@ -65,39 +65,10 @@ jobs:
           src/app/list/SimpleListingQueue.tsx
           src/app/api/admin/simple-list-drafts/route.ts
           src/app/admin/products/new/page.tsx
+          src/app/admin/page.tsx
           src/app/components/AdminInstaCompMobileShortcut.tsx
           scripts/run-simplified-list-route-audit.mjs
+          scripts/run-admin-dashboard-actions-simulations.mjs
+          scripts/smoke-admin-runtime.mjs
       - name: Build production application
         run: npm run build
-
-  apply-admin-list-integration:
-    if: github.event_name == 'pull_request' && github.head_ref == 'agent/simplified-list-route'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 25
-    steps:
-      - name: Check out branch
-        uses: actions/checkout@v4
-        with:
-          ref: agent/simplified-list-route
-          fetch-depth: 0
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - name: Install dependencies
-        run: npm ci
-      - name: Apply exact patch
-        run: python scripts/patch-list-admin-navigation.py
-      - name: Validate patched admin and listing contracts
-        run: |
-          npm run verify:admin-dashboard
-          node scripts/run-simplified-list-route-audit.mjs
-          npx eslint src/app/admin/page.tsx scripts/smoke-admin-runtime.mjs scripts/run-admin-dashboard-actions-simulations.mjs
-      - name: Commit validated patch
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/app/admin/page.tsx scripts/smoke-admin-runtime.mjs scripts/run-admin-dashboard-actions-simulations.mjs
-          git commit -m "Link admin directly to simplified list workspace"
-          git push origin HEAD:agent/simplified-list-route
