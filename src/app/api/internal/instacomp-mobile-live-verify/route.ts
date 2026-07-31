@@ -24,7 +24,7 @@ async function fetchPage(
   const headers: Record<string, string> = {
     "Cache-Control": "no-cache",
     Pragma: "no-cache",
-    "User-Agent": "TCOSInstaCompRuntimeVerifier/1.0",
+    "User-Agent": "InstaCompRuntimeVerifier/2.0",
   };
 
   if (sessionValue) {
@@ -39,7 +39,6 @@ async function fetchPage(
       headers,
     },
   );
-
   const body = await response.text();
 
   return {
@@ -52,7 +51,10 @@ async function fetchPage(
 function redirectsToList(status: number, location: string | null) {
   return (
     [302, 303, 307, 308].includes(status) &&
-    Boolean(location && new URL(location, "https://runtime.invalid").pathname === "/list")
+    Boolean(
+      location &&
+        new URL(location, "https://runtime.invalid").pathname === "/list",
+    )
   );
 }
 
@@ -74,6 +76,17 @@ function redirectsToListLogin(status: number, location: string | null) {
   return (
     redirect.pathname === "/admin/login" &&
     redirect.searchParams.get("next") === "/list"
+  );
+}
+
+function rendersProtectedWorkspace(
+  page: Awaited<ReturnType<typeof fetchPage>>,
+  requiredText: string[],
+) {
+  return (
+    page.status === 200 &&
+    requiredText.every((text) => page.body.includes(text)) &&
+    !page.body.includes("/admin/login")
   );
 }
 
@@ -99,29 +112,56 @@ export async function GET(request: Request) {
   try {
     const origin = new URL(request.url).origin;
     const sessionValue = await createAdminSessionValue();
-    const [admin, mobile, legacyCardStudio, listWorkspace, listBoundary] =
-      await Promise.all([
-        fetchPage(origin, "/admin", sessionValue),
-        fetchPage(origin, "/admin/instacomp/mobile", sessionValue),
-        fetchPage(origin, "/admin/products/new", sessionValue),
-        fetchPage(origin, "/list", sessionValue),
-        fetchPage(origin, "/list"),
-      ]);
+    const [
+      admin,
+      mobile,
+      decisionWorkbench,
+      checklistRegistry,
+      legacyCardStudio,
+      listWorkspace,
+      listBoundary,
+    ] = await Promise.all([
+      fetchPage(origin, "/admin", sessionValue),
+      fetchPage(origin, "/admin/instacomp/mobile", sessionValue),
+      fetchPage(origin, "/admin/instacomp/v2", sessionValue),
+      fetchPage(origin, "/admin/instacomp/checklists", sessionValue),
+      fetchPage(origin, "/admin/products/new", sessionValue),
+      fetchPage(origin, "/list", sessionValue),
+      fetchPage(origin, "/list"),
+    ]);
 
     const checks = {
       adminDashboard:
-        admin.status === 200 &&
-        admin.body.includes("InstaComp Mobile") &&
-        admin.body.includes("List Cards") &&
-        !admin.body.includes("/admin/login"),
+        rendersProtectedWorkspace(admin, [
+          "InstaComp Mobile",
+          "InstaComp 2.0",
+          "Checklist Registry",
+          "List Cards",
+        ]),
       instacompMobile:
-        mobile.status === 200 &&
-        mobile.body.includes("Built for portrait mode") &&
-        mobile.body.includes("Scan one card") &&
-        mobile.body.includes("Run InstaComp") &&
-        mobile.body.includes('href="/list"') &&
-        mobile.body.includes("List Cards") &&
-        !mobile.body.includes("/admin/login"),
+        rendersProtectedWorkspace(mobile, [
+          "InstaComp™ 2.0",
+          "Built for portrait mode",
+          "Scan one card",
+          "Run InstaComp 2.0",
+          "Confirm &amp; Teach InstaComp",
+          "List Cards",
+        ]) && mobile.body.includes('href="/list"'),
+      decisionWorkbench: rendersProtectedWorkspace(decisionWorkbench, [
+        "InstaComp™ 2.0",
+        "Checklist Registry",
+        "Scan one card",
+      ]),
+      checklistRegistry: rendersProtectedWorkspace(checklistRegistry, [
+        "Checklist Registry",
+        "Validate, then import",
+        "Originals stay private",
+        "Exact identities",
+      ]),
+      learningControls:
+        mobile.body.includes("Every successful scan is saved as an observation") &&
+        mobile.body.includes("Needs More Info") &&
+        mobile.body.includes("Mark Scan Wrong"),
       cardStudio:
         redirectsToList(legacyCardStudio.status, legacyCardStudio.location) ||
         rendersListWorkspace(legacyCardStudio.status, legacyCardStudio.body),
@@ -139,7 +179,8 @@ export async function GET(request: Request) {
         !mobile.body.includes("Parallel Scans"),
       portraitRevision:
         mobile.body.includes("portrait-v2") &&
-        mobile.body.includes('data-live-verification="final-pass"'),
+        mobile.body.includes('data-live-verification="final-pass"') &&
+        mobile.body.includes('data-instacomp-version="2.0"'),
       compSource:
         mobile.body.includes("sold comps") &&
         mobile.body.includes("current listings") &&
@@ -157,6 +198,14 @@ export async function GET(request: Request) {
           instacompMobile: {
             status: mobile.status,
             location: mobile.location,
+          },
+          decisionWorkbench: {
+            status: decisionWorkbench.status,
+            location: decisionWorkbench.location,
+          },
+          checklistRegistry: {
+            status: checklistRegistry.status,
+            location: checklistRegistry.location,
           },
           cardStudio: {
             status: legacyCardStudio.status,
@@ -183,7 +232,8 @@ export async function GET(request: Request) {
     return NextResponse.json(
       {
         ok: false,
-        error: error instanceof Error ? error.message : "Unknown verification error.",
+        error:
+          error instanceof Error ? error.message : "Unknown verification error.",
       },
       { status: 500 },
     );
