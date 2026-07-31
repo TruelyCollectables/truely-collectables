@@ -96,7 +96,7 @@ jobs:
             --scope "$VERCEL_SCOPE" \
             --token "$VERCEL_TOKEN"
 
-      - name: Verify Production revision and run full backfill
+      - name: Verify Production revision and full-catalog steady state
         shell: bash
         run: |
           set -euo pipefail
@@ -104,7 +104,7 @@ jobs:
           process.loadEnvFile('.env.production.local');
           const site = process.env.NEXT_PUBLIC_SITE_URL || 'https://truelycollectables.com';
           const token = process.env.VERCEL_TOKEN;
-          const expectedRevision = 'player-name-v4';
+          const expectedRevision = 'player-name-v5';
           if (!token) throw new Error('VERCEL_TOKEN is required');
 
           const endpoint = new URL('/api/internal/card-sale-identity-backfill', site);
@@ -139,17 +139,50 @@ jobs:
 
           if (lastError) throw new Error(lastError);
 
-          const response = await fetch(endpoint, {
-            method: 'POST',
-            headers: { 'x-vercel-token': token },
-          });
-          const body = await response.text();
-          if (!response.ok) {
-            throw new Error(`Backfill HTTP ${response.status}: ${body}`);
+          async function runBackfill(label) {
+            const response = await fetch(endpoint, {
+              method: 'POST',
+              headers: { 'x-vercel-token': token },
+            });
+            const body = await response.text();
+            if (!response.ok) {
+              throw new Error(`${label} HTTP ${response.status}: ${body}`);
+            }
+            const result = JSON.parse(body);
+            if (result?.revision !== expectedRevision) {
+              throw new Error(`${label} returned revision ${result?.revision || 'missing'}; expected ${expectedRevision}`);
+            }
+            console.log(`${label}: ${body}`);
+            return result;
           }
-          const result = JSON.parse(body);
-          if (result?.revision !== expectedRevision) {
-            throw new Error(`Backfill returned revision ${result?.revision || 'missing'}; expected ${expectedRevision}`);
+
+          const firstPass = await runBackfill('First full-catalog pass');
+          const secondPass = await runBackfill('Steady-state verification pass');
+
+          const namedUnresolved = (secondPass.unresolvedSamples || []).filter(
+            (sample) => String(sample?.title || '').trim().toLowerCase() !== 'untitled',
+          );
+
+          if (Number(secondPass.playersUpdated || 0) !== 0) {
+            throw new Error(`Steady-state pass still updated ${secondPass.playersUpdated} player rows.`);
           }
-          console.log(body);
+          if (Number(secondPass.playersCleared || 0) !== 0) {
+            throw new Error(`Steady-state pass still cleared ${secondPass.playersCleared} player rows.`);
+          }
+          if (Number(secondPass.invalidExistingPlayers || 0) !== 0) {
+            throw new Error(`Steady-state pass still found ${secondPass.invalidExistingPlayers} invalid player values.`);
+          }
+          if (namedUnresolved.length > 0) {
+            throw new Error(`Named products remain unresolved: ${JSON.stringify(namedUnresolved)}`);
+          }
+          if (Number(secondPass.productsScanned || 0) < 1) {
+            throw new Error('Steady-state pass scanned no products.');
+          }
+
+          console.log(JSON.stringify({
+            success: true,
+            revision: expectedRevision,
+            firstPass,
+            steadyState: secondPass,
+          }));
           NODE
