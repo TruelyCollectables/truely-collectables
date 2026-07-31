@@ -56,6 +56,17 @@ function redirectsToList(status: number, location: string | null) {
   );
 }
 
+function rendersListWorkspace(status: number, body: string) {
+  return (
+    status === 200 &&
+    body.includes("List Cards") &&
+    body.includes("Upload photos") &&
+    body.includes("Select and InstaComp") &&
+    body.includes("Review and list selected") &&
+    !body.includes("/admin/login")
+  );
+}
+
 function redirectsToListLogin(status: number, location: string | null) {
   if (![302, 303, 307, 308].includes(status) || !location) return false;
 
@@ -111,17 +122,13 @@ export async function GET(request: Request) {
         mobile.body.includes('href="/list"') &&
         mobile.body.includes("List Cards") &&
         !mobile.body.includes("/admin/login"),
-      cardStudio: redirectsToList(
-        legacyCardStudio.status,
-        legacyCardStudio.location,
+      cardStudio:
+        redirectsToList(legacyCardStudio.status, legacyCardStudio.location) ||
+        rendersListWorkspace(legacyCardStudio.status, legacyCardStudio.body),
+      listWorkspace: rendersListWorkspace(
+        listWorkspace.status,
+        listWorkspace.body,
       ),
-      listWorkspace:
-        listWorkspace.status === 200 &&
-        listWorkspace.body.includes("List Cards") &&
-        listWorkspace.body.includes("Upload photos") &&
-        listWorkspace.body.includes("Select and InstaComp") &&
-        listWorkspace.body.includes("Review and list selected") &&
-        !listWorkspace.body.includes("/admin/login"),
       listPasswordBoundary: redirectsToListLogin(
         listBoundary.status,
         listBoundary.location,
@@ -166,10 +173,9 @@ export async function GET(request: Request) {
         },
       },
       {
-        status: 200,
+        status: ok ? 200 : 500,
         headers: {
           "Cache-Control": "no-store, max-age=0",
-          "X-TCOS-Diagnostic-Only": ok ? "false" : "true",
         },
       },
     );
