@@ -21,7 +21,11 @@ export const viewport: Viewport = {
 
 export default function MobileInstaCompPage() {
   return (
-    <main className="min-h-dvh w-full max-w-full overflow-x-hidden bg-neutral-100 pb-[max(1rem,env(safe-area-inset-bottom))] text-neutral-950">
+    <main
+      data-instacomp-mobile-revision="portrait-v2"
+      data-live-verification="final"
+      className="min-h-dvh w-full max-w-full overflow-x-hidden bg-neutral-100 pb-[max(1rem,env(safe-area-inset-bottom))] text-neutral-950"
+    >
       <header className="sticky top-0 z-50 border-b border-white/10 bg-neutral-950/95 px-3 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] text-white shadow-lg backdrop-blur">
         <div className="mx-auto flex w-full max-w-xl items-center justify-between gap-3">
           <div className="min-w-0">
