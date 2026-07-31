@@ -1,0 +1,102 @@
+name: Finalize FBI Hardening
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: finalize-fbi-hardening
+  cancel-in-progress: true
+
+jobs:
+  finalize:
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'agent/dual-marketplace-card-intake'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Detect reviewed patch state
+        id: patch-state
+        run: |
+          if grep -q 'STANDARD_ENVELOPE_POSTAGE_BASIS' src/lib/shipping.ts; then
+            echo 'needed=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'needed=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Apply exact reviewed source patches
+        if: steps.patch-state.outputs.needed == 'true'
+        run: node scripts/apply-fbi-audit-fixes.mjs
+      - name: Regenerate dependency lockfile
+        if: steps.patch-state.outputs.needed == 'true'
+        run: npm install --package-lock-only --ignore-scripts
+      - name: Install exact locked dependencies
+        if: steps.patch-state.outputs.needed == 'true'
+        run: npm ci
+      - name: Audit production dependencies
+        if: steps.patch-state.outputs.needed == 'true'
+        run: npm audit --omit=dev --audit-level=moderate
+      - name: Audit complete dependency tree
+        if: steps.patch-state.outputs.needed == 'true'
+        run: npm audit --audit-level=high
+      - name: Verify USPS shipping calculations
+        if: steps.patch-state.outputs.needed == 'true'
+        run: node --import tsx scripts/run-shipping-simulations.ts
+      - name: Verify shipping purchase and claim workflows
+        if: steps.patch-state.outputs.needed == 'true'
+        run: npm run verify:shipping
+      - name: Verify admin dashboard actions
+        if: steps.patch-state.outputs.needed == 'true'
+        run: npm run verify:admin-dashboard
+      - name: Verify production guardrails
+        if: steps.patch-state.outputs.needed == 'true'
+        run: npm run check:production-guardrails
+      - name: Targeted lint
+        if: steps.patch-state.outputs.needed == 'true'
+        run: >-
+          npx eslint
+          src/lib/shipping.ts
+          src/lib/shipping-simulations.ts
+          'src/app/admin/orders/[id]/ShippingLabelActions.tsx'
+          'src/app/admin/orders/[id]/page.tsx'
+          'src/app/api/admin/orders/[id]/shipping-labels/route.ts'
+          src/app/admin/products/new/AuditedDualMarketplaceListingStudio.tsx
+          src/app/admin/page.tsx
+          src/app/admin/products/new/page.tsx
+          src/app/api/admin/shipping/lettertrack-export/route.ts
+      - name: Production build and TypeScript check
+        if: steps.patch-state.outputs.needed == 'true'
+        run: npm run build:isolated
+      - name: Commit validated hardening patch
+        if: steps.patch-state.outputs.needed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            package.json \
+            package-lock.json \
+            src/lib/shipping.ts \
+            src/lib/shipping-simulations.ts \
+            'src/app/admin/orders/[id]/ShippingLabelActions.tsx' \
+            'src/app/admin/orders/[id]/page.tsx' \
+            'src/app/api/admin/orders/[id]/shipping-labels/route.ts' \
+            src/app/admin/products/new/AuditedDualMarketplaceListingStudio.tsx \
+            src/app/admin/page.tsx
+          git diff --cached --check
+          git commit -m "Harden postage, packaging and production dependencies"
+          git push origin HEAD:${{ github.head_ref }}
+      - name: Already finalized
+        if: steps.patch-state.outputs.needed == 'false'
+        run: echo 'Reviewed hardening patch is already present on the branch.'
