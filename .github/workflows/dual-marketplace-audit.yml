@@ -8,7 +8,7 @@ on:
       - "src/lib/dual-marketplace-*.ts"
       - "src/lib/ebay-inventory-publisher*.ts"
       - "src/lib/ebay-listing-content.ts"
-      - "scripts/run-dual-marketplace-audit-simulations.ts"
+      - "scripts/run-dual-marketplace-*-simulations.ts"
       - ".github/workflows/dual-marketplace-audit.yml"
   push:
     branches:
@@ -19,7 +19,7 @@ on:
       - "src/lib/dual-marketplace-*.ts"
       - "src/lib/ebay-inventory-publisher*.ts"
       - "src/lib/ebay-listing-content.ts"
-      - "scripts/run-dual-marketplace-audit-simulations.ts"
+      - "scripts/run-dual-marketplace-*-simulations.ts"
       - ".github/workflows/dual-marketplace-audit.yml"
 
 permissions:
@@ -49,6 +49,8 @@ jobs:
         run: npm ci
       - name: Run adversarial listing simulations
         run: node --import tsx scripts/run-dual-marketplace-audit-simulations.ts
+      - name: Run edge and reconciliation simulations
+        run: node --import tsx scripts/run-dual-marketplace-edge-audit-simulations.ts
       - name: Lint audited listing files
         run: >-
           npx eslint
@@ -64,3 +66,4 @@ jobs:
           src/lib/ebay-inventory-publisher-audited.ts
           src/lib/ebay-listing-content.ts
           scripts/run-dual-marketplace-audit-simulations.ts
+          scripts/run-dual-marketplace-edge-audit-simulations.ts
