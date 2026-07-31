@@ -1,0 +1,113 @@
+name: Verify InstaComp Mobile Production v3
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/app/admin/instacomp/mobile/**"
+      - "src/app/api/internal/instacomp-mobile-live-verify/**"
+      - ".github/workflows/verify-instacomp-mobile-pr-v3.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-instacomp-mobile-production-v3
+  cancel-in-progress: false
+
+jobs:
+  verify-live:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+      PRODUCTION_ORIGIN: https://truelycollectables.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Verify portrait source and comp sections
+        run: |
+          set -euo pipefail
+          grep -F 'MobileInstaCompScanner' src/app/admin/instacomp/mobile/page.tsx
+          grep -F 'Built for portrait mode' src/app/admin/instacomp/mobile/page.tsx
+          grep -F 'Run InstaComp' src/app/admin/instacomp/mobile/MobileInstaCompScanner.tsx
+          grep -F 'Sold comps (' src/app/admin/instacomp/mobile/MobileInstaCompScanner.tsx
+          grep -F 'Current listings (' src/app/admin/instacomp/mobile/MobileInstaCompScanner.tsx
+          grep -F 'Approx total' src/app/admin/instacomp/mobile/MobileInstaCompScanner.tsx
+          ! grep -Fq 'InstaComp™ Auto-Pilot' src/app/admin/instacomp/mobile/page.tsx
+
+      - name: Link Vercel project
+        run: |
+          set -euo pipefail
+          test -n "$VERCEL_TOKEN"
+          npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Provision temporary runtime verification secret
+        id: secret
+        run: |
+          set -euo pipefail
+          secret_file="$RUNNER_TEMP/instacomp-live-verify-secret"
+          openssl rand -hex 32 > "$secret_file"
+          chmod 600 "$secret_file"
+          secret="$(cat "$secret_file")"
+          echo "::add-mask::$secret"
+          npx vercel@56.2.0 env add INSTACOMP_LIVE_VERIFY_SECRET production --force --sensitive --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" < "$secret_file" >/dev/null
+
+      - name: Deploy exact tested revision to Production
+        id: deploy
+        run: |
+          set -euo pipefail
+          output="$(npx vercel@56.2.0 deploy --prod --yes --no-color --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1)"
+          printf '%s\n' "$output"
+          url="$(printf '%s\n' "$output" | grep -Eo 'https://[A-Za-z0-9.-]+\.vercel\.app' | tail -n 1)"
+          test -n "$url"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Run protected in-runtime live page verification
+        run: |
+          set -euo pipefail
+          secret="$(cat "$RUNNER_TEMP/instacomp-live-verify-secret")"
+          for attempt in $(seq 1 24); do
+            code="$(curl -sS -L --max-time 120 -o "$RUNNER_TEMP/live-verify.json" -w '%{http_code}' -H "x-instacomp-live-verify: $secret" -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' -A 'TCOSMobileRuntimeVerifier/1.0' "$PRODUCTION_ORIGIN/api/internal/instacomp-mobile-live-verify?attempt=$attempt&sha=$GITHUB_SHA")"
+            if [ "$code" = "200" ]; then break; fi
+            sleep 10
+          done
+          test "$code" = "200"
+          cat "$RUNNER_TEMP/live-verify.json"
+          node - "$RUNNER_TEMP/live-verify.json" <<'NODE'
+          const fs = require('node:fs');
+          const payload = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          if (!payload.ok) throw new Error(payload.error || 'Runtime verification failed');
+          const required = ['adminDashboard','instacompMobile','cardStudio','noAutoPilot','noBatchControls','portraitRevision','compSource'];
+          for (const key of required) {
+            if (payload.checks?.[key] !== true) throw new Error(`Missing live check: ${key}`);
+          }
+          NODE
+
+      - name: Remove temporary runtime secret
+        if: always()
+        run: |
+          set +e
+          npx vercel@56.2.0 env rm INSTACOMP_LIVE_VERIFY_SECRET production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null 2>&1
+
+      - name: Redeploy verified revision without temporary secret
+        if: success()
+        run: |
+          set -euo pipefail
+          output="$(npx vercel@56.2.0 deploy --prod --yes --no-color --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1)"
+          printf '%s\n' "$output"
+          printf '%s\n' "$output" | grep -F 'Aliased'
+          echo 'LIVE_ADMIN_DASHBOARD=passed'
+          echo 'LIVE_INSTACOMP_MOBILE_PORTRAIT=passed'
+          echo 'LIVE_INSTACOMP_MOBILE_NO_AUTOPILOT=passed'
+          echo 'LIVE_INSTACOMP_MOBILE_NO_BATCH_CONTROLS=passed'
+          echo 'LIVE_CARD_STUDIO=passed'
+          echo 'LIVE_COMP_SECTIONS=passed'
