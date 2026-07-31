@@ -1,9 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ClientIdentity } from "./client-identity";
 import {
-  BUYER_PROTECTION_FEE,
   BUYER_PROTECTION_POLICY_VERSION,
-  getBuyerProtectionEligibility,
+  getBuyerProtectionQuote,
   isBuyerProtectionPreferenceMode,
   type BuyerProtectionPreferenceMode,
 } from "./buyer-protection";
@@ -18,12 +17,15 @@ export type BuyerProtectionPreferenceRow = {
 export type BuyerProtectionSelection = {
   selected: boolean;
   feeAmount: number;
+  feeBase: number;
   coveredAmount: number;
   policyVersion: string | null;
   termsAcceptedAt: string | null;
   consentSource: string | null;
   preferenceMode: BuyerProtectionPreferenceMode;
   eligibilityReason: string | null;
+  declineAcknowledgedAt: string | null;
+  declineConsentSource: string | null;
 };
 
 export async function getBuyerProtectionPreference(params: {
@@ -91,22 +93,48 @@ async function savePreference(params: {
   if (error) throw error;
 }
 
+function declinedSelection(params: {
+  feeBase: number;
+  preferenceMode: BuyerProtectionPreferenceMode;
+  eligibilityReason: string | null;
+  consentSource: string;
+}) {
+  const acknowledgedAt = new Date().toISOString();
+
+  return {
+    selected: false,
+    feeAmount: 0,
+    feeBase: params.feeBase,
+    coveredAmount: 0,
+    policyVersion: BUYER_PROTECTION_POLICY_VERSION,
+    termsAcceptedAt: null,
+    consentSource: null,
+    preferenceMode: params.preferenceMode,
+    eligibilityReason: params.eligibilityReason,
+    declineAcknowledgedAt: acknowledgedAt,
+    declineConsentSource: params.consentSource,
+  } satisfies BuyerProtectionSelection;
+}
+
 export async function resolveBuyerProtectionSelection(params: {
   supabase: SupabaseClient;
   storeId: string;
   accountId?: string | null;
   shippingMethod: string;
   itemSubtotal: number;
+  shippingAmount: number;
   itemCount: number;
   requestedSelected: boolean;
   requestedPreferenceMode?: unknown;
   termsAccepted: boolean;
+  declineAcknowledged: boolean;
   policyVersion?: unknown;
   identity: ClientIdentity;
 }): Promise<BuyerProtectionSelection> {
-  const eligibility = getBuyerProtectionEligibility({
+  const quote = getBuyerProtectionQuote({
     shippingMethod: params.shippingMethod,
     itemSubtotal: params.itemSubtotal,
+    shippingAmount: params.shippingAmount,
     itemCount: params.itemCount,
   });
   const requestedMode = isBuyerProtectionPreferenceMode(
@@ -123,7 +151,35 @@ export async function resolveBuyerProtectionSelection(params: {
     : null;
   const currentAlwaysOn = isCurrentAlwaysOnPreference(preference);
 
+  if (!quote.eligible) {
+    if (params.requestedSelected && !currentAlwaysOn) {
+      throw new Error(quote.reason || "Shipment Protection is not available.");
+    }
+
+    return {
+      selected: false,
+      feeAmount: 0,
+      feeBase: quote.feeBase,
+      coveredAmount: 0,
+      policyVersion: null,
+      termsAcceptedAt: null,
+      consentSource: currentAlwaysOn
+        ? "account_saved_not_applicable_to_order"
+        : null,
+      preferenceMode: currentAlwaysOn ? "always_on" : requestedMode,
+      eligibilityReason: quote.reason,
+      declineAcknowledgedAt: null,
+      declineConsentSource: null,
+    };
+  }
+
   if (params.accountId && requestedMode === "always_off") {
+    if (!params.declineAcknowledged) {
+      throw new Error(
+        "Acknowledge the Shipment Protection opt-out before checkout.",
+      );
+    }
+
     await savePreference({
       supabase: params.supabase,
       storeId: params.storeId,
@@ -133,62 +189,46 @@ export async function resolveBuyerProtectionSelection(params: {
       termsAcceptedAt: null,
     });
 
-    return {
-      selected: false,
-      feeAmount: 0,
-      coveredAmount: 0,
-      policyVersion: null,
-      termsAcceptedAt: null,
-      consentSource: "account_always_off",
+    return declinedSelection({
+      feeBase: quote.feeBase,
       preferenceMode: "always_off",
-      eligibilityReason: eligibility.reason,
-    };
-  }
-
-  if (!eligibility.eligible) {
-    if (params.requestedSelected && !currentAlwaysOn) {
-      throw new Error(eligibility.reason || "Buyer Protection is not available.");
-    }
-
-    return {
-      selected: false,
-      feeAmount: 0,
-      coveredAmount: 0,
-      policyVersion: null,
-      termsAcceptedAt: null,
-      consentSource: currentAlwaysOn
-        ? "account_saved_not_applicable_to_order"
-        : null,
-      preferenceMode: currentAlwaysOn ? "always_on" : requestedMode,
-      eligibilityReason: eligibility.reason,
-    };
+      eligibilityReason: quote.reason,
+      consentSource: "account_always_off_order_acknowledgment",
+    });
   }
 
   const selected = currentAlwaysOn ? true : params.requestedSelected;
 
   if (!selected) {
-    return {
-      selected: false,
-      feeAmount: 0,
-      coveredAmount: 0,
-      policyVersion: null,
-      termsAcceptedAt: null,
-      consentSource: null,
+    if (!params.declineAcknowledged) {
+      throw new Error(
+        "Acknowledge the Shipment Protection opt-out before checkout.",
+      );
+    }
+
+    return declinedSelection({
+      feeBase: quote.feeBase,
       preferenceMode: params.accountId ? requestedMode : "one_time",
-      eligibilityReason: eligibility.reason,
-    };
+      eligibilityReason: quote.reason,
+      consentSource: params.accountId
+        ? "account_order_decline_acknowledgment"
+        : "guest_order_decline_acknowledgment",
+    });
   }
 
   if (currentAlwaysOn && params.accountId) {
     return {
       selected: true,
-      feeAmount: BUYER_PROTECTION_FEE,
-      coveredAmount: eligibility.coveredAmount,
+      feeAmount: quote.feeAmount,
+      feeBase: quote.feeBase,
+      coveredAmount: quote.coveredAmount,
       policyVersion: BUYER_PROTECTION_POLICY_VERSION,
       termsAcceptedAt: preference!.terms_accepted_at,
       consentSource: "account_saved_current_policy",
       preferenceMode: "always_on",
       eligibilityReason: null,
+      declineAcknowledgedAt: null,
+      declineConsentSource: null,
     };
   }
 
@@ -197,7 +237,7 @@ export async function resolveBuyerProtectionSelection(params: {
     params.termsAccepted !== true
   ) {
     throw new Error(
-      "The current Buyer Protection terms must be reviewed and accepted before protection can be added.",
+      "The current Shipment Protection terms must be reviewed and accepted before protection can be added.",
     );
   }
 
@@ -220,8 +260,9 @@ export async function resolveBuyerProtectionSelection(params: {
 
   return {
     selected: true,
-    feeAmount: BUYER_PROTECTION_FEE,
-    coveredAmount: eligibility.coveredAmount,
+    feeAmount: quote.feeAmount,
+    feeBase: quote.feeBase,
+    coveredAmount: quote.coveredAmount,
     policyVersion: BUYER_PROTECTION_POLICY_VERSION,
     termsAcceptedAt,
     consentSource:
@@ -232,5 +273,7 @@ export async function resolveBuyerProtectionSelection(params: {
           : "guest_one_time_consent",
     preferenceMode: accountMode,
     eligibilityReason: null,
+    declineAcknowledgedAt: null,
+    declineConsentSource: null,
   };
 }
