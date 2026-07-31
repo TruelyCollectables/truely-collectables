@@ -1,1 +1,1 @@
-export * from "./ebay-inventory-publisher-audited";
+export * from "./ebay-inventory-publisher-strict";
