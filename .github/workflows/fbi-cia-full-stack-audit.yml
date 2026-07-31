@@ -65,7 +65,7 @@ jobs:
         run: |
           npm ci
           npm audit --omit=dev --audit-level=moderate
-          node scripts/run-shipping-simulations.ts
+          node --import tsx scripts/run-shipping-simulations.ts
           npm run verify:admin-dashboard
           npm run check:production-guardrails
           npm run lint -- \
