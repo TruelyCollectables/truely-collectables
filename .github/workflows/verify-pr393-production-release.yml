@@ -51,7 +51,7 @@ jobs:
             --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
           test -s "$RUNNER_TEMP/pr393-production.env"
 
-      - name: Extract and mask only the smoke credential
+      - name: Mint and mask a short-lived signed admin session
         shell: bash
         run: |
           set -euo pipefail
@@ -63,32 +63,89 @@ jobs:
           const raw = fs.readFileSync(envFile, "utf8");
           const line = raw
             .split(/\r?\n/)
-            .find((entry) => entry.trim().startsWith("ADMIN_PASSWORD="));
-          if (!line) throw new Error("ADMIN_PASSWORD is missing from the pulled Production environment.");
-
-          let value = line.slice(line.indexOf("=") + 1).trim();
-          if (value.startsWith('"') && value.endsWith('"')) {
-            value = JSON.parse(value);
-          } else if (value.startsWith("'") && value.endsWith("'")) {
-            value = value.slice(1, -1);
+            .find((entry) => entry.trim().startsWith("ADMIN_SESSION_SECRET="));
+          if (!line) {
+            throw new Error("ADMIN_SESSION_SECRET is missing from the pulled Production environment.");
           }
-          if (!value) throw new Error("ADMIN_PASSWORD is empty in the pulled Production environment.");
 
-          console.log(`::add-mask::${value}`);
+          let secret = line.slice(line.indexOf("=") + 1).trim();
+          if (secret.startsWith('"') && secret.endsWith('"')) {
+            secret = JSON.parse(secret);
+          } else if (secret.startsWith("'") && secret.endsWith("'")) {
+            secret = secret.slice(1, -1);
+          }
+          if (!secret) {
+            throw new Error("ADMIN_SESSION_SECRET is empty in the pulled Production environment.");
+          }
+
+          const issuedAt = String(Math.floor(Date.now() / 1000));
+          const signature = crypto
+            .createHmac("sha256", secret)
+            .update(issuedAt, "utf8")
+            .digest("base64url");
+          const cookie = `tcos_admin_auth_v3=${issuedAt}.${signature}`;
+          console.log(`::add-mask::${secret}`);
+          console.log(`::add-mask::${cookie}`);
           const delimiter = `TCOS_${crypto.randomUUID().replaceAll("-", "")}`;
           fs.appendFileSync(
             process.env.GITHUB_ENV,
-            `SMOKE_ADMIN_PASSWORD<<${delimiter}\n${value}\n${delimiter}\n`,
+            `SMOKE_ADMIN_COOKIE<<${delimiter}\n${cookie}\n${delimiter}\n`,
           );
           NODE
+          rm -f "$RUNNER_TEMP/pr393-production.env" .env.local
 
-      - name: Run authenticated repository Production smoke
+      - name: Verify protected admin pages and APIs with signed session
         shell: bash
         run: |
           set -euo pipefail
-          test -n "${SMOKE_ADMIN_PASSWORD:-}"
-          SMOKE_BASE_URL="https://truelycollectables.com" npm run smoke:production
-          rm -f "$RUNNER_TEMP/pr393-production.env" .env.local
+          test -n "${SMOKE_ADMIN_COOKIE:-}"
+          stamp="${GITHUB_SHA:0:12}-$(date +%s)"
+          root="$RUNNER_TEMP/pr393-admin"
+          mkdir -p "$root"
+
+          admin_routes=(
+            "admin"
+            "admin/launch-readiness"
+            "admin/products/new"
+            "admin/orders"
+          )
+          for index in "${!admin_routes[@]}"; do
+            route="${admin_routes[$index]}"
+            output="$root/admin-$index.txt"
+            status=$(curl --silent --show-error --location \
+              --retry 5 --retry-all-errors --max-time 60 \
+              -H "Cookie: $SMOKE_ADMIN_COOKIE" \
+              -H "Cache-Control: no-cache" \
+              -A "TruelyCollectablesPR393AdminSmoke/1.0" \
+              -w '%{http_code}' \
+              "https://truelycollectables.com/${route}?pr393_admin=${stamp}-${index}" \
+              -o "$output")
+            test "$status" = "200"
+            if grep -Eqi "Invalid password|Admin login|Internal Server Error|Missing Supabase environment variables" "$output"; then
+              echo "Protected admin route failed: /$route" >&2
+              exit 1
+            fi
+            echo "PASS /$route"
+          done
+
+          grep -Fq "Shipping Setup" "$root/admin-0.txt"
+          grep -Fq "Launch Readiness" "$root/admin-1.txt"
+          grep -Fq "Upload / AI / Publish" "$root/admin-2.txt"
+
+          api_output="$root/launch-readiness.json"
+          api_status=$(curl --silent --show-error \
+            --retry 5 --retry-all-errors --max-time 60 \
+            -H "Cookie: $SMOKE_ADMIN_COOKIE" \
+            -H "Accept: application/json" \
+            -A "TruelyCollectablesPR393AdminAPI/1.0" \
+            -w '%{http_code}' \
+            "https://truelycollectables.com/api/admin/launch-readiness?pr393_admin_api=$stamp" \
+            -o "$api_output")
+          test "$api_status" = "200"
+          grep -Fq '"brief"' "$api_output"
+          grep -Fq '"deployment"' "$api_output"
+          grep -Fq '"standardEnvelopeEvidenceContractReady":true' "$api_output"
+          echo "Protected admin pages and launch-readiness API passed with a signed Production session."
 
       - name: Verify live public routes and cache-bypassed content
         shell: bash
@@ -111,7 +168,7 @@ jobs:
             route="${routes[$index]}"
             output="$root/route-$index.txt"
             curl --fail --silent --show-error --location \
-              --retry 6 --retry-all-errors --max-time 45 \
+              --retry 6 --retry-all-errors --max-time 60 \
               -H "Cache-Control: no-cache" \
               -H "Pragma: no-cache" \
               -A "TruelyCollectablesPR393Verify/1.0" \
@@ -140,7 +197,7 @@ jobs:
           stamp="${GITHUB_SHA:0:12}-$(date +%s)"
           headers="$RUNNER_TEMP/pr393-headers.txt"
           curl --fail --silent --show-error --head \
-            --retry 5 --retry-all-errors --max-time 45 \
+            --retry 5 --retry-all-errors --max-time 60 \
             -H "Cache-Control: no-cache" \
             -A "TruelyCollectablesPR393Headers/1.0" \
             "https://truelycollectables.com/?pr393_headers=$stamp" \
@@ -151,9 +208,9 @@ jobs:
           grep -Eqi '^x-frame-options:' "$headers"
 
           admin_headers="$RUNNER_TEMP/pr393-admin-headers.txt"
-          curl --silent --show-error --head --max-time 45 \
+          curl --silent --show-error --head --max-time 60 \
             -A "TruelyCollectablesPR393AdminBoundary/1.0" \
             "https://truelycollectables.com/admin" \
             -o "$admin_headers"
           grep -Eqi '^location:.*\/admin\/login|^HTTP\/[0-9.]+ (302|303|307|308)' "$admin_headers"
-          echo "PR #393 Production authenticated smoke, public routes, headers, and admin boundary passed."
+          echo "PR #393 Production protected admin access, public routes, headers, and unauthenticated admin boundary passed."
