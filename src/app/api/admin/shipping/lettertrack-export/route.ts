@@ -67,6 +67,7 @@ export async function GET() {
         "X-Truely-LetterTrack-Rows": String(exportResult.rows.length),
         "X-Truely-LetterTrack-Skipped": String(exportResult.skipped.length),
         "X-Truely-LetterTrack-Skipped-Reasons": skippedReasonSummary,
+        "X-TCOS-LetterTrack-Skipped-Reasons": skippedReasonSummary,
       },
     });
   } catch (error: any) {
