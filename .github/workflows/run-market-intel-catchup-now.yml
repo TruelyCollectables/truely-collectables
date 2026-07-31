@@ -10,6 +10,9 @@ on:
 permissions:
   contents: write
 
+env:
+  TRIGGER_REVISION: "2026-07-31T15:20Z"
+
 concurrency:
   group: run-market-intel-catchup-now
   cancel-in-progress: false
