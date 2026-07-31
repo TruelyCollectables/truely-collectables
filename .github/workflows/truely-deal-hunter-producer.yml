@@ -1,6 +1,5 @@
 name: Truely Collectables Deal Hunter Producer
 
-# Sequence 14 recovery trigger after the authoritative handoff STARTED row.
 on:
   workflow_dispatch:
   schedule:
@@ -17,7 +16,7 @@ on:
       - "scripts/run-truely-deal-hunter-producer.mjs"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: truely-deal-hunter-producer
@@ -41,7 +40,7 @@ jobs:
         continue-on-error: true
         run: node scripts/run-truely-deal-hunter-producer.mjs
 
-      - name: Upload authoritative producer artifact
+      - name: Upload diagnostic producer artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -49,6 +48,39 @@ jobs:
           path: .codex-run/truely-deal-hunter-producer/
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish latest artifact to fixed data branch
+        if: always()
+        env:
+          DATA_BRANCH: truely-deal-hunter-feed
+        run: |
+          set -euo pipefail
+          test -f .codex-run/truely-deal-hunter-producer/producer-artifact.json
+          test -f .codex-run/truely-deal-hunter-producer/producer-summary.json
+          test -f .codex-run/truely-deal-hunter-producer/producer-summary.md
+
+          rm -rf /tmp/truely-deal-hunter-feed
+          mkdir -p /tmp/truely-deal-hunter-feed
+          cp -R .codex-run/truely-deal-hunter-producer/. /tmp/truely-deal-hunter-feed/
+
+          git config user.name "Truely Collectables Automation"
+          git config user.email "actions@users.noreply.github.com"
+          git switch --orphan "$DATA_BRANCH"
+          git rm -rf . >/dev/null 2>&1 || true
+          mkdir -p data
+          cp -R /tmp/truely-deal-hunter-feed/. data/
+          cat > data/published-metadata.json <<EOF
+          {
+            "schema": "TRUELY_COLLECTABLES_DEAL_HUNTER_PUBLISHED_V1",
+            "source_main_sha": "${GITHUB_SHA}",
+            "workflow_run_id": "${GITHUB_RUN_ID}",
+            "workflow_run_attempt": "${GITHUB_RUN_ATTEMPT}",
+            "published_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+          git add data
+          git commit -m "Update Truely Collectables Deal Hunter feed"
+          git push --force origin HEAD:"$DATA_BRANCH"
 
       - name: Enforce producer result
         if: steps.producer.outcome != 'success'
