@@ -34,22 +34,7 @@ jobs:
       - run: npm ci
 
       - name: Execute the staged UI patch
-        run: |
-          python <<'PY'
-          from pathlib import Path
-
-          workflow = Path('.github/workflows/apply-instacomp-learning-ui.yml').read_text()
-          opening = "          python <<'PY'\n"
-          closing = "\n          PY\n"
-          start = workflow.index(opening) + len(opening)
-          end = workflow.index(closing, start)
-          raw = workflow[start:end]
-          script = "\n".join(
-              line[10:] if line.startswith("          ") else line
-              for line in raw.splitlines()
-          )
-          exec(compile(script, 'apply-instacomp-learning-ui.py', 'exec'))
-          PY
+        run: python scripts/apply-instacomp-learning-ui.py
 
       - name: Verify learning UI contracts
         run: |
@@ -78,8 +63,9 @@ jobs:
         run: |
           rm .github/workflows/apply-instacomp-learning-ui.yml
           rm .github/workflows/apply-instacomp-learning-ui-pr.yml
+          rm scripts/apply-instacomp-learning-ui.py
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/app src/lib .github/workflows
+          git add src/app src/lib scripts .github/workflows
           git commit -m "Wire every InstaComp UI scan into automatic learning"
           git push origin HEAD:feature/instacomp-learning-registry-v1
