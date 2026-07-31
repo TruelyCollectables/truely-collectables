@@ -11,7 +11,6 @@ import {
   getAuthenticityCallout,
   hasAuthenticityDetails,
 } from "../../../lib/authenticity";
-import { buildCollectorIntelligence } from "../../../lib/collector-intelligence";
 import { createSupabaseServerClient } from "../../../lib/supabase-server";
 import { configuredSiteOrigin } from "../../../lib/site-origin";
 import { getStoreSettings } from "../../../lib/store-settings";
@@ -176,9 +175,6 @@ export default async function ProductPage({
   const isSoldOut = quantity <= 0 || product.status !== "active";
   const supabase = createSupabaseServerClient();
   const storeSettings = await getStoreSettings(supabase);
-  const intelligence = buildCollectorIntelligence(product, {
-    storeDisplayName: storeSettings.displayName,
-  });
   const productUrl = `${configuredSiteOrigin()}/product/${product.legacyProductId}`;
   const imageUrl = absoluteUrl(product.imageUrl);
   const productJsonLd = {
@@ -251,9 +247,6 @@ export default async function ProductPage({
               >
                 {statusLabel(product.status, quantity)}
               </span>
-              <span className="rounded bg-neutral-100 px-3 py-1 text-xs font-bold uppercase text-neutral-600">
-                Collector Research Page
-              </span>
             </div>
 
             <h1 className="text-4xl font-black leading-tight md:text-5xl">
@@ -288,8 +281,9 @@ export default async function ProductPage({
                 <div>
                   <h2 className="text-xl font-bold">Authenticity Disclosure</h2>
                   <p className="mt-2 text-sm text-neutral-600">
-                    TCOS shows the seller&apos;s certification, guarantee, and provenance
-                    disclosure here so buyers can make an informed call.
+                    Truely Collectables shows the seller&apos;s certification,
+                    guarantee, and provenance disclosure here so buyers can make an
+                    informed call.
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -426,182 +420,6 @@ export default async function ProductPage({
           </section>
         </div>
       </section>
-
-      <section className="mt-12">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-sm font-bold uppercase text-neutral-500">
-              Collector Intelligence
-            </p>
-            <h2 className="mt-2 text-3xl font-black">
-              Research before you make it yours
-            </h2>
-          </div>
-
-          <span className="rounded border border-yellow-300 bg-yellow-100 px-3 py-1 text-sm font-bold text-yellow-900">
-            {intelligence.trendLabel}
-          </span>
-        </div>
-
-        <p className="mt-4 max-w-4xl text-neutral-700">
-          {intelligence.story}
-        </p>
-        <p className="mt-3 max-w-4xl text-sm text-neutral-600">
-          {intelligence.trendDetail}
-        </p>
-
-        <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-4">
-          <IntelligencePanel title="Market Checks" links={intelligence.marketLinks} />
-          <IntelligencePanel title="Find Another" links={intelligence.acquisitionLinks} />
-          <IntelligencePanel title="News And Social" links={[...intelligence.newsLinks, ...intelligence.socialLinks]} />
-          <section className="rounded border bg-white p-4">
-            <h3 className="font-bold">Pop Report</h3>
-            <p className="mt-2 text-sm font-semibold">
-              {intelligence.populationReport.label}
-            </p>
-            <p className="mt-2 text-sm leading-6 text-neutral-600">
-              {intelligence.populationReport.detail}
-            </p>
-
-            <div className="mt-4 space-y-2">
-              {intelligence.populationReport.links.map((link) => (
-                <ResearchLink key={link.href} link={link} compact />
-              ))}
-            </div>
-          </section>
-        </div>
-
-        <section className="mt-6 rounded border bg-white p-4">
-          <h3 className="font-bold">What To Check</h3>
-          <ul className="mt-3 grid grid-cols-1 gap-2 text-sm text-neutral-700 md:grid-cols-2">
-            {intelligence.whatToWatch.map((item) => (
-              <li key={item} className="rounded bg-neutral-50 px-3 py-2">
-                {item}
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        <section className="mt-6 rounded border bg-white p-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h3 className="font-bold">Exact Match Signals</h3>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-neutral-600">
-                {intelligence.exactMatchDetail}
-              </p>
-            </div>
-            <span className="rounded bg-neutral-100 px-3 py-1 text-xs font-bold uppercase text-neutral-600">
-              {intelligence.exactMatchLabel}
-            </span>
-          </div>
-
-          {intelligence.variantSignals.length > 0 ? (
-            <dl className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-              {intelligence.variantSignals.map((signal) => (
-                <div key={`${signal.label}-${signal.value}`} className="rounded bg-neutral-50 px-3 py-2">
-                  <dt className="text-xs font-bold uppercase text-neutral-500">
-                    {signal.label}
-                  </dt>
-                  <dd className="mt-1 text-sm font-bold text-neutral-950">
-                    {signal.value}
-                  </dd>
-                  <dd className="mt-1 text-xs text-neutral-500">
-                    {signal.confidence === "title_signal"
-                      ? "Detected from title"
-                      : "Needs checklist/source confirmation"}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          ) : (
-            <p className="mt-4 rounded bg-neutral-50 px-3 py-2 text-sm text-neutral-600">
-              Add year, set, card number, serial number, parallel, grade, or
-              cert details to improve exact-match identification.
-            </p>
-          )}
-        </section>
-
-        <section className="mt-6 rounded border bg-white p-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h3 className="font-bold">Complete The Set Or Run</h3>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-neutral-600">
-                Use these links to hunt related cards, missing checklist pieces,
-                player runs, team runs, and comparable listings. TCOS searches
-                itself first, then sends collectors to clearly labeled external
-                research paths.
-              </p>
-            </div>
-            <span className="rounded bg-neutral-100 px-3 py-1 text-xs font-bold uppercase text-neutral-600">
-              Set Builder Helper
-            </span>
-          </div>
-
-          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-            {intelligence.setBuilderLinks.map((link) => (
-              <ResearchLink key={link.href} link={link} />
-            ))}
-          </div>
-        </section>
-
-        <p className="mt-4 text-xs text-neutral-500">
-          Last checked: {new Date(intelligence.lastUpdated).toLocaleString()}.
-          TCOS only shows a public trend when verified source data supports it.
-        </p>
-      </section>
     </main>
-  );
-}
-
-function IntelligencePanel({
-  title,
-  links,
-}: {
-  title: string;
-  links: Array<{
-    label: string;
-    href: string;
-    description: string;
-  }>;
-}) {
-  return (
-    <section className="rounded border bg-white p-4">
-      <h3 className="font-bold">{title}</h3>
-      <div className="mt-4 space-y-3">
-        {links.map((link) => (
-          <ResearchLink key={link.href} link={link} />
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function ResearchLink({
-  link,
-  compact = false,
-}: {
-  link: {
-    label: string;
-    href: string;
-    description: string;
-  };
-  compact?: boolean;
-}) {
-  const isExternal = link.href.startsWith("http");
-
-  return (
-    <a
-      href={link.href}
-      target={isExternal ? "_blank" : undefined}
-      rel={isExternal ? "noreferrer" : undefined}
-      className="block rounded border px-3 py-2 hover:bg-neutral-50"
-    >
-      <span className="block text-sm font-bold">{link.label}</span>
-      {compact ? null : (
-        <span className="mt-1 block text-xs leading-5 text-neutral-600">
-          {link.description}
-        </span>
-      )}
-    </a>
   );
 }
