@@ -68,10 +68,8 @@ function uniqueTokens(values: Array<string | null | undefined>) {
   for (const value of values) {
     const token = titleToken(value);
     if (!token) continue;
-
     const key = token.toLowerCase();
     if (seen.has(key)) continue;
-
     seen.add(key);
     output.push(token);
   }
@@ -81,7 +79,6 @@ function uniqueTokens(values: Array<string | null | undefined>) {
 
 export function compactEbayTitle(value: string, maximum = 80) {
   const cleaned = value.replace(/\s+/g, " ").trim();
-
   if (cleaned.length <= maximum) return cleaned;
 
   const words = cleaned.split(" ");
@@ -109,18 +106,27 @@ function line(label: string, value: string | null) {
   return value ? `${label}: ${value}` : null;
 }
 
-function defaultCardCondition(conditionGuess: string | null) {
-  const normalized = String(conditionGuess || "").toLowerCase();
+export function conservativeCardCondition(conditionGuess: string | null) {
+  const normalized = String(conditionGuess || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 
-  if (normalized.includes("near mint") || normalized.includes("mint")) {
+  if (!normalized || /\b(?:unknown|review|uncertain|not graded|ungraded)\b/.test(normalized)) {
+    return "";
+  }
+  if (/\b(?:not|below|less than) near mint\b/.test(normalized)) return "";
+  if (/\bnear mint\b/.test(normalized) || normalized === "mint") {
     return "Near Mint or Better";
   }
-  if (normalized.includes("excellent")) return "Excellent";
-  if (normalized.includes("very good")) return "Very Good";
-  if (normalized.includes("good")) return "Good";
-  if (normalized.includes("poor") || normalized.includes("damaged")) return "Poor";
+  if (/\bexcellent\b/.test(normalized)) return "Excellent";
+  if (/\bvery good\b/.test(normalized)) return "Very Good";
+  if (/\bgood\b/.test(normalized)) return "Good";
+  if (/\b(?:poor|damaged)\b/.test(normalized)) return "Poor";
 
-  return "Very Good";
+  // Never invent a raw-card condition when the scanner did not provide one
+  // that maps cleanly to eBay's allowed trading-card values.
+  return "";
 }
 
 function ebayCategoryId(identity: DualMarketplaceCardIdentity, category: string | null) {
@@ -182,8 +188,9 @@ function generatedTitle(identity: DualMarketplaceCardIdentity, fallback: string)
     identity.gradingCompany && identity.gradeValue
       ? `${identity.gradingCompany} ${identity.gradeValue}`
       : null;
-  const cardNumber = identity.cardNumber ? `#${identity.cardNumber.replace(/^#/, "")}` : null;
-
+  const cardNumber = identity.cardNumber
+    ? `#${identity.cardNumber.replace(/^#/, "")}`
+    : null;
   const tokens = uniqueTokens([
     identity.year,
     identity.brand,
@@ -226,7 +233,6 @@ function buildAspects(identity: DualMarketplaceCardIdentity) {
   ]);
 
   if (features.length) aspects.Features = features;
-
   return aspects;
 }
 
@@ -238,7 +244,7 @@ export function createDualMarketplaceListingDraft(
   const graded = Boolean(identity.gradingCompany && identity.gradeValue);
   const websiteTitle = title.slice(0, 200);
   const ebayTitle = compactEbayTitle(title, 80);
-  const cardCondition = defaultCardCondition(identity.conditionGuess);
+  const cardCondition = conservativeCardCondition(identity.conditionGuess);
   const details = [
     line("Player/Subject", identity.player),
     line("Team", identity.team),
@@ -255,17 +261,17 @@ export function createDualMarketplaceListingDraft(
     line("Grader", identity.gradingCompany),
     line("Grade", identity.gradeValue),
     line("Certification Number", identity.certificationNumber),
-    line("Condition", graded ? "Graded" : cardCondition),
+    line("Condition", graded ? "Professionally Graded" : cardCondition || null),
   ].filter((value): value is string => Boolean(value));
 
   const websiteDescription = [
     websiteTitle,
     "",
-    "Add this exact card to your collection. The front and back images are part of the listing and show the card you will receive.",
+    "Add this exact card to your collection. The listing images show the card you will receive; front and back are included when available.",
     "",
     ...details,
     "",
-    "Please review every image for centering, corners, edges, surface, autograph, relic, serial numbering, and slab condition before purchasing. Raw-card condition is an estimate, not a professional grade.",
+    "Please review every image for centering, corners, edges, surface, autograph, relic, serial numbering, and slab condition before purchasing. Raw-card condition must be reviewed by the operator and is not a professional grade.",
   ].join("\n");
 
   const ebayDetailRows = details
@@ -278,11 +284,11 @@ export function createDualMarketplaceListingDraft(
     })
     .join("");
   const ebayDescription = [
-    `<div style="font-family:Arial,Helvetica,sans-serif;line-height:1.55;color:#171717">`,
-    `<h2 style="margin:0 0 12px">${htmlEscape(ebayTitle)}</h2>`,
+    `<div>`,
+    `<h2>${htmlEscape(ebayTitle)}</h2>`,
     `<p>You are purchasing the exact card shown in the listing photos. Front and back images are included whenever available.</p>`,
     ebayDetailRows ? `<ul>${ebayDetailRows}</ul>` : "",
-    `<p>Please inspect all photos for condition details. Raw-card condition is an estimate and is not a professional grade. Graded-card information should be verified against the certification number when supplied.</p>`,
+    `<p>Please inspect all photos for condition details. Raw-card condition is an operator-reviewed estimate and is not a professional grade. Graded-card information should be verified against the certification number when supplied.</p>`,
     `<p>Cards are packed carefully for shipment by Truely Collectables.</p>`,
     `</div>`,
   ].join("");
