@@ -1,0 +1,103 @@
+name: Deploy PR 395 Collector Intelligence Removal
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/deploy-pr395-collector-intelligence-removal.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-pr395-collector-intelligence-removal
+  cancel-in-progress: false
+
+jobs:
+  deploy-and-verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+    steps:
+      - name: Check out current main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Link Production project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          echo "::add-mask::$VERCEL_TOKEN"
+          npx vercel@56.2.0 link --yes \
+            --project truely-collectables \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN"
+
+      - name: Audit Production environment names
+        run: npm run audit:vercel-production-env
+
+      - name: Deploy current main to Production
+        run: npm run deploy:production
+
+      - name: Run repository Production smoke test
+        run: npm run smoke:production
+
+      - name: Verify TCOS Collector Intelligence is absent from live card pages
+        shell: bash
+        run: |
+          set -euo pipefail
+          stamp="${GITHUB_SHA:0:12}-$(date +%s)"
+          work="$RUNNER_TEMP/pr395-production"
+          mkdir -p "$work"
+
+          shop="$work/shop.html"
+          curl --fail --silent --show-error --location --retry 8 --retry-all-errors \
+            -H "Cache-Control: no-cache" \
+            -A "TruelyCollectablesPR395Deploy/1.0" \
+            "https://truelycollectables.com/shop?pr395_deploy=$stamp" \
+            -o "$shop"
+
+          product_path="$(grep -oE 'href="/product/[0-9]+"' "$shop" | head -n 1 | cut -d'"' -f2)"
+          test -n "$product_path"
+
+          product="$work/product.html"
+          curl --fail --silent --show-error --location --retry 8 --retry-all-errors \
+            -H "Cache-Control: no-cache" \
+            -A "TruelyCollectablesPR395Deploy/1.0" \
+            "https://truelycollectables.com${product_path}?pr395_deploy=$stamp" \
+            -o "$product"
+
+          grep -Fq "Collector Snapshot" "$product"
+
+          forbidden=(
+            "Collector Intelligence"
+            "Collector Research Page"
+            "Research before you make it yours"
+            "TCOS only shows a public trend"
+            "Search TCOS"
+            "130point Sales Search"
+            "Complete The Set Or Run"
+          )
+
+          for text in "${forbidden[@]}"; do
+            if grep -Fq "$text" "$product"; then
+              echo "Forbidden TCOS storefront text still present: $text" >&2
+              exit 1
+            fi
+          done
+
+          echo "Production verified: $product_path no longer contains TCOS Collector Intelligence."
