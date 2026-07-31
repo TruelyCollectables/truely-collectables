@@ -65,10 +65,12 @@ export default function CheckoutButton({
   shippingMethod = "GROUND_ADVANTAGE",
   termsAccepted,
   buyerProtection,
+  buyerProtectionAvailable,
 }: {
   shippingMethod?: ShippingMethod;
   termsAccepted: boolean;
   buyerProtection: BuyerProtectionCheckoutChoice;
+  buyerProtectionAvailable: boolean;
 }) {
   const [loading, setLoading] = useState(false);
   const inFlightRef = useRef(false);
@@ -87,7 +89,18 @@ export default function CheckoutButton({
         !buyerProtection.storedConsentCurrent &&
         !buyerProtection.termsAccepted
       ) {
-        alert("Please accept the Buyer Protection terms before checkout.");
+        alert("Please accept the Shipment Protection terms before checkout.");
+        return;
+      }
+
+      if (
+        buyerProtectionAvailable &&
+        !buyerProtection.selected &&
+        !buyerProtection.declineAcknowledged
+      ) {
+        alert(
+          "Please acknowledge that you are declining optional Shipment Protection before checkout.",
+        );
         return;
       }
 
@@ -116,6 +129,8 @@ export default function CheckoutButton({
           buyerProtectionSelected: buyerProtection.selected,
           buyerProtectionPreferenceMode: buyerProtection.preferenceMode,
           buyerProtectionTermsAccepted: buyerProtection.termsAccepted,
+          buyerProtectionDeclineAcknowledged:
+            buyerProtection.declineAcknowledged,
           buyerProtectionPolicyVersion: buyerProtection.policyVersion,
           tosAccepted: termsAccepted,
           tosVersion: TERMS_OF_SERVICE_VERSION,
