@@ -12,3 +12,5 @@ end;
 $$;
 
 commit;
+
+-- Controlled Production release trigger for merged PR #393.
