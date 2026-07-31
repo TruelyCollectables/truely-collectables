@@ -10,14 +10,16 @@ on:
     paths:
       - ".github/workflows/truely-deal-hunter-producer.yml"
       - "scripts/run-truely-deal-hunter-producer.mjs"
+      - "scripts/build-truely-handoff-csv.py"
   push:
     branches: [main]
     paths:
       - ".github/workflows/truely-deal-hunter-producer.yml"
       - "scripts/run-truely-deal-hunter-producer.mjs"
+      - "scripts/build-truely-handoff-csv.py"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: truely-deal-hunter-producer
@@ -40,6 +42,37 @@ jobs:
         id: producer
         continue-on-error: true
         run: node scripts/run-truely-deal-hunter-producer.mjs
+
+      - name: Build immutable sequence 14 handoff CSVs
+        if: steps.producer.outcome == 'success'
+        env:
+          HANDOFF_RUN_ID: dh-20260731T184251Z-gha-recovery
+          HANDOFF_SEQUENCE: "14"
+        run: python scripts/build-truely-handoff-csv.py
+
+      - name: Publish sequence 14 staging files
+        if: steps.producer.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          stage_dir="$(mktemp -d)"
+          cp .codex-run/truely-deal-hunter-producer/handoff-candidates.csv "$stage_dir/candidates.csv"
+          cp .codex-run/truely-deal-hunter-producer/handoff-coverage.csv "$stage_dir/coverage.csv"
+          cp .codex-run/truely-deal-hunter-producer/handoff-manifest.json "$stage_dir/manifest.json"
+          git fetch origin deal-hunter-feed
+          git worktree add /tmp/deal-hunter-feed origin/deal-hunter-feed
+          mkdir -p /tmp/deal-hunter-feed/sequence-14
+          cp "$stage_dir/candidates.csv" /tmp/deal-hunter-feed/sequence-14/candidates.csv
+          cp "$stage_dir/coverage.csv" /tmp/deal-hunter-feed/sequence-14/coverage.csv
+          cp "$stage_dir/manifest.json" /tmp/deal-hunter-feed/sequence-14/manifest.json
+          cd /tmp/deal-hunter-feed
+          git config user.name "Truely Collectables Automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add sequence-14
+          if ! git diff --cached --quiet; then
+            git commit -m "Publish Deal Hunter sequence 14 handoff"
+            git push origin HEAD:deal-hunter-feed
+          fi
 
       - name: Upload authoritative producer artifact
         if: always()
