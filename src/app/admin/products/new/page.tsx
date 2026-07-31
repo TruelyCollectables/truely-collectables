@@ -4,6 +4,7 @@ import AdminSubmitButton from "../../AdminSubmitButton";
 import { adminProductActionFailureMessage } from "../../../../lib/admin-product-status";
 import { inventoryEngine } from "../../../../modules/inventory";
 import InstaCompScanner from "../../instacomp/InstaCompScanner";
+import DualMarketplaceListingStudio from "./DualMarketplaceListingStudio";
 
 function textValue(formData: FormData, key: string) {
   return String(formData.get(key) || "").trim();
@@ -145,19 +146,19 @@ export default async function NewProductPage({
                 Inventory intake
               </p>
               <h1 className="mt-2 text-4xl font-black tracking-tight md:text-5xl">
-                Add products
+                Scan Once. List Everywhere.
               </h1>
               <p className="mt-3 max-w-4xl text-sm font-semibold leading-7 text-neutral-300">
-                Use InstaComp™ for lots and card scans. Use manual entry only for a
-                known single product where title, price, quantity, and image are
-                already ready for review.
+                Drag in the full card lot, select all, run InstaComp™, edit every
+                generated field, enter the eBay selling price, and publish the
+                cheaper Truely Collectables listing plus the eBay listing from one screen.
               </p>
             </div>
 
             <div className="grid min-w-[320px] grid-cols-3 gap-3 rounded-3xl border border-white/10 bg-white/[0.06] p-4 shadow-xl shadow-neutral-950/20">
-              <HeaderStat label="Scanner" value="Primary" />
-              <HeaderStat label="Manual" value="Fallback" />
-              <HeaderStat label="Publish" value="Separate" />
+              <HeaderStat label="Upload" value="Drag + Drop" />
+              <HeaderStat label="AI" value="InstaComp™" />
+              <HeaderStat label="Publish" value="Site + eBay" />
             </div>
           </div>
 
@@ -173,16 +174,19 @@ export default async function NewProductPage({
         <section className="rounded-3xl border border-emerald-200 bg-white/95 p-5 shadow-sm ring-1 ring-black/[0.02]">
           <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm ring-1 ring-emerald-950/5">
             <p className="text-xs font-black uppercase tracking-[0.16em] text-emerald-700">
-              Recommended path
+              Step 1 · Intake the lot
             </p>
-            <h2 className="mt-2 text-2xl font-black">AI lot scanner</h2>
-            <p className="mt-2 max-w-3xl text-sm font-bold leading-6 text-emerald-950">
-              This is the fast path: upload the whole lot, run InstaComp™, review
-              the AI results, then create draft listings before anything goes live.
+            <h2 className="mt-2 text-2xl font-black">Drag, Select All, InstaComp™</h2>
+            <p className="mt-2 max-w-4xl text-sm font-bold leading-6 text-emerald-950">
+              Drop up to 500 front/back card images, let the scanner pair the cards,
+              use Select All, then run Batch InstaComp™. Titles, card identity, comps,
+              serials, grades, quantities, and prices remain editable before a draft is created.
             </p>
           </div>
           <InstaCompScanner />
         </section>
+
+        <DualMarketplaceListingStudio />
 
         <section className="rounded-3xl border border-neutral-200 bg-white/95 p-6 shadow-sm ring-1 ring-black/[0.02]">
           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -279,7 +283,7 @@ export default async function NewProductPage({
                 Add manual product
               </AdminSubmitButton>
               <p className="mt-2 text-xs font-bold text-neutral-600">
-                Adds the product to TCOS inventory only; marketplace publishing remains a separate admin step.
+                Adds the product to TCOS inventory only. InstaComp™ card drafts use the automated listing studio above.
               </p>
             </div>
           </form>
