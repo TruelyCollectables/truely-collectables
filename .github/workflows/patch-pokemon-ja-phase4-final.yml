@@ -1,0 +1,80 @@
+name: Patch Japanese Phase 4B Final Assertions
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/patch-pokemon-ja-phase4-final.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pokemon-ja-phase4-ready-bundles
+          fetch-depth: 0
+
+      - name: Remove lint warnings and require exact totals
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          adapter = Path('src/lib/checklist-registry/pokemon-japanese-incomplete-reconciled.ts')
+          text = adapter.read_text()
+          pattern = re.compile(
+              r'cards:\s*additions\.map\(\(\{\s*origin:\s*_origin,\s*sourcePath:\s*_path,\s*\.\.\.row\s*\}\)\s*=>\s*row,\s*\),',
+              re.MULTILINE,
+          )
+          replacement = '''cards: additions.map((row) => ({
+                bundleCardId: row.bundleCardId,
+                cardID: row.cardID,
+                name: row.name,
+                setCode: row.setCode,
+                numerator: row.numerator,
+                denominator: row.denominator,
+                detailUrl: row.detailUrl,
+              })),'''
+          text, count = pattern.subn(replacement, text, count=1)
+          if count != 1 and 'cards: additions.map((row) => ({' not in text:
+              raise SystemExit('Legacy evidence map was not patched')
+          adapter.write_text(text)
+
+          workflow = Path('.github/workflows/checklist-registry-pokemon-ja-incomplete-ready.yml')
+          text = workflow.read_text()
+          old_build = "            officialCards: receipt.totals?.officialCards === 327,"
+          new_build = "            officialCards: receipt.totals?.officialCards === 327,\n            variantEvidence: receipt.totals?.variantEvidence === 0,"
+          if old_build in text:
+              text = text.replace(old_build, new_build, 1)
+          elif 'variantEvidence: receipt.totals?.variantEvidence === 0' not in text:
+              raise SystemExit('Build-total assertion anchor was not found')
+
+          old_validation = "            identitiesAtLeastCards: receipt.totals?.identities >= 327,"
+          new_validation = "            parallels: receipt.totals?.parallels === 0,\n            identities: receipt.totals?.identities === 327,"
+          if old_validation in text:
+              text = text.replace(old_validation, new_validation, 1)
+          elif 'identities: receipt.totals?.identities === 327' not in text:
+              raise SystemExit('Validation-total assertion anchor was not found')
+          workflow.write_text(text)
+          PY
+
+      - name: Commit final assertions once
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- \
+            src/lib/checklist-registry/pokemon-japanese-incomplete-reconciled.ts \
+            .github/workflows/checklist-registry-pokemon-ja-incomplete-ready.yml
+          then
+            echo "Phase 4B final assertions already present."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            src/lib/checklist-registry/pokemon-japanese-incomplete-reconciled.ts \
+            .github/workflows/checklist-registry-pokemon-ja-incomplete-ready.yml
+          git commit -m "Lock exact Japanese Phase 4B totals"
+          git push origin HEAD:agent/pokemon-ja-phase4-ready-bundles
