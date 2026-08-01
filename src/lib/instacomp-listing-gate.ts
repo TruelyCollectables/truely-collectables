@@ -1,3 +1,9 @@
+import {
+  independentVerifiedInstaCompSaleCount,
+  verifiedInstaCompCompletedSales,
+  type InstaCompMarketComp,
+} from "./instacomp-market-evidence";
+
 export type InstaCompListingGateRecord = Record<string, unknown>;
 
 export type InstaCompListingGateResult = {
@@ -6,6 +12,9 @@ export type InstaCompListingGateResult = {
   priceApproved: boolean;
   confidence: number;
   catalogConfirmed: boolean;
+  verifiedSaleCount: number;
+  identityReviewReasons: string[];
+  pricingReviewReasons: string[];
   reviewReasons: string[];
 };
 
@@ -60,6 +69,11 @@ function differs(left: unknown, right: unknown, normalizer = normalizedText) {
   return Boolean(a && b && a !== b);
 }
 
+function booleanDiffers(left: unknown, right: unknown) {
+  if (typeof left !== "boolean" || typeof right !== "boolean") return false;
+  return left !== right;
+}
+
 function identityConflicts(
   importedIdentity: InstaCompListingGateRecord,
   proposedIdentity: InstaCompListingGateRecord,
@@ -67,6 +81,15 @@ function identityConflicts(
   const conflicts: string[] = [];
   if (differs(importedIdentity.player, proposedIdentity.player)) {
     conflicts.push("player_conflicts_with_imported_identity");
+  }
+  if (differs(importedIdentity.year, proposedIdentity.year)) {
+    conflicts.push("year_conflicts_with_imported_identity");
+  }
+  if (differs(importedIdentity.brand, proposedIdentity.brand)) {
+    conflicts.push("brand_conflicts_with_imported_identity");
+  }
+  if (differs(importedIdentity.setName, proposedIdentity.setName)) {
+    conflicts.push("set_conflicts_with_imported_identity");
   }
   if (
     differs(
@@ -86,12 +109,27 @@ function identityConflicts(
   ) {
     conflicts.push("parallel_conflicts_with_imported_identity");
   }
+  if (differs(importedIdentity.variation, proposedIdentity.variation)) {
+    conflicts.push("variation_conflicts_with_imported_identity");
+  }
+  if (booleanDiffers(importedIdentity.isAuto, proposedIdentity.isAuto)) {
+    conflicts.push("autograph_status_conflicts_with_imported_identity");
+  }
+  if (booleanDiffers(importedIdentity.isRelic, proposedIdentity.isRelic)) {
+    conflicts.push("relic_status_conflicts_with_imported_identity");
+  }
   return conflicts;
 }
 
 function arrayOfStrings(value: unknown) {
   return Array.isArray(value)
     ? value.map((entry) => text(entry)).filter(Boolean)
+    : [];
+}
+
+function arrayOfRecords(value: unknown) {
+  return Array.isArray(value)
+    ? value.map(record) as InstaCompMarketComp[]
     : [];
 }
 
@@ -106,6 +144,7 @@ export function evaluateInstaCompListingGate(params: {
   const actionPermissions = record(catalogEvidence.actionPermissions);
   const catalogIdentity = record(catalogEvidence.compIdentity);
   const knowledge = record(params.payload.knowledge);
+  const marketEvidence = record(params.payload.marketEvidence);
   const importedIdentity = record(params.importedIdentity);
   const pendingImport = record(params.pendingImport);
 
@@ -121,6 +160,7 @@ export function evaluateInstaCompListingGate(params: {
       text(catalogIdentity.variation) ||
       ai.parallel ||
       null,
+    variation: text(catalogIdentity.variation) || ai.variation || null,
     serialNumber:
       text(ai.serialNumber) ||
       text(catalogIdentity.serialNumber) ||
@@ -149,15 +189,22 @@ export function evaluateInstaCompListingGate(params: {
     text(catalogEvidence.status) === "catalog_confirmed" &&
     booleanValue(catalogEvidence.catalogConfirmed) &&
     booleanValue(actionPermissions.publicListingClaimAllowed);
-  const reviewReasons = arrayOfStrings(review.identityReviewReasons);
+  const identityReviewReasons = arrayOfStrings(review.identityReviewReasons);
+  const pricingReviewReasons = arrayOfStrings(review.pricingReviewReasons);
 
-  if (!catalogConfirmed) reviewReasons.push("checklist_identity_not_confirmed");
-  if (confidence < 0.92) reviewReasons.push("low_identification_confidence");
+  if (!catalogConfirmed) {
+    identityReviewReasons.push("checklist_identity_not_confirmed");
+  }
+  if (confidence < 0.92) {
+    identityReviewReasons.push("low_identification_confidence");
+  }
 
   const catalogSerialRun = text(catalogIdentity.serialRun);
   const observedSerialNumber = text(ai.serialNumber);
   if (catalogSerialRun && !observedSerialNumber) {
-    reviewReasons.push("serialized_checklist_parallel_without_visible_serial");
+    identityReviewReasons.push(
+      "serialized_checklist_parallel_without_visible_serial",
+    );
   }
 
   const importedConfidence = normalizedText(
@@ -169,15 +216,41 @@ export function evaluateInstaCompListingGate(params: {
     ) &&
     text(pendingImport.source) === "truely_collectables_scan_package";
   if (importedIsHighConfidence) {
-    reviewReasons.push(...identityConflicts(importedIdentity, identity));
+    identityReviewReasons.push(...identityConflicts(importedIdentity, identity));
   }
 
-  const uniqueReasons = Array.from(new Set(reviewReasons.filter(Boolean)));
-  const identityApproved = uniqueReasons.length === 0;
+  const saleRows = [
+    ...arrayOfRecords(params.payload.soldComps),
+    ...arrayOfRecords(marketEvidence.verifiedSoldComps),
+  ];
+  const verifiedSales = verifiedInstaCompCompletedSales(saleRows);
+  const verifiedSaleCount = Math.max(
+    independentVerifiedInstaCompSaleCount(verifiedSales),
+    numberValue(marketEvidence.verifiedSaleCount),
+  );
+
+  if (verifiedSaleCount < 2) {
+    pricingReviewReasons.push("insufficient_independent_verified_sales");
+  }
+  if (review.trustedForPricing !== true) {
+    pricingReviewReasons.push("scan_pricing_not_trusted");
+  }
+  if (actionPermissions.autoPriceAllowed !== true) {
+    pricingReviewReasons.push("catalog_does_not_allow_auto_price");
+  }
+
+  const uniqueIdentityReasons = Array.from(
+    new Set(identityReviewReasons.filter(Boolean)),
+  );
+  const uniquePricingReasons = Array.from(
+    new Set(pricingReviewReasons.filter(Boolean)),
+  );
+  const identityApproved = uniqueIdentityReasons.length === 0;
   const priceApproved =
-    identityApproved &&
-    review.trustedForPricing === true &&
-    actionPermissions.autoPriceAllowed === true;
+    identityApproved && uniquePricingReasons.length === 0 && verifiedSaleCount >= 2;
+  const reviewReasons = Array.from(
+    new Set([...uniqueIdentityReasons, ...uniquePricingReasons]),
+  );
 
   return {
     identity,
@@ -185,6 +258,9 @@ export function evaluateInstaCompListingGate(params: {
     priceApproved,
     confidence,
     catalogConfirmed,
-    reviewReasons: uniqueReasons,
+    verifiedSaleCount,
+    identityReviewReasons: uniqueIdentityReasons,
+    pricingReviewReasons: uniquePricingReasons,
+    reviewReasons,
   };
 }
