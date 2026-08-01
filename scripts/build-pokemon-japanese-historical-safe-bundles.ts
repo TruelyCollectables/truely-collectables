@@ -683,9 +683,52 @@ function buildBundle(params: {
   if (sourceByLocalId.size !== source.sourceCards.length) {
     throw new Error(`${source.setId} repeats normalized TCGdex local IDs.`);
   }
-  const evidenceBySourceLocalId = new Map<string, NormalizedResolution["evidence"][number]>();
+  const resolvedEvidence = resolution.evidence.map((entry) => {
+    if (resolution.schema !== HISTORICAL_SCHEMA || !clean(entry.numerator)) {
+      return entry;
+    }
+    const sourceCard = sourceByLocalId.get(
+      normalizedLocalId(entry.numerator),
+    );
+    if (!sourceCard) return entry;
+    return {
+      ...entry,
+      origin: "source_number_crosswalk" as const,
+      sourceLocalId: sourceCard.localId,
+      sourcePath: sourceCard.sourcePath,
+      localId: sourceCard.localId,
+    };
+  });
+  const resolvedCounts = {
+    sourceNumber: resolvedEvidence.filter(
+      (entry) => entry.origin === "source_number_crosswalk",
+    ).length,
+    sourceEnergy: resolvedEvidence.filter(
+      (entry) => entry.origin === "source_energy_alias",
+    ).length,
+    numberedAdded: resolvedEvidence.filter(
+      (entry) => entry.origin === "official_numbered_addition",
+    ).length,
+    unnumberedAdded: resolvedEvidence.filter(
+      (entry) => entry.origin === "official_unnumbered_energy_addition",
+    ).length,
+  };
+  if (
+    resolvedCounts.sourceNumber !== resolution.sourceNumberCrosswalkCount ||
+    resolvedCounts.sourceEnergy !== resolution.sourceEnergyAliasCount ||
+    resolvedCounts.numberedAdded !== resolution.numberedAddedCardCount ||
+    resolvedCounts.unnumberedAdded !== resolution.unnumberedAddedCardCount
+  ) {
+    throw new Error(
+      `${source.setId} resolved evidence origins do not match receipt counts.`,
+    );
+  }
+  const evidenceBySourceLocalId = new Map<
+    string,
+    NormalizedResolution["evidence"][number]
+  >();
   const officialCardIds = new Set<string>();
-  for (const entry of resolution.evidence) {
+  for (const entry of resolvedEvidence) {
     if (
       !clean(entry.cardID) ||
       !clean(entry.name) ||
@@ -695,7 +738,9 @@ function buildBundle(params: {
       ) ||
       officialCardIds.has(clean(entry.cardID))
     ) {
-      throw new Error(`${source.setId} contains invalid or duplicate official evidence.`);
+      throw new Error(
+        `${source.setId} contains invalid or duplicate official evidence.`,
+      );
     }
     officialCardIds.add(clean(entry.cardID));
     if (entry.origin.startsWith("source_")) {
@@ -708,7 +753,7 @@ function buildBundle(params: {
   }
   if (
     evidenceBySourceLocalId.size !== source.sourceCards.length ||
-    resolution.evidence.length !== resolution.officialCardCount
+    resolvedEvidence.length !== resolution.officialCardCount
   ) {
     throw new Error(`${source.setId} resolution evidence is incomplete.`);
   }
@@ -773,7 +818,7 @@ function buildBundle(params: {
     });
   }
 
-  for (const row of resolution.evidence.filter((entry) =>
+  for (const row of resolvedEvidence.filter((entry) =>
     entry.origin.startsWith("official_"),
   )) {
     const bundleCardId = `pokemon-card-${source.setId}-${row.cardID}`;
@@ -1016,7 +1061,7 @@ async function main() {
     sourceDirectory,
     sourceCommit: buildReceipt.sourceCommit,
     buildReceipt: buildReceiptPath,
-    resolutionReceipts: resolutionPaths.map(resolve),
+    resolutionReceipts: resolutionPaths.map((entry) => resolve(entry)),
     outputDirectory,
     requestedSets: targets,
     attemptedSets: rows.length,
