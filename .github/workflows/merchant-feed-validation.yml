@@ -35,3 +35,7 @@ jobs:
 
       - name: Build
         run: npm run build:isolated
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: build-placeholder-service-role-key
