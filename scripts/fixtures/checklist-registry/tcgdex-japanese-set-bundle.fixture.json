@@ -45,7 +45,11 @@
       "regulationMark": "I",
       "dexId": [498],
       "variants": [
-        { "type": "normal", "stamps": [], "languages": [] }
+        { "type": "normal", "stamps": [], "languages": [] },
+        { "type": "normal", "stamps": [], "languages": ["ja"] },
+        { "type": "holo", "foil": "cosmos", "stamps": [], "languages": ["ja"] },
+        { "type": "normal", "subtype": "shadowless", "stamps": ["1st-edition"], "languages": ["ja"] },
+        { "type": "normal", "size": "jumbo", "stamps": [], "languages": ["ja"] }
       ],
       "sourcePath": "data-asia/SV/SV11B-FIXTURE/002.ts"
     },
