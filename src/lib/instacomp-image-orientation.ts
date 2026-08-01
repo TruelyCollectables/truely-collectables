@@ -212,9 +212,7 @@ export async function detectInstaCompSideOrientations(params: {
       backRotation: 0,
       frontConfidence: 0,
       backConfidence: 0,
-      reason: sanitizeInstaCompProviderError(
-        error instanceof Error ? error.message : "Orientation detection failed.",
-      ),
+      reason: sanitizeInstaCompProviderError(error instanceof Error ? error.message : "Orientation detection failed."),
     };
   }
 }
