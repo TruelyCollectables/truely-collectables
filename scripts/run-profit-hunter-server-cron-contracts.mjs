@@ -47,7 +47,7 @@ assert.match(route, /runCycleWithoutLegacyEmail/);
 assert.match(route, /MARKET_INTEL_EMAIL_ENABLED = "false"/);
 assert.match(route, /legacyPlainReportEmailSuppressed: true/);
 assert.match(route, /unchangedContentSuppressed: true/);
-assert.match(route, /sendEmail/);
+assert.match(route, /force: force && allowForcedEmail/);
 assert.match(route, /avoid a duplicate email/);
 
 for (const fragment of [
@@ -61,6 +61,16 @@ for (const fragment of [
   "ranked_shark_email_fingerprint",
   "getMarketIntelDeliveryConfig",
   "offerAvailable(candidate.buyingOptions)",
+  "identity_proof_status",
+  "identity_proof_operator_confirmed",
+  "front_image_confirmed",
+  "back_image_confirmed",
+  "checklist_confirmed",
+  "card_number_confirmed",
+  "parallel_confirmed",
+  "no_conflicting_evidence",
+  "explicitVisiblePremiumPhotoEvidence",
+  "scoredRowsQuarantinedForIdentityProof",
 ]) {
   assert.ok(
     rankedEmail.includes(fragment),
@@ -71,6 +81,16 @@ assert.match(
   rankedEmail,
   /normalized\(option\) === "best offer"/,
   "Make Offer must be proven from the exact listing buying options.",
+);
+assert.match(
+  rankedEmail,
+  /status === "verified_exact" && missing\.length === 0/,
+  "Verified Shark Bites must fail closed unless the complete Identity Proof Gate passes.",
+);
+assert.match(
+  rankedEmail,
+  /lotSignal\(row\) &&[\s\S]{0,100}row\.visiblePremiumPhotoEvidence/,
+  "Potental Hidden Gems in Photo must require explicit visible-premium photo evidence.",
 );
 assert.match(
   rankedEmail,
@@ -124,6 +144,8 @@ console.log(
       rankedEmailFormat: "ranked_clickable_shark_list_v1",
       legacyPlainReportEmailSuppressed: true,
       unchangedRankedEmailSuppressed: true,
+      verifiedEmailRowsRequireIdentityProofGate: true,
+      potentialHiddenGemsRequireVisiblePhotoEvidence: true,
       offerRequiresExactBestOfferEvidence: true,
       hotWatchListingStatusColumn: "listing_status",
       legacyChatGptNetworkDependency: false,
