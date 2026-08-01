@@ -1,0 +1,89 @@
+name: Verify permanent card intake workflow
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      ADMIN_SESSION_SECRET: build-only-admin-session-secret-with-at-least-32-characters
+      EBAY_CLIENT_ID: build-only-placeholder-client-id
+      EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+      EBAY_ENVIRONMENT: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/permanent-card-intake-workflow
+
+      - name: Link permanent card workflow from admin and runtime smoke
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          admin = Path('src/app/admin/page.tsx')
+          text = admin.read_text()
+          replacements = {
+              '      href: "/list",\n      eyebrow: "Listing desk",\n      title: "Upload, InstaComp™, edit, and list cards",':
+              '      href: "/admin/pending-card-import",\n      eyebrow: "Card intake",\n      title: "Import, track, InstaComp 2.0, and list cards",',
+              '        "Use the simplified photo-first workspace to scan selected cards, edit every field and quantity, then publish one, several, or all selected cards.",':
+              '        "Use the permanent card workspace to import front/back packages, watch live progress, review pending drafts, run InstaComp 2.0, and publish selected cards.",',
+              '      cta: "Open List Cards",':
+              '      cta: "Open Card Intake",',
+              '        { href: "/list", label: "List Cards" },':
+              '        { href: "/admin/pending-card-import", label: "Card Intake & Listing" },',
+          }
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(f'Admin page marker not found: {old[:80]}')
+              text = text.replace(old, new, 1)
+          admin.write_text(text)
+
+          smoke = Path('scripts/smoke-admin-runtime.mjs')
+          smoke_text = smoke.read_text()
+          marker = '''  {
+            path: "/admin/instacomp/v2",
+            auth: true,
+            expectedText: "InstaComp™ 2.0",
+          },'''
+          addition = marker + '''
+          {
+            path: "/admin/pending-card-import",
+            auth: true,
+            expectedText: "Card Intake & Listing",
+          },'''
+          if '/admin/pending-card-import' not in smoke_text:
+              if marker not in smoke_text:
+                  raise SystemExit('Runtime smoke insertion marker not found.')
+              smoke_text = smoke_text.replace(marker, addition, 1)
+          smoke.write_text(smoke_text)
+          PY
+
+      - name: Commit generated admin integration
+        run: |
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add src/app/admin/page.tsx scripts/smoke-admin-runtime.mjs
+            git commit -m "Link permanent Card Intake workflow from admin"
+            git push origin HEAD:agent/permanent-card-intake-workflow
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: node scripts/run-simplified-list-route-audit.mjs
+      - run: npm run verify:admin-dashboard
+      - run: npm run build
