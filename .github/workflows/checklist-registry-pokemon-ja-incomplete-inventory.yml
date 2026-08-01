@@ -68,11 +68,14 @@ jobs:
           node - <<'NODE'
           const receipt = require('./.codex-run/tcgdex-ja-build-receipt.json');
           const expectedCommit = process.env.TCGDEX_SOURCE_COMMIT;
+          const japaneseSets = receipt.builtSets + receipt.incompleteJapaneseSets;
           const checks = {
             sourceCommit: receipt.sourceCommit === expectedCommit,
-            discoveredSetDefinitions: receipt.discoveredSetDefinitions === 120,
+            discoveredSetDefinitions: receipt.discoveredSetDefinitions === 168,
+            japaneseSets: japaneseSets === 120,
             builtSets: receipt.builtSets === 98,
             incompleteJapaneseSets: receipt.incompleteJapaneseSets === 22,
+            skippedNonJapaneseSets: receipt.skippedNonJapaneseSets === 48,
             missingJapaneseCardNames:
               receipt.totals?.missingJapaneseCardNames === 1799,
             failedSets: receipt.failedSets === 0,
@@ -80,8 +83,10 @@ jobs:
           console.log(JSON.stringify({ checks, receipt: {
             sourceCommit: receipt.sourceCommit,
             discoveredSetDefinitions: receipt.discoveredSetDefinitions,
+            japaneseSets,
             builtSets: receipt.builtSets,
             incompleteJapaneseSets: receipt.incompleteJapaneseSets,
+            skippedNonJapaneseSets: receipt.skippedNonJapaneseSets,
             missingJapaneseCardNames: receipt.totals?.missingJapaneseCardNames,
             failedSets: receipt.failedSets,
           } }, null, 2));
