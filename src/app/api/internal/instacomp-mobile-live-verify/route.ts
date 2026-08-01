@@ -8,6 +8,8 @@ import {
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+const CARD_INTAKE_ROUTE = "/admin/pending-card-import";
+
 function safeEqual(left: string, right: string) {
   const leftBuffer = Buffer.from(left);
   const rightBuffer = Buffer.from(right);
@@ -48,24 +50,17 @@ async function fetchPage(
   };
 }
 
-function redirectsToList(status: number, location: string | null) {
+function redirectsToRoute(
+  status: number,
+  location: string | null,
+  expectedRoute: string,
+) {
   return (
     [302, 303, 307, 308].includes(status) &&
     Boolean(
       location &&
-        new URL(location, "https://runtime.invalid").pathname === "/list",
+        new URL(location, "https://runtime.invalid").pathname === expectedRoute,
     )
-  );
-}
-
-function rendersListWorkspace(status: number, body: string) {
-  return (
-    status === 200 &&
-    body.includes("List Cards") &&
-    body.includes("Upload photos") &&
-    body.includes("Select and InstaComp") &&
-    body.includes("Review and list selected") &&
-    !body.includes("/admin/login")
   );
 }
 
@@ -88,6 +83,17 @@ function rendersProtectedWorkspace(
     requiredText.every((text) => page.body.includes(text)) &&
     !page.body.includes("/admin/login")
   );
+}
+
+function rendersCardIntakeWorkspace(
+  page: Awaited<ReturnType<typeof fetchPage>>,
+) {
+  return rendersProtectedWorkspace(page, [
+    "Permanent owner card workflow",
+    "Card Intake &amp; Listing",
+    "Run InstaComp 2.0",
+    "Review and distribute",
+  ]);
 }
 
 export async function GET(request: Request) {
@@ -117,36 +123,40 @@ export async function GET(request: Request) {
       mobile,
       decisionWorkbench,
       checklistRegistry,
-      legacyCardStudio,
-      listWorkspace,
+      cardIntake,
+      listHandoff,
       listBoundary,
     ] = await Promise.all([
       fetchPage(origin, "/admin", sessionValue),
       fetchPage(origin, "/admin/instacomp/mobile", sessionValue),
       fetchPage(origin, "/admin/instacomp/v2", sessionValue),
       fetchPage(origin, "/admin/instacomp/checklists", sessionValue),
-      fetchPage(origin, "/admin/products/new", sessionValue),
+      fetchPage(origin, CARD_INTAKE_ROUTE, sessionValue),
       fetchPage(origin, "/list", sessionValue),
       fetchPage(origin, "/list"),
     ]);
 
+    const cardIntakeReady = rendersCardIntakeWorkspace(cardIntake);
     const checks = {
-      adminDashboard:
-        rendersProtectedWorkspace(admin, [
-          "InstaComp Mobile",
-          "InstaComp 2.0",
-          "Checklist Registry",
-          "List Cards",
-        ]),
+      adminDashboard: rendersProtectedWorkspace(admin, [
+        "InstaComp Mobile",
+        "InstaComp 2.0",
+        "Checklist Registry",
+        "Card Intake &amp; Listing",
+      ]),
       instacompMobile:
         rendersProtectedWorkspace(mobile, [
           "InstaComp™ 2.0",
           "Built for portrait mode",
           "Scan one card",
           "Run InstaComp 2.0",
-          "Confirm &amp; Teach InstaComp",
-          "List Cards",
-        ]) && mobile.body.includes('href="/list"'),
+          "Decision Engine",
+          "Card Intake &amp; Listing",
+        ]) &&
+        mobile.body.includes('href="/admin/pending-card-import"') &&
+        mobile.body.includes(
+          'data-instacomp-listing-workspace="/admin/pending-card-import"',
+        ),
       decisionWorkbench: rendersProtectedWorkspace(decisionWorkbench, [
         "InstaComp™ 2.0",
         "Checklist Registry",
@@ -158,17 +168,17 @@ export async function GET(request: Request) {
         "Originals stay private",
         "Exact identities",
       ]),
-      learningControls:
-        mobile.body.includes("Every successful scan is saved as an observation") &&
-        mobile.body.includes("Needs More Info") &&
-        mobile.body.includes("Mark Scan Wrong"),
-      cardStudio:
-        redirectsToList(legacyCardStudio.status, legacyCardStudio.location) ||
-        rendersListWorkspace(legacyCardStudio.status, legacyCardStudio.body),
-      listWorkspace: rendersListWorkspace(
-        listWorkspace.status,
-        listWorkspace.body,
+      learningControls: mobile.body.includes(
+        'data-instacomp-learning-controls="confirm-reject-needs-more-info"',
       ),
+      cardStudio: cardIntakeReady,
+      listWorkspace:
+        cardIntakeReady &&
+        redirectsToRoute(
+          listHandoff.status,
+          listHandoff.location,
+          CARD_INTAKE_ROUTE,
+        ),
       listPasswordBoundary: redirectsToListLogin(
         listBoundary.status,
         listBoundary.location,
@@ -208,12 +218,16 @@ export async function GET(request: Request) {
             location: checklistRegistry.location,
           },
           cardStudio: {
-            status: legacyCardStudio.status,
-            location: legacyCardStudio.location,
+            status: cardIntake.status,
+            location: cardIntake.location,
+          },
+          cardIntake: {
+            status: cardIntake.status,
+            location: cardIntake.location,
           },
           listWorkspace: {
-            status: listWorkspace.status,
-            location: listWorkspace.location,
+            status: listHandoff.status,
+            location: listHandoff.location,
           },
           listBoundary: {
             status: listBoundary.status,
