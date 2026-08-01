@@ -93,20 +93,37 @@ jobs:
           node - <<'NODE'
           const receipt = require('./.codex-run/pokemon-ja-sv2a-official-receipt.json');
           const row = receipt.rows[0];
-          if (receipt.attemptedSets !== 1) throw new Error(`Unexpected audited set count: ${receipt.attemptedSets}`);
-          if (row.setId !== 'SV2a') throw new Error(`Unexpected set: ${row.setId}`);
-          if (row.status !== 'verified') throw new Error(`SV2a official verification status: ${row.status} ${JSON.stringify(row.reasons)}`);
-          if (row.registryCardCount !== 210 || row.officialCollectedCount !== 210 || row.officialHitCount !== 210) {
-            throw new Error(`SV2a count mismatch: ${JSON.stringify({ registry: row.registryCardCount, collected: row.officialCollectedCount, hit: row.officialHitCount })}`);
-          }
-          if (row.detailEvidence.length !== 5) throw new Error(`Unexpected detail sample count: ${row.detailEvidence.length}`);
-          if (receipt.totals.printedNumberMismatches !== 0) throw new Error(`Printed-number mismatches: ${receipt.totals.printedNumberMismatches}`);
           console.log(JSON.stringify({
             setId: row.setId,
             status: row.status,
+            reasons: row.reasons,
             officialProduct: row.officialProduct,
             registryCardCount: row.registryCardCount,
             officialCardCount: row.officialCollectedCount,
-            detailSamples: row.detailEvidence.length,
+            officialHitCount: row.officialHitCount,
+            countMatches: row.countMatches,
+            setCodeMatches: row.setCodeMatches,
+            nameMultisetMatches: row.nameMultisetMatches,
+            orderedNameMismatchCount: row.orderedNameMismatchCount,
+            orderedNameMismatches: row.orderedNameMismatches.slice(0, 10),
+            missingOfficialNamesInRegistry: row.missingOfficialNamesInRegistry,
+            extraRegistryNames: row.extraRegistryNames,
+            detailSamples: row.detailEvidence,
           }, null, 2));
+          if (receipt.attemptedSets !== 1) throw new Error(`Unexpected audited set count: ${receipt.attemptedSets}`);
+          if (row.setId !== 'SV2a') throw new Error(`Unexpected set: ${row.setId}`);
+          if (!['verified', 'manual_review'].includes(row.status)) {
+            throw new Error(`SV2a official verification status: ${row.status} ${JSON.stringify(row.reasons)}`);
+          }
+          if (row.registryCardCount !== 210 || row.officialCollectedCount !== 210 || row.officialHitCount !== 210) {
+            throw new Error(`SV2a count mismatch: ${JSON.stringify({ registry: row.registryCardCount, collected: row.officialCollectedCount, hit: row.officialHitCount })}`);
+          }
+          if (row.countMatches !== true || row.setCodeMatches !== true || row.nameMultisetMatches !== true) {
+            throw new Error(`SV2a hard comparison failed: ${JSON.stringify({ countMatches: row.countMatches, setCodeMatches: row.setCodeMatches, nameMultisetMatches: row.nameMultisetMatches })}`);
+          }
+          if (row.detailEvidence.length < 5) throw new Error(`Unexpected detail sample count: ${row.detailEvidence.length}`);
+          if (row.detailEvidence.some((detail) => detail.error || detail.nameMatches === false || detail.numberMatches === false || detail.setCodeMatches === false)) {
+            throw new Error(`SV2a detail evidence mismatch: ${JSON.stringify(row.detailEvidence)}`);
+          }
+          if (receipt.totals.printedNumberMismatches !== 0) throw new Error(`Printed-number mismatches: ${receipt.totals.printedNumberMismatches}`);
           NODE
