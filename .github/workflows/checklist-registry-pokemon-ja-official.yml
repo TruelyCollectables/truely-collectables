@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - "scripts/verify-pokemon-japanese-official-sources.ts"
+      - "scripts/finalize-pokemon-japanese-official-verification.ts"
+      - "scripts/run-pokemon-japanese-official-verification.ts"
       - "scripts/build-tcgdex-japanese-registry-bundles.ts"
       - "src/lib/checklist-registry/tcgdex-japanese.ts"
       - ".github/workflows/checklist-registry-pokemon-ja-official.yml"
@@ -12,6 +14,8 @@ on:
       - main
     paths:
       - "scripts/verify-pokemon-japanese-official-sources.ts"
+      - "scripts/finalize-pokemon-japanese-official-verification.ts"
+      - "scripts/run-pokemon-japanese-official-verification.ts"
       - "scripts/build-tcgdex-japanese-registry-bundles.ts"
       - "src/lib/checklist-registry/tcgdex-japanese.ts"
       - ".github/workflows/checklist-registry-pokemon-ja-official.yml"
@@ -39,7 +43,11 @@ jobs:
         run: npm ci
 
       - name: Lint official-source verifier
-        run: npx eslint scripts/verify-pokemon-japanese-official-sources.ts
+        run: >-
+          npx eslint
+          scripts/verify-pokemon-japanese-official-sources.ts
+          scripts/finalize-pokemon-japanese-official-verification.ts
+          scripts/run-pokemon-japanese-official-verification.ts
 
       - name: Check out current TCGdex source
         run: >-
@@ -56,7 +64,7 @@ jobs:
 
       - name: Resolve official mappings for every complete Japanese bundle
         run: >-
-          npx tsx scripts/verify-pokemon-japanese-official-sources.ts
+          npx tsx scripts/run-pokemon-japanese-official-verification.ts
           .codex-run/tcgdex-ja-registry-bundles
           --mapping-only
           --delay-ms 50
@@ -80,7 +88,7 @@ jobs:
 
       - name: Verify Pokémon Card 151 against live official API and detail pages
         run: >-
-          npx tsx scripts/verify-pokemon-japanese-official-sources.ts
+          npx tsx scripts/run-pokemon-japanese-official-verification.ts
           .codex-run/tcgdex-ja-registry-bundles
           --set SV2a
           --delay-ms 100
