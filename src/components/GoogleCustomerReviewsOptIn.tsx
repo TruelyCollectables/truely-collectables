@@ -17,6 +17,11 @@ type GoogleCustomerReviewsResponse = {
   config?: GoogleCustomerReviewsOptInConfig;
 };
 
+type LoadedGoogleCustomerReviewsConfig = {
+  sessionId: string;
+  config: GoogleCustomerReviewsOptInConfig;
+};
+
 declare global {
   interface Window {
     gapi?: GooglePlatformApi;
@@ -32,12 +37,13 @@ const GOOGLE_PLATFORM_SCRIPT_URL =
 export default function GoogleCustomerReviewsOptIn() {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("session_id")?.trim() || "";
-  const [config, setConfig] =
-    useState<GoogleCustomerReviewsOptInConfig | null>(null);
+  const [loadedConfig, setLoadedConfig] =
+    useState<LoadedGoogleCustomerReviewsConfig | null>(null);
+  const config =
+    loadedConfig?.sessionId === sessionId ? loadedConfig.config : null;
 
   useEffect(() => {
     const controller = new AbortController();
-    setConfig(null);
 
     if (!sessionId.startsWith("cs_live_")) {
       return () => controller.abort();
@@ -57,7 +63,7 @@ export default function GoogleCustomerReviewsOptIn() {
       })
       .then((payload) => {
         if (!controller.signal.aborted && payload?.config) {
-          setConfig(payload.config);
+          setLoadedConfig({ sessionId, config: payload.config });
         }
       })
       .catch(() => {
