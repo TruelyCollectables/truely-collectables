@@ -11,6 +11,7 @@ import {
   benchmarkTitleHasExpectedSerialRun,
   benchmarkTitleHasExpectedYear,
 } from "../src/lib/instacomp-benchmark-title";
+import { cardScanFrameInsets } from "../src/lib/card-scan-frame-policy";
 import { detectInstaCompImageMime } from "../src/lib/instacomp-image-safety";
 import {
   normalizeInstaCompRotation,
@@ -326,8 +327,9 @@ async function runImageSafetyRegressions() {
     rotation: 90,
   });
   const rotatedMetadata = await sharp(rotatedPng).metadata();
-  assert.equal(rotatedMetadata.width, 1);
-  assert.equal(rotatedMetadata.height, 2);
+  const frame = cardScanFrameInsets(1, 2);
+  assert.equal(rotatedMetadata.width, 1 + frame.left + frame.right);
+  assert.equal(rotatedMetadata.height, 2 + frame.top + frame.bottom);
 }
 
 runImageSafetyRegressions()
