@@ -339,7 +339,7 @@ export function parseTcgdexJapaneseSetBundle(
   }
 
   const seriesId = requireText(bundle.series.id, "series.id");
-  const seriesName = requireText(bundle.series.name, "series.name");
+  requireText(bundle.series.name, "series.name");
   const setId = requireText(bundle.set.id, "set.id");
   const setName = requireText(bundle.set.name, "set.name");
   const releaseDate = requireText(bundle.set.releaseDate, "set.releaseDate");
