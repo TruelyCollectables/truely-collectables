@@ -25,6 +25,8 @@ export default function MobileInstaCompPage() {
       data-instacomp-mobile-revision="portrait-v2"
       data-live-verification="final-pass"
       data-instacomp-version="2.0"
+      data-instacomp-learning-controls="confirm-reject-needs-more-info"
+      data-instacomp-listing-workspace="/admin/pending-card-import"
       className="min-h-dvh w-full max-w-full overflow-x-hidden bg-neutral-100 pb-[max(1rem,env(safe-area-inset-bottom))] text-neutral-950"
     >
       <header className="sticky top-0 z-50 border-b border-white/10 bg-neutral-950/95 px-3 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] text-white shadow-lg backdrop-blur">
@@ -61,8 +63,8 @@ export default function MobileInstaCompPage() {
         <MobileInstaCompScanner />
 
         <nav className="mt-4 grid grid-cols-2 gap-3" aria-label="InstaComp shortcuts">
-          <Link href="/list" className="rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-center text-sm font-black shadow-sm">
-            List Cards
+          <Link href="/admin/pending-card-import" className="rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-center text-sm font-black shadow-sm">
+            Card Intake &amp; Listing
           </Link>
           <Link href="/admin/products" className="rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-center text-sm font-black shadow-sm">
             Products
