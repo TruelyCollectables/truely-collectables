@@ -175,15 +175,6 @@ function dateValue(value: string | null | undefined) {
   return Number.isFinite(time) ? time : null;
 }
 
-function displayedCompPrice(comp: InstaCompV2Comp) {
-  const price = positiveMoney(comp.price);
-  if (price !== null) return price;
-  const item = positiveMoney(comp.itemPrice);
-  if (item === null) return null;
-  const shipping = nonNegative(comp.shippingPrice, 0);
-  return rounded(item + shipping);
-}
-
 function normalizedGradeCompany(value: unknown) {
   return String(value || "")
     .trim()

@@ -3064,20 +3064,6 @@ function buildSourceCoverage(
   ];
 }
 
-function isMarketValueComp(comp: InstaCompComp) {
-  return comp.sourceCategory !== "reference";
-}
-
-function isExactListingGuidanceComp(comp: InstaCompComp) {
-  return (
-    (comp.sourceCategory === "sold" || comp.sourceCategory === "marketplace") &&
-    comp.price > 0 &&
-    !comp.flags.includes("excluded") &&
-    !comp.flags.includes("guidance comp") &&
-    !comp.flags.includes("not used for pricing")
-  );
-}
-
 function isRemainingCardComp(comp: InstaCompComp) {
   return (
     comp.sourceCategory === "marketplace" ||
@@ -3822,10 +3808,8 @@ export async function POST(req: NextRequest) {
       stats,
       note:
         scanReview.trustedForPricing
-          ? "Market value, high, low, and sold ranges are calculated from included live matches only. Registered sources remain visible until provider access is configured."
-          : canUseListingGuidance
-            ? "InstaComp™ found exact active marketplace listing guidance. Sold comps may still be unavailable, so review the row before trusting market value, draft title, activation, or comps."
-          : "InstaComp™ found provider candidates, but exact card identity/pricing evidence is not strong enough. Review the row before trusting market value, draft title, activation, or comps.",
+          ? "Transactional value is based only on independently verified completed sales. Current asks, guide prices, and internal inventory remain display-only."
+          : "InstaComp™ found provider candidates, but identity review or insufficient independently verified completed sales prevents transaction value, buy calls, ROI, and auto-pricing.",
       ...(persistentContext
         ? {
             queue: {
