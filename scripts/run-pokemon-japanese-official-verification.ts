@@ -85,6 +85,10 @@ function main() {
     return;
   }
 
+  if (args.includes("--mapping-only")) {
+    return;
+  }
+
   const correctionArgs = [
     bundleDirectory,
     "--receipt",
