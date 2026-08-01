@@ -163,12 +163,13 @@ function extractBundle(
   return candidate as PokemonJapaneseIncompleteReconciledBundle;
 }
 
-function sourceCardId(sourceNotes: string | null) {
+function bundleCardIdFromNotes(sourceNotes: string | null) {
   try {
     const parsed = JSON.parse(sourceNotes || "{}") as {
       sourceCardId?: unknown;
+      officialBundleCardId?: unknown;
     };
-    return clean(parsed.sourceCardId);
+    return clean(parsed.officialBundleCardId || parsed.sourceCardId);
   } catch {
     return "";
   }
@@ -506,7 +507,7 @@ export function parsePokemonJapaneseIncompleteReconciledBundle(
   let preservedOfficialMatches = 0;
 
   for (const card of basePlan.cards) {
-    const bundleCardId = sourceCardId(card.sourceNotes);
+    const bundleCardId = bundleCardIdFromNotes(card.sourceNotes);
     const evidence = evidenceByBundleCardId.get(bundleCardId);
     if (!evidence) continue;
     const existing = sourceNotesObject(card.sourceNotes);
