@@ -4,5 +4,5 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export default function LegacyAddProductPage() {
-  redirect("/list");
+  redirect("/admin/pending-card-import");
 }
