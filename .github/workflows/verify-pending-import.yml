@@ -23,22 +23,12 @@ jobs:
 
           path = Path('src/app/admin/pending-card-import/PendingCardImportClient.tsx')
           text = path.read_text()
-          marker = '''    if (missingFronts.length) {
-              setError(`Cannot start: ${missingFronts.length} card front image${missingFronts.length === 1 ? " is" : "s are"} missing.`);
-              return;
-            }
-
-            setWorking(true);'''
-          replacement = '''    if (missingFronts.length) {
-              setError(`Cannot start: ${missingFronts.length} card front image${missingFronts.length === 1 ? " is" : "s are"} missing.`);
-              return;
-            }
-
-            const activeManifest = manifest;
-
-            setWorking(true);'''
-          if marker in text:
-              text = text.replace(marker, replacement, 1)
+          if 'const activeManifest = manifest;' not in text:
+              text = text.replace(
+                  '    setWorking(true);',
+                  '    const activeManifest = manifest;\n\n    setWorking(true);',
+                  1,
+              )
           text = text.replace('batch_id: manifest.batch_id', 'batch_id: activeManifest.batch_id')
           text = text.replace('formData.append("batchId", manifest.batch_id)', 'formData.append("batchId", activeManifest.batch_id)')
           path.write_text(text)
