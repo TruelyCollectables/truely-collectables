@@ -1,14 +1,6 @@
 name: Query Pending Receiving
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - src/app/api/internal/pending-receiving/route.js
-      - scripts/query-pending-receiving.mjs
-      - .github/workflows/query-pending-receiving.yml
-      - ops_pending_receiving_audit_20260731.txt
   pull_request:
     branches:
       - main
@@ -16,10 +8,10 @@ on:
       - ops_pending_receiving_pr_trigger.txt
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: query-pending-receiving-production
+  group: query-pending-receiving-${{ github.run_id }}
   cancel-in-progress: false
 
 jobs:
@@ -102,20 +94,3 @@ jobs:
             audit/pending-receiving-current.md
           if-no-files-found: error
           retention-days: 1
-
-      - name: Commit read-only audit receipt
-        if: github.event_name == 'push'
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin main
-          git rebase origin/main
-          git add audit/pending-receiving-current.json audit/pending-receiving-current.md
-          if git diff --cached --quiet; then
-            echo "Audit receipt unchanged."
-            exit 0
-          fi
-          git commit -m "Record current pending receiving list [skip ci]"
-          git push origin HEAD:main
