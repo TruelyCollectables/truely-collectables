@@ -12,7 +12,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-instacomp-mobile-live
+  group: instacomp-production-secret-verifier
   cancel-in-progress: false
 
 jobs:
@@ -95,7 +95,20 @@ jobs:
           const fs = require('node:fs');
           const payload = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           if (!payload.ok) throw new Error(payload.error || 'Runtime verification failed');
-          const required = ['adminDashboard','instacompMobile','cardStudio','noAutoPilot','noBatchControls','portraitRevision','compSource'];
+          const required = [
+            'adminDashboard',
+            'instacompMobile',
+            'decisionWorkbench',
+            'checklistRegistry',
+            'learningControls',
+            'cardStudio',
+            'listWorkspace',
+            'listPasswordBoundary',
+            'noAutoPilot',
+            'noBatchControls',
+            'portraitRevision',
+            'compSource',
+          ];
           for (const key of required) {
             if (payload.checks?.[key] !== true) throw new Error(`Missing live check: ${key}`);
           }
@@ -157,10 +170,13 @@ jobs:
           - Clean Production deployment: ${{ steps.clean_deploy.outputs.url }}
           - Admin dashboard: PASS
           - InstaComp Mobile portrait layout: PASS
+          - Decision workbench: PASS
+          - Checklist Registry: PASS
+          - Learning controls: PASS
+          - Card Intake and list boundary: PASS
           - Auto-Pilot absent: PASS
           - Desktop batch controls absent: PASS
           - Sold comps/current listings/approximate total source: PASS
-          - Card Studio: PASS
           - Temporary verification secret removal explicitly verified: PASS
           EOF
           git config user.name "github-actions[bot]"
