@@ -12,6 +12,7 @@ on:
       - "scripts/import-pokemon-tcg-registry-bundles.ts"
       - "scripts/run-checklist-registry-pokemon-simulations.ts"
       - "scripts/run-checklist-registry-pokemon-punctuation-simulations.ts"
+      - "scripts/run-checklist-registry-pokemon-card-key-simulations.ts"
       - "scripts/fixtures/checklist-registry/pokemon-tcg-data-set-bundle.fixture.json"
       - ".github/workflows/checklist-registry-pokemon.yml"
   push:
@@ -27,6 +28,7 @@ on:
       - "scripts/import-pokemon-tcg-registry-bundles.ts"
       - "scripts/run-checklist-registry-pokemon-simulations.ts"
       - "scripts/run-checklist-registry-pokemon-punctuation-simulations.ts"
+      - "scripts/run-checklist-registry-pokemon-card-key-simulations.ts"
       - "scripts/fixtures/checklist-registry/pokemon-tcg-data-set-bundle.fixture.json"
       - ".github/workflows/checklist-registry-pokemon.yml"
   workflow_dispatch:
@@ -60,6 +62,9 @@ jobs:
 
       - name: Preserve punctuation card source IDs
         run: npx tsx scripts/run-checklist-registry-pokemon-punctuation-simulations.ts
+
+      - name: Disambiguate normalized database card keys
+        run: npx tsx scripts/run-checklist-registry-pokemon-card-key-simulations.ts
 
       - name: Validate bulk import command without database writes
         run: >-
