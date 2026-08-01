@@ -3,7 +3,7 @@
   "git": {
     "deploymentEnabled": {
       "*": false,
-      "main": false
+      "main": true
     }
   },
   "crons": [
@@ -57,7 +57,7 @@
     },
     {
       "path": "/api/cron/seller-ebay-reconciliation",
-      "schedule": "7,22,37,52 * * * *"
+      "schedule": "7,22,37,52 * * *"
     },
     {
       "path": "/api/cron/sold-collectible-archive",
