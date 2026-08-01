@@ -11,8 +11,9 @@ import { configuredSiteOrigin } from "../lib/site-origin";
 import "./globals.css";
 import AccountCardIntakeShortcut from "./components/AccountCardIntakeShortcut";
 import AdminInstaCompMobileShortcut from "./components/AdminInstaCompMobileShortcut";
-import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
+import Navbar from "./components/Navbar";
+import WholeCardUploadGuard from "./components/WholeCardUploadGuard";
 
 const siteOrigin = configuredSiteOrigin();
 
@@ -84,6 +85,7 @@ export default function RootLayout({
             __html: JSON.stringify(organizationJsonLd).replaceAll("<", "\\u003c"),
           }}
         />
+        <WholeCardUploadGuard />
         <Navbar />
         <AccountCardIntakeShortcut />
         <AdminInstaCompMobileShortcut />
