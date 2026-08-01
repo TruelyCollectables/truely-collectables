@@ -1,5 +1,6 @@
 import Link from "next/link";
 import PendingCardImportClient from "./PendingCardImportClient";
+import SimpleListingQueue from "../../list/SimpleListingQueue";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -12,21 +13,21 @@ export default function PendingCardImportPage() {
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.22em] text-yellow-300">
-                Private owner inventory intake
+                Permanent owner card workflow
               </p>
               <h1 className="mt-3 text-4xl font-black tracking-tight sm:text-6xl">
-                Pending InstaComp 2.0 Import
+                Card Intake & Listing
               </h1>
               <p className="mt-3 max-w-4xl text-lg font-semibold leading-8 text-neutral-300">
-                Import the 203-card scan package into Truely Collectables as unpublished drafts with front/back images, quantity 1, private acquisition cost, and a $0 price until InstaComp 2.0 review.
+                Import any future front/back card package as unpublished drafts, watch live progress, review the pending queue, run InstaComp 2.0, set pricing, and publish selected cards from one workflow.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
               <Link
-                href="/list"
+                href="/admin/instacomp/v2"
                 className="inline-flex min-h-12 items-center justify-center rounded-xl bg-yellow-300 px-5 py-3 font-black text-neutral-950"
               >
-                Listing queue
+                InstaComp 2.0
               </Link>
               <Link
                 href="/admin"
@@ -39,9 +40,9 @@ export default function PendingCardImportPage() {
 
           <div className="mt-6 grid gap-3 sm:grid-cols-3">
             {[
-              ["1", "Unzip the staging package"],
-              ["2", "Choose the extracted folder"],
-              ["3", "Import drafts and open the queue"],
+              ["1", "Load any card package"],
+              ["2", "Watch live import status"],
+              ["3", "Review, price, and list"],
             ].map(([number, label]) => (
               <div key={number} className="rounded-2xl border border-white/20 bg-white/10 p-4">
                 <span className="text-2xl font-black text-yellow-300">{number}</span>
@@ -51,8 +52,9 @@ export default function PendingCardImportPage() {
           </div>
         </header>
 
-        <div className="mt-8">
+        <div className="mt-8 grid gap-8">
           <PendingCardImportClient />
+          <SimpleListingQueue />
         </div>
       </div>
     </main>
