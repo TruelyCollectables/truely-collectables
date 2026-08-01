@@ -185,9 +185,12 @@ export async function POST(request: NextRequest) {
       return coreResponse;
     }
 
-    const payload = hardenInstaCompMarketPayload(rawPayload);
+    const payload = hardenInstaCompMarketPayload(rawPayload) as Record<
+      string,
+      any
+    >;
     const learning = await saveInstaCompLearningCache({
-      scanId: String(payload.scanId),
+      scanId: String(rawPayload.scanId),
       frontHash,
       backHash,
       payload,
@@ -197,6 +200,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         ...learning.payload,
+        scanId: String(rawPayload.scanId),
         knowledge: {
           mode:
             learning.registryMatch &&
