@@ -1,0 +1,89 @@
+name: Patch Japanese Incomplete Adapter
+
+on:
+  push:
+    branches:
+      - agent/pokemon-ja-phase4-ready-bundles
+    paths:
+      - ".github/workflows/patch-pokemon-ja-incomplete-adapter.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pokemon-ja-phase4-ready-bundles
+          fetch-depth: 0
+
+      - name: Patch official addition lookup and legacy evidence mapping
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/lib/checklist-registry/pokemon-japanese-incomplete-reconciled.ts')
+          text = path.read_text()
+
+          old_function = '''function sourceCardId(sourceNotes: string | null) {
+            try {
+              const parsed = JSON.parse(sourceNotes || "{}") as {
+                sourceCardId?: unknown;
+              };
+              return clean(parsed.sourceCardId);
+            } catch {
+              return "";
+            }
+          }
+          '''
+          new_function = '''function bundleCardIdFromNotes(sourceNotes: string | null) {
+            try {
+              const parsed = JSON.parse(sourceNotes || "{}") as {
+                sourceCardId?: unknown;
+                officialBundleCardId?: unknown;
+              };
+              return clean(parsed.officialBundleCardId || parsed.sourceCardId);
+            } catch {
+              return "";
+            }
+          }
+          '''
+          if old_function not in text:
+              raise SystemExit('sourceCardId function anchor not found')
+          text = text.replace(old_function, new_function, 1)
+
+          old_map = '''      cards: additions.map(({ origin: _origin, sourcePath: _path, ...row }) =>
+                row,
+              ),'''
+          new_map = '''      cards: additions.map((row) => ({
+                bundleCardId: row.bundleCardId,
+                cardID: row.cardID,
+                name: row.name,
+                setCode: row.setCode,
+                numerator: row.numerator,
+                denominator: row.denominator,
+                detailUrl: row.detailUrl,
+              })),'''
+          if old_map not in text:
+              raise SystemExit('legacy evidence mapping anchor not found')
+          text = text.replace(old_map, new_map, 1)
+
+          old_use = '    const bundleCardId = sourceCardId(card.sourceNotes);'
+          new_use = '    const bundleCardId = bundleCardIdFromNotes(card.sourceNotes);'
+          if old_use not in text:
+              raise SystemExit('sourceCardId usage anchor not found')
+          text = text.replace(old_use, new_use, 1)
+
+          path.write_text(text)
+          PY
+
+      - name: Commit patch
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/checklist-registry/pokemon-japanese-incomplete-reconciled.ts
+          git commit -m "Resolve official addition bundle IDs"
+          git push origin HEAD:agent/pokemon-ja-phase4-ready-bundles
