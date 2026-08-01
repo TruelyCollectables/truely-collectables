@@ -10,6 +10,10 @@ const rankedEmail = readFileSync(
   "src/lib/profit-hunter-ranked-email.js",
   "utf8",
 );
+const rankedEmailState = readFileSync(
+  "src/lib/profit-hunter-ranked-email-state.js",
+  "utf8",
+);
 const hotWatch = readFileSync("src/lib/market-intel-hot-watch.ts", "utf8");
 const vercel = JSON.parse(readFileSync("vercel.json", "utf8"));
 
@@ -37,10 +41,14 @@ assert.match(route, /runProfitHunterServerCycle/);
 assert.match(route, /PROFIT_HUNTER_SERVER_CRON_READY/);
 assert.match(route, /maxDuration = 300/);
 assert.match(route, /sendRankedProfitHunterEmail/);
+assert.match(route, /readPriorRankedProfitHunterEmailState/);
+assert.match(route, /restoreRankedProfitHunterEmailState/);
 assert.match(route, /runCycleWithoutLegacyEmail/);
 assert.match(route, /MARKET_INTEL_EMAIL_ENABLED = "false"/);
 assert.match(route, /legacyPlainReportEmailSuppressed: true/);
+assert.match(route, /unchangedContentSuppressed: true/);
 assert.match(route, /sendEmail/);
+assert.match(route, /avoid a duplicate email/);
 
 for (const fragment of [
   'const EMAIL_SCHEMA = "tcos.sharkListRankedEmail.v1"',
@@ -69,6 +77,19 @@ assert.match(
   /unverified contents receive \$0 projected value/i,
   "Manual-review lot contents must remain excluded from projected value.",
 );
+
+for (const fragment of [
+  '"ranked_shark_email_fingerprint"',
+  "readPriorRankedProfitHunterEmailState",
+  "restoreRankedProfitHunterEmailState",
+  '.eq("report_type", "hourly_deals")',
+  "...state",
+]) {
+  assert.ok(
+    rankedEmailState.includes(fragment),
+    `Ranked Shark List state persistence is missing ${fragment}.`,
+  );
+}
 
 assert.match(
   hotWatch,
@@ -102,6 +123,7 @@ console.log(
       approvedReportType: "hourly_deals",
       rankedEmailFormat: "ranked_clickable_shark_list_v1",
       legacyPlainReportEmailSuppressed: true,
+      unchangedRankedEmailSuppressed: true,
       offerRequiresExactBestOfferEvidence: true,
       hotWatchListingStatusColumn: "listing_status",
       legacyChatGptNetworkDependency: false,
