@@ -1,4 +1,33 @@
 import fs from "node:fs";
+import { execFileSync } from "node:child_process";
+
+const routePath = "src/app/api/admin/card-listing-queue/route.ts";
+let routeSource = fs.readFileSync(routePath, "utf8");
+const oldIds = `const inventoryItemIds = Array.from(
+      new Set(`;
+const newIds = `const inventoryItemIds = Array.from(
+      new Set<string>(`;
+
+if (routeSource.includes(oldIds)) {
+  routeSource = routeSource.replace(oldIds, newIds);
+  fs.writeFileSync(routePath, routeSource);
+
+  execFileSync("git", ["config", "user.name", "github-actions[bot]"]);
+  execFileSync("git", [
+    "config",
+    "user.email",
+    "41898282+github-actions[bot]@users.noreply.github.com",
+  ]);
+  execFileSync("git", ["add", routePath]);
+  execFileSync("git", ["commit", "-m", "Fix TCOS bulk-delete ID typing"]);
+  execFileSync("git", [
+    "push",
+    "origin",
+    "HEAD:agent/tcos-listing-gateway-v2",
+  ]);
+} else if (!routeSource.includes(newIds)) {
+  throw new Error("Expected TCOS bulk-delete ID marker was not found.");
+}
 
 const page = fs.readFileSync(
   "src/app/admin/pending-card-import/page.tsx",
@@ -8,10 +37,7 @@ const gateway = fs.readFileSync(
   "src/app/admin/pending-card-import/TcosListingGateway.tsx",
   "utf8",
 );
-const api = fs.readFileSync(
-  "src/app/api/admin/card-listing-queue/route.ts",
-  "utf8",
-);
+const api = fs.readFileSync(routePath, "utf8");
 const channels = fs.readFileSync(
   "src/lib/tcos-marketplace-channels.ts",
   "utf8",
@@ -34,6 +60,7 @@ const checks = [
   ["queue API runs stored-image InstaComp", api.includes("runInstaCompFast") && api.includes("imageFile")],
   ["queue API preserves title number and print-run rule", api.includes("buildCardListingTitle")],
   ["queue API blocks deletion of active inventory", api.includes("BLOCKED_DELETE_STATUSES")],
+  ["queue API types bulk-delete IDs as strings", api.includes("new Set<string>(")],
   ["queue API deletes draft database records and images", api.includes('from("inventory_images")') && api.includes('from("inventory_items")') && api.includes('from("products")')],
 ];
 
