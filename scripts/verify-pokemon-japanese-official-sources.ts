@@ -1,5 +1,5 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { basename, dirname, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import {
   TCGDEX_JAPANESE_BUNDLE_SCHEMA,
@@ -216,7 +216,9 @@ function normalizedCardNumber(value: unknown) {
 }
 
 function sleep(ms: number) {
-  return ms > 0 ? new Promise((resolvePromise) => setTimeout(resolvePromise, ms)) : Promise.resolve();
+  return ms > 0
+    ? new Promise((resolvePromise) => setTimeout(resolvePromise, ms))
+    : Promise.resolve();
 }
 
 async function fetchWithRetry(url: string, delayMs: number, accept: string) {
@@ -230,19 +232,24 @@ async function fetchWithRetry(url: string, delayMs: number, accept: string) {
       });
       const body = await response.text();
       if (!response.ok) {
-        throw new Error(`${response.status} ${response.statusText}: ${body.slice(0, 300)}`);
+        throw new Error(
+          `${response.status} ${response.statusText}: ${body.slice(0, 300)}`,
+        );
       }
       return { response, body };
     } catch (error) {
       lastError = error;
     }
   }
-  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(String(lastError));
 }
 
 function parseOfficialProductOptions(html: string) {
   const rows: OfficialProductOption[] = [];
-  const pattern = /\{\s*name:\s*["']pg["'],\s*value:\s*["']([^"']*)["'],\s*group:\s*["']group-item-name["'],\s*label:\s*["']([^"']*)["']/g;
+  const pattern =
+    /\{\s*name:\s*["']pg["'],\s*value:\s*["']([^"']*)["'],\s*group:\s*["']group-item-name["'],\s*label:\s*["']([^"']*)["']/g;
   for (const match of html.matchAll(pattern)) {
     const value = clean(match[1]);
     const label = clean(match[2]);
@@ -250,7 +257,9 @@ function parseOfficialProductOptions(html: string) {
     rows.push({ value, label });
   }
   const uniqueRows = new Map<string, OfficialProductOption>();
-  for (const row of rows) uniqueRows.set(`${row.value}\u0000${row.label}`, row);
+  for (const row of rows) {
+    uniqueRows.set(`${row.value}\u0000${row.label}`, row);
+  }
   return [...uniqueRows.values()];
 }
 
@@ -262,7 +271,9 @@ function mapOfficialProducts(
   const setName = clean(bundle.set.name);
   const idKey = setId.toLowerCase();
   const nameKey = compact(setName);
-  const direct = options.filter((option) => option.value.toLowerCase() === idKey);
+  const direct = options.filter(
+    (option) => option.value.toLowerCase() === idKey,
+  );
   if (direct.length) return direct;
   if (!nameKey) return [];
   return options.filter((option) => {
@@ -276,7 +287,11 @@ function parseBundle(content: string, file: string) {
   if (parsed.schema !== TCGDEX_JAPANESE_BUNDLE_SCHEMA) {
     throw new Error(`${file} has unsupported schema ${String(parsed.schema)}.`);
   }
-  if (parsed.language !== "ja" || !parsed.set || !Array.isArray(parsed.cards)) {
+  if (
+    parsed.language !== "ja" ||
+    !parsed.set ||
+    !Array.isArray(parsed.cards)
+  ) {
     throw new Error(`${file} is not a Japanese TCGdex set bundle.`);
   }
   return parsed;
@@ -289,7 +304,10 @@ async function loadBundles(input: string) {
   const rows: Array<{ file: string; bundle: TcgdexJapaneseSetBundle }> = [];
   for (const name of names) {
     const file = join(input, name);
-    rows.push({ file, bundle: parseBundle(await readFile(file, "utf8"), file) });
+    rows.push({
+      file,
+      bundle: parseBundle(await readFile(file, "utf8"), file),
+    });
   }
   return rows;
 }
@@ -300,7 +318,9 @@ function officialCardName(card: OfficialCardSummary) {
 
 function officialSetCode(card: OfficialCardSummary) {
   return (
-    clean(card.cardThumbFile).match(/\/card_images\/large\/([^/]+)\//i)?.[1] || null
+    clean(card.cardThumbFile).match(
+      /\/card_images\/large\/([^/]+)\//i,
+    )?.[1] || null
   );
 }
 
@@ -322,18 +342,27 @@ function subtractNameCounts(
   right: Map<string, { name: string; count: number }>,
 ) {
   return [...left.entries()]
-    .map(([key, row]) => ({ name: row.name, count: row.count - (right.get(key)?.count || 0) }))
+    .map(([key, row]) => ({
+      name: row.name,
+      count: row.count - (right.get(key)?.count || 0),
+    }))
     .filter((row) => row.count > 0)
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function sampleIndexes(length: number, requested: number, mismatchIndexes: number[]) {
+function sampleIndexes(
+  length: number,
+  requested: number,
+  mismatchIndexes: number[],
+) {
   const indexes = new Set<number>();
   if (length > 0 && requested > 0) {
     const samples = Math.min(length, requested);
     for (let index = 0; index < samples; index += 1) {
       indexes.add(
-        samples === 1 ? 0 : Math.round((index * (length - 1)) / (samples - 1)),
+        samples === 1
+          ? 0
+          : Math.round((index * (length - 1)) / (samples - 1)),
       );
     }
   }
@@ -352,7 +381,13 @@ function parseDetailEvidence(html: string) {
   )?.[0];
   const setCode = logo?.match(/alt=["']([^"']+)["']/i)?.[1] || null;
   const logoIndex = logo ? html.indexOf(logo) : -1;
-  const afterLogo = logoIndex >= 0 ? html.slice(logoIndex + logo.length, logoIndex + logo.length + 350) : "";
+  const afterLogo =
+    logo && logoIndex >= 0
+      ? html.slice(
+          logoIndex + logo.length,
+          logoIndex + logo.length + 350,
+        )
+      : "";
   const numberMatch = afterLogo.match(
     /(?:&nbsp;|\s)*([^<>&\s]+)(?:&nbsp;|\s)*\/(?:&nbsp;|\s)*([^<>&\s]+)(?:&nbsp;|\s)*/i,
   );
@@ -364,7 +399,10 @@ function parseDetailEvidence(html: string) {
   };
 }
 
-async function fetchOfficialCards(option: OfficialProductOption, delayMs: number) {
+async function fetchOfficialCards(
+  option: OfficialProductOption,
+  delayMs: number,
+) {
   const cards: OfficialCardSummary[] = [];
   let page = 1;
   let maxPage = 1;
@@ -375,7 +413,11 @@ async function fetchOfficialCards(option: OfficialProductOption, delayMs: number
     url.searchParams.set("mode", "statuslist");
     url.searchParams.set("pg", option.value);
     if (page > 1) url.searchParams.set("page", String(page));
-    const loaded = await fetchWithRetry(url.href, delayMs, "application/json,*/*;q=0.8");
+    const loaded = await fetchWithRetry(
+      url.href,
+      delayMs,
+      "application/json,*/*;q=0.8",
+    );
     const parsed = JSON.parse(loaded.body) as OfficialResultResponse;
     if (parsed.result !== 1 || !Array.isArray(parsed.cardList)) {
       throw new Error(
@@ -384,7 +426,9 @@ async function fetchOfficialCards(option: OfficialProductOption, delayMs: number
     }
     if (page === 1) {
       maxPage = Number(parsed.maxPage) || 1;
-      hitCnt = Number.isInteger(parsed.hitCnt) ? Number(parsed.hitCnt) : null;
+      hitCnt = Number.isInteger(parsed.hitCnt)
+        ? Number(parsed.hitCnt)
+        : null;
       regulation = clean(parsed.regulation) || "all";
     }
     cards.push(...parsed.cardList);
@@ -396,7 +440,12 @@ async function fetchOfficialCards(option: OfficialProductOption, delayMs: number
     const id = clean(card.cardID);
     if (id) uniqueCards.set(id, card);
   }
-  return { cards: [...uniqueCards.values()], hitCnt, maxPage, regulation };
+  return {
+    cards: [...uniqueCards.values()],
+    hitCnt,
+    maxPage,
+    regulation,
+  };
 }
 
 async function fetchDetailEvidence(params: {
@@ -410,7 +459,11 @@ async function fetchDetailEvidence(params: {
   const cardID = clean(params.card.cardID);
   const url = `${OFFICIAL_ORIGIN}/card-search/details.php/card/${encodeURIComponent(cardID)}/regu/${encodeURIComponent(params.regulation || "all")}`;
   try {
-    const loaded = await fetchWithRetry(url, params.delayMs, "text/html,application/xhtml+xml");
+    const loaded = await fetchWithRetry(
+      url,
+      params.delayMs,
+      "text/html,application/xhtml+xml",
+    );
     const parsed = parseDetailEvidence(loaded.body);
     return {
       cardID,
@@ -496,7 +549,10 @@ async function auditMappedSet(params: {
   row.officialSearchUrl = `${OFFICIAL_ORIGIN}/card-search/index.php?mode=statuslist&pg=${encodeURIComponent(params.option.value)}`;
 
   try {
-    const official = await fetchOfficialCards(params.option, params.delayMs);
+    const official = await fetchOfficialCards(
+      params.option,
+      params.delayMs,
+    );
     row.officialHitCount = official.hitCnt;
     row.officialCollectedCount = official.cards.length;
     row.officialMaxPage = official.maxPage;
@@ -505,11 +561,16 @@ async function auditMappedSet(params: {
       (official.hitCnt === null || official.hitCnt === official.cards.length);
 
     row.officialSetCodes = [
-      ...new Set(official.cards.map(officialSetCode).filter((value): value is string => Boolean(value))),
+      ...new Set(
+        official.cards
+          .map(officialSetCode)
+          .filter((value): value is string => Boolean(value)),
+      ),
     ].sort();
     row.setCodeMatches =
       row.officialSetCodes.length === 1 &&
-      row.officialSetCodes[0].toLowerCase() === params.bundle.set.id.toLowerCase();
+      row.officialSetCodes[0].toLowerCase() ===
+        params.bundle.set.id.toLowerCase();
 
     const registryNames = params.bundle.cards.map((card) => clean(card.name));
     const officialNames = official.cards.map(officialCardName);
@@ -519,15 +580,25 @@ async function auditMappedSet(params: {
       officialCounts,
       registryCounts,
     );
-    row.extraRegistryNames = subtractNameCounts(registryCounts, officialCounts);
+    row.extraRegistryNames = subtractNameCounts(
+      registryCounts,
+      officialCounts,
+    );
     row.nameMultisetMatches =
       row.missingOfficialNamesInRegistry.length === 0 &&
       row.extraRegistryNames.length === 0;
 
     const orderedMismatchIndexes: number[] = [];
-    const comparableLength = Math.min(registryNames.length, officialNames.length);
+    const comparableLength = Math.min(
+      registryNames.length,
+      officialNames.length,
+    );
     for (let index = 0; index < comparableLength; index += 1) {
-      if (compact(registryNames[index]) === compact(officialNames[index])) continue;
+      if (
+        compact(registryNames[index]) === compact(officialNames[index])
+      ) {
+        continue;
+      }
       orderedMismatchIndexes.push(index);
       if (row.orderedNameMismatches.length < 50) {
         row.orderedNameMismatches.push({
@@ -563,9 +634,15 @@ async function auditMappedSet(params: {
     }
     row.detailEvidence = details;
 
-    if (!row.countMatches) row.reasons.push("official_card_count_mismatch");
-    if (!row.setCodeMatches) row.reasons.push("official_set_code_mismatch");
-    if (!row.nameMultisetMatches) row.reasons.push("official_name_population_mismatch");
+    if (!row.countMatches) {
+      row.reasons.push("official_card_count_mismatch");
+    }
+    if (!row.setCodeMatches) {
+      row.reasons.push("official_set_code_mismatch");
+    }
+    if (!row.nameMultisetMatches) {
+      row.reasons.push("official_name_population_mismatch");
+    }
     if ((row.orderedNameMismatchCount || 0) > 0) {
       row.reasons.push("official_ordered_name_mismatch");
     }
@@ -622,7 +699,11 @@ async function main() {
     );
   }
   if (args.limit !== null) bundles = bundles.slice(0, args.limit);
-  if (!bundles.length) throw new Error(`No Japanese bundle files selected in ${args.input}.`);
+  if (!bundles.length) {
+    throw new Error(
+      `No Japanese bundle files selected in ${args.input}.`,
+    );
+  }
 
   const officialSearch = await fetchWithRetry(
     OFFICIAL_SEARCH_URL,
@@ -631,7 +712,9 @@ async function main() {
   );
   const options = parseOfficialProductOptions(officialSearch.body);
   if (!options.length) {
-    throw new Error("Official Pokémon Card search exposed no product options.");
+    throw new Error(
+      "Official Pokémon Card search exposed no product options.",
+    );
   }
 
   const mappings = bundles.map(({ file, bundle }) => ({
@@ -649,13 +732,21 @@ async function main() {
   const rows: AuditRow[] = [];
   for (const mapping of mappings) {
     if (mapping.candidates.length === 0) {
-      const row = baseRow(mapping.file, mapping.bundle, "official_source_unmapped");
+      const row = baseRow(
+        mapping.file,
+        mapping.bundle,
+        "official_source_unmapped",
+      );
       row.reasons.push("official_product_not_found");
       rows.push(row);
       continue;
     }
     if (mapping.candidates.length > 1) {
-      const row = baseRow(mapping.file, mapping.bundle, "official_source_ambiguous");
+      const row = baseRow(
+        mapping.file,
+        mapping.bundle,
+        "official_source_ambiguous",
+      );
       row.candidateProducts = mapping.candidates;
       row.reasons.push("multiple_official_product_candidates");
       rows.push(row);
@@ -663,15 +754,25 @@ async function main() {
     }
     const option = mapping.candidates[0];
     if ((optionUse.get(option.value) || 0) > 1) {
-      const row = baseRow(mapping.file, mapping.bundle, "official_source_reused");
+      const row = baseRow(
+        mapping.file,
+        mapping.bundle,
+        "official_source_reused",
+      );
       row.officialProduct = option;
       row.candidateProducts = [option];
-      row.reasons.push("official_product_mapped_to_multiple_registry_sets");
+      row.reasons.push(
+        "official_product_mapped_to_multiple_registry_sets",
+      );
       rows.push(row);
       continue;
     }
     if (args.mappingOnly) {
-      const row = baseRow(mapping.file, mapping.bundle, "manual_review");
+      const row = baseRow(
+        mapping.file,
+        mapping.bundle,
+        "manual_review",
+      );
       row.officialProduct = option;
       row.officialSearchUrl = `${OFFICIAL_ORIGIN}/card-search/index.php?mode=statuslist&pg=${encodeURIComponent(option.value)}`;
       row.reasons.push("mapping_only_not_card_verified");
@@ -689,10 +790,13 @@ async function main() {
     );
   }
 
-  const statusCounts = rows.reduce<Record<string, number>>((counts, row) => {
-    counts[row.status] = (counts[row.status] || 0) + 1;
-    return counts;
-  }, {});
+  const statusCounts = rows.reduce<Record<string, number>>(
+    (counts, row) => {
+      counts[row.status] = (counts[row.status] || 0) + 1;
+      return counts;
+    },
+    {},
+  );
   const discrepancyRows = rows.filter((row) => row.status !== "verified");
   const receipt = {
     schema: "tcos.checklist.pokemonJapaneseOfficialVerification.v1",
@@ -708,7 +812,10 @@ async function main() {
     attemptedSets: rows.length,
     statusCounts,
     totals: {
-      registryCards: rows.reduce((sum, row) => sum + row.registryCardCount, 0),
+      registryCards: rows.reduce(
+        (sum, row) => sum + row.registryCardCount,
+        0,
+      ),
       officialCardsCollected: rows.reduce(
         (sum, row) => sum + (row.officialCollectedCount || 0),
         0,
@@ -727,7 +834,10 @@ async function main() {
       ),
       printedNumberMismatches: rows.reduce(
         (sum, row) =>
-          sum + row.detailEvidence.filter((detail) => detail.numberMatches === false).length,
+          sum +
+          row.detailEvidence.filter(
+            (detail) => detail.numberMatches === false,
+          ).length,
         0,
       ),
     },
@@ -742,8 +852,16 @@ async function main() {
 
   await mkdir(dirname(args.receipt), { recursive: true });
   await mkdir(dirname(args.queue), { recursive: true });
-  await writeFile(args.receipt, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
-  await writeFile(args.queue, `${JSON.stringify(queue, null, 2)}\n`, "utf8");
+  await writeFile(
+    args.receipt,
+    `${JSON.stringify(receipt, null, 2)}\n`,
+    "utf8",
+  );
+  await writeFile(
+    args.queue,
+    `${JSON.stringify(queue, null, 2)}\n`,
+    "utf8",
+  );
   console.log(
     JSON.stringify(
       {
@@ -765,6 +883,8 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(error instanceof Error ? error.stack || error.message : error);
+  console.error(
+    error instanceof Error ? error.stack || error.message : error,
+  );
   process.exitCode = 1;
 });
