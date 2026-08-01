@@ -136,6 +136,12 @@ function money(value: number | null | undefined) {
   });
 }
 
+function confidenceLabel(value: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  const percentage = value <= 1 ? value * 100 : value;
+  return `${Math.round(percentage)}%`;
+}
+
 function canDeleteDraft(row: ListingRow) {
   const blocked = new Set(["active", "publishing", "reconciliation_required"]);
   return (
@@ -1113,11 +1119,7 @@ export default function TcosListingGateway() {
                     <Metric label="InstaComp suggested" value={money(row.instaCompSuggestedPrice)} />
                     <Metric
                       label="Identity confidence"
-                      value={
-                        row.instaCompConfidence
-                          ? `${Math.round(row.instaCompConfidence)}%`
-                          : "—"
-                      }
+                      value={confidenceLabel(row.instaCompConfidence)}
                     />
                   </div>
                 </div>
