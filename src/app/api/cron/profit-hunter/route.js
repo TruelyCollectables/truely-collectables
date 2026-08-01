@@ -3,6 +3,10 @@ import { NextResponse } from "next/server";
 import { isAuthorizedMarketIntelIngest } from "../../../../lib/market-intel-ingestion";
 import { sendRankedProfitHunterEmail } from "../../../../lib/profit-hunter-ranked-email.js";
 import {
+  readPriorRankedProfitHunterEmailState,
+  restoreRankedProfitHunterEmailState,
+} from "../../../../lib/profit-hunter-ranked-email-state.js";
+import {
   getProfitHunterScheduleState,
   PROFIT_HUNTER_SERVER_CONTRACT,
   runProfitHunterServerCycle,
@@ -101,6 +105,7 @@ async function run(request) {
         enabled: true,
         format: "ranked_clickable_shark_list_v1",
         legacyPlainReportEmailSuppressed: true,
+        unchangedContentSuppressed: true,
       },
     });
   }
@@ -129,8 +134,17 @@ async function run(request) {
   }
 
   try {
+    const priorRankedEmailState =
+      await readPriorRankedProfitHunterEmailState();
     const result = await runCycleWithoutLegacyEmail(
       Number(request.nextUrl.searchParams.get("perQuery") || 20),
+    );
+    const rankedEmailState = await restoreRankedProfitHunterEmailState(
+      result.reportId,
+      priorRankedEmailState,
+    );
+    const hasPriorFingerprint = Boolean(
+      priorRankedEmailState.ranked_shark_email_fingerprint,
     );
     const allowForcedEmail =
       request.nextUrl.searchParams.get("sendEmail") === "1";
@@ -142,6 +156,14 @@ async function run(request) {
         skipped: true,
         reason:
           "Forced verification run completed without email. Add sendEmail=1 to deliberately deliver it.",
+      };
+    } else if (hasPriorFingerprint && !rankedEmailState.restored) {
+      rankedEmail = {
+        attempted: false,
+        delivered: false,
+        skipped: true,
+        reason:
+          "Prior ranked-email fingerprint could not be restored after the hourly report refresh; delivery was suppressed to avoid a duplicate email.",
       };
     } else {
       try {
@@ -172,6 +194,7 @@ async function run(request) {
         ...result,
         ok,
         rankedEmail,
+        rankedEmailState,
         deployment: deploymentInfo(),
         forced: force,
       },
