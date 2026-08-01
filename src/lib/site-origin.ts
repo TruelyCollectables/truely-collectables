@@ -25,12 +25,27 @@ function isLocalOrigin(origin: string) {
   }
 }
 
+function isVercelOrigin(origin: string) {
+  try {
+    return new URL(origin).hostname.toLowerCase().endsWith(".vercel.app");
+  } catch {
+    return false;
+  }
+}
+
 export function configuredSiteOrigin() {
-  return (
+  const configuredOrigin =
     normalizeOrigin(process.env.NEXT_PUBLIC_SITE_URL) ||
-    normalizeOrigin(process.env.SITE_URL) ||
-    DEPLOY_SAFETY.cleanProductionDomain
-  );
+    normalizeOrigin(process.env.SITE_URL);
+
+  // Public SEO surfaces must always point at the owned store domain. An old
+  // Vercel alias in Production caused every sitemap URL to be rejected by
+  // Google Search Console as outside the submitted sitemap property.
+  if (configuredOrigin && !isVercelOrigin(configuredOrigin)) {
+    return configuredOrigin;
+  }
+
+  return DEPLOY_SAFETY.cleanProductionDomain;
 }
 
 export function trustedRequestOrigin(request: Request) {
@@ -39,6 +54,12 @@ export function trustedRequestOrigin(request: Request) {
 
   if (!requestOrigin) return configuredOrigin;
   if (requestOrigin === configuredOrigin) return requestOrigin;
+
+  // Keep Vercel preview deployments usable without allowing a preview alias
+  // to become the canonical public store origin.
+  if (process.env.VERCEL_ENV === "preview" && isVercelOrigin(requestOrigin)) {
+    return requestOrigin;
+  }
 
   if (process.env.NODE_ENV !== "production" && isLocalOrigin(requestOrigin)) {
     return requestOrigin;
