@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { paniniStructuredChecklistAdapter } from "./panini-structured";
+import { pokemonJapaneseMPReconciledAdapter } from "./pokemon-japanese-mp-reconciled";
 import { pokemonJapaneseOfficialReconciledAdapter } from "./pokemon-japanese-official-reconciled";
 import { pokemonTcgDataSourceIdSafeAdapter } from "./pokemon-tcg-data-source-ids";
 import type {
@@ -11,6 +12,7 @@ import { CHECKLIST_SOURCE_BUCKET } from "./storage";
 import { tcgdexJapaneseSetBundleAdapter } from "./tcgdex-japanese";
 
 const CHECKLIST_ADAPTERS: ChecklistSourceAdapter[] = [
+  pokemonJapaneseMPReconciledAdapter,
   pokemonJapaneseOfficialReconciledAdapter,
   tcgdexJapaneseSetBundleAdapter,
   pokemonTcgDataSourceIdSafeAdapter,
