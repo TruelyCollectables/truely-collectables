@@ -164,8 +164,8 @@ jobs:
             .filter((row) => row.status === 'mismatch')
             .map((row) => row.setId)
             .sort();
-          const expectedMismatchIds = ['SV5K', 'SV8'];
-          const resolvedIds = ['M-P', 'MC', 'SV1a', 'SV1S', 'SV1V', 'SVK', 'SVLN', 'SVLS'];
+          const expectedMismatchIds = ['M-P', 'SV5K', 'SV8'];
+          const resolvedIds = ['MC', 'SV1a', 'SV1S', 'SV1V', 'SVK', 'SVLN', 'SVLS'];
           console.log(JSON.stringify({
             attemptedSets: receipt.attemptedSets,
             statusCounts: receipt.statusCounts,
@@ -192,6 +192,10 @@ jobs:
             if (!row || row.status === 'mismatch' || row.status === 'failed') {
               throw new Error(`${setId} was not resolved: ${JSON.stringify(row)}`);
             }
+          }
+          const mp = receipt.rows.find((row) => row.setId === 'M-P');
+          if (!mp || mp.registryCardCount !== 83 || mp.officialComparableCount !== 106 || mp.officialExcludedCount !== 8) {
+            throw new Error(`Unexpected M-P comparison: ${JSON.stringify(mp)}`);
           }
           if ((receipt.totals.excludedOfficialCards || 0) < 1) {
             throw new Error('No mixed-product official cards were excluded');
