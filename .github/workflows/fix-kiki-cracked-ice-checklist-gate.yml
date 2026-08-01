@@ -3,13 +3,15 @@ name: Fix Kiki Cracked Ice checklist gate
 on:
   push:
     branches: [agent/fix-kiki-cracked-ice-checklist-gate]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: write
 
 jobs:
   patch-test-build-commit:
-    if: ${{ !contains(github.event.head_commit.message, '[kiki-checklist-ready]') }}
+    if: ${{ github.event_name == 'pull_request' || !contains(github.event.head_commit.message, '[kiki-checklist-ready]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
