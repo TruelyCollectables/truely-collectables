@@ -13,7 +13,10 @@ on:
       - "scripts/run-instacomp-v2-hardening-simulations.ts"
       - "scripts/run-instacomp-scan-review-simulations.ts"
       - "scripts/run-checklist-complexity-simulations.ts"
+      - "scripts/verify-instacomp-cache-knowledge-hardening.sql"
       - "supabase/migrations/20260801143000_instacomp_cache_and_knowledge_hardening.sql"
+      - "supabase/migrations/20260801144500_instacomp_future_collision_guard.sql"
+      - "supabase/migrations/20260801145000_instacomp_trust_promotion_guard.sql"
       - ".github/workflows/instacomp-v2-hardening.yml"
   workflow_dispatch:
 
@@ -67,8 +70,12 @@ jobs:
         run: |
           node - <<'NODE'
           const fs = require('node:fs');
-          const path = 'supabase/migrations/20260801143000_instacomp_cache_and_knowledge_hardening.sql';
-          const sql = fs.readFileSync(path, 'utf8');
+          const files = [
+            'supabase/migrations/20260801143000_instacomp_cache_and_knowledge_hardening.sql',
+            'supabase/migrations/20260801144500_instacomp_future_collision_guard.sql',
+            'supabase/migrations/20260801145000_instacomp_trust_promotion_guard.sql',
+          ];
+          const sql = files.map((file) => fs.readFileSync(file, 'utf8')).join('\n');
           for (const marker of [
             'instacomp_scan_cache_actor_scope_idx',
             "'v2'",
@@ -76,6 +83,8 @@ jobs:
             'tcos_card_knowledge_canonical_versions',
             'tcos_instacomp_protect_trusted_canonical',
             'tcos_instacomp_promote_confirmed_observation',
+            'tcos_instacomp_flag_v2_collision',
+            'v_operator_count < 3',
             'append-only',
           ]) {
             if (!sql.includes(marker)) throw new Error(`Missing migration marker: ${marker}`);
@@ -87,3 +96,121 @@ jobs:
 
       - name: Production build
         run: npm run build
+
+  postgres-hardening:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: instacomp_hardening_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d instacomp_hardening_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: instacomp_hardening_test
+      KNOWLEDGE_MIGRATION: supabase/migrations/20260716170000_create_tcos_card_knowledge_base.sql
+      LEARNING_MIGRATION: supabase/migrations/20260731160500_instacomp_automatic_learning.sql
+      HARDENING_MIGRATION: supabase/migrations/20260801143000_instacomp_cache_and_knowledge_hardening.sql
+      COLLISION_MIGRATION: supabase/migrations/20260801144500_instacomp_future_collision_guard.sql
+      TRUST_MIGRATION: supabase/migrations/20260801145000_instacomp_trust_promotion_guard.sql
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create Supabase-compatible prerequisite schema
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          create extension if not exists pgcrypto;
+
+          do $$
+          begin
+            create role anon nologin;
+          exception when duplicate_object then null;
+          end;
+          $$;
+
+          do $$
+          begin
+            create role authenticated nologin;
+          exception when duplicate_object then null;
+          end;
+          $$;
+
+          do $$
+          begin
+            create role service_role nologin bypassrls;
+          exception when duplicate_object then null;
+          end;
+          $$;
+
+          create or replace function public.tcos_touch_instacomp_scan_updated_at()
+          returns trigger
+          language plpgsql
+          as $$
+          begin
+            new.updated_at = now();
+            return new;
+          end;
+          $$;
+
+          create table if not exists public.instacomp_scan_jobs (
+            id uuid primary key default gen_random_uuid(),
+            created_at timestamptz not null default now()
+          );
+
+          create table if not exists public.instacomp_scan_items (
+            id uuid primary key default gen_random_uuid(),
+            job_id uuid references public.instacomp_scan_jobs(id) on delete cascade,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+          );
+
+          create table if not exists public.instacomp_scans (
+            id uuid primary key default gen_random_uuid(),
+            created_at timestamptz not null default now(),
+            image_filename text,
+            player text,
+            year text,
+            brand text,
+            set_name text,
+            card_number text,
+            parallel text,
+            confidence numeric,
+            search_query text,
+            suggested_price numeric,
+            ebay_sold_url text,
+            raw_ai_result jsonb not null default '{}'::jsonb,
+            raw_comp_results jsonb not null default '{}'::jsonb
+          );
+          SQL
+
+      - name: Apply knowledge and hardening migrations
+        run: |
+          psql -v ON_ERROR_STOP=1 --file "$KNOWLEDGE_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$LEARNING_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$HARDENING_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$COLLISION_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$TRUST_MIGRATION"
+
+      - name: Reapply additive hardening migrations
+        run: |
+          psql -v ON_ERROR_STOP=1 --file "$HARDENING_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$COLLISION_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$TRUST_MIGRATION"
+
+      - name: Verify collisions, promotion threshold, and canonical protection
+        run: >-
+          psql -v ON_ERROR_STOP=1
+          --file scripts/verify-instacomp-cache-knowledge-hardening.sql
