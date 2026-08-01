@@ -7,7 +7,7 @@ import { getMarketIntelDeliveryConfig } from "./market-intel-delivery";
 import { createSupabaseServerClient } from "./supabase-server";
 
 const EMAIL_SCHEMA = "tcos.sharkListRankedEmail.v1";
-const LIMITS = { verified: 12, hidden: 12, mislisted: 8 };
+const LIMITS = Object.freeze({ verified: 12, hidden: 12, mislisted: 10 });
 
 function record(value) {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -24,6 +24,10 @@ function number(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function boolean(value) {
+  return value === true || value === "true" || value === "on" || value === 1;
+}
+
 function text(value) {
   return String(value ?? "").trim();
 }
@@ -37,7 +41,7 @@ function html(value) {
     .replaceAll("'", "&#039;");
 }
 
-function url(value) {
+function safeUrl(value) {
   try {
     const parsed = new URL(text(value));
     return ["http:", "https:"].includes(parsed.protocol)
@@ -85,8 +89,23 @@ function offerAvailable(options) {
   return list(options).some((option) => normalized(option) === "best offer");
 }
 
+function listingImages(listing) {
+  const metadata = record(listing?.metadata);
+  return Array.from(
+    new Set(
+      [
+        ...list(metadata.image_urls),
+        ...list(metadata.images),
+        ...list(metadata.listing_images),
+      ]
+        .map(safeUrl)
+        .filter(Boolean),
+    ),
+  ).slice(0, 12);
+}
+
 function lotSignal(candidate) {
-  return /\b(lot|lots|collection|bundle|team set|rookie lot|cards pictured|mixed cards)\b/.test(
+  return /\b(lot|lots|collection|bundle|team set|rookie lot|cards pictured|mixed cards|assorted cards)\b/.test(
     normalized(
       [
         candidate.title,
@@ -98,7 +117,7 @@ function lotSignal(candidate) {
   );
 }
 
-function premiumSignal(candidate) {
+function premiumTextSignal(candidate) {
   return /\b(silver|prizm|refractor|parallel|color|colour|numbered|serial|ssp|sp|case hit|auto|autograph|signature|patch|relic|memorabilia|young guns|rainbow|holo|ice|wave|shimmer|scope|disco|gold|orange|purple|pink|green|red|blue)\b/.test(
     normalized(
       [
@@ -111,14 +130,95 @@ function premiumSignal(candidate) {
   );
 }
 
+function explicitVisiblePremiumPhotoEvidence(candidate) {
+  const metadata = record(candidate.metadata);
+  const evidence = record(candidate.evidence);
+  const booleans = [
+    candidate.visiblePremiumInPhoto,
+    candidate.photoPremiumEvidence,
+    candidate.visualPremiumEvidence,
+    metadata.visible_premium_in_photo,
+    metadata.photo_premium_evidence,
+    metadata.visual_premium_evidence,
+    evidence.visible_premium_in_photo,
+    evidence.photo_premium_evidence,
+    evidence.visual_premium_evidence,
+  ];
+  if (booleans.some(boolean)) return true;
+
+  const signals = [
+    ...list(candidate.photoReviewSignals),
+    ...list(metadata.photo_review_signals),
+    ...list(evidence.photo_review_signals),
+  ].map(normalized);
+  return signals.some((signal) =>
+    /\b(color|colour|prizm|parallel|refractor|numbered|serial|autograph|auto|ssp|case hit|premium card)\b/.test(
+      signal,
+    ),
+  );
+}
+
+function identityProof(metadataValue) {
+  const metadata = record(metadataValue);
+  const status = text(metadata.identity_proof_status) || "review_required";
+  const evidence = record(metadata.identity_proof_evidence);
+  const requirements = record(metadata.identity_proof_requirements);
+  const front = boolean(evidence.front_image_confirmed);
+  const back = boolean(evidence.back_image_confirmed);
+  const slab = boolean(evidence.slab_label_confirmed);
+  const checklist = boolean(evidence.checklist_confirmed);
+  const cardNumber = boolean(evidence.card_number_confirmed);
+  const parallel = boolean(evidence.parallel_confirmed);
+  const serial = boolean(evidence.serial_number_confirmed);
+  const autoRelic = boolean(evidence.autograph_relic_confirmed);
+  const noConflict = boolean(evidence.no_conflicting_evidence);
+  const requiresSerial = boolean(requirements.serial_numbered);
+  const requiresAutoRelic =
+    boolean(requirements.autograph) || boolean(requirements.memorabilia);
+  const operatorConfirmed = boolean(metadata.identity_proof_operator_confirmed);
+  const missing = [
+    !front ? "front image" : null,
+    !back && !slab ? "back image or slab label" : null,
+    !checklist ? "checklist/catalog match" : null,
+    !cardNumber ? "card number" : null,
+    !parallel ? "parallel/variation" : null,
+    requiresSerial && !serial ? "serial-number tier" : null,
+    requiresAutoRelic && !autoRelic ? "autograph/relic status" : null,
+    !noConflict ? "no conflicting evidence" : null,
+    !operatorConfirmed ? "owner confirmation" : null,
+  ].filter(Boolean);
+
+  return {
+    status,
+    version: text(metadata.identity_proof_version) || null,
+    verified: status === "verified_exact" && missing.length === 0,
+    missing,
+    reviewedAt: text(metadata.identity_proof_reviewed_at) || null,
+  };
+}
+
+function catalyst(row) {
+  return (
+    text(
+      row.catalyst ||
+        row.catalystReason ||
+        row.trendReason ||
+        row.whyHot ||
+        row.marketMoverReason,
+    ) || null
+  );
+}
+
 function reviewScore(candidate) {
-  const images = list(candidate.imageUrls).filter(url).length;
+  const images = list(candidate.imageUrls).filter(safeUrl).length;
   const cost = number(candidate.knownDeliveredCost);
   let score = images >= 2 ? 24 : images === 1 ? 12 : 0;
-  if (offerAvailable(candidate.buyingOptions)) score += 10;
+  if (candidate.makeOfferAvailable) score += 10;
   if (lotSignal(candidate)) score += 18;
-  if (premiumSignal(candidate)) score += 14;
+  if (premiumTextSignal(candidate)) score += 8;
+  if (candidate.visiblePremiumPhotoEvidence) score += 24;
   if (candidate.manualReviewRequired) score += 10;
+  if (candidate.sourceType === "scored_unverified") score += 14;
   score += Math.min(18, list(candidate.queryFamilyIds).length * 6);
   if (cost !== null && cost <= 10) score += 14;
   else if (cost !== null && cost <= 25) score += 10;
@@ -145,18 +245,6 @@ function reviewSort(left, right) {
   );
 }
 
-function catalyst(row) {
-  return (
-    text(
-      row.catalyst ||
-        row.catalystReason ||
-        row.trendReason ||
-        row.whyHot ||
-        row.marketMoverReason,
-    ) || null
-  );
-}
-
 function badge(label, background, color) {
   return `<span style="display:inline-block;margin:0 6px 6px 0;padding:5px 8px;border-radius:999px;background:${background};color:${color};font-size:11px;font-weight:900;text-transform:uppercase;">${html(label)}</span>`;
 }
@@ -176,7 +264,7 @@ function verifiedCard(deal, rank) {
   const recommendation = deal.makeOfferAvailable
     ? "BUY AT ASKING · MAKE OFFER AVAILABLE"
     : "BUY AT ASKING";
-  return `<section style="border:2px solid #65a30d;border-radius:14px;padding:18px;margin:0 0 18px;background:#fff;"><div style="display:flex;align-items:flex-start;">${image(deal.imageUrl, title)}<div style="flex:1;min-width:0;"><div>${badge(`#${rank} VERIFIED SHARK BITE`, "#d9f99d", "#365314")}${deal.makeOfferAvailable ? badge("MAKE OFFER AVAILABLE", "#cffafe", "#155e75") : badge("NO OFFER CONFIRMED", "#f3f4f6", "#4b5563")}</div><h2 style="font-size:20px;line-height:1.3;margin:6px 0 8px;">${html(title)}</h2>${deal.exactIdentity ? `<p style="font-size:13px;color:#525252;margin:0 0 8px;"><strong>Verified identity:</strong> ${html(deal.exactIdentity)}</p>` : ""}<p style="font-size:13px;color:#525252;margin:0 0 8px;"><strong>Marketplace:</strong> ${html(deal.marketplace || "Unknown")} · <strong>Seller:</strong> ${html(deal.sellerName || "Unknown")} · <strong>Asking:</strong> ${html(money(deal.itemPrice))} · <strong>Shipping:</strong> ${html(money(deal.shipping))}</p>${catalyst(deal) ? `<p style="font-size:13px;background:#fef3c7;border-radius:8px;padding:8px 10px;margin:0 0 10px;"><strong>Why hot:</strong> ${html(catalyst(deal))}</p>` : ""}<p style="font-size:14px;line-height:1.6;margin:0 0 8px;"><strong>Delivered:</strong> ${html(money(deal.deliveredCost))} · <strong>Market:</strong> ${html(money(deal.conservativeResale))} · <strong>Expected net:</strong> ${html(money(deal.expectedNetProfit))} · <strong>ROI:</strong> ${html(percent(deal.expectedNetRoiPercent))}</p><p style="font-size:12px;color:#525252;margin:0 0 12px;">Buy Score ${number(deal.buyScore)?.toFixed(0) || "—"} · Exact sold comps ${number(deal.exactSoldCount)?.toFixed(0) || "0"} · Confidence ${number(deal.compConfidence)?.toFixed(0) || "0"}% · <strong>${html(recommendation)}</strong></p>${button(deal.directUrl)}</div></div></section>`;
+  return `<section style="border:2px solid #65a30d;border-radius:14px;padding:18px;margin:0 0 18px;background:#fff;"><div style="display:flex;align-items:flex-start;">${image(deal.imageUrls[0], title)}<div style="flex:1;min-width:0;"><div>${badge(`#${rank} VERIFIED SHARK BITE`, "#d9f99d", "#365314")}${badge("FRONT + BACK PROOF", "#dcfce7", "#166534")}${deal.makeOfferAvailable ? badge("MAKE OFFER AVAILABLE", "#cffafe", "#155e75") : badge("NO OFFER CONFIRMED", "#f3f4f6", "#4b5563")}</div><h2 style="font-size:20px;line-height:1.3;margin:6px 0 8px;">${html(title)}</h2>${deal.exactIdentity ? `<p style="font-size:13px;color:#525252;margin:0 0 8px;"><strong>Verified identity:</strong> ${html(deal.exactIdentity)}</p>` : ""}<p style="font-size:13px;color:#525252;margin:0 0 8px;"><strong>Marketplace:</strong> ${html(deal.marketplace || "Unknown")} · <strong>Seller:</strong> ${html(deal.sellerName || "Unknown")} · <strong>Asking:</strong> ${html(money(deal.itemPrice))} · <strong>Shipping:</strong> ${html(money(deal.shipping))}</p>${catalyst(deal) ? `<p style="font-size:13px;background:#fef3c7;border-radius:8px;padding:8px 10px;margin:0 0 10px;"><strong>Why hot:</strong> ${html(catalyst(deal))}</p>` : ""}<p style="font-size:14px;line-height:1.6;margin:0 0 8px;"><strong>Delivered:</strong> ${html(money(deal.deliveredCost))} · <strong>Market:</strong> ${html(money(deal.conservativeResale))} · <strong>Expected net:</strong> ${html(money(deal.expectedNetProfit))} · <strong>ROI:</strong> ${html(percent(deal.expectedNetRoiPercent))}</p><p style="font-size:12px;color:#525252;margin:0 0 12px;">Buy Score ${number(deal.buyScore)?.toFixed(0) || "—"} · Exact sold comps ${number(deal.exactSoldCount)?.toFixed(0) || "0"} · Confidence ${number(deal.compConfidence)?.toFixed(0) || "0"}% · <strong>${html(recommendation)}</strong></p>${button(deal.directUrl)}</div></div></section>`;
 }
 
 function reviewCard(candidate, rank, hidden) {
@@ -185,8 +273,10 @@ function reviewCard(candidate, rank, hidden) {
     ? "Potental Hidden Gems in Photo"
     : "MISLISTING / LOT LEAD";
   const explanation = hidden
-    ? "Target-player lot with usable photos plus lot/premium signals. Inspect the pictures and obtain exact front/back proof before treating it as a deal."
-    : "Promising misspelling, incomplete-title, or misinterpreted-listing lead. Identity and economics remain unverified.";
+    ? "The upstream review evidence explicitly flags visible color, Prizm, parallel, numbered, autograph, SSP, case-hit, or other premium-looking material in this target-player lot. Exact cards still require front/back confirmation."
+    : candidate.sourceType === "scored_unverified"
+      ? `The old deal engine scored this listing, but the new Identity Proof Gate has not verified it. Still needs: ${candidate.identityProofMissing.join(", ") || "front/back owner proof"}.`
+      : "Promising misspelling, incomplete-title, wrong-category, or misinterpreted-lot lead. Identity and economics remain unverified.";
   return `<section style="border:1px solid ${hidden ? "#f59e0b" : "#8b5cf6"};border-radius:14px;padding:18px;margin:0 0 18px;background:#fff;"><div style="display:flex;align-items:flex-start;">${image(candidate.imageUrls[0], title)}<div style="flex:1;min-width:0;"><div>${badge(`#${rank} ${label}`, hidden ? "#fde68a" : "#ddd6fe", hidden ? "#78350f" : "#4c1d95")}${candidate.makeOfferAvailable ? badge("MAKE OFFER AVAILABLE", "#cffafe", "#155e75") : badge("NO OFFER CONFIRMED", "#f3f4f6", "#4b5563")}</div><h2 style="font-size:19px;line-height:1.3;margin:6px 0 8px;">${html(title)}</h2><p style="font-size:13px;color:#525252;margin:0 0 8px;"><strong>Player:</strong> ${html(candidate.watchedPerson || "Tracked player")} · <strong>Marketplace:</strong> ${html(candidate.marketplace || "Unknown")} · <strong>Seller:</strong> ${html(candidate.sellerName || "Unknown")}</p><p style="font-size:13px;color:#525252;margin:0 0 8px;"><strong>Asking:</strong> ${html(money(candidate.itemPrice))} · <strong>Shipping:</strong> ${html(money(candidate.inboundShipping))} · <strong>Known delivered:</strong> ${html(money(candidate.knownDeliveredCost))} · <strong>Review priority:</strong> ${candidate.reviewScore}</p>${catalyst(candidate) ? `<p style="font-size:13px;background:#fef3c7;border-radius:8px;padding:8px 10px;margin:0 0 10px;"><strong>Why hot:</strong> ${html(catalyst(candidate))}</p>` : ""}<p style="font-size:13px;line-height:1.55;color:#404040;margin:0 0 10px;">${html(explanation)}</p><p style="font-size:12px;color:#991b1b;font-weight:800;margin:0 0 12px;">MANUAL REVIEW ONLY — unverified contents receive $0 projected value and are excluded from verified deal totals.</p>${button(candidate.listingUrl)}</div></div></section>`;
 }
 
@@ -214,7 +304,7 @@ function buildEmail(report, verified, hidden, mislisted) {
       heading(
         "Verified economics",
         "VERIFIED SHARK BITES",
-        "Exact identity and completed-sale evidence cleared the profit gates. Ranked strongest first.",
+        "Explicit front/back Identity Proof Gate evidence and completed-sale economics cleared every gate. Ranked strongest first.",
       ),
     );
     for (const deal of verified) {
@@ -237,7 +327,7 @@ function buildEmail(report, verified, hidden, mislisted) {
       heading(
         "Manual photo review",
         "Potental Hidden Gems in Photo",
-        "Target-player lots and broad listings with usable photos. These are not verified deals yet.",
+        "Target-player lots with explicit visible-premium photo evidence. These are not verified deals yet.",
       ),
     );
     for (const candidate of hidden) {
@@ -299,6 +389,8 @@ function fingerprint(verified, hidden, mislisted) {
           number(row.expectedNetProfit),
           number(row.buyScore),
           row.makeOfferAvailable,
+          row.identityProof.version,
+          row.identityProof.reviewedAt,
         ]),
         hidden: hidden.map((row) => [
           row.candidateId,
@@ -306,6 +398,7 @@ function fingerprint(verified, hidden, mislisted) {
           number(row.knownDeliveredCost),
           row.reviewScore,
           row.makeOfferAvailable,
+          row.visiblePremiumPhotoEvidence,
         ]),
         mislisted: mislisted.map((row) => [
           row.candidateId,
@@ -313,6 +406,7 @@ function fingerprint(verified, hidden, mislisted) {
           number(row.knownDeliveredCost),
           row.reviewScore,
           row.makeOfferAvailable,
+          row.identityProofStatus,
         ]),
       }),
     )
@@ -342,30 +436,95 @@ async function liveListings() {
   }
 }
 
-function normalizeVerified(row, listingById) {
+function normalizeScoredDeal(row, listingById) {
   const deal = record(row);
   const listing = listingById.get(text(deal.listingId));
+  const proof = identityProof(listing?.metadata);
   return {
     ...deal,
-    directUrl: url(deal.directUrl || listing?.direct_url),
+    directUrl: safeUrl(deal.directUrl || listing?.direct_url),
     makeOfferAvailable:
       text(listing?.listing_format).toLowerCase() === "best_offer",
-    imageUrl:
-      list(listing?.metadata?.image_urls).map(url).find(Boolean) ||
-      list(listing?.metadata?.images).map(url).find(Boolean) ||
-      null,
+    imageUrls: listingImages(listing),
+    identityProof: proof,
   };
 }
 
-function normalizeCandidate(row) {
-  const candidate = record(row);
-  return {
-    ...candidate,
-    listingUrl: url(candidate.listingUrl),
-    imageUrls: list(candidate.imageUrls).map(url).filter(Boolean),
-    makeOfferAvailable: offerAvailable(candidate.buyingOptions),
-    reviewScore: reviewScore(candidate),
+function scoredDealToManualCandidate(deal) {
+  const candidate = {
+    candidateId: `scored-unverified:${text(deal.listingId) || deal.directUrl}`,
+    sourceType: "scored_unverified",
+    listingUrl: deal.directUrl,
+    title: text(deal.title || deal.exactIdentity || "Unverified scored listing"),
+    watchedPerson: text(deal.exactIdentity) || "Tracked player",
+    marketplace: text(deal.marketplace) || "Unknown",
+    sellerName: text(deal.sellerName) || null,
+    itemPrice: number(deal.itemPrice),
+    inboundShipping: number(deal.shipping),
+    knownDeliveredCost: number(deal.deliveredCost),
+    buyingOptions: deal.makeOfferAvailable ? ["BEST_OFFER"] : [],
+    makeOfferAvailable: deal.makeOfferAvailable,
+    imageUrls: deal.imageUrls,
+    manualReviewRequired: true,
+    visiblePremiumPhotoEvidence: false,
+    queryFamilyIds: ["existing_actionable_score_quarantined"],
+    lane: "identity_proof_required",
+    itemType: "scored_listing_pending_identity_proof",
+    preliminaryRisks: [
+      "Existing actionable score is suppressed until explicit front/back Identity Proof Gate verification.",
+    ],
+    identityProofStatus: deal.identityProof.status,
+    identityProofMissing: deal.identityProof.missing,
+    catalyst: catalyst(deal),
   };
+  return { ...candidate, reviewScore: reviewScore(candidate) };
+}
+
+function normalizeDiscoveryCandidate(row) {
+  const candidate = record(row);
+  const normalizedCandidate = {
+    ...candidate,
+    candidateId: text(candidate.candidateId || candidate.listingItemId || candidate.listingUrl),
+    sourceType: "discovery",
+    listingUrl: safeUrl(candidate.listingUrl),
+    imageUrls: list(candidate.imageUrls).map(safeUrl).filter(Boolean),
+    makeOfferAvailable: offerAvailable(candidate.buyingOptions),
+    visiblePremiumPhotoEvidence:
+      explicitVisiblePremiumPhotoEvidence(candidate),
+    identityProofStatus: "review_required",
+    identityProofMissing: ["front/back identity proof"],
+  };
+  return {
+    ...normalizedCandidate,
+    reviewScore: reviewScore(normalizedCandidate),
+  };
+}
+
+function dedupeManualCandidates(rows) {
+  const byListing = new Map();
+  for (const row of rows) {
+    if (!row.listingUrl) continue;
+    const key = row.listingUrl;
+    const prior = byListing.get(key);
+    if (!prior || row.reviewScore > prior.reviewScore) {
+      byListing.set(key, row);
+      continue;
+    }
+    prior.imageUrls = Array.from(
+      new Set([...prior.imageUrls, ...row.imageUrls]),
+    ).slice(0, 12);
+    prior.makeOfferAvailable =
+      prior.makeOfferAvailable || row.makeOfferAvailable;
+    prior.visiblePremiumPhotoEvidence =
+      prior.visiblePremiumPhotoEvidence || row.visiblePremiumPhotoEvidence;
+    prior.preliminaryRisks = Array.from(
+      new Set([
+        ...list(prior.preliminaryRisks),
+        ...list(row.preliminaryRisks),
+      ]),
+    );
+  }
+  return [...byListing.values()].sort(reviewSort);
 }
 
 export async function sendRankedProfitHunterEmail(options = {}) {
@@ -379,23 +538,31 @@ export async function sendRankedProfitHunterEmail(options = {}) {
     };
   }
 
-  const data = record(report.report_json);
+  const reportData = record(report.report_json);
   const listingById = await liveListings();
-  const verified = list(data.actionableDeals)
-    .map((row) => normalizeVerified(row, listingById))
-    .filter((row) => row.directUrl)
+  const scoredDeals = list(reportData.actionableDeals)
+    .map((row) => normalizeScoredDeal(row, listingById))
+    .filter((row) => row.directUrl);
+  const verified = scoredDeals
+    .filter((row) => row.identityProof.verified)
     .sort(verifiedSort)
     .slice(0, LIMITS.verified);
-  const candidates = list(data.discoveryCandidates)
-    .map(normalizeCandidate)
-    .filter((row) => row.listingUrl)
-    .sort(reviewSort);
+  const manualScored = scoredDeals
+    .filter((row) => !row.identityProof.verified)
+    .map(scoredDealToManualCandidate);
+  const discovery = list(reportData.discoveryCandidates)
+    .map(normalizeDiscoveryCandidate)
+    .filter((row) => row.listingUrl);
+  const candidates = dedupeManualCandidates([
+    ...manualScored,
+    ...discovery,
+  ]);
   const hidden = candidates
     .filter(
       (row) =>
         row.imageUrls.length > 0 &&
         lotSignal(row) &&
-        (row.manualReviewRequired || premiumSignal(row)),
+        row.visiblePremiumPhotoEvidence,
     )
     .slice(0, LIMITS.hidden);
   const hiddenIds = new Set(hidden.map((row) => row.candidateId));
@@ -403,9 +570,11 @@ export async function sendRankedProfitHunterEmail(options = {}) {
     .filter(
       (row) =>
         !hiddenIds.has(row.candidateId) &&
-        (row.manualReviewRequired ||
+        (row.sourceType === "scored_unverified" ||
+          row.manualReviewRequired ||
           list(row.preliminaryRisks).length > 0 ||
-          list(row.queryFamilyIds).length > 1),
+          list(row.queryFamilyIds).length > 1 ||
+          lotSignal(row)),
     )
     .slice(0, LIMITS.mislisted);
 
@@ -486,6 +655,7 @@ export async function sendRankedProfitHunterEmail(options = {}) {
           verified: verified.length,
           potential_hidden_gems: hidden.length,
           mislisting_leads: mislisted.length,
+          scored_rows_quarantined_for_identity_proof: manualScored.length,
         },
       },
     })
@@ -502,6 +672,7 @@ export async function sendRankedProfitHunterEmail(options = {}) {
       verified: verified.length,
       potentialHiddenGems: hidden.length,
       mislistingLeads: mislisted.length,
+      scoredRowsQuarantinedForIdentityProof: manualScored.length,
     },
     warning: updateError
       ? `Email delivered, but report metadata was not updated: ${updateError.message}`
