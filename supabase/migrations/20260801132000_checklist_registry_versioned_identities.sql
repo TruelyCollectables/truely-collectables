@@ -12,10 +12,25 @@
 --   3. provides an idempotent service-role repair for active versions; and
 --   4. preserves a global fingerprint lookup index for InstaComp searches.
 
-alter table public.checklist_card_identities
-  drop constraint if exists checklist_card_identities_identity_schema_fingerprint_sha256_key;
-
-drop index if exists public.checklist_card_identities_identity_schema_fingerprint_sha256_key;
+do $constraint_cleanup$
+declare
+  v_constraint record;
+begin
+  for v_constraint in
+    select constraint_row.conname
+    from pg_constraint constraint_row
+    where constraint_row.conrelid = 'public.checklist_card_identities'::regclass
+      and constraint_row.contype = 'u'
+      and pg_get_constraintdef(constraint_row.oid) ~*
+          '^UNIQUE \(identity_schema, fingerprint_sha256\)$'
+  loop
+    execute format(
+      'alter table public.checklist_card_identities drop constraint %I',
+      v_constraint.conname
+    );
+  end loop;
+end;
+$constraint_cleanup$;
 
 create unique index if not exists checklist_card_identities_version_fingerprint_unique
   on public.checklist_card_identities(
