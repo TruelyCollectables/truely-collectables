@@ -6,6 +6,7 @@ declare
   v_active_version_id uuid;
   v_historical_version_id uuid;
   v_card_id uuid;
+  v_materialized_printings jsonb;
   v_expected_before integer;
   v_expected_after integer;
   v_active_before integer;
@@ -33,18 +34,46 @@ begin
     raise exception 'Versioned identity fixture was not created';
   end if;
 
+  -- Choose one card that has both Base and named non-Base identities. The test
+  -- will preserve every current named printing while explicitly omitting Base.
   select card.id into v_card_id
   from public.checklist_cards card
-  join public.checklist_card_identities identity_row
-    on identity_row.card_id = card.id
-   and identity_row.version_id = v_active_version_id
-   and identity_row.parallel_id is null
   where card.version_id = v_active_version_id
+    and exists (
+      select 1
+      from public.checklist_card_identities base_identity
+      where base_identity.version_id = v_active_version_id
+        and base_identity.card_id = card.id
+        and base_identity.parallel_id is null
+    )
+    and exists (
+      select 1
+      from public.checklist_card_identities parallel_identity
+      where parallel_identity.version_id = v_active_version_id
+        and parallel_identity.card_id = card.id
+        and parallel_identity.parallel_id is not null
+    )
   order by card.id
   limit 1;
 
   if v_card_id is null then
-    raise exception 'No active Base identity was available for the printing filter test';
+    raise exception 'No active card with Base and non-Base identities was available';
+  end if;
+
+  select coalesce(jsonb_agg(label order by label), '[]'::jsonb)
+  into v_materialized_printings
+  from (
+    select distinct parallel.name as label
+    from public.checklist_card_identities identity_row
+    join public.checklist_parallels parallel
+      on parallel.id = identity_row.parallel_id
+    where identity_row.version_id = v_active_version_id
+      and identity_row.card_id = v_card_id
+      and identity_row.parallel_id is not null
+  ) labels;
+
+  if jsonb_array_length(v_materialized_printings) = 0 then
+    raise exception 'The selected card has no named physical printings';
   end if;
 
   select count(*) into v_active_before
@@ -56,11 +85,11 @@ begin
       v_active_before, v_expected_before;
   end if;
 
-  -- This card's active source explicitly materializes only Holo. The repaired
-  -- Phase 1 Base membership is therefore invalid in this active version.
+  -- The active source keeps every named printing but does not materialize Base.
+  -- Only the repair-created Phase 1 Base membership should be removed.
   update public.checklist_cards
   set checklist_notes = jsonb_build_object(
-    'materializedPhysicalPrintings', jsonb_build_array('Holo')
+    'materializedPhysicalPrintings', v_materialized_printings
   )::text
   where id = v_card_id;
 
@@ -103,7 +132,22 @@ begin
       and card_id = v_card_id
       and parallel_id is null
   ) then
-    raise exception 'The invalid repaired Base identity remains active';
+    raise exception 'The invalid repair-created Base identity remains active';
+  end if;
+
+  if (
+    select count(*)
+    from public.checklist_card_identities identity_row
+    join public.checklist_parallels parallel
+      on parallel.id = identity_row.parallel_id
+    where identity_row.version_id = v_active_version_id
+      and identity_row.card_id = v_card_id
+      and parallel.name in (
+        select value
+        from jsonb_array_elements_text(v_materialized_printings) printing(value)
+      )
+  ) <> jsonb_array_length(v_materialized_printings) then
+    raise exception 'A valid named printing was removed from the active card';
   end if;
 
   v_repair_again := public.tcos_repair_active_checklist_identities(array[v_release_id]);
@@ -119,6 +163,7 @@ begin
     'releaseId', v_release_id,
     'activeVersionId', v_active_version_id,
     'historicalVersionId', v_historical_version_id,
+    'materializedPrintings', v_materialized_printings,
     'removedInvalidIdentities', v_repair->'removedInvalidIdentities',
     'activeIdentities', v_active_after,
     'historicalIdentities', v_historical_count,
