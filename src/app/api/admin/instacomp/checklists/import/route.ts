@@ -15,6 +15,7 @@ export const maxDuration = 300;
 const AUTHORITIES = new Set<ChecklistSourceAuthority>([
   "official_manufacturer",
   "approved_distributor",
+  "approved_reference_dataset",
   "manual_official_file",
 ]);
 

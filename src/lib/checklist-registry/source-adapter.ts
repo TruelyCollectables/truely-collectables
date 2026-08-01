@@ -4,6 +4,7 @@ import type { ChecklistSourceStorageReceipt } from "./storage";
 export type ChecklistSourceAuthority =
   | "official_manufacturer"
   | "approved_distributor"
+  | "approved_reference_dataset"
   | "manual_official_file";
 
 export type ChecklistSourceArtifact = {

@@ -112,7 +112,7 @@ export default function ChecklistRegistryImporter() {
     <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
       <section className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
         <p className="text-xs font-black uppercase tracking-[0.18em] text-cyan-700">
-          Official source intake
+          Checklist source intake
         </p>
         <h2 className="mt-1 text-2xl font-black">Validate, then import</h2>
         <p className="mt-2 text-sm font-semibold leading-6 text-neutral-600">
@@ -154,6 +154,7 @@ export default function ChecklistRegistryImporter() {
             >
               <option value="manual_official_file">Official file uploaded manually</option>
               <option value="official_manufacturer">Official manufacturer URL</option>
+              <option value="approved_reference_dataset">Approved reference dataset</option>
               <option value="approved_distributor">Approved distributor</option>
             </select>
           </label>
