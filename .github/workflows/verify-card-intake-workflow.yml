@@ -25,109 +25,40 @@ jobs:
         with:
           ref: agent/permanent-card-intake-workflow
 
-      - name: Finalize permanent card workflow integration
+      - name: Remove retired list-workspace test expectations
         run: |
           python - <<'PY'
           from pathlib import Path
 
-          admin = Path('src/app/admin/page.tsx')
-          text = admin.read_text()
-          replacements = {
-              '      href: "/list",\n      eyebrow: "Listing desk",\n      title: "Upload, InstaComp™, edit, and list cards",':
-              '      href: "/admin/pending-card-import",\n      eyebrow: "Card intake",\n      title: "Import, track, InstaComp 2.0, and list cards",',
-              '        "Use the simplified photo-first workspace to scan selected cards, edit every field and quantity, then publish one, several, or all selected cards.",':
-              '        "Use the permanent card workspace to import front/back packages, watch live progress, review pending drafts, run InstaComp 2.0, and publish selected cards.",',
-              '      cta: "Open List Cards",':
-              '      cta: "Open Card Intake",',
-              '        { href: "/list", label: "List Cards" },':
-              '        { href: "/admin/pending-card-import", label: "Card Intake & Listing" },',
-          }
-          for old, new in replacements.items():
-              if old in text:
-                  text = text.replace(old, new, 1)
-              elif new not in text:
-                  raise SystemExit(f'Admin page marker not found: {old[:80]}')
-          admin.write_text(text)
-
-          smoke = Path('scripts/smoke-admin-runtime.mjs')
-          smoke_text = smoke.read_text()
-          if '/admin/pending-card-import' not in smoke_text:
-              marker = '    expectedText: "InstaComp™ 2.0",\n  },'
-              addition = marker + '\n  {\n    path: "/admin/pending-card-import",\n    auth: true,\n    expectedText: "Card Intake & Listing",\n  },'
-              if marker not in smoke_text:
-                  raise SystemExit('Runtime smoke insertion marker not found.')
-              smoke_text = smoke_text.replace(marker, addition, 1)
-          smoke.write_text(smoke_text)
-
-          client = Path('src/app/admin/pending-card-import/PendingCardImportClient.tsx')
-          client_text = client.read_text()
-          status_pair = 'role="status"\n            aria-live="polite"'
-          if status_pair not in client_text:
-              if 'aria-live="polite"' not in client_text:
-                  raise SystemExit('Live progress aria-live attribute not found.')
-              client_text = client_text.replace(
-                  'aria-live="polite"',
-                  status_pair,
-                  1,
-              )
-          client.write_text(client_text)
-
-          tests = Path('scripts/run-admin-dashboard-actions-simulations.mjs')
-          test_text = tests.read_text()
-          test_text = test_text.replace(
-              "adminNewProductPageSource.includes('redirect(\"/list\")')",
-              "adminNewProductPageSource.includes('redirect(\"/admin/pending-card-import\")')",
-              1,
+          path = Path('scripts/run-admin-dashboard-actions-simulations.mjs')
+          text = path.read_text()
+          stale = (
+              '  for (const fragment of [\n'
+              '    "List Cards",\n'
+              '    "Upload photos",\n'
+              '    "Run InstaComp™",\n'
+              '    "Review and list selected",\n'
+              '  ]) {\n'
+              '    assert(\n'
+              '      simplifiedListPageSource.includes(fragment),\n'
+              '      `Expected simplified list action-scope fragment ${fragment}.`,\n'
+              '    );\n'
+              '  }\n'
           )
-          test_text = test_text.replace(
-              '"Expected the legacy new-product route to redirect to /list."',
-              '"Expected the legacy new-product route to redirect to Card Intake & Listing."',
-              1,
-          )
-
-          old_scope_start = '''  for (const fragment of [
-            "List Cards",
-            "Upload photos",
-            "Run InstaComp™",
-            "Review and list selected",
-          ]) {'''
-          old_scope_end = '''  for (const fragment of [
-            'href: "/list"','''
-          if old_scope_start in test_text:
-              start = test_text.index(old_scope_start)
-              end = test_text.index(old_scope_end, start)
-              test_text = test_text[:start] + test_text[end:]
-
-          test_text = test_text.replace(
-              '    \'href: "/list"\',',
-              '    \'href: "/admin/pending-card-import"\',',
-              1,
-          )
-          test_text = test_text.replace(
-              '    \'cta: "Open List Cards"\',',
-              '    \'cta: "Open Card Intake"\',',
-              1,
-          )
-          test_text = test_text.replace(
-              '    "Upload, InstaComp™, edit, and list cards",',
-              '    "Import, track, InstaComp 2.0, and list cards",',
-              1,
-          )
-          test_text = test_text.replace(
-              '    "Open List Cards",',
-              '    "Open Card Intake",',
-              1,
-          )
-          tests.write_text(test_text)
+          if stale in text:
+              text = text.replace(stale, '', 1)
+          elif 'Expected simplified list action-scope fragment' in text:
+              raise SystemExit('Retired simplified-list assertion block could not be removed.')
+          path.write_text(text)
           PY
 
-      - name: Commit generated workflow integration
+      - name: Commit final test cleanup
         run: |
           if ! git diff --quiet; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add src/app/admin/page.tsx scripts/smoke-admin-runtime.mjs src/app/admin/pending-card-import/PendingCardImportClient.tsx scripts/run-admin-dashboard-actions-simulations.mjs
-            git commit -m "Finalize permanent Card Intake workflow integration"
+            git add scripts/run-admin-dashboard-actions-simulations.mjs
+            git commit -m "Remove retired list workspace test expectations"
             git push origin HEAD:agent/permanent-card-intake-workflow
           fi
 
