@@ -1,31 +1,113 @@
 import fs from "node:fs";
 
 const files = {
-  page: fs.readFileSync("src/app/list/page.tsx", "utf8"),
-  layout: fs.readFileSync("src/app/list/layout.tsx", "utf8"),
-  intake: fs.readFileSync("src/app/list/SimpleListIntake.tsx", "utf8"),
+  legacyListPage: fs.readFileSync("src/app/list/page.tsx", "utf8"),
+  listLayout: fs.readFileSync("src/app/list/layout.tsx", "utf8"),
+  intakePage: fs.readFileSync(
+    "src/app/admin/pending-card-import/page.tsx",
+    "utf8",
+  ),
+  intakeClient: fs.readFileSync(
+    "src/app/admin/pending-card-import/PendingCardImportClient.tsx",
+    "utf8",
+  ),
   queue: fs.readFileSync("src/app/list/SimpleListingQueue.tsx", "utf8"),
-  draftApi: fs.readFileSync("src/app/api/admin/simple-list-drafts/route.ts", "utf8"),
-  legacy: fs.readFileSync("src/app/admin/products/new/page.tsx", "utf8"),
-  shortcut: fs.readFileSync("src/app/components/AdminInstaCompMobileShortcut.tsx", "utf8"),
+  pendingApi: fs.readFileSync(
+    "src/app/api/admin/pending-card-import/route.ts",
+    "utf8",
+  ),
+  legacyProduct: fs.readFileSync(
+    "src/app/admin/products/new/page.tsx",
+    "utf8",
+  ),
+  shortcut: fs.readFileSync(
+    "src/app/components/AdminInstaCompMobileShortcut.tsx",
+    "utf8",
+  ),
 };
 
 const checks = [
-  ["/list page imports photo intake", files.page.includes("SimpleListIntake")],
-  ["/list page imports listing queue", files.page.includes("SimpleListingQueue")],
-  ["/list is admin-session protected", files.layout.includes("isValidAdminSessionValue") && files.layout.includes("/admin/login")],
-  ["old card studio redirects to /list", files.legacy.includes('redirect("/list")')],
-  ["admin quick tool links directly to /list", files.shortcut.includes('href: "/list"') && files.shortcut.includes('label: "List Cards"')],
-  ["intake supports multiple photo upload", files.intake.includes("multiple") && files.intake.includes("front_back")],
-  ["intake supports select-all and selective scanning", files.intake.includes("Select all") && files.intake.includes("Run InstaComp™ on Selected")],
-  ["intake exposes editable quantity", files.intake.includes('label="Quantity"') && files.intake.includes('min="1"')],
-  ["intake creates only selected listing drafts", files.intake.includes("addSelectedToQueue") && files.intake.includes("selectedScannedRows")],
-  ["draft API is admin-only", files.draftApi.includes('actor.type !== "admin"')],
-  ["draft API validates title price quantity and front image", ["A front card photo is required", "Listing title is required", "Listing price must be greater than zero", "Quantity must be at least one"].every((value) => files.draftApi.includes(value))],
-  ["listing queue uses checkboxes", files.queue.includes('type="checkbox"') && files.queue.includes("toggleSelected")],
-  ["listing queue supports one/some/all publishing", files.queue.includes("Select all") && files.queue.includes('runAction("publish-both")')],
-  ["eBay publishing requires inline confirmation", files.queue.includes("Confirm marketplace publishing") && files.queue.includes("Yes, list selected cards")],
-  ["website-only listing remains available", files.queue.includes('runAction("publish-website")')],
+  [
+    "/list redirects into the permanent card workspace",
+    files.legacyListPage.includes('redirect("/admin/pending-card-import")'),
+  ],
+  [
+    "legacy /list remains behind the admin-session layout",
+    files.listLayout.includes("isValidAdminSessionValue") &&
+      files.listLayout.includes("/admin/login"),
+  ],
+  [
+    "card intake page includes the reusable package importer",
+    files.intakePage.includes("PendingCardImportClient"),
+  ],
+  [
+    "card intake page includes the listing queue",
+    files.intakePage.includes("SimpleListingQueue"),
+  ],
+  [
+    "card intake page links to InstaComp 2.0",
+    files.intakePage.includes('href="/admin/instacomp/v2"'),
+  ],
+  [
+    "legacy add-product route uses the permanent card workspace",
+    files.legacyProduct.includes('redirect("/admin/pending-card-import")'),
+  ],
+  [
+    "admin mobile quick tool links to Card Intake",
+    files.shortcut.includes('href: "/admin/pending-card-import"') &&
+      files.shortcut.includes('label: "Card Intake"'),
+  ],
+  [
+    "package intake accepts an extracted folder",
+    files.intakeClient.includes("webkitdirectory") &&
+      files.intakeClient.includes("pending-import JSON manifest"),
+  ],
+  [
+    "package intake exposes persistent live progress",
+    files.intakeClient.includes("Live import status") &&
+      files.intakeClient.includes('role="progressbar"') &&
+      files.intakeClient.includes("aria-valuenow={percentage}"),
+  ],
+  [
+    "package intake reports percentage and remaining card count",
+    files.intakeClient.includes("{percentage}%") &&
+      files.intakeClient.includes('label="Remaining"'),
+  ],
+  [
+    "package intake reports cards currently processing",
+    files.intakeClient.includes("Processing now") &&
+      files.intakeClient.includes("activeCards"),
+  ],
+  [
+    "package intake refreshes the listing queue after import",
+    files.intakeClient.includes("tcos:simple-list-drafts-created"),
+  ],
+  [
+    "pending import API is admin-only",
+    files.pendingApi.includes('actor.type !== "admin"'),
+  ],
+  [
+    "pending import API creates zero-dollar drafts",
+    files.pendingApi.includes("price: 0") &&
+      files.pendingApi.includes("quantity: 1") &&
+      files.pendingApi.includes('status: "draft"'),
+  ],
+  [
+    "purchase cost is excluded from pricing data",
+    files.pendingApi.includes("excludedFromInstaComp: true") &&
+      files.pendingApi.includes("excludedFromMarketComps: true"),
+  ],
+  [
+    "listing queue supports selective publishing",
+    files.queue.includes('type="checkbox"') &&
+      files.queue.includes("toggleSelected") &&
+      files.queue.includes('runAction("publish-website")'),
+  ],
+  [
+    "eBay publishing still requires confirmation",
+    files.queue.includes("Confirm marketplace publishing") &&
+      files.queue.includes("Yes, list selected cards"),
+  ],
 ];
 
 let failed = 0;
@@ -35,8 +117,8 @@ for (const [label, pass] of checks) {
 }
 
 if (failed) {
-  console.error(`Simplified /list audit failed ${failed}/${checks.length} checks.`);
+  console.error(`Card Intake & Listing audit failed ${failed}/${checks.length} checks.`);
   process.exit(1);
 }
 
-console.log(`Simplified /list audit passed ${checks.length}/${checks.length} checks.`);
+console.log(`Card Intake & Listing audit passed ${checks.length}/${checks.length} checks.`);

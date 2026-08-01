@@ -51,6 +51,15 @@ type ImportProgress = {
   total: number;
 };
 
+type CardImportStatus = "importing" | "created" | "existing" | "failed";
+
+type CardImportResult = {
+  clientId: string;
+  title: string;
+  status: CardImportStatus;
+  message?: string;
+};
+
 type DirectoryFile = File & { webkitRelativePath?: string };
 
 function normalizePath(value: string) {
@@ -96,6 +105,17 @@ function resolveImage(
   return uniqueName || null;
 }
 
+function cardLabel(item: ManifestItem) {
+  return String(item.title || item.client_id || "Card").trim();
+}
+
+function statusTone(status: CardImportStatus) {
+  if (status === "created") return "border-emerald-200 bg-emerald-50 text-emerald-950";
+  if (status === "existing") return "border-sky-200 bg-sky-50 text-sky-950";
+  if (status === "failed") return "border-red-200 bg-red-50 text-red-950";
+  return "border-amber-200 bg-amber-50 text-amber-950";
+}
+
 export default function PendingCardImportClient() {
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const [manifest, setManifest] = useState<PendingImportManifest | null>(null);
@@ -106,6 +126,8 @@ export default function PendingCardImportClient() {
   const [error, setError] = useState("");
   const [failures, setFailures] = useState<string[]>([]);
   const [importedIds, setImportedIds] = useState<string[]>([]);
+  const [activeCards, setActiveCards] = useState<string[]>([]);
+  const [cardResults, setCardResults] = useState<Record<string, CardImportResult>>({});
   const [progress, setProgress] = useState<ImportProgress>({
     processed: 0,
     created: 0,
@@ -119,6 +141,18 @@ export default function PendingCardImportClient() {
     folderInputRef.current?.setAttribute("directory", "");
   }, []);
 
+  useEffect(() => {
+    if (!working) return;
+
+    const warnBeforeLeaving = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+
+    window.addEventListener("beforeunload", warnBeforeLeaving);
+    return () => window.removeEventListener("beforeunload", warnBeforeLeaving);
+  }, [working]);
+
   const missingFronts = useMemo(
     () => prepared.filter((entry) => !entry.front),
     [prepared],
@@ -128,19 +162,48 @@ export default function PendingCardImportClient() {
     [prepared],
   );
   const readyCount = prepared.filter((entry) => entry.front).length;
+  const percentage = progress.total
+    ? Math.round((progress.processed / progress.total) * 100)
+    : 0;
+  const remaining = Math.max(progress.total - progress.processed, 0);
+  const complete = progress.total > 0 && progress.processed === progress.total && !working;
+  const recentResults = Object.values(cardResults).slice(-8).reverse();
+  const progressStatus = working
+    ? "Import running"
+    : complete && progress.failed > 0
+      ? "Finished with errors"
+      : complete
+        ? "Import complete"
+        : manifest
+          ? "Ready to import"
+          : "Waiting for package";
+  const progressPanelTone = working
+    ? "border-blue-300 bg-blue-50"
+    : complete && progress.failed > 0
+      ? "border-red-300 bg-red-50"
+      : complete
+        ? "border-emerald-400 bg-emerald-50"
+        : "border-neutral-300 bg-white";
+
+  function resetImportState(total = 0) {
+    setFailures([]);
+    setImportedIds([]);
+    setActiveCards([]);
+    setCardResults({});
+    setProgress({ processed: 0, created: 0, existing: 0, failed: 0, total });
+  }
 
   async function loadPackage(fileList: FileList | null) {
     const files = Array.from(fileList || []);
     setManifest(null);
     setPrepared([]);
-    setFailures([]);
-    setImportedIds([]);
+    setPackageName("");
     setNotice("");
     setError("");
-    setProgress({ processed: 0, created: 0, existing: 0, failed: 0, total: 0 });
+    resetImportState();
 
     if (!files.length) {
-      setError("Choose the extracted TC_Card_Staging_Package folder.");
+      setError("Choose an extracted Truely Collectables card package folder.");
       return;
     }
 
@@ -148,7 +211,7 @@ export default function PendingCardImportClient() {
       files.find((file) => file.name === "Truely_Collectables_Website_Pending_Import.json") ||
       files.find((file) => file.name.toLowerCase().endsWith(".json"));
     if (!manifestFile) {
-      setError("The selected folder does not contain the pending-import JSON manifest.");
+      setError("The selected folder does not contain a pending-import JSON manifest.");
       return;
     }
 
@@ -169,16 +232,10 @@ export default function PendingCardImportClient() {
 
       setManifest(parsed);
       setPrepared(nextPrepared);
-      setPackageName(rootName || manifestFile.name);
-      setProgress({
-        processed: 0,
-        created: 0,
-        existing: 0,
-        failed: 0,
-        total: parsed.items.length,
-      });
+      setPackageName(rootName || parsed.batch_id);
+      resetImportState(parsed.items.length);
       setNotice(
-        `Loaded ${parsed.items.length} cards and ${files.filter((file) => file.type.startsWith("image/")).length} image files.`,
+        `Loaded ${parsed.items.length} card${parsed.items.length === 1 ? "" : "s"} and ${files.filter((file) => file.type.startsWith("image/")).length} image files.`,
       );
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Could not read the import manifest.");
@@ -187,7 +244,7 @@ export default function PendingCardImportClient() {
 
   async function importPackage() {
     if (!manifest || !prepared.length) {
-      setError("Choose the extracted staging package first.");
+      setError("Choose an extracted card package first.");
       return;
     }
     if (missingFronts.length) {
@@ -201,7 +258,16 @@ export default function PendingCardImportClient() {
     setError("");
     setFailures([]);
     setImportedIds([]);
-    setNotice(`Importing ${prepared.length} pending cards...`);
+    setActiveCards([]);
+    setCardResults({});
+    setProgress({
+      processed: 0,
+      created: 0,
+      existing: 0,
+      failed: 0,
+      total: prepared.length,
+    });
+    setNotice(`Importing ${prepared.length} pending card${prepared.length === 1 ? "" : "s"}...`);
 
     let cursor = 0;
     let processed = 0;
@@ -216,6 +282,16 @@ export default function PendingCardImportClient() {
         const index = cursor;
         cursor += 1;
         const entry = prepared[index];
+        const title = cardLabel(entry.item);
+        const clientId = entry.item.client_id;
+
+        setActiveCards((current) =>
+          [...current.filter((value) => value !== title), title].slice(-3),
+        );
+        setCardResults((current) => ({
+          ...current,
+          [clientId]: { clientId, title, status: "importing" },
+        }));
 
         try {
           const formData = new FormData();
@@ -237,15 +313,32 @@ export default function PendingCardImportClient() {
             throw new Error(data.error || "Import failed.");
           }
 
-          if (data.alreadyExisted) existing += 1;
-          else created += 1;
+          if (data.alreadyExisted) {
+            existing += 1;
+            setCardResults((current) => ({
+              ...current,
+              [clientId]: { clientId, title, status: "existing" },
+            }));
+          } else {
+            created += 1;
+            setCardResults((current) => ({
+              ...current,
+              [clientId]: { clientId, title, status: "created" },
+            }));
+          }
+
           if (data.inventoryItemId) nextIds.push(String(data.inventoryItemId));
         } catch (nextError) {
           failed += 1;
           const message = nextError instanceof Error ? nextError.message : "Import failed.";
-          nextFailures.push(`${entry.item.client_id}: ${message}`);
+          nextFailures.push(`${clientId}: ${message}`);
+          setCardResults((current) => ({
+            ...current,
+            [clientId]: { clientId, title, status: "failed", message },
+          }));
         } finally {
           processed += 1;
+          setActiveCards((current) => current.filter((value) => value !== title));
           setProgress({ processed, created, existing, failed, total: prepared.length });
         }
       }
@@ -256,6 +349,7 @@ export default function PendingCardImportClient() {
     );
 
     setWorking(false);
+    setActiveCards([]);
     setFailures(nextFailures);
     setImportedIds(nextIds);
     setNotice(
@@ -264,21 +358,25 @@ export default function PendingCardImportClient() {
     if (nextFailures.length) {
       setError(nextFailures.slice(0, 8).join(" | "));
     }
-  }
 
-  const percentage = progress.total
-    ? Math.round((progress.processed / progress.total) * 100)
-    : 0;
+    if (nextIds.length) {
+      window.dispatchEvent(
+        new CustomEvent("tcos:simple-list-drafts-created", {
+          detail: { inventoryItemIds: nextIds },
+        }),
+      );
+    }
+  }
 
   return (
     <div className="space-y-6">
       <section className="rounded-3xl border-2 border-neutral-950 bg-white p-5 shadow-[7px_7px_0_#facc15] sm:p-6">
         <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-700">
-          Step 1 · Load package
+          Step 1 · Load a card package
         </p>
-        <h2 className="mt-2 text-3xl font-black">Choose the extracted staging folder</h2>
+        <h2 className="mt-2 text-3xl font-black">Choose the extracted package folder</h2>
         <p className="mt-2 max-w-4xl font-semibold leading-7 text-neutral-600">
-          Unzip TC_Card_Staging_Package.zip, then choose the extracted folder. The importer finds the JSON manifest and all front/back images automatically.
+          This is the permanent intake tool. It accepts any future Truely Collectables card package containing a JSON manifest and matching front/back image files—not just the current batch.
         </p>
         <input
           ref={folderInputRef}
@@ -302,73 +400,175 @@ export default function PendingCardImportClient() {
       </section>
 
       {manifest ? (
-        <section className="rounded-3xl border-2 border-neutral-950 bg-white p-5 shadow-[7px_7px_0_#111318] sm:p-6">
-          <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-700">
-            Step 2 · Verify and import
-          </p>
-          <h2 className="mt-2 text-3xl font-black">{packageName || manifest.batch_id}</h2>
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            <Metric label="Manifest cards" value={String(prepared.length)} />
-            <Metric label="Ready" value={String(readyCount)} good={!missingFronts.length} />
-            <Metric label="Missing fronts" value={String(missingFronts.length)} bad={Boolean(missingFronts.length)} />
-            <Metric label="Missing backs" value={String(missingBacks.length)} bad={Boolean(missingBacks.length)} />
-            <Metric label="Starting price" value="$0.00" />
-          </div>
-
-          <div className="mt-5 rounded-2xl border border-amber-300 bg-amber-50 p-4 font-bold text-amber-950">
-            Every card is created as an unpublished draft with quantity 1 and status Pending InstaComp 2.0. Purchase cost stays private and is excluded from InstaComp and market comps.
-          </div>
-
-          <button
-            type="button"
-            onClick={() => void importPackage()}
-            disabled={working || Boolean(missingFronts.length)}
-            className="mt-5 min-h-14 w-full rounded-xl bg-neutral-950 px-5 py-3 text-lg font-black text-white disabled:bg-neutral-400"
+        <>
+          <section
+            role="status"
+            aria-live="polite"
+            className={`sticky top-4 z-30 rounded-3xl border-2 p-5 shadow-2xl backdrop-blur sm:p-6 ${progressPanelTone}`}
           >
-            {working ? `Importing ${progress.processed}/${progress.total}…` : `Import all ${readyCount} pending cards`}
-          </button>
-
-          {working || progress.processed ? (
-            <div className="mt-5">
-              <div className="h-4 overflow-hidden rounded-full bg-neutral-200">
-                <div
-                  className="h-full bg-blue-700 transition-all"
-                  style={{ width: `${percentage}%` }}
-                />
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-700">
+                  Live import status
+                </p>
+                <h2 className="mt-1 text-3xl font-black">{progressStatus}</h2>
+                <p className="mt-1 break-words font-bold text-neutral-700">
+                  {packageName || manifest.batch_id}
+                </p>
               </div>
-              <p className="mt-2 font-black">
-                {percentage}% · {progress.created} created · {progress.existing} already present · {progress.failed} failed
-              </p>
+              <div className="text-left lg:text-right">
+                <p className="text-5xl font-black tabular-nums">{percentage}%</p>
+                <p className="mt-1 font-black tabular-nums text-neutral-700">
+                  {progress.processed} of {progress.total} finished
+                </p>
+              </div>
             </div>
-          ) : null}
 
-          {failures.length ? (
-            <details className="mt-5 rounded-2xl border border-red-300 bg-red-50 p-4">
-              <summary className="cursor-pointer font-black text-red-900">
-                Show {failures.length} failed card{failures.length === 1 ? "" : "s"}
-              </summary>
-              <ul className="mt-3 space-y-2 text-sm font-bold text-red-900">
-                {failures.map((failure) => <li key={failure}>{failure}</li>)}
-              </ul>
-            </details>
-          ) : null}
-
-          {!working && importedIds.length ? (
-            <div className="mt-5 rounded-2xl border-2 border-emerald-500 bg-emerald-50 p-5">
-              <h3 className="text-2xl font-black text-emerald-950">Pending listings are in the website database</h3>
-              <p className="mt-2 font-bold text-emerald-900">
-                Open the listing queue to review the front/back images and run the next InstaComp 2.0 step before publishing.
-              </p>
-              <Link
-                href="/list#listing-queue"
-                className="mt-4 inline-flex min-h-12 items-center rounded-xl bg-emerald-800 px-5 py-3 font-black text-white"
-              >
-                View pending listing queue
-              </Link>
+            <div
+              className="mt-5 h-6 overflow-hidden rounded-full border border-neutral-300 bg-white"
+              role="progressbar"
+              aria-label="Card import progress"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={percentage}
+            >
+              <div
+                className={`h-full transition-[width] duration-300 ${complete && progress.failed === 0 ? "bg-emerald-600" : progress.failed > 0 ? "bg-red-600" : "bg-blue-700"}`}
+                style={{ width: `${percentage}%` }}
+              />
             </div>
-          ) : null}
-        </section>
+
+            <div className="mt-5 grid gap-3 grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
+              <ProgressMetric label="Created" value={progress.created} />
+              <ProgressMetric label="Already there" value={progress.existing} />
+              <ProgressMetric label="Failed" value={progress.failed} bad={progress.failed > 0} />
+              <ProgressMetric label="Remaining" value={remaining} />
+              <ProgressMetric label="Missing fronts" value={missingFronts.length} bad={missingFronts.length > 0} />
+              <ProgressMetric label="Missing backs" value={missingBacks.length} bad={missingBacks.length > 0} />
+            </div>
+
+            {activeCards.length ? (
+              <div className="mt-5 rounded-2xl border border-blue-200 bg-white p-4">
+                <p className="text-xs font-black uppercase tracking-[0.14em] text-blue-700">
+                  Processing now
+                </p>
+                <ul className="mt-2 space-y-1 text-sm font-bold text-neutral-800">
+                  {activeCards.map((title) => <li key={title}>• {title}</li>)}
+                </ul>
+              </div>
+            ) : null}
+
+            {complete ? (
+              <div className={`mt-5 rounded-2xl border-2 p-4 font-black ${progress.failed ? "border-red-300 bg-red-100 text-red-950" : "border-emerald-400 bg-emerald-100 text-emerald-950"}`}>
+                {progress.failed
+                  ? `Import finished with ${progress.failed} card${progress.failed === 1 ? "" : "s"} needing review.`
+                  : `Import finished. All ${progress.total} card${progress.total === 1 ? "" : "s"} were processed.`}
+              </div>
+            ) : null}
+          </section>
+
+          <section className="rounded-3xl border-2 border-neutral-950 bg-white p-5 shadow-[7px_7px_0_#111318] sm:p-6">
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-700">
+              Step 2 · Verify and import
+            </p>
+            <h2 className="mt-2 text-3xl font-black">{packageName || manifest.batch_id}</h2>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              <Metric label="Manifest cards" value={String(prepared.length)} />
+              <Metric label="Ready" value={String(readyCount)} good={!missingFronts.length} />
+              <Metric label="Missing fronts" value={String(missingFronts.length)} bad={Boolean(missingFronts.length)} />
+              <Metric label="Missing backs" value={String(missingBacks.length)} bad={Boolean(missingBacks.length)} />
+              <Metric label="Starting price" value="$0.00" />
+            </div>
+
+            <div className="mt-5 rounded-2xl border border-amber-300 bg-amber-50 p-4 font-bold text-amber-950">
+              Every card is created as an unpublished draft with quantity 1 and status Pending InstaComp 2.0. Purchase cost stays private and is excluded from InstaComp and market comps.
+            </div>
+
+            <button
+              type="button"
+              onClick={() => void importPackage()}
+              disabled={working || Boolean(missingFronts.length)}
+              className="mt-5 min-h-14 w-full rounded-xl bg-neutral-950 px-5 py-3 text-lg font-black text-white disabled:bg-neutral-400"
+            >
+              {working
+                ? `Importing ${progress.processed}/${progress.total} · ${percentage}%`
+                : complete
+                  ? `Re-run this batch safely`
+                  : `Import all ${readyCount} pending cards`}
+            </button>
+
+            {recentResults.length ? (
+              <div className="mt-5">
+                <h3 className="text-lg font-black">Latest card results</h3>
+                <div className="mt-3 grid gap-2">
+                  {recentResults.map((result) => (
+                    <div
+                      key={result.clientId}
+                      className={`rounded-xl border px-3 py-2 text-sm font-bold ${statusTone(result.status)}`}
+                    >
+                      <span className="uppercase">{result.status.replaceAll("_", " ")}</span>
+                      <span className="mx-2">·</span>
+                      <span>{result.title}</span>
+                      {result.message ? <span className="block mt-1">{result.message}</span> : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {failures.length ? (
+              <details className="mt-5 rounded-2xl border border-red-300 bg-red-50 p-4">
+                <summary className="cursor-pointer font-black text-red-900">
+                  Show {failures.length} failed card{failures.length === 1 ? "" : "s"}
+                </summary>
+                <ul className="mt-3 space-y-2 text-sm font-bold text-red-900">
+                  {failures.map((failure) => <li key={failure}>{failure}</li>)}
+                </ul>
+              </details>
+            ) : null}
+
+            {!working && importedIds.length ? (
+              <div className="mt-5 rounded-2xl border-2 border-emerald-500 bg-emerald-50 p-5">
+                <h3 className="text-2xl font-black text-emerald-950">Pending listings are in the website database</h3>
+                <p className="mt-2 font-bold text-emerald-900">
+                  The listing queue below refreshes automatically. Review the images and identity, run InstaComp 2.0, set pricing, then publish only the cards you select.
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <a
+                    href="#listing-queue"
+                    className="inline-flex min-h-12 items-center rounded-xl bg-emerald-800 px-5 py-3 font-black text-white"
+                  >
+                    View listing queue
+                  </a>
+                  <Link
+                    href="/admin/instacomp/v2"
+                    className="inline-flex min-h-12 items-center rounded-xl border-2 border-emerald-800 bg-white px-5 py-3 font-black text-emerald-950"
+                  >
+                    Open InstaComp 2.0
+                  </Link>
+                </div>
+              </div>
+            ) : null}
+          </section>
+        </>
       ) : null}
+    </div>
+  );
+}
+
+function ProgressMetric({
+  label,
+  value,
+  bad = false,
+}: {
+  label: string;
+  value: number;
+  bad?: boolean;
+}) {
+  return (
+    <div className={`rounded-2xl border p-3 ${bad ? "border-red-300 bg-red-100 text-red-950" : "border-neutral-200 bg-white text-neutral-950"}`}>
+      <p className="text-xs font-black uppercase tracking-[0.12em] opacity-70">{label}</p>
+      <p className="mt-1 text-2xl font-black tabular-nums">{value}</p>
     </div>
   );
 }

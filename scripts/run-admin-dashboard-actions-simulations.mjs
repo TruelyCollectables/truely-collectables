@@ -221,23 +221,12 @@ scenario("inventory bridge and manual product submits explain scope", () => {
   }
 
   assert(
-    adminNewProductPageSource.includes('redirect("/list")'),
-    "Expected the legacy new-product route to redirect to /list.",
+    adminNewProductPageSource.includes('redirect("/admin/pending-card-import")'),
+    "Expected the legacy new-product route to redirect to Card Intake & Listing.",
   );
   for (const fragment of [
-    "List Cards",
-    "Upload photos",
-    "Run InstaComp™",
-    "Review and list selected",
-  ]) {
-    assert(
-      simplifiedListPageSource.includes(fragment),
-      `Expected simplified list action-scope fragment ${fragment}.`,
-    );
-  }
-  for (const fragment of [
-    'href: "/list"',
-    'cta: "Open List Cards"',
+    'href: "/admin/pending-card-import"',
+    'cta: "Open Card Intake"',
     '{ href: "/admin/instacomp/mobile", label: "InstaComp Mobile" }',
   ]) {
     assert(
@@ -331,11 +320,11 @@ scenario("admin command center exposes no-dead-end operator action map", () => {
     "Operator action map",
     "No dead-end action paths",
     "scan cleanup, product control, offer decisions, and paid",
-    "Upload, InstaComp™, edit, and list cards",
+    "Import, track, InstaComp 2.0, and list cards",
     "bulk saves, sold/end-early policy checks, quantity review",
     "Accept, counter, or decline offers",
     "Review holds, dry-run tracking references, evidence errors",
-    "Open List Cards",
+    "Open Card Intake",
     "Open Products",
     "Open Offers",
     "Open Orders",

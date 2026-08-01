@@ -10,8 +10,8 @@ const adminMobileLinks = [
     icon: "📱",
   },
   {
-    href: "/list",
-    label: "List Cards",
+    href: "/admin/pending-card-import",
+    label: "Card Intake",
     icon: "📸",
   },
   {

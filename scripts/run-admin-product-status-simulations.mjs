@@ -25,7 +25,7 @@ const newProductPageSource = await readFile(
   "utf8",
 );
 const simplifiedListPageSource = await readFile(
-  new URL("../src/app/list/page.tsx", import.meta.url),
+  new URL("../src/app/admin/pending-card-import/page.tsx", import.meta.url),
   "utf8",
 );
 const simplifiedListLayoutSource = await readFile(
@@ -33,7 +33,7 @@ const simplifiedListLayoutSource = await readFile(
   "utf8",
 );
 const simpleListDraftRouteSource = await readFile(
-  new URL("../src/app/api/admin/simple-list-drafts/route.ts", import.meta.url),
+  new URL("../src/app/api/admin/pending-card-import/route.ts", import.meta.url),
   "utf8",
 );
 const productSaveRouteSource = await readFile(
@@ -344,48 +344,36 @@ scenario("product list uses professional inventory command presentation", () => 
   }
 });
 
-scenario("new product intake redirects to the protected simplified listing workspace", () => {
+scenario("new product intake redirects to permanent Card Intake & Listing", () => {
   assert(
-    newProductPageSource.includes('redirect("/list")'),
-    "Expected the legacy new-product route to redirect to /list.",
+    newProductPageSource.includes('redirect("/admin/pending-card-import")'),
+    "Expected the legacy new-product route to redirect to Card Intake & Listing.",
   );
 
   for (const fragment of [
-    "SimpleListIntake",
+    "PendingCardImportClient",
     "SimpleListingQueue",
-    "List Cards",
-    "Upload photos",
-    "Review and list selected",
+    "Card Intake & Listing",
+    "InstaComp 2.0",
   ]) {
     assert(
       simplifiedListPageSource.includes(fragment),
-      `Expected simplified listing page fragment ${fragment}.`,
-    );
-  }
-
-  for (const fragment of [
-    "ADMIN_SESSION_COOKIE_NAMES",
-    "isValidAdminSessionValue",
-    "/admin/login",
-    'encodeURIComponent("/list")',
-  ]) {
-    assert(
-      simplifiedListLayoutSource.includes(fragment),
-      `Expected protected /list layout fragment ${fragment}.`,
+      `Expected Card Intake page fragment ${fragment}.`,
     );
   }
 
   for (const fragment of [
     'actor.type !== "admin"',
     "A front card photo is required.",
-    "Listing title is required.",
-    "Listing price must be greater than zero.",
-    "Quantity must be at least one.",
+    "price: 0",
+    "quantity: 1",
     "createSellerDraftProduct",
+    "excludedFromInstaComp: true",
+    "excludedFromMarketComps: true",
   ]) {
     assert(
       simpleListDraftRouteSource.includes(fragment),
-      `Expected simplified draft route fragment ${fragment}.`,
+      `Expected pending card import route fragment ${fragment}.`,
     );
   }
 });
