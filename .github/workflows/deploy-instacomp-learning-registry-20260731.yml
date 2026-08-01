@@ -7,6 +7,7 @@ on:
       - ".github/workflows/deploy-instacomp-learning-registry-20260731.yml"
       - "scripts/ops/deploy-instacomp-learning-registry.mjs"
       - "scripts/ops/diagnose-instacomp-learning-backfill.mjs"
+      - "scripts/ops/install-instacomp-knowledge-json-guards.mjs"
       - "scripts/ops/repair-instacomp-learning-backfill.mjs"
       - "scripts/ops/supabase-management-fetch-retry.mjs"
   workflow_dispatch:
@@ -65,10 +66,11 @@ jobs:
           git merge-base --is-ancestor "$BASE_MAIN_SHA" origin/main
           mapfile -t changed < <(git diff --name-only "$BASE_MAIN_SHA"...HEAD)
           printf '%s\n' "${changed[@]}"
-          test "${#changed[@]}" -eq 5
+          test "${#changed[@]}" -eq 6
           printf '%s\n' "${changed[@]}" | grep -Fx '.github/workflows/deploy-instacomp-learning-registry-20260731.yml'
           printf '%s\n' "${changed[@]}" | grep -Fx 'scripts/ops/deploy-instacomp-learning-registry.mjs'
           printf '%s\n' "${changed[@]}" | grep -Fx 'scripts/ops/diagnose-instacomp-learning-backfill.mjs'
+          printf '%s\n' "${changed[@]}" | grep -Fx 'scripts/ops/install-instacomp-knowledge-json-guards.mjs'
           printf '%s\n' "${changed[@]}" | grep -Fx 'scripts/ops/repair-instacomp-learning-backfill.mjs'
           printf '%s\n' "${changed[@]}" | grep -Fx 'scripts/ops/supabase-management-fetch-retry.mjs'
           git diff --check "$BASE_MAIN_SHA"...HEAD
@@ -81,6 +83,7 @@ jobs:
           for file in \
             deploy-instacomp-learning-registry.mjs \
             diagnose-instacomp-learning-backfill.mjs \
+            install-instacomp-knowledge-json-guards.mjs \
             repair-instacomp-learning-backfill.mjs \
             supabase-management-fetch-retry.mjs
           do
@@ -119,6 +122,7 @@ jobs:
             src/lib/checklist-registry/server.ts \
             scripts/ops/deploy-instacomp-learning-registry.mjs \
             scripts/ops/diagnose-instacomp-learning-backfill.mjs \
+            scripts/ops/install-instacomp-knowledge-json-guards.mjs \
             scripts/ops/repair-instacomp-learning-backfill.mjs \
             scripts/ops/supabase-management-fetch-retry.mjs
           npm run build
@@ -141,6 +145,16 @@ jobs:
             "$RUNNER_TEMP/instacomp-learning-production/production.env" \
             --yes --environment production --scope "$VERCEL_SCOPE" \
             --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Install and verify permanent JSON payload guards
+        shell: bash
+        env:
+          PRODUCTION_ENV_PATH: ${{ runner.temp }}/instacomp-learning-production/production.env
+          EVIDENCE_DIR: evidence/instacomp-learning-registry
+        run: |
+          set -euo pipefail
+          node --import ./scripts/ops/supabase-management-fetch-retry.mjs \
+            scripts/ops/install-instacomp-knowledge-json-guards.mjs
 
       - name: Repair and verify installed learning and Checklist Registry schema
         id: repair
@@ -194,7 +208,7 @@ jobs:
           latest_main_sha="$(git rev-parse origin/main)"
           echo "EXPECTED_MAIN_SHA=$latest_main_sha" >> "$GITHUB_ENV"
           echo "DEPLOY_MAIN_SHA=$latest_main_sha" >> "$GITHUB_ENV"
-          rm -f scripts/ops/{deploy-instacomp-learning-registry,diagnose-instacomp-learning-backfill,repair-instacomp-learning-backfill,supabase-management-fetch-retry}.mjs
+          rm -f scripts/ops/{deploy-instacomp-learning-registry,diagnose-instacomp-learning-backfill,install-instacomp-knowledge-json-guards,repair-instacomp-learning-backfill,supabase-management-fetch-retry}.mjs
           git checkout --detach "$latest_main_sha"
           npx vercel@56.2.0 deploy --prod --yes --no-color \
             --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
@@ -254,7 +268,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm -f scripts/ops/{deploy-instacomp-learning-registry,diagnose-instacomp-learning-backfill,repair-instacomp-learning-backfill,supabase-management-fetch-retry}.mjs
+          rm -f scripts/ops/{deploy-instacomp-learning-registry,diagnose-instacomp-learning-backfill,install-instacomp-knowledge-json-guards,repair-instacomp-learning-backfill,supabase-management-fetch-retry}.mjs
           git fetch origin main
           clean_main_sha="$(git rev-parse origin/main)"
           git checkout --detach "$clean_main_sha"
