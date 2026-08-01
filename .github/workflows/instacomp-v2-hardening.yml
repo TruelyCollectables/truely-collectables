@@ -9,15 +9,18 @@ on:
       - "src/lib/instacomp-listing-gate.ts"
       - "src/lib/instacomp-learning-server.ts"
       - "src/lib/checklist-registry/server.ts"
+      - "src/lib/public-endpoint-rate-limit.ts"
       - "src/app/api/instacomp/scan-fast/route.ts"
       - "src/app/admin/instacomp/mobile/MobileInstaCompScanner.tsx"
       - "scripts/run-instacomp-v2-hardening-simulations.ts"
       - "scripts/run-instacomp-scan-review-simulations.ts"
       - "scripts/run-checklist-complexity-simulations.ts"
       - "scripts/verify-instacomp-cache-knowledge-hardening.sql"
+      - "scripts/verify-instacomp-atomic-rate-limit.sql"
       - "supabase/migrations/20260801143000_instacomp_cache_and_knowledge_hardening.sql"
       - "supabase/migrations/20260801144500_instacomp_future_collision_guard.sql"
       - "supabase/migrations/20260801145000_instacomp_trust_promotion_guard.sql"
+      - "supabase/migrations/20260801150000_atomic_public_endpoint_rate_limit.sql"
       - ".github/workflows/instacomp-v2-hardening.yml"
   workflow_dispatch:
 
@@ -53,6 +56,7 @@ jobs:
           src/lib/instacomp-listing-gate.ts
           src/lib/instacomp-learning-server.ts
           src/lib/checklist-registry/server.ts
+          src/lib/public-endpoint-rate-limit.ts
           src/app/api/instacomp/scan-fast/route.ts
           src/app/admin/instacomp/mobile/MobileInstaCompScanner.tsx
           scripts/run-instacomp-v2-hardening-simulations.ts
@@ -90,6 +94,26 @@ jobs:
           }
           NODE
 
+      - name: Verify atomic InstaComp quota contract
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const source = fs.readFileSync(
+            'src/lib/public-endpoint-rate-limit.ts',
+            'utf8',
+          );
+          for (const marker of [
+            'tcos_take_public_endpoint_rate_limit',
+            'INSTACOMP_SCAN_DAILY_LIMIT',
+            '250',
+            'INSTACOMP_SCAN_BURST_LIMIT',
+            '12',
+            'burst_limit',
+          ]) {
+            if (!source.includes(marker)) throw new Error(`Missing rate-limit marker: ${marker}`);
+          }
+          NODE
+
       - name: Verify migration safety contracts
         run: |
           node - <<'NODE'
@@ -98,6 +122,7 @@ jobs:
             'supabase/migrations/20260801143000_instacomp_cache_and_knowledge_hardening.sql',
             'supabase/migrations/20260801144500_instacomp_future_collision_guard.sql',
             'supabase/migrations/20260801145000_instacomp_trust_promotion_guard.sql',
+            'supabase/migrations/20260801150000_atomic_public_endpoint_rate_limit.sql',
           ];
           const sql = files.map((file) => fs.readFileSync(file, 'utf8')).join('\n');
           for (const marker of [
@@ -109,6 +134,8 @@ jobs:
             'tcos_instacomp_promote_confirmed_observation',
             'tcos_instacomp_flag_v2_collision',
             'v_operator_count < 3',
+            'pg_advisory_xact_lock',
+            'burst_limit',
             'append-only',
           ]) {
             if (!sql.includes(marker)) throw new Error(`Missing migration marker: ${marker}`);
@@ -146,9 +173,11 @@ jobs:
       PGDATABASE: instacomp_hardening_test
       KNOWLEDGE_MIGRATION: supabase/migrations/20260716170000_create_tcos_card_knowledge_base.sql
       LEARNING_MIGRATION: supabase/migrations/20260731160500_instacomp_automatic_learning.sql
+      RATE_TABLE_MIGRATION: supabase/migrations/20260630113000_create_public_endpoint_rate_limit_events.sql
       HARDENING_MIGRATION: supabase/migrations/20260801143000_instacomp_cache_and_knowledge_hardening.sql
       COLLISION_MIGRATION: supabase/migrations/20260801144500_instacomp_future_collision_guard.sql
       TRUST_MIGRATION: supabase/migrations/20260801145000_instacomp_trust_promotion_guard.sql
+      ATOMIC_RATE_MIGRATION: supabase/migrations/20260801150000_atomic_public_endpoint_rate_limit.sql
 
     steps:
       - uses: actions/checkout@v4
@@ -178,6 +207,14 @@ jobs:
           exception when duplicate_object then null;
           end;
           $$;
+
+          create table if not exists public.stores (
+            id uuid primary key,
+            name text
+          );
+          insert into public.stores(id, name)
+          values ('00000000-0000-4000-8000-000000000001', 'Hardening Store')
+          on conflict(id) do nothing;
 
           create or replace function public.tcos_touch_instacomp_scan_updated_at()
           returns trigger
@@ -220,21 +257,29 @@ jobs:
           );
           SQL
 
-      - name: Apply knowledge and hardening migrations
+      - name: Apply knowledge, rate-limit, and hardening migrations
         run: |
           psql -v ON_ERROR_STOP=1 --file "$KNOWLEDGE_MIGRATION"
           psql -v ON_ERROR_STOP=1 --file "$LEARNING_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$RATE_TABLE_MIGRATION"
           psql -v ON_ERROR_STOP=1 --file "$HARDENING_MIGRATION"
           psql -v ON_ERROR_STOP=1 --file "$COLLISION_MIGRATION"
           psql -v ON_ERROR_STOP=1 --file "$TRUST_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$ATOMIC_RATE_MIGRATION"
 
       - name: Reapply additive hardening migrations
         run: |
           psql -v ON_ERROR_STOP=1 --file "$HARDENING_MIGRATION"
           psql -v ON_ERROR_STOP=1 --file "$COLLISION_MIGRATION"
           psql -v ON_ERROR_STOP=1 --file "$TRUST_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$ATOMIC_RATE_MIGRATION"
 
       - name: Verify collisions, promotion threshold, and canonical protection
         run: >-
           psql -v ON_ERROR_STOP=1
           --file scripts/verify-instacomp-cache-knowledge-hardening.sql
+
+      - name: Verify atomic quota and burst limits
+        run: >-
+          psql -v ON_ERROR_STOP=1
+          --file scripts/verify-instacomp-atomic-rate-limit.sql
