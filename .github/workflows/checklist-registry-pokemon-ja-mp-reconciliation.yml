@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "scripts/analyze-pokemon-japanese-mp-reconciliation.ts"
+      - "scripts/finalize-pokemon-japanese-mp-reconciliation-analysis.ts"
       - "scripts/verify-pokemon-japanese-official-sources.ts"
       - "scripts/finalize-pokemon-japanese-official-verification.ts"
       - "scripts/run-pokemon-japanese-official-verification.ts"
@@ -14,6 +15,7 @@ on:
       - main
     paths:
       - "scripts/analyze-pokemon-japanese-mp-reconciliation.ts"
+      - "scripts/finalize-pokemon-japanese-mp-reconciliation-analysis.ts"
       - ".github/workflows/checklist-registry-pokemon-ja-mp-reconciliation.yml"
   workflow_dispatch:
 
@@ -38,8 +40,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Lint M-P reconciliation analyzer
-        run: npx eslint scripts/analyze-pokemon-japanese-mp-reconciliation.ts
+      - name: Lint M-P reconciliation analyzers
+        run: >-
+          npx eslint
+          scripts/analyze-pokemon-japanese-mp-reconciliation.ts
+          scripts/finalize-pokemon-japanese-mp-reconciliation-analysis.ts
 
       - name: Check out current TCGdex source
         run: >-
@@ -64,7 +69,7 @@ jobs:
           --receipt .codex-run/pokemon-ja-mp-audit-receipt.json
           --queue .codex-run/pokemon-ja-mp-audit-queue.json
 
-      - name: Analyze complete M-P number and name crosswalk
+      - name: Collect complete M-P number and name crosswalk
         run: >-
           npx tsx scripts/analyze-pokemon-japanese-mp-reconciliation.ts
           .codex-run/tcgdex-ja-registry-bundles
@@ -73,35 +78,55 @@ jobs:
           --receipt .codex-run/pokemon-ja-mp-reconciliation-analysis.json
           --queue .codex-run/pokemon-ja-mp-reconciliation-queue.json
 
-      - name: Verify source population baseline
+      - name: Finalize unnumbered and excluded-card evidence
+        run: >-
+          npx tsx scripts/finalize-pokemon-japanese-mp-reconciliation-analysis.ts
+          .codex-run/pokemon-ja-mp-reconciliation-analysis.json
+          --delay-ms 50
+          --receipt .codex-run/pokemon-ja-mp-reconciliation-final.json
+          --queue .codex-run/pokemon-ja-mp-reconciliation-construction-queue.json
+
+      - name: Verify exact reconciliation result
         run: |
           node - <<'NODE'
-          const receipt = require('./.codex-run/pokemon-ja-mp-reconciliation-analysis.json');
+          const receipt = require('./.codex-run/pokemon-ja-mp-reconciliation-final.json');
+          const expected = {
+            registryCards: 83,
+            officialComparableCards: 106,
+            officialNumberedCards: 91,
+            officialUnnumberedCards: 15,
+            exactNumberNameMatches: 75,
+            sameNumberNameMismatches: 0,
+            registryOnlyNumbers: 8,
+            officialOnlyNumberedCards: 16,
+            excludedProductCards: 8,
+            resolvedRegistryRemaps: 8,
+            unresolvedRegistryRemaps: 0,
+            unmatchedExcludedCards: 0,
+            netPopulationChange: 23,
+          };
           if (receipt.mode !== 'read_only') throw new Error(`Unexpected mode: ${receipt.mode}`);
           if (receipt.targetSet.id !== 'M-P') throw new Error(`Unexpected set: ${receipt.targetSet.id}`);
-          if (receipt.counts.registryCards !== 83) {
-            throw new Error(`Unexpected Registry count: ${receipt.counts.registryCards}`);
+          if (JSON.stringify(receipt.counts) !== JSON.stringify(expected)) {
+            throw new Error(`Unexpected M-P reconciliation counts: ${JSON.stringify(receipt.counts)}`);
           }
-          if (receipt.official.productCardCount !== 114) {
-            throw new Error(`Unexpected official product count: ${receipt.official.productCardCount}`);
+          if (receipt.safeForBundleConstruction !== true) {
+            throw new Error('M-P evidence should be ready for bundle construction.');
           }
-          if (receipt.official.comparableCardCount !== 106) {
-            throw new Error(`Unexpected comparable count: ${receipt.official.comparableCardCount}`);
-          }
-          if (receipt.official.excludedCardCount !== 8) {
-            throw new Error(`Unexpected excluded count: ${receipt.official.excludedCardCount}`);
-          }
-          if (receipt.official.fetchedDetailCount !== 106) {
-            throw new Error(`Unexpected detail count: ${receipt.official.fetchedDetailCount}`);
-          }
-          if (receipt.safeForAutomaticReplacement !== false) {
-            throw new Error('M-P must remain held for manual reconciliation.');
+          if (receipt.automaticProductionWriteAllowed !== false) {
+            throw new Error('The evidence analyzer must never authorize a Production write.');
           }
           console.log(JSON.stringify({
             targetSet: receipt.targetSet,
-            official: receipt.official,
+            official: {
+              productCardCount: receipt.official.productCardCount,
+              comparableCardCount: receipt.official.comparableCardCount,
+              excludedCardCount: receipt.official.excludedCardCount,
+              excludedSetCodeCounts: receipt.official.excludedSetCodeCounts,
+            },
             counts: receipt.counts,
-            safeForAutomaticReplacement: receipt.safeForAutomaticReplacement,
+            safeForBundleConstruction: receipt.safeForBundleConstruction,
+            automaticProductionWriteAllowed: receipt.automaticProductionWriteAllowed,
           }, null, 2));
           NODE
 
@@ -112,6 +137,7 @@ jobs:
           path: |
             .codex-run/pokemon-ja-mp-audit-receipt.json
             .codex-run/pokemon-ja-mp-reconciliation-analysis.json
-            .codex-run/pokemon-ja-mp-reconciliation-queue.json
+            .codex-run/pokemon-ja-mp-reconciliation-final.json
+            .codex-run/pokemon-ja-mp-reconciliation-construction-queue.json
           if-no-files-found: error
           retention-days: 14
