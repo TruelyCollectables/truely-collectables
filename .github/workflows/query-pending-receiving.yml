@@ -9,6 +9,11 @@ on:
       - scripts/query-pending-receiving.mjs
       - .github/workflows/query-pending-receiving.yml
       - ops_pending_receiving_audit_20260731.txt
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ops_pending_receiving_pr_trigger.txt
 
 permissions:
   contents: write
@@ -26,10 +31,9 @@ jobs:
       VERCEL_SCOPE: truelycollectables-projects
       NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
     steps:
-      - name: Check out newest main
+      - name: Check out workflow source
         uses: actions/checkout@v4
         with:
-          ref: main
           fetch-depth: 0
 
       - name: Set up Node.js
@@ -70,7 +74,7 @@ jobs:
           printf 'PENDING_RECEIVING_READ_SECRET=%s\n' "$read_secret" >> "$GITHUB_ENV"
           rm -f "$secret_file"
 
-      - name: Deploy current main to Production
+      - name: Deploy workflow source to Production
         shell: bash
         run: |
           set -euo pipefail
@@ -100,6 +104,7 @@ jobs:
           retention-days: 1
 
       - name: Commit read-only audit receipt
+        if: github.event_name == 'push'
         shell: bash
         run: |
           set -euo pipefail
