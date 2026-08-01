@@ -101,15 +101,39 @@ jobs:
           }
           NODE
 
-      - name: Remove temporary runtime secret
+      - name: Remove and prove absence of temporary runtime secret
+        id: remove_verify_secret
         if: always()
         run: |
-          set +e
-          npx vercel@56.2.0 env rm INSTACOMP_LIVE_VERIFY_SECRET production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null 2>&1
+          set -euo pipefail
+          secret_file="$RUNNER_TEMP/instacomp-live-verify-secret"
+          remove_log="$RUNNER_TEMP/instacomp-live-verify-secret-remove.log"
+
+          if ! npx vercel@56.2.0 env rm INSTACOMP_LIVE_VERIFY_SECRET production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >"$remove_log" 2>&1; then
+            cat "$remove_log"
+            if grep -Eqi 'not found|does not exist|no environment variable' "$remove_log"; then
+              echo "Temporary verifier secret was already absent."
+            else
+              echo "Retrying verifier-secret removal with explicit confirmation input."
+              if ! printf 'y\n' | npx vercel@56.2.0 env rm INSTACOMP_LIVE_VERIFY_SECRET production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >"$remove_log" 2>&1; then
+                cat "$remove_log"
+                exit 1
+              fi
+            fi
+          fi
+
+          env_list="$(npx vercel@56.2.0 env ls production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1)"
+          if printf '%s\n' "$env_list" | grep -Fq 'INSTACOMP_LIVE_VERIFY_SECRET'; then
+            echo "Temporary verifier secret still exists in Production."
+            exit 1
+          fi
+
+          rm -f "$secret_file" "$remove_log"
+          echo "Temporary verifier secret removal verified."
 
       - name: Redeploy clean Production without temporary secret
         id: clean_deploy
-        if: always()
+        if: steps.verify.outcome == 'success' && steps.remove_verify_secret.outcome == 'success'
         run: |
           set -euo pipefail
           output="$(npx vercel@56.2.0 deploy --prod --yes --no-color --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1)"
@@ -119,7 +143,7 @@ jobs:
           echo "url=$url" >> "$GITHUB_OUTPUT"
 
       - name: Commit live verification receipt
-        if: steps.verify.outcome == 'success' && steps.clean_deploy.outcome == 'success'
+        if: steps.verify.outcome == 'success' && steps.remove_verify_secret.outcome == 'success' && steps.clean_deploy.outcome == 'success'
         run: |
           set -euo pipefail
           mkdir -p deployment-receipts
@@ -137,7 +161,7 @@ jobs:
           - Desktop batch controls absent: PASS
           - Sold comps/current listings/approximate total source: PASS
           - Card Studio: PASS
-          - Temporary verification secret removed before final redeploy: PASS
+          - Temporary verification secret removal explicitly verified: PASS
           EOF
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
