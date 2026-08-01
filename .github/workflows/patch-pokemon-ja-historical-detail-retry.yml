@@ -1,0 +1,87 @@
+name: Patch Japanese Historical Detail Retry
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/patch-pokemon-ja-historical-detail-retry.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pokemon-ja-phase4d-safe-bundles
+          fetch-depth: 0
+
+      - name: Add delayed failed-detail recovery pass
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('scripts/resolve-pokemon-japanese-historical-products.ts')
+          text = path.read_text()
+          anchor = '''    return { product, hitCount, collectedCards: unique.size, regulation, details, error: null };
+  } catch (error) {'''
+          replacement = '''    const recoveryDelayMs = Math.max(delayMs * 4, 1000);
+    for (const [index, detail] of details.entries()) {
+      if (!detail.error) continue;
+      const summary = unique.get(detail.cardID);
+      if (!summary) continue;
+      await sleep(Math.max(delayMs * 8, 2000));
+      try {
+        const parsed = parseDetail(
+          await fetchWithRetry(
+            detail.url,
+            recoveryDelayMs,
+            "text/html,application/xhtml+xml",
+          ),
+        );
+        details[index] = {
+          ...detail,
+          name: parsed.name,
+          summaryName: officialCardName(summary) || null,
+          setCode: parsed.setCode,
+          numerator: parsed.numerator,
+          denominator: parsed.denominator,
+          normalizedLocalId: normalizedLocalId(parsed.numerator) || null,
+          error:
+            !parsed.name || !parsed.setCode
+              ? "detail_missing_name_or_set_code_after_recovery"
+              : null,
+        };
+      } catch (error) {
+        details[index] = {
+          ...detail,
+          error:
+            error instanceof Error
+              ? `detail_recovery_failed: ${error.message}`
+              : `detail_recovery_failed: ${String(error)}`,
+        };
+      }
+    }
+    return { product, hitCount, collectedCards: unique.size, regulation, details, error: null };
+  } catch (error) {'''
+          if 'const recoveryDelayMs = Math.max(delayMs * 4, 1000);' not in text:
+              if anchor not in text:
+                  raise SystemExit('Historical detail recovery anchor not found')
+              text = text.replace(anchor, replacement, 1)
+          path.write_text(text)
+          PY
+
+      - name: Commit source patch
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- scripts/resolve-pokemon-japanese-historical-products.ts
+          then
+            echo "Historical detail recovery is already present."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/resolve-pokemon-japanese-historical-products.ts
+          git commit -m "Retry failed historical card details"
+          git push origin HEAD:agent/pokemon-ja-phase4d-safe-bundles
