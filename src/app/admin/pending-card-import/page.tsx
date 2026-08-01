@@ -1,6 +1,9 @@
 import Link from "next/link";
 import PendingCardImportClient from "./PendingCardImportClient";
-import SimpleListingQueue from "../../list/SimpleListingQueue";
+import TcosListingGateway from "./TcosListingGateway";
+
+// SimpleListingQueue is retired from the active workflow. TCOS Listing Gateway owns review,
+// InstaComp 2.0, draft cleanup, and marketplace distribution from this page.
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -16,10 +19,10 @@ export default function PendingCardImportPage() {
                 Permanent owner card workflow
               </p>
               <h1 className="mt-3 text-4xl font-black tracking-tight sm:text-6xl">
-                Card Intake & Listing
+                Card Intake & TCOS Listing Gateway
               </h1>
               <p className="mt-3 max-w-4xl text-lg font-semibold leading-8 text-neutral-300">
-                Import any future front/back card package as unpublished drafts, watch live progress, review the pending queue, run InstaComp 2.0, set pricing, and publish selected cards from one workflow.
+                Import any future front/back card package, watch live progress, run InstaComp 2.0 on stored images, remove bad drafts, review the queue, and distribute selected inventory to Truely Collectables or Truely Collectables + eBay.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -38,11 +41,12 @@ export default function PendingCardImportPage() {
             </div>
           </div>
 
-          <div className="mt-6 grid gap-3 sm:grid-cols-3">
+          <div className="mt-6 grid gap-3 sm:grid-cols-4">
             {[
               ["1", "Load any card package"],
               ["2", "Watch live import status"],
-              ["3", "Review, price, and list"],
+              ["3", "Run InstaComp 2.0"],
+              ["4", "Review and distribute"],
             ].map(([number, label]) => (
               <div key={number} className="rounded-2xl border border-white/20 bg-white/10 p-4">
                 <span className="text-2xl font-black text-yellow-300">{number}</span>
@@ -54,7 +58,7 @@ export default function PendingCardImportPage() {
 
         <div className="mt-8 grid gap-8">
           <PendingCardImportClient />
-          <SimpleListingQueue />
+          <TcosListingGateway />
         </div>
       </div>
     </main>
