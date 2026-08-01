@@ -36,6 +36,7 @@ function authorized(request) {
   const secrets = Array.from(
     new Set(
       [
+        process.env.PENDING_RECEIVING_READ_SECRET,
         process.env.PROFIT_HUNTER_RUN_SECRET,
         process.env.MARKET_INTEL_INGEST_SECRET,
         process.env.CRON_SECRET,
