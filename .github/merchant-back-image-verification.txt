@@ -1,0 +1,9 @@
+verified_at=2026-08-01T15:24:40.252Z
+commit=8478c7ea7adbd42c8780c9f0997e4238ee3bfda7
+additional_image_links=802
+tc-494516.front=https://i.ebayimg.com/00/s/NDgwWDY0MA==/z/l-MAAeSw7Vhozw4c/$_57.JPG?set_id=8800005007
+tc-494516.back=https://i.ebayimg.com/00/s/Mzg0WDI3Nw==/z/t4MAAeSwQaJozw4c/$_1.PNG?set_id=8800005007
+tc-494520.front=https://i.ebayimg.com/00/s/NDgwWDY0MA==/z/l-MAAeSw7Vhozw4c/$_57.JPG?set_id=8800005007
+tc-494520.back=https://i.ebayimg.com/00/s/Mzg0WDI3Nw==/z/t4MAAeSwQaJozw4c/$_1.PNG?set_id=8800005007
+tc-489532.front=https://i.ebayimg.com/00/s/NDgwWDY0MA==/z/l-MAAeSw7Vhozw4c/$_57.JPG?set_id=8800005007
+tc-489532.back=https://i.ebayimg.com/00/s/Mzg0WDI3Nw==/z/t4MAAeSwQaJozw4c/$_1.PNG?set_id=8800005007
