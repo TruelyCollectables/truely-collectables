@@ -183,6 +183,14 @@ function officialSourceNotes(params: {
   bundle: PokemonJapaneseOfficialReconciledBundle;
   evidence: PokemonJapaneseOfficialCardEvidence;
 }) {
+  const evidenceKey = [
+    params.evidence.cardID,
+    params.evidence.name,
+    params.evidence.setCode,
+    params.evidence.numerator,
+    params.evidence.denominator || "",
+    params.evidence.detailUrl,
+  ].join("|");
   return JSON.stringify({
     source: "pokemon-card.com",
     sourceAuthority: "official_manufacturer",
@@ -192,6 +200,8 @@ function officialSourceNotes(params: {
     sourceSetId: clean(params.bundle.set.id),
     sourceSetName: clean(params.bundle.set.name),
     sourceCardId: clean(params.evidence.cardID),
+    officialCardId: clean(params.evidence.cardID),
+    officialEvidenceSha256: sha256(evidenceKey),
     officialBundleCardId: clean(params.evidence.bundleCardId),
     officialProductValue: clean(params.bundle.official.product.value),
     officialProductLabel: clean(params.bundle.official.product.label),
