@@ -65,7 +65,12 @@ function secondsUntilWindowClears(rows: RateLimitEventRow[], windowSeconds: numb
 }
 
 function cleanKey(value: unknown, maxLength = 180) {
-  const text = String(value || "").trim().toLowerCase();
+  const text = String(value || "")
+    .normalize("NFKC")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9:@._+-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 
   return text ? text.slice(0, maxLength) : null;
 }
@@ -225,7 +230,23 @@ async function takeAtomicRateLimit(params: {
   identity: ClientIdentity;
   policy: EffectiveRateLimitPolicy;
 }) {
-  const { data, error } = await params.supabase.rpc(
+  const rpc = (params.supabase as SupabaseClient & {
+    rpc?: SupabaseClient["rpc"];
+  }).rpc;
+
+  if (typeof rpc !== "function") {
+    return {
+      receipt: null,
+      missing: true,
+      error: {
+        code: "PGRST202",
+        message: "Atomic rate-limit RPC is unavailable on this client.",
+      },
+    };
+  }
+
+  const { data, error } = await rpc.call(
+    params.supabase,
     "tcos_take_public_endpoint_rate_limit",
     {
       p_store_id: params.storeId,
@@ -399,10 +420,16 @@ export async function checkPublicEndpointRateLimit(params: {
 
   if (subjectKey) {
     query = query.or(
-      `subject_key.eq.${subjectKey},ip_address.eq.${identity.ipAddress || "unknown"}`,
+      `subject_key.eq.${subjectKey},ip_address.eq.${cleanKey(
+        identity.ipAddress || "unknown",
+        120,
+      ) || "unknown"}`,
     );
   } else {
-    query = query.eq("ip_address", identity.ipAddress || "unknown");
+    query = query.eq(
+      "ip_address",
+      cleanKey(identity.ipAddress || "unknown", 120) || "unknown",
+    );
   }
 
   const { data, error } = await query;
