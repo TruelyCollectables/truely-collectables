@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { paniniStructuredChecklistAdapter } from "./panini-structured";
-import { pokemonTcgDataSetBundleAdapter } from "./pokemon-tcg-data";
+import { pokemonTcgDataSourceIdSafeAdapter } from "./pokemon-tcg-data-source-ids";
 import type {
   ChecklistImportPlan,
   ChecklistSourceAdapter,
@@ -9,7 +9,7 @@ import type {
 import { CHECKLIST_SOURCE_BUCKET } from "./storage";
 
 const CHECKLIST_ADAPTERS: ChecklistSourceAdapter[] = [
-  pokemonTcgDataSetBundleAdapter,
+  pokemonTcgDataSourceIdSafeAdapter,
   paniniStructuredChecklistAdapter,
 ];
 
