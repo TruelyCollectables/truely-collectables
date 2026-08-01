@@ -71,3 +71,5 @@ jobs:
 
           console.log(`Feed includes ${totalAdditionalImages} additional image links.`);
           NODE
+
+# One-time release verification trigger.
