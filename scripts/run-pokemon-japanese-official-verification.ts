@@ -41,6 +41,7 @@ function main() {
     argumentValue(args, "--queue") ||
       ".codex-run/pokemon-ja-official-discrepancy-queue.json",
   );
+  const delayMs = argumentValue(args, "--delay-ms");
 
   if (
     !run(
@@ -70,14 +71,36 @@ function main() {
     return;
   }
 
+  if (
+    !run(
+      "scripts/quarantine-pokemon-japanese-reused-products.ts",
+      [
+        "--receipt",
+        receipt,
+        "--queue",
+        queue,
+      ],
+    )
+  ) {
+    return;
+  }
+
+  if (args.includes("--mapping-only")) {
+    return;
+  }
+
+  const correctionArgs = [
+    bundleDirectory,
+    "--receipt",
+    receipt,
+    "--queue",
+    queue,
+  ];
+  if (delayMs) correctionArgs.push("--delay-ms", delayMs);
+
   run(
-    "scripts/quarantine-pokemon-japanese-reused-products.ts",
-    [
-      "--receipt",
-      receipt,
-      "--queue",
-      queue,
-    ],
+    "scripts/correct-pokemon-japanese-mp-official-population.ts",
+    correctionArgs,
   );
 }
 

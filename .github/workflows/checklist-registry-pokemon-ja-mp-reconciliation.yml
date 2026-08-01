@@ -1,0 +1,144 @@
+name: Checklist Registry Pokémon Japanese M-P Reconciliation
+
+on:
+  pull_request:
+    paths:
+      - "scripts/correct-pokemon-japanese-mp-official-population.ts"
+      - "scripts/build-pokemon-japanese-mp-reconciliation-evidence.ts"
+      - "scripts/verify-pokemon-japanese-official-sources.ts"
+      - "scripts/finalize-pokemon-japanese-official-verification.ts"
+      - "scripts/run-pokemon-japanese-official-verification.ts"
+      - "scripts/build-tcgdex-japanese-registry-bundles.ts"
+      - ".github/workflows/checklist-registry-pokemon-ja-mp-reconciliation.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "scripts/correct-pokemon-japanese-mp-official-population.ts"
+      - "scripts/build-pokemon-japanese-mp-reconciliation-evidence.ts"
+      - "scripts/run-pokemon-japanese-official-verification.ts"
+      - ".github/workflows/checklist-registry-pokemon-ja-mp-reconciliation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze-mp-reconciliation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint corrected M-P reconciliation code
+        run: >-
+          npx eslint
+          scripts/correct-pokemon-japanese-mp-official-population.ts
+          scripts/build-pokemon-japanese-mp-reconciliation-evidence.ts
+          scripts/run-pokemon-japanese-official-verification.ts
+
+      - name: Check out current TCGdex source
+        run: >-
+          git clone --depth 1
+          https://github.com/tcgdex/cards-database.git
+          .codex-run/tcgdex-cards-database
+
+      - name: Build Japanese Registry base bundles
+        run: >-
+          npx tsx scripts/build-tcgdex-japanese-registry-bundles.ts
+          .codex-run/tcgdex-cards-database
+          .codex-run/tcgdex-ja-registry-bundles
+          --receipt .codex-run/tcgdex-ja-build-receipt.json
+
+      - name: Audit and correct M-P from all official detail pages
+        run: >-
+          npx tsx scripts/run-pokemon-japanese-official-verification.ts
+          .codex-run/tcgdex-ja-registry-bundles
+          --set M-P
+          --delay-ms 50
+          --detail-samples 5
+          --receipt .codex-run/pokemon-ja-mp-audit-receipt.json
+          --queue .codex-run/pokemon-ja-mp-audit-queue.json
+
+      - name: Build corrected read-only M-P evidence
+        run: >-
+          npx tsx scripts/build-pokemon-japanese-mp-reconciliation-evidence.ts
+          .codex-run/tcgdex-ja-registry-bundles
+          --audit-receipt .codex-run/pokemon-ja-mp-audit-receipt.json
+          --receipt .codex-run/pokemon-ja-mp-reconciliation-evidence.json
+          --queue .codex-run/pokemon-ja-mp-reconciliation-bundle-queue.json
+
+      - name: Verify exact corrected reconciliation result
+        run: |
+          node - <<'NODE'
+          const audit = require('./.codex-run/pokemon-ja-mp-audit-receipt.json');
+          const evidence = require('./.codex-run/pokemon-ja-mp-reconciliation-evidence.json');
+          const row = audit.rows.find((candidate) => candidate.setId === 'M-P');
+          const expected = {
+            registryCards: 83,
+            officialCards: 114,
+            existingExactMatches: 83,
+            addNumberedCards: 16,
+            addUnnumberedCards: 15,
+            finalCards: 114,
+            netAdditions: 31,
+            assetPathSetCodeAnomalies: 8,
+            missingOfficialNames: 31,
+            extraRegistryNames: 0,
+          };
+          if (!row) throw new Error('Corrected audit receipt has no M-P row.');
+          if (
+            row.officialCollectedCount !== 114 ||
+            row.officialComparableCount !== 114 ||
+            row.officialExcludedCount !== 0 ||
+            row.officialNumberedCount !== 99 ||
+            row.officialUnnumberedCount !== 15 ||
+            row.officialAssetSetCodeAnomalyCount !== 8
+          ) {
+            throw new Error(`Unexpected corrected M-P audit: ${JSON.stringify(row)}`);
+          }
+          if (JSON.stringify(evidence.counts) !== JSON.stringify(expected)) {
+            throw new Error(`Unexpected M-P evidence counts: ${JSON.stringify(evidence.counts)}`);
+          }
+          if (evidence.safeForBundleConstruction !== true) {
+            throw new Error('Corrected M-P evidence should be ready for bundle construction.');
+          }
+          if (evidence.automaticProductionWriteAllowed !== false) {
+            throw new Error('The evidence builder must never authorize a Production write.');
+          }
+          console.log(JSON.stringify({
+            audit: {
+              officialCollectedCount: row.officialCollectedCount,
+              officialComparableCount: row.officialComparableCount,
+              officialExcludedCount: row.officialExcludedCount,
+              officialNumberedCount: row.officialNumberedCount,
+              officialUnnumberedCount: row.officialUnnumberedCount,
+              officialAssetSetCodeAnomalyCount: row.officialAssetSetCodeAnomalyCount,
+            },
+            counts: evidence.counts,
+            safeForBundleConstruction: evidence.safeForBundleConstruction,
+            automaticProductionWriteAllowed: evidence.automaticProductionWriteAllowed,
+          }, null, 2));
+          NODE
+
+      - name: Upload corrected M-P reconciliation evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: pokemon-ja-mp-reconciliation-evidence
+          path: |
+            .codex-run/pokemon-ja-mp-audit-receipt.json
+            .codex-run/pokemon-ja-mp-reconciliation-evidence.json
+            .codex-run/pokemon-ja-mp-reconciliation-bundle-queue.json
+          if-no-files-found: error
+          retention-days: 14

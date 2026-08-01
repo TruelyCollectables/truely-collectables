@@ -5,6 +5,7 @@ on:
     paths:
       - "scripts/verify-pokemon-japanese-official-sources.ts"
       - "scripts/finalize-pokemon-japanese-official-verification.ts"
+      - "scripts/correct-pokemon-japanese-mp-official-population.ts"
       - "scripts/run-pokemon-japanese-official-verification.ts"
       - "scripts/build-tcgdex-japanese-registry-bundles.ts"
       - "src/lib/checklist-registry/tcgdex-japanese.ts"
@@ -15,6 +16,7 @@ on:
     paths:
       - "scripts/verify-pokemon-japanese-official-sources.ts"
       - "scripts/finalize-pokemon-japanese-official-verification.ts"
+      - "scripts/correct-pokemon-japanese-mp-official-population.ts"
       - "scripts/run-pokemon-japanese-official-verification.ts"
       - "scripts/build-tcgdex-japanese-registry-bundles.ts"
       - "src/lib/checklist-registry/tcgdex-japanese.ts"
@@ -47,6 +49,7 @@ jobs:
           npx eslint
           scripts/verify-pokemon-japanese-official-sources.ts
           scripts/finalize-pokemon-japanese-official-verification.ts
+          scripts/correct-pokemon-japanese-mp-official-population.ts
           scripts/run-pokemon-japanese-official-verification.ts
 
       - name: Check out current TCGdex source
@@ -179,6 +182,9 @@ jobs:
               officialComparableCards: row.officialComparableCount,
               officialExcludedCards: row.officialExcludedCount,
               officialExcludedSetCodes: row.officialExcludedSetCodes,
+              officialNumberedCards: row.officialNumberedCount,
+              officialUnnumberedCards: row.officialUnnumberedCount,
+              officialAssetSetCodeAnomalies: row.officialAssetSetCodeAnomalyCount,
               reasons: row.reasons,
             })),
           }, null, 2));
@@ -194,11 +200,27 @@ jobs:
             }
           }
           const mp = receipt.rows.find((row) => row.setId === 'M-P');
-          if (!mp || mp.registryCardCount !== 83 || mp.officialComparableCount !== 106 || mp.officialExcludedCount !== 8) {
-            throw new Error(`Unexpected M-P comparison: ${JSON.stringify(mp)}`);
+          const mpMissingNames = (mp?.missingOfficialNamesInRegistry || [])
+            .reduce((sum, item) => sum + item.count, 0);
+          const mpExtraNames = (mp?.extraRegistryNames || [])
+            .reduce((sum, item) => sum + item.count, 0);
+          if (
+            !mp ||
+            mp.registryCardCount !== 83 ||
+            mp.officialCollectedCount !== 114 ||
+            mp.officialComparableCount !== 114 ||
+            mp.officialExcludedCount !== 0 ||
+            mp.officialNumberedCount !== 99 ||
+            mp.officialUnnumberedCount !== 15 ||
+            mp.officialAssetSetCodeAnomalyCount !== 8 ||
+            mp.detailEvidence.length !== 114 ||
+            mpMissingNames !== 31 ||
+            mpExtraNames !== 0
+          ) {
+            throw new Error(`Unexpected corrected M-P comparison: ${JSON.stringify(mp)}`);
           }
-          if ((receipt.totals.excludedOfficialCards || 0) < 1) {
-            throw new Error('No mixed-product official cards were excluded');
+          if (mp.detailEvidence.some((detail) => detail.error || detail.setCodeMatches === false || detail.nameMatches === false || detail.numberMatches === false)) {
+            throw new Error(`M-P detail evidence mismatch: ${JSON.stringify(mp.detailEvidence)}`);
           }
           if ((receipt.totals.printedNumberMismatches || 0) !== 0) {
             throw new Error(`False printed-number mismatches remain: ${receipt.totals.printedNumberMismatches}`);
