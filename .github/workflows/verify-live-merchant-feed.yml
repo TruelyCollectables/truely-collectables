@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  statuses: write
 
 jobs:
   verify:
@@ -16,6 +17,17 @@ jobs:
     timeout-minutes: 10
 
     steps:
+      - name: Mark verification pending
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state=pending \
+            -f context="Live Merchant feed verification" \
+            -f description="Checking category 6997 and eBay image resolution"
+
       - name: Fetch uncached production feed
         run: |
           curl --fail --location \
@@ -61,3 +73,27 @@ jobs:
             console.log(`${productId}: category 6997; image ${imageMatch[1]}`);
           }
           NODE
+
+      - name: Publish success status
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state=success \
+            -f context="Live Merchant feed verification" \
+            -f description="All three products use category 6997 and $_57.JPG images"
+
+      - name: Publish failure status
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state=failure \
+            -f context="Live Merchant feed verification" \
+            -f description="Live Merchant feed verification failed"
