@@ -50,18 +50,9 @@ jobs:
 
           smoke = Path('scripts/smoke-admin-runtime.mjs')
           smoke_text = smoke.read_text()
-          marker = '''  {
-            path: "/admin/instacomp/v2",
-            auth: true,
-            expectedText: "InstaComp™ 2.0",
-          },'''
-          addition = marker + '''
-          {
-            path: "/admin/pending-card-import",
-            auth: true,
-            expectedText: "Card Intake & Listing",
-          },'''
           if '/admin/pending-card-import' not in smoke_text:
+              marker = '    expectedText: "InstaComp™ 2.0",\n  },'
+              addition = marker + '\n  {\n    path: "/admin/pending-card-import",\n    auth: true,\n    expectedText: "Card Intake & Listing",\n  },'
               if marker not in smoke_text:
                   raise SystemExit('Runtime smoke insertion marker not found.')
               smoke_text = smoke_text.replace(marker, addition, 1)
