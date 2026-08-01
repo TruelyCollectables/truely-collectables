@@ -1,0 +1,82 @@
+name: InstaComp 2.0 Adversarial Hardening
+
+on:
+  pull_request:
+    paths:
+      - "src/lib/instacomp-market-evidence.ts"
+      - "src/lib/instacomp-v2.ts"
+      - "src/lib/instacomp-scan-review.ts"
+      - "src/lib/instacomp-listing-gate.ts"
+      - "src/lib/instacomp-learning-server.ts"
+      - "src/app/api/instacomp/scan-fast/route.ts"
+      - "scripts/run-instacomp-v2-hardening-simulations.ts"
+      - "scripts/run-instacomp-scan-review-simulations.ts"
+      - "supabase/migrations/20260801143000_instacomp_cache_and_knowledge_hardening.sql"
+      - ".github/workflows/instacomp-v2-hardening.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instacomp-v2-hardening-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  adversarial-hardening:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint hardening boundary
+        run: >-
+          npx eslint
+          src/lib/instacomp-market-evidence.ts
+          src/lib/instacomp-v2.ts
+          src/lib/instacomp-scan-review.ts
+          src/lib/instacomp-listing-gate.ts
+          src/lib/instacomp-learning-server.ts
+          src/app/api/instacomp/scan-fast/route.ts
+          scripts/run-instacomp-v2-hardening-simulations.ts
+          scripts/run-instacomp-scan-review-simulations.ts
+
+      - name: Run existing scan-review regressions
+        run: node --import tsx scripts/run-instacomp-scan-review-simulations.ts
+
+      - name: Run adversarial V2 hardening simulations
+        run: node --import tsx scripts/run-instacomp-v2-hardening-simulations.ts
+
+      - name: Verify migration safety contracts
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const path = 'supabase/migrations/20260801143000_instacomp_cache_and_knowledge_hardening.sql';
+          const sql = fs.readFileSync(path, 'utf8');
+          for (const marker of [
+            'instacomp_scan_cache_actor_scope_idx',
+            "'v2'",
+            'tcos_card_knowledge_collision_audit',
+            'tcos_card_knowledge_canonical_versions',
+            'tcos_instacomp_protect_trusted_canonical',
+            'tcos_instacomp_promote_confirmed_observation',
+            'append-only',
+          ]) {
+            if (!sql.includes(marker)) throw new Error(`Missing migration marker: ${marker}`);
+          }
+          NODE
+
+      - name: TypeScript
+        run: npx tsc --noEmit
+
+      - name: Production build
+        run: npm run build
