@@ -22,7 +22,7 @@ jobs:
           ref: agent/pokemon-ja-phase4-ready-bundles
           fetch-depth: 0
 
-      - name: Patch official addition lookup and legacy evidence mapping
+      - name: Patch official addition bundle lookup
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -53,29 +53,11 @@ jobs:
             }
           }
           '''
-          if old_function not in text:
-              if 'function bundleCardIdFromNotes' in text:
-                  raise SystemExit(0)
-              raise SystemExit('sourceCardId function anchor not found')
-          text = text.replace(old_function, new_function, 1)
 
-          old_map = '''      cards: additions.map(({ origin: _origin, sourcePath: _path, ...row }) =>
-                row,
-              ),'''
-          new_map = '''      cards: additions.map((row) => ({
-                bundleCardId: row.bundleCardId,
-                cardID: row.cardID,
-                name: row.name,
-                setCode: row.setCode,
-                numerator: row.numerator,
-                denominator: row.denominator,
-                detailUrl: row.detailUrl,
-              })),'''
-          if old_map not in text:
-              if 'cards: additions.map((row) => ({' not in text:
-                  raise SystemExit('legacy evidence mapping anchor not found')
-          else:
-              text = text.replace(old_map, new_map, 1)
+          if old_function in text:
+              text = text.replace(old_function, new_function, 1)
+          elif 'function bundleCardIdFromNotes' not in text:
+              raise SystemExit('sourceCardId function anchor not found')
 
           old_use = '    const bundleCardId = sourceCardId(card.sourceNotes);'
           new_use = '    const bundleCardId = bundleCardIdFromNotes(card.sourceNotes);'
@@ -91,7 +73,7 @@ jobs:
         run: |
           set -euo pipefail
           if git diff --quiet -- src/lib/checklist-registry/pokemon-japanese-incomplete-reconciled.ts; then
-            echo "Adapter patch already present."
+            echo "Adapter lookup patch already present."
             exit 0
           fi
           git config user.name "github-actions[bot]"
