@@ -25,40 +25,78 @@ jobs:
         with:
           ref: agent/permanent-card-intake-workflow
 
-      - name: Remove retired list-workspace test expectations
+      - name: Update product-status test for Card Intake
         run: |
           python - <<'PY'
           from pathlib import Path
 
-          path = Path('scripts/run-admin-dashboard-actions-simulations.mjs')
+          path = Path('scripts/run-admin-product-status-simulations.mjs')
           text = path.read_text()
-          stale = (
-              '  for (const fragment of [\n'
-              '    "List Cards",\n'
-              '    "Upload photos",\n'
-              '    "Run InstaComp™",\n'
-              '    "Review and list selected",\n'
-              '  ]) {\n'
-              '    assert(\n'
-              '      simplifiedListPageSource.includes(fragment),\n'
-              '      `Expected simplified list action-scope fragment ${fragment}.`,\n'
-              '    );\n'
-              '  }\n'
+          text = text.replace(
+              'new URL("../src/app/list/page.tsx", import.meta.url)',
+              'new URL("../src/app/admin/pending-card-import/page.tsx", import.meta.url)',
+              1,
           )
-          if stale in text:
-              text = text.replace(stale, '', 1)
-          elif 'Expected simplified list action-scope fragment' in text:
-              raise SystemExit('Retired simplified-list assertion block could not be removed.')
+          text = text.replace(
+              'new URL("../src/app/api/admin/simple-list-drafts/route.ts", import.meta.url)',
+              'new URL("../src/app/api/admin/pending-card-import/route.ts", import.meta.url)',
+              1,
+          )
+
+          start_marker = 'scenario("new product intake redirects to the protected simplified listing workspace", () => {'
+          end_marker = 'scenario("inventory engine enforces admin product status policy", () => {'
+          if start_marker in text:
+              start = text.index(start_marker)
+              end = text.index(end_marker, start)
+              replacement = '''scenario("new product intake redirects to permanent Card Intake & Listing", () => {
+            assert(
+              newProductPageSource.includes('redirect("/admin/pending-card-import")'),
+              "Expected the legacy new-product route to redirect to Card Intake & Listing.",
+            );
+
+            for (const fragment of [
+              "PendingCardImportClient",
+              "SimpleListingQueue",
+              "Card Intake & Listing",
+              "InstaComp 2.0",
+            ]) {
+              assert(
+                simplifiedListPageSource.includes(fragment),
+                `Expected Card Intake page fragment ${fragment}.`,
+              );
+            }
+
+            for (const fragment of [
+              'actor.type !== "admin"',
+              "A front card photo is required.",
+              "price: 0",
+              "quantity: 1",
+              "createSellerDraftProduct",
+              "excludedFromInstaComp: true",
+              "excludedFromMarketComps: true",
+            ]) {
+              assert(
+                simpleListDraftRouteSource.includes(fragment),
+                `Expected pending card import route fragment ${fragment}.`,
+              );
+            }
+          });
+
+          '''
+              text = text[:start] + replacement + text[end:]
+          elif 'new product intake redirects to permanent Card Intake & Listing' not in text:
+              raise SystemExit('Legacy new-product listing scenario was not found.')
+
           path.write_text(text)
           PY
 
-      - name: Commit final test cleanup
+      - name: Commit product-status test update
         run: |
           if ! git diff --quiet; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add scripts/run-admin-dashboard-actions-simulations.mjs
-            git commit -m "Remove retired list workspace test expectations"
+            git add scripts/run-admin-product-status-simulations.mjs
+            git commit -m "Update product-status tests for Card Intake"
             git push origin HEAD:agent/permanent-card-intake-workflow
           fi
 
