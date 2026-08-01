@@ -1,7 +1,9 @@
 name: Patch Japanese Phase 4D Builder
 
 on:
-  pull_request:
+  push:
+    branches:
+      - agent/pokemon-ja-phase4d-safe-bundles
     paths:
       - ".github/workflows/patch-pokemon-ja-phase4d-builder.yml"
 
