@@ -52,12 +52,38 @@ type BuildRow = {
   setId: string | null;
   setName: string | null;
   seriesId: string | null;
-  status: "built" | "skipped_non_japanese" | "failed";
+  sourceSetPath: string;
+  status:
+    | "built"
+    | "skipped_non_japanese"
+    | "incomplete_japanese"
+    | "failed";
   cards: number;
   variantEvidence: number;
+  missingJapaneseCardNames: number;
+  missingJapaneseCardPaths: string[];
   outputFile: string | null;
   error: string | null;
 };
+
+type SetBuildResult =
+  | {
+      status: "skipped_non_japanese";
+      setId: string | null;
+      setName: string | null;
+      seriesId: string | null;
+    }
+  | {
+      status: "incomplete_japanese";
+      setId: string;
+      setName: string;
+      seriesId: string;
+      missingJapaneseCardPaths: string[];
+    }
+  | {
+      status: "built";
+      bundle: TcgdexJapaneseSetBundle;
+    };
 
 function usage() {
   console.log(
@@ -65,7 +91,7 @@ function usage() {
       "Usage:",
       "  npx tsx scripts/build-tcgdex-japanese-registry-bundles.ts <tcgdex-cards-database-directory> [output-directory] [--receipt <path>]",
       "",
-      "The source directory must contain data-asia. The builder imports only sets with Japanese metadata and fails closed when a Japanese card file lacks a Japanese name.",
+      "The source directory must contain data-asia. Complete Japanese sets are built; sets with Japanese metadata but missing Japanese card names are held as incomplete for backfill.",
     ].join("\n"),
   );
 }
@@ -113,7 +139,9 @@ function releaseDateJa(value: TcgdexSet["releaseDate"]) {
   return text(value?.ja);
 }
 
-function normalizeDetailedVariant(value: DetailedVariant): TcgdexJapaneseVariantEvidence | null {
+function normalizeDetailedVariant(
+  value: DetailedVariant,
+): TcgdexJapaneseVariantEvidence | null {
   const type = text(value.type);
   if (!type) return null;
   const languages = Array.isArray(value.languages)
@@ -124,7 +152,13 @@ function normalizeDetailedVariant(value: DetailedVariant): TcgdexJapaneseVariant
     type,
     subtype: text(value.subtype) || null,
     size: text(value.size) || null,
-    stamps: [...new Set([...(value.stamp || []), ...(value.stamps || [])].map(text).filter(Boolean))],
+    stamps: [
+      ...new Set(
+        [...(value.stamp || []), ...(value.stamps || [])]
+          .map(text)
+          .filter(Boolean),
+      ),
+    ],
     foil: text(value.foil) || null,
     languages,
   };
@@ -132,7 +166,11 @@ function normalizeDetailedVariant(value: DetailedVariant): TcgdexJapaneseVariant
 
 function normalizeVariants(value: TcgdexCard["variants"]) {
   if (Array.isArray(value)) {
-    return value.map(normalizeDetailedVariant).filter((entry): entry is TcgdexJapaneseVariantEvidence => Boolean(entry));
+    return value
+      .map(normalizeDetailedVariant)
+      .filter(
+        (entry): entry is TcgdexJapaneseVariantEvidence => Boolean(entry),
+      );
   }
   if (!value || typeof value !== "object") return [];
   const legacy = value as LegacyVariants;
@@ -140,10 +178,16 @@ function normalizeVariants(value: TcgdexCard["variants"]) {
   if (legacy.normal) variants.push({ type: "normal" });
   if (legacy.holo) variants.push({ type: "holo" });
   if (legacy.reverse) variants.push({ type: "reverse" });
-  if (legacy.firstEdition) variants.push({ type: "normal", stamps: ["1st-edition"] });
+  if (legacy.firstEdition) {
+    variants.push({ type: "normal", stamps: ["1st-edition"] });
+  }
   if (legacy.jumbo) variants.push({ type: "normal", size: "jumbo" });
-  if (legacy.preRelease) variants.push({ type: "normal", stamps: ["pre-release"] });
-  if (legacy.wPromo) variants.push({ type: "normal", stamps: ["w-promo"] });
+  if (legacy.preRelease) {
+    variants.push({ type: "normal", stamps: ["pre-release"] });
+  }
+  if (legacy.wPromo) {
+    variants.push({ type: "normal", stamps: ["w-promo"] });
+  }
   return variants;
 }
 
@@ -157,7 +201,10 @@ async function collectSetDefinitions(asiaRoot: string) {
       const stem = basename(entry.name, ".ts");
       const cardDirectory = join(seriesDirectory, stem);
       if (await isDirectory(cardDirectory)) {
-        definitions.push({ setFile: join(seriesDirectory, entry.name), cardDirectory });
+        definitions.push({
+          setFile: join(seriesDirectory, entry.name),
+          cardDirectory,
+        });
       }
     }
   }
@@ -169,19 +216,30 @@ async function buildSetBundle(params: {
   commit: string;
   setFile: string;
   cardDirectory: string;
-}): Promise<TcgdexJapaneseSetBundle | null> {
+}): Promise<SetBuildResult> {
   const set = await importDefault<TcgdexSet>(params.setFile);
   const setId = text(set.id);
   const setName = text(set.name?.ja);
   const seriesId = text(set.serie?.id);
   const seriesName = text(set.serie?.name?.ja);
   const releaseDate = releaseDateJa(set.releaseDate);
-  if (!setName || !releaseDate) return null;
+
+  if (!setName || !releaseDate) {
+    return {
+      status: "skipped_non_japanese",
+      setId: setId || null,
+      setName: setName || null,
+      seriesId: seriesId || null,
+    };
+  }
   if (!setId || !seriesId || !seriesName) {
-    throw new Error(`${params.setFile} is missing Japanese set/series identity metadata.`);
+    throw new Error(
+      `${params.setFile} is missing Japanese set/series identity metadata.`,
+    );
   }
 
   const cards: TcgdexJapaneseSetBundle["cards"] = [];
+  const missingJapaneseCardPaths: string[] = [];
   const cardFiles = (await readdir(params.cardDirectory, { withFileTypes: true }))
     .filter((entry) => entry.isFile() && entry.name.endsWith(".ts"))
     .map((entry) => join(params.cardDirectory, entry.name))
@@ -191,8 +249,10 @@ async function buildSetBundle(params: {
     const card = await importDefault<TcgdexCard>(cardFile);
     const localId = basename(cardFile, ".ts");
     const name = text(card.name?.ja);
+    const sourcePath = posixPath(relative(params.repositoryRoot, cardFile));
     if (!name) {
-      throw new Error(`${posixPath(relative(params.repositoryRoot, cardFile))} lacks card.name.ja.`);
+      missingJapaneseCardPaths.push(sourcePath);
+      continue;
     }
     cards.push({
       id: `${setId}-${localId}`,
@@ -202,29 +262,44 @@ async function buildSetBundle(params: {
       rarity: text(card.rarity) || null,
       illustrator: text(card.illustrator) || null,
       regulationMark: text(card.regulationMark) || null,
-      dexId: Array.isArray(card.dexId) ? card.dexId.filter(Number.isInteger) : [],
+      dexId: Array.isArray(card.dexId)
+        ? card.dexId.filter(Number.isInteger)
+        : [],
       variants: normalizeVariants(card.variants),
-      sourcePath: posixPath(relative(params.repositoryRoot, cardFile)),
+      sourcePath,
     });
   }
 
-  if (!cards.length) throw new Error(`${params.setFile} has no card files.`);
+  if (missingJapaneseCardPaths.length) {
+    return {
+      status: "incomplete_japanese",
+      setId,
+      setName,
+      seriesId,
+      missingJapaneseCardPaths,
+    };
+  }
+  if (!cards.length) throw new Error(`${params.setFile} has no Japanese card files.`);
+
   return {
-    schema: TCGDEX_JAPANESE_BUNDLE_SCHEMA,
-    phase: "base_cards",
-    language: "ja",
-    source: { repository: SOURCE_REPOSITORY, commit: params.commit },
-    series: { id: seriesId, name: seriesName },
-    set: {
-      id: setId,
-      name: setName,
-      officialCardCount: Number.isInteger(set.cardCount?.official)
-        ? Number(set.cardCount?.official)
-        : null,
-      releaseDate,
-      sourcePath: posixPath(relative(params.repositoryRoot, params.setFile)),
+    status: "built",
+    bundle: {
+      schema: TCGDEX_JAPANESE_BUNDLE_SCHEMA,
+      phase: "base_cards",
+      language: "ja",
+      source: { repository: SOURCE_REPOSITORY, commit: params.commit },
+      series: { id: seriesId, name: seriesName },
+      set: {
+        id: setId,
+        name: setName,
+        officialCardCount: Number.isInteger(set.cardCount?.official)
+          ? Number(set.cardCount?.official)
+          : null,
+        releaseDate,
+        sourcePath: posixPath(relative(params.repositoryRoot, params.setFile)),
+      },
+      cards,
     },
-    cards,
   };
 }
 
@@ -239,6 +314,7 @@ async function main() {
     process.exitCode = 1;
     return;
   }
+
   const repositoryRoot = resolve(sourceArgument);
   const asiaRoot = join(repositoryRoot, "data-asia");
   if (!(await isDirectory(asiaRoot))) {
@@ -257,47 +333,85 @@ async function main() {
   const commit = sourceCommit(repositoryRoot);
   const rows: BuildRow[] = [];
   for (const definition of await collectSetDefinitions(asiaRoot)) {
-    let setId: string | null = null;
-    let setName: string | null = null;
-    let seriesId: string | null = null;
+    const sourceSetPath = posixPath(
+      relative(repositoryRoot, definition.setFile),
+    );
     try {
-      const bundle = await buildSetBundle({ repositoryRoot, commit, ...definition });
-      if (!bundle) {
+      const result = await buildSetBundle({
+        repositoryRoot,
+        commit,
+        ...definition,
+      });
+
+      if (result.status === "skipped_non_japanese") {
         rows.push({
-          setId,
-          setName,
-          seriesId,
-          status: "skipped_non_japanese",
+          setId: result.setId,
+          setName: result.setName,
+          seriesId: result.seriesId,
+          sourceSetPath,
+          status: result.status,
           cards: 0,
           variantEvidence: 0,
+          missingJapaneseCardNames: 0,
+          missingJapaneseCardPaths: [],
           outputFile: null,
           error: null,
         });
         continue;
       }
-      setId = bundle.set.id;
-      setName = bundle.set.name;
-      seriesId = bundle.series.id;
-      const outputFile = join(outputDirectory, `${bundle.series.id}-${bundle.set.id}${BUNDLE_SUFFIX}`);
+
+      if (result.status === "incomplete_japanese") {
+        rows.push({
+          setId: result.setId,
+          setName: result.setName,
+          seriesId: result.seriesId,
+          sourceSetPath,
+          status: result.status,
+          cards: 0,
+          variantEvidence: 0,
+          missingJapaneseCardNames: result.missingJapaneseCardPaths.length,
+          missingJapaneseCardPaths: result.missingJapaneseCardPaths,
+          outputFile: null,
+          error:
+            `Held for backfill: ${result.missingJapaneseCardPaths.length} ` +
+            "card files lack card.name.ja.",
+        });
+        continue;
+      }
+
+      const bundle = result.bundle;
+      const outputFile = join(
+        outputDirectory,
+        `${bundle.series.id}-${bundle.set.id}${BUNDLE_SUFFIX}`,
+      );
       await writeFile(outputFile, `${JSON.stringify(bundle, null, 2)}\n`, "utf8");
       rows.push({
-        setId,
-        setName,
-        seriesId,
+        setId: bundle.set.id,
+        setName: bundle.set.name,
+        seriesId: bundle.series.id,
+        sourceSetPath,
         status: "built",
         cards: bundle.cards.length,
-        variantEvidence: bundle.cards.reduce((sum, card) => sum + (card.variants?.length || 0), 0),
+        variantEvidence: bundle.cards.reduce(
+          (sum, card) => sum + (card.variants?.length || 0),
+          0,
+        ),
+        missingJapaneseCardNames: 0,
+        missingJapaneseCardPaths: [],
         outputFile,
         error: null,
       });
     } catch (error) {
       rows.push({
-        setId,
-        setName,
-        seriesId,
+        setId: null,
+        setName: null,
+        seriesId: null,
+        sourceSetPath,
         status: "failed",
         cards: 0,
         variantEvidence: 0,
+        missingJapaneseCardNames: 0,
+        missingJapaneseCardPaths: [],
         outputFile: null,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -305,6 +419,9 @@ async function main() {
   }
 
   const built = rows.filter((row) => row.status === "built");
+  const incomplete = rows.filter(
+    (row) => row.status === "incomplete_japanese",
+  );
   const failed = rows.filter((row) => row.status === "failed");
   const receipt = {
     schema: "tcos.checklist.tcgdexJapaneseBuildReceipt.v1",
@@ -315,14 +432,25 @@ async function main() {
     outputDirectory,
     discoveredSetDefinitions: rows.length,
     builtSets: built.length,
-    skippedNonJapaneseSets: rows.filter((row) => row.status === "skipped_non_japanese").length,
+    skippedNonJapaneseSets: rows.filter(
+      (row) => row.status === "skipped_non_japanese",
+    ).length,
+    incompleteJapaneseSets: incomplete.length,
     failedSets: failed.length,
     totals: {
       cards: built.reduce((sum, row) => sum + row.cards, 0),
-      variantEvidence: built.reduce((sum, row) => sum + row.variantEvidence, 0),
+      variantEvidence: built.reduce(
+        (sum, row) => sum + row.variantEvidence,
+        0,
+      ),
+      missingJapaneseCardNames: incomplete.reduce(
+        (sum, row) => sum + row.missingJapaneseCardNames,
+        0,
+      ),
     },
     rows,
   };
+
   await mkdir(dirname(receiptPath), { recursive: true });
   await writeFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
   console.log(JSON.stringify(receipt, null, 2));
