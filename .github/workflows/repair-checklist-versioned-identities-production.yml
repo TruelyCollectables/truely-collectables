@@ -1,0 +1,66 @@
+name: Repair Checklist Versioned Identities Production
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/repair-checklist-versioned-identities-production.yml"
+      - "scripts/ops/repair-checklist-versioned-identities-production.mjs"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repair-checklist-versioned-identities-production
+  cancel-in-progress: false
+
+jobs:
+  repair-production:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      EVIDENCE_DIR: evidence/checklist-versioned-identity-repair-production
+
+    steps:
+      - name: Check out isolated operations branch
+        uses: actions/checkout@v4
+        with:
+          ref: ops/repair-checklist-versioned-identities-20260801
+          fetch-depth: 0
+
+      - name: Prove exact operations scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "ops/repair-checklist-versioned-identities-20260801"
+          git fetch origin main
+          mapfile -t changed < <(git diff --name-only origin/main...HEAD)
+          printf '%s\n' "${changed[@]}"
+          test "${#changed[@]}" -eq 2
+          printf '%s\n' "${changed[@]}" | grep -Fx '.github/workflows/repair-checklist-versioned-identities-production.yml'
+          printf '%s\n' "${changed[@]}" | grep -Fx 'scripts/ops/repair-checklist-versioned-identities-production.mjs'
+          test -f supabase/migrations/20260801134500_checklist_registry_repair_printing_filter.sql
+          git diff --check origin/main...HEAD
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Apply printing filter, clean active rows, and verify Production
+        shell: bash
+        run: node scripts/ops/repair-checklist-versioned-identities-production.mjs
+
+      - name: Upload sanitized repair evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-versioned-identity-production-repair-20260801
+          path: evidence/checklist-versioned-identity-repair-production
+          if-no-files-found: error
+          retention-days: 90
