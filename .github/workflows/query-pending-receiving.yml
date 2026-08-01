@@ -8,6 +8,11 @@ on:
       - scripts/query-pending-receiving.mjs
       - .github/workflows/query-pending-receiving.yml
       - ops_pending_receiving_audit_20260731.txt
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ops_pending_receiving_pr_trigger.txt
 
 permissions:
   contents: write
@@ -20,10 +25,9 @@ jobs:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_SCOPE: truelycollectables-projects
     steps:
-      - name: Check out newest main
+      - name: Check out workflow source
         uses: actions/checkout@v4
         with:
-          ref: main
           fetch-depth: 0
 
       - name: Set up Node.js
@@ -59,7 +63,18 @@ jobs:
           node --env-file="$env_file" scripts/query-pending-receiving.mjs
           rm -f "$env_file"
 
+      - name: Upload current pending receiving list
+        uses: actions/upload-artifact@v4
+        with:
+          name: pending-receiving-current
+          path: |
+            audit/pending-receiving-current.json
+            audit/pending-receiving-current.md
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Commit read-only audit receipt
+        if: github.event_name == 'push'
         shell: bash
         run: |
           set -euo pipefail
