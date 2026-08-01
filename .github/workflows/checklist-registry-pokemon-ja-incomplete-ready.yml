@@ -1,0 +1,209 @@
+name: Checklist Registry Pokémon Japanese Incomplete Ready Bundles
+
+on:
+  pull_request:
+    paths:
+      - "src/lib/checklist-registry/pokemon-japanese-incomplete-reconciled.ts"
+      - "src/lib/checklist-registry/server.ts"
+      - "scripts/build-pokemon-japanese-incomplete-reconciled-bundles.ts"
+      - "scripts/import-pokemon-japanese-incomplete-reconciled-bundles.ts"
+      - "scripts/run-pokemon-japanese-incomplete-reconciled-simulations.ts"
+      - ".github/workflows/checklist-registry-pokemon-ja-incomplete-ready.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checklist-registry-pokemon-ja-incomplete-ready-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TCGDEX_SOURCE_COMMIT: 138c145b80f1a0d6a533f98fd3afe1ffc5b4f8d6
+
+jobs:
+  validate-ready-bundles:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint Phase 4B source
+        run: >-
+          npx eslint
+          src/lib/checklist-registry/pokemon-japanese-incomplete-reconciled.ts
+          src/lib/checklist-registry/server.ts
+          scripts/build-pokemon-japanese-incomplete-reconciled-bundles.ts
+          scripts/import-pokemon-japanese-incomplete-reconciled-bundles.ts
+          scripts/run-pokemon-japanese-incomplete-reconciled-simulations.ts
+
+      - name: Prove adapter boundaries
+        run: >-
+          node --import tsx
+          scripts/run-pokemon-japanese-incomplete-reconciled-simulations.ts
+
+      - name: Check out the pinned TCGdex source snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .codex-run
+          git clone --filter=blob:none https://github.com/tcgdex/cards-database.git \
+            .codex-run/tcgdex-cards-database
+          git -C .codex-run/tcgdex-cards-database checkout --detach "$TCGDEX_SOURCE_COMMIT"
+          test "$(git -C .codex-run/tcgdex-cards-database rev-parse HEAD)" = "$TCGDEX_SOURCE_COMMIT"
+
+      - name: Rebuild the pinned Japanese source receipt
+        run: |
+          node --import tsx scripts/build-tcgdex-japanese-registry-bundles.ts \
+            .codex-run/tcgdex-cards-database \
+            .codex-run/tcgdex-ja-registry-bundles \
+            --receipt .codex-run/tcgdex-ja-build-receipt.json \
+            > .codex-run/tcgdex-ja-build-output.json
+
+      - name: Rebuild the read-only official inventory
+        run: |
+          node --import tsx scripts/inventory-pokemon-japanese-incomplete-sets.ts \
+            .codex-run/tcgdex-cards-database \
+            --build-receipt .codex-run/tcgdex-ja-build-receipt.json \
+            --delay-ms 35 \
+            --continue-on-error \
+            --receipt .codex-run/pokemon-ja-incomplete-inventory-receipt.json \
+            --queue .codex-run/pokemon-ja-incomplete-inventory-queue.json \
+            > .codex-run/pokemon-ja-incomplete-inventory-output.json
+
+      - name: Build the three complete private bundles
+        run: |
+          node --import tsx \
+            scripts/build-pokemon-japanese-incomplete-reconciled-bundles.ts \
+            .codex-run/tcgdex-cards-database \
+            .codex-run/pokemon-ja-incomplete-reconciled-bundles \
+            --build-receipt .codex-run/tcgdex-ja-build-receipt.json \
+            --inventory-receipt .codex-run/pokemon-ja-incomplete-inventory-receipt.json \
+            --continue-on-error \
+            --receipt .codex-run/pokemon-ja-incomplete-reconciled-build-receipt.json \
+            > .codex-run/pokemon-ja-incomplete-reconciled-build-output.json
+
+      - name: Require exact build populations
+        run: |
+          node - <<'NODE'
+          const receipt = require('./.codex-run/pokemon-ja-incomplete-reconciled-build-receipt.json');
+          const expectedRows = {
+            SV5M: { sourceCards: 97, preservedNamedCards: 0, nameBackfilledCards: 97, addedOfficialCards: 3, officialCards: 100 },
+            SV6: { sourceCards: 130, preservedNamedCards: 101, nameBackfilledCards: 29, addedOfficialCards: 3, officialCards: 133 },
+            SV6a: { sourceCards: 64, preservedNamedCards: 0, nameBackfilledCards: 64, addedOfficialCards: 30, officialCards: 94 },
+          };
+          const checks = {
+            schema: receipt.schema === 'tcos.checklist.pokemonJapaneseIncompleteReconciledBuildReceipt.v1',
+            sourceCommit: receipt.sourceCommit === process.env.TCGDEX_SOURCE_COMMIT,
+            attemptedSets: receipt.attemptedSets === 3,
+            successfulSets: receipt.successfulSets === 3,
+            failedSets: receipt.failedSets === 0,
+            sourceCards: receipt.totals?.sourceCards === 291,
+            preservedNamedCards: receipt.totals?.preservedNamedCards === 101,
+            nameBackfilledCards: receipt.totals?.nameBackfilledCards === 190,
+            addedOfficialCards: receipt.totals?.addedOfficialCards === 36,
+            officialCards: receipt.totals?.officialCards === 327,
+            variantEvidence: receipt.totals?.variantEvidence === 0,
+          };
+          for (const [setId, expected] of Object.entries(expectedRows)) {
+            const row = receipt.rows.find((candidate) => candidate.setId === setId);
+            checks[`row_${setId}`] = Boolean(
+              row && row.status === 'built' &&
+              Object.entries(expected).every(([key, value]) => row[key] === value)
+            );
+          }
+          console.log(JSON.stringify({ checks, totals: receipt.totals, rows: receipt.rows }, null, 2));
+          if (Object.values(checks).some((value) => value !== true)) process.exit(1);
+          NODE
+
+      - name: Validate without Registry or Production writes
+        run: |
+          node --import tsx \
+            scripts/import-pokemon-japanese-incomplete-reconciled-bundles.ts \
+            .codex-run/pokemon-ja-incomplete-reconciled-bundles \
+            --continue-on-error \
+            --receipt .codex-run/pokemon-ja-incomplete-reconciled-validation-receipt.json \
+            > .codex-run/pokemon-ja-incomplete-reconciled-validation-output.json
+
+      - name: Require exact validation totals
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const receipt = require('./.codex-run/pokemon-ja-incomplete-reconciled-validation-receipt.json');
+          const checks = {
+            schema: receipt.schema === 'tcos.checklist.pokemonJapaneseIncompleteReconciledImportReceipt.v1',
+            mode: receipt.mode === 'validate_only',
+            attemptedFiles: receipt.attemptedFiles === 3,
+            successfulFiles: receipt.successfulFiles === 3,
+            failedFiles: receipt.failedFiles === 0,
+            sets: receipt.totals?.sets === 3,
+            cards: receipt.totals?.cards === 327,
+            parallels: receipt.totals?.parallels === 0,
+            identities: receipt.totals?.identities === 327,
+            sourceCards: receipt.totals?.sourceCards === 291,
+            preservedNamedCards: receipt.totals?.preservedNamedCards === 101,
+            nameBackfilledCards: receipt.totals?.nameBackfilledCards === 190,
+            addedOfficialCards: receipt.totals?.addedOfficialCards === 36,
+            noPersistence: receipt.rows.every((row) => row.persistence === null),
+            adapter: receipt.rows.every((row) =>
+              row.adapterId === 'pokemon-japanese-official-incomplete-reconciled' &&
+              row.adapterVersion === '1.0.0' &&
+              row.status === 'validated'
+            ),
+          };
+          const summary = {
+            schema: receipt.schema,
+            mode: receipt.mode,
+            attemptedFiles: receipt.attemptedFiles,
+            successfulFiles: receipt.successfulFiles,
+            failedFiles: receipt.failedFiles,
+            totals: receipt.totals,
+            rows: receipt.rows.map((row) => ({
+              setId: row.setId,
+              setName: row.setName,
+              status: row.status,
+              counts: row.counts,
+              sourceCards: row.sourceCards,
+              preservedNamedCards: row.preservedNamedCards,
+              nameBackfilledCards: row.nameBackfilledCards,
+              addedOfficialCards: row.addedOfficialCards,
+              validationIssues: row.validationIssues,
+              error: row.error,
+            })),
+          };
+          console.log(JSON.stringify({ checks, summary }, null, 2));
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, [
+            '# Japanese Phase 4B validation',
+            '',
+            '```json',
+            JSON.stringify(summary, null, 2),
+            '```',
+            '',
+          ].join('\n'));
+          if (Object.values(checks).some((value) => value !== true)) process.exit(1);
+          NODE
+
+      - name: Upload private validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pokemon-ja-phase4-ready-bundles
+          path: |
+            .codex-run/tcgdex-ja-build-receipt.json
+            .codex-run/pokemon-ja-incomplete-inventory-receipt.json
+            .codex-run/pokemon-ja-incomplete-inventory-queue.json
+            .codex-run/pokemon-ja-incomplete-reconciled-build-receipt.json
+            .codex-run/pokemon-ja-incomplete-reconciled-validation-receipt.json
+            .codex-run/pokemon-ja-incomplete-reconciled-build-output.json
+            .codex-run/pokemon-ja-incomplete-reconciled-validation-output.json
+          if-no-files-found: error
+          retention-days: 90
