@@ -1,0 +1,63 @@
+name: Verify live Merchant feed release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/verify-live-merchant-feed.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Fetch uncached production feed
+        run: |
+          curl --fail --location \
+            --retry 10 \
+            --retry-delay 15 \
+            --max-time 30 \
+            "https://truelycollectables.com/google-merchant-feed.xml?verify=8962b611" \
+            --output merchant-feed.xml
+
+      - name: Verify affected products
+        run: |
+          node <<'NODE'
+          const fs = require("node:fs");
+          const xml = fs.readFileSync("merchant-feed.xml", "utf8");
+          const productIds = ["tc-494516", "tc-494520", "tc-489532"];
+
+          for (const productId of productIds) {
+            const escapedId = productId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const itemMatch = xml.match(
+              new RegExp(`<item>[\\s\\S]*?<g:id>${escapedId}</g:id>[\\s\\S]*?</item>`),
+            );
+
+            if (!itemMatch) {
+              throw new Error(`Live feed is missing ${productId}.`);
+            }
+
+            const item = itemMatch[0];
+            if (!item.includes("<g:google_product_category>6997</g:google_product_category>")) {
+              throw new Error(`${productId} is missing Google product category 6997.`);
+            }
+
+            const imageMatch = item.match(/<g:image_link>([^<]+)<\/g:image_link>/);
+            if (!imageMatch) {
+              throw new Error(`${productId} is missing g:image_link.`);
+            }
+            if (!/\$_57\.JPG(?:[?&]|$)/i.test(imageMatch[1])) {
+              throw new Error(`${productId} does not use the $_57.JPG eBay image: ${imageMatch[1]}`);
+            }
+            if (/\$_1\.JPG(?:[?&]|$)/i.test(imageMatch[1])) {
+              throw new Error(`${productId} still uses a $_1.JPG thumbnail.`);
+            }
+
+            console.log(`${productId}: category 6997; image ${imageMatch[1]}`);
+          }
+          NODE
