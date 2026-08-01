@@ -7,6 +7,7 @@ import {
 } from "./identity";
 import type {
   ChecklistImportCard,
+  ChecklistImportParallel,
   ChecklistImportPlan,
   ChecklistImportSet,
   ChecklistImportValidationIssue,
@@ -18,8 +19,8 @@ import { buildChecklistSourceStorageReceipt } from "./storage";
 export const TCGDEX_JAPANESE_BUNDLE_SCHEMA =
   "tcos.tcgdex.japaneseSetBundle.v1" as const;
 export const TCGDEX_JAPANESE_ADAPTER_ID =
-  "tcgdex-japanese-base-cards" as const;
-export const TCGDEX_JAPANESE_ADAPTER_VERSION = "1.0.1" as const;
+  "tcgdex-japanese-physical-printings" as const;
+export const TCGDEX_JAPANESE_ADAPTER_VERSION = "2.0.0" as const;
 
 export type TcgdexJapaneseVariantEvidence = {
   type: string;
@@ -65,12 +66,64 @@ export type TcgdexJapaneseSetBundle = {
   cards: TcgdexJapaneseBundleCard[];
 };
 
+type MaterializedVariant = {
+  signature: string;
+  isBase: boolean;
+  parallelName: string | null;
+};
+
+const SUPPORTED_VARIANT_TYPES = new Set([
+  "normal",
+  "holo",
+  "reverse",
+  "metal",
+  "lenticular",
+]);
+
+const TOKEN_LABELS: Record<string, string> = {
+  pokeball: "Poké Ball",
+  greatball: "Great Ball",
+  ultraball: "Ultra Ball",
+  masterball: "Master Ball",
+  loveball: "Love Ball",
+  friendball: "Friend Ball",
+  quickball: "Quick Ball",
+  duskball: "Dusk Ball",
+  wotc: "WotC",
+  "1st-edition": "1st Edition",
+  "w-promo": "W Promo",
+  "pre-release": "Prerelease",
+  "pokemon-center": "Pokémon Center",
+  "pokemon-center-ny": "Pokémon Center NY",
+  "set-logo": "Set Logo",
+  "no-rarity": "No Rarity",
+  "japanese-back": "Japanese Back",
+  "1999-2000-copyright": "1999–2000 Copyright",
+  "1999-copyright": "1999 Copyright",
+  "1995-1998-copyright": "1995–1998 Copyright",
+  "nintedo-error": "Nintendo Error",
+  "d-edition-error": "D Edition Error",
+  "1st-edition-scratch-error": "1st Edition Scratch Error",
+  "1st-edition-error": "1st Edition Error",
+  "1st-movie": "1st Movie",
+  "1st-movie-inverted": "1st Movie Inverted",
+  "pokemon-4-ever": "Pokémon 4Ever",
+  "25th-celebration": "25th Celebration",
+  "poke-ball-league": "Poké Ball League",
+  "master-ball-league": "Master Ball League",
+  "ultra-ball-league": "Ultra Ball League",
+};
+
 function clean(value: string | null | undefined) {
   return String(value || "")
     .normalize("NFKC")
     .replace(/[‐‑‒–—―]/g, "-")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function normalizedToken(value: unknown) {
+  return clean(String(value ?? "")).toLowerCase();
 }
 
 function comparable(value: string | null | undefined) {
@@ -121,6 +174,117 @@ function releaseYearFromDate(value: string) {
 
 function sha256(value: string) {
   return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function humanizeToken(value: string) {
+  const normalized = normalizedToken(value);
+  if (!normalized) return "";
+  if (TOKEN_LABELS[normalized]) return TOKEN_LABELS[normalized];
+  return normalized
+    .split("-")
+    .filter(Boolean)
+    .map((part) =>
+      /^\d/.test(part)
+        ? part.toUpperCase()
+        : `${part.charAt(0).toUpperCase()}${part.slice(1)}`,
+    )
+    .join(" ");
+}
+
+function stampLabel(value: string) {
+  const normalized = normalizedToken(value);
+  const label = humanizeToken(normalized);
+  if (!label) return "";
+  if (normalized === "1st-edition") return label;
+  return `${label} Stamp`;
+}
+
+function materializeVariant(
+  value: TcgdexJapaneseVariantEvidence,
+  issues: ChecklistImportValidationIssue[],
+  rowReference: string,
+): MaterializedVariant | null {
+  const type = normalizedToken(value.type);
+  if (!SUPPORTED_VARIANT_TYPES.has(type)) {
+    issue(
+      issues,
+      "physical_variant_type_unsupported",
+      "error",
+      `Unsupported TCGdex Japanese physical variant type: ${type || "(blank)"}.`,
+      rowReference,
+    );
+    return null;
+  }
+
+  const languages = Array.isArray(value.languages)
+    ? [...new Set(value.languages.map(normalizedToken).filter(Boolean))].sort()
+    : [];
+  if (languages.length && !languages.includes("ja")) {
+    issue(
+      issues,
+      "physical_variant_not_japanese",
+      "warning",
+      `Skipped a TCGdex physical variant restricted to ${languages.join(", ")}.`,
+      rowReference,
+    );
+    return null;
+  }
+
+  const subtype = normalizedToken(value.subtype);
+  const size = normalizedToken(value.size);
+  const foil = normalizedToken(value.foil);
+  const stamps = Array.isArray(value.stamps)
+    ? [...new Set(value.stamps.map(normalizedToken).filter(Boolean))].sort()
+    : [];
+
+  const signature = [
+    `type=${type}`,
+    `subtype=${subtype}`,
+    `size=${size}`,
+    `foil=${foil}`,
+    `stamps=${stamps.join(",")}`,
+  ].join("|");
+
+  const modifiers: string[] = [];
+  if (subtype) modifiers.push(humanizeToken(subtype));
+  if (size && size !== "standard") modifiers.push(humanizeToken(size));
+  for (const stamp of stamps) {
+    const label = stampLabel(stamp);
+    if (label) modifiers.push(label);
+  }
+
+  if (type === "normal") {
+    if (foil) modifiers.unshift(`${humanizeToken(foil)} Foil`);
+    if (!modifiers.length) {
+      return { signature, isBase: true, parallelName: null };
+    }
+    return {
+      signature,
+      isBase: false,
+      parallelName: modifiers.join(" — "),
+    };
+  }
+
+  let primary =
+    type === "holo"
+      ? "Holo"
+      : type === "reverse"
+        ? "Reverse Holo"
+        : type === "metal"
+          ? "Metal"
+          : "Lenticular";
+
+  if (foil && (type === "holo" || type === "reverse")) {
+    primary = `${humanizeToken(foil)} ${primary}`;
+  } else if (foil) {
+    modifiers.unshift(`${humanizeToken(foil)} Foil`);
+  }
+
+  return {
+    signature,
+    isBase: false,
+    parallelName: [primary, ...modifiers].filter(Boolean).join(" — "),
+  };
 }
 
 function buildJapaneseFingerprint(
@@ -249,6 +413,7 @@ function disambiguateDatabaseCardKeys(
 function buildSourceNotes(
   bundle: TcgdexJapaneseSetBundle,
   card: TcgdexJapaneseBundleCard,
+  materializedPhysicalPrintings: string[],
 ) {
   return JSON.stringify({
     source: "tcgdex/cards-database",
@@ -266,8 +431,9 @@ function buildSourceNotes(
     regulationMark: clean(card.regulationMark) || null,
     dexId: Array.isArray(card.dexId) ? card.dexId : [],
     variantEvidence: Array.isArray(card.variants) ? card.variants : [],
+    materializedPhysicalPrintings,
     sourcePath: clean(card.sourcePath) || null,
-    phase: "base_cards",
+    phase: "physical_printings",
   });
 }
 
@@ -305,7 +471,7 @@ export function parseTcgdexJapaneseSetBundle(
       issues,
       "phase_invalid",
       "error",
-      "Phase 1 accepts base_cards bundles only.",
+      "Phase 2 accepts the audited base_cards bundle schema with preserved physical-variant evidence.",
     );
   }
   if (bundle.language !== "ja") {
@@ -373,9 +539,18 @@ export function parseTcgdexJapaneseSetBundle(
     },
   ];
   const cards: ChecklistImportCard[] = [];
+  const parallels: ChecklistImportParallel[] = [];
   const identities: ChecklistImportPlan["identities"] = [];
   const sourceKeys = new Set<string>();
+  const parallelBySignature = new Map<
+    string,
+    { sourceKey: string; name: string }
+  >();
+  const signatureByNormalizedParallelName = new Map<string, string>();
   let variantEvidenceCount = 0;
+  let physicalVariantIdentityCount = 0;
+  let baseIdentityCount = 0;
+  let deduplicatedVariantEvidenceCount = 0;
 
   for (const [index, rawCard] of bundle.cards.entries()) {
     const cardId = clean(rawCard.id);
@@ -406,11 +581,44 @@ export function parseTcgdexJapaneseSetBundle(
       continue;
     }
     sourceKeys.add(cardSourceKey);
-    variantEvidenceCount += Array.isArray(rawCard.variants)
-      ? rawCard.variants.length
-      : 0;
 
-    cards.push({
+    const rawVariants = Array.isArray(rawCard.variants) ? rawCard.variants : [];
+    variantEvidenceCount += rawVariants.length;
+    const materializedVariants: MaterializedVariant[] = [];
+    const cardVariantSignatures = new Set<string>();
+
+    for (const [variantIndex, rawVariant] of rawVariants.entries()) {
+      const materialized = materializeVariant(
+        rawVariant,
+        issues,
+        `${rowReference}.variants[${variantIndex}]`,
+      );
+      if (!materialized) continue;
+      if (cardVariantSignatures.has(materialized.signature)) {
+        deduplicatedVariantEvidenceCount += 1;
+        continue;
+      }
+      cardVariantSignatures.add(materialized.signature);
+      materializedVariants.push(materialized);
+    }
+
+    if (!rawVariants.length) {
+      materializedVariants.push({
+        signature: "implicit-base",
+        isBase: true,
+        parallelName: null,
+      });
+    } else if (!materializedVariants.length) {
+      issue(
+        issues,
+        "no_japanese_physical_printing",
+        "error",
+        `No usable Japanese physical printing remained for ${cardId}.`,
+        rowReference,
+      );
+    }
+
+    const cardRecord: ChecklistImportCard = {
       sourceKey: cardSourceKey,
       setSourceKey,
       cardNumber: localId,
@@ -421,27 +629,90 @@ export function parseTcgdexJapaneseSetBundle(
       autographStatus: "non-auto",
       memorabiliaStatus: "non-memorabilia",
       variation: null,
-      sourceNotes: buildSourceNotes(bundle, rawCard),
-    });
+      sourceNotes: null,
+    };
+    cards.push(cardRecord);
 
-    identities.push({
-      cardSourceKey,
-      parallelSourceKey: null,
-      fingerprint: buildJapaneseFingerprint({
-        releaseYear,
-        manufacturer: "The Pokémon Company",
-        brand: "Pokémon TCG",
-        product: setName,
-        sport: "Trading Card Game",
-        league: "Pokémon TCG",
-        setName,
-        cardNumber: localId,
-        players: [cardName],
-        parallel: null,
-        autographStatus: "non-auto",
-        memorabiliaStatus: "non-memorabilia",
-      }),
-    });
+    const materializedPhysicalPrintings: string[] = [];
+    for (const materialized of materializedVariants) {
+      let parallelSourceKey: string | null = null;
+      let parallelName: string | null = null;
+
+      if (!materialized.isBase && materialized.parallelName) {
+        let parallel = parallelBySignature.get(materialized.signature);
+        if (!parallel) {
+          let name = materialized.parallelName;
+          const normalizedName = databaseNormalizedVariation(name);
+          const existingSignature =
+            signatureByNormalizedParallelName.get(normalizedName);
+          if (
+            existingSignature &&
+            existingSignature !== materialized.signature
+          ) {
+            name =
+              `${name} — TCGdex Variant ` +
+              sha256(materialized.signature).slice(0, 8);
+            issue(
+              issues,
+              "parallel_name_disambiguated",
+              "warning",
+              `Added a source-backed suffix to distinguish two TCGdex physical-printing signatures named ${materialized.parallelName}.`,
+              rowReference,
+            );
+          }
+
+          parallel = {
+            sourceKey:
+              `tcgdex-ja-parallel:${sourceToken(setId)}:` +
+              sha256(materialized.signature).slice(0, 24),
+            name,
+          };
+          parallelBySignature.set(materialized.signature, parallel);
+          signatureByNormalizedParallelName.set(
+            databaseNormalizedVariation(name),
+            materialized.signature,
+          );
+          parallels.push({
+            sourceKey: parallel.sourceKey,
+            setSourceKey,
+            name: parallel.name,
+            serialRun: null,
+            configurationExclusivity: null,
+          });
+        }
+        parallelSourceKey = parallel.sourceKey;
+        parallelName = parallel.name;
+        physicalVariantIdentityCount += 1;
+      } else {
+        baseIdentityCount += 1;
+      }
+
+      materializedPhysicalPrintings.push(parallelName || "Base");
+      identities.push({
+        cardSourceKey,
+        parallelSourceKey,
+        fingerprint: buildJapaneseFingerprint({
+          releaseYear,
+          manufacturer: "The Pokémon Company",
+          brand: "Pokémon TCG",
+          product: setName,
+          sport: "Trading Card Game",
+          league: "Pokémon TCG",
+          setName,
+          cardNumber: localId,
+          players: [cardName],
+          parallel: parallelName,
+          autographStatus: "non-auto",
+          memorabiliaStatus: "non-memorabilia",
+        }),
+      });
+    }
+
+    cardRecord.sourceNotes = buildSourceNotes(
+      bundle,
+      rawCard,
+      materializedPhysicalPrintings,
+    );
   }
 
   disambiguateDatabaseCardKeys(cards, identities, issues);
@@ -486,12 +757,20 @@ export function parseTcgdexJapaneseSetBundle(
       `TCGdex lists ${bundle.set.officialCardCount} official cards but the bundle contains ${cards.length} Japanese card files.`,
     );
   }
+  if (deduplicatedVariantEvidenceCount) {
+    issue(
+      issues,
+      "duplicate_variant_evidence_deduplicated",
+      "warning",
+      `Deduplicated ${deduplicatedVariantEvidenceCount} repeated TCGdex physical-variant evidence row${deduplicatedVariantEvidenceCount === 1 ? "" : "s"}.`,
+    );
+  }
   if (variantEvidenceCount) {
     issue(
       issues,
-      "physical_variants_deferred",
+      "physical_variants_materialized",
       "warning",
-      `Stored ${variantEvidenceCount} TCGdex variant evidence rows for Phase 2; Phase 1 creates base-card identities only.`,
+      `Materialized ${physicalVariantIdentityCount} non-base Japanese physical-printing identities and ${baseIdentityCount} base identities from ${variantEvidenceCount} TCGdex variant evidence rows across ${parallels.length} named parallel definitions.`,
     );
   }
 
@@ -521,7 +800,7 @@ export function parseTcgdexJapaneseSetBundle(
     },
     sets,
     cards,
-    parallels: [],
+    parallels,
     identities,
     validation: {
       status: hasErrors ? "validation_required" : "passed",
@@ -529,7 +808,7 @@ export function parseTcgdexJapaneseSetBundle(
       counts: {
         sets: sets.length,
         cards: cards.length,
-        parallels: 0,
+        parallels: parallels.length,
         identities: identities.length,
       },
     },
