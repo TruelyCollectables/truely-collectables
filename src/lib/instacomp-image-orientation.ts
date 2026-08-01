@@ -171,9 +171,7 @@ export async function detectInstaCompSideOrientations(params: {
     const backConfidence = params.backDataUrl
       ? normalizedConfidence(parsed.backConfidence)
       : 0;
-    const recommendedFrontRotation = normalizeInstaCompRotation(
-      parsed.frontRotation,
-    );
+    const recommendedFrontRotation = normalizeInstaCompRotation(parsed.frontRotation);
     const recommendedBackRotation = params.backDataUrl
       ? normalizeInstaCompRotation(parsed.backRotation)
       : 0;
