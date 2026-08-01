@@ -129,9 +129,13 @@ async function isDirectory(path: string) {
 }
 
 async function importDefault<T>(filePath: string): Promise<T> {
-  const module = (await import(pathToFileURL(filePath).href)) as { default?: T };
-  if (!module.default) throw new Error(`${filePath} does not export a default object.`);
-  return module.default;
+  const loadedModule = (await import(pathToFileURL(filePath).href)) as {
+    default?: T;
+  };
+  if (!loadedModule.default) {
+    throw new Error(`${filePath} does not export a default object.`);
+  }
+  return loadedModule.default;
 }
 
 function releaseDateJa(value: TcgdexSet["releaseDate"]) {
@@ -279,7 +283,9 @@ async function buildSetBundle(params: {
       missingJapaneseCardPaths,
     };
   }
-  if (!cards.length) throw new Error(`${params.setFile} has no Japanese card files.`);
+  if (!cards.length) {
+    throw new Error(`${params.setFile} has no Japanese card files.`);
+  }
 
   return {
     status: "built",
