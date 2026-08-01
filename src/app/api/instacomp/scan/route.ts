@@ -2795,6 +2795,7 @@ async function getTcosInventoryProvider(
   ai: InstaCompAiResult,
   actor: Awaited<ReturnType<typeof requireInstaCompJobActor>>,
 ): Promise<InstaCompProviderResult> {
+  // INSTACOMP_INVENTORY_SCOPE_V2
   if (!SUPABASE_URL || !SUPABASE_KEY) {
     return {
       source: "tcos_inventory",
@@ -2806,7 +2807,6 @@ async function getTcosInventoryProvider(
   }
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-
   const words = query
     .split(" ")
     .map((word) => word.trim())
@@ -2824,26 +2824,26 @@ async function getTcosInventoryProvider(
   }
 
   const searchTerm = words.join(" ");
-
-  let productQuery = supabase
-    .from("products")
-    .select("id, title, price, image_url, quantity")
+  let inventoryQuery = supabase
+    .from("inventory_items")
+    .select(
+      "id,legacy_product_id,seller_account_id,title,price,quantity,status,metadata",
+    )
     .eq("store_id", actor.storeId)
-    .is("archived_at", null)
+    .eq("status", "active")
     .gt("quantity", 0)
     .gt("price", 0)
     .ilike("title", `%${searchTerm}%`);
 
-  productQuery =
+  inventoryQuery =
     actor.type === "seller"
-      ? productQuery.eq("seller_account_id", actor.sellerAccountId)
-      : productQuery.is("seller_account_id", null);
+      ? inventoryQuery.eq("seller_account_id", actor.sellerAccountId)
+      : inventoryQuery.is("seller_account_id", null);
 
-  const { data, error } = await productQuery.limit(25);
+  const { data, error } = await inventoryQuery.limit(25);
 
   if (error) {
     console.error("TCOS internal comp search error:", error);
-
     return {
       source: "tcos_inventory",
       label: "TCOS Inventory",
@@ -2855,26 +2855,62 @@ async function getTcosInventoryProvider(
 
   const rawComps: Omit<InstaCompComp, "matchScore" | "flags">[] = (data || [])
     .filter((item: any) => item?.title && Number(item?.price) > 0)
-    .map((item: any) => ({
-      title: String(item.title),
-      price: Number(item.price),
-      currency: "USD",
-      url: `/product/${item.id}`,
-      imageUrl: item.image_url ? String(item.image_url) : null,
-      source: "tcos_inventory" as const,
-      sourceLabel: "TCOS Inventory",
-      sourceCategory: "marketplace" as const,
-    }));
+    .map((item: any) => {
+      const legacyProductId = Number(item.legacy_product_id);
+      const metadata =
+        item.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata)
+          ? item.metadata
+          : {};
+      const imageUrl =
+        typeof metadata.image_url === "string"
+          ? metadata.image_url
+          : typeof metadata.imageUrl === "string"
+            ? metadata.imageUrl
+            : null;
 
-  const results = filterAndRankExactMatches(rawComps, ai, 3, 45);
+      return {
+        title: String(item.title),
+        price: Number(item.price),
+        itemPrice: Number(item.price),
+        shippingPrice: 0,
+        priceIncludesShipping: false,
+        currency: "USD",
+        url:
+          Number.isFinite(legacyProductId) && legacyProductId > 0
+            ? `/product/${legacyProductId}`
+            : actor.type === "seller"
+              ? "/seller/inventory"
+              : "/admin/inventory",
+        imageUrl,
+        source: "tcos_inventory" as const,
+        sourceLabel: "TCOS Inventory",
+        sourceCategory: "marketplace" as const,
+      };
+    });
+
+  const results = filterAndRankExactMatches(rawComps, ai, 3, 45).map(
+    (result) => ({
+      ...result,
+      flags: Array.from(
+        new Set([
+          ...result.flags,
+          "internal inventory",
+          "asking price only",
+          "not used for pricing",
+        ]),
+      ),
+    }),
+  );
 
   return {
     source: "tcos_inventory",
     label: "TCOS Inventory",
     status: results.length ? "live" : "no_matches",
     message: results.length
-      ? null
-      : "No exact TCOS inventory matches passed the filter.",
+      ? actor.type === "seller"
+        ? "Seller-scoped active inventory matches are shown as display-only asking evidence."
+        : "Owner-store active inventory matches are shown as display-only asking evidence."
+      : "No actor-scoped active TCOS inventory matches passed the filter.",
     results,
   };
 }
