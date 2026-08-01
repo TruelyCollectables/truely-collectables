@@ -10,6 +10,7 @@ on:
       - "src/lib/instacomp-learning-server.ts"
       - "src/lib/checklist-registry/server.ts"
       - "src/app/api/instacomp/scan-fast/route.ts"
+      - "src/app/admin/instacomp/mobile/MobileInstaCompScanner.tsx"
       - "scripts/run-instacomp-v2-hardening-simulations.ts"
       - "scripts/run-instacomp-scan-review-simulations.ts"
       - "scripts/run-checklist-complexity-simulations.ts"
@@ -53,6 +54,7 @@ jobs:
           src/lib/instacomp-learning-server.ts
           src/lib/checklist-registry/server.ts
           src/app/api/instacomp/scan-fast/route.ts
+          src/app/admin/instacomp/mobile/MobileInstaCompScanner.tsx
           scripts/run-instacomp-v2-hardening-simulations.ts
           scripts/run-instacomp-scan-review-simulations.ts
           scripts/run-checklist-complexity-simulations.ts
@@ -65,6 +67,28 @@ jobs:
 
       - name: Run Checklist Registry complexity simulations
         run: node --import tsx scripts/run-checklist-complexity-simulations.ts
+
+      - name: Verify protected mobile handoff
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const source = fs.readFileSync(
+            'src/app/admin/instacomp/mobile/MobileInstaCompScanner.tsx',
+            'utf8',
+          );
+          for (const marker of [
+            '/api/admin/pending-card-import',
+            'Create Protected Card Intake Draft',
+            'No scan price is auto-applied',
+            'price stays',
+            'inventoryItemId=',
+          ]) {
+            if (!source.includes(marker)) throw new Error(`Missing mobile handoff marker: ${marker}`);
+          }
+          if (source.includes('href={`/list?')) {
+            throw new Error('Unsafe query-only /list handoff is still present.');
+          }
+          NODE
 
       - name: Verify migration safety contracts
         run: |
