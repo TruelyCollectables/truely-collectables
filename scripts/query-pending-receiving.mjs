@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 const origin = String(process.env.NEXT_PUBLIC_SITE_URL || "https://truelycollectables.com")
   .replace(/\/$/, "");
 const secret = [
+  process.env.PENDING_RECEIVING_READ_SECRET,
   process.env.PROFIT_HUNTER_RUN_SECRET,
   process.env.MARKET_INTEL_INGEST_SECRET,
   process.env.CRON_SECRET,
