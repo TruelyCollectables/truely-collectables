@@ -1,0 +1,134 @@
+name: Google Canonical Domain Production
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/google-canonical-domain-production.yml"
+      - "src/lib/site-origin.ts"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: google-canonical-domain-production
+  cancel-in-progress: false
+
+jobs:
+  deploy-and-verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+
+    steps:
+      - name: Check out merged main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Verify canonical-domain fail-safe
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'endsWith(".vercel.app")' src/lib/site-origin.ts
+          grep -Fq 'DEPLOY_SAFETY.cleanProductionDomain' src/lib/site-origin.ts
+          npm run lint
+          npm run build:isolated
+
+      - name: Link the authorized Vercel project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          echo "::add-mask::$VERCEL_TOKEN"
+          mkdir -p .vercel
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          fi
+          npx vercel@56.2.0 link --yes \
+            --project truely-collectables \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN"
+
+      - name: Run supported Production deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run deploy:production
+
+      - name: Run repository Production smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run smoke:production
+
+      - name: Verify live canonical URLs
+        shell: bash
+        run: |
+          set -euo pipefail
+          stamp="${GITHUB_SHA:0:12}-$(date +%s)"
+          output_dir="$RUNNER_TEMP/google-canonical-domain/live"
+          mkdir -p "$output_dir"
+
+          curl --fail --silent --show-error --location --retry 5 --retry-all-errors \
+            -H "Cache-Control: no-cache" \
+            -A "TruelyCollectablesCanonicalRelease/1.0" \
+            "https://truelycollectables.com/sitemap.xml?canonical_release=$stamp" \
+            -o "$output_dir/sitemap.xml"
+
+          grep -Fq "https://truelycollectables.com/product/" "$output_dir/sitemap.xml"
+          if grep -Fq ".vercel.app" "$output_dir/sitemap.xml"; then
+            echo "The live sitemap still contains a Vercel alias." >&2
+            exit 1
+          fi
+
+          curl --fail --silent --show-error --location --retry 5 --retry-all-errors \
+            -H "Cache-Control: no-cache" \
+            -A "TruelyCollectablesCanonicalRelease/1.0" \
+            "https://truelycollectables.com/robots.txt?canonical_release=$stamp" \
+            -o "$output_dir/robots.txt"
+          grep -Fq "Sitemap: https://truelycollectables.com/sitemap.xml" "$output_dir/robots.txt"
+          if grep -Fq ".vercel.app" "$output_dir/robots.txt"; then
+            echo "The live robots file still contains a Vercel alias." >&2
+            exit 1
+          fi
+
+          curl --fail --silent --show-error --location --retry 5 --retry-all-errors \
+            -H "Cache-Control: no-cache" \
+            -A "TruelyCollectablesCanonicalRelease/1.0" \
+            "https://truelycollectables.com/google-merchant-feed.xml?canonical_release=$stamp" \
+            -o "$output_dir/google-merchant-feed.xml"
+          grep -Fq "https://truelycollectables.com/product/" \
+            "$output_dir/google-merchant-feed.xml"
+          if grep -Fq ".vercel.app" "$output_dir/google-merchant-feed.xml"; then
+            echo "The live Google Merchant feed still contains a Vercel alias." >&2
+            exit 1
+          fi
+
+          curl --fail --silent --show-error --location --retry 5 --retry-all-errors \
+            -H "Cache-Control: no-cache" \
+            -A "TruelyCollectablesCanonicalRelease/1.0" \
+            "https://truelycollectables.com/shop?canonical_release=$stamp" \
+            -o "$output_dir/shop.html"
+          grep -Fq 'rel="canonical" href="https://truelycollectables.com/shop"' \
+            "$output_dir/shop.html"
+          if grep -Fq ".vercel.app" "$output_dir/shop.html"; then
+            echo "The live Shop metadata still contains a Vercel alias." >&2
+            exit 1
+          fi
+
+          echo "Production Google canonical-domain release passed live verification."
