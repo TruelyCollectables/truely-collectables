@@ -2,15 +2,15 @@
 
 - Result: verified
 - Execution path: Vercel server cron
-- Production source commit: 09713c187e816b28febb359aa0bab31427078c64
+- Production source commit: 6c70635fc7eeed9f0f6eddd461076a36dbeb3a9b
 - Native eBay query families: 51/51 complete
 - Failed query families: 0
-- Raw results: 583
-- Deduplicated results: 474
+- Raw results: 585
+- Deduplicated results: 479
 - Exact-comp actionable results: 0
-- Saved report ID: 9f0c3ace-a56e-4222-8959-a8b9999a7316
-- Forced-run duration: 75383 ms
+- Saved report ID: 45832042-25ab-4299-9aa8-aa15e6b6b44e
+- Forced-run duration: 72988 ms
 - Verified authorization path: dedicated Profit Hunter Production run secret
 - Mountain schedule: 7 AM, 9 AM, 11 AM, 1 PM, 3 PM, 5 PM, 7 PM, 9 PM
 - Overnight execution: disabled by America/Denver schedule guard
-- Verified at: 2026-07-31T15:51:18Z
+- Verified at: 2026-08-01T06:37:25Z
