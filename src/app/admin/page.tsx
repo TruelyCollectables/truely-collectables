@@ -770,12 +770,12 @@ export default async function AdminDashboard() {
   ];
   const operatorActionCards = [
     {
-      href: "/list",
-      eyebrow: "Listing desk",
-      title: "Upload, InstaComp™, edit, and list cards",
+      href: "/admin/pending-card-import",
+      eyebrow: "Card intake",
+      title: "Import, track, InstaComp 2.0, and list cards",
       detail:
-        "Use the simplified photo-first workspace to scan selected cards, edit every field and quantity, then publish one, several, or all selected cards.",
-      cta: "Open List Cards",
+        "Use the permanent card workspace to import front/back packages, watch live progress, review pending drafts, run InstaComp 2.0, and publish selected cards.",
+      cta: "Open Card Intake",
       tone: "border-blue-200 bg-blue-50 text-blue-950",
     },
     {
@@ -825,7 +825,7 @@ export default async function AdminDashboard() {
       title: "Inventory and scan control",
       detail: "Clean scans, review stock truth, and keep product data sane.",
       links: [
-        { href: "/list", label: "List Cards" },
+        { href: "/admin/pending-card-import", label: "Card Intake & Listing" },
         { href: "/admin/instacomp/mobile", label: "InstaComp Mobile" },
         { href: "/admin/instacomp/v2", label: "InstaComp 2.0" },
         { href: "/admin/instacomp/checklists", label: "Checklist Registry" },

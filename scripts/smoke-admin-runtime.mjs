@@ -179,6 +179,11 @@ const smokeRoutes = [
     expectedText: "InstaComp™ 2.0",
   },
   {
+    path: "/admin/pending-card-import",
+    auth: true,
+    expectedText: "Card Intake & Listing",
+  },
+  {
     path: "/admin/instacomp/checklists",
     auth: true,
     expectedText: "Checklist Registry",
