@@ -1,15 +1,23 @@
+import { selectFrontBackListingImages } from "../../lib/listing-image-utils";
 import { configuredSiteOrigin } from "../../lib/site-origin";
 import { createServerInventoryEngine } from "../../lib/server-inventory-engine";
+import { createSupabaseServerClient } from "../../lib/supabase-server";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 300;
 
 const GOOGLE_COLLECTIBLE_TRADING_CARD_CATEGORY = "6997";
+const INVENTORY_IMAGE_QUERY_BATCH_SIZE = 250;
 const TRADING_CARD_CATEGORIES = new Set([
   "sports_cards",
   "trading_cards",
   "sealed_wax",
 ]);
+
+type InventoryImageRow = {
+  inventory_item_id: string;
+  image_url: string | null;
+};
 
 function xmlText(value: unknown) {
   return String(value ?? "")
@@ -43,6 +51,50 @@ function highestResolutionEbayImageUrl(value: string | null) {
   } catch {
     return value;
   }
+}
+
+async function loadInventoryImageUrls(inventoryItemIds: Array<string | null>) {
+  const uniqueIds = Array.from(
+    new Set(inventoryItemIds.filter((id): id is string => Boolean(id))),
+  );
+  const imageUrlsByInventoryItemId = new Map<string, string[]>();
+  if (!uniqueIds.length) return imageUrlsByInventoryItemId;
+
+  try {
+    const supabase = createSupabaseServerClient({ admin: true });
+
+    for (
+      let offset = 0;
+      offset < uniqueIds.length;
+      offset += INVENTORY_IMAGE_QUERY_BATCH_SIZE
+    ) {
+      const batch = uniqueIds.slice(
+        offset,
+        offset + INVENTORY_IMAGE_QUERY_BATCH_SIZE,
+      );
+      const { data, error } = await supabase
+        .from("inventory_images")
+        .select("inventory_item_id,image_url")
+        .in("inventory_item_id", batch)
+        .order("inventory_item_id", { ascending: true })
+        .order("sort_order", { ascending: true });
+
+      if (error) throw error;
+
+      for (const row of (data || []) as InventoryImageRow[]) {
+        const imageUrl = String(row.image_url || "").trim();
+        if (!imageUrl) continue;
+
+        const current = imageUrlsByInventoryItemId.get(row.inventory_item_id) || [];
+        current.push(imageUrl);
+        imageUrlsByInventoryItemId.set(row.inventory_item_id, current);
+      }
+    }
+  } catch (error) {
+    console.error("Could not load additional Google Merchant feed images", error);
+  }
+
+  return imageUrlsByInventoryItemId;
 }
 
 function isCollectibleTradingCard(product: {
@@ -93,6 +145,9 @@ export async function GET() {
   try {
     const inventoryEngine = createServerInventoryEngine();
     const products = await inventoryEngine.listAvailable();
+    const inventoryImageUrls = await loadInventoryImageUrls(
+      products.map((product) => product.inventoryItemId),
+    );
     const items = products
       .filter(
         (product) =>
@@ -104,9 +159,17 @@ export async function GET() {
       )
       .map((product) => {
         const productUrl = `${origin}/product/${product.legacyProductId}`;
-        const imageUrl = highestResolutionEbayImageUrl(
-          absoluteUrl(origin, product.imageUrl),
-        );
+        const listingImages = selectFrontBackListingImages([
+          product.imageUrl,
+          ...(product.inventoryItemId
+            ? inventoryImageUrls.get(product.inventoryItemId) || []
+            : []),
+        ])
+          .map((imageUrl) =>
+            highestResolutionEbayImageUrl(absoluteUrl(origin, imageUrl)),
+          )
+          .filter((imageUrl): imageUrl is string => Boolean(imageUrl));
+        const [imageUrl, additionalImageUrl] = listingImages;
         if (!imageUrl) return null;
 
         const productType =
@@ -119,6 +182,11 @@ export async function GET() {
           `      <g:description>${xmlText(feedDescription(product))}</g:description>`,
           `      <g:link>${xmlText(productUrl)}</g:link>`,
           `      <g:image_link>${xmlText(imageUrl)}</g:image_link>`,
+          ...(additionalImageUrl
+            ? [
+                `      <g:additional_image_link>${xmlText(additionalImageUrl)}</g:additional_image_link>`,
+              ]
+            : []),
           "      <g:condition>used</g:condition>",
           "      <g:availability>in stock</g:availability>",
           `      <g:price>${xmlText(`${Number(product.price).toFixed(2)} USD`)}</g:price>`,
