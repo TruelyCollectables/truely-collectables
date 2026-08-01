@@ -112,6 +112,7 @@ jobs:
             nameBackfilledCards: receipt.totals?.nameBackfilledCards === 190,
             addedOfficialCards: receipt.totals?.addedOfficialCards === 36,
             officialCards: receipt.totals?.officialCards === 327,
+            variantEvidence: receipt.totals?.variantEvidence === 0,
           };
           for (const [setId, expected] of Object.entries(expectedRows)) {
             const row = receipt.rows.find((candidate) => candidate.setId === setId);
@@ -146,11 +147,12 @@ jobs:
             failedFiles: receipt.failedFiles === 0,
             sets: receipt.totals?.sets === 3,
             cards: receipt.totals?.cards === 327,
+            parallels: receipt.totals?.parallels === 0,
+            identities: receipt.totals?.identities === 327,
             sourceCards: receipt.totals?.sourceCards === 291,
             preservedNamedCards: receipt.totals?.preservedNamedCards === 101,
             nameBackfilledCards: receipt.totals?.nameBackfilledCards === 190,
             addedOfficialCards: receipt.totals?.addedOfficialCards === 36,
-            identitiesAtLeastCards: receipt.totals?.identities >= 327,
             noPersistence: receipt.rows.every((row) => row.persistence === null),
             adapter: receipt.rows.every((row) =>
               row.adapterId === 'pokemon-japanese-official-incomplete-reconciled' &&
