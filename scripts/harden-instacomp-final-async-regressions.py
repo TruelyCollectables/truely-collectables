@@ -3,6 +3,7 @@ from pathlib import Path
 
 path = Path("scripts/run-instacomp-final-audit-regressions.ts")
 text = path.read_text()
+marker = "async function runImageSafetyRegressions()"
 old = '''const sourcePng = await sharp({
   create: { width: 2, height: 1, channels: 3, background: { r: 255, g: 0, b: 0 } },
 }).png().toBuffer();
@@ -42,8 +43,10 @@ runImageSafetyRegressions()
     process.exitCode = 1;
   });
 '''
-if new not in text:
-    if old not in text:
-        raise SystemExit("Could not locate the final image regression block")
+if marker in text:
+    print("Final image regression is already asynchronous; preserving its current frame-aware assertions")
+elif old in text:
     text = text.replace(old, new, 1)
+else:
+    raise SystemExit("Could not locate the final image regression block")
 path.write_text(text)
