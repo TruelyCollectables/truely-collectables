@@ -556,6 +556,88 @@ export default function TcosListingGateway() {
     }
   }
 
+  async function editCardImages(params: {
+    inventoryItemId: string;
+    action: "rotate" | "swap";
+    side?: "front" | "back";
+    degrees?: -90 | 90;
+  }) {
+    if (working) return;
+    const row = rowsRef.current.find(
+      (candidate) => candidate.inventoryItemId === params.inventoryItemId,
+    );
+    if (!row) {
+      setError("The selected card is no longer in the listing queue.");
+      return;
+    }
+
+    const actionLabel =
+      params.action === "swap"
+        ? "Swapping front and back images"
+        : `Rotating ${params.side} image ${params.degrees === 90 ? "right" : "left"}`;
+    setBusy(`image-${params.action}-${params.inventoryItemId}`);
+    setError("");
+    setNotice(`${actionLabel} for ${row.websiteTitle}...`);
+    setPreview(null);
+
+    try {
+      const response = await fetch("/api/admin/card-listing-images", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify(params),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Card image editing failed.");
+      }
+
+      const frontImageUrl = String(data.frontImageUrl || "");
+      const backImageUrl = String(data.backImageUrl || "");
+      updateRow(params.inventoryItemId, (current) => {
+        const remainingImages = (current.imageUrls || []).filter(
+          (url) =>
+            url &&
+            url !== current.frontImageUrl &&
+            url !== current.backImageUrl &&
+            url !== frontImageUrl &&
+            url !== backImageUrl,
+        );
+        return {
+          ...current,
+          frontImageUrl,
+          backImageUrl: backImageUrl || null,
+          imageUrls: [frontImageUrl, backImageUrl, ...remainingImages].filter(
+            (value): value is string => Boolean(value),
+          ),
+          instaCompStatus: "pending",
+          instaCompScanId: null,
+          instaCompConfidence: null,
+          instaCompSuggestedPrice: null,
+        };
+      });
+      setSelectedIds((current) =>
+        current.includes(params.inventoryItemId)
+          ? current
+          : [...current, params.inventoryItemId],
+      );
+      const warningText =
+        Array.isArray(data.warnings) && data.warnings.length
+          ? ` Warning: ${data.warnings.join(" · ")}`
+          : "";
+      setNotice(`${data.message || `${actionLabel} complete.`}${warningText}`);
+      await loadRows([params.inventoryItemId]);
+    } catch (nextError) {
+      setError(
+        nextError instanceof Error
+          ? nextError.message
+          : "Card image editing failed.",
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const instaCompPercent = instaCompProgress?.total
     ? Math.round(
         (instaCompProgress.processed / instaCompProgress.total) * 100,
@@ -574,7 +656,7 @@ export default function TcosListingGateway() {
           </p>
           <h2 className="mt-2 text-3xl font-black">TCOS Listing Gateway</h2>
           <p className="mt-2 max-w-4xl font-semibold text-neutral-600">
-            View the exact front and back, run InstaComp 2.0, fix or delete bad drafts,
+            View the exact front and back, rotate or swap problem photos, run InstaComp 2.0, fix or delete bad drafts,
             then send selected inventory to Truely Collectables or Truely Collectables + eBay.
           </p>
         </div>
@@ -966,14 +1048,64 @@ export default function TcosListingGateway() {
                       side="Front"
                       title={row.websiteTitle}
                       onPreview={setPreview}
+                      disabled={working}
+                      onRotateLeft={() =>
+                        void editCardImages({
+                          inventoryItemId: row.inventoryItemId,
+                          action: "rotate",
+                          side: "front",
+                          degrees: -90,
+                        })
+                      }
+                      onRotateRight={() =>
+                        void editCardImages({
+                          inventoryItemId: row.inventoryItemId,
+                          action: "rotate",
+                          side: "front",
+                          degrees: 90,
+                        })
+                      }
                     />
                     <CardImage
                       url={back}
                       side="Back"
                       title={row.websiteTitle}
                       onPreview={setPreview}
+                      disabled={working}
+                      onRotateLeft={() =>
+                        void editCardImages({
+                          inventoryItemId: row.inventoryItemId,
+                          action: "rotate",
+                          side: "back",
+                          degrees: -90,
+                        })
+                      }
+                      onRotateRight={() =>
+                        void editCardImages({
+                          inventoryItemId: row.inventoryItemId,
+                          action: "rotate",
+                          side: "back",
+                          degrees: 90,
+                        })
+                      }
                     />
                   </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void editCardImages({
+                        inventoryItemId: row.inventoryItemId,
+                        action: "swap",
+                      })
+                    }
+                    disabled={working || !front || !back}
+                    className="mt-3 w-full rounded-xl border-2 border-violet-800 bg-violet-50 px-4 py-2 font-black text-violet-900 disabled:border-neutral-300 disabled:bg-neutral-100 disabled:text-neutral-400"
+                  >
+                    Swap front ↔ back
+                  </button>
+                  <p className="mt-2 text-xs font-semibold leading-5 text-neutral-600">
+                    Rotation and swaps are saved to the inventory images. InstaComp 2.0 resets to pending so stale scan results are not reused.
+                  </p>
                   <p className="mt-2 text-xs font-black uppercase text-neutral-500">
                     Website: {row.websiteStatus} · eBay: {row.ebayStatus}
                   </p>
@@ -1237,11 +1369,17 @@ function CardImage({
   side,
   title,
   onPreview,
+  onRotateLeft,
+  onRotateRight,
+  disabled,
 }: {
   url: string;
   side: "Front" | "Back";
   title: string;
   onPreview: (image: PreviewImage) => void;
+  onRotateLeft: () => void;
+  onRotateRight: () => void;
+  disabled: boolean;
 }) {
   return (
     <div>
@@ -1249,19 +1387,41 @@ function CardImage({
         {side}
       </p>
       {url ? (
-        <button
-          type="button"
-          onClick={() => onPreview({ url, side, title })}
-          className="relative block aspect-[4/5] w-full overflow-hidden rounded-xl border-2 border-neutral-300 bg-neutral-100 transition hover:border-blue-700"
-        >
-          <Image
-            src={url}
-            alt={`${title} ${side}`}
-            fill
-            unoptimized
-            className="object-contain"
-          />
-        </button>
+        <>
+          <button
+            type="button"
+            onClick={() => onPreview({ url, side, title })}
+            className="relative block aspect-[4/5] w-full overflow-hidden rounded-xl border-2 border-neutral-300 bg-neutral-100 transition hover:border-blue-700"
+          >
+            <Image
+              src={url}
+              alt={`${title} ${side}`}
+              fill
+              unoptimized
+              className="object-contain"
+            />
+          </button>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={onRotateLeft}
+              disabled={disabled}
+              className="rounded-lg border-2 border-neutral-950 bg-white px-2 py-2 text-xs font-black disabled:opacity-40"
+              title={`Rotate ${side.toLowerCase()} image 90 degrees left`}
+            >
+              Rotate left
+            </button>
+            <button
+              type="button"
+              onClick={onRotateRight}
+              disabled={disabled}
+              className="rounded-lg border-2 border-neutral-950 bg-white px-2 py-2 text-xs font-black disabled:opacity-40"
+              title={`Rotate ${side.toLowerCase()} image 90 degrees right`}
+            >
+              Rotate right
+            </button>
+          </div>
+        </>
       ) : (
         <div className="flex aspect-[4/5] items-center justify-center rounded-xl border-2 border-dashed border-neutral-300 bg-neutral-50 p-3 text-center text-sm font-black text-neutral-500">
           {side} image missing

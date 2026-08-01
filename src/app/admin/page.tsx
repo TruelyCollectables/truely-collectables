@@ -1187,8 +1187,8 @@ export default async function AdminDashboard() {
       label: "3",
       title: "Scan, price, then publish",
       detail:
-        "Use InstaComp™ Direct for bad scans, quantity merges, price refreshes, and draft creation before marketplace publishing.",
-      href: "/admin/instacomp-direct",
+        "Use Card Intake & Listing for front/back scans, image rotation or swapping, InstaComp 2.0, and marketplace publishing.",
+      href: "/admin/pending-card-import",
       tone: "green",
     },
   ] satisfies Array<{
@@ -1219,9 +1219,13 @@ export default async function AdminDashboard() {
 
           <div className="flex flex-wrap gap-2">
             <BaseCommandButton
+              href={adminHref("/admin/pending-card-import")}
+              label="Card Intake & Listing"
+              primary
+            />
+            <BaseCommandButton
               href={adminHref("/admin/products/new")}
               label="Add Product"
-              primary
             />
             <BaseCommandButton
               href={adminHref("/admin/instacomp-direct")}
