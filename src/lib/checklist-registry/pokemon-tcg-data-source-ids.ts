@@ -1,3 +1,4 @@
+import { buildChecklistIdentityFingerprint } from "./identity";
 import {
   POKEMON_TCG_DATA_ADAPTER_ID,
   POKEMON_TCG_DATA_BUNDLE_SCHEMA,
@@ -10,7 +11,7 @@ import type {
 } from "./source-adapter";
 import { buildChecklistSourceStorageReceipt } from "./storage";
 
-export const POKEMON_TCG_DATA_SOURCE_ID_ADAPTER_VERSION = "1.0.1" as const;
+export const POKEMON_TCG_DATA_SOURCE_ID_ADAPTER_VERSION = "1.0.2" as const;
 
 type MutableCard = {
   id?: unknown;
@@ -36,6 +37,39 @@ function safeSurrogate(index: number, sourceId: string) {
 
 function sourceKey(sourceId: string) {
   return `pokemon-card:${encodeURIComponent(sourceId)}`;
+}
+
+function databaseNormalizedCardNumber(value: string) {
+  return String(value || "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}/]+/gu, "");
+}
+
+function databaseNormalizedVariation(value: string | null) {
+  return String(value || "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^\p{L}\p{N}/]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function sourceIdFromNotes(sourceNotes: string | null) {
+  try {
+    const notes = JSON.parse(sourceNotes || "{}") as { sourceCardId?: unknown };
+    return String(notes.sourceCardId || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function sourceBackedVariation(sourceId: string, existingVariation: string | null) {
+  const sourceToken = Buffer.from(sourceId, "utf8").toString("hex");
+  return existingVariation
+    ? `${existingVariation} — Source Variant ${sourceToken}`
+    : `Source Variant ${sourceToken}`;
 }
 
 function makeSourceIdsSafe(artifact: ChecklistSourceArtifact) {
@@ -77,6 +111,84 @@ function makeSourceIdsSafe(artifact: ChecklistSourceArtifact) {
   };
 }
 
+function disambiguateDatabaseCardKeys(plan: ChecklistImportPlan) {
+  const groups = new Map<string, typeof plan.cards>();
+
+  for (const card of plan.cards) {
+    const key = [
+      card.setSourceKey,
+      databaseNormalizedCardNumber(card.cardNumber),
+      databaseNormalizedVariation(card.variation),
+    ].join("\u0000");
+    const group = groups.get(key) || [];
+    group.push(card);
+    groups.set(key, group);
+  }
+
+  const variationByCardSourceKey = new Map<string, string>();
+  let collisionGroups = 0;
+  let disambiguatedCards = 0;
+
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    collisionGroups += 1;
+
+    for (const card of group) {
+      const sourceId = sourceIdFromNotes(card.sourceNotes) || card.sourceKey;
+      const variation = sourceBackedVariation(sourceId, card.variation);
+      card.variation = variation;
+      variationByCardSourceKey.set(card.sourceKey, variation);
+      disambiguatedCards += 1;
+    }
+  }
+
+  if (!disambiguatedCards) return;
+
+  const fingerprints = new Set<string>();
+  for (const identity of plan.identities) {
+    const variation = variationByCardSourceKey.get(identity.cardSourceKey);
+    if (variation) {
+      const normalized = identity.fingerprint.normalized;
+      identity.fingerprint = buildChecklistIdentityFingerprint({
+        releaseYear: normalized.releaseYear || null,
+        season: normalized.season || null,
+        manufacturer: normalized.manufacturer,
+        brand: normalized.brand || null,
+        product: normalized.product,
+        sport: normalized.sport || null,
+        league: normalized.league || null,
+        setName: normalized.setName,
+        subset: normalized.subset || null,
+        cardNumber: normalized.cardNumber,
+        players: normalized.players,
+        teams: normalized.teams,
+        parallel: normalized.parallel,
+        variation,
+        serialRun: normalized.serialRun || null,
+        autographStatus: normalized.autographStatus,
+        memorabiliaStatus: normalized.memorabiliaStatus,
+        configurationExclusivity:
+          normalized.configurationExclusivity || null,
+      });
+    }
+
+    if (fingerprints.has(identity.fingerprint.fingerprintSha256)) {
+      throw new Error(
+        `Duplicate Pokémon identity after database-key disambiguation: ${identity.cardSourceKey}`,
+      );
+    }
+    fingerprints.add(identity.fingerprint.fingerprintSha256);
+  }
+
+  plan.validation.issues.push({
+    code: "database_card_key_disambiguated",
+    severity: "warning",
+    message:
+      `Added source-backed variations to ${disambiguatedCards} Pokémon cards across ` +
+      `${collisionGroups} normalized card-number collision group${collisionGroups === 1 ? "" : "s"}.`,
+  });
+}
+
 function restoreSourceIds(
   plan: ChecklistImportPlan,
   artifact: ChecklistSourceArtifact,
@@ -114,6 +226,8 @@ function restoreSourceIds(
     identity.cardSourceKey =
       sourceKeyReplacements.get(identity.cardSourceKey) || identity.cardSourceKey;
   }
+
+  disambiguateDatabaseCardKeys(plan);
 
   plan.adapterVersion = POKEMON_TCG_DATA_SOURCE_ID_ADAPTER_VERSION;
   plan.source.storage = buildChecklistSourceStorageReceipt({
