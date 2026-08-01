@@ -1,0 +1,139 @@
+name: Checklist Registry Versioned Identities
+
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/20260801132000_checklist_registry_versioned_identities.sql"
+      - "scripts/repair-checklist-registry-active-identities.ts"
+      - "scripts/verify-checklist-versioned-identities.sql"
+      - "src/lib/instacomp-learning-server.ts"
+      - ".github/workflows/checklist-registry-versioned-identities.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-versioned-identities:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: checklist_versioned_identity_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d checklist_versioned_identity_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: checklist_versioned_identity_test
+      CORE_MIGRATION: supabase/migrations/20260725_tcos_checklist_registry_core.sql
+      STORAGE_MIGRATION: supabase/migrations/20260725_tcos_checklist_source_storage.sql
+      WRITER_MIGRATION: supabase/migrations/20260731161500_checklist_registry_transactional_writer.sql
+      VERSIONED_IDENTITY_MIGRATION: supabase/migrations/20260801132000_checklist_registry_versioned_identities.sql
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint repair and active-version lookup
+        run: >-
+          npx eslint
+          scripts/repair-checklist-registry-active-identities.ts
+          src/lib/instacomp-learning-server.ts
+
+      - name: Require active live Registry filters
+        run: |
+          node - <<'NODE'
+          const source = require('node:fs').readFileSync(
+            'src/lib/instacomp-learning-server.ts',
+            'utf8',
+          );
+          for (const marker of [
+            'version:checklist_versions!inner(id,is_active,status)',
+            '.eq("version.is_active", true)',
+            '.eq("version.status", "live")',
+          ]) {
+            if (!source.includes(marker)) throw new Error(`Missing Registry marker: ${marker}`);
+          }
+          NODE
+
+      - name: Generate validated Registry plan
+        run: |
+          mkdir -p .codex-run
+          node --import tsx scripts/write-checklist-registry-integration-plan.ts \
+            .codex-run/checklist-registry-integration-plan.json
+
+      - name: Create Supabase-compatible roles and storage
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          create extension if not exists pgcrypto;
+
+          do $$
+          begin
+            create role anon nologin;
+          exception when duplicate_object then null;
+          end;
+          $$;
+
+          do $$
+          begin
+            create role authenticated nologin;
+          exception when duplicate_object then null;
+          end;
+          $$;
+
+          do $$
+          begin
+            create role service_role nologin bypassrls;
+          exception when duplicate_object then null;
+          end;
+          $$;
+
+          create schema if not exists storage;
+          create table if not exists storage.buckets (
+            id text primary key,
+            name text not null unique,
+            public boolean not null default false,
+            file_size_limit bigint,
+            allowed_mime_types text[]
+          );
+          SQL
+
+      - name: Apply Registry writer and versioned identity migration
+        run: |
+          psql -v ON_ERROR_STOP=1 --file "$CORE_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$STORAGE_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$WRITER_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$VERSIONED_IDENTITY_MIGRATION"
+
+      - name: Reapply complete migration order
+        run: |
+          psql -v ON_ERROR_STOP=1 --file "$CORE_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$STORAGE_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$WRITER_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$VERSIONED_IDENTITY_MIGRATION"
+
+      - name: Verify replacement versions and repair
+        run: >-
+          psql -v ON_ERROR_STOP=1
+          --file scripts/verify-checklist-versioned-identities.sql
