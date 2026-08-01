@@ -29,6 +29,19 @@ jobs:
           fetch-depth: 0
 
       - run: python scripts/finish-card-image-editor.py
+      - name: Preserve tested admin priority copy
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("src/app/admin/page.tsx")
+          text = path.read_text()
+          text = text.replace(
+              'title: "Scan, correct, price, then publish",',
+              'title: "Scan, price, then publish",',
+              1,
+          )
+          path.write_text(text)
+          PY
       - uses: actions/setup-node@v4
         with:
           node-version: 22
