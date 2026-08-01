@@ -21,7 +21,7 @@ const rankedEmailState = readFileSync(
 const hotWatch = readFileSync("src/lib/market-intel-hot-watch.ts", "utf8");
 const vercel = JSON.parse(readFileSync("vercel.json", "utf8"));
 
-assert.match(runner, /const PROFIT_HUNTER_HOURS = Object\.freeze\(\[7, 9, 11, 13, 15, 17, 19, 21\]\)/);
+assert.match(runner, /const PROFIT_HUNTER_HOURS = Object\.freeze\(\[7, 11, 15, 18, 21\]\)/);
 assert.match(runner, /const EXPECTED_TOTAL_FAMILIES/);
 assert.match(runner, /EXPECTED_WNBA_FAMILIES = 15/);
 assert.match(runner, /EXPECTED_MICHKOV_YOUNG_GUNS_FAMILIES = 8/);
@@ -168,13 +168,13 @@ console.log(
     {
       ok: true,
       executionPath: "vercel_server_cron",
-      scheduleGuard: "America/Denver 07,09,11,13,15,17,19,21",
+      scheduleGuard: "America/Denver 07,11,15,18,21",
       expectedNativeFamilies: 51,
       rawProspectBallWatch: {
         enabled: true,
         schedule: "same_as_profit_hunter",
         timeZone: "America/Denver",
-        scheduledHours: [7, 9, 11, 13, 15, 17, 19, 21],
+        scheduledHours: [7, 11, 15, 18, 21],
         queryFamilies: 5,
         reviewMode: "manual_authentication_condition_inscription_and_ball_type",
       },
