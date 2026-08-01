@@ -27,7 +27,7 @@ permissions:
   contents: read
 
 jobs:
-  verify-tcgdex-japanese-phase1:
+  verify-tcgdex-japanese-phase2:
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
@@ -47,14 +47,26 @@ jobs:
       - name: Load builder command
         run: npx tsx scripts/build-tcgdex-japanese-registry-bundles.ts --help
 
-      - name: Run Japanese base-card adapter simulation
+      - name: Run Japanese physical-printing adapter simulation
         run: npx tsx scripts/run-checklist-registry-tcgdex-japanese-simulations.ts
 
-      - name: Validate Japanese fixture without database writes
+      - name: Validate Japanese physical-printing fixture without database writes
         run: >-
           npx tsx scripts/import-tcgdex-japanese-registry-bundles.ts
           scripts/fixtures/checklist-registry/tcgdex-japanese-set-bundle.fixture.json
           --receipt .codex-run/tcgdex-ja-fixture-validation-receipt.json
+
+      - name: Verify physical-printing fixture receipt
+        run: |
+          node - <<'NODE'
+          const receipt = require('./.codex-run/tcgdex-ja-fixture-validation-receipt.json');
+          if (receipt.failedFiles !== 0) throw new Error(`Japanese fixture failures: ${receipt.failedFiles}`);
+          if (receipt.totals.cards !== 4) throw new Error(`Unexpected fixture card count: ${receipt.totals.cards}`);
+          if (receipt.totals.parallels !== 5) throw new Error(`Unexpected fixture parallel count: ${receipt.totals.parallels}`);
+          if (receipt.totals.identities !== 9) throw new Error(`Unexpected fixture identity count: ${receipt.totals.identities}`);
+          if (receipt.identityBreakdown.base !== 4) throw new Error(`Unexpected fixture base identities: ${receipt.identityBreakdown.base}`);
+          if (receipt.identityBreakdown.physicalVariants !== 5) throw new Error(`Unexpected fixture physical variants: ${receipt.identityBreakdown.physicalVariants}`);
+          NODE
 
       - name: Check out current TCGdex source
         run: >-
@@ -76,6 +88,7 @@ jobs:
           if (receipt.failedSets !== 0) throw new Error(`Japanese builder failures: ${receipt.failedSets}`);
           if (receipt.builtSets < 1) throw new Error('Japanese builder produced no complete sets');
           if (receipt.totals.cards < 1) throw new Error('Japanese builder produced no cards');
+          if (receipt.totals.variantEvidence < 1) throw new Error('Japanese builder produced no physical-variant evidence');
           console.log(JSON.stringify({
             discoveredSetDefinitions: receipt.discoveredSetDefinitions,
             builtSets: receipt.builtSets,
@@ -88,23 +101,29 @@ jobs:
           }, null, 2));
           NODE
 
-      - name: Validate every complete Japanese bundle
+      - name: Validate every complete Japanese physical-printing bundle
         run: >-
           npx tsx scripts/import-tcgdex-japanese-registry-bundles.ts
           .codex-run/tcgdex-ja-registry-bundles
           --continue-on-error
           --receipt .codex-run/tcgdex-ja-full-validation-receipt.json
 
-      - name: Verify complete validation receipt
+      - name: Verify complete physical-printing validation receipt
         run: |
           node - <<'NODE'
           const receipt = require('./.codex-run/tcgdex-ja-full-validation-receipt.json');
           if (receipt.failedFiles !== 0) throw new Error(`Japanese validation failures: ${receipt.failedFiles}`);
           if (receipt.successfulFiles !== receipt.attemptedFiles) throw new Error('Not every complete Japanese bundle validated');
+          if (receipt.totals.identities < receipt.totals.cards) throw new Error('Physical-printing identities cannot be fewer than base cards');
+          if (receipt.totals.parallels < 1) throw new Error('No named Japanese physical printings were materialized');
+          if (receipt.identityBreakdown.base < 1) throw new Error('No Japanese base identities were retained');
+          if (receipt.identityBreakdown.physicalVariants < 1) throw new Error('No Japanese variant identities were materialized');
           console.log(JSON.stringify({
             attemptedFiles: receipt.attemptedFiles,
             successfulFiles: receipt.successfulFiles,
             failedFiles: receipt.failedFiles,
             totals: receipt.totals,
+            identityBreakdown: receipt.identityBreakdown,
+            additionalPhysicalIdentities: receipt.totals.identities - receipt.totals.cards,
           }, null, 2));
           NODE

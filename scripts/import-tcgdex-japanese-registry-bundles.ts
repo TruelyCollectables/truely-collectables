@@ -12,6 +12,11 @@ type BundleHeader = {
   set?: { id?: string; name?: string; sourcePath?: string };
 };
 
+type IdentityBreakdown = {
+  base: number;
+  physicalVariants: number;
+};
+
 type ImportReceiptRow = {
   file: string;
   setId: string | null;
@@ -20,6 +25,7 @@ type ImportReceiptRow = {
   adapterId: string | null;
   adapterVersion: string | null;
   counts: Record<string, number> | null;
+  identityBreakdown: IdentityBreakdown | null;
   validationIssues: number;
   persistence: unknown;
   error: string | null;
@@ -121,6 +127,14 @@ async function main() {
         throw new Error(issues || "Checklist validation failed.");
       }
 
+      const identityBreakdown = result.plan.identities.reduce<IdentityBreakdown>(
+        (sum, identity) => {
+          if (identity.parallelSourceKey) sum.physicalVariants += 1;
+          else sum.base += 1;
+          return sum;
+        },
+        { base: 0, physicalVariants: 0 },
+      );
       const persistence = result.persistence as { idempotent?: boolean } | null;
       rows.push({
         file,
@@ -134,6 +148,7 @@ async function main() {
         adapterId: result.adapter.id,
         adapterVersion: result.adapter.version,
         counts: result.plan.validation.counts,
+        identityBreakdown,
         validationIssues: result.plan.validation.issues.length,
         persistence: result.persistence,
         error: null,
@@ -147,6 +162,7 @@ async function main() {
         adapterId: null,
         adapterVersion: null,
         counts: null,
+        identityBreakdown: null,
         validationIssues: 0,
         persistence: null,
         error: error instanceof Error ? error.message : String(error),
@@ -166,8 +182,16 @@ async function main() {
     },
     { sets: 0, cards: 0, parallels: 0, identities: 0 },
   );
+  const identityBreakdown = rows.reduce<IdentityBreakdown>(
+    (sum, row) => {
+      sum.base += row.identityBreakdown?.base || 0;
+      sum.physicalVariants += row.identityBreakdown?.physicalVariants || 0;
+      return sum;
+    },
+    { base: 0, physicalVariants: 0 },
+  );
   const receipt = {
-    schema: "tcos.checklist.tcgdexJapaneseBulkImportReceipt.v1",
+    schema: "tcos.checklist.tcgdexJapaneseBulkImportReceipt.v2",
     mode: apply ? "apply" : "validate_only",
     generatedAt: new Date().toISOString(),
     sourceRepository: SOURCE_REPOSITORY,
@@ -176,6 +200,7 @@ async function main() {
     successfulFiles: rows.length - failed.length,
     failedFiles: failed.length,
     totals,
+    identityBreakdown,
     rows,
   };
 
