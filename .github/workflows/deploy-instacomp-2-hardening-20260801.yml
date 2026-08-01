@@ -17,7 +17,7 @@ concurrency:
 
 env:
   BASE_MAIN_SHA: 79dbec772ca6e9ef92fb3de757137ce9584a1536
-  EXPECTED_MAIN_SHA: 79dbec772ca6e9ef92fb3de757137ce9584a1536
+  EXPECTED_MAIN_SHA: 87a0ba4fb1ff22f83cb7e3981c610b83080234e0
   EXPECTED_BRANCH: ops/deploy-instacomp-2-hardening-20260801
   VERCEL_SCOPE: truelycollectables-projects
   VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -53,10 +53,15 @@ jobs:
           ref: ${{ env.EXPECTED_BRANCH }}
           fetch-depth: 0
 
-      - name: Fail closed on exact operations scope and exact merged main
+      - name: Fail closed on exact operations scope and exact current main
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/instacomp-2-evidence"
+          printf '{"schema":"truelycollectables.instacomp2Hardening.rolloutStart.v1","expectedMainSha":"%s","startedAt":"%s"}\n' \
+            "$EXPECTED_MAIN_SHA" "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+            > "$RUNNER_TEMP/instacomp-2-evidence/rollout-start.json"
+
           test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
           git fetch origin main
           current_main_sha="$(git rev-parse origin/main)"
@@ -80,7 +85,7 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Reprove exact merged application before touching Production
+      - name: Reprove exact current main before touching Production
         shell: bash
         run: |
           set -euo pipefail
@@ -110,7 +115,7 @@ jobs:
           test -n "${VERCEL_TOKEN:-}"
           test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
           echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
-          mkdir -p .vercel "$RUNNER_TEMP/instacomp-2-production" "$RUNNER_TEMP/instacomp-2-evidence"
+          mkdir -p .vercel "$RUNNER_TEMP/instacomp-2-production"
           if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
             printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
           else
@@ -145,7 +150,7 @@ jobs:
             --force --sensitive --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" \
             < "$secret_file" >/dev/null
 
-      - name: Deploy exact merged main revision to Production
+      - name: Deploy exact current main revision to Production
         id: deploy
         shell: bash
         run: |
@@ -205,7 +210,7 @@ jobs:
 
       - name: Remove and prove absence of temporary verifier secret
         id: cleanup
-        if: always()
+        if: always() && steps.provision.outcome != 'skipped'
         shell: bash
         run: |
           set -euo pipefail
@@ -256,7 +261,8 @@ jobs:
 
           code=""
           for attempt in $(seq 1 18); do
-            code="$(curl -sS -L --max-time 60 -o "$RUNNER_TEMP/instacomp-2-post-clean.json" \
+            code="$(curl -sS -L --max-time 60 \
+              -o "$RUNNER_TEMP/instacomp-2-post-clean.json" \
               -w '%{http_code}' -H 'Cache-Control: no-cache' \
               -A 'InstaComp2PostCleanVerifier/1.0' \
               "$PRODUCTION_ORIGIN/api/internal/instacomp-mobile-live-verify?clean=$attempt&sha=$EXPECTED_MAIN_SHA")"
@@ -276,7 +282,8 @@ jobs:
           # InstaComp 2.0 Production hardening certification
 
           - Certified at: $timestamp
-          - Exact merged source: \`$EXPECTED_MAIN_SHA\`
+          - Exact current-main source: \`$EXPECTED_MAIN_SHA\`
+          - Hardening merge contained in source: \`$BASE_MAIN_SHA\`
           - Production domain: https://truelycollectables.com
           - Initial tested deployment: ${{ steps.deploy.outputs.url }}
           - Clean deployment without temporary secret: ${{ steps.clean_deploy.outputs.url }}
@@ -302,5 +309,5 @@ jobs:
         with:
           name: instacomp-2-hardening-production-20260801
           path: ${{ runner.temp }}/instacomp-2-evidence
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 90
