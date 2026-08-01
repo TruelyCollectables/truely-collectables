@@ -4,6 +4,13 @@ import { createServerInventoryEngine } from "../../lib/server-inventory-engine";
 export const dynamic = "force-dynamic";
 export const revalidate = 300;
 
+const GOOGLE_COLLECTIBLE_TRADING_CARD_CATEGORY = "6997";
+const TRADING_CARD_CATEGORIES = new Set([
+  "sports_cards",
+  "trading_cards",
+  "sealed_wax",
+]);
+
 function xmlText(value: unknown) {
   return String(value ?? "")
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g, "")
@@ -22,6 +29,40 @@ function absoluteUrl(origin: string, value: string | null | undefined) {
   } catch {
     return null;
   }
+}
+
+function highestResolutionEbayImageUrl(value: string | null) {
+  if (!value) return null;
+
+  try {
+    const url = new URL(value);
+    if (/(^|\.)ebayimg\.com$/i.test(url.hostname)) {
+      url.pathname = url.pathname.replace(/\$_1\.JPG$/i, "$_57.JPG");
+    }
+    return url.toString();
+  } catch {
+    return value;
+  }
+}
+
+function isCollectibleTradingCard(product: {
+  title: string;
+  category: string | null;
+  storefrontSection: string;
+  sport: string | null;
+}) {
+  const category = String(product.category || "")
+    .trim()
+    .toLowerCase();
+  if (TRADING_CARD_CATEGORIES.has(category)) return true;
+
+  const searchable = [product.title, product.storefrontSection, product.sport]
+    .filter(Boolean)
+    .join(" ");
+
+  return /\b(?:sports?|trading|baseball|basketball|football|hockey|soccer|wrestling|pokemon|pokémon) cards?\b|\bTCG\b/i.test(
+    searchable,
+  );
 }
 
 function feedDescription(product: {
@@ -63,7 +104,9 @@ export async function GET() {
       )
       .map((product) => {
         const productUrl = `${origin}/product/${product.legacyProductId}`;
-        const imageUrl = absoluteUrl(origin, product.imageUrl);
+        const imageUrl = highestResolutionEbayImageUrl(
+          absoluteUrl(origin, product.imageUrl),
+        );
         if (!imageUrl) return null;
 
         const productType =
@@ -80,6 +123,11 @@ export async function GET() {
           "      <g:availability>in stock</g:availability>",
           `      <g:price>${xmlText(`${Number(product.price).toFixed(2)} USD`)}</g:price>`,
           "      <g:identifier_exists>no</g:identifier_exists>",
+          ...(isCollectibleTradingCard(product)
+            ? [
+                `      <g:google_product_category>${GOOGLE_COLLECTIBLE_TRADING_CARD_CATEGORY}</g:google_product_category>`,
+              ]
+            : []),
           `      <g:product_type>${xmlText(productType)}</g:product_type>`,
           "    </item>",
         ].join("\n");
