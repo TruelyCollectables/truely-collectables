@@ -1,0 +1,67 @@
+name: Apply InstaComp Hardening Follow-up
+
+on:
+  push:
+    branches:
+      - agent/instacomp-2-hardening-rebased
+    paths:
+      - "scripts/fix-instacomp-hardening-typescript.mjs"
+      - ".github/workflows/apply-instacomp-hardening-followup.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-instacomp-hardening-followup
+  cancel-in-progress: false
+
+jobs:
+  apply-followup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/instacomp-2-hardening-rebased
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Apply deterministic follow-up
+        run: node scripts/fix-instacomp-hardening-typescript.mjs
+
+      - name: Validate corrected source markers
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const route = fs.readFileSync('src/app/api/instacomp/scan/route.ts', 'utf8');
+          const decision = fs.readFileSync('src/lib/instacomp-v2.ts', 'utf8');
+          for (const forbidden of [
+            'canUseListingGuidance',
+            'function isMarketValueComp',
+            'function isExactListingGuidanceComp',
+            'function displayedCompPrice',
+          ]) {
+            if (route.includes(forbidden) || decision.includes(forbidden)) {
+              throw new Error(`Forbidden stale marker remains: ${forbidden}`);
+            }
+          }
+          if (!route.includes('Transactional value is based only on independently verified completed sales.')) {
+            throw new Error('Verified-sale-only response note is missing.');
+          }
+          NODE
+
+      - name: Commit follow-up to isolated branch
+        run: |
+          if git diff --quiet -- src/app/api/instacomp/scan/route.ts src/lib/instacomp-v2.ts; then
+            echo "Follow-up already applied."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/api/instacomp/scan/route.ts src/lib/instacomp-v2.ts
+          git commit -m "Fix InstaComp hardening TypeScript and stale pricing helpers"
+          git push origin HEAD:agent/instacomp-2-hardening-rebased
