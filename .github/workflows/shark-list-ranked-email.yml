@@ -3,6 +3,7 @@ name: Shark List Ranked Email
 on:
   pull_request:
     paths:
+      - "src/lib/deal-hunter-ebay-query-families.js"
       - "src/lib/profit-hunter-ranked-email.js"
       - "src/lib/profit-hunter-ranked-email-state.js"
       - "src/app/api/cron/profit-hunter/route.js"
@@ -29,10 +30,11 @@ jobs:
       - name: Check JavaScript syntax
         run: |
           set -euo pipefail
+          node --check src/lib/deal-hunter-ebay-query-families.js
           node --check src/lib/profit-hunter-ranked-email.js
           node --check src/lib/profit-hunter-ranked-email-state.js
           node --check src/app/api/cron/profit-hunter/route.js
           node --check scripts/run-profit-hunter-server-cron-contracts.mjs
 
-      - name: Verify Shark List email contracts
+      - name: Verify Shark List and Raw Prospect Ball Watch contracts
         run: node scripts/run-profit-hunter-server-cron-contracts.mjs
