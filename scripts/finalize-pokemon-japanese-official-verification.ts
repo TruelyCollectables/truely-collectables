@@ -11,11 +11,42 @@ const RECEIPT_SCHEMA =
   "tcos.checklist.pokemonJapaneseOfficialVerification.v1";
 const QUEUE_SCHEMA =
   "tcos.checklist.pokemonJapaneseOfficialDiscrepancyQueue.v1";
+const OFFICIAL_ORIGIN = "https://www.pokemon-card.com";
+const OFFICIAL_RESULT_API = `${OFFICIAL_ORIGIN}/card-search/resultAPI.php`;
+
+const REQUEST_HEADERS = {
+  accept: "application/json,*/*;q=0.8",
+  "accept-language": "ja,en-US;q=0.8,en;q=0.6",
+  "user-agent":
+    "TCOS-Checklist-Registry-Verification/1.1 (+https://totallycollectibles.com)",
+};
 
 type BundleCard = TcgdexJapaneseSetBundle["cards"][number];
 
+type OfficialProductOption = {
+  value: string;
+  label: string;
+};
+
+type OfficialCardSummary = {
+  cardID: string;
+  cardNameAltText?: string;
+  cardNameViewText?: string;
+  cardThumbFile?: string;
+};
+
+type OfficialResultResponse = {
+  result: number;
+  errMsg?: string;
+  regulation: string;
+  hitCnt: number;
+  maxPage: number;
+  cardList: OfficialCardSummary[];
+};
+
 type DetailEvidence = {
   name: string | null;
+  setCode?: string | null;
   numerator: string | null;
   expectedName: string | null;
   expectedLocalId: string | null;
@@ -27,24 +58,47 @@ type DetailEvidence = {
   [key: string]: unknown;
 };
 
+type NameCount = {
+  name: string;
+  count: number;
+};
+
+type OrderedNameMismatch = {
+  position: number;
+  localId: string | null;
+  registryName: string | null;
+  officialName: string | null;
+  cardID: string | null;
+};
+
 type AuditRow = {
   setId: string;
   status: string;
-  officialProduct: unknown;
+  officialProduct: OfficialProductOption | null;
+  officialHitCount: number | null;
   officialCollectedCount: number | null;
+  officialComparableCount?: number | null;
+  officialExcludedCount?: number;
+  officialExcludedSetCodes?: string[];
+  officialSetCodes?: string[];
   registryCardCount: number;
   countMatches: boolean | null;
   setCodeMatches: boolean | null;
   nameMultisetMatches: boolean | null;
   orderedNameMismatchCount: number | null;
+  orderedNameMismatches?: OrderedNameMismatch[];
+  missingOfficialNamesInRegistry?: NameCount[];
+  extraRegistryNames?: NameCount[];
   reasons: string[];
   detailEvidence: DetailEvidence[];
+  error?: string | null;
   [key: string]: unknown;
 };
 
 type Receipt = {
   schema: string;
   generatedAt: string;
+  mode?: string;
   officialSource: unknown;
   attemptedSets: number;
   statusCounts: Record<string, number>;
@@ -60,12 +114,30 @@ function argumentValue(flag: string) {
     : null;
 }
 
+function numericArgument(flag: string, fallback: number) {
+  const raw = argumentValue(flag);
+  if (raw === null) return fallback;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error(`${flag} requires a non-negative integer.`);
+  }
+  return parsed;
+}
+
 function clean(value: unknown) {
   return String(value ?? "")
     .normalize("NFKC")
     .replace(/[‐‑‒–—―]/g, "-")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function comparableCardName(value: unknown) {
+  const name = clean(value);
+  return name.replace(
+    /^(博士の研究|ボスの指令)[(（][^()（）]+[)）]$/u,
+    "$1",
+  );
 }
 
 function compact(value: unknown) {
@@ -75,10 +147,45 @@ function compact(value: unknown) {
     .replace(/[^\p{L}\p{N}]+/gu, "");
 }
 
+function comparableNameKey(value: unknown) {
+  return compact(comparableCardName(value));
+}
+
 function normalizedCardNumber(value: unknown) {
   const text = clean(value).toUpperCase();
   if (/^\d+$/.test(text)) return String(Number(text));
   return text.replace(/\s+/g, "");
+}
+
+function sleep(ms: number) {
+  return ms > 0
+    ? new Promise((resolvePromise) => setTimeout(resolvePromise, ms))
+    : Promise.resolve();
+}
+
+async function fetchWithRetry(url: string, delayMs: number) {
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      if (attempt > 1 || delayMs > 0) await sleep(delayMs * attempt);
+      const response = await fetch(url, {
+        headers: REQUEST_HEADERS,
+        redirect: "follow",
+      });
+      const body = await response.text();
+      if (!response.ok) {
+        throw new Error(
+          `${response.status} ${response.statusText}: ${body.slice(0, 300)}`,
+        );
+      }
+      return body;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(String(lastError));
 }
 
 function parseBundle(content: string, file: string) {
@@ -107,6 +214,62 @@ async function loadBundles(directory: string) {
   return bundles;
 }
 
+function officialCardName(card: OfficialCardSummary) {
+  return clean(card.cardNameViewText || card.cardNameAltText || "");
+}
+
+function officialSetCode(card: OfficialCardSummary) {
+  return (
+    clean(card.cardThumbFile).match(
+      /\/card_images\/large\/([^/]+)\//i,
+    )?.[1] || null
+  );
+}
+
+async function fetchOfficialCards(
+  option: OfficialProductOption,
+  delayMs: number,
+) {
+  const cards: OfficialCardSummary[] = [];
+  let page = 1;
+  let maxPage = 1;
+  let hitCnt: number | null = null;
+
+  do {
+    const url = new URL(OFFICIAL_RESULT_API);
+    url.searchParams.set("mode", "statuslist");
+    url.searchParams.set("pg", option.value);
+    if (page > 1) url.searchParams.set("page", String(page));
+
+    const parsed = JSON.parse(
+      await fetchWithRetry(url.href, delayMs),
+    ) as OfficialResultResponse;
+    if (parsed.result !== 1 || !Array.isArray(parsed.cardList)) {
+      throw new Error(
+        `Official result API rejected ${option.value}: ${clean(parsed.errMsg) || "unknown error"}.`,
+      );
+    }
+    if (page === 1) {
+      maxPage = Number(parsed.maxPage) || 1;
+      hitCnt = Number.isInteger(parsed.hitCnt)
+        ? Number(parsed.hitCnt)
+        : null;
+    }
+    cards.push(...parsed.cardList);
+    page += 1;
+  } while (page <= maxPage);
+
+  const uniqueCards = new Map<string, OfficialCardSummary>();
+  for (const card of cards) {
+    const id = clean(card.cardID);
+    if (id) uniqueCards.set(id, card);
+  }
+  return {
+    cards: [...uniqueCards.values()],
+    hitCnt,
+  };
+}
+
 function cardsByNumber(cards: BundleCard[]) {
   const result = new Map<string, BundleCard[]>();
   for (const card of cards) {
@@ -117,6 +280,32 @@ function cardsByNumber(cards: BundleCard[]) {
     result.set(key, matches);
   }
   return result;
+}
+
+function nameCounts(values: string[]) {
+  const counts = new Map<string, NameCount>();
+  for (const value of values) {
+    const name = comparableCardName(value);
+    const key = comparableNameKey(name);
+    if (!key) continue;
+    const row = counts.get(key) || { name, count: 0 };
+    row.count += 1;
+    counts.set(key, row);
+  }
+  return counts;
+}
+
+function subtractNameCounts(
+  left: Map<string, NameCount>,
+  right: Map<string, NameCount>,
+) {
+  return [...left.entries()]
+    .map(([key, row]) => ({
+      name: row.name,
+      count: row.count - (right.get(key)?.count || 0),
+    }))
+    .filter((row) => row.count > 0)
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function repairDetailEvidence(
@@ -133,16 +322,14 @@ function repairDetailEvidence(
   detail.registryCandidateCount = candidates.length;
   detail.nameMatches =
     detail.name && expected
-      ? compact(detail.name) === compact(expected.name)
+      ? comparableNameKey(detail.name) === comparableNameKey(expected.name)
       : null;
   detail.numberMatches =
     detail.numerator === null
       ? null
-      : candidates.length === 0
-        ? false
-        : candidates.length === 1
-          ? true
-          : null;
+      : candidates.length === 1
+        ? true
+        : null;
 
   if (!detail.numerator) {
     detail.error =
@@ -151,55 +338,56 @@ function repairDetailEvidence(
   } else if (candidates.length > 1) {
     detail.error =
       `Multiple Registry cards use official printed number ${detail.numerator}.`;
+  } else if (candidates.length === 0) {
+    detail.error = null;
   }
 
   return detail;
 }
 
-const DETAIL_REASONS = new Set([
+const COMPARISON_REASONS = new Set([
+  "official_card_count_mismatch",
+  "official_set_code_mismatch",
+  "official_name_population_mismatch",
+  "official_ordered_name_mismatch",
   "official_detail_fetch_incomplete",
   "official_detail_name_mismatch",
   "official_printed_number_mismatch",
   "official_detail_set_code_mismatch",
 ]);
 
-function finalizeAuditedRow(
-  row: AuditRow,
-  bundle: TcgdexJapaneseSetBundle,
-) {
-  const byNumber = cardsByNumber(bundle.cards);
-  row.detailEvidence = row.detailEvidence.map((detail) =>
-    repairDetailEvidence(detail, byNumber),
-  );
+function rebuildComparisonReasons(row: AuditRow) {
   row.reasons = row.reasons.filter(
-    (reason) => !DETAIL_REASONS.has(reason),
+    (reason) => !COMPARISON_REASONS.has(reason),
   );
 
+  if (row.countMatches === false) {
+    row.reasons.push("official_card_count_mismatch");
+  }
+  if (row.setCodeMatches === false) {
+    row.reasons.push("official_set_code_mismatch");
+  }
+  if (row.nameMultisetMatches === false) {
+    row.reasons.push("official_name_population_mismatch");
+  }
+  if ((row.orderedNameMismatchCount || 0) > 0) {
+    row.reasons.push("official_ordered_name_mismatch");
+  }
   if (row.detailEvidence.some((detail) => Boolean(detail.error))) {
     row.reasons.push("official_detail_fetch_incomplete");
   }
-  if (
-    row.detailEvidence.some(
-      (detail) => detail.nameMatches === false,
-    )
-  ) {
+  if (row.detailEvidence.some((detail) => detail.nameMatches === false)) {
     row.reasons.push("official_detail_name_mismatch");
   }
-  if (
-    row.detailEvidence.some(
-      (detail) => detail.numberMatches === false,
-    )
-  ) {
+  if (row.detailEvidence.some((detail) => detail.numberMatches === false)) {
     row.reasons.push("official_printed_number_mismatch");
   }
-  if (
-    row.detailEvidence.some(
-      (detail) => detail.setCodeMatches === false,
-    )
-  ) {
+  if (row.detailEvidence.some((detail) => detail.setCodeMatches === false)) {
     row.reasons.push("official_detail_set_code_mismatch");
   }
+}
 
+function classifyAuditedRow(row: AuditRow) {
   const hardMismatch =
     row.countMatches === false ||
     row.setCodeMatches === false ||
@@ -222,6 +410,106 @@ function finalizeAuditedRow(
       : "verified";
 }
 
+async function finalizeAuditedRow(
+  row: AuditRow,
+  bundle: TcgdexJapaneseSetBundle,
+  delayMs: number,
+) {
+  if (!row.officialProduct) return;
+
+  const official = await fetchOfficialCards(row.officialProduct, delayMs);
+  const targetSetId = clean(bundle.set.id).toLowerCase();
+  const exactTargetCards = official.cards.filter(
+    (card) => officialSetCode(card)?.toLowerCase() === targetSetId,
+  );
+  const comparableCards = exactTargetCards.length
+    ? exactTargetCards
+    : official.cards;
+  const excludedCards = official.cards.filter(
+    (card) => !comparableCards.includes(card),
+  );
+
+  row.officialHitCount = official.hitCnt;
+  row.officialCollectedCount = official.cards.length;
+  row.officialComparableCount = comparableCards.length;
+  row.officialExcludedCount = excludedCards.length;
+  row.officialSetCodes = [
+    ...new Set(
+      official.cards
+        .map(officialSetCode)
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ].sort();
+  row.officialExcludedSetCodes = [
+    ...new Set(
+      excludedCards
+        .map(officialSetCode)
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ].sort();
+
+  row.countMatches = bundle.cards.length === comparableCards.length;
+  row.setCodeMatches = exactTargetCards.length
+    ? true
+    : row.officialSetCodes.length === 0
+      ? null
+      : false;
+
+  const registryNames = bundle.cards.map((card) => clean(card.name));
+  const officialNames = comparableCards.map(officialCardName);
+  const registryCounts = nameCounts(registryNames);
+  const officialCounts = nameCounts(officialNames);
+  row.missingOfficialNamesInRegistry = subtractNameCounts(
+    officialCounts,
+    registryCounts,
+  );
+  row.extraRegistryNames = subtractNameCounts(
+    registryCounts,
+    officialCounts,
+  );
+  row.nameMultisetMatches =
+    row.missingOfficialNamesInRegistry.length === 0 &&
+    row.extraRegistryNames.length === 0;
+
+  const orderedMismatches: OrderedNameMismatch[] = [];
+  const comparableLength = Math.min(
+    registryNames.length,
+    officialNames.length,
+  );
+  for (let index = 0; index < comparableLength; index += 1) {
+    if (
+      comparableNameKey(registryNames[index]) ===
+      comparableNameKey(officialNames[index])
+    ) {
+      continue;
+    }
+    if (orderedMismatches.length < 50) {
+      orderedMismatches.push({
+        position: index + 1,
+        localId: clean(bundle.cards[index]?.localId) || null,
+        registryName: registryNames[index] || null,
+        officialName: officialNames[index] || null,
+        cardID: clean(comparableCards[index]?.cardID) || null,
+      });
+    }
+  }
+  row.orderedNameMismatchCount =
+    orderedMismatches.length +
+    Math.abs(registryNames.length - officialNames.length);
+  row.orderedNameMismatches = orderedMismatches;
+
+  const byNumber = cardsByNumber(bundle.cards);
+  row.detailEvidence = row.detailEvidence
+    .filter((detail) => {
+      const detailSetCode = clean(detail.setCode).toLowerCase();
+      return !detailSetCode || detailSetCode === targetSetId;
+    })
+    .map((detail) => repairDetailEvidence(detail, byNumber));
+
+  rebuildComparisonReasons(row);
+  classifyAuditedRow(row);
+}
+
 function rebuildTotals(receipt: Receipt) {
   const statusCounts = receipt.rows.reduce<Record<string, number>>(
     (counts, row) => {
@@ -241,7 +529,17 @@ function rebuildTotals(receipt: Receipt) {
       0,
     ),
     officialCardsCollected: receipt.rows.reduce(
+      (sum, row) =>
+        sum +
+        (row.officialComparableCount ?? row.officialCollectedCount ?? 0),
+      0,
+    ),
+    officialProductCardsCollected: receipt.rows.reduce(
       (sum, row) => sum + (row.officialCollectedCount || 0),
+      0,
+    ),
+    excludedOfficialCards: receipt.rows.reduce(
+      (sum, row) => sum + (row.officialExcludedCount || 0),
       0,
     ),
     verifiedSets: statusCounts.verified || 0,
@@ -284,6 +582,7 @@ async function main() {
     argumentValue("--queue") ||
       ".codex-run/pokemon-ja-official-discrepancy-queue.json",
   );
+  const delayMs = numericArgument("--delay-ms", 125);
 
   const receipt = JSON.parse(
     await readFile(receiptPath, "utf8"),
@@ -296,22 +595,23 @@ async function main() {
   }
 
   const bundles = await loadBundles(bundleDirectory);
-  for (const row of receipt.rows) {
-    if (
-      !row.officialProduct ||
-      row.officialCollectedCount === null ||
-      !Array.isArray(row.detailEvidence) ||
-      row.status === "failed"
-    ) {
-      continue;
+  if (receipt.mode !== "mapping_only") {
+    for (const row of receipt.rows) {
+      if (
+        !row.officialProduct ||
+        !Array.isArray(row.detailEvidence) ||
+        row.status === "failed"
+      ) {
+        continue;
+      }
+      const bundle = bundles.get(clean(row.setId).toLowerCase());
+      if (!bundle) {
+        throw new Error(
+          `No Japanese bundle found for audited set ${row.setId}.`,
+        );
+      }
+      await finalizeAuditedRow(row, bundle, delayMs);
     }
-    const bundle = bundles.get(clean(row.setId).toLowerCase());
-    if (!bundle) {
-      throw new Error(
-        `No Japanese bundle found for audited set ${row.setId}.`,
-      );
-    }
-    finalizeAuditedRow(row, bundle);
   }
 
   const discrepancyRows = rebuildTotals(receipt);

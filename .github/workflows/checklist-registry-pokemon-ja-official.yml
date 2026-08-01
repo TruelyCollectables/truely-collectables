@@ -27,7 +27,7 @@ permissions:
 jobs:
   verify-official-japanese-source-audit:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
 
     steps:
       - name: Check out repository
@@ -108,6 +108,7 @@ jobs:
             officialProduct: row.officialProduct,
             registryCardCount: row.registryCardCount,
             officialCardCount: row.officialCollectedCount,
+            officialComparableCount: row.officialComparableCount,
             officialHitCount: row.officialHitCount,
             countMatches: row.countMatches,
             setCodeMatches: row.setCodeMatches,
@@ -123,8 +124,8 @@ jobs:
           if (!['verified', 'manual_review'].includes(row.status)) {
             throw new Error(`SV2a official verification status: ${row.status} ${JSON.stringify(row.reasons)}`);
           }
-          if (row.registryCardCount !== 210 || row.officialCollectedCount !== 210 || row.officialHitCount !== 210) {
-            throw new Error(`SV2a count mismatch: ${JSON.stringify({ registry: row.registryCardCount, collected: row.officialCollectedCount, hit: row.officialHitCount })}`);
+          if (row.registryCardCount !== 210 || row.officialCollectedCount !== 210 || row.officialComparableCount !== 210 || row.officialHitCount !== 210) {
+            throw new Error(`SV2a count mismatch: ${JSON.stringify({ registry: row.registryCardCount, collected: row.officialCollectedCount, comparable: row.officialComparableCount, hit: row.officialHitCount })}`);
           }
           if (row.countMatches !== true || row.setCodeMatches !== true || row.nameMultisetMatches !== true) {
             throw new Error(`SV2a hard comparison failed: ${JSON.stringify({ countMatches: row.countMatches, setCodeMatches: row.setCodeMatches, nameMultisetMatches: row.nameMultisetMatches })}`);
@@ -134,4 +135,72 @@ jobs:
             throw new Error(`SV2a detail evidence mismatch: ${JSON.stringify(row.detailEvidence)}`);
           }
           if (receipt.totals.printedNumberMismatches !== 0) throw new Error(`Printed-number mismatches: ${receipt.totals.printedNumberMismatches}`);
+          NODE
+
+      - name: Recheck the ten reported hard mismatches
+        run: >-
+          npx tsx scripts/run-pokemon-japanese-official-verification.ts
+          .codex-run/tcgdex-ja-registry-bundles
+          --set M-P
+          --set MC
+          --set SV1a
+          --set SV1S
+          --set SV1V
+          --set SV5K
+          --set SV8
+          --set SVK
+          --set SVLN
+          --set SVLS
+          --delay-ms 75
+          --detail-samples 3
+          --receipt .codex-run/pokemon-ja-triage-official-receipt.json
+          --queue .codex-run/pokemon-ja-triage-official-queue.json
+
+      - name: Verify corrected discrepancy classifications
+        run: |
+          node - <<'NODE'
+          const receipt = require('./.codex-run/pokemon-ja-triage-official-receipt.json');
+          const mismatchIds = receipt.rows
+            .filter((row) => row.status === 'mismatch')
+            .map((row) => row.setId)
+            .sort();
+          const expectedMismatchIds = ['M-P', 'SV5K', 'SV8'];
+          const resolvedIds = ['MC', 'SV1a', 'SV1S', 'SV1V', 'SVK', 'SVLN', 'SVLS'];
+          console.log(JSON.stringify({
+            attemptedSets: receipt.attemptedSets,
+            statusCounts: receipt.statusCounts,
+            totals: receipt.totals,
+            mismatchIds,
+            rows: receipt.rows.map((row) => ({
+              setId: row.setId,
+              status: row.status,
+              registryCards: row.registryCardCount,
+              officialProductCards: row.officialCollectedCount,
+              officialComparableCards: row.officialComparableCount,
+              officialExcludedCards: row.officialExcludedCount,
+              officialExcludedSetCodes: row.officialExcludedSetCodes,
+              reasons: row.reasons,
+            })),
+          }, null, 2));
+          if (receipt.attemptedSets !== 10) throw new Error(`Unexpected triage set count: ${receipt.attemptedSets}`);
+          if ((receipt.statusCounts.failed || 0) !== 0) throw new Error(`Triage failures: ${receipt.statusCounts.failed}`);
+          if (JSON.stringify(mismatchIds) !== JSON.stringify(expectedMismatchIds)) {
+            throw new Error(`Unexpected hard mismatches: ${JSON.stringify(mismatchIds)}`);
+          }
+          for (const setId of resolvedIds) {
+            const row = receipt.rows.find((candidate) => candidate.setId === setId);
+            if (!row || row.status === 'mismatch' || row.status === 'failed') {
+              throw new Error(`${setId} was not resolved: ${JSON.stringify(row)}`);
+            }
+          }
+          const mp = receipt.rows.find((row) => row.setId === 'M-P');
+          if (!mp || mp.registryCardCount !== 83 || mp.officialComparableCount !== 106 || mp.officialExcludedCount !== 8) {
+            throw new Error(`Unexpected M-P comparison: ${JSON.stringify(mp)}`);
+          }
+          if ((receipt.totals.excludedOfficialCards || 0) < 1) {
+            throw new Error('No mixed-product official cards were excluded');
+          }
+          if ((receipt.totals.printedNumberMismatches || 0) !== 0) {
+            throw new Error(`False printed-number mismatches remain: ${receipt.totals.printedNumberMismatches}`);
+          }
           NODE
