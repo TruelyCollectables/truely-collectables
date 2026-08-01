@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { isAuthorizedMarketIntelIngest } from "../../../../lib/market-intel-ingestion";
+import { sendRankedProfitHunterEmail } from "../../../../lib/profit-hunter-ranked-email.js";
 import {
   getProfitHunterScheduleState,
   PROFIT_HUNTER_SERVER_CONTRACT,
@@ -67,6 +68,24 @@ function isAuthorizedProfitHunterCron(request) {
   return configuredSecrets.some((secret) => secureEqual(secret, supplied));
 }
 
+function restoreEnvironment(name, previousValue) {
+  if (previousValue === undefined) {
+    delete process.env[name];
+    return;
+  }
+  process.env[name] = previousValue;
+}
+
+async function runCycleWithoutLegacyEmail(perQuery) {
+  const previousEmailEnabled = process.env.MARKET_INTEL_EMAIL_ENABLED;
+  process.env.MARKET_INTEL_EMAIL_ENABLED = "false";
+  try {
+    return await runProfitHunterServerCycle({ perQuery });
+  } finally {
+    restoreEnvironment("MARKET_INTEL_EMAIL_ENABLED", previousEmailEnabled);
+  }
+}
+
 async function run(request) {
   const schedule = getProfitHunterScheduleState();
   const statusOnly = request.nextUrl.searchParams.get("statusOnly") === "1";
@@ -78,6 +97,11 @@ async function run(request) {
       schedule,
       contract: PROFIT_HUNTER_SERVER_CONTRACT,
       executionPath: "vercel_server_cron",
+      rankedEmail: {
+        enabled: true,
+        format: "ranked_clickable_shark_list_v1",
+        legacyPlainReportEmailSuppressed: true,
+      },
     });
   }
 
@@ -105,16 +129,53 @@ async function run(request) {
   }
 
   try {
-    const result = await runProfitHunterServerCycle({
-      perQuery: Number(request.nextUrl.searchParams.get("perQuery") || 20),
-    });
+    const result = await runCycleWithoutLegacyEmail(
+      Number(request.nextUrl.searchParams.get("perQuery") || 20),
+    );
+    const allowForcedEmail =
+      request.nextUrl.searchParams.get("sendEmail") === "1";
+    let rankedEmail;
+    if (force && !allowForcedEmail) {
+      rankedEmail = {
+        attempted: false,
+        delivered: false,
+        skipped: true,
+        reason:
+          "Forced verification run completed without email. Add sendEmail=1 to deliberately deliver it.",
+      };
+    } else {
+      try {
+        rankedEmail = await sendRankedProfitHunterEmail({
+          reportId: result.reportId,
+        });
+      } catch (error) {
+        rankedEmail = {
+          attempted: true,
+          delivered: false,
+          skipped: false,
+          reason:
+            error instanceof Error
+              ? error.message
+              : "Unable to send the ranked Shark List email.",
+        };
+      }
+    }
+
+    const emailFailed =
+      rankedEmail.attempted === true &&
+      rankedEmail.delivered !== true &&
+      rankedEmail.skipped !== true;
+    const ok = result.ok && !emailFailed;
+
     return json(
       {
         ...result,
+        ok,
+        rankedEmail,
         deployment: deploymentInfo(),
         forced: force,
       },
-      result.ok ? 200 : 500,
+      ok ? 200 : 500,
     );
   } catch (error) {
     return json(
