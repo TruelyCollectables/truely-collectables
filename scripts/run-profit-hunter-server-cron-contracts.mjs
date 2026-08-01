@@ -6,6 +6,10 @@ import { readFileSync } from "node:fs";
 // the deploy-and-force-run workflow from the corrected current main.
 const runner = readFileSync("src/lib/profit-hunter-server-run.js", "utf8");
 const route = readFileSync("src/app/api/cron/profit-hunter/route.js", "utf8");
+const rankedEmail = readFileSync(
+  "src/lib/profit-hunter-ranked-email.js",
+  "utf8",
+);
 const hotWatch = readFileSync("src/lib/market-intel-hot-watch.ts", "utf8");
 const vercel = JSON.parse(readFileSync("vercel.json", "utf8"));
 
@@ -32,6 +36,39 @@ assert.match(route, /OUTSIDE_PROFIT_HUNTER_MOUNTAIN_SCHEDULE/);
 assert.match(route, /runProfitHunterServerCycle/);
 assert.match(route, /PROFIT_HUNTER_SERVER_CRON_READY/);
 assert.match(route, /maxDuration = 300/);
+assert.match(route, /sendRankedProfitHunterEmail/);
+assert.match(route, /runCycleWithoutLegacyEmail/);
+assert.match(route, /MARKET_INTEL_EMAIL_ENABLED = "false"/);
+assert.match(route, /legacyPlainReportEmailSuppressed: true/);
+assert.match(route, /sendEmail/);
+
+for (const fragment of [
+  'const EMAIL_SCHEMA = "tcos.sharkListRankedEmail.v1"',
+  "VERIFIED SHARK BITE",
+  "Potental Hidden Gems in Photo",
+  "MISSPELLINGS / MISLISTINGS / MISINTERPRETED LOTS",
+  "MAKE OFFER AVAILABLE",
+  "NO OFFER CONFIRMED",
+  "OPEN LISTING",
+  "ranked_shark_email_fingerprint",
+  "getMarketIntelDeliveryConfig",
+  "offerAvailable(candidate.buyingOptions)",
+]) {
+  assert.ok(
+    rankedEmail.includes(fragment),
+    `Ranked Shark List email is missing ${fragment}.`,
+  );
+}
+assert.match(
+  rankedEmail,
+  /normalized\(option\) === "best offer"/,
+  "Make Offer must be proven from the exact listing buying options.",
+);
+assert.match(
+  rankedEmail,
+  /unverified contents receive \$0 projected value/i,
+  "Manual-review lot contents must remain excluded from projected value.",
+);
 
 assert.match(
   hotWatch,
@@ -63,6 +100,9 @@ console.log(
       exactCompMinimumSales: 2,
       minimumNetRoiPercent: 20,
       approvedReportType: "hourly_deals",
+      rankedEmailFormat: "ranked_clickable_shark_list_v1",
+      legacyPlainReportEmailSuppressed: true,
+      offerRequiresExactBestOfferEvidence: true,
       hotWatchListingStatusColumn: "listing_status",
       legacyChatGptNetworkDependency: false,
       outcomeRecorderRequired: true,
