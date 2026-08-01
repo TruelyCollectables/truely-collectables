@@ -1,0 +1,73 @@
+name: Verify live Merchant feed back images
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/verify-live-merchant-back-images.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Fetch uncached production feed
+        run: |
+          curl --fail --location \
+            --retry 10 \
+            --retry-delay 15 \
+            --max-time 45 \
+            "https://truelycollectables.com/google-merchant-feed.xml?verify=${GITHUB_SHA}" \
+            --output merchant-feed.xml
+
+      - name: Verify front and back images
+        run: |
+          node <<'NODE'
+          const fs = require("node:fs");
+          const xml = fs.readFileSync("merchant-feed.xml", "utf8");
+          const productIds = ["tc-494516", "tc-494520", "tc-489532"];
+          const totalAdditionalImages = (
+            xml.match(/<g:additional_image_link>/g) || []
+          ).length;
+
+          if (totalAdditionalImages === 0) {
+            throw new Error("Live feed contains no g:additional_image_link attributes.");
+          }
+
+          for (const productId of productIds) {
+            const escapedId = productId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const itemMatch = xml.match(
+              new RegExp(`<item>[\\s\\S]*?<g:id>${escapedId}</g:id>[\\s\\S]*?</item>`),
+            );
+
+            if (!itemMatch) {
+              throw new Error(`Live feed is missing ${productId}.`);
+            }
+
+            const item = itemMatch[0];
+            const frontMatch = item.match(/<g:image_link>([^<]+)<\/g:image_link>/);
+            const backMatch = item.match(
+              /<g:additional_image_link>([^<]+)<\/g:additional_image_link>/,
+            );
+
+            if (!frontMatch) {
+              throw new Error(`${productId} is missing g:image_link.`);
+            }
+            if (!backMatch) {
+              throw new Error(`${productId} is missing g:additional_image_link.`);
+            }
+            if (frontMatch[1] === backMatch[1]) {
+              throw new Error(`${productId} uses the same URL for front and back.`);
+            }
+
+            console.log(`${productId}: front ${frontMatch[1]}`);
+            console.log(`${productId}: back  ${backMatch[1]}`);
+          }
+
+          console.log(`Feed includes ${totalAdditionalImages} additional image links.`);
+          NODE
