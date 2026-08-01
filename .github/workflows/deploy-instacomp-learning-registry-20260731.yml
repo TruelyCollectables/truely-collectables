@@ -47,7 +47,7 @@ env:
   PRODUCTION_ORIGIN: https://truelycollectables.com
 
 jobs:
-  validate-migrate-deploy-verify:
+  validate-repair-deploy-verify:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -96,7 +96,7 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Reprove current application source before mutation
+      - name: Reprove current application source before Production repair
         shell: bash
         run: |
           set -euo pipefail
@@ -142,33 +142,8 @@ jobs:
             --yes --environment production --scope "$VERCEL_SCOPE" \
             --token "$VERCEL_TOKEN" >/dev/null
 
-      - name: Install and verify learning and Checklist Registry schema
-        id: migrate
-        continue-on-error: true
-        shell: bash
-        env:
-          PRODUCTION_ENV_PATH: ${{ runner.temp }}/instacomp-learning-production/production.env
-          EVIDENCE_DIR: evidence/instacomp-learning-registry
-        run: |
-          set -euo pipefail
-          for attempt in 1 2 3; do
-            echo "MIGRATION_ATTEMPT=$attempt"
-            rm -f \
-              evidence/instacomp-learning-registry/production-failure.json \
-              evidence/instacomp-learning-registry/production-failure.md
-            if node --import ./scripts/ops/supabase-management-fetch-retry.mjs \
-              scripts/ops/deploy-instacomp-learning-registry.mjs; then
-              exit 0
-            fi
-            if [ "$attempt" -lt 3 ]; then
-              sleep $((attempt * 30))
-            fi
-          done
-          exit 1
-
-      - name: Repair historical scan learning in bounded batches
+      - name: Repair and verify installed learning and Checklist Registry schema
         id: repair
-        if: ${{ steps.migrate.outcome == 'failure' }}
         continue-on-error: true
         shell: bash
         env:
@@ -180,7 +155,7 @@ jobs:
             scripts/ops/repair-instacomp-learning-backfill.mjs
 
       - name: Diagnose any remaining blocked historical scan learning
-        if: ${{ steps.migrate.outcome == 'failure' && steps.repair.outcome == 'failure' }}
+        if: ${{ steps.repair.outcome == 'failure' }}
         shell: bash
         env:
           PRODUCTION_ENV_PATH: ${{ runner.temp }}/instacomp-learning-production/production.env
@@ -190,15 +165,15 @@ jobs:
           node --import ./scripts/ops/supabase-management-fetch-retry.mjs \
             scripts/ops/diagnose-instacomp-learning-backfill.mjs
 
-      - name: Stop before deployment when schema verification failed
-        if: ${{ steps.migrate.outcome == 'failure' && steps.repair.outcome == 'failure' }}
+      - name: Stop before deployment when Production repair failed
+        if: ${{ steps.repair.outcome == 'failure' }}
         shell: bash
         run: |
           echo "Production schema/backfill verification failed; deployment remains blocked."
           exit 1
 
       - name: Provision temporary protected verifier secret
-        if: ${{ steps.migrate.outcome == 'success' || steps.repair.outcome == 'success' }}
+        if: ${{ steps.repair.outcome == 'success' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -211,7 +186,7 @@ jobs:
             < "$secret_file" >/dev/null
 
       - name: Deploy latest main source to Production
-        if: ${{ steps.migrate.outcome == 'success' || steps.repair.outcome == 'success' }}
+        if: ${{ steps.repair.outcome == 'success' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -225,7 +200,7 @@ jobs:
             --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
 
       - name: Verify protected InstaComp 2.0 and Checklist Registry live
-        if: ${{ steps.migrate.outcome == 'success' || steps.repair.outcome == 'success' }}
+        if: ${{ steps.repair.outcome == 'success' }}
         shell: bash
         run: |
           set -euo pipefail
