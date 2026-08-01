@@ -554,7 +554,7 @@ export async function DELETE(request: Request) {
     await requireAdmin(request);
     const body = await request.json().catch(() => ({}));
     const inventoryItemIds = Array.from(
-      new Set(
+      new Set<string>(
         (Array.isArray(body.inventoryItemIds) ? body.inventoryItemIds : [])
           .map((value: unknown) => text(value, 80))
           .filter(Boolean),
