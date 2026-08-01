@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import type { GoogleCustomerReviewsOptInConfig } from "../lib/google-customer-reviews";
 
 type GoogleSurveyOptInModule = {
@@ -10,6 +11,10 @@ type GoogleSurveyOptInModule = {
 type GooglePlatformApi = {
   load(moduleName: "surveyoptin", callback: () => void): void;
   surveyoptin?: GoogleSurveyOptInModule;
+};
+
+type GoogleCustomerReviewsResponse = {
+  config?: GoogleCustomerReviewsOptInConfig;
 };
 
 declare global {
@@ -24,11 +29,44 @@ const GOOGLE_PLATFORM_SCRIPT_ID = "google-customer-reviews-platform";
 const GOOGLE_PLATFORM_SCRIPT_URL =
   "https://apis.google.com/js/platform.js?onload=renderOptIn";
 
-export default function GoogleCustomerReviewsOptIn({
-  config,
-}: {
-  config: GoogleCustomerReviewsOptInConfig | null;
-}) {
+export default function GoogleCustomerReviewsOptIn() {
+  const searchParams = useSearchParams();
+  const sessionId = searchParams.get("session_id")?.trim() || "";
+  const [config, setConfig] =
+    useState<GoogleCustomerReviewsOptInConfig | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setConfig(null);
+
+    if (!sessionId.startsWith("cs_live_")) {
+      return () => controller.abort();
+    }
+
+    fetch(
+      `/api/google-customer-reviews?session_id=${encodeURIComponent(sessionId)}`,
+      {
+        cache: "no-store",
+        credentials: "same-origin",
+        signal: controller.signal,
+      },
+    )
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return (await response.json()) as GoogleCustomerReviewsResponse;
+      })
+      .then((payload) => {
+        if (!controller.signal.aborted && payload?.config) {
+          setConfig(payload.config);
+        }
+      })
+      .catch(() => {
+        // The order status page remains usable if Google opt-in cannot load.
+      });
+
+    return () => controller.abort();
+  }, [sessionId]);
+
   useEffect(() => {
     if (!config) return;
 
