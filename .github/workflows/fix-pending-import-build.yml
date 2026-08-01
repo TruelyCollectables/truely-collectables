@@ -1,0 +1,56 @@
+name: Fix pending importer build
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Patch manifest narrowing
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/app/admin/pending-card-import/PendingCardImportClient.tsx')
+          text = path.read_text()
+          marker = '''    if (missingFronts.length) {
+              setError(`Cannot start: ${missingFronts.length} card front image${missingFronts.length === 1 ? " is" : "s are"} missing.`);
+              return;
+            }
+
+            setWorking(true);'''
+          replacement = '''    if (missingFronts.length) {
+              setError(`Cannot start: ${missingFronts.length} card front image${missingFronts.length === 1 ? " is" : "s are"} missing.`);
+              return;
+            }
+
+            const activeManifest = manifest;
+
+            setWorking(true);'''
+          if marker not in text:
+              raise SystemExit('Expected importer control-flow marker was not found.')
+          text = text.replace(marker, replacement, 1)
+          text = text.replace('batch_id: manifest.batch_id', 'batch_id: activeManifest.batch_id')
+          text = text.replace('formData.append("batchId", manifest.batch_id)', 'formData.append("batchId", activeManifest.batch_id)')
+          path.write_text(text)
+          PY
+      - name: Commit build fix
+        run: |
+          if git diff --quiet; then
+            echo "No build fix needed."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/admin/pending-card-import/PendingCardImportClient.tsx
+          git commit -m "Fix pending importer manifest narrowing"
+          git push origin HEAD:main
