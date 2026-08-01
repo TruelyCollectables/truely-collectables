@@ -8,9 +8,11 @@ on:
       - "src/lib/instacomp-scan-review.ts"
       - "src/lib/instacomp-listing-gate.ts"
       - "src/lib/instacomp-learning-server.ts"
+      - "src/lib/checklist-registry/server.ts"
       - "src/app/api/instacomp/scan-fast/route.ts"
       - "scripts/run-instacomp-v2-hardening-simulations.ts"
       - "scripts/run-instacomp-scan-review-simulations.ts"
+      - "scripts/run-checklist-complexity-simulations.ts"
       - "supabase/migrations/20260801143000_instacomp_cache_and_knowledge_hardening.sql"
       - ".github/workflows/instacomp-v2-hardening.yml"
   workflow_dispatch:
@@ -46,15 +48,20 @@ jobs:
           src/lib/instacomp-scan-review.ts
           src/lib/instacomp-listing-gate.ts
           src/lib/instacomp-learning-server.ts
+          src/lib/checklist-registry/server.ts
           src/app/api/instacomp/scan-fast/route.ts
           scripts/run-instacomp-v2-hardening-simulations.ts
           scripts/run-instacomp-scan-review-simulations.ts
+          scripts/run-checklist-complexity-simulations.ts
 
       - name: Run existing scan-review regressions
         run: node --import tsx scripts/run-instacomp-scan-review-simulations.ts
 
       - name: Run adversarial V2 hardening simulations
         run: node --import tsx scripts/run-instacomp-v2-hardening-simulations.ts
+
+      - name: Run Checklist Registry complexity simulations
+        run: node --import tsx scripts/run-checklist-complexity-simulations.ts
 
       - name: Verify migration safety contracts
         run: |

@@ -19,6 +19,16 @@ const CHECKLIST_ADAPTERS: ChecklistSourceAdapter[] = [
   paniniStructuredChecklistAdapter,
 ];
 
+export const CHECKLIST_IMPORT_COMPLEXITY_LIMITS = {
+  sets: 10_000,
+  cards: 100_000,
+  parallels: 50_000,
+  identities: 250_000,
+  validationIssues: 20_000,
+  serializedPlanBytes: 64 * 1024 * 1024,
+  maximumIdentitiesPerCard: 500,
+} as const;
+
 function serviceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -48,12 +58,73 @@ function planHasErrors(plan: ChecklistImportPlan) {
   return plan.validation.issues.some((issue) => issue.severity === "error");
 }
 
+export function assertChecklistPlanComplexity(plan: ChecklistImportPlan) {
+  const counts = {
+    sets: plan.sets.length,
+    cards: plan.cards.length,
+    parallels: plan.parallels.length,
+    identities: plan.identities.length,
+    validationIssues: plan.validation.issues.length,
+  };
+  const limits = CHECKLIST_IMPORT_COMPLEXITY_LIMITS;
+  const violations: string[] = [];
+
+  if (counts.sets > limits.sets) {
+    violations.push(`sets ${counts.sets}/${limits.sets}`);
+  }
+  if (counts.cards > limits.cards) {
+    violations.push(`cards ${counts.cards}/${limits.cards}`);
+  }
+  if (counts.parallels > limits.parallels) {
+    violations.push(`parallels ${counts.parallels}/${limits.parallels}`);
+  }
+  if (counts.identities > limits.identities) {
+    violations.push(`identities ${counts.identities}/${limits.identities}`);
+  }
+  if (counts.validationIssues > limits.validationIssues) {
+    violations.push(
+      `validation issues ${counts.validationIssues}/${limits.validationIssues}`,
+    );
+  }
+
+  const expansionCeiling = Math.max(
+    1_000,
+    counts.cards * limits.maximumIdentitiesPerCard,
+  );
+  if (counts.identities > expansionCeiling) {
+    violations.push(
+      `identity expansion ${counts.identities}/${expansionCeiling} for ${counts.cards} cards`,
+    );
+  }
+
+  const serializedBytes = Buffer.byteLength(JSON.stringify(plan), "utf8");
+  if (serializedBytes > limits.serializedPlanBytes) {
+    violations.push(
+      `normalized plan ${serializedBytes}/${limits.serializedPlanBytes} bytes`,
+    );
+  }
+
+  if (violations.length) {
+    throw new Error(
+      `Checklist import complexity limit exceeded: ${violations.join(", ")}. Split this checklist into smaller validated source files.`,
+    );
+  }
+
+  return {
+    counts,
+    serializedBytes,
+    expansionCeiling,
+    limits,
+  };
+}
+
 export async function importChecklistArtifact(params: {
   artifact: ChecklistSourceArtifact;
   validateOnly?: boolean;
 }) {
   const adapter = selectAdapter(params.artifact);
   const plan = adapter.parse(params.artifact);
+  const complexity = assertChecklistPlanComplexity(plan);
 
   if (
     params.validateOnly ||
@@ -65,6 +136,7 @@ export async function importChecklistArtifact(params: {
       validatedOnly: true,
       adapter: { id: adapter.id, version: adapter.version },
       plan,
+      complexity,
       persistence: null,
     };
   }
@@ -124,6 +196,7 @@ export async function importChecklistArtifact(params: {
     validatedOnly: false,
     adapter: { id: adapter.id, version: adapter.version },
     plan,
+    complexity,
     persistence: data,
   };
 }
