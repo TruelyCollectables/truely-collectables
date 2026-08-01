@@ -4,8 +4,11 @@ on:
   pull_request:
     paths:
       - "src/lib/checklist-registry/pokemon-tcg-data.ts"
+      - "src/lib/checklist-registry/source-adapter.ts"
       - "src/lib/checklist-registry/server.ts"
+      - "src/app/api/admin/instacomp/checklists/import/route.ts"
       - "scripts/build-pokemon-tcg-registry-bundles.mjs"
+      - "scripts/import-pokemon-tcg-registry-bundles.ts"
       - "scripts/run-checklist-registry-pokemon-simulations.ts"
       - "scripts/fixtures/checklist-registry/pokemon-tcg-data-set-bundle.fixture.json"
       - ".github/workflows/checklist-registry-pokemon.yml"
@@ -14,8 +17,11 @@ on:
       - main
     paths:
       - "src/lib/checklist-registry/pokemon-tcg-data.ts"
+      - "src/lib/checklist-registry/source-adapter.ts"
       - "src/lib/checklist-registry/server.ts"
+      - "src/app/api/admin/instacomp/checklists/import/route.ts"
       - "scripts/build-pokemon-tcg-registry-bundles.mjs"
+      - "scripts/import-pokemon-tcg-registry-bundles.ts"
       - "scripts/run-checklist-registry-pokemon-simulations.ts"
       - "scripts/fixtures/checklist-registry/pokemon-tcg-data-set-bundle.fixture.json"
       - ".github/workflows/checklist-registry-pokemon.yml"
@@ -47,3 +53,9 @@ jobs:
 
       - name: Run Pokémon Checklist Registry simulations
         run: npx tsx scripts/run-checklist-registry-pokemon-simulations.ts
+
+      - name: Validate bulk import command without database writes
+        run: >-
+          npx tsx scripts/import-pokemon-tcg-registry-bundles.ts
+          scripts/fixtures/checklist-registry/pokemon-tcg-data-set-bundle.fixture.json
+          --receipt .codex-run/pokemon-registry-validation-receipt.json
