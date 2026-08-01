@@ -1,0 +1,49 @@
+name: Fix and verify pending importer
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/fix-pending-import-build
+      - name: Patch manifest narrowing
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/app/admin/pending-card-import/PendingCardImportClient.tsx')
+          text = path.read_text()
+          if 'const activeManifest = manifest;' not in text:
+              text = text.replace(
+                  '    setWorking(true);',
+                  '    const activeManifest = manifest;\n\n    setWorking(true);',
+                  1,
+              )
+          text = text.replace('batch_id: manifest.batch_id', 'batch_id: activeManifest.batch_id')
+          text = text.replace('formData.append("batchId", manifest.batch_id)', 'formData.append("batchId", activeManifest.batch_id)')
+          path.write_text(text)
+          PY
+      - name: Commit branch fix
+        run: |
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add src/app/admin/pending-card-import/PendingCardImportClient.tsx
+            git commit -m "Fix pending importer manifest narrowing"
+            git push origin HEAD:agent/fix-pending-import-build
+          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
