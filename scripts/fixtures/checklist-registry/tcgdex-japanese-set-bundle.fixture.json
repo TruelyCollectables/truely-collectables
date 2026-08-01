@@ -13,7 +13,7 @@
   "set": {
     "id": "SV11B-FIXTURE",
     "name": "ブラックボルト・フィクスチャ",
-    "officialCardCount": 2,
+    "officialCardCount": 4,
     "releaseDate": "2026-07-31",
     "sourcePath": "data-asia/SV/SV11B-FIXTURE.ts"
   },
@@ -48,6 +48,24 @@
         { "type": "normal", "stamps": [], "languages": [] }
       ],
       "sourcePath": "data-asia/SV/SV11B-FIXTURE/002.ts"
+    },
+    {
+      "id": "SV11B-FIXTURE-EXCLAMATION",
+      "localId": "!",
+      "name": "アンノーン",
+      "category": "Pokemon",
+      "rarity": "Rare",
+      "variants": [{ "type": "normal", "languages": ["ja"] }],
+      "sourcePath": "data-asia/SV/SV11B-FIXTURE/EXCLAMATION.ts"
+    },
+    {
+      "id": "SV11B-FIXTURE-QUESTION",
+      "localId": "?",
+      "name": "アンノーン",
+      "category": "Pokemon",
+      "rarity": "Rare",
+      "variants": [{ "type": "normal", "languages": ["ja"] }],
+      "sourcePath": "data-asia/SV/SV11B-FIXTURE/QUESTION.ts"
     }
   ]
 }
