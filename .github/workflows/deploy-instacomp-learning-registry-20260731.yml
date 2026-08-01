@@ -1,0 +1,287 @@
+name: Deploy InstaComp Learning Registry 20260731
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/deploy-instacomp-learning-registry-20260731.yml"
+      - "scripts/ops/deploy-instacomp-learning-registry.mjs"
+      - "scripts/ops/diagnose-instacomp-learning-backfill.mjs"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-instacomp-learning-registry-20260731
+  cancel-in-progress: false
+
+env:
+  BASE_MAIN_SHA: b38c9da56f3be4823d7e0171a2b3f166a191bb06
+  EXPECTED_MAIN_SHA: b38c9da56f3be4823d7e0171a2b3f166a191bb06
+  DEPLOY_MAIN_SHA: b38c9da56f3be4823d7e0171a2b3f166a191bb06
+  EXPECTED_BRANCH: ops/deploy-instacomp-learning-registry-20260731
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  NEXT_PUBLIC_SUPABASE_URL: https://build-validation.invalid
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: build-validation-anon-key
+  SUPABASE_SERVICE_ROLE_KEY: build-validation-service-role-key
+  ADMIN_SESSION_SECRET: build-validation-session-secret-that-is-long-enough
+  ADMIN_PASSWORD: build-validation-admin-password
+  CRON_SECRET: build-validation-cron-secret-that-is-long-enough
+  NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+  STRIPE_SECRET_KEY: sk_test_build_validation
+  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_validation
+  STRIPE_WEBHOOK_SECRET: whsec_build_validation
+  EBAY_CLIENT_ID: build-validation-client-id
+  EBAY_CLIENT_SECRET: build-validation-client-secret
+  EBAY_ENVIRONMENT: production
+  TCOS_LIVE_PAYMENTS_ENABLED: "false"
+  TCOS_SHIPPING_PURCHASE_MODE: dry_run
+  TCOS_LIVE_SHIPPING_ENABLED: "false"
+  PRODUCTION_ORIGIN: https://truelycollectables.com
+
+jobs:
+  validate-migrate-deploy-verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on exact operations scope and stage current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main
+          git merge-base --is-ancestor "$BASE_MAIN_SHA" origin/main
+          mapfile -t changed < <(git diff --name-only "$BASE_MAIN_SHA"...HEAD)
+          printf '%s\n' "${changed[@]}"
+          test "${#changed[@]}" -eq 3
+          printf '%s\n' "${changed[@]}" | grep -Fx '.github/workflows/deploy-instacomp-learning-registry-20260731.yml'
+          printf '%s\n' "${changed[@]}" | grep -Fx 'scripts/ops/deploy-instacomp-learning-registry.mjs'
+          printf '%s\n' "${changed[@]}" | grep -Fx 'scripts/ops/diagnose-instacomp-learning-backfill.mjs'
+          git diff --check "$BASE_MAIN_SHA"...HEAD
+
+          current_main_sha="$(git rev-parse origin/main)"
+          echo "EXPECTED_MAIN_SHA=$current_main_sha" >> "$GITHUB_ENV"
+          echo "DEPLOY_MAIN_SHA=$current_main_sha" >> "$GITHUB_ENV"
+
+          mkdir -p "$RUNNER_TEMP/instacomp-learning-ops"
+          cp scripts/ops/deploy-instacomp-learning-registry.mjs \
+            "$RUNNER_TEMP/instacomp-learning-ops/deploy-instacomp-learning-registry.mjs"
+          cp scripts/ops/diagnose-instacomp-learning-backfill.mjs \
+            "$RUNNER_TEMP/instacomp-learning-ops/diagnose-instacomp-learning-backfill.mjs"
+
+          git checkout --detach "$current_main_sha"
+          mkdir -p scripts/ops
+          cp "$RUNNER_TEMP/instacomp-learning-ops/deploy-instacomp-learning-registry.mjs" \
+            scripts/ops/deploy-instacomp-learning-registry.mjs
+          cp "$RUNNER_TEMP/instacomp-learning-ops/diagnose-instacomp-learning-backfill.mjs" \
+            scripts/ops/diagnose-instacomp-learning-backfill.mjs
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Reprove current application source before mutation
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run simulate:instacomp-card-knowledge
+          npm run simulate:instacomp-consensus
+          npm run simulate:instacomp-catalog-identity
+          npm run simulate:instacomp-scan-review
+          npx eslint \
+            src/app/admin/instacomp/mobile/MobileInstaCompScanner.tsx \
+            src/app/admin/instacomp/v2/page.tsx \
+            src/app/admin/instacomp/checklists/page.tsx \
+            src/app/admin/instacomp/checklists/ChecklistRegistryImporter.tsx \
+            src/app/api/instacomp/scan/route.ts \
+            src/app/api/instacomp/scan-fast/route.ts \
+            src/app/api/instacomp/knowledge/confirm/route.ts \
+            src/app/api/admin/instacomp/checklists/import/route.ts \
+            src/app/api/internal/instacomp-mobile-live-verify/route.ts \
+            src/lib/instacomp-learning-server.ts \
+            src/lib/checklist-registry/server.ts \
+            scripts/ops/deploy-instacomp-learning-registry.mjs \
+            scripts/ops/diagnose-instacomp-learning-backfill.mjs
+          npm run build
+
+      - name: Resolve Production projects and environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          mkdir -p .vercel "$RUNNER_TEMP/instacomp-learning-production" evidence/instacomp-learning-registry
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables \
+              --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          fi
+          npx vercel@56.2.0 env pull \
+            "$RUNNER_TEMP/instacomp-learning-production/production.env" \
+            --yes --environment production --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Install and verify learning and Checklist Registry schema
+        id: migrate
+        continue-on-error: true
+        shell: bash
+        env:
+          PRODUCTION_ENV_PATH: ${{ runner.temp }}/instacomp-learning-production/production.env
+          EVIDENCE_DIR: evidence/instacomp-learning-registry
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5; do
+            echo "MIGRATION_ATTEMPT=$attempt"
+            rm -f \
+              evidence/instacomp-learning-registry/production-failure.json \
+              evidence/instacomp-learning-registry/production-failure.md
+            if node scripts/ops/deploy-instacomp-learning-registry.mjs; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 5 ]; then
+              sleep $((attempt * 20))
+            fi
+          done
+          exit 1
+
+      - name: Diagnose any blocked historical scan learning
+        if: steps.migrate.outcome == 'failure'
+        shell: bash
+        env:
+          PRODUCTION_ENV_PATH: ${{ runner.temp }}/instacomp-learning-production/production.env
+          EVIDENCE_DIR: evidence/instacomp-learning-registry
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5; do
+            echo "DIAGNOSTIC_ATTEMPT=$attempt"
+            if node scripts/ops/diagnose-instacomp-learning-backfill.mjs; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 5 ]; then
+              sleep $((attempt * 20))
+            fi
+          done
+          exit 1
+
+      - name: Stop before deployment when schema verification failed
+        if: steps.migrate.outcome == 'failure'
+        shell: bash
+        run: |
+          echo "Production schema/backfill verification failed; deployment remains blocked."
+          exit 1
+
+      - name: Provision temporary protected verifier secret
+        if: steps.migrate.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          secret_file="$RUNNER_TEMP/instacomp-learning-live-verify-secret"
+          openssl rand -hex 32 > "$secret_file"
+          chmod 600 "$secret_file"
+          echo "::add-mask::$(cat "$secret_file")"
+          npx vercel@56.2.0 env add INSTACOMP_LIVE_VERIFY_SECRET production \
+            --force --sensitive --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" \
+            < "$secret_file" >/dev/null
+
+      - name: Deploy latest main source to Production
+        if: steps.migrate.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          latest_main_sha="$(git rev-parse origin/main)"
+          echo "EXPECTED_MAIN_SHA=$latest_main_sha" >> "$GITHUB_ENV"
+          echo "DEPLOY_MAIN_SHA=$latest_main_sha" >> "$GITHUB_ENV"
+          rm -f \
+            scripts/ops/deploy-instacomp-learning-registry.mjs \
+            scripts/ops/diagnose-instacomp-learning-backfill.mjs
+          git checkout --detach "$latest_main_sha"
+          npx vercel@56.2.0 deploy --prod --yes --no-color \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+
+      - name: Verify protected InstaComp 2.0 and Checklist Registry live
+        if: steps.migrate.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          secret="$(cat "$RUNNER_TEMP/instacomp-learning-live-verify-secret")"
+          code=""
+          for attempt in $(seq 1 30); do
+            code="$(curl -sS -L --max-time 120 \
+              -o "$RUNNER_TEMP/instacomp-learning-live.json" \
+              -w '%{http_code}' \
+              -H "x-instacomp-live-verify: $secret" \
+              -H 'Cache-Control: no-cache' \
+              -H 'Pragma: no-cache' \
+              -A 'InstaCompLearningRegistryRelease/1.0' \
+              "$PRODUCTION_ORIGIN/api/internal/instacomp-mobile-live-verify?attempt=$attempt&sha=$DEPLOY_MAIN_SHA")"
+            if [ "$code" = "200" ]; then break; fi
+            sleep 10
+          done
+          echo "LIVE_VERIFY_HTTP_STATUS=$code"
+          cat "$RUNNER_TEMP/instacomp-learning-live.json" || true
+          test "$code" = "200"
+          node - "$RUNNER_TEMP/instacomp-learning-live.json" <<'NODE'
+          const fs = require('node:fs');
+          const payload = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          if (!payload.ok) throw new Error(payload.error || 'Runtime verification failed');
+          const required = [
+            'adminDashboard', 'instacompMobile', 'decisionWorkbench',
+            'checklistRegistry', 'learningControls', 'cardStudio',
+            'listWorkspace', 'listPasswordBoundary', 'noAutoPilot',
+            'noBatchControls', 'portraitRevision', 'compSource',
+          ];
+          for (const key of required) {
+            if (payload.checks?.[key] !== true) {
+              throw new Error(`Missing live check: ${key}`);
+            }
+          }
+          console.log('LIVE_INSTACOMP_LEARNING_REGISTRY=passed');
+          NODE
+
+      - name: Remove temporary verifier secret and environment
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          npx vercel@56.2.0 env rm INSTACOMP_LIVE_VERIFY_SECRET production \
+            --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null 2>&1
+          rm -f "$RUNNER_TEMP/instacomp-learning-live-verify-secret"
+          rm -f "$RUNNER_TEMP/instacomp-learning-production/production.env"
+
+      - name: Redeploy clean latest Production revision
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f \
+            scripts/ops/deploy-instacomp-learning-registry.mjs \
+            scripts/ops/diagnose-instacomp-learning-backfill.mjs
+          git fetch origin main
+          clean_main_sha="$(git rev-parse origin/main)"
+          git checkout --detach "$clean_main_sha"
+          npx vercel@56.2.0 deploy --prod --yes --no-color \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+
+      - name: Upload sanitized Production evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-learning-registry-production-20260731
+          path: evidence/instacomp-learning-registry
+          if-no-files-found: error
+          retention-days: 90
