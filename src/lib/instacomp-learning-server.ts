@@ -97,6 +97,24 @@ function isBaseParallel(value: unknown) {
   return !normalized || ["base", "base card", "standard", "regular"].includes(normalized);
 }
 
+function checklistParallelTokens(value: unknown) {
+  return normalizedText(value)
+    .replace(/\bcracked\s+ice\b/g, "ice")
+    .split(" ")
+    .filter(Boolean)
+    .filter(
+      (token) =>
+        ![
+          "prizm",
+          "prizms",
+          "parallel",
+          "variation",
+          "rookie",
+          "card",
+        ].includes(token),
+    );
+}
+
 function asNumber(value: unknown) {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
@@ -243,6 +261,7 @@ function chooseRegistryMatch(ai: Record<string, any>, rows: any[]): RegistryMatc
     meaningfulTokens([ai.brand, ai.setName].filter(Boolean).join(" ")),
   );
   const targetParallel = normalizedText(ai.parallel);
+  const targetParallelTokens = checklistParallelTokens(ai.parallel);
   const targetSerialRun = String(ai.serialNumber || "").match(/\/(\d{1,7})\b/)?.[1];
 
   const matches: RegistryMatch[] = [];
@@ -280,12 +299,20 @@ function chooseRegistryMatch(ai: Record<string, any>, rows: any[]): RegistryMatc
       if (targetBase !== registryBase) continue;
 
       if (!targetBase) {
-        const wanted = meaningfulTokens(targetParallel);
-        const offered = new Set(meaningfulTokens(parallelName));
-        if (!wanted.length || !wanted.every((token) => offered.has(token))) continue;
+        const offered = new Set(checklistParallelTokens(parallelName));
+        if (
+          !targetParallelTokens.length ||
+          !targetParallelTokens.every((token) => offered.has(token))
+        ) {
+          continue;
+        }
       }
 
       const serialRun = asNumber(identity.parallel?.serial_run);
+      // A numbered checklist parallel cannot be publicly confirmed unless the
+      // physical card supplied a visible serial stamp. This prevents an
+      // unnumbered Ice card from being “confirmed” as Mosaic /3.
+      if (serialRun && !targetSerialRun) continue;
       if (targetSerialRun && serialRun !== Number(targetSerialRun)) continue;
 
       const evidence = [

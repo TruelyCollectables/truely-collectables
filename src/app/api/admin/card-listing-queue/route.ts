@@ -2,6 +2,11 @@ import { NextRequest } from "next/server";
 import { POST as runInstaCompFast } from "../../instacomp/scan-fast/route";
 import { buildCardListingTitle } from "../../../../lib/card-listing-title";
 import { handleGuardedDualMarketplaceGet } from "../../../../lib/dual-marketplace-admin-route-guard";
+import { evaluateInstaCompListingGate } from "../../../../lib/instacomp-listing-gate";
+import {
+  pendingImportIdentityCorrection,
+  shouldApplyPendingImportIdentityCorrection,
+} from "../../../../lib/pending-import-identity-corrections";
 import {
   requireInstaCompJobActor,
   InstaCompJobServerError,
@@ -117,6 +122,143 @@ async function requireAdmin(request: Request) {
   return actor;
 }
 
+async function applyKnownPendingImportCorrection(params: {
+  supabase: ReturnType<typeof createSupabaseServerClient>;
+  storeId: string;
+  inventoryItemId: string;
+  row: UnknownRecord;
+  metadata: UnknownRecord;
+}) {
+  const correction = pendingImportIdentityCorrection(params.metadata);
+  if (
+    !correction ||
+    !shouldApplyPendingImportIdentityCorrection(
+      params.metadata,
+      params.row.websiteTitle,
+    )
+  ) {
+    return null;
+  }
+
+  const websiteStatus = text(params.row.websiteStatus, 60) || "draft";
+  const ebayStatus = text(params.row.ebayStatus, 60) || "draft";
+  if (
+    BLOCKED_DELETE_STATUSES.has(websiteStatus) ||
+    BLOCKED_DELETE_STATUSES.has(ebayStatus) ||
+    text(params.row.ebayItemId, 100)
+  ) {
+    return null;
+  }
+
+  const now = new Date().toISOString();
+  const pendingImport = record(params.metadata.pendingImport);
+  const existingDual = record(params.metadata.dual_marketplace);
+  const existingWebsite = record(existingDual.website);
+  const existingEbay = record(existingDual.ebay);
+  const nextMetadata = {
+    ...params.metadata,
+    pendingImport: {
+      ...pendingImport,
+      originalIdentity: correction.identity,
+      correction: {
+        appliedAt: now,
+        source: "checklist_and_stored_images",
+        reason: correction.reason,
+      },
+    },
+    cardIdentity: {
+      ...record(params.metadata.cardIdentity),
+      ...correction.identity,
+    },
+    instacomp: {
+      ...record(params.metadata.instacomp),
+      status: "pending",
+      version: "2.0",
+      scanId: null,
+      identityConfidence: null,
+      listingPrice: null,
+      searchQuery: null,
+      decision: null,
+      reviewReasons: ["known_checklist_correction_applied"],
+      correctedAt: now,
+    },
+    dual_marketplace: {
+      ...existingDual,
+      website: {
+        ...existingWebsite,
+        title: correction.title,
+        description: correction.description,
+        price: 0,
+        status: websiteStatus,
+      },
+      ebay: {
+        ...existingEbay,
+        title: correction.title.slice(0, 80),
+        description: correction.description,
+        price: 0,
+        aspects: {
+          ...record(existingEbay.aspects),
+          Player: ["Kiki Iriafen"],
+          Team: ["Washington Mystics"],
+          Sport: ["Basketball"],
+          Year: ["2025"],
+          Brand: ["Panini"],
+          Set: ["Prizm WNBA"],
+          "Card Number": ["149"],
+          "Parallel/Variety": ["Cracked Ice Prizm"],
+        },
+        status: ebayStatus,
+      },
+      updatedAt: now,
+    },
+  };
+
+  const { error: inventoryError } = await params.supabase
+    .from("inventory_items")
+    .update({
+      title: correction.title,
+      description: correction.description,
+      metadata: nextMetadata,
+      updated_at: now,
+    })
+    .eq("store_id", params.storeId)
+    .is("seller_account_id", null)
+    .eq("id", params.inventoryItemId)
+    .eq("status", "draft");
+  if (inventoryError) throw inventoryError;
+
+  const legacyProductId = numberValue(params.row.legacyProductId);
+  if (legacyProductId > 0) {
+    const { error: productError } = await params.supabase
+      .from("products")
+      .update({
+        title: correction.title,
+        description: correction.description,
+        player: "Kiki Iriafen",
+        sport: "Basketball",
+        price: 0,
+      })
+      .eq("store_id", params.storeId)
+      .is("seller_account_id", null)
+      .eq("id", legacyProductId);
+    if (productError) throw productError;
+  }
+
+  return {
+    metadata: nextMetadata,
+    rowPatch: {
+      websiteTitle: correction.title,
+      websiteDescription: correction.description,
+      ebayTitle: correction.title.slice(0, 80),
+      ebayDescription: correction.description,
+      websitePrice: 0,
+      ebayPrice: 0,
+      aspects: record(record(nextMetadata.dual_marketplace).ebay).aspects,
+      lastError: null,
+    },
+  };
+}
+
 export async function GET(request: Request) {
   try {
     const response = await handleGuardedDualMarketplaceGet(request);
@@ -142,6 +284,21 @@ export async function GET(request: Request) {
         for (const row of rows || []) {
           metadataById.set(String(row.id), record(row.metadata));
         }
+      }
+
+      for (const row of data.rows as UnknownRecord[]) {
+        const inventoryItemId = text(row.inventoryItemId, 80);
+        const metadata = metadataById.get(inventoryItemId) || {};
+        const repaired = await applyKnownPendingImportCorrection({
+          supabase,
+          storeId,
+          inventoryItemId,
+          row,
+          metadata,
+        });
+        if (!repaired) continue;
+        metadataById.set(inventoryItemId, repaired.metadata);
+        Object.assign(row, repaired.rowPatch);
       }
     }
 
@@ -340,14 +497,70 @@ async function runCardInstaComp(request: NextRequest, inventoryItemId: string) {
     throw new Error(text(payload?.error) || "InstaComp 2.0 could not complete this card.");
   }
 
-  const ai = record(payload.ai);
+  const rawAi = record(payload.ai);
+  const pendingImport = record(metadata.pendingImport);
+  const immutableImportedIdentity = record(pendingImport.originalIdentity);
+  const importedIdentity = Object.keys(immutableImportedIdentity).length
+    ? immutableImportedIdentity
+    : record(metadata.cardIdentity);
+  const gate = evaluateInstaCompListingGate({
+    payload,
+    importedIdentity,
+    pendingImport,
+  });
+  const ai = gate.identity;
   const decision = buildInstaCompV2Decision(payload as never);
-  const suggestedPrice = Math.max(
+  const rawSuggestedPrice = Math.max(
     0,
     numberValue(record(decision.targets).listPrice) ||
       numberValue(record(payload.soldStats).suggestedPrice) ||
       numberValue(record(payload.stats).suggestedPrice),
   );
+  const suggestedPrice = gate.priceApproved ? rawSuggestedPrice : 0;
+  const now = new Date().toISOString();
+
+  if (!gate.identityApproved) {
+    const nextMetadata = {
+      ...metadata,
+      instacomp: {
+        ...record(metadata.instacomp),
+        status: "needs_review",
+        version: "2.0",
+        scanId: text(payload.scanId, 160) || null,
+        identityConfidence: gate.confidence || null,
+        listingPrice: null,
+        searchQuery: text(payload.searchQuery, 500) || null,
+        decision: null,
+        proposedIdentity: ai,
+        catalogConfirmed: gate.catalogConfirmed,
+        reviewReasons: gate.reviewReasons,
+        sourceCoverage: Array.isArray(payload.sourceCoverage)
+          ? payload.sourceCoverage
+          : [],
+        completedAt: now,
+        frontImageUrl: urls.front,
+        backImageUrl: urls.back || null,
+      },
+    };
+    const { error: reviewError } = await supabase
+      .from("inventory_items")
+      .update({ metadata: nextMetadata, updated_at: now })
+      .eq("store_id", storeId)
+      .is("seller_account_id", null)
+      .eq("id", inventoryItemId);
+    if (reviewError) throw reviewError;
+
+    return {
+      inventoryItemId,
+      title: card.inventory.title,
+      scanId: text(payload.scanId, 160) || null,
+      confidence: gate.confidence || null,
+      suggestedPrice: null,
+      status: "needs_review",
+      reviewReasons: gate.reviewReasons,
+    };
+  }
+
   const title = buildCardListingTitle({
     year: ai.year,
     brand: ai.brand,
@@ -363,7 +576,6 @@ async function runCardInstaComp(request: NextRequest, inventoryItemId: string) {
   if (!title) throw new Error("InstaComp 2.0 did not return enough identity data to build a title.");
 
   const description = listingDescription(title, ai, Boolean(urls.back));
-  const now = new Date().toISOString();
   const existingDual = record(metadata.dual_marketplace);
   const existingWebsite = record(existingDual.website);
   const existingEbay = record(existingDual.ebay);
@@ -392,10 +604,9 @@ async function runCardInstaComp(request: NextRequest, inventoryItemId: string) {
       status: "complete",
       version: "2.0",
       scanId: text(payload.scanId, 160) || null,
-      identityConfidence:
-        numberValue(ai.confidence) ||
-        numberValue(record(payload.knowledge).identityConfidence) ||
-        null,
+      identityConfidence: gate.confidence || null,
+      catalogConfirmed: gate.catalogConfirmed,
+      reviewReasons: gate.reviewReasons,
       listingPrice: suggestedPrice || null,
       searchQuery: text(payload.searchQuery, 500) || null,
       decision: {
@@ -467,10 +678,7 @@ async function runCardInstaComp(request: NextRequest, inventoryItemId: string) {
     inventoryItemId,
     title,
     scanId: text(payload.scanId, 160) || null,
-    confidence:
-      numberValue(ai.confidence) ||
-      numberValue(record(payload.knowledge).identityConfidence) ||
-      null,
+    confidence: gate.confidence || null,
     suggestedPrice: suggestedPrice || null,
     status: "complete",
   };
