@@ -7,8 +7,10 @@ import type {
   ChecklistSourceArtifact,
 } from "./source-adapter";
 import { CHECKLIST_SOURCE_BUCKET } from "./storage";
+import { tcgdexJapaneseSetBundleAdapter } from "./tcgdex-japanese";
 
 const CHECKLIST_ADAPTERS: ChecklistSourceAdapter[] = [
+  tcgdexJapaneseSetBundleAdapter,
   pokemonTcgDataSourceIdSafeAdapter,
   paniniStructuredChecklistAdapter,
 ];

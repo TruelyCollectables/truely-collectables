@@ -1,0 +1,71 @@
+{
+  "schema": "tcos.tcgdex.japaneseSetBundle.v1",
+  "phase": "base_cards",
+  "language": "ja",
+  "source": {
+    "repository": "https://github.com/tcgdex/cards-database",
+    "commit": "649339e000000000000000000000000000000000"
+  },
+  "series": {
+    "id": "SV",
+    "name": "ポケモンカードゲーム スカーレット&バイオレット"
+  },
+  "set": {
+    "id": "SV11B-FIXTURE",
+    "name": "ブラックボルト・フィクスチャ",
+    "officialCardCount": 4,
+    "releaseDate": "2026-07-31",
+    "sourcePath": "data-asia/SV/SV11B-FIXTURE.ts"
+  },
+  "cards": [
+    {
+      "id": "SV11B-FIXTURE-001",
+      "localId": "001",
+      "name": "ツタージャ",
+      "category": "Pokemon",
+      "rarity": "Common",
+      "illustrator": "Fixture Artist",
+      "regulationMark": "I",
+      "dexId": [495],
+      "variants": [
+        { "type": "normal", "stamps": [], "languages": [] },
+        { "type": "reverse", "foil": "pokeball", "stamps": [], "languages": ["ja"] },
+        { "type": "reverse", "foil": "masterball", "stamps": [], "languages": ["ja"] }
+      ],
+      "sourcePath": "data-asia/SV/SV11B-FIXTURE/001.ts",
+      "pricing": { "market": 12345.67 }
+    },
+    {
+      "id": "SV11B-FIXTURE-002",
+      "localId": "002",
+      "name": "ポカブ",
+      "category": "Pokemon",
+      "rarity": "Common",
+      "illustrator": "Second Fixture Artist",
+      "regulationMark": "I",
+      "dexId": [498],
+      "variants": [
+        { "type": "normal", "stamps": [], "languages": [] }
+      ],
+      "sourcePath": "data-asia/SV/SV11B-FIXTURE/002.ts"
+    },
+    {
+      "id": "SV11B-FIXTURE-EXCLAMATION",
+      "localId": "!",
+      "name": "アンノーン",
+      "category": "Pokemon",
+      "rarity": "Rare",
+      "variants": [{ "type": "normal", "languages": ["ja"] }],
+      "sourcePath": "data-asia/SV/SV11B-FIXTURE/EXCLAMATION.ts"
+    },
+    {
+      "id": "SV11B-FIXTURE-QUESTION",
+      "localId": "?",
+      "name": "アンノーン",
+      "category": "Pokemon",
+      "rarity": "Rare",
+      "variants": [{ "type": "normal", "languages": ["ja"] }],
+      "sourcePath": "data-asia/SV/SV11B-FIXTURE/QUESTION.ts"
+    }
+  ]
+}
