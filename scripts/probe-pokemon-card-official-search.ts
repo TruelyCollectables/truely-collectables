@@ -3,7 +3,7 @@ const pageUrl =
   "https://www.pokemon-card.com/card-search/index.php?mode=statuslist&pg=882";
 
 const REQUEST_HEADERS = {
-  accept: "text/html,application/xhtml+xml,*/*;q=0.8",
+  accept: "text/html,application/xhtml+xml,application/json,*/*;q=0.8",
   "accept-language": "ja,en-US;q=0.8,en;q=0.6",
   "user-agent":
     "TCOS-Checklist-Registry-Verification/1.0 (+https://totallycollectibles.com)",
@@ -36,12 +36,45 @@ function quotedEndpoints(value: string) {
   );
 }
 
-async function fetchText(url: string) {
+async function fetchText(url: string, accept?: string) {
   const response = await fetch(url, {
-    headers: REQUEST_HEADERS,
+    headers: { ...REQUEST_HEADERS, ...(accept ? { accept } : {}) },
     redirect: "follow",
   });
   return { response, text: await response.text() };
+}
+
+function summarizeApi(text: string) {
+  try {
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+    const cardList = Array.isArray(parsed.cardList)
+      ? (parsed.cardList as Array<Record<string, unknown>>)
+      : [];
+    return {
+      validJson: true,
+      keys: Object.keys(parsed).sort(),
+      result: parsed.result ?? null,
+      regulation: parsed.regulation ?? null,
+      maxPage: parsed.maxPage ?? null,
+      thisPage: parsed.thisPage ?? null,
+      hitCount: parsed.hitCount ?? null,
+      cardListCount: cardList.length,
+      firstCards: cardList.slice(0, 3).map((card) => ({
+        keys: Object.keys(card).sort(),
+        cardID: card.cardID ?? null,
+        cardName: card.cardName ?? card.name ?? null,
+        cardThumbFile: card.cardThumbFile ?? null,
+        cardNumber: card.cardNumber ?? card.number ?? null,
+        expansionMark: card.expansionMark ?? null,
+      })),
+    };
+  } catch (error) {
+    return {
+      validJson: false,
+      error: error instanceof Error ? error.message : String(error),
+      preview: text.slice(0, 1200).replace(/\s+/g, " "),
+    };
+  }
 }
 
 async function main() {
@@ -69,16 +102,19 @@ async function main() {
       endpoints: quotedEndpoints(loaded.text),
       snippets: {
         ajax: snippets(loaded.text, /ajax/gi),
-        fetch: snippets(loaded.text, /fetch\s*\(/gi),
-        axios: snippets(loaded.text, /axios/gi),
         details: snippets(loaded.text, /details\.php/gi),
         indexPhp: snippets(loaded.text, /index\.php/gi),
-        statuslist: snippets(loaded.text, /statuslist/gi),
-        cardList: snippets(loaded.text, /card(?:-|_)?list/gi),
-        result: snippets(loaded.text, /result/gi),
+        resultApi: snippets(loaded.text, /resultAPI\.php/gi),
       },
     });
   }
+
+  const requested = new URL(response.url);
+  const apiUrl = new URL("/card-search/resultAPI.php", requested.origin);
+  for (const [key, value] of requested.searchParams) {
+    apiUrl.searchParams.append(key, value);
+  }
+  const api = await fetchText(apiUrl.href, "application/json,*/*;q=0.8");
 
   console.log(
     JSON.stringify(
@@ -89,24 +125,27 @@ async function main() {
         contentType: response.headers.get("content-type"),
         bytes: Buffer.byteLength(html),
         detailLinkCount: detailLinks.length,
-        detailLinks: detailLinks.slice(0, 10),
         scriptSources,
-        inlineEndpoints: quotedEndpoints(html),
-        inlineSnippets: {
-          statuslist: snippets(html, /statuslist/gi),
-          details: snippets(html, /details\.php/gi),
-          ajax: snippets(html, /ajax/gi),
-          mode: snippets(html, /mode/gi),
-          pg: snippets(html, /\bpg\b/gi),
-        },
+        officialProductOptions: [...html.matchAll(/\{\s*name:\s*["']pg["'],\s*value:\s*["']([^"']*)["'],\s*group:\s*["']group-item-name["'],\s*label:\s*["']([^"']*)["']/g)].slice(0, 6).map((match) => ({ value: match[1], label: match[2] })),
         scripts,
+        api: {
+          url: apiUrl.href,
+          status: api.response.status,
+          contentType: api.response.headers.get("content-type"),
+          bytes: Buffer.byteLength(api.text),
+          summary: summarizeApi(api.text),
+        },
       },
       null,
       2,
     ),
   );
 
-  if (!response.ok || scripts.some((entry) => entry.status >= 400)) {
+  if (
+    !response.ok ||
+    !api.response.ok ||
+    scripts.some((entry) => entry.status >= 400)
+  ) {
     process.exitCode = 1;
   }
 }
