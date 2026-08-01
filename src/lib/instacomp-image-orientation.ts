@@ -1,5 +1,9 @@
 import sharp from "sharp";
 import {
+  CARD_SCAN_FRAME_SHARP_COLOR,
+  cardScanFrameInsets,
+} from "./card-scan-frame-policy";
+import {
   instaCompImageDataUrl,
   instaCompImageExtension,
   readValidatedInstaCompImage,
@@ -49,7 +53,9 @@ function parseJsonObject(value: string) {
   const candidate = (fenced || trimmed).trim();
   const start = candidate.indexOf("{");
   const end = candidate.lastIndexOf("}");
-  if (start < 0 || end < start) throw new Error("Orientation model returned no JSON object.");
+  if (start < 0 || end < start) {
+    throw new Error("Orientation model returned no JSON object.");
+  }
   return JSON.parse(candidate.slice(start, end + 1));
 }
 
@@ -73,7 +79,8 @@ export async function detectInstaCompSideOrientations(params: {
       backRotation: 0,
       frontConfidence: 0,
       backConfidence: 0,
-      reason: "OPENAI_API_KEY is not configured; only embedded EXIF orientation can be normalized.",
+      reason:
+        "OPENAI_API_KEY is not configured; only embedded EXIF orientation can be normalized.",
     };
   }
 
@@ -90,12 +97,18 @@ export async function detectInstaCompSideOrientations(params: {
       ].join("\n"),
     },
     { type: "text", text: "FRONT SIDE" },
-    { type: "image_url", image_url: { url: params.frontDataUrl, detail: "low" } },
+    {
+      type: "image_url",
+      image_url: { url: params.frontDataUrl, detail: "low" },
+    },
   ];
   if (params.backDataUrl) {
     content.push(
       { type: "text", text: "BACK SIDE" },
-      { type: "image_url", image_url: { url: params.backDataUrl, detail: "low" } },
+      {
+        type: "image_url",
+        image_url: { url: params.backDataUrl, detail: "low" },
+      },
     );
   }
 
@@ -119,8 +132,14 @@ export async function detectInstaCompSideOrientations(params: {
               type: "object",
               additionalProperties: false,
               properties: {
-                frontRotation: { type: "integer", enum: [0, 90, 180, 270] },
-                backRotation: { type: "integer", enum: [0, 90, 180, 270] },
+                frontRotation: {
+                  type: "integer",
+                  enum: [0, 90, 180, 270],
+                },
+                backRotation: {
+                  type: "integer",
+                  enum: [0, 90, 180, 270],
+                },
                 frontConfidence: { type: "number" },
                 backConfidence: { type: "number" },
                 reason: { type: "string" },
@@ -140,10 +159,14 @@ export async function detectInstaCompSideOrientations(params: {
     });
     const body = await response.text();
     if (!response.ok) {
-      throw new Error(`Orientation model returned HTTP ${response.status}: ${body.slice(0, 300)}`);
+      throw new Error(
+        `Orientation model returned HTTP ${response.status}: ${body.slice(0, 300)}`,
+      );
     }
     const payload = JSON.parse(body);
-    const parsed = parseJsonObject(String(payload?.choices?.[0]?.message?.content || ""));
+    const parsed = parseJsonObject(
+      String(payload?.choices?.[0]?.message?.content || ""),
+    );
     const frontConfidence = normalizedConfidence(parsed.frontConfidence);
     const backConfidence = params.backDataUrl
       ? normalizedConfidence(parsed.backConfidence)
@@ -162,7 +185,9 @@ export async function detectInstaCompSideOrientations(params: {
         : 0;
     const lowConfidenceSides = [
       frontRotation !== recommendedFrontRotation ? "front" : "",
-      params.backDataUrl && backRotation !== recommendedBackRotation ? "back" : "",
+      params.backDataUrl && backRotation !== recommendedBackRotation
+        ? "back"
+        : "",
     ].filter(Boolean);
     const baseReason =
       typeof parsed.reason === "string" && parsed.reason.trim()
@@ -197,12 +222,36 @@ export async function rotateInstaCompImageBytes(params: {
   mime: InstaCompImageMime;
   rotation: InstaCompRotation;
 }) {
-  let pipeline = sharp(Buffer.from(params.bytes), { failOn: "warning", limitInputPixels: MAX_ORIENTATION_INPUT_PIXELS })
+  const normalized = await sharp(Buffer.from(params.bytes), {
+    failOn: "warning",
+    limitInputPixels: MAX_ORIENTATION_INPUT_PIXELS,
+  })
     .autoOrient()
-    .rotate(params.rotation);
+    .rotate(params.rotation)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const frame = cardScanFrameInsets(normalized.info.width, normalized.info.height);
+  let pipeline = sharp(normalized.data, {
+    raw: {
+      width: normalized.info.width,
+      height: normalized.info.height,
+      channels: normalized.info.channels,
+    },
+  })
+    .extend({
+      ...frame,
+      background: CARD_SCAN_FRAME_SHARP_COLOR,
+    })
+    .flatten({ background: CARD_SCAN_FRAME_SHARP_COLOR });
+
   if (params.mime === "image/png") pipeline = pipeline.png();
-  else if (params.mime === "image/webp") pipeline = pipeline.webp({ quality: 95 });
-  else pipeline = pipeline.jpeg({ quality: 95, mozjpeg: true });
+  else if (params.mime === "image/webp") {
+    pipeline = pipeline.webp({ quality: 95 });
+  } else {
+    pipeline = pipeline.jpeg({ quality: 95, mozjpeg: true });
+  }
+
   return new Uint8Array(await pipeline.toBuffer());
 }
 
@@ -210,7 +259,10 @@ export async function normalizeInstaCompSideImages(params: {
   frontImage: File;
   backImage?: File | null;
 }) {
-  const front = await readValidatedInstaCompImage(params.frontImage, "Front image");
+  const front = await readValidatedInstaCompImage(
+    params.frontImage,
+    "Front image",
+  );
   const back = params.backImage
     ? await readValidatedInstaCompImage(params.backImage, "Back image")
     : null;
@@ -234,21 +286,25 @@ export async function normalizeInstaCompSideImages(params: {
   ]);
   const frontFile = new File(
     [frontBytes],
-    `front-normalized.${instaCompImageExtension(front.mime)}`,
+    `front-normalized-whole-card.${instaCompImageExtension(front.mime)}`,
     { type: front.mime },
   );
-  const backFile = back && backBytes
-    ? new File(
-        [backBytes],
-        `back-normalized.${instaCompImageExtension(back.mime)}`,
-        { type: back.mime },
-      )
-    : null;
+  const backFile =
+    back && backBytes
+      ? new File(
+          [backBytes],
+          `back-normalized-whole-card.${instaCompImageExtension(back.mime)}`,
+          { type: back.mime },
+        )
+      : null;
   return {
     frontFile,
     backFile,
     frontDataUrl: instaCompImageDataUrl(frontBytes, front.mime),
-    backDataUrl: back && backBytes ? instaCompImageDataUrl(backBytes, back.mime) : undefined,
+    backDataUrl:
+      back && backBytes
+        ? instaCompImageDataUrl(backBytes, back.mime)
+        : undefined,
     orientation,
   };
 }
