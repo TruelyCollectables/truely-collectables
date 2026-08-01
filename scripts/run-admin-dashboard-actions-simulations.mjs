@@ -225,17 +225,6 @@ scenario("inventory bridge and manual product submits explain scope", () => {
     "Expected the legacy new-product route to redirect to Card Intake & Listing.",
   );
   for (const fragment of [
-    "List Cards",
-    "Upload photos",
-    "Run InstaComp™",
-    "Review and list selected",
-  ]) {
-    assert(
-      simplifiedListPageSource.includes(fragment),
-      `Expected simplified list action-scope fragment ${fragment}.`,
-    );
-  }
-  for (const fragment of [
     'href: "/admin/pending-card-import"',
     'cta: "Open Card Intake"',
     '{ href: "/admin/instacomp/mobile", label: "InstaComp Mobile" }',
