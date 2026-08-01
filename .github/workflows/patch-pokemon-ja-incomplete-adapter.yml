@@ -6,6 +6,9 @@ on:
       - agent/pokemon-ja-phase4-ready-bundles
     paths:
       - ".github/workflows/patch-pokemon-ja-incomplete-adapter.yml"
+  pull_request:
+    paths:
+      - ".github/workflows/patch-pokemon-ja-incomplete-adapter.yml"
 
 permissions:
   contents: write
@@ -51,6 +54,8 @@ jobs:
           }
           '''
           if old_function not in text:
+              if 'function bundleCardIdFromNotes' in text:
+                  raise SystemExit(0)
               raise SystemExit('sourceCardId function anchor not found')
           text = text.replace(old_function, new_function, 1)
 
@@ -67,21 +72,28 @@ jobs:
                 detailUrl: row.detailUrl,
               })),'''
           if old_map not in text:
-              raise SystemExit('legacy evidence mapping anchor not found')
-          text = text.replace(old_map, new_map, 1)
+              if 'cards: additions.map((row) => ({' not in text:
+                  raise SystemExit('legacy evidence mapping anchor not found')
+          else:
+              text = text.replace(old_map, new_map, 1)
 
           old_use = '    const bundleCardId = sourceCardId(card.sourceNotes);'
           new_use = '    const bundleCardId = bundleCardIdFromNotes(card.sourceNotes);'
-          if old_use not in text:
+          if old_use in text:
+              text = text.replace(old_use, new_use, 1)
+          elif new_use not in text:
               raise SystemExit('sourceCardId usage anchor not found')
-          text = text.replace(old_use, new_use, 1)
 
           path.write_text(text)
           PY
 
-      - name: Commit patch
+      - name: Commit patch once
         run: |
           set -euo pipefail
+          if git diff --quiet -- src/lib/checklist-registry/pokemon-japanese-incomplete-reconciled.ts; then
+            echo "Adapter patch already present."
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/lib/checklist-registry/pokemon-japanese-incomplete-reconciled.ts
