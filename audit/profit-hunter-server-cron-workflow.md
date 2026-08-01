@@ -1,8 +1,8 @@
 # Profit Hunter Server Cron Workflow
 
 - Workflow: Deploy Profit Hunter Server Cron
-- Conclusion: success
-- Workflow run ID: 30707791132
-- Workflow source SHA: 1746cb3cd1a43a13ea1fc5699b0d23cb75308ea8
-- Workflow URL: https://github.com/TruelyCollectables/truely-collectables/actions/runs/30707791132
-- Recorded at: 2026-08-01T16:22:15Z
+- Conclusion: cancelled
+- Workflow run ID: 30708748133
+- Workflow source SHA: 6dd9e7f43c789d96453b397b396af560eee72ae3
+- Workflow URL: https://github.com/TruelyCollectables/truely-collectables/actions/runs/30708748133
+- Recorded at: 2026-08-01T16:46:01Z
