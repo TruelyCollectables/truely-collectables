@@ -402,6 +402,7 @@ export default function PendingCardImportClient() {
       {manifest ? (
         <>
           <section
+            role="status"
             aria-live="polite"
             className={`sticky top-4 z-30 rounded-3xl border-2 p-5 shadow-2xl backdrop-blur sm:p-6 ${progressPanelTone}`}
           >
