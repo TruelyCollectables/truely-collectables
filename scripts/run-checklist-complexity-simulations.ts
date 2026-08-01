@@ -21,12 +21,14 @@ function basePlan(): ChecklistImportPlan {
       privateArchiveRequired: true,
       normalizedFactsInternalOnly: true,
       storage: {
+        schema: "tcos.checklist.sourcePath.v1",
         bucket: "tcos-checklist-source-files",
         objectPath: "fixture/checklist.json",
         originalFilename: "checklist.json",
         mimeType: "application/json",
         sizeBytes: 1,
         sha256: "a".repeat(64),
+        isPublic: false,
       },
     },
     release: {
