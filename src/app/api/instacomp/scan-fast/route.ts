@@ -1,17 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { POST as runCoreInstaCompScan } from "../scan/route";
 import { requireInstaCompJobActor } from "../../../../lib/instacomp-job-server";
+import { hardenInstaCompMarketPayload } from "../../../../lib/instacomp-market-evidence";
 import {
   findFreshInstaCompCache,
-  recordInstaCompCacheReplay,
+  materializeInstaCompCacheReplay,
   saveInstaCompLearningCache,
   sha256File,
+  type CacheRow,
   type ScanActor,
 } from "../../../../lib/instacomp-learning-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
+
+const MAX_SOURCE_IMAGE_BYTES = 12 * 1024 * 1024;
+const MAX_TOTAL_INPUT_BYTES = 20 * 1024 * 1024;
 
 function actorSnapshot(actor: Awaited<ReturnType<typeof requireInstaCompJobActor>>) {
   return {
@@ -48,14 +53,18 @@ function coreRequestFrom(request: NextRequest, formData: FormData) {
   });
 }
 
-function cachedPayload(row: Awaited<ReturnType<typeof findFreshInstaCompCache>>) {
-  if (!row) return null;
+function cachedPayload(
+  row: CacheRow,
+  replay: Awaited<ReturnType<typeof materializeInstaCompCacheReplay>>,
+) {
+  const replayPayload = replay.payload as Record<string, any>;
 
   return {
-    ...row.response_payload,
+    ...replayPayload,
     ok: true,
+    scanId: replay.scanId,
     knowledge: {
-      mode: "exact_image_cache",
+      mode: "tenant_scoped_exact_image_cache",
       cacheHit: true,
       cacheId: row.id,
       knowledgeEntryId: row.knowledge_entry_id,
@@ -65,14 +74,31 @@ function cachedPayload(row: Awaited<ReturnType<typeof findFreshInstaCompCache>>)
       observedAt: row.observed_at,
       marketExpiresAt: row.market_expires_at,
       priorHitCount: row.hit_count,
+      replayMaterializedAsNewScan: true,
     },
     note: [
-      row.response_payload?.note,
-      "Exact front/back image knowledge was reused. The market snapshot is still inside its six-hour freshness window.",
+      replayPayload.note,
+      "Tenant-scoped exact-image identity evidence was reused, but this request received a new permanent scan record and learning observation.",
     ]
       .filter(Boolean)
       .join(" "),
   };
+}
+
+function preliminaryUploadError(frontImage: File, backImage: File | null) {
+  if (frontImage.size > MAX_SOURCE_IMAGE_BYTES) {
+    return { status: 413, error: "Front card image must be 12MB or smaller." };
+  }
+  if (backImage && backImage.size > MAX_SOURCE_IMAGE_BYTES) {
+    return { status: 413, error: "Back card image must be 12MB or smaller." };
+  }
+  if (frontImage.size + (backImage?.size || 0) > MAX_TOTAL_INPUT_BYTES) {
+    return {
+      status: 413,
+      error: "One InstaComp card scan may contain at most 20MB of source image data.",
+    };
+  }
+  return null;
 }
 
 export async function POST(request: NextRequest) {
@@ -101,6 +127,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const uploadError = preliminaryUploadError(frontImage, backImage);
+    if (uploadError) {
+      return NextResponse.json(
+        { ok: false, error: uploadError.error },
+        { status: uploadError.status },
+      );
+    }
+
     const [frontHash, backHash] = await Promise.all([
       sha256File(frontImage),
       sha256File(backImage),
@@ -116,32 +150,47 @@ export async function POST(request: NextRequest) {
     const cache = await findFreshInstaCompCache({
       frontHash,
       backHash,
+      actor: actorInfo,
       forceFresh,
     });
 
     if (cache) {
-      await recordInstaCompCacheReplay({ cacheId: cache.id, actor: actorInfo });
-      return NextResponse.json(cachedPayload(cache), {
-        headers: {
-          "x-instacomp-learning": "exact-image-cache-hit",
-          "cache-control": "private, no-store",
-        },
-      });
+      try {
+        const replay = await materializeInstaCompCacheReplay({
+          cache,
+          actor: actorInfo,
+        });
+        return NextResponse.json(cachedPayload(cache, replay), {
+          headers: {
+            "x-instacomp-learning": "tenant-scoped-cache-hit-new-scan",
+            "cache-control": "private, no-store",
+          },
+        });
+      } catch (cacheReplayError) {
+        console.error(
+          "InstaComp cache replay could not be materialized; running a fresh scan:",
+          cacheReplayError,
+        );
+      }
     }
 
     const coreResponse = await runCoreInstaCompScan(
       coreRequestFrom(request, copyFormData(incoming)),
     );
-    const payload = (await coreResponse.clone().json().catch(() => null)) as
+    const rawPayload = (await coreResponse.clone().json().catch(() => null)) as
       | Record<string, any>
       | null;
 
-    if (!coreResponse.ok || !payload?.ok || !payload.scanId) {
+    if (!coreResponse.ok || !rawPayload?.ok || !rawPayload.scanId) {
       return coreResponse;
     }
 
+    const payload = hardenInstaCompMarketPayload(rawPayload) as Record<
+      string,
+      any
+    >;
     const learning = await saveInstaCompLearningCache({
-      scanId: String(payload.scanId),
+      scanId: String(rawPayload.scanId),
       frontHash,
       backHash,
       payload,
@@ -151,26 +200,33 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         ...learning.payload,
+        scanId: String(rawPayload.scanId),
         knowledge: {
-          mode: learning.registryMatch
-            ? "checklist_registry_confirmed"
-            : "new_learning_observation",
+          mode:
+            learning.registryMatch &&
+            learning.cache?.confirmation_status === "catalog_confirmed"
+              ? "checklist_registry_confirmed"
+              : "new_learning_observation",
           cacheHit: false,
           cacheId: learning.cache?.id || null,
           knowledgeEntryId: learning.cache?.knowledge_entry_id || null,
           confirmationStatus:
-            learning.cache?.confirmation_status ||
-            (learning.registryMatch ? "catalog_confirmed" : "scanner_observed"),
+            learning.cache?.confirmation_status || "scanner_observed",
           registryMatch: learning.registryMatch,
           marketExpiresAt: learning.cache?.market_expires_at || null,
+          persistenceWarnings: learning.warnings,
         },
       },
       {
         status: coreResponse.status,
         headers: {
-          "x-instacomp-learning": learning.registryMatch
-            ? "registry-confirmed"
-            : "observation-recorded",
+          "x-instacomp-learning":
+            learning.registryMatch &&
+            learning.cache?.confirmation_status === "catalog_confirmed"
+              ? "registry-confirmed"
+              : learning.warnings.length
+                ? "observation-recorded-with-warnings"
+                : "observation-recorded",
           "cache-control": "private, no-store",
         },
       },

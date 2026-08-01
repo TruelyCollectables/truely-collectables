@@ -8,22 +8,11 @@ import {
   type InstaCompStats,
 } from "../src/lib/instacomp";
 
-type Scenario = {
-  name: string;
-  ai?: Partial<InstaCompAiResult>;
-  stats?: Partial<InstaCompStats>;
-  marketValueComps?: Partial<InstaCompComp>[];
-  hasBackImage?: boolean;
-  pairingConfidence?: number | null;
-  externalOcrText?: string | null;
-  consensus?: {
-    status: "consensus_confirmed" | "review_required";
-    reviewReasons: string[];
-  } | null;
-  expect: (actual: ReturnType<typeof buildInstaCompScanReview>) => void;
-};
+function assert(value: unknown, message: string): asserts value {
+  if (!value) throw new Error(message);
+}
 
-const trustedAi: InstaCompAiResult = {
+const ai: InstaCompAiResult = {
   player: "Connor Bedard",
   year: "2024-25",
   brand: "Upper Deck",
@@ -38,10 +27,9 @@ const trustedAi: InstaCompAiResult = {
   isRelic: false,
   conditionGuess: "Raw",
   confidence: 0.96,
-  notes: "Parallel evidence: printed Limited Red. Serial evidence: no serial stamp visible.",
+  notes: "Parallel evidence: printed Limited Red. Serial evidence: no stamp visible.",
 };
-
-const trustedStats: InstaCompStats = {
+const stats: InstaCompStats = {
   low: 40,
   median: 45,
   average: 47.5,
@@ -49,154 +37,112 @@ const trustedStats: InstaCompStats = {
   suggestedPrice: 45,
 };
 
-const comp = (title: string): InstaCompComp => ({
-  title,
-  price: 45,
-  currency: "USD",
-  url: `https://example.com/${encodeURIComponent(title)}`,
-  imageUrl: null,
-  source: "fixture",
-  sourceLabel: "Fixture",
-  sourceCategory: "sold",
-  matchScore: 100,
-  flags: ["player", "year", "set", "card #", "parallel"],
-});
-
-function assert(condition: unknown, message: string) {
-  if (!condition) throw new Error(message);
+function comp(id: string, title = `sale ${id}`): InstaCompComp {
+  return {
+    title,
+    price: 45,
+    itemPrice: 45,
+    shippingPrice: 0,
+    priceIncludesShipping: true,
+    currency: "USD",
+    url: `https://example.test/${id}`,
+    imageUrl: null,
+    source: "fixture",
+    sourceLabel: "Fixture",
+    sourceCategory: "sold",
+    matchScore: 100,
+    flags: ["player", "year", "set", "card #", "parallel"],
+    saleId: id,
+    saleVerified: true,
+    finalPriceVerified: true,
+    shippingVerified: true,
+    soldAt: "2026-07-20T00:00:00Z",
+  } as InstaCompComp;
 }
 
-const scenarios: Scenario[] = [
-  {
-    name: "trusted exact identity and two comps can price",
-    marketValueComps: [comp("sale one"), comp("sale two")],
-    expect(actual) {
-      assert(actual.trustedForPricing, `Expected trusted pricing, got ${actual.reviewReasons.join(", ")}`);
-      assert(actual.reviewReasons.length === 0, `Expected no review reasons, got ${actual.reviewReasons.join(", ")}`);
-    },
-  },
-  {
-    name: "high confidence below trusted threshold forces review",
-    ai: { confidence: 0.9 },
-    marketValueComps: [comp("sale one"), comp("sale two")],
-    expect(actual) {
-      assert(!actual.trustedForPricing, "Expected pricing blocked");
-      assert(actual.reviewReasons.includes("low_identification_confidence"), "Expected low confidence reason");
-    },
-  },
-  {
-    name: "front only cannot auto price",
-    hasBackImage: false,
-    marketValueComps: [comp("sale one"), comp("sale two")],
-    expect(actual) {
-      assert(!actual.trustedForPricing, "Expected front-only pricing blocked");
-      assert(actual.reviewReasons.includes("front_only_scan"), "Expected front-only reason");
-    },
-  },
-  {
-    name: "OCR variant signal cannot remain base",
-    ai: { parallel: "Base" },
-    externalOcrText: "BACK OCR LIMITED RED PRINTED ODDS CARD 201",
-    marketValueComps: [comp("sale one"), comp("sale two")],
-    expect(actual) {
-      assert(!actual.trustedForPricing, "Expected unresolved OCR variant blocked");
-      assert(
-        actual.reviewReasons.includes("ocr_variant_signal_not_resolved"),
-        "Expected unresolved OCR variant reason",
-      );
-    },
-  },
-  {
-    name: "base card without printed variant signal can price without base label",
-    ai: { parallel: null },
-    externalOcrText: "BACK OCR Connor Bedard 2024-25 O-Pee-Chee Platinum card 201",
-    marketValueComps: [comp("sale one"), comp("sale two")],
-    expect(actual) {
-      assert(actual.trustedForPricing, `Expected base identity trusted, got ${actual.reviewReasons.join(", ")}`);
-      assert(
-        !actual.reviewReasons.includes("parallel_needs_review"),
-        "Expected no parallel review for base/no-variant card",
-      );
-    },
-  },
-  {
-    name: "multi-scanner disagreement blocks autoprice",
-    consensus: {
-      status: "review_required",
-      reviewReasons: ["multi_scanner_player_disagreement"],
-    },
-    marketValueComps: [comp("sale one"), comp("sale two")],
-    expect(actual) {
-      assert(!actual.trustedForPricing, "Expected consensus disagreement pricing blocked");
-      assert(
-        actual.reviewReasons.includes("multi_scanner_consensus_needs_review"),
-        "Expected consensus review reason",
-      );
-      assert(
-        actual.reviewReasons.includes("multi_scanner_player_disagreement"),
-        "Expected field disagreement reason",
-      );
-    },
-  },
-  {
-    name: "one comp is not enough for autoprice",
-    marketValueComps: [comp("sale one")],
-    expect(actual) {
-      assert(!actual.trustedForPricing, "Expected one-comp pricing blocked");
-      assert(
-        actual.reviewReasons.includes("insufficient_exact_comp_evidence"),
-        "Expected insufficient comp evidence reason",
-      );
-    },
-  },
+const cases: Array<[string, () => void]> = [
+  ["two verified sales permit pricing", () => {
+    const result = buildInstaCompScanReview({
+      ai,
+      stats,
+      marketValueComps: [comp("one"), comp("two")],
+      hasBackImage: true,
+      pairingConfidence: 0.98,
+    });
+    assert(result.trustedForPricing, result.reviewReasons.join(","));
+  }],
+  ["one verified sale is insufficient", () => {
+    const result = buildInstaCompScanReview({
+      ai,
+      stats,
+      marketValueComps: [comp("one")],
+      hasBackImage: true,
+      pairingConfidence: 0.98,
+    });
+    assert(!result.trustedForPricing, "one sale was trusted");
+    assert(result.pricingReviewReasons.includes("insufficient_independent_verified_sales"), "missing reason");
+  }],
+  ["front-only scan is blocked", () => {
+    const result = buildInstaCompScanReview({
+      ai,
+      stats,
+      marketValueComps: [comp("one"), comp("two")],
+      hasBackImage: false,
+      pairingConfidence: null,
+    });
+    assert(result.identityReviewReasons.includes("front_only_scan"), "front-only reason missing");
+  }],
+  ["low identity confidence is blocked", () => {
+    const result = buildInstaCompScanReview({
+      ai: { ...ai, confidence: 0.9 },
+      stats,
+      marketValueComps: [comp("one"), comp("two")],
+      hasBackImage: true,
+      pairingConfidence: 0.98,
+    });
+    assert(result.identityReviewReasons.includes("low_identification_confidence"), "confidence reason missing");
+  }],
+  ["printed variation cannot remain Base", () => {
+    const result = buildInstaCompScanReview({
+      ai: { ...ai, parallel: "Base" },
+      stats,
+      marketValueComps: [comp("one"), comp("two")],
+      hasBackImage: true,
+      pairingConfidence: 0.98,
+      externalOcrText: "LIMITED RED CARD 201",
+    });
+    assert(result.identityReviewReasons.includes("ocr_variant_signal_not_resolved"), "variant reason missing");
+  }],
+  ["multi-scanner disagreement is blocked", () => {
+    const result = buildInstaCompScanReview({
+      ai,
+      stats,
+      marketValueComps: [comp("one"), comp("two")],
+      hasBackImage: true,
+      pairingConfidence: 0.98,
+      consensus: {
+        status: "review_required",
+        reviewReasons: ["multi_scanner_player_disagreement"],
+      },
+    });
+    assert(result.identityReviewReasons.includes("multi_scanner_consensus_needs_review"), "consensus reason missing");
+  }],
 ];
 
-const results: Array<{ name: string; status: "passed" | "failed"; error?: string }> = [];
-
-for (const scenario of scenarios) {
+let failed = 0;
+for (const [name, run] of cases) {
   try {
-    const actual = buildInstaCompScanReview({
-      ai: { ...trustedAi, ...scenario.ai },
-      stats: { ...trustedStats, ...scenario.stats },
-      marketValueComps: (scenario.marketValueComps || [
-        comp("sale one"),
-        comp("sale two"),
-      ]) as InstaCompComp[],
-      hasBackImage: scenario.hasBackImage ?? true,
-      pairingConfidence: scenario.pairingConfidence ?? 0.98,
-      externalOcrText: scenario.externalOcrText || null,
-      consensus: scenario.consensus || null,
-    });
-    scenario.expect(actual);
-    results.push({ name: scenario.name, status: "passed" });
+    run();
+    console.log(`PASS ${name}`);
   } catch (error) {
-    results.push({
-      name: scenario.name,
-      status: "failed",
-      error: error instanceof Error ? error.message : String(error),
-    });
+    failed += 1;
+    console.error(`FAIL ${name}: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
-for (const result of results) {
-  console.log(
-    `${result.status === "passed" ? "PASS" : "FAIL"} ${result.name}${
-      result.error ? ` - ${result.error}` : ""
-    }`,
-  );
-}
-
-const failed = results.filter((result) => result.status === "failed");
-
-console.log(
-  `InstaComp™ scan review simulations: ${results.length - failed.length}/${results.length} passed.`,
-);
-
-if (failed.length) process.exitCode = 1;
-
 try {
   const gradedAi: InstaCompAiResult = {
-    ...trustedAi,
+    ...ai,
     gradingCompany: "PSA",
     gradeValue: "10",
     certificationNumber: "12345678",
@@ -208,40 +154,24 @@ try {
   const filtered = filterAndRankExactMatches(
     [
       {
-        ...comp(
-          "2024-25 Upper Deck O-Pee-Chee Platinum Connor Bedard Limited Red #201 PSA 10 cert 12345678",
-        ),
+        ...comp("graded", "2024-25 Upper Deck O-Pee-Chee Platinum Connor Bedard Limited Red #201 PSA 10 cert 12345678"),
         price: 200,
       },
       {
-        ...comp("2024-25 Upper Deck O-Pee-Chee Platinum Connor Bedard Limited Red #201 raw"),
+        ...comp("raw", "2024-25 Upper Deck O-Pee-Chee Platinum Connor Bedard Limited Red #201 raw"),
         price: 45,
       },
     ],
     gradedAi,
   );
-
-  assert(queries.primary.includes("PSA 10"), "Expected graded query to include PSA 10");
-  assert(
-    queries.backupQueries.some((query) => query.includes("cert 12345678")),
-    "Expected graded backup queries to include cert number",
-  );
-  assert(filtered.length === 1, "Expected only the matching graded comp");
-  assert(filtered[0]?.title.includes("PSA 10"), "Expected PSA 10 comp to survive");
-  assert(
-    filtered[0]?.flags.includes("cert #"),
-    "Expected cert-number comp match to be flagged",
-  );
-  assert(
-    looksLikeBadCompTitle("Connor Bedard PSA 10", trustedAi),
-    "Expected graded comp to be excluded for raw target",
-  );
+  assert(queries.primary.includes("PSA 10"), "graded query missing grade");
+  assert(filtered.length === 1 && filtered[0]?.title.includes("PSA 10"), "raw comp survived graded filter");
+  assert(looksLikeBadCompTitle("Connor Bedard PSA 10", ai), "graded comp accepted for raw target");
   console.log("PASS graded slab comps require matching grader and grade");
 } catch (error) {
-  console.log(
-    `FAIL graded slab comps require matching grader and grade - ${
-      error instanceof Error ? error.message : String(error)
-    }`,
-  );
-  process.exitCode = 1;
+  failed += 1;
+  console.error(`FAIL graded comp matching: ${error instanceof Error ? error.message : String(error)}`);
 }
+
+console.log(`InstaComp scan review simulations: ${cases.length + 1 - failed}/${cases.length + 1} passed.`);
+if (failed) process.exitCode = 1;

@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useMemo, useState } from "react";
 import {
   buildInstaCompV2Decision,
@@ -150,6 +149,9 @@ export default function MobileInstaCompScanner() {
   const [knowledgeSaving, setKnowledgeSaving] = useState(false);
   const [knowledgeMessage, setKnowledgeMessage] = useState<string | null>(null);
   const [knowledgeError, setKnowledgeError] = useState<string | null>(null);
+  const [handoffSaving, setHandoffSaving] = useState(false);
+  const [handoffMessage, setHandoffMessage] = useState<string | null>(null);
+  const [handoffError, setHandoffError] = useState<string | null>(null);
 
   const soldComps = useMemo(
     () => uniqueComps(result?.soldComps || []),
@@ -197,6 +199,8 @@ export default function MobileInstaCompScanner() {
     setResult(null);
     setKnowledgeMessage(null);
     setKnowledgeError(null);
+    setHandoffMessage(null);
+    setHandoffError(null);
 
     try {
       const form = new FormData();
@@ -227,12 +231,7 @@ export default function MobileInstaCompScanner() {
         team: String(ai.team || ""),
         sport: String(ai.sport || ""),
         condition: String(ai.conditionGuess || ""),
-        price: String(
-          initialDecision.targets.listPrice ||
-            data.soldStats?.suggestedPrice ||
-            data.stats?.suggestedPrice ||
-            "",
-        ),
+        price: String(initialDecision.targets.listPrice || ""),
       });
       setDealInputs(DEFAULT_DEAL_INPUTS);
       setResult(data);
@@ -320,21 +319,104 @@ export default function MobileInstaCompScanner() {
     }
   }
 
-  const listParams = new URLSearchParams({
-    source: "instacomp-mobile-v2",
-    player: fields.player || "",
-    year: fields.year || "",
-    brand: fields.brand || "",
-    setName: fields.setName || "",
-    cardNumber: fields.cardNumber || "",
-    parallel: fields.parallel || "",
-    serialNumber: fields.serialNumber || "",
-    team: fields.team || "",
-    sport: fields.sport || "",
-    condition: fields.condition || "",
-    price: fields.price || "",
-    q: result?.searchQuery || "",
-  });
+  async function createProtectedCardIntakeDraft() {
+    if (!frontImage || !result?.scanId || !decision) {
+      setHandoffError(
+        "Run and save an InstaComp scan before creating a Card Intake draft.",
+      );
+      return;
+    }
+
+    setHandoffSaving(true);
+    setHandoffMessage(null);
+    setHandoffError(null);
+
+    try {
+      const form = new FormData();
+      const verifiedSaleCount =
+        decision.market.transactionEvidence.verifiedSaleCount;
+      const item = {
+        client_id: `instacomp-${result.scanId}`.slice(0, 160),
+        batch_id: "instacomp-mobile-v2",
+        title: [
+          fields.year,
+          fields.brand,
+          fields.setName,
+          fields.player,
+          fields.parallel,
+          fields.cardNumber ? `#${fields.cardNumber}` : "",
+        ]
+          .filter(Boolean)
+          .join(" "),
+        front_image: frontImage.name,
+        back_image: backImage?.name || null,
+        player: fields.player,
+        year: fields.year,
+        manufacturer: fields.brand,
+        brand: fields.brand,
+        set_name: fields.setName,
+        card_number: fields.cardNumber,
+        parallel: fields.parallel,
+        serial_number: fields.serialNumber,
+        team: fields.team,
+        sport: fields.sport,
+        rookie: result.ai?.isRookie === true,
+        is_auto: result.ai?.isAuto === true,
+        is_relic: result.ai?.isRelic === true,
+        cost_basis: decision.economics.allInCost,
+        purchase_match_status: "instacomp_mobile_operator_handoff",
+        identification_confidence: result.ai?.confidence ?? null,
+        notes: [
+          `Source InstaComp scan: ${result.scanId}.`,
+          `Trust state: ${decision.trust.status}.`,
+          `Decision shown: ${decision.recommendation.label}.`,
+          `Independent verified completed sales: ${verifiedSaleCount}.`,
+          "No scan price is auto-applied by this handoff. Card Intake must rerun the server-side identity and pricing gate before listing or pricing.",
+        ].join(" "),
+      };
+
+      form.append("item", JSON.stringify(item));
+      form.append("frontImage", frontImage, frontImage.name);
+      if (backImage) form.append("backImage", backImage, backImage.name);
+
+      const response = await fetch("/api/admin/pending-card-import", {
+        method: "POST",
+        body: form,
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        success?: boolean;
+        error?: string;
+        inventoryItemId?: string | null;
+        alreadyExisted?: boolean;
+      };
+
+      if (!response.ok || data.success === false || !data.inventoryItemId) {
+        throw new Error(
+          data.error || "Could not create the protected Card Intake draft.",
+        );
+      }
+
+      setHandoffMessage(
+        data.alreadyExisted
+          ? "Protected Card Intake draft already exists. Opening it now…"
+          : "Protected Card Intake draft created with both images and a $0 unpublished price. Opening it now…",
+      );
+      window.location.assign(
+        `/admin/pending-card-import?source=instacomp-mobile-v2&inventoryItemId=${encodeURIComponent(
+          data.inventoryItemId,
+        )}`,
+      );
+    } catch (handoffFailure) {
+      setHandoffError(
+        handoffFailure instanceof Error
+          ? handoffFailure.message
+          : "Could not create the protected Card Intake draft.",
+      );
+    } finally {
+      setHandoffSaving(false);
+    }
+  }
+
   const identityTitle = [
     fields.year,
     fields.brand,
@@ -593,7 +675,7 @@ export default function MobileInstaCompScanner() {
                   </p>
                   <p className="mt-2 text-xs font-bold text-cyan-800">
                     {result.knowledge?.cacheHit
-                      ? "Exact-image knowledge reused"
+                      ? "Tenant-scoped exact-image knowledge reused in a new scan"
                       : result.knowledge?.mode === "checklist_registry_confirmed"
                         ? "Official Checklist Registry identity confirmed"
                         : "New learning observation saved"}
@@ -648,12 +730,36 @@ export default function MobileInstaCompScanner() {
               ) : null}
             </div>
 
-            <Link
-              href={`/list?${listParams.toString()}`}
-              className="mt-4 block min-h-12 rounded-xl bg-amber-300 px-4 py-3 text-center text-base font-black text-neutral-950"
-            >
-              Send to List Cards
-            </Link>
+            <div className="mt-4 rounded-2xl border-2 border-amber-300 bg-amber-50 p-4">
+              <p className="text-xs font-black uppercase tracking-[0.16em] text-amber-800">
+                Protected listing handoff
+              </p>
+              <p className="mt-1 text-sm font-semibold leading-6 text-amber-950">
+                Create a permanent unpublished Card Intake draft with the front,
+                back, edited identity, source scan, and cost basis. The price stays
+                $0 until Card Intake reruns the server-side checklist and verified-sale gate.
+              </p>
+              <button
+                type="button"
+                disabled={handoffSaving || !frontImage || !result.scanId}
+                onClick={createProtectedCardIntakeDraft}
+                className="mt-3 min-h-12 w-full rounded-xl bg-amber-300 px-4 py-3 text-center text-base font-black text-neutral-950 disabled:opacity-50"
+              >
+                {handoffSaving
+                  ? "Creating protected Card Intake draft…"
+                  : "Create Protected Card Intake Draft"}
+              </button>
+              {handoffMessage ? (
+                <p className="mt-3 rounded-xl border border-emerald-200 bg-white p-3 text-sm font-black text-emerald-800">
+                  {handoffMessage}
+                </p>
+              ) : null}
+              {handoffError ? (
+                <p className="mt-3 rounded-xl border border-rose-200 bg-white p-3 text-sm font-black text-rose-800">
+                  {handoffError}
+                </p>
+              ) : null}
+            </div>
           </section>
 
           <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 shadow-sm">
@@ -732,8 +838,8 @@ export default function MobileInstaCompScanner() {
           <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
             <h2 className="text-lg font-black">Source status</h2>
             <p className="mt-1 text-sm font-semibold text-neutral-600">
-              Only included exact matches affect the market value. Registered or
-              broader sources stay visible for manual verification.
+              Only verified completed sales can affect transaction value. Registered,
+              active, guide, and broader sources stay visible for manual verification.
             </p>
             <div className="mt-3 space-y-2">
               {(result.sourceCoverage || []).map((source, index) => (
