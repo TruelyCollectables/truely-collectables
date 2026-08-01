@@ -169,6 +169,7 @@ async function run(request) {
       try {
         rankedEmail = await sendRankedProfitHunterEmail({
           reportId: result.reportId,
+          force: force && allowForcedEmail,
         });
       } catch (error) {
         rankedEmail = {
