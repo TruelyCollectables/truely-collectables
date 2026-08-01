@@ -17,13 +17,19 @@ jobs:
           ref: agent/pokemon-ja-phase4d-safe-bundles
           fetch-depth: 0
 
-      - name: Classify historical source rows before additions
+      - name: Fix receipt paths and classify source rows
         run: |
           python - <<'PY'
           from pathlib import Path
 
           path = Path('scripts/build-pokemon-japanese-historical-safe-bundles.ts')
           text = path.read_text()
+
+          text = text.replace(
+              '    resolutionReceipts: resolutionPaths.map(resolve),',
+              '    resolutionReceipts: resolutionPaths.map((entry) => resolve(entry)),',
+              1,
+          )
 
           anchor = '''  if (sourceByLocalId.size !== source.sourceCards.length) {
     throw new Error(`${source.setId} repeats normalized TCGdex local IDs.`);
@@ -100,11 +106,11 @@ jobs:
           set -euo pipefail
           if git diff --quiet -- scripts/build-pokemon-japanese-historical-safe-bundles.ts
           then
-            echo "Phase 4D builder already classifies source rows."
+            echo "Phase 4D builder patch is already present."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add scripts/build-pokemon-japanese-historical-safe-bundles.ts
-          git commit -m "Classify historical source rows before additions"
+          git commit -m "Fix historical safe bundle classification"
           git push origin HEAD:agent/pokemon-ja-phase4d-safe-bundles
