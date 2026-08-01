@@ -28,6 +28,23 @@ function expect(condition: unknown, message: string) {
   if (!condition) failures.push(message);
 }
 
+function databaseNormalizedCardNumber(value: string) {
+  return value
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}/]+/gu, "");
+}
+
+function databaseNormalizedVariation(value: string | null) {
+  return String(value || "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^\p{L}\p{N}/]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 expect(
   tcgdexJapaneseSetBundleAdapter.supports(artifact),
   "TCGdex Japanese adapter should support its bundle schema.",
@@ -42,46 +59,114 @@ const firstNotes = JSON.parse(plan.cards[0]?.sourceNotes || "{}") as {
 };
 const fingerprints = plan.identities.map((identity) => identity.fingerprint);
 const normalizedWithLanguage = fingerprints.map(
-  (fingerprint) => fingerprint.normalized as typeof fingerprint.normalized & {
-    languageCode?: string;
-  },
+  (fingerprint) =>
+    fingerprint.normalized as typeof fingerprint.normalized & {
+      languageCode?: string;
+    },
+);
+const databaseKeys = plan.cards.map((card) =>
+  [
+    card.setSourceKey,
+    databaseNormalizedCardNumber(card.cardNumber),
+    databaseNormalizedVariation(card.variation),
+  ].join("|"),
+);
+const collisionCards = plan.cards.filter(
+  (card) => card.cardNumber === "!" || card.cardNumber === "?",
 );
 
 expect(plan.adapterId === TCGDEX_JAPANESE_ADAPTER_ID, "Adapter ID mismatch.");
-expect(plan.adapterVersion === TCGDEX_JAPANESE_ADAPTER_VERSION, "Adapter version mismatch.");
-expect(plan.validation.status === "passed", "Japanese fixture should pass validation.");
-expect(plan.release.product === "ブラックボルト・フィクスチャ", "Japanese product name mismatch.");
-expect(plan.release.releaseYear === "2026", "Release year should derive from Japanese release date.");
-expect(plan.release.releaseSlug.startsWith("tcgdex-ja-"), "Release slug should use the ja namespace.");
-expect(plan.sets.length === 1, "Fixture should create one Japanese set.");
-expect(plan.cards.length === 2, "Fixture should create two Japanese base cards.");
-expect(plan.parallels.length === 0, "Phase 1 must not create physical parallel rows.");
-expect(plan.identities.length === 2, "Fixture should create two base-card identities.");
 expect(
-  fingerprints.every((fingerprint) => fingerprint.canonicalKey.endsWith("|language_code=ja")),
+  plan.adapterVersion === TCGDEX_JAPANESE_ADAPTER_VERSION,
+  "Adapter version mismatch.",
+);
+expect(
+  plan.validation.status === "passed",
+  "Japanese fixture should pass validation.",
+);
+expect(
+  plan.release.product === "ブラックボルト・フィクスチャ",
+  "Japanese product name mismatch.",
+);
+expect(
+  plan.release.releaseYear === "2026",
+  "Release year should derive from Japanese release date.",
+);
+expect(
+  plan.release.releaseSlug === "tcgdex-ja-sv-sv11b-fixture",
+  "Release slug should use the stable ASCII Japanese namespace.",
+);
+expect(plan.sets.length === 1, "Fixture should create one Japanese set.");
+expect(plan.cards.length === 4, "Fixture should create four Japanese base cards.");
+expect(
+  plan.parallels.length === 0,
+  "Phase 1 must not create physical parallel rows.",
+);
+expect(
+  plan.identities.length === 4,
+  "Fixture should create four base-card identities.",
+);
+expect(
+  fingerprints.every((fingerprint) =>
+    fingerprint.canonicalKey.endsWith("|language_code=ja"),
+  ),
   "Japanese fingerprints must include the ja language namespace.",
 );
 expect(
-  normalizedWithLanguage.every((normalized) => normalized.languageCode === "ja"),
+  normalizedWithLanguage.every(
+    (normalized) => normalized.languageCode === "ja",
+  ),
   "Japanese normalized identities must retain languageCode ja.",
 );
 expect(
-  new Set(fingerprints.map((fingerprint) => fingerprint.fingerprintSha256)).size ===
-    fingerprints.length,
+  new Set(fingerprints.map((fingerprint) => fingerprint.fingerprintSha256))
+    .size === fingerprints.length,
   "Japanese exact identities must remain unique.",
 );
-expect(firstNotes.languageCode === "ja", "Source notes should retain languageCode ja.");
-expect(firstNotes.sourceSetId === "SV11B-FIXTURE", "Source set ID should be preserved.");
-expect(firstNotes.sourceCardId === "SV11B-FIXTURE-001", "Source card ID should be preserved.");
+expect(
+  new Set(databaseKeys).size === databaseKeys.length,
+  "Every Japanese Registry database card key should be unique.",
+);
+expect(
+  collisionCards.length === 2 &&
+    collisionCards.every((card) =>
+      /^TCGdex Source Variant [a-f0-9]{24}$/.test(card.variation || ""),
+    ),
+  "Punctuation-normalized Japanese card numbers should receive stable source-backed variations.",
+);
+expect(
+  plan.validation.issues.some(
+    (entry) => entry.code === "database_card_key_disambiguated",
+  ),
+  "Phase 1 should record database card-key disambiguation.",
+);
+expect(
+  firstNotes.languageCode === "ja",
+  "Source notes should retain languageCode ja.",
+);
+expect(
+  firstNotes.sourceSetId === "SV11B-FIXTURE",
+  "Source set ID should be preserved.",
+);
+expect(
+  firstNotes.sourceCardId === "SV11B-FIXTURE-001",
+  "Source card ID should be preserved.",
+);
 expect(
   firstNotes.variantEvidence?.some(
-    (variant) => variant.type === "reverse" && variant.foil === "masterball",
+    (variant) =>
+      variant.type === "reverse" && variant.foil === "masterball",
   ),
   "Master Ball reverse evidence should be preserved for Phase 2.",
 );
-expect(!notes.includes("12345.67"), "Pricing values must not be stored in Registry notes.");
 expect(
-  plan.validation.issues.some((entry) => entry.code === "physical_variants_deferred"),
+  !notes.includes("12345.67"),
+  "Pricing values must not be stored in Registry notes.",
+);
+expect(
+  plan.validation.issues.some(
+    (entry) => entry.code === "physical_variants_deferred",
+  ),
   "Phase 1 should record that physical variants are deferred to Phase 2.",
 );
 
@@ -94,6 +179,8 @@ const output = {
   languageNamespaced: fingerprints.every((entry) =>
     entry.canonicalKey.endsWith("|language_code=ja"),
   ),
+  uniqueDatabaseCardKeys: new Set(databaseKeys).size,
+  disambiguatedCards: collisionCards.length,
   variantEvidencePreserved: Boolean(firstNotes.variantEvidence?.length),
   pricesDiscarded: !notes.includes("12345.67"),
   failures,
