@@ -1,0 +1,112 @@
+name: Checklist Registry Pokémon Japanese Official Verification
+
+on:
+  pull_request:
+    paths:
+      - "scripts/verify-pokemon-japanese-official-sources.ts"
+      - "scripts/build-tcgdex-japanese-registry-bundles.ts"
+      - "src/lib/checklist-registry/tcgdex-japanese.ts"
+      - ".github/workflows/checklist-registry-pokemon-ja-official.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "scripts/verify-pokemon-japanese-official-sources.ts"
+      - "scripts/build-tcgdex-japanese-registry-bundles.ts"
+      - "src/lib/checklist-registry/tcgdex-japanese.ts"
+      - ".github/workflows/checklist-registry-pokemon-ja-official.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-official-japanese-source-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint official-source verifier
+        run: npx eslint scripts/verify-pokemon-japanese-official-sources.ts
+
+      - name: Check out current TCGdex source
+        run: >-
+          git clone --depth 1
+          https://github.com/tcgdex/cards-database.git
+          .codex-run/tcgdex-cards-database
+
+      - name: Build Japanese Registry bundles
+        run: >-
+          npx tsx scripts/build-tcgdex-japanese-registry-bundles.ts
+          .codex-run/tcgdex-cards-database
+          .codex-run/tcgdex-ja-registry-bundles
+          --receipt .codex-run/tcgdex-ja-build-receipt.json
+
+      - name: Resolve official mappings for every complete Japanese bundle
+        run: >-
+          npx tsx scripts/verify-pokemon-japanese-official-sources.ts
+          .codex-run/tcgdex-ja-registry-bundles
+          --mapping-only
+          --delay-ms 50
+          --receipt .codex-run/pokemon-ja-official-mapping-receipt.json
+          --queue .codex-run/pokemon-ja-official-mapping-queue.json
+
+      - name: Verify mapping receipt
+        run: |
+          node - <<'NODE'
+          const receipt = require('./.codex-run/pokemon-ja-official-mapping-receipt.json');
+          if (receipt.attemptedSets !== 98) throw new Error(`Expected 98 complete Japanese bundles, received ${receipt.attemptedSets}`);
+          if (receipt.officialSource.productOptions < 80) throw new Error(`Official product option list unexpectedly small: ${receipt.officialSource.productOptions}`);
+          if ((receipt.statusCounts.failed || 0) !== 0) throw new Error(`Mapping failures: ${receipt.statusCounts.failed}`);
+          if ((receipt.statusCounts.manual_review || 0) < 1) throw new Error('No official Japanese products were mapped');
+          console.log(JSON.stringify({
+            attemptedSets: receipt.attemptedSets,
+            statusCounts: receipt.statusCounts,
+            totals: receipt.totals,
+          }, null, 2));
+          NODE
+
+      - name: Verify Pokémon Card 151 against live official API and detail pages
+        run: >-
+          npx tsx scripts/verify-pokemon-japanese-official-sources.ts
+          .codex-run/tcgdex-ja-registry-bundles
+          --set SV2a
+          --delay-ms 100
+          --detail-samples 5
+          --receipt .codex-run/pokemon-ja-sv2a-official-receipt.json
+          --queue .codex-run/pokemon-ja-sv2a-official-queue.json
+
+      - name: Verify live official-source receipt
+        run: |
+          node - <<'NODE'
+          const receipt = require('./.codex-run/pokemon-ja-sv2a-official-receipt.json');
+          const row = receipt.rows[0];
+          if (receipt.attemptedSets !== 1) throw new Error(`Unexpected audited set count: ${receipt.attemptedSets}`);
+          if (row.setId !== 'SV2a') throw new Error(`Unexpected set: ${row.setId}`);
+          if (row.status !== 'verified') throw new Error(`SV2a official verification status: ${row.status} ${JSON.stringify(row.reasons)}`);
+          if (row.registryCardCount !== 210 || row.officialCollectedCount !== 210 || row.officialHitCount !== 210) {
+            throw new Error(`SV2a count mismatch: ${JSON.stringify({ registry: row.registryCardCount, collected: row.officialCollectedCount, hit: row.officialHitCount })}`);
+          }
+          if (row.detailEvidence.length !== 5) throw new Error(`Unexpected detail sample count: ${row.detailEvidence.length}`);
+          if (receipt.totals.printedNumberMismatches !== 0) throw new Error(`Printed-number mismatches: ${receipt.totals.printedNumberMismatches}`);
+          console.log(JSON.stringify({
+            setId: row.setId,
+            status: row.status,
+            officialProduct: row.officialProduct,
+            registryCardCount: row.registryCardCount,
+            officialCardCount: row.officialCollectedCount,
+            detailSamples: row.detailEvidence.length,
+          }, null, 2));
+          NODE
