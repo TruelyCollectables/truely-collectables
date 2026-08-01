@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { POST as runCoreInstaCompScan } from "../scan/route";
 import { requireInstaCompJobActor } from "../../../../lib/instacomp-job-server";
+import { hardenInstaCompMarketPayload } from "../../../../lib/instacomp-market-evidence";
 import {
   findFreshInstaCompCache,
   materializeInstaCompCacheReplay,
@@ -176,14 +177,15 @@ export async function POST(request: NextRequest) {
     const coreResponse = await runCoreInstaCompScan(
       coreRequestFrom(request, copyFormData(incoming)),
     );
-    const payload = (await coreResponse.clone().json().catch(() => null)) as
+    const rawPayload = (await coreResponse.clone().json().catch(() => null)) as
       | Record<string, any>
       | null;
 
-    if (!coreResponse.ok || !payload?.ok || !payload.scanId) {
+    if (!coreResponse.ok || !rawPayload?.ok || !rawPayload.scanId) {
       return coreResponse;
     }
 
+    const payload = hardenInstaCompMarketPayload(rawPayload);
     const learning = await saveInstaCompLearningCache({
       scanId: String(payload.scanId),
       frontHash,
