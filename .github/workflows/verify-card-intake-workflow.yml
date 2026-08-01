@@ -71,6 +71,54 @@ jobs:
                   1,
               )
           client.write_text(client_text)
+
+          tests = Path('scripts/run-admin-dashboard-actions-simulations.mjs')
+          test_text = tests.read_text()
+          test_text = test_text.replace(
+              "adminNewProductPageSource.includes('redirect(\"/list\")')",
+              "adminNewProductPageSource.includes('redirect(\"/admin/pending-card-import\")')",
+              1,
+          )
+          test_text = test_text.replace(
+              '"Expected the legacy new-product route to redirect to /list."',
+              '"Expected the legacy new-product route to redirect to Card Intake & Listing."',
+              1,
+          )
+
+          old_scope_start = '''  for (const fragment of [
+            "List Cards",
+            "Upload photos",
+            "Run InstaComp™",
+            "Review and list selected",
+          ]) {'''
+          old_scope_end = '''  for (const fragment of [
+            'href: "/list"','''
+          if old_scope_start in test_text:
+              start = test_text.index(old_scope_start)
+              end = test_text.index(old_scope_end, start)
+              test_text = test_text[:start] + test_text[end:]
+
+          test_text = test_text.replace(
+              '    \'href: "/list"\',',
+              '    \'href: "/admin/pending-card-import"\',',
+              1,
+          )
+          test_text = test_text.replace(
+              '    \'cta: "Open List Cards"\',',
+              '    \'cta: "Open Card Intake"\',',
+              1,
+          )
+          test_text = test_text.replace(
+              '    "Upload, InstaComp™, edit, and list cards",',
+              '    "Import, track, InstaComp 2.0, and list cards",',
+              1,
+          )
+          test_text = test_text.replace(
+              '    "Open List Cards",',
+              '    "Open Card Intake",',
+              1,
+          )
+          tests.write_text(test_text)
           PY
 
       - name: Commit generated workflow integration
@@ -78,7 +126,7 @@ jobs:
           if ! git diff --quiet; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add src/app/admin/page.tsx scripts/smoke-admin-runtime.mjs src/app/admin/pending-card-import/PendingCardImportClient.tsx
+            git add src/app/admin/page.tsx scripts/smoke-admin-runtime.mjs src/app/admin/pending-card-import/PendingCardImportClient.tsx scripts/run-admin-dashboard-actions-simulations.mjs
             git commit -m "Finalize permanent Card Intake workflow integration"
             git push origin HEAD:agent/permanent-card-intake-workflow
           fi
