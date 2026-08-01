@@ -370,6 +370,7 @@ export async function findChecklistRegistryMatch(ai: Record<string, any>) {
         "variation",
         "autograph_status",
         "memorabilia_status",
+        "version:checklist_versions!inner(id,is_active,status)",
         "set:checklist_sets(id,name,normalized_name)",
         "release:checklist_releases(id,product_name,release_year,season,brand:checklist_brands(name),sport:checklist_sports(name),league:checklist_leagues(name))",
         "players:checklist_card_players(display_order,player:checklist_players(canonical_name))",
@@ -378,6 +379,8 @@ export async function findChecklistRegistryMatch(ai: Record<string, any>) {
       ].join(","),
     )
     .eq("normalized_card_number", cardNumber)
+    .eq("version.is_active", true)
+    .eq("version.status", "live")
     .limit(150);
 
   if (error) {
