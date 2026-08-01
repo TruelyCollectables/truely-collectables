@@ -56,8 +56,10 @@ function cachedPayload(
   row: CacheRow,
   replay: Awaited<ReturnType<typeof materializeInstaCompCacheReplay>>,
 ) {
+  const replayPayload = replay.payload as Record<string, any>;
+
   return {
-    ...replay.payload,
+    ...replayPayload,
     ok: true,
     scanId: replay.scanId,
     knowledge: {
@@ -74,7 +76,7 @@ function cachedPayload(
       replayMaterializedAsNewScan: true,
     },
     note: [
-      replay.payload?.note,
+      replayPayload.note,
       "Tenant-scoped exact-image identity evidence was reused, but this request received a new permanent scan record and learning observation.",
     ]
       .filter(Boolean)
