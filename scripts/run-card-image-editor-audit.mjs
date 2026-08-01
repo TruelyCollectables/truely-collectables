@@ -26,7 +26,8 @@ const checks = [
   ],
   [
     "gateway refreshes image URLs and resets stale InstaComp values",
-    gateway.includes("frontImageUrl: frontImageUrl") &&
+    gateway.includes('const frontImageUrl = String(data.frontImageUrl || "")') &&
+      gateway.includes("frontImageUrl,") &&
       gateway.includes('instaCompStatus: "pending"'),
   ],
   [
