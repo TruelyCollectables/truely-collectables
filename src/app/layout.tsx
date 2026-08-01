@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { GeistMono } from "geist/font/mono";
 import { GeistSans } from "geist/font/sans";
+import GoogleCustomerReviewsBadge from "../components/GoogleCustomerReviewsBadge";
 import {
   STORE_BRAND_NAME,
   STORE_LEGAL_NAME,
@@ -88,6 +89,7 @@ export default function RootLayout({
         <AdminInstaCompMobileShortcut />
         {children}
         <Footer />
+        <GoogleCustomerReviewsBadge />
       </body>
     </html>
   );
