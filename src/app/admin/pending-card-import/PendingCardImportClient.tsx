@@ -195,6 +195,8 @@ export default function PendingCardImportClient() {
       return;
     }
 
+    const activeManifest = manifest;
+
     setWorking(true);
     setError("");
     setFailures([]);
@@ -219,9 +221,9 @@ export default function PendingCardImportClient() {
           const formData = new FormData();
           formData.append(
             "item",
-            JSON.stringify({ ...entry.item, batch_id: manifest.batch_id }),
+            JSON.stringify({ ...entry.item, batch_id: activeManifest.batch_id }),
           );
-          formData.append("batchId", manifest.batch_id);
+          formData.append("batchId", activeManifest.batch_id);
           formData.append("frontImage", entry.front!);
           if (entry.back) formData.append("backImage", entry.back);
 
