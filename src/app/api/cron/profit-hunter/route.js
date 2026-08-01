@@ -1,5 +1,9 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
+import {
+  RAW_PROSPECT_BALL_WATCH_NAME,
+  RAW_PROSPECT_BALL_WATCH_SCOPE,
+} from "../../../../lib/deal-hunter-ebay-query-families.js";
 import { isAuthorizedMarketIntelIngest } from "../../../../lib/market-intel-ingestion";
 import { sendRankedProfitHunterEmail } from "../../../../lib/profit-hunter-ranked-email.js";
 import {
@@ -24,6 +28,19 @@ function deploymentInfo() {
       String(process.env.VERCEL_GIT_COMMIT_SHA || "").slice(0, 12) || null,
     branch: process.env.VERCEL_GIT_COMMIT_REF || null,
     region: process.env.VERCEL_REGION || null,
+  };
+}
+
+function rawProspectBallWatchSchedule(schedule) {
+  return {
+    name: RAW_PROSPECT_BALL_WATCH_NAME,
+    enabled: true,
+    scope: RAW_PROSPECT_BALL_WATCH_SCOPE,
+    executionPath: "included_in_profit_hunter_server_cycle",
+    timeZone: schedule.timeZone,
+    scheduledHours: [...schedule.scheduledHours],
+    manualReviewRequired: true,
+    delivery: "ranked_shark_list_email",
   };
 }
 
@@ -92,6 +109,7 @@ async function runCycleWithoutLegacyEmail(perQuery) {
 
 async function run(request) {
   const schedule = getProfitHunterScheduleState();
+  const rawProspectBallWatch = rawProspectBallWatchSchedule(schedule);
   const statusOnly = request.nextUrl.searchParams.get("statusOnly") === "1";
   if (statusOnly) {
     return json({
@@ -101,6 +119,7 @@ async function run(request) {
       schedule,
       contract: PROFIT_HUNTER_SERVER_CONTRACT,
       executionPath: "vercel_server_cron",
+      rawProspectBallWatch,
       rankedEmail: {
         enabled: true,
         format: "ranked_clickable_shark_list_v1",
@@ -130,6 +149,7 @@ async function run(request) {
       code: "OUTSIDE_PROFIT_HUNTER_MOUNTAIN_SCHEDULE",
       deployment: deploymentInfo(),
       schedule,
+      rawProspectBallWatch,
     });
   }
 
@@ -194,6 +214,7 @@ async function run(request) {
       {
         ...result,
         ok,
+        rawProspectBallWatch,
         rankedEmail,
         rankedEmailState,
         deployment: deploymentInfo(),
@@ -212,6 +233,7 @@ async function run(request) {
             : "Unable to run Profit Hunter inside Vercel.",
         deployment: deploymentInfo(),
         schedule,
+        rawProspectBallWatch,
         forced: force,
       },
       500,
