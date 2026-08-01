@@ -399,7 +399,7 @@ async function runCardInstaComp(request: NextRequest, inventoryItemId: string) {
       listingPrice: suggestedPrice || null,
       searchQuery: text(payload.searchQuery, 500) || null,
       decision: {
-        action: text(decision.action, 80) || null,
+        action: text(decision.recommendation.action, 80) || null,
         listPrice: suggestedPrice || null,
       },
       sourceCoverage: Array.isArray(payload.sourceCoverage)
