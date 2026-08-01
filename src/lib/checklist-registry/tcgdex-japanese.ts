@@ -19,7 +19,7 @@ export const TCGDEX_JAPANESE_BUNDLE_SCHEMA =
   "tcos.tcgdex.japaneseSetBundle.v1" as const;
 export const TCGDEX_JAPANESE_ADAPTER_ID =
   "tcgdex-japanese-base-cards" as const;
-export const TCGDEX_JAPANESE_ADAPTER_VERSION = "1.0.0" as const;
+export const TCGDEX_JAPANESE_ADAPTER_VERSION = "1.0.1" as const;
 
 export type TcgdexJapaneseVariantEvidence = {
   type: string;
@@ -139,6 +139,113 @@ function buildJapaneseFingerprint(
   };
 }
 
+function databaseNormalizedCardNumber(value: string) {
+  return clean(value)
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}/]+/gu, "");
+}
+
+function databaseNormalizedVariation(value: string | null) {
+  return clean(value)
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^\p{L}\p{N}/]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function sourceIdFromNotes(sourceNotes: string | null) {
+  try {
+    const notes = JSON.parse(sourceNotes || "{}") as { sourceCardId?: unknown };
+    return clean(String(notes.sourceCardId || ""));
+  } catch {
+    return "";
+  }
+}
+
+function sourceBackedVariation(sourceId: string) {
+  return `TCGdex Source Variant ${sha256(sourceId).slice(0, 24)}`;
+}
+
+function rebuildJapaneseFingerprint(
+  fingerprint: ChecklistIdentityFingerprint,
+  variation: string,
+) {
+  const normalized = fingerprint.normalized;
+  return buildJapaneseFingerprint({
+    releaseYear: normalized.releaseYear || null,
+    season: normalized.season || null,
+    manufacturer: normalized.manufacturer,
+    brand: normalized.brand || null,
+    product: normalized.product,
+    sport: normalized.sport || null,
+    league: normalized.league || null,
+    setName: normalized.setName,
+    subset: normalized.subset || null,
+    cardNumber: normalized.cardNumber,
+    players: normalized.players,
+    teams: normalized.teams,
+    parallel: normalized.parallel,
+    variation,
+    serialRun: normalized.serialRun || null,
+    autographStatus: normalized.autographStatus,
+    memorabiliaStatus: normalized.memorabiliaStatus,
+    configurationExclusivity:
+      normalized.configurationExclusivity || null,
+  });
+}
+
+function disambiguateDatabaseCardKeys(
+  cards: ChecklistImportCard[],
+  identities: ChecklistImportPlan["identities"],
+  issues: ChecklistImportValidationIssue[],
+) {
+  const groups = new Map<string, ChecklistImportCard[]>();
+  for (const card of cards) {
+    const key = [
+      card.setSourceKey,
+      databaseNormalizedCardNumber(card.cardNumber),
+      databaseNormalizedVariation(card.variation),
+    ].join("\u0000");
+    const group = groups.get(key) || [];
+    group.push(card);
+    groups.set(key, group);
+  }
+
+  const variationBySourceKey = new Map<string, string>();
+  let collisionGroups = 0;
+  let disambiguatedCards = 0;
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    collisionGroups += 1;
+    for (const card of group) {
+      const sourceId = sourceIdFromNotes(card.sourceNotes) || card.sourceKey;
+      const variation = sourceBackedVariation(sourceId);
+      card.variation = variation;
+      variationBySourceKey.set(card.sourceKey, variation);
+      disambiguatedCards += 1;
+    }
+  }
+
+  if (!disambiguatedCards) return;
+  for (const identity of identities) {
+    const variation = variationBySourceKey.get(identity.cardSourceKey);
+    if (variation) {
+      identity.fingerprint = rebuildJapaneseFingerprint(
+        identity.fingerprint,
+        variation,
+      );
+    }
+  }
+
+  issue(
+    issues,
+    "database_card_key_disambiguated",
+    "warning",
+    `Added source-backed variations to ${disambiguatedCards} Japanese cards across ${collisionGroups} normalized card-number collision group${collisionGroups === 1 ? "" : "s"}.`,
+  );
+}
+
 function buildSourceNotes(
   bundle: TcgdexJapaneseSetBundle,
   card: TcgdexJapaneseBundleCard,
@@ -170,10 +277,19 @@ function extractBundle(parsed: unknown): TcgdexJapaneseSetBundle {
   }
   const candidate = parsed as Partial<TcgdexJapaneseSetBundle>;
   if (candidate.schema !== TCGDEX_JAPANESE_BUNDLE_SCHEMA) {
-    throw new Error(`Unsupported TCGdex Japanese schema: ${String(candidate.schema)}`);
+    throw new Error(
+      `Unsupported TCGdex Japanese schema: ${String(candidate.schema)}`,
+    );
   }
-  if (!candidate.set || !candidate.series || !candidate.source || !Array.isArray(candidate.cards)) {
-    throw new Error("TCGdex Japanese bundle is missing source, series, set, or cards.");
+  if (
+    !candidate.set ||
+    !candidate.series ||
+    !candidate.source ||
+    !Array.isArray(candidate.cards)
+  ) {
+    throw new Error(
+      "TCGdex Japanese bundle is missing source, series, set, or cards.",
+    );
   }
   return candidate as TcgdexJapaneseSetBundle;
 }
@@ -185,14 +301,26 @@ export function parseTcgdexJapaneseSetBundle(
   const issues: ChecklistImportValidationIssue[] = [];
 
   if (bundle.phase !== "base_cards") {
-    issue(issues, "phase_invalid", "error", "Phase 1 accepts base_cards bundles only.");
+    issue(
+      issues,
+      "phase_invalid",
+      "error",
+      "Phase 1 accepts base_cards bundles only.",
+    );
   }
   if (bundle.language !== "ja") {
-    issue(issues, "language_invalid", "error", "TCGdex Japanese bundles must use language ja.");
+    issue(
+      issues,
+      "language_invalid",
+      "error",
+      "TCGdex Japanese bundles must use language ja.",
+    );
   }
   if (
     artifact.authority === "approved_reference_dataset" &&
-    !/^https:\/\/github\.com\/tcgdex\/cards-database\b/i.test(artifact.sourceUrl)
+    !/^https:\/\/github\.com\/tcgdex\/cards-database\b/i.test(
+      artifact.sourceUrl,
+    )
   ) {
     issue(
       issues,
@@ -225,8 +353,9 @@ export function parseTcgdexJapaneseSetBundle(
     );
   }
 
-  const releaseSlug = comparable(`tcgdex-ja-${seriesId}-${setId}-${setName}`);
-  const setSourceKey = `tcgdex-ja-set:${sourceToken(seriesId)}:${sourceToken(setId)}`;
+  const releaseSlug = comparable(`tcgdex-ja-${seriesId}-${setId}`);
+  const setSourceKey =
+    `tcgdex-ja-set:${sourceToken(seriesId)}:${sourceToken(setId)}`;
   const storage = buildChecklistSourceStorageReceipt({
     manufacturerSlug: "pokemon",
     releaseSlug,
@@ -246,7 +375,6 @@ export function parseTcgdexJapaneseSetBundle(
   const cards: ChecklistImportCard[] = [];
   const identities: ChecklistImportPlan["identities"] = [];
   const sourceKeys = new Set<string>();
-  const fingerprints = new Set<string>();
   let variantEvidenceCount = 0;
 
   for (const [index, rawCard] of bundle.cards.entries()) {
@@ -265,7 +393,8 @@ export function parseTcgdexJapaneseSetBundle(
       continue;
     }
 
-    const cardSourceKey = `tcgdex-ja-card:${sourceToken(setId)}:${sourceToken(cardId)}`;
+    const cardSourceKey =
+      `tcgdex-ja-card:${sourceToken(setId)}:${sourceToken(cardId)}`;
     if (sourceKeys.has(cardSourceKey)) {
       issue(
         issues,
@@ -277,7 +406,9 @@ export function parseTcgdexJapaneseSetBundle(
       continue;
     }
     sourceKeys.add(cardSourceKey);
-    variantEvidenceCount += Array.isArray(rawCard.variants) ? rawCard.variants.length : 0;
+    variantEvidenceCount += Array.isArray(rawCard.variants)
+      ? rawCard.variants.length
+      : 0;
 
     cards.push({
       sourceKey: cardSourceKey,
@@ -293,39 +424,56 @@ export function parseTcgdexJapaneseSetBundle(
       sourceNotes: buildSourceNotes(bundle, rawCard),
     });
 
-    const fingerprint = buildJapaneseFingerprint({
-      releaseYear,
-      manufacturer: "The Pokémon Company",
-      brand: "Pokémon TCG",
-      product: setName,
-      sport: "Trading Card Game",
-      league: "Pokémon TCG",
-      setName,
-      cardNumber: localId,
-      players: [cardName],
-      parallel: null,
-      autographStatus: "non-auto",
-      memorabiliaStatus: "non-memorabilia",
+    identities.push({
+      cardSourceKey,
+      parallelSourceKey: null,
+      fingerprint: buildJapaneseFingerprint({
+        releaseYear,
+        manufacturer: "The Pokémon Company",
+        brand: "Pokémon TCG",
+        product: setName,
+        sport: "Trading Card Game",
+        league: "Pokémon TCG",
+        setName,
+        cardNumber: localId,
+        players: [cardName],
+        parallel: null,
+        autographStatus: "non-auto",
+        memorabiliaStatus: "non-memorabilia",
+      }),
     });
-    if (fingerprints.has(fingerprint.fingerprintSha256)) {
+  }
+
+  disambiguateDatabaseCardKeys(cards, identities, issues);
+  const fingerprints = new Set<string>();
+  for (const identity of identities) {
+    if (fingerprints.has(identity.fingerprint.fingerprintSha256)) {
       issue(
         issues,
         "duplicate_identity",
         "error",
-        `Duplicate Japanese exact identity for ${setName} #${localId} ${cardName}`,
-        rowReference,
+        `Duplicate Japanese exact identity after database-key normalization: ${identity.cardSourceKey}`,
       );
       continue;
     }
-    fingerprints.add(fingerprint.fingerprintSha256);
-    identities.push({ cardSourceKey, parallelSourceKey: null, fingerprint });
+    fingerprints.add(identity.fingerprint.fingerprintSha256);
   }
 
   if (!bundle.cards.length) {
-    issue(issues, "no_source_cards", "error", "Japanese set bundle contains no cards.");
+    issue(
+      issues,
+      "no_source_cards",
+      "error",
+      "Japanese set bundle contains no cards.",
+    );
   }
   if (!cards.length) {
-    issue(issues, "no_cards", "error", "No valid Japanese cards were imported.");
+    issue(
+      issues,
+      "no_cards",
+      "error",
+      "No valid Japanese cards were imported.",
+    );
   }
   if (
     Number.isInteger(bundle.set.officialCardCount) &&
