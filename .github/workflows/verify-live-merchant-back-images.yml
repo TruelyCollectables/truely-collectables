@@ -8,7 +8,7 @@ on:
       - ".github/workflows/verify-live-merchant-back-images.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   verify:
@@ -16,6 +16,9 @@ jobs:
     timeout-minutes: 10
 
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
       - name: Fetch uncached production feed
         run: |
           curl --fail --location \
@@ -34,6 +37,11 @@ jobs:
           const totalAdditionalImages = (
             xml.match(/<g:additional_image_link>/g) || []
           ).length;
+          const receipt = [
+            `verified_at=${new Date().toISOString()}`,
+            `commit=${process.env.GITHUB_SHA}`,
+            `additional_image_links=${totalAdditionalImages}`,
+          ];
 
           if (totalAdditionalImages === 0) {
             throw new Error("Live feed contains no g:additional_image_link attributes.");
@@ -65,11 +73,21 @@ jobs:
               throw new Error(`${productId} uses the same URL for front and back.`);
             }
 
-            console.log(`${productId}: front ${frontMatch[1]}`);
-            console.log(`${productId}: back  ${backMatch[1]}`);
+            receipt.push(`${productId}.front=${frontMatch[1]}`);
+            receipt.push(`${productId}.back=${backMatch[1]}`);
           }
 
-          console.log(`Feed includes ${totalAdditionalImages} additional image links.`);
+          fs.writeFileSync(
+            ".github/merchant-back-image-verification.txt",
+            `${receipt.join("\n")}\n`,
+          );
+          console.log(receipt.join("\n"));
           NODE
 
-# One-time release verification trigger.
+      - name: Commit verification receipt
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/merchant-back-image-verification.txt
+          git commit -m "Record live Merchant back-image verification [skip ci]"
+          git push
