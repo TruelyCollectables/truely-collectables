@@ -55,10 +55,24 @@ function main() {
     return;
   }
 
+  if (
+    !run(
+      "scripts/finalize-pokemon-japanese-official-verification.ts",
+      [
+        bundleDirectory,
+        "--receipt",
+        receipt,
+        "--queue",
+        queue,
+      ],
+    )
+  ) {
+    return;
+  }
+
   run(
-    "scripts/finalize-pokemon-japanese-official-verification.ts",
+    "scripts/quarantine-pokemon-japanese-reused-products.ts",
     [
-      bundleDirectory,
       "--receipt",
       receipt,
       "--queue",
