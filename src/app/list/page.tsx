@@ -29,16 +29,24 @@ export default function ListCardsPage() {
                 Upload photos. Run InstaComp™ on the cards you select. Edit the details and quantity. Then list one card, five cards, or every selected card.
               </p>
             </div>
-            <Link
-              href="/admin"
-              className="inline-flex min-h-12 items-center justify-center rounded-xl border-2 border-white bg-white px-5 py-3 font-black text-neutral-950"
-            >
-              Back to Admin
-            </Link>
+            <div className="flex flex-wrap gap-2">
+              <Link
+                href="/admin/pending-card-import"
+                className="inline-flex min-h-12 items-center justify-center rounded-xl bg-yellow-300 px-5 py-3 font-black text-neutral-950"
+              >
+                Import pending scan package
+              </Link>
+              <Link
+                href="/admin"
+                className="inline-flex min-h-12 items-center justify-center rounded-xl border-2 border-white bg-white px-5 py-3 font-black text-neutral-950"
+              >
+                Back to Admin
+              </Link>
+            </div>
           </div>
           <div className="mt-6 grid gap-3 sm:grid-cols-3">
             {[
-              ["1", "Upload photos"],
+              ["1", "Upload or import photos"],
               ["2", "Select and InstaComp"],
               ["3", "Review and list selected"],
             ].map(([number, label]) => (
