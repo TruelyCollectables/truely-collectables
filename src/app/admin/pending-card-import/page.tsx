@@ -19,7 +19,7 @@ export default function PendingCardImportPage() {
                 Permanent owner card workflow
               </p>
               <h1 className="mt-3 text-4xl font-black tracking-tight sm:text-6xl">
-                Card Intake & TCOS Listing Gateway
+                Card Intake & Listing — TCOS Gateway
               </h1>
               <p className="mt-3 max-w-4xl text-lg font-semibold leading-8 text-neutral-300">
                 Import any future front/back card package, watch live progress, run InstaComp 2.0 on stored images, remove bad drafts, review the queue, and distribute selected inventory to Truely Collectables or Truely Collectables + eBay.
