@@ -29,7 +29,7 @@ permissions:
 jobs:
   verify-tcgdex-japanese-phase1:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25
 
     steps:
       - name: Check out repository
@@ -50,8 +50,57 @@ jobs:
       - name: Run Japanese base-card adapter simulation
         run: npx tsx scripts/run-checklist-registry-tcgdex-japanese-simulations.ts
 
-      - name: Validate Japanese bundle without database writes
+      - name: Validate Japanese fixture without database writes
         run: >-
           npx tsx scripts/import-tcgdex-japanese-registry-bundles.ts
           scripts/fixtures/checklist-registry/tcgdex-japanese-set-bundle.fixture.json
-          --receipt .codex-run/tcgdex-ja-validation-receipt.json
+          --receipt .codex-run/tcgdex-ja-fixture-validation-receipt.json
+
+      - name: Check out current TCGdex source
+        run: >-
+          git clone --depth 1
+          https://github.com/tcgdex/cards-database.git
+          .codex-run/tcgdex-cards-database
+
+      - name: Build all Japanese set bundles from TCGdex
+        run: >-
+          npx tsx scripts/build-tcgdex-japanese-registry-bundles.ts
+          .codex-run/tcgdex-cards-database
+          .codex-run/tcgdex-ja-registry-bundles
+          --receipt .codex-run/tcgdex-ja-build-receipt.json
+
+      - name: Verify complete builder receipt
+        run: |
+          node - <<'NODE'
+          const receipt = require('./.codex-run/tcgdex-ja-build-receipt.json');
+          if (receipt.failedSets !== 0) throw new Error(`Japanese builder failures: ${receipt.failedSets}`);
+          if (receipt.builtSets < 1) throw new Error('Japanese builder produced no sets');
+          if (receipt.totals.cards < 1) throw new Error('Japanese builder produced no cards');
+          console.log(JSON.stringify({
+            builtSets: receipt.builtSets,
+            cards: receipt.totals.cards,
+            variantEvidence: receipt.totals.variantEvidence,
+            failedSets: receipt.failedSets,
+          }, null, 2));
+          NODE
+
+      - name: Validate every generated Japanese bundle
+        run: >-
+          npx tsx scripts/import-tcgdex-japanese-registry-bundles.ts
+          .codex-run/tcgdex-ja-registry-bundles
+          --continue-on-error
+          --receipt .codex-run/tcgdex-ja-full-validation-receipt.json
+
+      - name: Verify complete validation receipt
+        run: |
+          node - <<'NODE'
+          const receipt = require('./.codex-run/tcgdex-ja-full-validation-receipt.json');
+          if (receipt.failedFiles !== 0) throw new Error(`Japanese validation failures: ${receipt.failedFiles}`);
+          if (receipt.successfulFiles !== receipt.attemptedFiles) throw new Error('Not every Japanese bundle validated');
+          console.log(JSON.stringify({
+            attemptedFiles: receipt.attemptedFiles,
+            successfulFiles: receipt.successfulFiles,
+            failedFiles: receipt.failedFiles,
+            totals: receipt.totals,
+          }, null, 2));
+          NODE
