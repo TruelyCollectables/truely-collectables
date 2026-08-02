@@ -144,7 +144,7 @@ jobs:
       - run: node --import tsx scripts/run-ebay-oauth-state-simulations.ts
       - run: node scripts/audit-vercel-production-environment.mjs --self-test
       - run: node scripts/run-production-deploy-environment-gate-simulations.mjs
-      - run: npm run check:production-guardrails
+      - run: node scripts/run-production-guardrails-evidence-first.mjs
 
   fulfillment-post-purchase:
     name: Orders, fulfillment, notifications, payouts and buyer lifecycle
