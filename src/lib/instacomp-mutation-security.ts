@@ -22,6 +22,7 @@ export type InstaCompMutationSecurityDecision = {
 export class InstaCompMutationSecurityError extends Error {
   readonly code: string;
   readonly status = 403;
+  readonly statusCode = 403;
 
   constructor(code: string, message: string) {
     super(message);
