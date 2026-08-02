@@ -1,4 +1,4 @@
-name: Patch InstaComp Checklist Optional Evidence
+name: Patch InstaComp Exact Checklist Resolution
 
 on:
   pull_request:
@@ -7,6 +7,10 @@ on:
 
 permissions:
   contents: write
+
+concurrency:
+  group: patch-instacomp-exact-checklist
+  cancel-in-progress: true
 
 jobs:
   patch-validate-commit:
@@ -23,14 +27,35 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Patch deterministic checklist walk
+      - name: Patch exact checklist resolver
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
           p = Path('src/lib/instacomp-learning-server.ts')
           s = p.read_text()
-          replacements = {
+
+          def replace_once(old, new, label):
+              global s
+              if old not in s:
+                  raise SystemExit(f'Expected block not found: {label}')
+              s = s.replace(old, new, 1)
+
+          replace_once(
+          '''function checklistParallelTokens(value: unknown) {
+  return normalizedText(value)
+    .replace(/\\bcracked\\s+ice\\b/g, "ice")
+''',
+          '''function checklistParallelTokens(value: unknown) {
+  return normalizedText(value)
+    .replace(/\\bcracked\\s+ice\\b/g, "ice")
+    // Checklist publishers commonly use "Holo Blue" while scanners and
+    // marketplace titles say "Blue Foil". They describe the same finish family.
+    .replace(/\\bfoil\\b/g, "holo")
+''',
+          'holo/foil normalization')
+
+          replace_once(
           '''    if (teams.length && !targetTeam) continue;
     if (
       targetTeam &&
@@ -43,8 +68,9 @@ jobs:
     const registryLeague = normalizedText(release.league?.name);
     if (registrySport && (!targetSport || registrySport !== targetSport)) continue;
     if (registryLeague && targetLeague && registryLeague !== targetLeague) continue;
-''': '''    // Team, sport, and league are corroborating evidence. Missing OCR/AI
-    // observations must not discard an otherwise exact checklist card.
+''',
+          '''    // Team, sport, and league corroborate identity when observed.
+    // Missing optional OCR/AI evidence must not discard an otherwise exact card.
     if (
       targetTeam &&
       !teams.some((team: string) => normalizedText(team) === targetTeam)
@@ -57,24 +83,33 @@ jobs:
     if (registrySport && targetSport && registrySport !== targetSport) continue;
     if (registryLeague && targetLeague && registryLeague !== targetLeague) continue;
 ''',
+          'optional team/sport evidence')
+
+          replace_once(
           '''      const registryVariation = normalizedText(identity.variation || card.variation);
       if (registryVariation || targetVariation) {
         if (!registryVariation || !targetVariation || registryVariation !== targetVariation) {
           continue;
         }
       }
-''': '''      const registryVariation = normalizedText(identity.variation || card.variation);
-      // A positively observed variation must agree. An unreadable/missing
-      // variation is not allowed to erase an exact year/set/player/card/parallel match.
+''',
+          '''      const registryVariation = normalizedText(identity.variation || card.variation);
       if (targetVariation && registryVariation !== targetVariation) continue;
 ''',
+          'optional variation evidence')
+
+          replace_once(
           '''      if (registryLanguage || targetLanguage) {
         if (!registryLanguage || !targetLanguage || registryLanguage !== targetLanguage) {
           continue;
         }
       }
-''': '''      if (targetLanguage && registryLanguage !== targetLanguage) continue;
 ''',
+          '''      if (targetLanguage && registryLanguage !== targetLanguage) continue;
+''',
+          'optional language evidence')
+
+          replace_once(
           '''      if (registryConfiguration || targetConfiguration) {
         if (
           !registryConfiguration ||
@@ -84,39 +119,35 @@ jobs:
           continue;
         }
       }
-''': '''      if (
+''',
+          '''      if (
         targetConfiguration &&
         registryConfiguration !== targetConfiguration
       ) {
         continue;
       }
-'''
-          }
-          for old, new in replacements.items():
-              if old not in s:
-                  raise SystemExit('Expected checklist resolver block not found')
-              s = s.replace(old, new, 1)
-          marker = '''  for (const card of rows) {
+''',
+          'optional configuration evidence')
+
+          replace_once(
+          '''  for (const card of rows) {
     const players = Array.isArray(card.players)
-'''
-          replacement = '''  for (const card of rows) {
-    // The database query already scopes card number, but keep the resolver
-    // deterministic and safe when called directly or when PostgREST relations change.
+''',
+          '''  for (const card of rows) {
     if (normalizedCardNumber(card.card_number) !== normalizedCardNumber(ai.cardNumber)) {
       continue;
     }
 
     const players = Array.isArray(card.players)
-'''
-          if marker not in s:
-              raise SystemExit('Card loop marker not found')
-          s = s.replace(marker, replacement, 1)
+''',
+          'defensive card-number gate')
+
           p.write_text(s)
           PY
-      - name: Add live failure regression
+      - name: Add live Shedeur regression
         shell: bash
         run: |
-          cat > scripts/run-instacomp-checklist-optional-evidence-regressions.ts <<'TS'
+          cat > scripts/run-instacomp-live-shedeur-107-regression.ts <<'TS'
           import assert from "node:assert/strict";
           import { chooseRegistryMatch } from "../src/lib/instacomp-learning-server";
 
@@ -138,9 +169,9 @@ jobs:
             autograph_status: "none",
             memorabilia_status: "none",
             identities: [{
-              id: "shedeur-107-blue-199",
+              id: "shedeur-107-holo-blue-199",
               fingerprint_sha256: "a".repeat(64),
-              parallel: { name: "Blue Foil", serial_run: 199 },
+              parallel: { name: "Holo Blue", serial_run: 199 },
               variation: "Rookie",
               autograph_status: "none",
               memorabilia_status: "none",
@@ -159,48 +190,34 @@ jobs:
             serialNumber: "162/199",
             isAuto: false,
             isRelic: false,
-            // team, sport, league, variation, language and configuration were
-            // not reliably reported by the live scan and must remain optional.
           };
 
           assert.equal(
             chooseRegistryMatch(liveEvidence, [row])?.identityId,
-            "shedeur-107-blue-199",
-            "Exact checklist identity must survive missing optional observations",
+            "shedeur-107-holo-blue-199",
+            "Blue Foil observation must match official Holo Blue /199 checklist identity",
           );
-          assert.equal(
-            chooseRegistryMatch({ ...liveEvidence, cardNumber: "108" }, [row]),
-            null,
-            "Card number remains mandatory",
-          );
-          assert.equal(
-            chooseRegistryMatch({ ...liveEvidence, parallel: "Red Foil" }, [row]),
-            null,
-            "Visible color conflict remains a hard rejection",
-          );
-          assert.equal(
-            chooseRegistryMatch({ ...liveEvidence, serialNumber: "162/99" }, [row]),
-            null,
-            "Serial denominator conflict remains a hard rejection",
-          );
-          console.log("InstaComp optional checklist evidence regressions passed (4 assertions).");
+          assert.equal(chooseRegistryMatch({ ...liveEvidence, cardNumber: "108" }, [row]), null);
+          assert.equal(chooseRegistryMatch({ ...liveEvidence, parallel: "Red Foil" }, [row]), null);
+          assert.equal(chooseRegistryMatch({ ...liveEvidence, serialNumber: "162/99" }, [row]), null);
+          console.log("Live Shedeur #107 Holo Blue /199 regression passed (4 assertions).");
           TS
-      - name: Validate
+      - name: Validate source and production build
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder
         run: |
-          npx tsx scripts/run-instacomp-checklist-optional-evidence-regressions.ts
+          npx tsx scripts/run-instacomp-live-shedeur-107-regression.ts
           npx tsx scripts/run-instacomp-serial-color-gate-regressions.ts
           npx tsx scripts/run-instacomp-evidence-first-regressions.ts
-          npx eslint src/lib/instacomp-learning-server.ts scripts/run-instacomp-checklist-optional-evidence-regressions.ts
+          npx eslint src/lib/instacomp-learning-server.ts scripts/run-instacomp-live-shedeur-107-regression.ts
           npm run build
-      - name: Commit validated fix
+      - name: Commit validated source fix
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/lib/instacomp-learning-server.ts scripts/run-instacomp-checklist-optional-evidence-regressions.ts
+          git add src/lib/instacomp-learning-server.ts scripts/run-instacomp-live-shedeur-107-regression.ts
           if git diff --cached --quiet; then exit 0; fi
-          git commit -m "Fix checklist rejection on missing optional evidence"
+          git commit -m "Fix Shedeur 107 Holo Blue checklist resolution"
           git push origin HEAD:fix/instacomp-checklist-optional-evidence
