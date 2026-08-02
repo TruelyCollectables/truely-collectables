@@ -44,12 +44,12 @@ jobs:
                   raise SystemExit(f'core mutation import marker count was {source.count(import_marker)}')
               source = source.replace(import_marker, import_value, 1)
 
-          actor_marker = '''    const actor = await requireInstaCompJobActor(request);
-            persistentContext = await resolvePersistentScanContext({'''
-          actor_value = '''    const actor = await requireInstaCompJobActor(request);
-            assertTrustedInstaCompMutationRequest({ request, actor });
-            persistentContext = await resolvePersistentScanContext({'''
-          if 'assertTrustedInstaCompMutationRequest({ request, actor });' not in source:
+          actor_marker = '''    const actor = await requireInstaCompJobActor(req);
+            const rateLimit = await checkPublicEndpointRateLimit({'''
+          actor_value = '''    const actor = await requireInstaCompJobActor(req);
+            assertTrustedInstaCompMutationRequest({ request: req, actor });
+            const rateLimit = await checkPublicEndpointRateLimit({'''
+          if 'assertTrustedInstaCompMutationRequest({ request: req, actor });' not in source:
               if source.count(actor_marker) != 1:
                   raise SystemExit(f'core actor marker count was {source.count(actor_marker)}')
               source = source.replace(actor_marker, actor_value, 1)
