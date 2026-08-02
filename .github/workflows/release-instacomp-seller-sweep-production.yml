@@ -7,6 +7,7 @@ on:
       - ".github/workflows/release-instacomp-seller-sweep-production.yml"
       - "src/app/admin/instacomp/seller-sweep/**"
       - "src/app/api/admin/instacomp/seller-sweep/**"
+      - "src/app/api/internal/instacomp-seller-sweep-live-verify/**"
       - "src/lib/instacomp-seller-sweep-*.ts"
       - "supabase/migrations/20260802002500_instacomp_seller_sweeps.sql"
       - "scripts/run-instacomp-seller-sweep-*.mjs"
@@ -54,6 +55,9 @@ jobs:
           node scripts/run-instacomp-seller-sweep-contracts.mjs
           node --import tsx scripts/run-instacomp-seller-sweep-proof-simulations.ts
           node scripts/run-instacomp-seller-sweep-live-smoke.mjs --self-test
+          node --import tsx scripts/run-instacomp-seller-sweep-live-verifier-simulations.ts
+          grep -F 'INSTACOMP_SELLER_SWEEP_LIVE_VERIFY_SECRET' \
+            src/app/api/internal/instacomp-seller-sweep-live-verify/route.ts
           npm run verify:instacomp
           npx tsc --noEmit --pretty false
 
@@ -211,50 +215,78 @@ jobs:
           console.log("Production Seller Sweep schema, RLS, and service-role access verified.");
           NODE
 
+      - name: Provision temporary scoped runtime verification secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          secret_file="$RUNNER_TEMP/seller-sweep-release/live-verify-secret"
+          expires_at="$(( $(date +%s) + 2700 ))"
+          printf '%s.%s\n' "$expires_at" "$(openssl rand -hex 32)" > "$secret_file"
+          chmod 600 "$secret_file"
+          secret="$(cat "$secret_file")"
+          echo "::add-mask::$secret"
+          npx vercel@56.2.0 env add \
+            INSTACOMP_SELLER_SWEEP_LIVE_VERIFY_SECRET \
+            production \
+            --force \
+            --sensitive \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" < "$secret_file" >/dev/null
+
       - name: Deploy merged main to Production
+        id: temporary_deploy
         shell: bash
         run: |
           set -euo pipefail
           npm run deploy:production
 
-      - name: Prepare protected admin credential
-        shell: bash
-        env:
-          PRODUCTION_ENV_FILE: ${{ runner.temp }}/seller-sweep-release/production.env
-          ADMIN_PASSWORD_FILE: ${{ runner.temp }}/seller-sweep-release/admin-password
-        run: |
-          set -euo pipefail
-          node - "$PRODUCTION_ENV_FILE" "$ADMIN_PASSWORD_FILE" <<'NODE'
-          const fs = require("node:fs");
-          const text = fs.readFileSync(process.argv[2], "utf8");
-          const match = text.match(/^ADMIN_PASSWORD=(.*)$/m);
-          if (!match) throw new Error("ADMIN_PASSWORD is not present in Vercel Production.");
-          let value = match[1].trim();
-          if (value.startsWith('"')) value = JSON.parse(value);
-          else if (value.startsWith("'") && value.endsWith("'")) value = value.slice(1, -1);
-          if (!value) throw new Error("ADMIN_PASSWORD is empty in Vercel Production.");
-          fs.writeFileSync(process.argv[3], value, { mode: 0o600 });
-          NODE
-          password="$(cat "$ADMIN_PASSWORD_FILE")"
-          echo "::add-mask::$password"
-
-      - name: Run repository Production smoke
-        shell: bash
-        env:
-          ADMIN_PASSWORD_FILE: ${{ runner.temp }}/seller-sweep-release/admin-password
-        run: |
-          set -euo pipefail
-          password="$(cat "$ADMIN_PASSWORD_FILE")"
-          echo "::add-mask::$password"
-          SMOKE_ADMIN_PASSWORD="$password" npm run smoke:production
-
       - name: Run bounded live Miss Mels Seller Sweep
+        id: live_sweep
         shell: bash
         env:
-          SELLER_SWEEP_ADMIN_PASSWORD_FILE: ${{ runner.temp }}/seller-sweep-release/admin-password
+          SELLER_SWEEP_LIVE_VERIFY_SECRET_FILE: ${{ runner.temp }}/seller-sweep-release/live-verify-secret
         run: |
           set -euo pipefail
           node scripts/run-instacomp-seller-sweep-live-smoke.mjs
+
+      - name: Remove and prove absence of temporary runtime secret
+        id: remove_verify_secret
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          remove_log="$RUNNER_TEMP/seller-sweep-release/live-verify-secret-remove.log"
+          if ! npx vercel@56.2.0 env rm \
+            INSTACOMP_SELLER_SWEEP_LIVE_VERIFY_SECRET \
+            production \
+            --yes \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" >"$remove_log" 2>&1; then
+            cat "$remove_log"
+            if grep -Eqi 'not found|does not exist|no environment variable' "$remove_log"; then
+              echo "Temporary Seller Sweep verifier secret was already absent."
+            else
+              exit 1
+            fi
+          fi
+          env_list="$(npx vercel@56.2.0 env ls production \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" 2>&1)"
+          if printf '%s\n' "$env_list" | grep -Fq \
+            'INSTACOMP_SELLER_SWEEP_LIVE_VERIFY_SECRET'; then
+            echo "Temporary Seller Sweep verifier secret still exists in Production."
+            exit 1
+          fi
+          rm -f "$remove_log"
+          echo "Temporary Seller Sweep verifier secret removal verified."
+
+      - name: Redeploy clean Production without temporary secret
+        id: clean_deploy
+        if: always() && steps.remove_verify_secret.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run deploy:production
 
       - name: Remove protected temporary files
         if: always()
@@ -262,4 +294,5 @@ jobs:
         run: |
           rm -f \
             "$RUNNER_TEMP/seller-sweep-release/production.env" \
-            "$RUNNER_TEMP/seller-sweep-release/admin-password"
+            "$RUNNER_TEMP/seller-sweep-release/live-verify-secret" \
+            "$RUNNER_TEMP/seller-sweep-release/live-verify-secret-remove.log"
