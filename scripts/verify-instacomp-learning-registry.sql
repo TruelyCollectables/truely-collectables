@@ -76,6 +76,21 @@ begin
      or v_ai->>'parallel' <> 'Silver Prizm' then
     raise exception 'Partial operator correction erased base identity evidence: %', v_ai;
   end if;
+
+  -- A partial correction may update the candidate observation, but it must not
+  -- become trusted. Supply the complete explicit identity before promotion.
+  v_result := public.tcos_instacomp_confirm_scan_knowledge(
+    '10000000-0000-0000-0000-000000000001',
+    jsonb_build_object(
+      'player','Test Player',
+      'year','2026',
+      'brand','Test Brand',
+      'setName','Test Set',
+      'cardNumber','101',
+      'parallel','Silver Prizm'
+    ),
+    'operator_confirmed'
+  );
 end;
 $$;
 
@@ -114,7 +129,14 @@ begin
 
     v_result := public.tcos_instacomp_confirm_scan_knowledge(
       v_scan_id::text,
-      '{}'::jsonb,
+      jsonb_build_object(
+        'player','Test Player',
+        'year','2026',
+        'brand','Test Brand',
+        'setName','Test Set',
+        'cardNumber','101',
+        'parallel','Silver Prizm'
+      ),
       'operator_confirmed'
     );
   end loop;
@@ -127,7 +149,7 @@ begin
   if v_entry->>'trustStatus' <> 'tcos_trusted'
      or (v_entry->>'confirmedCount')::integer <> 3
      or (v_entry->>'observationCount')::integer <> 3 then
-    raise exception 'Three operator confirmations did not promote trust: %', v_entry;
+    raise exception 'Three explicit operator identities did not promote trust: %', v_entry;
   end if;
 end;
 $$;
@@ -152,6 +174,9 @@ begin
       'isRookie',true,'isAuto',false,'isRelic',false,'confidence',0.995
     ),
     jsonb_build_object(
+      'consensus',jsonb_build_object(
+        'trustedForIdentity',true
+      ),
       'catalogEvidence',jsonb_build_object(
         'status','catalog_confirmed','catalogConfirmed',true
       ),

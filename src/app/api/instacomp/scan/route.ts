@@ -22,7 +22,6 @@ import {
 } from "../../../../lib/instacomp-market-evidence";
 import {
   applyInstaCompConsensusToAi,
-  applyInstaCompRegistryFastLane,
   buildInstaCompMultiScannerConsensus,
   buildInstaCompReaderFindingFromAi,
   decideInstaCompCompSearch,
@@ -47,7 +46,6 @@ import {
 } from "../../../../lib/public-endpoint-rate-limit";
 import { applyInstaCompIdentityGuard } from "../../../../lib/instacomp-identity-guard";
 import {
-  buildInstaCompCuratedChecklistEvidence,
   catalogEvidenceToConsensusReferee,
 } from "../../../../lib/instacomp-curated-checklist";
 import { detectGradingDetails } from "../../../../lib/grading-cert";
@@ -55,7 +53,9 @@ import { normalizeInstaCompSideImages } from "../../../../lib/instacomp-image-or
 import { readValidatedInstaCompImage } from "../../../../lib/instacomp-image-safety";
 import {
   buildChecklistRegistryCatalogEvidence,
-  findChecklistRegistryMatch,
+  buildChecklistRegistryReviewEvidence,
+  buildInstaCompEvidenceIdentityDecision,
+  resolveChecklistRegistry,
 } from "../../../../lib/instacomp-learning-server";
 
 export const runtime = "nodejs";
@@ -218,6 +218,7 @@ type ExternalOcrResult = {
   text: string;
   serialNumber: string | null;
   checkedImages: number;
+  conflicts?: string[];
 };
 
 type InstaCompAiCouncilProvider =
@@ -445,32 +446,38 @@ async function getGoogleVisionOcr(
 async function getBestExternalOcr(
   images: InstaCompDetailImage[]
 ): Promise<ExternalOcrResult | null> {
-  const paddleOcr = await getPaddleOcr(images);
+  const [paddleOcr, googleVision] = await Promise.all([
+    getPaddleOcr(images),
+    getGoogleVisionOcr(images),
+  ]);
 
-  if (paddleOcr?.serialNumber) {
-    return paddleOcr;
-  }
+  if (!paddleOcr && !googleVision) return null;
 
-  const googleVision = await getGoogleVisionOcr(images);
+  const serials = Array.from(
+    new Set(
+      [paddleOcr?.serialNumber, googleVision?.serialNumber].filter(
+        (value): value is string => Boolean(value),
+      ),
+    ),
+  );
+  const conflicts =
+    serials.length > 1
+      ? [`serial_number_conflict:${serials.join("_vs_")}`]
+      : [];
+  const text = normalizeOcrText(
+    [paddleOcr?.text, googleVision?.text].filter(Boolean).join("\n"),
+  );
 
-  if (paddleOcr && googleVision?.serialNumber) {
-    const text = normalizeOcrText(
-      [paddleOcr.text, googleVision.text].filter(Boolean).join("\n")
-    );
-
-    return {
-      provider: `${paddleOcr.provider}+${googleVision.provider}`,
-      text,
-      serialNumber: googleVision.serialNumber,
-      checkedImages: paddleOcr.checkedImages + googleVision.checkedImages,
-    };
-  }
-
-  if (paddleOcr?.text || paddleOcr?.serialNumber) {
-    return paddleOcr;
-  }
-
-  return googleVision;
+  return {
+    provider: [paddleOcr?.provider, googleVision?.provider]
+      .filter(Boolean)
+      .join("+"),
+    text,
+    serialNumber: serials.length === 1 ? serials[0] : null,
+    checkedImages:
+      (paddleOcr?.checkedImages || 0) + (googleVision?.checkedImages || 0),
+    conflicts,
+  };
 }
 
 async function identifyCardWithOpenAI(
@@ -3645,27 +3652,15 @@ export async function POST(req: NextRequest) {
     const guardedAi = applyInstaCompIdentityGuard(mergedSerialAi, {
       externalOcrText: externalOcr?.text || null,
     });
-    const registryMatch = await findChecklistRegistryMatch(guardedAi);
-    const curatedCatalogEvidence = buildInstaCompCuratedChecklistEvidence({
-      ai: guardedAi,
-      externalOcrText: externalOcr?.text || null,
-    });
-    const catalogEvidence = registryMatch
-      ? buildChecklistRegistryCatalogEvidence(registryMatch)
-      : curatedCatalogEvidence;
-    const catalogReferee = catalogEvidenceToConsensusReferee(catalogEvidence);
     const baselineConsensusEscalation = decideInstaCompConsensusEscalation({
       ai: guardedAi,
       externalOcrText: externalOcr?.text || null,
       hasBackImage: Boolean(backDataUrl),
       pairingConfidence: persistentContext?.pairingConfidence ?? null,
     });
-    const consensusEscalation = registryMatch
-      ? applyInstaCompRegistryFastLane(
-          baselineConsensusEscalation,
-          registryMatch.identityId,
-        )
-      : baselineConsensusEscalation;
+    // Evidence-first scans never suppress independent readers because an early
+    // model guess happened to match a checklist row.
+    const consensusEscalation = baselineConsensusEscalation;
     const aiCouncilRaw = await runInstaCompAiCouncil({
       runSecondaryVision: consensusEscalation.runSecondaryVision,
       requestedTier: requestedAiCouncilTier,
@@ -3698,14 +3693,102 @@ export async function POST(req: NextRequest) {
       serialOcr: consensusSerialOcr,
       externalOcr,
     });
-    const consensus = buildInstaCompMultiScannerConsensus({
+    const evidenceConsensus = buildInstaCompMultiScannerConsensus({
       readers: consensusReaders,
       baseIdentity: guardedAi,
+      catalogReferee: null,
+      escalation: consensusEscalation,
+    });
+    const evidenceAi = applyInstaCompConsensusToAi(guardedAi, evidenceConsensus);
+    const checklistResolution = await resolveChecklistRegistry(evidenceAi, {
+      evidenceTrusted: evidenceConsensus.trustedForIdentity,
+    });
+    const registryMatch =
+      checklistResolution.status === "internal_exact_match"
+        ? checklistResolution.match
+        : null;
+    const catalogEvidence = registryMatch
+      ? buildChecklistRegistryCatalogEvidence(registryMatch)
+      : buildChecklistRegistryReviewEvidence(checklistResolution);
+    const catalogReferee = registryMatch
+      ? catalogEvidenceToConsensusReferee(catalogEvidence)
+      : null;
+    const consensus = buildInstaCompMultiScannerConsensus({
+      readers: consensusReaders,
+      baseIdentity: evidenceAi,
       catalogReferee,
       escalation: consensusEscalation,
     });
-    const ai = applyInstaCompConsensusToAi(guardedAi, consensus);
-    const compSearchDecision = decideInstaCompCompSearch(consensus);
+    const consensusAi = applyInstaCompConsensusToAi(evidenceAi, consensus);
+    const identityDecision = buildInstaCompEvidenceIdentityDecision({
+      resolution: checklistResolution,
+      consensus,
+      hasBackImage: Boolean(backDataUrl),
+      threshold: 0.95,
+    });
+    const registrySetIsGeneric = [
+      "",
+      "base",
+      "base card",
+      "standard",
+      "regular",
+    ].includes(
+      String(registryMatch?.setName || "")
+        .trim()
+        .toLowerCase(),
+    );
+    const registrySetName = registryMatch
+      ? registrySetIsGeneric
+        ? registryMatch.product || registryMatch.setName
+        : [registryMatch.product, registryMatch.setName]
+            .filter(Boolean)
+            .join(" - ")
+      : null;
+    const ai: InstaCompAiResult = registryMatch
+      ? {
+          ...consensusAi,
+          player: registryMatch.player || consensusAi.player,
+          year: registryMatch.year ? String(registryMatch.year) : consensusAi.year,
+          brand:
+            registryMatch.brand ||
+            registryMatch.manufacturer ||
+            consensusAi.brand,
+          setName: registrySetName || consensusAi.setName,
+          cardNumber: registryMatch.cardNumber || consensusAi.cardNumber,
+          parallel: registryMatch.parallel || consensusAi.parallel,
+          team: registryMatch.team || consensusAi.team,
+          sport: registryMatch.sport || consensusAi.sport,
+          isAuto: registryMatch.isAuto,
+          isRelic: registryMatch.isRelic,
+          confidence: identityDecision.confidence,
+          notes: [
+            consensusAi.notes,
+            `Evidence-first checklist status: ${checklistResolution.status}.`,
+            identityDecision.explanation,
+          ]
+            .filter(Boolean)
+            .join(" "),
+        }
+      : {
+          ...consensusAi,
+          confidence: identityDecision.confidence,
+          notes: [
+            consensusAi.notes,
+            `Evidence-first checklist status: ${checklistResolution.status}.`,
+            identityDecision.explanation,
+          ]
+            .filter(Boolean)
+            .join(" "),
+        };
+    const consensusCompSearchDecision = decideInstaCompCompSearch(consensus);
+    const compSearchDecision = identityDecision.confirmed
+      ? consensusCompSearchDecision
+      : {
+          allowed: false,
+          reason: "identity_review_required" as const,
+          explanation:
+            "Comp search is blocked until visible evidence proves one exact checklist identity at 95% or higher.",
+        };
 
     const queries = buildInstaCompQueries(ai);
     const links = buildCompLinks(queries.primary);
@@ -3749,17 +3832,29 @@ export async function POST(req: NextRequest) {
     const stats = verifiedStats;
     const soldStats = verifiedStats;
     const sourceCoverage = buildSourceCoverage(links, providers);
-    const checklistRegistrySnapshot = registryMatch
-      ? {
-          matched: true,
-          identityId: registryMatch.identityId,
-          fingerprintSha256: registryMatch.fingerprintSha256,
-          score: registryMatch.score,
-          sourceLabel: registryMatch.sourceLabel,
-        }
-      : null;
+    const checklistRegistrySnapshot = {
+      matched: Boolean(registryMatch),
+      identityId: registryMatch?.identityId || null,
+      fingerprintSha256: registryMatch?.fingerprintSha256 || null,
+      score: registryMatch?.score || null,
+      sourceLabel: registryMatch?.sourceLabel || "InstaComp Checklist Registry",
+      status: checklistResolution.status,
+      sourceTier: checklistResolution.sourceTier,
+      reasons: checklistResolution.reasons,
+      candidateCount: checklistResolution.candidateCount,
+      coveredReleaseIds: checklistResolution.coveredReleaseIds,
+      coveredVersionIds: checklistResolution.coveredVersionIds,
+      coveredSetIds: checklistResolution.coveredSetIds,
+      externalLookupEligible: checklistResolution.externalLookupEligible,
+      externalLookupAttempted: checklistResolution.externalLookupAttempted,
+      identityConfidence: identityDecision.confidence,
+      identityThreshold: identityDecision.threshold,
+      identityConfirmed: identityDecision.confirmed,
+    };
     const catalogEvidenceTrustedForLearning =
-      compSearchDecision.allowed && consensus.trustedForIdentity;
+      identityDecision.confirmed &&
+      compSearchDecision.allowed &&
+      consensus.trustedForIdentity;
 
     const scanId = ephemeralBenchmark
       ? null
@@ -3788,7 +3883,12 @@ export async function POST(req: NextRequest) {
           imageOrientation,
         });
 
-    const reviewReasons = scanReview.reviewReasons;
+    const reviewReasons = Array.from(
+      new Set([
+        ...scanReview.reviewReasons,
+        ...identityDecision.reviewReasons,
+      ]),
+    );
     const responsePayload = {
       ok: true,
       scanId,
@@ -3796,8 +3896,10 @@ export async function POST(req: NextRequest) {
       review: scanReview,
       consensus,
       consensusEscalation,
+      identityDecision,
       compSearchDecision,
       catalogEvidence,
+      checklistResolution,
       checklistRegistry: checklistRegistrySnapshot,
       imageOrientation,
       benchmarkDiagnostics: {
@@ -3810,6 +3912,7 @@ export async function POST(req: NextRequest) {
         googleVisionConfigured: Boolean(GOOGLE_VISION_API_KEY),
         provider: externalOcr?.provider || null,
         checkedImages: externalOcr?.checkedImages || 0,
+        conflicts: externalOcr?.conflicts || [],
         speedLane: consensusEscalation.speedLane,
         councilMode: consensusEscalation.councilMode,
         consensusRiskTier: consensusEscalation.riskTier,

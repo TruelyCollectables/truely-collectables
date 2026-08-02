@@ -49,6 +49,35 @@ export type RegistryMatch = {
   matchedEvidence: string[];
 };
 
+export type ChecklistRegistryLookupStatus =
+  | "internal_exact_match"
+  | "internal_set_present_no_exact_match"
+  | "internal_set_absent"
+  | "lookup_unavailable"
+  | "input_incomplete";
+
+export type ChecklistRegistryLookupResult = {
+  status: ChecklistRegistryLookupStatus;
+  match: RegistryMatch | null;
+  reasons: string[];
+  candidateCount: number;
+  coveredReleaseIds: string[];
+  coveredVersionIds: string[];
+  coveredSetIds: string[];
+  sourceTier: "internal" | "none";
+  externalLookupEligible: boolean;
+  externalLookupAttempted: false;
+};
+
+export type InstaCompEvidenceIdentityDecision = {
+  schema: "tcos.instacomp.evidenceIdentityDecision.v1";
+  confirmed: boolean;
+  confidence: number;
+  threshold: number;
+  reviewReasons: string[];
+  explanation: string;
+};
+
 const CACHE_TABLE = "instacomp_scan_knowledge_cache";
 const OBSERVATION_TABLE = "tcos_card_knowledge_observations";
 const ENTRY_TABLE = "tcos_card_knowledge_entries";
@@ -730,20 +759,256 @@ export function chooseRegistryMatch(
   return matches.size === 1 ? [...matches.values()][0] : null;
 }
 
-export async function findChecklistRegistryMatch(ai: Record<string, any>) {
-  const cardNumber = normalizedCardNumber(ai.cardNumber);
+export function buildChecklistRegistryReviewEvidence(
+  resolution: ChecklistRegistryLookupResult,
+): InstaCompCatalogEvidenceSnapshot {
+  const source = "instacomp_checklist_registry";
+  const sourceLabel = "InstaComp Checklist Registry";
+  const externalReason =
+    resolution.status === "internal_set_absent"
+      ? "The requested set is absent internally. An approved external checklist provider is required, but no production external provider is configured in this scan path."
+      : null;
+  const reviewReasons = Array.from(
+    new Set([
+      ...resolution.reasons,
+      ...(externalReason ? ["approved_external_checklist_provider_not_configured"] : []),
+    ]),
+  );
+
+  return {
+    schema: "tcos.instacomp.catalogEvidence.v1",
+    capturedAt: new Date().toISOString(),
+    status: "review_required",
+    operatorState: "needs_review",
+    catalogConfirmed: false,
+    selectedMatch: null,
+    alternateMatches: [],
+    providerSummaries: [
+      {
+        source,
+        sourceLabel,
+        policyStatus: "approved",
+        resultStatus: "fulfilled",
+        candidateCount: resolution.candidateCount,
+        usableCandidateCount: 0,
+        reasons: reviewReasons,
+      },
+    ],
+    providerWarnings: externalReason ? [externalReason] : [],
+    reviewReasons,
+    suggestedQuestion: null,
+    operatorAction:
+      resolution.status === "internal_set_present_no_exact_match"
+        ? "Use the visible card evidence to resolve the internal checklist contradiction. Do not search externally."
+        : resolution.status === "internal_set_absent"
+          ? "Configure and query an approved external checklist provider before identity confirmation."
+          : "Capture clearer front/back evidence and retry. Do not guess.",
+    safeUseBoundary:
+      "No exact identity is confirmed. Exact comps, pricing, listing creation, and reusable learning are blocked.",
+    actionPermissions: {
+      exactCompSearchAllowed: false,
+      trustedForExactComps: false,
+      publicListingClaimAllowed: false,
+      autoPriceAllowed: false,
+      tradeValueRecommendationAllowed: false,
+    },
+    compIdentity: null,
+    sourceAttribution: {
+      source,
+      sourceLabel,
+      sourceUrl: "tcos://instacomp/checklist-registry",
+      catalogId: null,
+    },
+    auditFlags: [
+      "evidence_first",
+      "internal_checklist_first",
+      "no_guessing",
+      "exact_comps_blocked",
+    ],
+  } as unknown as InstaCompCatalogEvidenceSnapshot;
+}
+
+function evidenceTextIsUncertain(value: unknown) {
+  return /\b(uncertain|unknown|unsure|not sure|cannot confirm|ambiguous|maybe|possibly|exact type uncertain)\b/i.test(
+    String(value || ""),
+  );
+}
+
+function checklistSetCoverageMatches(
+  ai: Record<string, any>,
+  row: Record<string, any>,
+) {
+  const release = record(row.release);
+  const manufacturer = record(release.manufacturer);
+  const brand = record(release.brand);
+  const sport = record(release.sport);
+  const league = record(release.league);
+  const targetYear = yearStart(ai.year);
+  const targetBrand = normalizedText(ai.brand);
+  const targetSetTokens = new Set(meaningfulTokens(ai.setName));
+
+  const releaseYear = release.release_year || release.season || null;
+  if (yearStart(releaseYear) !== targetYear) return false;
+
+  const registryBrandText = normalizedText(
+    [
+      manufacturer.name,
+      brand.name,
+      release.product_name,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+  if (!registryBrandText.includes(targetBrand)) return false;
+
+  const registrySetTokens = new Set(
+    meaningfulTokens(
+      [
+        brand.name,
+        release.product_name,
+        row.name,
+        sport.name,
+        league.name,
+      ]
+        .filter(Boolean)
+        .join(" "),
+    ),
+  );
+
+  return [...targetSetTokens].every((token) => registrySetTokens.has(token));
+}
+
+export async function resolveChecklistRegistry(
+  ai: Record<string, any>,
+  options: { evidenceTrusted?: boolean } = {},
+): Promise<ChecklistRegistryLookupResult> {
+  const year = yearStart(ai.year);
+  const brand = normalizedText(ai.brand);
+  const setTokens = meaningfulTokens(ai.setName);
+  const requiredSetEvidence = [ai.year, ai.brand, ai.setName];
+
   if (
-    !cardNumber ||
-    !normalizedText(ai.player) ||
-    !yearStart(ai.year) ||
-    !normalizedText(ai.brand) ||
-    !meaningfulTokens(ai.setName).length
+    !year ||
+    !brand ||
+    !setTokens.length ||
+    requiredSetEvidence.some(evidenceTextIsUncertain)
   ) {
-    return null;
+    return {
+      status: "input_incomplete",
+      match: null,
+      reasons: ["missing_or_uncertain_visible_set_identity_evidence"],
+      candidateCount: 0,
+      coveredReleaseIds: [],
+      coveredVersionIds: [],
+      coveredSetIds: [],
+      sourceTier: "none",
+      externalLookupEligible: false,
+      externalLookupAttempted: false,
+    };
   }
 
   const supabase = serviceClient();
-  const { data, error } = await supabase
+  const { data: setRows, error: setError } = await supabase
+    .from("checklist_sets")
+    .select(
+      [
+        "id",
+        "name",
+        "normalized_name",
+        "release_id",
+        "version_id",
+        "version:checklist_versions!inner(id,is_active,status)",
+        "release:checklist_releases!inner(id,product_name,release_year,season,manufacturer:checklist_manufacturers(name),brand:checklist_brands(name),sport:checklist_sports(name),league:checklist_leagues(name))",
+      ].join(","),
+    )
+    .eq("version.is_active", true)
+    .eq("version.status", "live")
+    .limit(5000);
+
+  if (setError) {
+    console.error("Checklist Registry set-coverage lookup failed:", setError);
+    return {
+      status: "lookup_unavailable",
+      match: null,
+      reasons: [`internal_checklist_lookup_failed:${String(setError.code || "unknown")}`],
+      candidateCount: 0,
+      coveredReleaseIds: [],
+      coveredVersionIds: [],
+      coveredSetIds: [],
+      sourceTier: "none",
+      externalLookupEligible: false,
+      externalLookupAttempted: false,
+    };
+  }
+
+  const coveredSets = (setRows || []).filter((row: any) =>
+    checklistSetCoverageMatches(ai, row),
+  );
+  const coveredReleaseIds = Array.from(
+    new Set(coveredSets.map((row: any) => String(row.release_id)).filter(Boolean)),
+  );
+  const coveredVersionIds = Array.from(
+    new Set(coveredSets.map((row: any) => String(row.version_id)).filter(Boolean)),
+  );
+  const coveredSetIds = Array.from(
+    new Set(coveredSets.map((row: any) => String(row.id)).filter(Boolean)),
+  );
+
+  if (!coveredSetIds.length) {
+    if (options.evidenceTrusted !== true) {
+      return {
+        status: "input_incomplete",
+        match: null,
+        reasons: [
+          "set_not_found_internally_but_visible_set_identity_is_not_trusted_enough_for_external_fallback",
+        ],
+        candidateCount: 0,
+        coveredReleaseIds: [],
+        coveredVersionIds: [],
+        coveredSetIds: [],
+        sourceTier: "none",
+        externalLookupEligible: false,
+        externalLookupAttempted: false,
+      };
+    }
+
+    return {
+      status: "internal_set_absent",
+      match: null,
+      reasons: ["internal_checklist_does_not_contain_this_particular_set"],
+      candidateCount: 0,
+      coveredReleaseIds: [],
+      coveredVersionIds: [],
+      coveredSetIds: [],
+      sourceTier: "none",
+      externalLookupEligible: true,
+      externalLookupAttempted: false,
+    };
+  }
+
+  const cardNumber = normalizedCardNumber(ai.cardNumber);
+  const player = normalizedText(ai.player);
+  if (
+    !cardNumber ||
+    !player ||
+    evidenceTextIsUncertain(ai.cardNumber) ||
+    evidenceTextIsUncertain(ai.player)
+  ) {
+    return {
+      status: "internal_set_present_no_exact_match",
+      match: null,
+      reasons: ["internal_set_present_but_visible_player_or_card_number_is_missing_or_uncertain"],
+      candidateCount: 0,
+      coveredReleaseIds,
+      coveredVersionIds,
+      coveredSetIds,
+      sourceTier: "internal",
+      externalLookupEligible: false,
+      externalLookupAttempted: false,
+    };
+  }
+
+  const { data: cards, error: cardError } = await supabase
     .from("checklist_cards")
     .select(
       [
@@ -764,15 +1029,177 @@ export async function findChecklistRegistryMatch(ai: Record<string, any>) {
     .eq("normalized_card_number", cardNumber)
     .eq("version.is_active", true)
     .eq("version.status", "live")
-    .limit(150);
+    .in("release_id", coveredReleaseIds)
+    .in("version_id", coveredVersionIds)
+    .in("set_id", coveredSetIds)
+    .limit(500);
 
-  if (error) {
-    if (["42P01", "42703", "PGRST205"].includes(String(error.code || ""))) return null;
-    console.error("Checklist Registry lookup failed:", error);
-    return null;
+  if (cardError) {
+    console.error("Checklist Registry exact-card lookup failed:", cardError);
+    return {
+      status: "lookup_unavailable",
+      match: null,
+      reasons: [`internal_checklist_card_lookup_failed:${String(cardError.code || "unknown")}`],
+      candidateCount: 0,
+      coveredReleaseIds,
+      coveredVersionIds,
+      coveredSetIds,
+      sourceTier: "internal",
+      externalLookupEligible: false,
+      externalLookupAttempted: false,
+    };
   }
 
-  return chooseRegistryMatch(ai, data || []);
+  const cardRows = cards || [];
+  const candidateCount = cardRows.reduce(
+    (total: number, card: any) =>
+      total + (Array.isArray(card.identities) ? card.identities.length : 0),
+    0,
+  );
+  const match = chooseRegistryMatch(ai, cardRows);
+
+  if (match) {
+    return {
+      status: "internal_exact_match",
+      match,
+      reasons: ["one_internal_checklist_identity_matches_all_available_visible_evidence"],
+      candidateCount: 1,
+      coveredReleaseIds,
+      coveredVersionIds,
+      coveredSetIds,
+      sourceTier: "internal",
+      externalLookupEligible: false,
+      externalLookupAttempted: false,
+    };
+  }
+
+  return {
+    status: "internal_set_present_no_exact_match",
+    match: null,
+    reasons: [
+      cardRows.length
+        ? "internal_set_present_but_no_unique_identity_matches_every_visible_fact"
+        : "internal_set_present_but_card_number_not_found",
+    ],
+    candidateCount,
+    coveredReleaseIds,
+    coveredVersionIds,
+    coveredSetIds,
+    sourceTier: "internal",
+    externalLookupEligible: false,
+    externalLookupAttempted: false,
+  };
+}
+
+export async function findChecklistRegistryMatch(ai: Record<string, any>) {
+  const resolution = await resolveChecklistRegistry(ai, {
+    evidenceTrusted: true,
+  });
+  return resolution.status === "internal_exact_match" ? resolution.match : null;
+}
+
+export function buildInstaCompEvidenceIdentityDecision(params: {
+  resolution: ChecklistRegistryLookupResult;
+  consensus: Record<string, any>;
+  hasBackImage: boolean;
+  threshold?: number;
+}): InstaCompEvidenceIdentityDecision {
+  const threshold =
+    typeof params.threshold === "number" && Number.isFinite(params.threshold)
+      ? Math.max(0.5, Math.min(1, params.threshold))
+      : 0.95;
+  const resolution = params.resolution;
+  const consensus = record(params.consensus);
+  const finalIdentity = record(consensus.finalIdentity);
+  const councilReadiness = record(consensus.councilReadiness);
+  const fieldDecisions = Array.isArray(consensus.fieldDecisions)
+    ? consensus.fieldDecisions.map(record)
+    : [];
+  const match = resolution.match;
+  const exactInternalMatch =
+    resolution.status === "internal_exact_match" && Boolean(match);
+  const consensusTrusted = consensus.trustedForIdentity === true;
+  const requiredFields = ["player", "year", "brand", "setName", "cardNumber"];
+  const presentRequiredFields = requiredFields.filter(
+    (field) => hasMeaningfulValue(finalIdentity[field]),
+  );
+  const criticalDecisionFields = [
+    "player",
+    "year",
+    "setName",
+    "cardNumber",
+    ...(match?.serialRun ? ["serialNumber"] : []),
+  ];
+  const criticalDecisionsConflictFree = criticalDecisionFields.every((field) => {
+    const decision = fieldDecisions.find((item) => item.field === field);
+    return decision && decision.status !== "review_required";
+  });
+  const councilNotBlocked = councilReadiness.status !== "review_required";
+  const visibleSerialRun = String(finalIdentity.serialNumber || "").match(
+    /\/\s*(\d{1,7})\b/,
+  )?.[1];
+  const serialConsistent = match
+    ? match.serialRun
+      ? Number(visibleSerialRun) === match.serialRun
+      : !visibleSerialRun
+    : false;
+  const markersConsistent = match
+    ? finalIdentity.isAuto === match.isAuto &&
+      finalIdentity.isRelic === match.isRelic
+    : false;
+
+  let confidence = 0;
+  if (exactInternalMatch) confidence += 0.4;
+  if (consensusTrusted) confidence += 0.2;
+  if (params.hasBackImage) confidence += 0.1;
+  confidence += (presentRequiredFields.length / requiredFields.length) * 0.1;
+  if (criticalDecisionsConflictFree) confidence += 0.1;
+  if (councilNotBlocked) confidence += 0.05;
+  if (serialConsistent) confidence += 0.025;
+  if (markersConsistent) confidence += 0.025;
+  confidence = Math.max(0, Math.min(1, Number(confidence.toFixed(3))));
+
+  const reviewReasons: string[] = [];
+  if (!exactInternalMatch) reviewReasons.push(...resolution.reasons);
+  if (!consensusTrusted) reviewReasons.push("scanner_evidence_consensus_not_trusted");
+  if (!params.hasBackImage) reviewReasons.push("back_image_required");
+  if (presentRequiredFields.length !== requiredFields.length) {
+    reviewReasons.push("required_visible_identity_fields_missing");
+  }
+  if (!criticalDecisionsConflictFree) {
+    reviewReasons.push("critical_visible_evidence_conflict");
+  }
+  if (!councilNotBlocked) reviewReasons.push("required_scanner_council_not_ready");
+  if (exactInternalMatch && !serialConsistent) {
+    reviewReasons.push("serial_denominator_conflicts_with_checklist");
+  }
+  if (exactInternalMatch && !markersConsistent) {
+    reviewReasons.push("autograph_or_relic_status_conflicts_with_checklist");
+  }
+  if (confidence < threshold) {
+    reviewReasons.push(`identity_confidence_below_${Math.round(threshold * 100)}_percent`);
+  }
+
+  const confirmed =
+    exactInternalMatch &&
+    consensusTrusted &&
+    params.hasBackImage &&
+    criticalDecisionsConflictFree &&
+    councilNotBlocked &&
+    serialConsistent &&
+    markersConsistent &&
+    confidence >= threshold;
+
+  return {
+    schema: "tcos.instacomp.evidenceIdentityDecision.v1",
+    confirmed,
+    confidence,
+    threshold,
+    reviewReasons: Array.from(new Set(reviewReasons)),
+    explanation: confirmed
+      ? "One internal checklist identity matches the reconciled front/back evidence with no critical contradiction."
+      : "Identity remains blocked because the evidence does not yet prove one exact checklist identity at the required threshold.",
+  };
 }
 
 export async function saveInstaCompLearningCache(params: {
