@@ -62,8 +62,11 @@ assert.equal(material.actionableDeals.length, 1);
 
 const fingerprintA = fingerprintKingmakerMorningIntelligence(materialInput);
 const fingerprintB = fingerprintKingmakerMorningIntelligence({
-  ...materialInput,
-  generatedAt: "2030-01-01T00:00:00.000Z",
+  truthReady: materialInput.truthReady,
+  truthWarnings: materialInput.truthWarnings,
+  meaningfulChanges: materialInput.meaningfulChanges,
+  portfolioMovements: materialInput.portfolioMovements,
+  systemWarnings: materialInput.systemWarnings,
   actionableDeals: materialInput.actionableDeals.map((item) => ({
     ...item,
     observedAt: "2030-01-01T00:00:00.000Z",
