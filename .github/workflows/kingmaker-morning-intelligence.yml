@@ -1,0 +1,40 @@
+name: KINGMAKER Morning Intelligence
+
+on:
+  pull_request:
+    paths:
+      - "src/lib/kingmaker-morning-intelligence.ts"
+      - "src/lib/kingmaker-morning-intelligence-email.ts"
+      - "scripts/run-kingmaker-morning-intelligence-regressions.ts"
+      - "scripts/run-kingmaker-morning-intelligence-email-regressions.ts"
+      - ".github/workflows/kingmaker-morning-intelligence.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-morning-intelligence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Core regressions
+        run: node --import tsx scripts/run-kingmaker-morning-intelligence-regressions.ts
+      - name: Email regressions
+        run: node --import tsx scripts/run-kingmaker-morning-intelligence-email-regressions.ts
+      - name: Lint
+        run: npx eslint src/lib/kingmaker-morning-intelligence.ts src/lib/kingmaker-morning-intelligence-email.ts scripts/run-kingmaker-morning-intelligence-regressions.ts scripts/run-kingmaker-morning-intelligence-email-regressions.ts
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Production build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-placeholder
+          SUPABASE_SERVICE_ROLE_KEY: build-placeholder
+        run: npm run build
