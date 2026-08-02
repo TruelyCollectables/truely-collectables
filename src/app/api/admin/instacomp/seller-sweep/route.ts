@@ -1,8 +1,19 @@
 import { NextResponse } from "next/server";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
 
 export const dynamic = "force-dynamic";
 
 const EBAY_API = "https://api.ebay.com";
+const TARGET_PLAYERS = [
+  "Paige Bueckers",
+  "Sonia Citron",
+  "Kiki Iriafen",
+  "Dominique Malonga",
+  "Cameron Brink",
+  "Angel Reese",
+  "Hailey Van Lith",
+  "Aneesah Morrow",
+];
 
 function extractSeller(input: string) {
   const trimmed = input.trim();
@@ -50,29 +61,66 @@ function numeric(value: unknown) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function uniqueImages(item: any) {
+  const urls = [
+    item?.image?.imageUrl,
+    ...(Array.isArray(item?.additionalImages)
+      ? item.additionalImages.map((image: any) => image?.imageUrl)
+      : []),
+  ].filter((value): value is string => typeof value === "string" && value.length > 0);
+  return [...new Set(urls)];
+}
+
+function titleTargets(title: string) {
+  const lower = title.toLowerCase();
+  return TARGET_PLAYERS.filter((player) => lower.includes(player.toLowerCase()));
+}
+
+async function mapWithConcurrency<T, R>(
+  values: T[],
+  concurrency: number,
+  mapper: (value: T, index: number) => Promise<R>
+) {
+  const results = new Array<R>(values.length);
+  let cursor = 0;
+  async function worker() {
+    while (true) {
+      const index = cursor++;
+      if (index >= values.length) return;
+      results[index] = await mapper(values[index], index);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, values.length) }, worker));
+  return results;
+}
+
 export async function POST(request: Request) {
+  const sweepId = crypto.randomUUID();
   try {
     const body = await request.json();
-    const seller = extractSeller(String(body?.sellerUrl || ""));
+    const sellerUrl = String(body?.sellerUrl || "").trim();
+    const seller = extractSeller(sellerUrl);
     const query = String(body?.query || "WNBA lot").trim() || "WNBA lot";
     const token = await getBrowseToken();
+    const headers = {
+      Authorization: `Bearer ${token}`,
+      "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
+    };
     const params = new URLSearchParams({
       q: query,
       limit: "200",
       filter: `sellers:{${seller}}`,
     });
     const response = await fetch(`${EBAY_API}/buy/browse/v1/item_summary/search?${params}`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
-      },
+      headers,
       cache: "no-store",
     });
     const data = await response.json();
     if (!response.ok) {
       throw new Error(data?.errors?.[0]?.message || `eBay Browse failed (${response.status}).`);
     }
-    const listings = (data.itemSummaries || []).map((item: any) => ({
+
+    const summaries = (data.itemSummaries || []).map((item: any) => ({
       itemId: String(item.itemId || ""),
       title: String(item.title || "Untitled listing"),
       itemWebUrl: String(item.itemWebUrl || item.itemAffiliateWebUrl || "#"),
@@ -82,16 +130,110 @@ export async function POST(request: Request) {
       currency: item.price?.currency || "USD",
       endDate: item.itemEndDate || null,
     }));
+
+    const listings = await mapWithConcurrency(summaries, 6, async (summary) => {
+      try {
+        const detailResponse = await fetch(
+          `${EBAY_API}/buy/browse/v1/item/${encodeURIComponent(summary.itemId)}`,
+          { headers, cache: "no-store" }
+        );
+        const detail = await detailResponse.json();
+        if (!detailResponse.ok) {
+          throw new Error(detail?.errors?.[0]?.message || `getItem failed (${detailResponse.status})`);
+        }
+        const imageUrls = uniqueImages(detail);
+        return {
+          ...summary,
+          imageUrl: imageUrls[0] || summary.imageUrl,
+          imageUrls,
+          imageCount: imageUrls.length,
+          status: "photos_ready" as const,
+          targetPlayers: titleTargets(summary.title),
+          error: null,
+        };
+      } catch (error) {
+        const fallbackImages = summary.imageUrl ? [summary.imageUrl] : [];
+        return {
+          ...summary,
+          imageUrls: fallbackImages,
+          imageCount: fallbackImages.length,
+          status: "photo_error" as const,
+          targetPlayers: titleTargets(summary.title),
+          error: error instanceof Error ? error.message : "Could not retrieve listing photos.",
+        };
+      }
+    });
+
+    const photosReady = listings.filter((listing) => listing.status === "photos_ready").length;
+    const failed = listings.length - photosReady;
+    let persistenceWarning: string | null = null;
+
+    try {
+      const supabase = createSupabaseServerClient({ admin: true });
+      const { error: sweepError } = await supabase.from("instacomp_seller_sweeps").insert({
+        id: sweepId,
+        seller_name: seller,
+        seller_url: sellerUrl,
+        search_query: query,
+        status: failed > 0 ? "photos_ready_with_errors" : "photos_ready",
+        progress: listings.length ? 55 : 20,
+        total_listings: listings.length,
+        collected_listings: listings.length,
+        photos_ready_listings: photosReady,
+        failed_listings: failed,
+      });
+      if (sweepError) throw sweepError;
+
+      if (listings.length) {
+        const { error: listingError } = await supabase
+          .from("instacomp_seller_sweep_listings")
+          .insert(
+            listings.map((listing) => ({
+              id: crypto.randomUUID(),
+              sweep_id: sweepId,
+              ebay_item_id: listing.itemId,
+              title: listing.title,
+              item_url: listing.itemWebUrl,
+              currency: listing.currency,
+              current_price: listing.price,
+              shipping_price: listing.shipping,
+              end_date: listing.endDate,
+              image_urls: listing.imageUrls,
+              image_count: listing.imageCount,
+              status: listing.status,
+              target_players: listing.targetPlayers,
+              error_message: listing.error,
+            }))
+          );
+        if (listingError) throw listingError;
+      }
+    } catch (error) {
+      persistenceWarning =
+        error instanceof Error
+          ? `Listings were collected, but the sweep could not be saved yet: ${error.message}`
+          : "Listings were collected, but the sweep could not be saved yet.";
+    }
+
     return NextResponse.json({
+      sweepId,
       seller,
       query,
       total: listings.length,
+      photosReady,
+      failed,
+      progress: 55,
+      status: failed > 0 ? "photos_ready_with_errors" : "photos_ready",
       listings,
-      nextStep: "The next worker will download every listing image, split multi-card photos, run InstaComp identity, and calculate lot ROI.",
+      persistenceWarning,
+      nextStep:
+        "Photos are staged. The next worker will segment multi-card images, run InstaComp identity and comps, then rank ROI.",
     });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Seller Sweep failed." },
+      {
+        sweepId,
+        error: error instanceof Error ? error.message : "Seller Sweep failed.",
+      },
       { status: 400 }
     );
   }
