@@ -5,12 +5,20 @@ const extractor = readFileSync(
   "src/lib/instacomp-seller-sweep-identify.ts",
   "utf8",
 );
+const economics = readFileSync(
+  "src/lib/instacomp-seller-sweep-economics.ts",
+  "utf8",
+);
 const collector = readFileSync(
   "src/app/api/admin/instacomp/seller-sweep/route.ts",
   "utf8",
 );
 const processor = readFileSync(
   "src/app/api/admin/instacomp/seller-sweep/process/route.ts",
+  "utf8",
+);
+const ranker = readFileSync(
+  "src/app/api/admin/instacomp/seller-sweep/rank/route.ts",
   "utf8",
 );
 const migration = readFileSync(
@@ -53,6 +61,31 @@ assert.doesNotMatch(processor, /retail_value:/);
 assert.doesNotMatch(processor, /quick_sale_value:/);
 assert.doesNotMatch(processor, /roi_percent:/);
 
+assert.match(economics, /proof\?\.status === "verified_exact"/);
+assert.match(economics, /proof\.exactIdentityConfirmed === true/);
+assert.match(economics, /proof\.checklistConfirmed === true/);
+assert.match(economics, /proof\.noConflictingEvidence === true/);
+assert.match(economics, /sales\.length < 2/);
+assert.match(economics, /independentlyVerified === true/);
+assert.match(economics, /exactIdentityMatch === true/);
+assert.match(economics, /finalPriceConfirmed === true/);
+assert.match(economics, /fewer_than_two_verified_completed_sales/);
+assert.match(economics, /retailValue: 0/);
+assert.match(economics, /quickSaleValue: 0/);
+assert.match(economics, /quickSaleMultiplier: 0\.85/);
+assert.match(economics, /targetRoiRate: 0\.3/);
+assert.doesNotMatch(economics, /active listing/i);
+
+assert.match(ranker, /calculateSellerSweepLotEconomics/);
+assert.match(ranker, /economics\.status === "ranked" \? "ranked" : "review"/);
+assert.match(ranker, /retail_value: economics\.retailValue/);
+assert.match(ranker, /quick_sale_value: economics\.quickSaleValue/);
+assert.match(ranker, /target_bid: economics\.targetBid/);
+assert.match(ranker, /hard_max_bid: economics\.hardMaxBid/);
+assert.match(ranker, /expected_profit: economics\.expectedProfit/);
+assert.match(ranker, /roi_percent: economics\.roiPercent/);
+assert.match(ranker, /Unverified cards and cards with fewer than two independently verified completed sales/);
+
 for (const column of [
   "identified_cards jsonb",
   "target_players text[]",
@@ -79,7 +112,12 @@ console.log(
         lowConfidenceFailsToReview: true,
         serialRequiresVisibleEvidence: true,
         candidateStageCannotWriteValuesOrRoi: true,
-        exactIdentityAndCompGateStillRequired: true,
+        exactIdentityProofRequiredForValue: true,
+        minimumIndependentVerifiedSales: 2,
+        unverifiedCardsReceiveZeroValue: true,
+        lotEconomics: true,
+        targetBidAndHardMaximum: true,
+        profitRoiRanking: true,
       },
     },
     null,
