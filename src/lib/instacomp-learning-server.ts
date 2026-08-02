@@ -72,6 +72,181 @@ function record(value: unknown): Record<string, any> {
     : {};
 }
 
+const OPERATOR_CONFIRMATION_IDENTITY_FIELDS = [
+  "player",
+  "year",
+  "brand",
+  "setName",
+  "cardNumber",
+  "parallel",
+] as const;
+
+function hasMeaningfulValue(value: unknown) {
+  return typeof value === "string"
+    ? value.trim().length > 0
+    : value !== null && value !== undefined;
+}
+
+export type InstaCompLearningPromotionDecision = {
+  allowed: boolean;
+  reason: "trusted_exact_identity" | "identity_review_required";
+  identityId: string | null;
+  reviewReasons: string[];
+  explanation: string;
+};
+
+export function decideInstaCompLearningPromotion(
+  payload: Record<string, any>,
+): InstaCompLearningPromotionDecision {
+  const consensus = record(payload.consensus);
+  const compSearchDecision = record(payload.compSearchDecision);
+  const checklistRegistry = record(payload.checklistRegistry);
+  const catalogEvidence = record(payload.catalogEvidence);
+  const selectedMatch = record(catalogEvidence.selectedMatch);
+  const checklistIdentityId = String(checklistRegistry.identityId || "").trim();
+  const catalogIdentityId = String(selectedMatch.catalogId || "").trim();
+  const identityId = checklistIdentityId || catalogIdentityId || null;
+  const reviewReasons: string[] = [];
+
+  if (consensus.trustedForIdentity !== true) {
+    reviewReasons.push("consensus_identity_not_trusted");
+  }
+  if (compSearchDecision.allowed !== true) {
+    reviewReasons.push("comp_search_identity_gate_blocked");
+  }
+  if (checklistRegistry.matched !== true || !checklistIdentityId) {
+    reviewReasons.push("missing_trusted_checklist_registry_match");
+  }
+  if (
+    catalogEvidence.status !== "catalog_confirmed" ||
+    catalogEvidence.catalogConfirmed !== true ||
+    !catalogIdentityId
+  ) {
+    reviewReasons.push("catalog_evidence_not_confirmed");
+  }
+  if (
+    checklistIdentityId &&
+    catalogIdentityId &&
+    checklistIdentityId !== catalogIdentityId
+  ) {
+    reviewReasons.push("catalog_identity_disagrees_with_registry_match");
+  }
+
+  const allowed = reviewReasons.length === 0;
+  return {
+    allowed,
+    reason: allowed ? "trusted_exact_identity" : "identity_review_required",
+    identityId,
+    reviewReasons,
+    explanation: allowed
+      ? "Consensus, comp-search gate, and checklist catalog agree on one exact identity."
+      : "Reusable catalog knowledge is blocked until consensus and checklist evidence agree on one trusted exact identity.",
+  };
+}
+
+export type InstaCompOperatorConfirmationDecision = {
+  allowed: boolean;
+  reason:
+    | "trusted_identity_confirmation"
+    | "explicit_operator_identity"
+    | "explicit_identity_corrections_required"
+    | "non_confirming_status";
+  missingCorrections: string[];
+  explanation: string;
+};
+
+export function decideInstaCompOperatorConfirmation(params: {
+  payload: Record<string, any>;
+  corrections: Record<string, unknown>;
+  status: "operator_confirmed" | "operator_rejected" | "needs_more_info";
+}): InstaCompOperatorConfirmationDecision {
+  if (params.status !== "operator_confirmed") {
+    return {
+      allowed: true,
+      reason: "non_confirming_status",
+      missingCorrections: [],
+      explanation: "Reject and needs-more-information actions do not promote reusable identity knowledge.",
+    };
+  }
+
+  const consensus = record(params.payload.consensus);
+  const compSearchDecision = record(params.payload.compSearchDecision);
+  if (
+    consensus.trustedForIdentity === true &&
+    compSearchDecision.allowed === true
+  ) {
+    return {
+      allowed: true,
+      reason: "trusted_identity_confirmation",
+      missingCorrections: [],
+      explanation: "The operator is confirming an identity already trusted by consensus.",
+    };
+  }
+
+  const missingCorrections = OPERATOR_CONFIRMATION_IDENTITY_FIELDS.filter(
+    (field) => !hasMeaningfulValue(params.corrections[field]),
+  ) as string[];
+  const ai = record(params.payload.ai);
+  const consensusIdentity = record(consensus.finalIdentity);
+  const serialRequired =
+    hasMeaningfulValue(ai.serialNumber) ||
+    hasMeaningfulValue(consensusIdentity.serialNumber);
+  if (
+    serialRequired &&
+    !hasMeaningfulValue(params.corrections.serialNumber)
+  ) {
+    missingCorrections.push("serialNumber");
+  }
+
+  const allowed = missingCorrections.length === 0;
+  return {
+    allowed,
+    reason: allowed
+      ? "explicit_operator_identity"
+      : "explicit_identity_corrections_required",
+    missingCorrections,
+    explanation: allowed
+      ? "The owner supplied a complete explicit identity instead of promoting unresolved scanner guesses."
+      : "Operator confirmation requires explicit corrected identity fields when scanner consensus is not trusted.",
+  };
+}
+
+function quarantineInstaCompCatalogEvidence(
+  value: unknown,
+  reviewReasons: string[],
+) {
+  const evidence = record(value);
+  if (!Object.keys(evidence).length) return evidence;
+  const actionPermissions = record(evidence.actionPermissions);
+
+  return {
+    ...evidence,
+    status: "review_required",
+    operatorState: "needs_review",
+    catalogConfirmed: false,
+    reviewReasons: Array.from(
+      new Set([
+        ...(Array.isArray(evidence.reviewReasons)
+          ? evidence.reviewReasons.map(String)
+          : []),
+        ...reviewReasons,
+      ]),
+    ),
+    operatorAction:
+      "Resolve the identity contradiction before promoting this observation to reusable knowledge.",
+    safeUseBoundary:
+      "This is candidate catalog evidence only. It cannot authorize exact comps, pricing, listings, or reusable identity knowledge.",
+    actionPermissions: {
+      ...actionPermissions,
+      exactCompSearchAllowed: false,
+      trustedForExactComps: false,
+      publicListingClaimAllowed: false,
+      autoPriceAllowed: false,
+      tradeValueRecommendationAllowed: false,
+    },
+  };
+}
+
 function normalizedText(value: unknown) {
   return String(value ?? "")
     .normalize("NFKC")
@@ -639,19 +814,61 @@ export async function saveInstaCompLearningCache(params: {
     if (recordError) warnings.push(`knowledge_observation_failed:${recordError.message}`);
   }
 
-  const registryMatch = await findChecklistRegistryMatch(params.payload.ai || {});
-  const payload = registryMatch
+  const promotionDecision = decideInstaCompLearningPromotion(params.payload);
+  const registryCandidate = promotionDecision.allowed
+    ? await findChecklistRegistryMatch(params.payload.ai || {})
+    : null;
+  const registryMatch =
+    registryCandidate &&
+    promotionDecision.identityId === registryCandidate.identityId
+      ? registryCandidate
+      : null;
+  let effectivePromotionDecision = promotionDecision;
+
+  if (promotionDecision.allowed && !registryMatch) {
+    effectivePromotionDecision = {
+      allowed: false,
+      reason: "identity_review_required",
+      identityId: promotionDecision.identityId,
+      reviewReasons: [
+        ...promotionDecision.reviewReasons,
+        "registry_revalidation_failed_or_identity_changed",
+      ],
+      explanation:
+        "Reusable catalog knowledge was blocked because the live registry no longer reproduced the trusted identity.",
+    };
+    warnings.push("catalog_promotion_blocked:registry_revalidation_failed_or_identity_changed");
+  }
+
+  const existingChecklistRegistry = record(params.payload.checklistRegistry);
+  const payload: Record<string, any> = registryMatch
     ? {
         ...params.payload,
         catalogEvidence: buildChecklistRegistryCatalogEvidence(registryMatch),
         checklistRegistry: {
+          ...existingChecklistRegistry,
           matched: true,
           identityId: registryMatch.identityId,
           fingerprintSha256: registryMatch.fingerprintSha256,
           score: registryMatch.score,
+          trustedForKnowledge: true,
         },
+        knowledgePromotionDecision: effectivePromotionDecision,
       }
-    : params.payload;
+    : {
+        ...params.payload,
+        catalogEvidence: quarantineInstaCompCatalogEvidence(
+          params.payload.catalogEvidence,
+          effectivePromotionDecision.reviewReasons,
+        ),
+        checklistRegistry: Object.keys(existingChecklistRegistry).length
+          ? {
+              ...existingChecklistRegistry,
+              trustedForKnowledge: false,
+            }
+          : null,
+        knowledgePromotionDecision: effectivePromotionDecision,
+      };
 
   const { data: observation, error: observationReadError } = await supabase
     .from(OBSERVATION_TABLE)
@@ -879,6 +1096,35 @@ export async function confirmInstaCompKnowledge(params: {
   status: "operator_confirmed" | "operator_rejected" | "needs_more_info";
 }) {
   const supabase = serviceClient();
+  const { data: scan, error: scanError } = await supabase
+    .from("instacomp_scans")
+    .select("raw_ai_result,raw_comp_results")
+    .eq("id", params.scanId)
+    .maybeSingle();
+
+  if (scanError) {
+    throw new Error(scanError.message || "Could not load InstaComp scan evidence.");
+  }
+  if (!scan) throw new Error("InstaComp scan not found.");
+
+  const rawCompResults = record(scan.raw_comp_results);
+  const confirmationDecision = decideInstaCompOperatorConfirmation({
+    payload: {
+      ai: record(scan.raw_ai_result),
+      consensus: record(rawCompResults.consensus),
+      compSearchDecision: record(rawCompResults.compSearchDecision),
+    },
+    corrections: params.corrections,
+    status: params.status,
+  });
+
+  if (!confirmationDecision.allowed) {
+    const missing = confirmationDecision.missingCorrections.join(", ");
+    throw new Error(
+      `${confirmationDecision.explanation} Missing: ${missing}.`,
+    );
+  }
+
   const { data, error } = await supabase.rpc(
     "tcos_instacomp_confirm_scan_knowledge",
     {

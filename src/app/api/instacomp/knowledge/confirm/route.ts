@@ -94,15 +94,22 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("Could not confirm InstaComp knowledge:", error);
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Could not confirm InstaComp knowledge.";
+    const status = message.startsWith(
+      "Operator confirmation requires explicit corrected identity fields",
+    )
+      ? 400
+      : 500;
+
     return NextResponse.json(
       {
         ok: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Could not confirm InstaComp knowledge.",
+        error: message,
       },
-      { status: 500 },
+      { status },
     );
   }
 }

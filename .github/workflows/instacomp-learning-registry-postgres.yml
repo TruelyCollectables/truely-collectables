@@ -11,10 +11,13 @@ on:
       - "supabase/migrations/20260801132000_checklist_registry_versioned_identities.sql"
       - "supabase/migrations/20260801134500_checklist_registry_repair_printing_filter.sql"
       - "supabase/migrations/20260801201000_checklist_registry_preserve_active_version.sql"
+      - "supabase/migrations/20260801225000_instacomp_learning_identity_trust_gate.sql"
       - "src/lib/checklist-registry/**"
       - "src/lib/instacomp-learning-server.ts"
       - "scripts/write-checklist-registry-integration-plan.ts"
       - "scripts/verify-instacomp-learning-registry.sql"
+      - "scripts/verify-instacomp-learning-trust-gate.sql"
+      - "scripts/run-instacomp-learning-trust-gate-regressions.ts"
       - ".github/workflows/instacomp-learning-registry-postgres.yml"
   workflow_dispatch:
 
@@ -53,6 +56,7 @@ jobs:
       REGISTRY_VERSIONED_IDENTITIES_MIGRATION: supabase/migrations/20260801132000_checklist_registry_versioned_identities.sql
       REGISTRY_PRINTING_FILTER_MIGRATION: supabase/migrations/20260801134500_checklist_registry_repair_printing_filter.sql
       REGISTRY_PRESERVE_ACTIVE_VERSION_MIGRATION: supabase/migrations/20260801201000_checklist_registry_preserve_active_version.sql
+      LEARNING_TRUST_GATE_MIGRATION: supabase/migrations/20260801225000_instacomp_learning_identity_trust_gate.sql
 
     steps:
       - uses: actions/checkout@v4
@@ -156,6 +160,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 --file "$REGISTRY_VERSIONED_IDENTITIES_MIGRATION"
           psql -v ON_ERROR_STOP=1 --file "$REGISTRY_PRINTING_FILTER_MIGRATION"
           psql -v ON_ERROR_STOP=1 --file "$REGISTRY_PRESERVE_ACTIVE_VERSION_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$LEARNING_TRUST_GATE_MIGRATION"
 
       - name: Reapply additive migrations to prove idempotence
         run: |
@@ -166,6 +171,10 @@ jobs:
           psql -v ON_ERROR_STOP=1 --file "$REGISTRY_VERSIONED_IDENTITIES_MIGRATION"
           psql -v ON_ERROR_STOP=1 --file "$REGISTRY_PRINTING_FILTER_MIGRATION"
           psql -v ON_ERROR_STOP=1 --file "$REGISTRY_PRESERVE_ACTIVE_VERSION_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$LEARNING_TRUST_GATE_MIGRATION"
 
       - name: Verify learning, trust, cache, backfill, and Registry transactions
-        run: psql -v ON_ERROR_STOP=1 --file scripts/verify-instacomp-learning-registry.sql
+        run: |
+          psql -v ON_ERROR_STOP=1 --file scripts/verify-instacomp-learning-registry.sql
+          psql -v ON_ERROR_STOP=1 --file scripts/verify-instacomp-learning-trust-gate.sql
+          npx tsx scripts/run-instacomp-learning-trust-gate-regressions.ts
