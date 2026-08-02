@@ -174,7 +174,11 @@ function clone() {
 }
 
 const plan = parse(bundle);
-assert.equal(plan.validation.status, "passed");
+assert.equal(
+  plan.validation.status,
+  "passed",
+  JSON.stringify(plan.validation.issues, null, 2),
+);
 assert.deepEqual(plan.validation.counts, {
   sets: 1,
   cards: 3,
