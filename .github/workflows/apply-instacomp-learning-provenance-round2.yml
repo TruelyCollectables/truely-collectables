@@ -35,20 +35,20 @@ jobs:
           source = path.read_text()
 
           decision_pattern = re.compile(
-              r'''  const consensus = record\(params\.payload\.consensus\);\n'''
-              r'''  const compSearchDecision = record\(params\.payload\.compSearchDecision\);\n'''
-              r'''  if \(\n'''
-              r'''    consensus\.trustedForIdentity === true &&\n'''
-              r'''    compSearchDecision\.allowed === true\n'''
-              r'''  \) \{\n'''
-              r'''    return \{\n'''
-              r'''      allowed: true,\n'''
-              r'''      reason: "trusted_identity_confirmation",\n'''
-              r'''      missingCorrections: \[\],\n'''
-              r'''      explanation: "The operator is confirming an identity already trusted by consensus\.",\n'''
-              r'''    \};\n'''
-              r'''  \}\n\n'''
-              r'''  const missingCorrections = OPERATOR_CONFIRMATION_IDENTITY_FIELDS\.filter\('''
+              r'''  const consensus = record\(params\.payload\.consensus\);\s*'''
+              r'''const compSearchDecision = record\(params\.payload\.compSearchDecision\);\s*'''
+              r'''if \(\s*'''
+              r'''consensus\.trustedForIdentity === true &&\s*'''
+              r'''compSearchDecision\.allowed === true\s*'''
+              r'''\) \{\s*'''
+              r'''return \{\s*'''
+              r'''allowed: true,\s*'''
+              r'''reason: "trusted_identity_confirmation",\s*'''
+              r'''missingCorrections: \[\],\s*'''
+              r'''explanation: "The operator is confirming an identity already trusted by consensus\.",\s*'''
+              r'''\};\s*'''
+              r'''\}\s*'''
+              r'''const missingCorrections = OPERATOR_CONFIRMATION_IDENTITY_FIELDS\.filter\('''
           )
           decision_replacement = '''  const promotionDecision = decideInstaCompLearningPromotion(params.payload);
           if (promotionDecision.allowed) {
@@ -67,35 +67,38 @@ jobs:
           if decision_count != 1:
               raise SystemExit(f'learning confirmation replacement count was {decision_count}')
 
-          confirmation_payload_old = '''    payload: {
-              ai: record(scan.raw_ai_result),
-              consensus: record(rawCompResults.consensus),
-              compSearchDecision: record(rawCompResults.compSearchDecision),
-            },'''
-          confirmation_payload_new = '''    payload: {
+          payload_pattern = re.compile(
+              r'''payload:\s*\{\s*'''
+              r'''ai: record\(scan\.raw_ai_result\),\s*'''
+              r'''consensus: record\(rawCompResults\.consensus\),\s*'''
+              r'''compSearchDecision: record\(rawCompResults\.compSearchDecision\),\s*'''
+              r'''\},'''
+          )
+          payload_replacement = '''payload: {
               ai: record(scan.raw_ai_result),
               consensus: record(rawCompResults.consensus),
               compSearchDecision: record(rawCompResults.compSearchDecision),
               checklistRegistry: record(rawCompResults.checklistRegistry),
               catalogEvidence: record(rawCompResults.catalogEvidence),
             },'''
-          if source.count(confirmation_payload_old) != 1:
-              raise SystemExit(
-                  f'confirmation payload marker count was {source.count(confirmation_payload_old)}'
-              )
-          source = source.replace(confirmation_payload_old, confirmation_payload_new)
+          source, payload_count = payload_pattern.subn(payload_replacement, source, count=1)
+          if payload_count != 1:
+              raise SystemExit(f'confirmation payload replacement count was {payload_count}')
           path.write_text(source)
 
           fixture = Path('scripts/verify-instacomp-learning-registry.sql')
           sql = fixture.read_text()
-          fixture_old = '''      'consensus',jsonb_build_object(
-                'trustedForIdentity',true
-              ),
-              'catalogEvidence',jsonb_build_object(
-                'status','catalog_confirmed','catalogConfirmed',true
-              ),
-              'sourceCoverage','[]'::jsonb'''
-          fixture_new = '''      'consensus',jsonb_build_object(
+          fixture_pattern = re.compile(
+              r'''\s*'consensus',jsonb_build_object\(\s*'''
+              r'''\s*'trustedForIdentity',true\s*'''
+              r'''\s*\),\s*'''
+              r'''\s*'catalogEvidence',jsonb_build_object\(\s*'''
+              r'''\s*'status','catalog_confirmed','catalogConfirmed',true\s*'''
+              r'''\s*\),\s*'''
+              r'''\s*'sourceCoverage','\[\]'::jsonb'''
+          )
+          fixture_replacement = '''
+              'consensus',jsonb_build_object(
                 'trustedForIdentity',true
               ),
               'compSearchDecision',jsonb_build_object(
@@ -113,9 +116,10 @@ jobs:
                 )
               ),
               'sourceCoverage','[]'::jsonb'''
-          if sql.count(fixture_old) != 1:
-              raise SystemExit(f'exact catalog fixture marker count was {sql.count(fixture_old)}')
-          fixture.write_text(sql.replace(fixture_old, fixture_new))
+          sql, fixture_count = fixture_pattern.subn(fixture_replacement, sql, count=1)
+          if fixture_count != 1:
+              raise SystemExit(f'exact catalog fixture replacement count was {fixture_count}')
+          fixture.write_text(sql)
           PY
 
       - name: Verify the permanent learning contract
