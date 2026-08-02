@@ -229,7 +229,7 @@ test("Registry match fails closed on auto mismatch and ambiguity", () => {
   equal(chooseRegistryMatch({ ...ai, league: "WNBA" }, [ambiguous]), null, "ambiguous match");
 });
 
-test("Registry serial run overrides a visual parallel guess but stays fail closed", () => {
+test("Registry serial run and visible parallel must agree", () => {
   const row = {
     card_number: "149",
     variation: null,
@@ -258,15 +258,24 @@ test("Registry serial run overrides a visual parallel guess but stays fail close
       parallel: { name: "Blue Prizm", serial_run: 199 },
     }],
   };
-  const serialAi = {
+  const blueSerialAi = {
     ...ai,
-    parallel: "Green Prizm",
+    parallel: "Blue Prizm",
     serialNumber: "12/199",
     league: "WNBA",
   };
   assert(
-    chooseRegistryMatch(serialAi, [row]),
-    "visible /199 should identify the unique /199 Registry identity",
+    chooseRegistryMatch(blueSerialAi, [row]),
+    "matching Blue and /199 evidence should identify the Blue /199 identity",
+  );
+
+  equal(
+    chooseRegistryMatch(
+      { ...blueSerialAi, parallel: "Green Prizm" },
+      [row],
+    ),
+    null,
+    "Green visual evidence must not resolve to a Blue /199 identity",
   );
 
   const ambiguous = JSON.parse(JSON.stringify(row));
@@ -274,12 +283,11 @@ test("Registry serial run overrides a visual parallel guess but stays fail close
     ...ambiguous.identities[0],
     id: "serial-identity-two",
     fingerprint_sha256: "f".repeat(64),
-    parallel: { name: "Purple Prizm", serial_run: 199 },
   });
   equal(
-    chooseRegistryMatch(serialAi, [ambiguous]),
+    chooseRegistryMatch(blueSerialAi, [ambiguous]),
     null,
-    "multiple /199 identities must remain ambiguous",
+    "duplicate Blue /199 identities must remain ambiguous",
   );
 });
 
