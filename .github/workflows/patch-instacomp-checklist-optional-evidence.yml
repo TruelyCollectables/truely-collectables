@@ -1,0 +1,206 @@
+name: Patch InstaComp Checklist Optional Evidence
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch-validate-commit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/instacomp-checklist-optional-evidence
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Patch deterministic checklist walk
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/lib/instacomp-learning-server.ts')
+          s = p.read_text()
+          replacements = {
+          '''    if (teams.length && !targetTeam) continue;
+    if (
+      targetTeam &&
+      !teams.some((team: string) => normalizedText(team) === targetTeam)
+    ) {
+      continue;
+    }
+
+    const registrySport = normalizedText(release.sport?.name);
+    const registryLeague = normalizedText(release.league?.name);
+    if (registrySport && (!targetSport || registrySport !== targetSport)) continue;
+    if (registryLeague && targetLeague && registryLeague !== targetLeague) continue;
+''': '''    // Team, sport, and league are corroborating evidence. Missing OCR/AI
+    // observations must not discard an otherwise exact checklist card.
+    if (
+      targetTeam &&
+      !teams.some((team: string) => normalizedText(team) === targetTeam)
+    ) {
+      continue;
+    }
+
+    const registrySport = normalizedText(release.sport?.name);
+    const registryLeague = normalizedText(release.league?.name);
+    if (registrySport && targetSport && registrySport !== targetSport) continue;
+    if (registryLeague && targetLeague && registryLeague !== targetLeague) continue;
+''',
+          '''      const registryVariation = normalizedText(identity.variation || card.variation);
+      if (registryVariation || targetVariation) {
+        if (!registryVariation || !targetVariation || registryVariation !== targetVariation) {
+          continue;
+        }
+      }
+''': '''      const registryVariation = normalizedText(identity.variation || card.variation);
+      // A positively observed variation must agree. An unreadable/missing
+      // variation is not allowed to erase an exact year/set/player/card/parallel match.
+      if (targetVariation && registryVariation !== targetVariation) continue;
+''',
+          '''      if (registryLanguage || targetLanguage) {
+        if (!registryLanguage || !targetLanguage || registryLanguage !== targetLanguage) {
+          continue;
+        }
+      }
+''': '''      if (targetLanguage && registryLanguage !== targetLanguage) continue;
+''',
+          '''      if (registryConfiguration || targetConfiguration) {
+        if (
+          !registryConfiguration ||
+          !targetConfiguration ||
+          registryConfiguration !== targetConfiguration
+        ) {
+          continue;
+        }
+      }
+''': '''      if (
+        targetConfiguration &&
+        registryConfiguration !== targetConfiguration
+      ) {
+        continue;
+      }
+'''
+          }
+          for old, new in replacements.items():
+              if old not in s:
+                  raise SystemExit('Expected checklist resolver block not found')
+              s = s.replace(old, new, 1)
+          marker = '''  for (const card of rows) {
+    const players = Array.isArray(card.players)
+'''
+          replacement = '''  for (const card of rows) {
+    // The database query already scopes card number, but keep the resolver
+    // deterministic and safe when called directly or when PostgREST relations change.
+    if (normalizedCardNumber(card.card_number) !== normalizedCardNumber(ai.cardNumber)) {
+      continue;
+    }
+
+    const players = Array.isArray(card.players)
+'''
+          if marker not in s:
+              raise SystemExit('Card loop marker not found')
+          s = s.replace(marker, replacement, 1)
+          p.write_text(s)
+          PY
+      - name: Add live failure regression
+        shell: bash
+        run: |
+          cat > scripts/run-instacomp-checklist-optional-evidence-regressions.ts <<'TS'
+          import assert from "node:assert/strict";
+          import { chooseRegistryMatch } from "../src/lib/instacomp-learning-server";
+
+          const row = {
+            card_number: "107",
+            variation: "Rookie",
+            players: [{ player: { canonical_name: "Shedeur Sanders" } }],
+            teams: [{ team: { canonical_name: "Cleveland Browns" } }],
+            release: {
+              release_year: "2025",
+              season: "2025",
+              manufacturer: { name: "Panini" },
+              brand: { name: "Origins" },
+              product_name: "Panini Origins Football",
+              sport: { name: "Football" },
+              league: { name: "NFL" },
+            },
+            set: { name: "Base" },
+            autograph_status: "none",
+            memorabilia_status: "none",
+            identities: [{
+              id: "shedeur-107-blue-199",
+              fingerprint_sha256: "a".repeat(64),
+              parallel: { name: "Blue Foil", serial_run: 199 },
+              variation: "Rookie",
+              autograph_status: "none",
+              memorabilia_status: "none",
+              metadata: { languageCode: "en" },
+              canonical_key: "configuration=hobby",
+            }],
+          };
+
+          const liveEvidence = {
+            player: "Shedeur Sanders",
+            year: "2025",
+            brand: "Panini",
+            setName: "Origins Football Base",
+            cardNumber: "107",
+            parallel: "Blue Foil",
+            serialNumber: "162/199",
+            isAuto: false,
+            isRelic: false,
+            // team, sport, league, variation, language and configuration were
+            // not reliably reported by the live scan and must remain optional.
+          };
+
+          assert.equal(
+            chooseRegistryMatch(liveEvidence, [row])?.identityId,
+            "shedeur-107-blue-199",
+            "Exact checklist identity must survive missing optional observations",
+          );
+          assert.equal(
+            chooseRegistryMatch({ ...liveEvidence, cardNumber: "108" }, [row]),
+            null,
+            "Card number remains mandatory",
+          );
+          assert.equal(
+            chooseRegistryMatch({ ...liveEvidence, parallel: "Red Foil" }, [row]),
+            null,
+            "Visible color conflict remains a hard rejection",
+          );
+          assert.equal(
+            chooseRegistryMatch({ ...liveEvidence, serialNumber: "162/99" }, [row]),
+            null,
+            "Serial denominator conflict remains a hard rejection",
+          );
+          console.log("InstaComp optional checklist evidence regressions passed (4 assertions).");
+          TS
+      - name: Validate
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder
+        run: |
+          npx tsx scripts/run-instacomp-checklist-optional-evidence-regressions.ts
+          npx tsx scripts/run-instacomp-serial-color-gate-regressions.ts
+          npx tsx scripts/run-instacomp-evidence-first-regressions.ts
+          npx eslint src/lib/instacomp-learning-server.ts scripts/run-instacomp-checklist-optional-evidence-regressions.ts
+          npm run build
+      - name: Commit validated fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/instacomp-learning-server.ts scripts/run-instacomp-checklist-optional-evidence-regressions.ts
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Fix checklist rejection on missing optional evidence"
+          git push origin HEAD:fix/instacomp-checklist-optional-evidence
