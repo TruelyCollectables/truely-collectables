@@ -8,8 +8,11 @@ on:
       - "src/lib/kingmaker-morning-intelligence-live.ts"
       - "src/lib/kingmaker-morning-intelligence-delivery.ts"
       - "src/app/api/cron/kingmaker/morning-intelligence/route.ts"
+      - "src/app/api/admin/market-intel/kingmaker/morning-intelligence/test/route.ts"
+      - "src/app/admin/market-intel/kingmaker/morning-intelligence/page.tsx"
       - "scripts/run-kingmaker-morning-intelligence-regressions.ts"
       - "scripts/run-kingmaker-morning-intelligence-email-regressions.ts"
+      - "scripts/run-kingmaker-morning-intelligence-route-contracts.mjs"
       - "vercel.json"
       - ".github/workflows/kingmaker-morning-intelligence.yml"
   workflow_dispatch:
@@ -32,8 +35,10 @@ jobs:
         run: node --import tsx scripts/run-kingmaker-morning-intelligence-regressions.ts
       - name: Email regressions
         run: node --import tsx scripts/run-kingmaker-morning-intelligence-email-regressions.ts
+      - name: Route and console contracts
+        run: node scripts/run-kingmaker-morning-intelligence-route-contracts.mjs
       - name: Lint
-        run: npx eslint src/lib/kingmaker-morning-intelligence.ts src/lib/kingmaker-morning-intelligence-email.ts src/lib/kingmaker-morning-intelligence-live.ts src/lib/kingmaker-morning-intelligence-delivery.ts src/app/api/cron/kingmaker/morning-intelligence/route.ts scripts/run-kingmaker-morning-intelligence-regressions.ts scripts/run-kingmaker-morning-intelligence-email-regressions.ts
+        run: npx eslint src/lib/kingmaker-morning-intelligence.ts src/lib/kingmaker-morning-intelligence-email.ts src/lib/kingmaker-morning-intelligence-live.ts src/lib/kingmaker-morning-intelligence-delivery.ts src/app/api/cron/kingmaker/morning-intelligence/route.ts src/app/api/admin/market-intel/kingmaker/morning-intelligence/test/route.ts src/app/admin/market-intel/kingmaker/morning-intelligence/page.tsx scripts/run-kingmaker-morning-intelligence-regressions.ts scripts/run-kingmaker-morning-intelligence-email-regressions.ts scripts/run-kingmaker-morning-intelligence-route-contracts.mjs
       - name: TypeScript
         run: npx tsc --noEmit
       - name: Production build
