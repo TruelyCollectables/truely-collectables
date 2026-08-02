@@ -1,7 +1,9 @@
 import {
   applyInstaCompConsensusToAi,
+  applyInstaCompRegistryFastLane,
   buildInstaCompMultiScannerConsensus,
   buildInstaCompReaderFindingFromAi,
+  decideInstaCompCompSearch,
   decideInstaCompConsensusEscalation,
   type InstaCompConsensusReaderFinding,
 } from "../src/lib/instacomp-consensus";
@@ -271,6 +273,106 @@ const scenarios = [
     },
   },
   {
+    name: "numbered registry match cannot suppress required secondary vision",
+    run() {
+      const baseline = decideInstaCompConsensusEscalation({
+        ai: {
+          ...baseAi,
+          parallel: "Gold Foil",
+          serialNumber: "17/199",
+          confidence: 0.98,
+        },
+        externalOcrText: "17/199",
+        hasBackImage: true,
+        pairingConfidence: 0.96,
+      });
+      const decision = applyInstaCompRegistryFastLane(
+        baseline,
+        "malformed-base-199",
+      );
+
+      assert(baseline.runSecondaryVision, "Numbered card must require full council");
+      assert(
+        decision.runSecondaryVision,
+        "Registry match must not suppress required secondary vision",
+      );
+      assert(
+        decision.councilMode === "full_council",
+        "Numbered registry match must remain full council",
+      );
+      assert(
+        decision.reasons.includes("serial_numbered_or_numbered_signal"),
+        "Numbered-card escalation reason must be preserved",
+      );
+    },
+  },
+  {
+    name: "malformed numbered Base catalog identity is rejected",
+    run() {
+      const numberedAi: InstaCompAiResult = {
+        ...baseAi,
+        parallel: "Gold Foil",
+        serialNumber: "17/199",
+        confidence: 0.98,
+      };
+
+      const consensus = buildInstaCompMultiScannerConsensus({
+        baseIdentity: numberedAi,
+        readers: [
+          primary(numberedAi),
+          {
+            readerId: "serial",
+            label: "Serial vision/OCR",
+            kind: "serial_vision",
+            identity: {
+              parallel: "Gold Foil",
+              serialNumber: "17/199",
+            },
+            confidence: 0.99,
+            evidence: ["foil stamp reads 17/199"],
+          },
+        ],
+        catalogReferee: {
+          status: "catalog_confirmed",
+          sourceLabel: "Malformed Fixture Checklist",
+          catalogId: "malformed-base-199",
+          matchExplanation: "Fixture incorrectly labels numbered card as Base.",
+          identity: {
+            player: "Connor McDavid",
+            year: "2025-26",
+            setName: "SP Authentic",
+            cardNumber: "O-8",
+            parallel: "Base",
+            serialRun: "199",
+          },
+        },
+      });
+
+      assert(
+        consensus.catalogReferee.status === "review_required",
+        "Malformed numbered Base catalog identity must be demoted",
+      );
+      assert(
+        consensus.catalogReferee.matchExplanation?.includes(
+          "cannot be Base with serial run /199",
+        ),
+        "Expected numbered Base rejection reason",
+      );
+      assert(
+        consensus.finalIdentity.parallel === "Gold Foil",
+        "Rejected catalog identity must not overwrite scanner parallel",
+      );
+      assert(
+        !consensus.fieldDecisions.some(
+          (decision) =>
+            decision.field === "parallel" &&
+            decision.status === "catalog_referee",
+        ),
+        "Rejected catalog identity must not act as parallel referee",
+      );
+    },
+  },
+  {
     name: "fast lane exposes thin single-reader council warning",
     run() {
       const decision = decideInstaCompConsensusEscalation({
@@ -301,6 +403,28 @@ const scenarios = [
         "Expected visible fast-lane thin evidence reason",
       );
       assert(consensus.trustedForIdentity, "Warning should not block a high-confidence fast lane");
+    },
+  },
+  {
+    name: "comp search requires trusted exact identity",
+    run() {
+      const trusted = decideInstaCompCompSearch({
+        trustedForIdentity: true,
+      });
+      const untrusted = decideInstaCompCompSearch({
+        trustedForIdentity: false,
+      });
+
+      assert(trusted.allowed, "Trusted identity should allow comp search");
+      assert(
+        trusted.reason === "identity_confirmed",
+        "Trusted identity should report confirmation",
+      );
+      assert(!untrusted.allowed, "Untrusted identity must block comp search");
+      assert(
+        untrusted.reason === "identity_review_required",
+        "Blocked search should report identity review",
+      );
     },
   },
   {

@@ -22,8 +22,10 @@ import {
 } from "../../../../lib/instacomp-market-evidence";
 import {
   applyInstaCompConsensusToAi,
+  applyInstaCompRegistryFastLane,
   buildInstaCompMultiScannerConsensus,
   buildInstaCompReaderFindingFromAi,
+  decideInstaCompCompSearch,
   decideInstaCompConsensusEscalation,
   type InstaCompConsensusIdentity,
   type InstaCompConsensusReaderFinding,
@@ -2929,6 +2931,10 @@ async function saveScanToSupabase(input: {
   soldComps: InstaCompComp[];
   remainingCards: InstaCompComp[];
   catalogEvidence?: unknown;
+  catalogCandidateEvidence?: unknown;
+  consensus?: unknown;
+  compSearchDecision?: unknown;
+  checklistRegistry?: unknown;
   imageOrientation?: unknown;
 }) {
   if (!SUPABASE_URL || !SUPABASE_KEY) {
@@ -2989,6 +2995,10 @@ async function saveScanToSupabase(input: {
         remainingCards: input.remainingCards,
         sourceLinks: input.links,
         catalogEvidence: input.catalogEvidence || null,
+        catalogCandidateEvidence: input.catalogCandidateEvidence || null,
+        consensus: input.consensus || null,
+        compSearchDecision: input.compSearchDecision || null,
+        checklistRegistry: input.checklistRegistry || null,
         imageOrientation: input.imageOrientation || null,
       } as any,
     })
@@ -3651,23 +3661,10 @@ export async function POST(req: NextRequest) {
       pairingConfidence: persistentContext?.pairingConfidence ?? null,
     });
     const consensusEscalation = registryMatch
-      ? {
-          ...baselineConsensusEscalation,
-          runSecondaryVision: false,
-          speedLane: "fast_lane" as const,
-          councilMode: "fast_lane_council" as const,
-          riskTier: "low" as const,
-          scannerPlan: [
-            "primary_vision",
-            "external_ocr",
-            "checklist_registry_referee",
-          ],
-          reasons: [
-            `Checklist Registry exact identity ${registryMatch.identityId} confirmed before secondary readers.`,
-          ],
-          explanation:
-            "Primary vision and printed evidence matched a private exact Checklist Registry identity, so secondary AI readers were not required.",
-        }
+      ? applyInstaCompRegistryFastLane(
+          baselineConsensusEscalation,
+          registryMatch.identityId,
+        )
       : baselineConsensusEscalation;
     const aiCouncilRaw = await runInstaCompAiCouncil({
       runSecondaryVision: consensusEscalation.runSecondaryVision,
@@ -3708,30 +3705,24 @@ export async function POST(req: NextRequest) {
       escalation: consensusEscalation,
     });
     const ai = applyInstaCompConsensusToAi(guardedAi, consensus);
+    const compSearchDecision = decideInstaCompCompSearch(consensus);
 
     const queries = buildInstaCompQueries(ai);
     const links = buildCompLinks(queries.primary);
     const compQueries = [queries.primary, ...queries.backupQueries];
 
-    const [
-      ebayProvider,
-      tcosProvider,
-      priceChartingProvider,
-      externalSearchProvider,
-    ] =
-      await Promise.all([
-        getBestEbayProvider(compQueries, ai, links.ebayActiveUrl),
-        getTcosInventoryProvider(queries.primary, ai, actor),
-        getPriceChartingProvider(queries.primary, ai),
-        getExternalSearchProvider(queries.primary, ai, links.broadCardMarketUrl),
-      ]);
-
-    const providers = [
-      ebayProvider,
-      tcosProvider,
-      priceChartingProvider,
-      externalSearchProvider,
-    ];
+    const providers: InstaCompProviderResult[] = compSearchDecision.allowed
+      ? await Promise.all([
+          getBestEbayProvider(compQueries, ai, links.ebayActiveUrl),
+          getTcosInventoryProvider(queries.primary, ai, actor),
+          getPriceChartingProvider(queries.primary, ai),
+          getExternalSearchProvider(
+            queries.primary,
+            ai,
+            links.broadCardMarketUrl,
+          ),
+        ])
+      : [];
 
     const allLiveComps = providers.flatMap((provider) => provider.results);
     const rawSoldComps = allLiveComps.filter(
@@ -3758,6 +3749,17 @@ export async function POST(req: NextRequest) {
     const stats = verifiedStats;
     const soldStats = verifiedStats;
     const sourceCoverage = buildSourceCoverage(links, providers);
+    const checklistRegistrySnapshot = registryMatch
+      ? {
+          matched: true,
+          identityId: registryMatch.identityId,
+          fingerprintSha256: registryMatch.fingerprintSha256,
+          score: registryMatch.score,
+          sourceLabel: registryMatch.sourceLabel,
+        }
+      : null;
+    const catalogEvidenceTrustedForLearning =
+      compSearchDecision.allowed && consensus.trustedForIdentity;
 
     const scanId = ephemeralBenchmark
       ? null
@@ -3774,7 +3776,15 @@ export async function POST(req: NextRequest) {
           marketValueComps,
           soldComps,
           remainingCards,
-          catalogEvidence,
+          catalogEvidence: catalogEvidenceTrustedForLearning
+            ? catalogEvidence
+            : null,
+          catalogCandidateEvidence: catalogEvidenceTrustedForLearning
+            ? null
+            : catalogEvidence,
+          consensus,
+          compSearchDecision,
+          checklistRegistry: checklistRegistrySnapshot,
           imageOrientation,
         });
 
@@ -3786,16 +3796,9 @@ export async function POST(req: NextRequest) {
       review: scanReview,
       consensus,
       consensusEscalation,
+      compSearchDecision,
       catalogEvidence,
-      checklistRegistry: registryMatch
-        ? {
-            matched: true,
-            identityId: registryMatch.identityId,
-            fingerprintSha256: registryMatch.fingerprintSha256,
-            score: registryMatch.score,
-            sourceLabel: registryMatch.sourceLabel,
-          }
-        : null,
+      checklistRegistry: checklistRegistrySnapshot,
       imageOrientation,
       benchmarkDiagnostics: {
         ephemeral: ephemeralBenchmark,
@@ -3843,9 +3846,11 @@ export async function POST(req: NextRequest) {
       remainingCards,
       stats,
       note:
-        scanReview.trustedForPricing
-          ? "Transactional value is based only on independently verified completed sales. Current asks, guide prices, and internal inventory remain display-only."
-          : "InstaComp™ found provider candidates, but identity review or insufficient independently verified completed sales prevents transaction value, buy calls, ROI, and auto-pricing.",
+        !compSearchDecision.allowed
+          ? "Comp search was blocked because exact card identity requires review. No market provider received this unresolved identity."
+          : scanReview.trustedForPricing
+            ? "Transactional value is based only on independently verified completed sales. Current asks, guide prices, and internal inventory remain display-only."
+            : "InstaComp™ found provider candidates, but insufficient independently verified completed sales prevents transaction value, buy calls, ROI, and auto-pricing.",
       ...(persistentContext
         ? {
             queue: {

@@ -3,8 +3,8 @@ name: Checklist Registry Postgres
 on:
   pull_request:
     paths:
-      - "supabase/migrations/20260725_tcos_checklist_registry_core.sql"
-      - "supabase/migrations/20260725_tcos_checklist_source_storage.sql"
+      - "supabase/migrations/20260725200000_tcos_checklist_registry_core.sql"
+      - "supabase/migrations/20260725201000_tcos_checklist_source_storage.sql"
       - "src/lib/checklist-registry/**"
       - "scripts/run-checklist-registry-*-simulations.ts"
       - "scripts/fixtures/checklist-registry/**"
@@ -13,8 +13,8 @@ on:
     branches:
       - "feature/tcos-checklist-registry-release-calendar-v1"
     paths:
-      - "supabase/migrations/20260725_tcos_checklist_registry_core.sql"
-      - "supabase/migrations/20260725_tcos_checklist_source_storage.sql"
+      - "supabase/migrations/20260725200000_tcos_checklist_registry_core.sql"
+      - "supabase/migrations/20260725201000_tcos_checklist_source_storage.sql"
       - "src/lib/checklist-registry/**"
       - "scripts/run-checklist-registry-*-simulations.ts"
       - "scripts/fixtures/checklist-registry/**"
@@ -50,8 +50,8 @@ jobs:
       PGUSER: postgres
       PGPASSWORD: postgres
       PGDATABASE: checklist_registry_test
-      CORE_MIGRATION: supabase/migrations/20260725_tcos_checklist_registry_core.sql
-      STORAGE_MIGRATION: supabase/migrations/20260725_tcos_checklist_source_storage.sql
+      CORE_MIGRATION: supabase/migrations/20260725200000_tcos_checklist_registry_core.sql
+      STORAGE_MIGRATION: supabase/migrations/20260725201000_tcos_checklist_source_storage.sql
 
     steps:
       - name: Check out branch

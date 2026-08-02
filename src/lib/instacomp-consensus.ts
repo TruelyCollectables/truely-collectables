@@ -113,6 +113,30 @@ export type InstaCompConsensusEscalationDecision = {
   explanation: string;
 };
 
+export type InstaCompCompSearchDecision = {
+  allowed: boolean;
+  reason: "identity_confirmed" | "identity_review_required";
+  explanation: string;
+};
+
+export function decideInstaCompCompSearch(
+  consensus: Pick<InstaCompMultiScannerConsensus, "trustedForIdentity">,
+): InstaCompCompSearchDecision {
+  return consensus.trustedForIdentity
+    ? {
+        allowed: true,
+        reason: "identity_confirmed",
+        explanation:
+          "Exact card identity is trusted, so market providers may search for matching comps.",
+      }
+    : {
+        allowed: false,
+        reason: "identity_review_required",
+        explanation:
+          "Comp search is blocked until exact card identity is trusted.",
+      };
+}
+
 const CONSENSUS_FIELDS: InstaCompConsensusField[] = [
   "year",
   "brand",
@@ -288,6 +312,31 @@ function hasNumberedSignal(value: string | null | undefined) {
     /\b(?!20\d{2}\s*\/\s*\d{2}\b)(\d{1,3})\s*\/\s*(1|5|10|15|20|25|49|50|75|99|100|149|150|199|250|299|399|499|999|1000)\b/g;
 
   return numberedPattern.test(text) || /\b(?:one\s+of\s+one|1\s+of\s+1)\b/i.test(text);
+}
+
+export function applyInstaCompRegistryFastLane(
+  baseline: InstaCompConsensusEscalationDecision,
+  registryIdentityId: string,
+): InstaCompConsensusEscalationDecision {
+  if (baseline.runSecondaryVision) return baseline;
+
+  return {
+    ...baseline,
+    runSecondaryVision: false,
+    speedLane: "fast_lane",
+    councilMode: "fast_lane_council",
+    riskTier: "low",
+    scannerPlan: [
+      "primary_vision",
+      "external_ocr",
+      "checklist_registry_referee",
+    ],
+    reasons: [
+      `Checklist Registry exact identity ${registryIdentityId} confirmed after baseline safety checks.`,
+    ],
+    explanation:
+      "Primary vision and printed evidence matched a private exact Checklist Registry identity, and baseline safety checks found no reason to require secondary AI readers.",
+  };
 }
 
 export function decideInstaCompConsensusEscalation(params: {
@@ -577,6 +626,106 @@ function buildFieldDecision(params: {
   };
 }
 
+function serialDenominator(value: string | boolean | null | undefined) {
+  if (typeof value === "boolean") return null;
+
+  const match = String(value || "").match(
+    /(?:\d{1,6}\s*\/\s*|\/\s*)(\d{1,7})\b/,
+  );
+
+  return match?.[1] || null;
+}
+
+function guardCatalogRefereeAgainstHardEvidence(params: {
+  readers: InstaCompConsensusReaderFinding[];
+  catalogReferee?: InstaCompConsensusCatalogReferee | null;
+}): InstaCompConsensusCatalogReferee | null {
+  const catalogReferee = params.catalogReferee;
+  if (catalogReferee?.status !== "catalog_confirmed" || !catalogReferee.identity) {
+    return catalogReferee || null;
+  }
+
+  const conflicts: string[] = [];
+  const catalogIdentity = catalogReferee.identity;
+  const catalogParallel = normalizeValue(catalogIdentity.parallel);
+  const catalogSerialRun =
+    serialDenominator(catalogIdentity.serialNumber) ||
+    (/^\d{1,7}$/.test(cleanText(catalogIdentity.serialRun))
+      ? cleanText(catalogIdentity.serialRun)
+      : serialDenominator(catalogIdentity.serialRun));
+
+  if (catalogSerialRun && isGenericBase(catalogParallel)) {
+    conflicts.push(
+      `catalog parallel "${catalogParallel}" cannot be Base with serial run /${catalogSerialRun}`,
+    );
+  }
+
+  const hardTextFields: InstaCompConsensusField[] = [
+    "year",
+    "setName",
+    "cardNumber",
+    "player",
+  ];
+
+  for (const field of hardTextFields) {
+    const catalogValue = normalizeValue(fieldValue(catalogIdentity, field));
+    if (!knownValue(catalogValue)) continue;
+
+    const readerGroups = valueGroupsForField(params.readers, field);
+    if (readerGroups.length !== 1) continue;
+
+    const [readerGroup] = readerGroups;
+    if (comparableText(readerGroup.value) === comparableText(catalogValue)) continue;
+
+    conflicts.push(
+      `catalog ${displayField(field)} "${catalogValue}" conflicts with unanimous scanner evidence "${readerGroup.value}"`,
+    );
+  }
+
+  const readerSerialRuns = uniqueStrings(
+    params.readers
+      .map((reader) => serialDenominator(reader.identity.serialNumber))
+      .filter((value): value is string => Boolean(value)),
+  );
+
+  if (
+    catalogSerialRun &&
+    readerSerialRuns.length === 1 &&
+    readerSerialRuns[0] !== catalogSerialRun
+  ) {
+    conflicts.push(
+      `catalog serial run /${catalogSerialRun} conflicts with printed scanner evidence /${readerSerialRuns[0]}`,
+    );
+  }
+
+  for (const field of ["isAuto", "isRelic"] as const) {
+    const catalogValue = fieldValue(catalogIdentity, field);
+    const readerGroups = valueGroupsForField(params.readers, field);
+    const positiveEvidence = readerGroups.some((group) =>
+      hasBooleanValue(group, true),
+    );
+
+    if (catalogValue === false && positiveEvidence) {
+      conflicts.push(
+        `catalog ${displayField(field)} false conflicts with positive printed scanner evidence`,
+      );
+    }
+  }
+
+  if (!conflicts.length) return catalogReferee;
+
+  return {
+    ...catalogReferee,
+    status: "review_required",
+    matchExplanation: [
+      catalogReferee.matchExplanation,
+      `Checklist identity rejected by InstaComp hard-evidence guard: ${conflicts.join("; ")}.`,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  };
+}
+
 function readerSummary(reader: InstaCompConsensusReaderFinding): InstaCompConsensusReaderSummary {
   const knownFieldCount = CONSENSUS_FIELDS.filter((field) =>
     knownValue(fieldValue(reader.identity, field)),
@@ -681,16 +830,20 @@ export function buildInstaCompMultiScannerConsensus(params: {
   escalation?: InstaCompConsensusEscalationDecision | null;
 }): InstaCompMultiScannerConsensus {
   const readers = params.readers.filter((reader) => reader.readerId && reader.label);
-  const readiness = councilReadiness({
+  const catalogReferee = guardCatalogRefereeAgainstHardEvidence({
     readers,
     catalogReferee: params.catalogReferee,
+  });
+  const readiness = councilReadiness({
+    readers,
+    catalogReferee,
     escalation: params.escalation,
   });
   const fieldDecisions = CONSENSUS_FIELDS.flatMap((field) => {
     const decision = buildFieldDecision({
       field,
       readers,
-      catalogReferee: params.catalogReferee,
+      catalogReferee,
     });
 
     return decision ? [decision] : [];
@@ -728,10 +881,10 @@ export function buildInstaCompMultiScannerConsensus(params: {
     reviewReasons,
     reasonTrail: fieldDecisions.map((decision) => decision.reason),
     catalogReferee: {
-      status: params.catalogReferee?.status || "not_available",
-      sourceLabel: params.catalogReferee?.sourceLabel || null,
-      catalogId: params.catalogReferee?.catalogId || null,
-      matchExplanation: params.catalogReferee?.matchExplanation || null,
+      status: catalogReferee?.status || "not_available",
+      sourceLabel: catalogReferee?.sourceLabel || null,
+      catalogId: catalogReferee?.catalogId || null,
+      matchExplanation: catalogReferee?.matchExplanation || null,
     },
     suggestedQuestion: suggestedQuestion(fieldDecisions),
   };
