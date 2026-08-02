@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
+import {
+  AdminMutationSecurityError,
+  assertTrustedAdminMutationRequest,
+} from "../../../../../../lib/admin-request-security";
 import {
   identifySellerSweepLotPhoto,
   sellerSweepTargetPlayers,
@@ -10,15 +13,18 @@ import {
   reconcileSellerSweepCandidates,
   sellerSweepPhysicalCardCount,
 } from "../../../../../../lib/instacomp-seller-sweep-reconcile";
+import { trustedSellerSweepImageUrls } from "../../../../../../lib/instacomp-seller-sweep-security";
+import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 const DEFAULT_BATCH_SIZE = 1;
-const MAX_BATCH_SIZE = 3;
-const MAX_IMAGES_PER_LISTING = 8;
-const LISTING_TIMEOUT_MS = 180_000;
+const MAX_BATCH_SIZE = 2;
+const MAX_IMAGES_PER_LISTING = 6;
+const MAX_VISION_CALLS_PER_REQUEST = 12;
+const LISTING_TIMEOUT_MS = 150_000;
 
 function requireUuid(value: unknown, label: string) {
   const text = String(value ?? "").trim();
@@ -36,20 +42,43 @@ function list(value: unknown) {
 
 function clampBatchSize(value: unknown) {
   const parsed = Number(value ?? DEFAULT_BATCH_SIZE);
-  return Number.isFinite(parsed)
-    ? Math.max(1, Math.min(MAX_BATCH_SIZE, Math.floor(parsed)))
+  const requested = Number.isFinite(parsed)
+    ? Math.max(1, Math.floor(parsed))
     : DEFAULT_BATCH_SIZE;
+  const costBound = Math.max(
+    1,
+    Math.floor(MAX_VISION_CALLS_PER_REQUEST / MAX_IMAGES_PER_LISTING),
+  );
+  return Math.min(requested, MAX_BATCH_SIZE, costBound);
 }
 
 async function processListing(listing: any) {
-  const imageUrls = list(listing.image_urls).slice(0, MAX_IMAGES_PER_LISTING);
-  if (!imageUrls.length) throw new Error("Listing has no staged images.");
+  const stagedImageUrls = list(listing.image_urls).slice(0, MAX_IMAGES_PER_LISTING);
+  const imageUrls = trustedSellerSweepImageUrls(
+    stagedImageUrls,
+    MAX_IMAGES_PER_LISTING,
+  );
+  const rejectedImageCount = Math.max(0, stagedImageUrls.length - imageUrls.length);
+  if (!imageUrls.length) {
+    throw new Error(
+      rejectedImageCount
+        ? "Listing has no trusted HTTPS eBay images after security validation."
+        : "Listing has no staged images.",
+    );
+  }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), LISTING_TIMEOUT_MS);
   try {
     const candidates: SellerSweepCardCandidate[] = [];
-    const imageErrors: Array<{ imageUrl: string; error: string }> = [];
+    const imageErrors: Array<{ imageUrl: string | null; error: string }> = [];
+
+    for (let index = 0; index < rejectedImageCount; index += 1) {
+      imageErrors.push({
+        imageUrl: null,
+        error: "Rejected an untrusted staged image URL before provider processing.",
+      });
+    }
 
     for (const imageUrl of imageUrls) {
       try {
@@ -108,6 +137,7 @@ async function processListing(listing: any) {
 
 export async function POST(request: Request) {
   try {
+    assertTrustedAdminMutationRequest(request);
     const body = await request.json();
     const sweepId = requireUuid(body?.sweepId, "sweepId");
     const batchSize = clampBatchSize(body?.batchSize);
@@ -123,7 +153,7 @@ export async function POST(request: Request) {
 
     const { data: listings, error: listingError } = await supabase
       .from("instacomp_seller_sweep_listings")
-      .select("id,sweep_id,ebay_item_id,title,item_url,image_urls,status")
+      .select("id")
       .eq("sweep_id", sweepId)
       .eq("status", "photos")
       .order("created_at", { ascending: true })
@@ -137,17 +167,23 @@ export async function POST(request: Request) {
         .eq("sweep_id", sweepId);
       if (allError) throw allError;
       const completed = (allRows || []).filter((row) =>
-        ["comping", "ranked", "review"].includes(String(row.status))
+        ["comping", "ranked", "review", "failed"].includes(String(row.status))
+      ).length;
+      const remaining = (allRows || []).filter((row) =>
+        ["photos", "identifying"].includes(String(row.status))
       ).length;
       return NextResponse.json({
         ok: true,
         sweepId,
         processedThisRun: 0,
-        remaining: 0,
+        remaining,
         completed,
-        status: "candidate_extraction_complete",
+        status:
+          remaining > 0 ? "candidate_extraction_in_progress" : "candidate_extraction_complete",
         nextStep:
-          "Run exact-card validation and verified completed-sale comps for candidates that cleared extraction.",
+          remaining > 0
+            ? "Another worker owns the remaining bounded listing claim."
+            : "Run exact-card validation and verified completed-sale comps for candidates that cleared extraction.",
       });
     }
 
@@ -158,14 +194,24 @@ export async function POST(request: Request) {
 
     const outcomes = [];
     for (const listing of listings) {
-      await supabase
+      const { data: claimed, error: claimError } = await supabase
         .from("instacomp_seller_sweep_listings")
-        .update({ status: "identifying", error_message: null, updated_at: new Date().toISOString() })
-        .eq("id", listing.id);
+        .update({
+          status: "identifying",
+          error_message: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", listing.id)
+        .eq("sweep_id", sweepId)
+        .eq("status", "photos")
+        .select("id,sweep_id,ebay_item_id,title,item_url,image_urls,status")
+        .maybeSingle();
+      if (claimError) throw claimError;
+      if (!claimed) continue;
 
       try {
-        const result = await processListing(listing);
-        const { error: updateError } = await supabase
+        const result = await processListing(claimed);
+        const { data: updated, error: updateError } = await supabase
           .from("instacomp_seller_sweep_listings")
           .update({
             status: result.status,
@@ -173,15 +219,21 @@ export async function POST(request: Request) {
             identified_cards: result.cards,
             confidence: result.averageConfidence,
             error_message: result.imageErrors.length
-              ? `${result.imageErrors.length} image analysis failure(s); listing requires review.`
+              ? `${result.imageErrors.length} image analysis or validation failure(s); listing requires review.`
               : null,
             updated_at: new Date().toISOString(),
           })
-          .eq("id", listing.id);
+          .eq("id", claimed.id)
+          .eq("status", "identifying")
+          .select("id")
+          .maybeSingle();
         if (updateError) throw updateError;
+        if (!updated) {
+          throw new Error("Seller Sweep listing claim was lost before result persistence.");
+        }
         outcomes.push({
-          listingId: listing.id,
-          ebayItemId: listing.ebay_item_id,
+          listingId: claimed.id,
+          ebayItemId: claimed.ebay_item_id,
           status: result.status,
           candidateCount: result.cards.length,
           exactCandidateCount: result.exactCandidateCount,
@@ -198,10 +250,11 @@ export async function POST(request: Request) {
             error_message: message,
             updated_at: new Date().toISOString(),
           })
-          .eq("id", listing.id);
+          .eq("id", claimed.id)
+          .eq("status", "identifying");
         outcomes.push({
-          listingId: listing.id,
-          ebayItemId: listing.ebay_item_id,
+          listingId: claimed.id,
+          ebayItemId: claimed.ebay_item_id,
           status: "failed",
           candidateCount: 0,
           exactCandidateCount: 0,
@@ -224,9 +277,11 @@ export async function POST(request: Request) {
       0,
     );
     const processedListings = rows.filter((row) =>
-      ["comping", "ranked", "review"].includes(String(row.status))
+      ["comping", "ranked", "review", "failed"].includes(String(row.status))
     ).length;
-    const remaining = rows.filter((row) => row.status === "photos").length;
+    const remaining = rows.filter((row) =>
+      ["photos", "identifying"].includes(String(row.status))
+    ).length;
     const progress = rows.length
       ? Math.min(80, 55 + Math.round((processedListings / rows.length) * 25))
       : 55;
@@ -250,15 +305,25 @@ export async function POST(request: Request) {
       progress,
       outcomes,
       status: remaining > 0 ? "identifying" : "candidate_extraction_complete",
+      providerCallBudget: {
+        maximumListingsPerRequest: MAX_BATCH_SIZE,
+        maximumImagesPerListing: MAX_IMAGES_PER_LISTING,
+        maximumVisionCallsPerRequest: MAX_VISION_CALLS_PER_REQUEST,
+      },
       nextStep:
         remaining > 0
-          ? "Process the next bounded batch."
+          ? "Process the next bounded, atomically claimed batch."
           : "Validate extracted candidates through the trusted InstaComp identity and comp gates.",
     });
   } catch (error) {
+    const status = error instanceof AdminMutationSecurityError ? error.status : 400;
     return NextResponse.json(
-      { ok: false, error: error instanceof Error ? error.message : "Seller Sweep processing failed." },
-      { status: 400 }
+      {
+        ok: false,
+        error: error instanceof Error ? error.message : "Seller Sweep processing failed.",
+        ...(error instanceof AdminMutationSecurityError ? { code: error.code } : {}),
+      },
+      { status }
     );
   }
 }
