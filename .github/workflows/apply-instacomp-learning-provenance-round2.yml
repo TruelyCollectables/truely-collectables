@@ -29,24 +29,28 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
+
           path = Path('src/lib/instacomp-learning-server.ts')
           source = path.read_text()
-          old = '''  const consensus = record(params.payload.consensus);
-          const compSearchDecision = record(params.payload.compSearchDecision);
-          if (
-            consensus.trustedForIdentity === true &&
-            compSearchDecision.allowed === true
-          ) {
-            return {
-              allowed: true,
-              reason: "trusted_identity_confirmation",
-              missingCorrections: [],
-              explanation: "The operator is confirming an identity already trusted by consensus.",
-            };
-          }
 
-          const missingCorrections = OPERATOR_CONFIRMATION_IDENTITY_FIELDS.filter('''
-          new = '''  const promotionDecision = decideInstaCompLearningPromotion(params.payload);
+          decision_pattern = re.compile(
+              r'''  const consensus = record\(params\.payload\.consensus\);\n'''
+              r'''  const compSearchDecision = record\(params\.payload\.compSearchDecision\);\n'''
+              r'''  if \(\n'''
+              r'''    consensus\.trustedForIdentity === true &&\n'''
+              r'''    compSearchDecision\.allowed === true\n'''
+              r'''  \) \{\n'''
+              r'''    return \{\n'''
+              r'''      allowed: true,\n'''
+              r'''      reason: "trusted_identity_confirmation",\n'''
+              r'''      missingCorrections: \[\],\n'''
+              r'''      explanation: "The operator is confirming an identity already trusted by consensus\.",\n'''
+              r'''    \};\n'''
+              r'''  \}\n\n'''
+              r'''  const missingCorrections = OPERATOR_CONFIRMATION_IDENTITY_FIELDS\.filter\('''
+          )
+          decision_replacement = '''  const promotionDecision = decideInstaCompLearningPromotion(params.payload);
           if (promotionDecision.allowed) {
             return {
               allowed: true,
@@ -59,9 +63,59 @@ jobs:
 
           const consensus = record(params.payload.consensus);
           const missingCorrections = OPERATOR_CONFIRMATION_IDENTITY_FIELDS.filter('''
-          if source.count(old) != 1:
-              raise SystemExit(f'learning confirmation marker count was {source.count(old)}')
-          path.write_text(source.replace(old, new))
+          source, decision_count = decision_pattern.subn(decision_replacement, source, count=1)
+          if decision_count != 1:
+              raise SystemExit(f'learning confirmation replacement count was {decision_count}')
+
+          confirmation_payload_old = '''    payload: {
+              ai: record(scan.raw_ai_result),
+              consensus: record(rawCompResults.consensus),
+              compSearchDecision: record(rawCompResults.compSearchDecision),
+            },'''
+          confirmation_payload_new = '''    payload: {
+              ai: record(scan.raw_ai_result),
+              consensus: record(rawCompResults.consensus),
+              compSearchDecision: record(rawCompResults.compSearchDecision),
+              checklistRegistry: record(rawCompResults.checklistRegistry),
+              catalogEvidence: record(rawCompResults.catalogEvidence),
+            },'''
+          if source.count(confirmation_payload_old) != 1:
+              raise SystemExit(
+                  f'confirmation payload marker count was {source.count(confirmation_payload_old)}'
+              )
+          source = source.replace(confirmation_payload_old, confirmation_payload_new)
+          path.write_text(source)
+
+          fixture = Path('scripts/verify-instacomp-learning-registry.sql')
+          sql = fixture.read_text()
+          fixture_old = '''      'consensus',jsonb_build_object(
+                'trustedForIdentity',true
+              ),
+              'catalogEvidence',jsonb_build_object(
+                'status','catalog_confirmed','catalogConfirmed',true
+              ),
+              'sourceCoverage','[]'::jsonb'''
+          fixture_new = '''      'consensus',jsonb_build_object(
+                'trustedForIdentity',true
+              ),
+              'compSearchDecision',jsonb_build_object(
+                'allowed',true
+              ),
+              'checklistRegistry',jsonb_build_object(
+                'matched',true,
+                'identityId','integration-catalog-identity-7-white-disco-75'
+              ),
+              'catalogEvidence',jsonb_build_object(
+                'status','catalog_confirmed',
+                'catalogConfirmed',true,
+                'selectedMatch',jsonb_build_object(
+                  'catalogId','integration-catalog-identity-7-white-disco-75'
+                )
+              ),
+              'sourceCoverage','[]'::jsonb'''
+          if sql.count(fixture_old) != 1:
+              raise SystemExit(f'exact catalog fixture marker count was {sql.count(fixture_old)}')
+          fixture.write_text(sql.replace(fixture_old, fixture_new))
           PY
 
       - name: Verify the permanent learning contract
@@ -69,15 +123,23 @@ jobs:
           node - <<'NODE'
           const fs = require('node:fs');
           const source = fs.readFileSync('src/lib/instacomp-learning-server.ts', 'utf8');
+          const fixture = fs.readFileSync('scripts/verify-instacomp-learning-registry.sql', 'utf8');
           for (const marker of [
             'const promotionDecision = decideInstaCompLearningPromotion(params.payload);',
             'if (promotionDecision.allowed)',
             'matching Registry and catalog receipts',
+            'checklistRegistry: record(rawCompResults.checklistRegistry)',
+            'catalogEvidence: record(rawCompResults.catalogEvidence)',
           ]) {
             if (!source.includes(marker)) throw new Error(`Missing learning provenance marker: ${marker}`);
           }
-          if (source.includes('consensus.trustedForIdentity === true &&\n    compSearchDecision.allowed === true')) {
-            throw new Error('Boolean-only no-retype operator confirmation remains.');
+          for (const marker of [
+            "'compSearchDecision',jsonb_build_object(",
+            "'checklistRegistry',jsonb_build_object(",
+            "'identityId','integration-catalog-identity-7-white-disco-75'",
+            "'catalogId','integration-catalog-identity-7-white-disco-75'",
+          ]) {
+            if (!fixture.includes(marker)) throw new Error(`Missing exact catalog fixture marker: ${marker}`);
           }
           NODE
 
@@ -86,6 +148,6 @@ jobs:
           git rm -f .github/workflows/apply-instacomp-learning-provenance-round2.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/lib/instacomp-learning-server.ts
+          git add src/lib/instacomp-learning-server.ts scripts/verify-instacomp-learning-registry.sql
           git commit -m "Require exact provenance for operator learning confirmation"
           git push origin HEAD:${{ github.event.pull_request.head.ref }}
