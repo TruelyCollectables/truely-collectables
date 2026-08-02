@@ -9,6 +9,7 @@ on:
       - "src/app/api/instacomp/scan/route.ts"
       - "src/lib/instacomp-learning-server.ts"
       - "scripts/run-instacomp-evidence-first-regressions.ts"
+      - "scripts/run-instacomp-ai-council-30-regressions.ts"
       - "scripts/check-live-instacomp-release.mjs"
   workflow_dispatch:
 
@@ -44,19 +45,7 @@ jobs:
       - name: Install exact dependencies
         run: npm ci
 
-      - name: Verify evidence-first source
-        shell: bash
-        run: |
-          set -euo pipefail
-          npx tsx scripts/run-instacomp-evidence-first-regressions.ts
-          npx eslint \
-            src/lib/instacomp-learning-server.ts \
-            src/app/api/instacomp/scan/route.ts \
-            scripts/run-instacomp-evidence-first-regressions.ts \
-            scripts/check-live-instacomp-release.mjs
-          npm run build
-
-      - name: Link Vercel Production project
+      - name: Link Vercel and pull protected Production environment
         shell: bash
         run: |
           set -euo pipefail
@@ -71,6 +60,26 @@ jobs:
             --project truely-collectables \
             --scope "$VERCEL_SCOPE" \
             --token "$VERCEL_TOKEN" >/dev/null
+          npx vercel@56.2.0 env pull .env.production.local \
+            --yes \
+            --environment production \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" >/dev/null
+          chmod 600 .env.production.local
+
+      - name: Verify evidence-first and AI council source
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx tsx scripts/run-instacomp-evidence-first-regressions.ts
+          npx tsx scripts/run-instacomp-ai-council-30-regressions.ts
+          npx eslint \
+            src/lib/instacomp-learning-server.ts \
+            src/app/api/instacomp/scan/route.ts \
+            scripts/run-instacomp-evidence-first-regressions.ts \
+            scripts/run-instacomp-ai-council-30-regressions.ts \
+            scripts/check-live-instacomp-release.mjs
+          npm run build
 
       - name: Deploy merged main to Production
         shell: bash
@@ -83,3 +92,8 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/check-live-instacomp-release.mjs
+
+      - name: Remove protected Production environment file
+        if: always()
+        shell: bash
+        run: rm -f .env.production.local
