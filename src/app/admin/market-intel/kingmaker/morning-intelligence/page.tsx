@@ -96,23 +96,23 @@ export default async function KingmakerMorningIntelligencePage({
             ) : (
               <>
                 <div className="mt-5 grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-white/10 bg-white/10 sm:grid-cols-5">
-                  <Metric label="Mode" value={payload.mode.toUpperCase()} />
-                  <Metric label="Actions" value={String(payload.actionableDeals.length)} />
-                  <Metric label="Changes" value={String(payload.meaningfulChanges.length)} />
-                  <Metric label="Portfolio" value={String(payload.portfolioMovements.length)} />
-                  <Metric label="Warnings" value={String(payload.warnings.length)} />
+                  <Metric label="Mode" value={preview.payload.mode.toUpperCase()} />
+                  <Metric label="Actions" value={String(preview.payload.actionableDeals.length)} />
+                  <Metric label="Changes" value={String(preview.payload.meaningfulChanges.length)} />
+                  <Metric label="Portfolio" value={String(preview.payload.portfolioMovements.length)} />
+                  <Metric label="Warnings" value={String(preview.payload.warnings.length)} />
                 </div>
                 <div className="mt-5 rounded-2xl border border-white/10 bg-black/30 p-5">
                   <p className="text-xs font-black uppercase tracking-[.16em] text-neutral-500">Subject</p>
-                  <p className="mt-2 text-xl font-black">{payload.subject}</p>
-                  <p className="mt-3 font-semibold leading-6 text-neutral-400">{payload.headline}</p>
-                  <p className="mt-4 break-all text-xs font-bold text-neutral-600">Fingerprint: {payload.fingerprint}</p>
+                  <p className="mt-2 text-xl font-black">{preview.payload.subject}</p>
+                  <p className="mt-3 font-semibold leading-6 text-neutral-400">{preview.payload.headline}</p>
+                  <p className="mt-4 break-all text-xs font-bold text-neutral-600">Fingerprint: {preview.payload.fingerprint}</p>
                 </div>
-                {payload.warnings.length ? (
+                {preview.payload.warnings.length ? (
                   <div className="mt-4 rounded-2xl border border-amber-300/25 bg-amber-300/10 p-5">
                     <p className="font-black text-amber-200">Warnings requiring owner review</p>
                     <ul className="mt-3 space-y-2 text-sm font-semibold text-amber-100/80">
-                      {payload.warnings.map((warning) => <li key={warning}>• {warning}</li>)}
+                      {preview.payload.warnings.map((warning) => <li key={warning}>• {warning}</li>)}
                     </ul>
                   </div>
                 ) : null}
