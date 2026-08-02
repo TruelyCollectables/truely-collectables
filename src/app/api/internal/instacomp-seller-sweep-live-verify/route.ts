@@ -65,6 +65,11 @@ async function protectedFetch(
   path: string,
   init: RequestInit = {},
 ) {
+  const method = String(init.method || "GET").toUpperCase();
+  const mutationHeaders = ["GET", "HEAD", "OPTIONS"].includes(method)
+    ? {}
+    : { Origin: origin };
+
   return fetch(`${origin}${path}`, {
     cache: "no-store",
     redirect: "manual",
@@ -74,6 +79,7 @@ async function protectedFetch(
       Pragma: "no-cache",
       "User-Agent": "TCOSSellerSweepRuntimeVerifier/1.0",
       Cookie: `${ADMIN_SESSION_COOKIE_NAME}=${sessionValue}`,
+      ...mutationHeaders,
       ...(init.headers || {}),
     },
   });
