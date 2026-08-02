@@ -31,7 +31,7 @@ function fingerprint(input: ChecklistIdentityInput) {
 
 const migrationSql = readFileSync(
   new URL(
-    "../supabase/migrations/20260725_tcos_checklist_registry_core.sql",
+    "../supabase/migrations/20260725200000_tcos_checklist_registry_core.sql",
     import.meta.url,
   ),
   "utf8",
