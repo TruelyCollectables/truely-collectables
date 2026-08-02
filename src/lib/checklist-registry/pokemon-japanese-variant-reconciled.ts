@@ -582,7 +582,10 @@ export function parsePokemonJapaneseVariantReconciledBundle(
         denominator: clean(printing.denominator) || null,
         detailUrl: clean(printing.detailUrl),
         origin: printing.origin,
-        parallelName: clean(printing.parallelName) || null,
+        parallelName:
+          printing.origin === "source_reverse_pokeball_printing"
+            ? POKEMON_JAPANESE_POKEBALL_REVERSE_NAME
+            : clean(printing.parallelName) || null,
         evidenceSha256: evidenceSha256(printing),
       })),
       phase: "official_variant_backfill",
