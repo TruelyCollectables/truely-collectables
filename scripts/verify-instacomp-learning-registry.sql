@@ -174,6 +174,9 @@ begin
       'isRookie',true,'isAuto',false,'isRelic',false,'confidence',0.995
     ),
     jsonb_build_object(
+      'consensus',jsonb_build_object(
+        'trustedForIdentity',true
+      ),
       'catalogEvidence',jsonb_build_object(
         'status','catalog_confirmed','catalogConfirmed',true
       ),
