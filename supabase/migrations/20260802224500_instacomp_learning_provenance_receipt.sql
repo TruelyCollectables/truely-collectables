@@ -2,6 +2,8 @@
 -- A bare consensus boolean is not a durable trust receipt. Reusable catalog or
 -- operator knowledge must carry one exact Registry identity, one exact catalog
 -- identity, an allowed comp-search decision, and agreement between both IDs.
+-- Automatic observations verify the permanent scan ledger directly because the
+-- legacy recovered result payload intentionally contains only a reduced view.
 
 begin;
 
@@ -27,6 +29,37 @@ as $$
       btrim(p_payload #>> '{catalogEvidence,selectedMatch,catalogId}');
 $$;
 
+create or replace function public.tcos_instacomp_observation_exact_identity_trusted(
+  p_source_scan_id text,
+  p_result_payload jsonb
+)
+returns boolean
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_payload jsonb := coalesce(p_result_payload, '{}'::jsonb);
+  v_scan_payload jsonb;
+begin
+  if nullif(btrim(coalesce(p_source_scan_id, '')), '') is not null
+     and to_regclass('public.instacomp_scans') is not null then
+    select coalesce(raw_comp_results, '{}'::jsonb)
+    into v_scan_payload
+    from public.instacomp_scans
+    where id::text = p_source_scan_id
+    limit 1;
+
+    if found then
+      v_payload := v_scan_payload;
+    end if;
+  end if;
+
+  return public.tcos_instacomp_payload_exact_identity_trusted(v_payload);
+end;
+$$;
+
 create or replace function public.tcos_instacomp_enforce_observation_identity_trust()
 returns trigger
 language plpgsql
@@ -35,7 +68,8 @@ set search_path = public, pg_temp
 as $$
 declare
   v_exact_identity_trusted boolean :=
-    public.tcos_instacomp_payload_exact_identity_trusted(
+    public.tcos_instacomp_observation_exact_identity_trusted(
+      new.source_scan_id::text,
       coalesce(new.result_payload, '{}'::jsonb)
     );
 begin
@@ -63,8 +97,8 @@ begin
     drop trigger if exists tcos_instacomp_observation_identity_trust_gate
       on public.tcos_card_knowledge_observations;
     create trigger tcos_instacomp_observation_identity_trust_gate
-    before insert or update of confirmation_status, consensus, catalog_evidence,
-      operator_corrections, ai_result, result_payload
+    before insert or update of confirmation_status, source_scan_id, consensus,
+      catalog_evidence, operator_corrections, ai_result, result_payload
     on public.tcos_card_knowledge_observations
     for each row execute function public.tcos_instacomp_enforce_observation_identity_trust();
   end if;
@@ -126,13 +160,15 @@ where knowledge_entry_id is not null
   and (
     (
       confirmation_status = 'catalog_confirmed'
-      and not public.tcos_instacomp_payload_exact_identity_trusted(
+      and not public.tcos_instacomp_observation_exact_identity_trusted(
+        source_scan_id::text,
         coalesce(result_payload, '{}'::jsonb)
       )
     )
     or (
       confirmation_status = 'operator_confirmed'
-      and not public.tcos_instacomp_payload_exact_identity_trusted(
+      and not public.tcos_instacomp_observation_exact_identity_trusted(
+        source_scan_id::text,
         coalesce(result_payload, '{}'::jsonb)
       )
       and not public.tcos_instacomp_operator_identity_complete(
@@ -146,14 +182,16 @@ on conflict do nothing;
 update public.tcos_card_knowledge_observations
 set confirmation_status = 'scanner_observed'
 where confirmation_status = 'catalog_confirmed'
-  and not public.tcos_instacomp_payload_exact_identity_trusted(
+  and not public.tcos_instacomp_observation_exact_identity_trusted(
+    source_scan_id::text,
     coalesce(result_payload, '{}'::jsonb)
   );
 
 update public.tcos_card_knowledge_observations
 set confirmation_status = 'needs_more_info'
 where confirmation_status = 'operator_confirmed'
-  and not public.tcos_instacomp_payload_exact_identity_trusted(
+  and not public.tcos_instacomp_observation_exact_identity_trusted(
+    source_scan_id::text,
     coalesce(result_payload, '{}'::jsonb)
   )
   and not public.tcos_instacomp_operator_identity_complete(
@@ -195,12 +233,16 @@ $$;
 
 revoke all on function public.tcos_instacomp_payload_exact_identity_trusted(jsonb)
   from public, anon, authenticated;
+revoke all on function public.tcos_instacomp_observation_exact_identity_trusted(text,jsonb)
+  from public, anon, authenticated;
 revoke all on function public.tcos_instacomp_enforce_observation_identity_trust()
   from public, anon, authenticated;
 revoke all on function public.tcos_instacomp_enforce_cache_identity_trust()
   from public, anon, authenticated;
 
 grant execute on function public.tcos_instacomp_payload_exact_identity_trusted(jsonb)
+  to service_role;
+grant execute on function public.tcos_instacomp_observation_exact_identity_trusted(text,jsonb)
   to service_role;
 grant execute on function public.tcos_instacomp_enforce_observation_identity_trust()
   to service_role;
