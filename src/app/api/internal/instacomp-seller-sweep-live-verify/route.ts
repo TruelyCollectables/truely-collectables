@@ -66,22 +66,20 @@ async function protectedFetch(
   init: RequestInit = {},
 ) {
   const method = String(init.method || "GET").toUpperCase();
-  const mutationHeaders = ["GET", "HEAD", "OPTIONS"].includes(method)
-    ? {}
-    : { Origin: origin };
+  const headers = new Headers(init.headers);
+  headers.set("Cache-Control", "no-cache");
+  headers.set("Pragma", "no-cache");
+  headers.set("User-Agent", "TCOSSellerSweepRuntimeVerifier/1.0");
+  headers.set("Cookie", `${ADMIN_SESSION_COOKIE_NAME}=${sessionValue}`);
+  if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
+    headers.set("Origin", origin);
+  }
 
   return fetch(`${origin}${path}`, {
     cache: "no-store",
     redirect: "manual",
     ...init,
-    headers: {
-      "Cache-Control": "no-cache",
-      Pragma: "no-cache",
-      "User-Agent": "TCOSSellerSweepRuntimeVerifier/1.0",
-      Cookie: `${ADMIN_SESSION_COOKIE_NAME}=${sessionValue}`,
-      ...mutationHeaders,
-      ...(init.headers || {}),
-    },
+    headers,
   });
 }
 
