@@ -10,6 +10,10 @@ import {
   type CacheRow,
   type ScanActor,
 } from "../../../../lib/instacomp-learning-server";
+import {
+  InstaCompMutationSecurityError,
+  assertTrustedInstaCompMutationRequest,
+} from "../../../../lib/instacomp-mutation-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -105,13 +109,14 @@ export async function POST(request: NextRequest) {
   const contentType = (request.headers.get("content-type") || "").toLowerCase();
 
   // Persistent queued jobs use JSON and keep the full durable queue workflow.
-  // The scan ledger trigger still records those results automatically.
+  // The core route authenticates and validates its service/bearer/admin channel.
   if (contentType.includes("application/json")) {
     return runCoreInstaCompScan(request);
   }
 
   try {
     const actor = await requireInstaCompJobActor(request);
+    assertTrustedInstaCompMutationRequest({ request, actor });
     const actorInfo = actorSnapshot(actor);
     const incoming = await request.formData();
     const frontValue = incoming.get("frontImage");
@@ -240,8 +245,16 @@ export async function POST(request: NextRequest) {
           error instanceof Error
             ? error.message
             : "InstaComp learning gateway failed.",
+        ...(error instanceof InstaCompMutationSecurityError
+          ? { code: error.code }
+          : {}),
       },
-      { status: 500 },
+      {
+        status:
+          error instanceof InstaCompMutationSecurityError
+            ? error.status
+            : 500,
+      },
     );
   }
 }
