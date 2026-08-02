@@ -1,0 +1,91 @@
+name: Apply InstaComp Learning Provenance Round Two
+
+# One-time same-repository PR transformation. The successful job deletes itself.
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/apply-instacomp-learning-provenance-round2.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-instacomp-learning-provenance-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  apply-learning-fix:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Require full exact-identity receipt for no-retype confirmation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('src/lib/instacomp-learning-server.ts')
+          source = path.read_text()
+          old = '''  const consensus = record(params.payload.consensus);
+          const compSearchDecision = record(params.payload.compSearchDecision);
+          if (
+            consensus.trustedForIdentity === true &&
+            compSearchDecision.allowed === true
+          ) {
+            return {
+              allowed: true,
+              reason: "trusted_identity_confirmation",
+              missingCorrections: [],
+              explanation: "The operator is confirming an identity already trusted by consensus.",
+            };
+          }
+
+          const missingCorrections = OPERATOR_CONFIRMATION_IDENTITY_FIELDS.filter('''
+          new = '''  const promotionDecision = decideInstaCompLearningPromotion(params.payload);
+          if (promotionDecision.allowed) {
+            return {
+              allowed: true,
+              reason: "trusted_identity_confirmation",
+              missingCorrections: [],
+              explanation:
+                "The operator is confirming an identity already bound to matching Registry and catalog receipts.",
+            };
+          }
+
+          const consensus = record(params.payload.consensus);
+          const missingCorrections = OPERATOR_CONFIRMATION_IDENTITY_FIELDS.filter('''
+          if source.count(old) != 1:
+              raise SystemExit(f'learning confirmation marker count was {source.count(old)}')
+          path.write_text(source.replace(old, new))
+          PY
+
+      - name: Verify the permanent learning contract
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const source = fs.readFileSync('src/lib/instacomp-learning-server.ts', 'utf8');
+          for (const marker of [
+            'const promotionDecision = decideInstaCompLearningPromotion(params.payload);',
+            'if (promotionDecision.allowed)',
+            'matching Registry and catalog receipts',
+          ]) {
+            if (!source.includes(marker)) throw new Error(`Missing learning provenance marker: ${marker}`);
+          }
+          if (source.includes('consensus.trustedForIdentity === true &&\n    compSearchDecision.allowed === true')) {
+            throw new Error('Boolean-only no-retype operator confirmation remains.');
+          }
+          NODE
+
+      - name: Commit permanent code and remove one-time workflow
+        run: |
+          git rm -f .github/workflows/apply-instacomp-learning-provenance-round2.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/instacomp-learning-server.ts
+          git commit -m "Require exact provenance for operator learning confirmation"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
