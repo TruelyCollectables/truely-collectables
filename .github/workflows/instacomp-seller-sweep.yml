@@ -27,5 +27,7 @@ jobs:
         run: node scripts/run-instacomp-seller-sweep-contracts.mjs
       - name: Install dependencies
         run: npm ci
+      - name: Verify exact-identity receipt proof adapter
+        run: node --import tsx scripts/run-instacomp-seller-sweep-proof-simulations.ts
       - name: TypeScript check
         run: npx tsc --noEmit --pretty false

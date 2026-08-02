@@ -273,6 +273,13 @@ export async function POST(request: NextRequest) {
             otherCost: line.otherCost,
             targetBucket: bucket,
             externalOrderId: order.orderId,
+            receiptVerification: {
+              source: "connected_ebay_buyer_order",
+              currency: order.currency,
+              orderLineCount: order.lines.length,
+              orderLineItemId: line.orderLineItemId,
+              transactionId: line.transactionId,
+            },
           });
           added += 1;
         }

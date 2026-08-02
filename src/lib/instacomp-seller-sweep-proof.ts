@@ -9,6 +9,13 @@ import type {
   SellerSweepValuedCard,
   SellerSweepVerifiedSale,
 } from "./instacomp-seller-sweep-economics";
+import {
+  findExactSellerSweepMarketIdentity,
+  sellerSweepVerifiedReceiptSales,
+  type MarketIdentityRow,
+  type ReceiptCompRow,
+} from "./instacomp-seller-sweep-proof-core";
+import { createSupabaseServerClient } from "./supabase-server";
 
 export type SellerSweepProofCard = SellerSweepCardCandidate & {
   identityProof: NonNullable<SellerSweepValuedCard["identityProof"]>;
@@ -42,6 +49,8 @@ function reviewCard(
 function verifiedCard(
   card: SellerSweepCardCandidate,
   match: RegistryMatch,
+  marketIdentityId: string | null,
+  verifiedCompletedSales: SellerSweepVerifiedSale[],
 ): SellerSweepProofCard {
   return {
     ...card,
@@ -52,9 +61,70 @@ function verifiedCard(
       noConflictingEvidence: true,
       source: "instacomp_checklist_registry",
       checklistIdentityId: match.identityId,
+      marketIdentityId,
       matchedEvidence: match.matchedEvidence,
+      pricingEvidenceStatus:
+        verifiedCompletedSales.length >= 2
+          ? "verified_completed_sales_ready"
+          : "insufficient_verified_completed_sales",
     },
-    verifiedCompletedSales: [],
+    verifiedCompletedSales,
+  };
+}
+
+async function loadVerifiedReceiptSales(
+  card: SellerSweepCardCandidate,
+  registryMatch: RegistryMatch,
+) {
+  const supabase = createSupabaseServerClient({ admin: true });
+  const { data: subjectRows, error: subjectError } = await supabase
+    .from("tcos_mi_subjects")
+    .select("id,name")
+    .eq("active", true)
+    .ilike("name", String(card.player))
+    .limit(3);
+  if (subjectError || !subjectRows || subjectRows.length !== 1) {
+    return { marketIdentityId: null, sales: [] as SellerSweepVerifiedSale[] };
+  }
+
+  const { data: identityRows, error: identityError } = await supabase
+    .from("tcos_mi_collectible_identities")
+    .select(
+      "id,collectible_type,season_year,manufacturer,brand,product_line,set_name,insert_name,card_number,parallel_name,variation_name,serial_numbered_to,autograph,memorabilia,condition_type,grading_company,grade,identity_confidence",
+    )
+    .eq("active", true)
+    .eq("subject_id", subjectRows[0].id)
+    .ilike("card_number", String(card.cardNumber))
+    .limit(100);
+  if (identityError) {
+    return { marketIdentityId: null, sales: [] as SellerSweepVerifiedSale[] };
+  }
+
+  const identity = findExactSellerSweepMarketIdentity({
+    card,
+    registryMatch,
+    rows: (identityRows || []) as MarketIdentityRow[],
+  });
+  if (!identity) {
+    return { marketIdentityId: null, sales: [] as SellerSweepVerifiedSale[] };
+  }
+
+  const { data: compRows, error: compError } = await supabase
+    .from("tcos_mi_sold_comps")
+    .select(
+      "id,marketplace_id,external_sale_id,source_url,sold_at,sold_price,shipping_price,quantity,verified,match_confidence,excluded,outlier_flag,metadata",
+    )
+    .eq("collectible_identity_id", identity.id)
+    .eq("verified", true)
+    .eq("excluded", false)
+    .eq("outlier_flag", false)
+    .order("sold_at", { ascending: false })
+    .limit(100);
+  return {
+    marketIdentityId: String(identity.id),
+    sales: compError
+      ? []
+      : sellerSweepVerifiedReceiptSales((compRows || []) as ReceiptCompRow[]),
   };
 }
 
@@ -96,9 +166,17 @@ async function verifyCandidate(
       isAuto: card.isAutograph,
       isRelic: card.isRelic,
     });
-    return match
-      ? verifiedCard(card, match)
-      : reviewCard(card, "checklist_registry_exact_match_not_found");
+    if (!match) return reviewCard(card, "checklist_registry_exact_match_not_found");
+    const pricing = await loadVerifiedReceiptSales(card, match).catch(() => ({
+      marketIdentityId: null,
+      sales: [] as SellerSweepVerifiedSale[],
+    }));
+    return verifiedCard(
+      card,
+      match,
+      pricing.marketIdentityId,
+      pricing.sales,
+    );
   } catch {
     return reviewCard(card, "checklist_registry_lookup_failed");
   }

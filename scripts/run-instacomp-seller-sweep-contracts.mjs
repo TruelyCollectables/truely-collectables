@@ -13,6 +13,22 @@ const proof = readFileSync(
   "src/lib/instacomp-seller-sweep-proof.ts",
   "utf8",
 );
+const proofCore = readFileSync(
+  "src/lib/instacomp-seller-sweep-proof-core.ts",
+  "utf8",
+);
+const purchaseInbox = readFileSync(
+  "src/lib/market-intel-ebay-purchase-inbox.ts",
+  "utf8",
+);
+const purchaseComps = readFileSync(
+  "src/lib/market-intel-ebay-purchase-comps.ts",
+  "utf8",
+);
+const purchaseIntakeRoute = readFileSync(
+  "src/app/api/admin/market-intel/purchases/ebay-intake/route.ts",
+  "utf8",
+);
 const collector = readFileSync(
   "src/app/api/admin/instacomp/seller-sweep/route.ts",
   "utf8",
@@ -35,6 +51,10 @@ const client = readFileSync(
 );
 const migration = readFileSync(
   "supabase/migrations/20260802002500_instacomp_seller_sweeps.sql",
+  "utf8",
+);
+const workflow = readFileSync(
+  ".github/workflows/instacomp-seller-sweep.yml",
   "utf8",
 );
 
@@ -89,6 +109,20 @@ assert.match(proof, /noConflictingEvidence: true/);
 assert.match(proof, /verifiedCompletedSales: \[\]/);
 assert.match(proof, /graded_identity_requires_certification_verification/);
 assert.match(proof, /listing_candidate_limit_exceeded/);
+assert.match(proofCore, /findExactSellerSweepMarketIdentity/);
+assert.match(proofCore, /sellerSweepVerifiedReceiptSales/);
+assert.match(proofCore, /metadata\.verified_from === "connected_ebay_buyer_order"/);
+assert.match(proofCore, /metadata\.connected_buyer_order_verified === true/);
+assert.match(proofCore, /Number\(metadata\.receipt_order_line_count\) === 1/);
+assert.match(proofCore, /metadata\.final_price_confirmed === true/);
+assert.match(proofCore, /metadata\.shipping_price_confirmed === true/);
+assert.match(proofCore, /Number\(row\.quantity\) === 1/);
+assert.match(purchaseIntakeRoute, /source: "connected_ebay_buyer_order"/);
+assert.match(purchaseIntakeRoute, /orderLineCount: order\.lines\.length/);
+assert.match(purchaseInbox, /connected_buyer_order_verified/);
+assert.match(purchaseInbox, /receipt_order_line_count/);
+assert.match(purchaseComps, /independently_verified: connectedReceipt/);
+assert.match(purchaseComps, /shipping_price_confirmed: singleLineReceipt/);
 
 assert.match(economics, /proof\?\.status === "verified_exact"/);
 assert.match(economics, /proof\.exactIdentityConfirmed === true/);
@@ -126,6 +160,7 @@ assert.match(client, /seller-sweep\/process/);
 assert.match(client, /seller-sweep\/rank/);
 assert.match(client, /window\.setInterval/);
 assert.match(client, /never changes a listing, publishes an item, or applies a price automatically/);
+assert.match(workflow, /run-instacomp-seller-sweep-proof-simulations\.ts/);
 
 for (const column of [
   "identified_cards jsonb",

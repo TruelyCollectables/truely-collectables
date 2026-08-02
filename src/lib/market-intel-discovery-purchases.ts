@@ -151,6 +151,15 @@ export async function recordDiscoveryCandidatePurchase(
     salesTax,
     otherCost,
     totalPaid: enteredTotal,
+    currency: String(candidateMetadata.currency || ""),
+    receiptVerificationSource: String(
+      candidateMetadata.receipt_verification_source || "",
+    ),
+    connectedBuyerOrderVerified:
+      candidateMetadata.connected_buyer_order_verified === true,
+    receiptOrderLineCount: Number(
+      candidateMetadata.receipt_order_line_count || 0,
+    ),
   });
 
   async function syncReceiptComp(purchaseId: string) {

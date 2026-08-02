@@ -31,6 +31,7 @@ export type SellerSweepValuedCard = {
     checklistIdentityId?: string | null;
     marketIdentityId?: string | null;
     matchedEvidence?: string[] | null;
+    pricingEvidenceStatus?: string | null;
   } | null;
   verifiedCompletedSales?: SellerSweepVerifiedSale[] | null;
 };

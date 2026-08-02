@@ -320,7 +320,7 @@ function parseBuyerOrderXml(xml: string, requestedOrderId: string): EbayBuyerOrd
     currency:
       xmlCurrency(orderSummary, totalTag) ||
       xmlCurrency(orderSummary, "Subtotal") ||
-      "USD",
+      "",
     orderStatus: xmlValue(orderSummary, "OrderStatus"),
     paymentStatus: xmlValue(orderSummary, "Status"),
     totalPaid: roundMoney(lines.reduce((total, line) => total + line.totalPaid, 0)),
