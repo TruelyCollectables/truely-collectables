@@ -1,0 +1,218 @@
+name: Apply InstaComp Market Evidence Round Two
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/apply-instacomp-market-evidence-round2.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instacomp-round2-branch-writer
+  cancel-in-progress: false
+
+jobs:
+  apply-market-evidence-fix:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Harden completed-sale authority and replay handling
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('src/lib/instacomp-market-evidence.ts')
+          source = path.read_text()
+
+          key_pattern = re.compile(
+              r'''export function instaCompCompletedSaleKey\(comp: InstaCompMarketComp\) \{[\s\S]*?\n\}\n\nexport function instaCompVerifiedSalePrice'''
+          )
+          key_replacement = '''function canonicalEvidenceUrl(value: unknown) {
+            const input = String(value || "").trim();
+            if (!input || input.length > 2_048) return null;
+
+            let url: URL;
+            try {
+              url = new URL(input);
+            } catch {
+              return null;
+            }
+
+            if (url.protocol !== "https:" || url.username || url.password) return null;
+            if (url.port && url.port !== "443") return null;
+            url.hash = "";
+
+            const hostname = url.hostname.toLowerCase().replace(/\\.$/, "");
+            if (!hostname) return null;
+            url.hostname = hostname;
+
+            if (hostname === "ebay.com" || hostname.endsWith(".ebay.com")) {
+              const itemId = url.pathname.match(/\\/(?:itm|p)\\/(?:[^/]+\\/)?(\\d{9,15})(?:\\/|$)/i)?.[1];
+              if (itemId) return `https://www.ebay.com/itm/${itemId}`;
+
+              const orderId = url.searchParams.get("orderId") || url.searchParams.get("orderid");
+              if (orderId) {
+                return `https://order.ebay.com/ord/show?orderId=${encodeURIComponent(orderId)}`;
+              }
+            }
+
+            const trackingKeys = [
+              "campid",
+              "customid",
+              "hash",
+              "mkcid",
+              "mkevt",
+              "mkrid",
+              "siteid",
+              "toolid",
+              "var",
+              "widget_ver",
+            ];
+            for (const key of trackingKeys) url.searchParams.delete(key);
+            url.searchParams.sort();
+            return url.toString();
+          }
+
+          function marketplaceFamily(comp: InstaCompMarketComp) {
+            const source = String(comp.source || comp.sourceLabel || "")
+              .trim()
+              .toLowerCase();
+            const evidenceUrl = canonicalEvidenceUrl(comp.url);
+            let hostname = "";
+            try {
+              hostname = evidenceUrl ? new URL(evidenceUrl).hostname : "";
+            } catch {
+              hostname = "";
+            }
+            if (source.includes("ebay") || hostname === "ebay.com" || hostname.endsWith(".ebay.com")) {
+              return "ebay";
+            }
+            return source.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "unknown";
+          }
+
+          export function instaCompCompletedSaleKey(comp: InstaCompMarketComp) {
+            const saleId = String(comp.saleId || "").trim().toLowerCase();
+            if (!saleId || saleId.length > 240) return null;
+            return `${marketplaceFamily(comp)}:${saleId}`;
+          }
+
+          export function instaCompVerifiedSalePrice'''
+          source, count = key_pattern.subn(key_replacement, source, count=1)
+          if count != 1:
+              raise SystemExit(f'sale key replacement count was {count}')
+
+          price_pattern = re.compile(
+              r'''export function instaCompVerifiedSalePrice\(comp: InstaCompMarketComp\) \{[\s\S]*?\n\}\n\nexport function isVerifiedInstaCompCompletedSale'''
+          )
+          price_replacement = '''export function instaCompVerifiedSalePrice(comp: InstaCompMarketComp) {
+            const displayedPrice = positiveMoney(comp.price);
+            const itemPrice = positiveMoney(comp.itemPrice);
+            const shippingPrice = nonNegativeMoney(comp.shippingPrice);
+            const finalPriceVerified = comp.finalPriceVerified === true;
+            const shippingVerified = comp.shippingVerified === true;
+
+            if (!finalPriceVerified || !shippingVerified) return null;
+
+            const calculatedTotal =
+              itemPrice !== null && shippingPrice !== null
+                ? rounded(itemPrice + shippingPrice)
+                : null;
+
+            if (comp.priceIncludesShipping === true && displayedPrice !== null) {
+              if (
+                calculatedTotal !== null &&
+                Math.abs(displayedPrice - calculatedTotal) > 0.02
+              ) {
+                return null;
+              }
+              return rounded(displayedPrice);
+            }
+
+            if (calculatedTotal !== null) return calculatedTotal;
+            return null;
+          }
+
+          export function isVerifiedInstaCompCompletedSale'''
+          source, count = price_pattern.subn(price_replacement, source, count=1)
+          if count != 1:
+              raise SystemExit(f'verified price replacement count was {count}')
+
+          source = source.replace(
+              '  if (!String(comp.url || "").trim()) return false;',
+              '  if (!canonicalEvidenceUrl(comp.url)) return false;',
+          )
+          verification_old = '''  const saleVerified =
+            comp.saleVerified === true || hasFlag(comp, "verified completed sale");
+          if (!saleVerified) return false;'''
+          verification_new = '''  if (comp.saleVerified !== true) return false;'''
+          if source.count(verification_old) != 1:
+              raise SystemExit(f'sale verification marker count was {source.count(verification_old)}')
+          source = source.replace(verification_old, verification_new)
+
+          unique_pattern = re.compile(
+              r'''export function uniqueInstaCompComps\(rows: InstaCompMarketComp\[\]\) \{[\s\S]*?\n\}\n\nexport function verifiedInstaCompCompletedSales'''
+          )
+          unique_replacement = '''export function uniqueInstaCompComps(rows: InstaCompMarketComp[]) {
+            const seenKeys = new Set<string>();
+            const seenEvidenceUrls = new Set<string>();
+            const unique: InstaCompMarketComp[] = [];
+
+            for (const comp of rows) {
+              const saleKey = instaCompCompletedSaleKey(comp);
+              const evidenceUrl = canonicalEvidenceUrl(comp.url);
+              const price =
+                instaCompVerifiedSalePrice(comp) ??
+                positiveMoney(comp.price) ??
+                positiveMoney(comp.itemPrice);
+              if (price === null) continue;
+
+              const fallbackKey = [
+                evidenceUrl || String(comp.url || "").trim().toLowerCase(),
+                String(comp.title || "").trim().toLowerCase(),
+                rounded(price),
+              ].join("|");
+              const key = saleKey || fallbackKey;
+              if (seenKeys.has(key)) continue;
+              if (evidenceUrl && seenEvidenceUrls.has(evidenceUrl)) continue;
+
+              seenKeys.add(key);
+              if (evidenceUrl) seenEvidenceUrls.add(evidenceUrl);
+              unique.push(comp);
+            }
+
+            return unique;
+          }
+
+          export function verifiedInstaCompCompletedSales'''
+          source, count = unique_pattern.subn(unique_replacement, source, count=1)
+          if count != 1:
+              raise SystemExit(f'unique evidence replacement count was {count}')
+
+          path.write_text(source)
+          PY
+
+      - name: Verify hostile replay contracts
+        run: |
+          npm ci
+          node --import tsx scripts/run-instacomp-market-evidence-replay-regressions.ts
+          node --import tsx scripts/run-instacomp-v2-hardening-simulations.ts
+          npx eslint src/lib/instacomp-market-evidence.ts scripts/run-instacomp-market-evidence-replay-regressions.ts
+          npx tsc --noEmit --pretty false
+
+      - name: Commit permanent fix and remove one-time workflow
+        run: |
+          git rm -f .github/workflows/apply-instacomp-market-evidence-round2.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/instacomp-market-evidence.ts
+          git commit -m "Block sold-evidence self-assertion and replay duplication"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
