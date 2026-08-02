@@ -249,12 +249,6 @@ begin
     'catalog_confirmed'
   );
 
-  select trusted_for_pricing,
-         confirmation_status = 'scanner_observed'
-  into v_trusted, v_trusted
-  from public.instacomp_scan_knowledge_cache
-  where image_fingerprint = 'round2-forged-cache';
-
   select trusted_for_pricing
   into v_trusted
   from public.instacomp_scan_knowledge_cache
