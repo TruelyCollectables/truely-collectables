@@ -28,31 +28,39 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
 
           path = Path('src/app/api/instacomp/scan/route.ts')
           source = path.read_text()
 
-          import_marker = '''} from "../../../../lib/instacomp-job-server";
-          import {
-            checkPublicEndpointRateLimit,'''
-          import_value = '''} from "../../../../lib/instacomp-job-server";
-          import { assertTrustedInstaCompMutationRequest } from "../../../../lib/instacomp-mutation-security";
-          import {
-            checkPublicEndpointRateLimit,'''
           if 'instacomp-mutation-security' not in source:
-              if source.count(import_marker) != 1:
-                  raise SystemExit(f'core mutation import marker count was {source.count(import_marker)}')
-              source = source.replace(import_marker, import_value, 1)
+              pattern = re.compile(
+                  r'(\} from "\.\./\.\./\.\./\.\./lib/instacomp-job-server";\n)'
+                  r'(?=import \{\n\s*checkPublicEndpointRateLimit,)',
+              )
+              source, count = pattern.subn(
+                  lambda match: match.group(1)
+                  + 'import { assertTrustedInstaCompMutationRequest } from "../../../../lib/instacomp-mutation-security";\n',
+                  source,
+                  count=1,
+              )
+              if count != 1:
+                  raise SystemExit(f'core mutation import replacement count was {count}')
 
-          actor_marker = '''    const actor = await requireInstaCompJobActor(req);
-            const rateLimit = await checkPublicEndpointRateLimit({'''
-          actor_value = '''    const actor = await requireInstaCompJobActor(req);
-            assertTrustedInstaCompMutationRequest({ request: req, actor });
-            const rateLimit = await checkPublicEndpointRateLimit({'''
           if 'assertTrustedInstaCompMutationRequest({ request: req, actor });' not in source:
-              if source.count(actor_marker) != 1:
-                  raise SystemExit(f'core actor marker count was {source.count(actor_marker)}')
-              source = source.replace(actor_marker, actor_value, 1)
+              pattern = re.compile(
+                  r'(\s+const actor = await requireInstaCompJobActor\(req\);\n)'
+                  r'(\s+const rateLimit = await checkPublicEndpointRateLimit\(\{)',
+              )
+              source, count = pattern.subn(
+                  lambda match: match.group(1)
+                  + '    assertTrustedInstaCompMutationRequest({ request: req, actor });\n'
+                  + match.group(2),
+                  source,
+                  count=1,
+              )
+              if count != 1:
+                  raise SystemExit(f'core actor replacement count was {count}')
 
           path.write_text(source)
           PY
