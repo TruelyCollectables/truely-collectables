@@ -64,7 +64,7 @@ export async function POST(request: Request) {
         "id,ebay_item_id,title,item_url,price,shipping,status,target_players,identified_cards,confidence",
       )
       .eq("sweep_id", sweepId)
-      .in("status", ["comping", "review"])
+      .or("status.eq.comping,and(status.eq.review,retail_value.is.null)")
       .order("created_at", { ascending: true })
       .limit(limit);
     if (listingError) throw listingError;
@@ -112,7 +112,7 @@ export async function POST(request: Request) {
     const { data: allRows, error: allError } = await supabase
       .from("instacomp_seller_sweep_listings")
       .select(
-        "id,status,target_players,expected_profit,roi_percent,confidence,rank",
+        "id,status,target_players,retail_value,expected_profit,roi_percent,confidence,rank",
       )
       .eq("sweep_id", sweepId);
     if (allError) throw allError;
@@ -150,10 +150,14 @@ export async function POST(request: Request) {
     }
 
     const rows = allRows || [];
-    const stillComping = rows.filter((row) => row.status === "comping").length;
+    const pendingValuation = rows.filter(
+      (row) =>
+        row.status === "comping" ||
+        (row.status === "review" && row.retail_value === null),
+    ).length;
     const rankedCount = rankedRows.length;
     const reviewCount = rows.filter((row) => row.status === "review").length;
-    const complete = stillComping === 0;
+    const complete = pendingValuation === 0;
 
     await supabase
       .from("instacomp_seller_sweeps")
@@ -171,7 +175,7 @@ export async function POST(request: Request) {
       processedThisRun: outcomes.length,
       rankedCount,
       reviewCount,
-      remaining: stillComping,
+      remaining: pendingValuation,
       progress: complete ? 100 : 90,
       status: complete ? "completed" : "ranking",
       outcomes,

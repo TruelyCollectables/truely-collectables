@@ -57,6 +57,8 @@ assert.match(processor, /status: reviewRequired \? "review" : "comping"/);
 assert.match(processor, /exactCandidateCount !== cards\.length/);
 assert.match(processor, /cards_identified: candidatesIdentified/);
 assert.match(processor, /Math\.min\(80/);
+assert.match(processor, /\.eq\("status", "photos"\)/);
+assert.doesNotMatch(processor, /\["photos", "failed"\]/);
 assert.doesNotMatch(processor, /retail_value:/);
 assert.doesNotMatch(processor, /quick_sale_value:/);
 assert.doesNotMatch(processor, /roi_percent:/);
@@ -84,6 +86,8 @@ assert.match(ranker, /target_bid: economics\.targetBid/);
 assert.match(ranker, /hard_max_bid: economics\.hardMaxBid/);
 assert.match(ranker, /expected_profit: economics\.expectedProfit/);
 assert.match(ranker, /roi_percent: economics\.roiPercent/);
+assert.match(ranker, /status\.eq\.comping,and\(status\.eq\.review,retail_value\.is\.null\)/);
+assert.match(ranker, /pendingValuation === 0/);
 assert.match(ranker, /Unverified cards and cards with fewer than two independently verified completed sales/);
 
 for (const column of [

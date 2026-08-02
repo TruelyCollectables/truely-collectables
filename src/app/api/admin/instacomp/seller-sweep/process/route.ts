@@ -142,7 +142,7 @@ export async function POST(request: Request) {
       .from("instacomp_seller_sweep_listings")
       .select("id,sweep_id,ebay_item_id,title,item_url,image_urls,status")
       .eq("sweep_id", sweepId)
-      .in("status", ["photos", "failed"])
+      .eq("status", "photos")
       .order("created_at", { ascending: true })
       .limit(batchSize);
     if (listingError) throw listingError;
@@ -243,7 +243,7 @@ export async function POST(request: Request) {
     const processedListings = rows.filter((row) =>
       ["comping", "ranked", "review"].includes(String(row.status))
     ).length;
-    const remaining = rows.filter((row) => ["photos", "failed"].includes(String(row.status))).length;
+    const remaining = rows.filter((row) => row.status === "photos").length;
     const progress = rows.length
       ? Math.min(80, 55 + Math.round((processedListings / rows.length) * 25))
       : 55;
