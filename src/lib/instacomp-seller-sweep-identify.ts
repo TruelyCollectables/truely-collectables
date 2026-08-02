@@ -18,6 +18,15 @@ export type SellerSweepCardCandidate = {
   confidence: number;
   visibleEvidence: string[];
   sourceImageUrl: string;
+  quantity?: number;
+  sourceImageUrls?: string[];
+  reconciliation?: {
+    method: "max_simultaneously_visible";
+    observedCandidateCount: number;
+    sourceImageCount: number;
+    maxVisibleInSingleImage: number;
+    crossImageDuplicatesCollapsed: number;
+  };
   reviewRequired: boolean;
   reviewReasons: string[];
 };

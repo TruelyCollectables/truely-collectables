@@ -17,6 +17,10 @@ const proofCore = readFileSync(
   "src/lib/instacomp-seller-sweep-proof-core.ts",
   "utf8",
 );
+const reconciliation = readFileSync(
+  "src/lib/instacomp-seller-sweep-reconcile.ts",
+  "utf8",
+);
 const purchaseInbox = readFileSync(
   "src/lib/market-intel-ebay-purchase-inbox.ts",
   "utf8",
@@ -107,6 +111,7 @@ assert.match(processor, /MAX_IMAGES_PER_LISTING = 8/);
 assert.match(processor, /LISTING_TIMEOUT_MS = 180_000/);
 assert.match(processor, /status: reviewRequired \? "review" : "comping"/);
 assert.match(processor, /verifySellerSweepCandidates/);
+assert.match(processor, /reconcileSellerSweepCandidates/);
 assert.match(processor, /exactCandidateCount !== cards\.length/);
 assert.match(processor, /cards_identified: candidatesIdentified/);
 assert.match(processor, /Math\.min\(80/);
@@ -115,6 +120,11 @@ assert.doesNotMatch(processor, /\["photos", "failed"\]/);
 assert.doesNotMatch(processor, /retail_value:/);
 assert.doesNotMatch(processor, /quick_sale_value:/);
 assert.doesNotMatch(processor, /roi_percent:/);
+
+assert.match(reconciliation, /max_simultaneously_visible/);
+assert.match(reconciliation, /crossImageDuplicatesCollapsed/);
+assert.match(reconciliation, /duplicate_quantity_requires_visual_confirmation/);
+assert.match(reconciliation, /group\.length - quantity/);
 
 assert.match(proof, /findChecklistRegistryMatch/);
 assert.match(proof, /status: "verified_exact"/);
@@ -175,6 +185,8 @@ assert.match(client, /seller-sweep\/process/);
 assert.match(client, /seller-sweep\/rank/);
 assert.match(client, /window\.setInterval/);
 assert.match(client, /never changes a listing, publishes an item, or applies a price automatically/);
+assert.match(client, /repeat observation/);
+assert.match(client, /Review:/);
 assert.match(workflow, /run-instacomp-seller-sweep-proof-simulations\.ts/);
 
 assert.match(liveVerifierRoute, /timingSafeEqual/);

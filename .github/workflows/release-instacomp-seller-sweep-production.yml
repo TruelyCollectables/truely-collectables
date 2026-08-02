@@ -54,6 +54,7 @@ jobs:
           test -f supabase/migrations/20260802002500_instacomp_seller_sweeps.sql
           node scripts/run-instacomp-seller-sweep-contracts.mjs
           node --import tsx scripts/run-instacomp-seller-sweep-proof-simulations.ts
+          node --import tsx scripts/run-instacomp-seller-sweep-reconciliation-simulations.ts
           node scripts/run-instacomp-seller-sweep-live-smoke.mjs --self-test
           node --import tsx scripts/run-instacomp-seller-sweep-live-verifier-simulations.ts
           grep -F 'INSTACOMP_SELLER_SWEEP_LIVE_VERIFY_SECRET' \

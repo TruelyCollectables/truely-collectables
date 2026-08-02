@@ -42,6 +42,12 @@ type IdentifiedCard = {
   parallel?: string | null;
   serialNumber?: string | null;
   confidence?: number | null;
+  quantity?: number;
+  sourceImageUrls?: string[];
+  reconciliation?: {
+    sourceImageCount?: number;
+    crossImageDuplicatesCollapsed?: number;
+  } | null;
   reviewRequired?: boolean;
   reviewReasons?: string[];
   identityProof?: {
@@ -156,6 +162,10 @@ function cardName(card: IdentifiedCard) {
   ]
     .filter(Boolean)
     .join(" · ");
+}
+
+function reviewReason(value: string) {
+  return value.replace(/_/g, " ");
 }
 
 async function requestJson<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
@@ -399,7 +409,58 @@ export default function SellerSweepClient() {
                     <td className="max-w-sm p-4">
                       <div className="font-black">{listing.cardCount}</div>
                       {listing.identifiedCards.length ? (
-                        <details className="mt-2"><summary className="cursor-pointer text-xs font-black text-blue-700">View cards</summary><ul className="mt-2 grid gap-2 text-xs font-semibold text-neutral-700">{listing.identifiedCards.map((card, index) => <li key={`${listing.id}-${index}`}>{cardName(card) || `Card ${index + 1}`}{card.identityProof?.status === "verified_exact" ? " · REGISTRY VERIFIED" : card.reviewRequired ? " · REVIEW" : ""}{` · ${card.verifiedCompletedSales?.length || 0} verified sales`}</li>)}</ul></details>
+                        <details className="mt-2">
+                          <summary className="cursor-pointer text-xs font-black text-blue-700">
+                            View cards
+                          </summary>
+                          <ul className="mt-2 grid gap-2 text-xs font-semibold text-neutral-700">
+                            {listing.identifiedCards.map((card, index) => {
+                              const quantity = Math.max(
+                                1,
+                                Math.floor(Number(card.quantity) || 1),
+                              );
+                              const sourceImageCount = Math.max(
+                                1,
+                                Number(card.reconciliation?.sourceImageCount) ||
+                                  card.sourceImageUrls?.length ||
+                                  1,
+                              );
+                              const collapsed = Math.max(
+                                0,
+                                Number(
+                                  card.reconciliation?.crossImageDuplicatesCollapsed,
+                                ) || 0,
+                              );
+                              return (
+                                <li key={`${listing.id}-${index}`}>
+                                  <div>
+                                    {cardName(card) || `Card ${index + 1}`}
+                                    {quantity > 1 ? ` · ${quantity} copies` : ""}
+                                    {card.identityProof?.status === "verified_exact"
+                                      ? " · REGISTRY VERIFIED"
+                                      : card.reviewRequired
+                                        ? " · REVIEW"
+                                        : ""}
+                                    {` · ${card.verifiedCompletedSales?.length || 0} verified sales`}
+                                  </div>
+                                  {sourceImageCount > 1 || collapsed > 0 ? (
+                                    <div className="mt-1 text-neutral-500">
+                                      Seen in {sourceImageCount} photos
+                                      {collapsed > 0
+                                        ? ` · ${collapsed} repeat observation${collapsed === 1 ? "" : "s"} collapsed`
+                                        : ""}
+                                    </div>
+                                  ) : null}
+                                  {card.reviewReasons?.length ? (
+                                    <div className="mt-1 text-amber-800">
+                                      Review: {card.reviewReasons.map(reviewReason).join(", ")}
+                                    </div>
+                                  ) : null}
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        </details>
                       ) : null}
                     </td>
                     <td className="p-4">{listing.targetPlayers.length ? <div className="flex flex-wrap gap-1">{listing.targetPlayers.map((player) => <span key={player} className="rounded-full bg-fuchsia-100 px-2 py-1 text-xs font-black text-fuchsia-900">{player}</span>)}</div> : "—"}</td>
