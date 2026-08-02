@@ -56,10 +56,10 @@ export default async function KingmakerMorningIntelligencePage({
       <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_12%_4%,rgba(16,185,129,.16),transparent_30%),radial-gradient(circle_at_88%_4%,rgba(245,158,11,.15),transparent_28%),linear-gradient(180deg,#080c11,#020304)]" />
       <div className="relative mx-auto max-w-6xl space-y-5">
         <Link
-          href={addAdminHandoff("/admin/market-intel/kingmaker", handoff)}
+          href={addAdminHandoff("/admin/market-intel", handoff)}
           className="inline-flex rounded-full border border-white/15 bg-white/[.06] px-4 py-2 text-xs font-black uppercase tracking-[.16em] text-neutral-200 hover:bg-white/10"
         >
-          ← Project KINGMAKER Beta 1.0
+          ← Market Intelligence
         </Link>
 
         <header className="rounded-[2rem] border border-white/10 bg-black/70 p-6 shadow-2xl backdrop-blur-xl lg:p-9">
@@ -137,7 +137,7 @@ export default async function KingmakerMorningIntelligencePage({
               <h2 className="mt-2 text-2xl font-black">Build without sending</h2>
               <p className="mt-2 text-sm font-semibold leading-6 text-neutral-400">Loads live deals, Purchase Ledger positions, truth health, readiness, and the prior fingerprint.</p>
               <AdminSubmitButton
-                title="Build the current KINGMAKER morning-intelligence payload without sending email or changing delivery state."
+                title="Build the live KINGMAKER morning-intelligence payload without sending email or changing delivery state."
                 className="mt-5 w-full rounded-2xl border border-white/15 bg-white/[.08] px-4 py-3 font-black hover:bg-white/[.12]"
                 pendingChildren="Building live payload..."
               >
