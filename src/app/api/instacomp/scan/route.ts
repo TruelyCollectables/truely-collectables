@@ -40,6 +40,7 @@ import {
   requireUuid,
   throwInstaCompDatabaseError,
 } from "../../../../lib/instacomp-job-server";
+import { assertTrustedInstaCompMutationRequest } from "../../../../lib/instacomp-mutation-security";
 import {
   checkPublicEndpointRateLimit,
   publicEndpointRateLimitResponse,
@@ -3892,6 +3893,7 @@ export async function POST(req: NextRequest) {
   try {
     const ephemeralBenchmark = authorizedEphemeralBenchmark(req);
     const actor = await requireInstaCompJobActor(req);
+    assertTrustedInstaCompMutationRequest({ request: req, actor });
     const rateLimit = await checkPublicEndpointRateLimit({
       request: req,
       endpointKey: "instacomp_scan",
