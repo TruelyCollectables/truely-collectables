@@ -5,8 +5,12 @@ on:
     paths:
       - "src/lib/kingmaker-morning-intelligence.ts"
       - "src/lib/kingmaker-morning-intelligence-email.ts"
+      - "src/lib/kingmaker-morning-intelligence-live.ts"
+      - "src/lib/kingmaker-morning-intelligence-delivery.ts"
+      - "src/app/api/cron/kingmaker/morning-intelligence/route.ts"
       - "scripts/run-kingmaker-morning-intelligence-regressions.ts"
       - "scripts/run-kingmaker-morning-intelligence-email-regressions.ts"
+      - "vercel.json"
       - ".github/workflows/kingmaker-morning-intelligence.yml"
   workflow_dispatch:
 
@@ -16,7 +20,7 @@ permissions:
 jobs:
   verify-morning-intelligence:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -29,7 +33,7 @@ jobs:
       - name: Email regressions
         run: node --import tsx scripts/run-kingmaker-morning-intelligence-email-regressions.ts
       - name: Lint
-        run: npx eslint src/lib/kingmaker-morning-intelligence.ts src/lib/kingmaker-morning-intelligence-email.ts scripts/run-kingmaker-morning-intelligence-regressions.ts scripts/run-kingmaker-morning-intelligence-email-regressions.ts
+        run: npx eslint src/lib/kingmaker-morning-intelligence.ts src/lib/kingmaker-morning-intelligence-email.ts src/lib/kingmaker-morning-intelligence-live.ts src/lib/kingmaker-morning-intelligence-delivery.ts src/app/api/cron/kingmaker/morning-intelligence/route.ts scripts/run-kingmaker-morning-intelligence-regressions.ts scripts/run-kingmaker-morning-intelligence-email-regressions.ts
       - name: TypeScript
         run: npx tsc --noEmit
       - name: Production build
