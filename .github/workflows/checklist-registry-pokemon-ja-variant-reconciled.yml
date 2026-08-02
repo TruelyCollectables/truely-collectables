@@ -114,8 +114,8 @@ jobs:
             .codex-run/tcgdex-cards-database \
             .codex-run/pokemon-ja-variant-reconciled-bundles \
             --build-receipt .codex-run/tcgdex-ja-build-receipt.json \
-            --resolution-receipt .codex-run/resolutions/s10a \
-            --resolution-receipt .codex-run/resolutions/s11a \
+            --resolution-receipt .codex-run/resolutions/s10a/pokemon-ja-historical-product-resolution-receipt.json \
+            --resolution-receipt .codex-run/resolutions/s11a/pokemon-ja-historical-product-resolution-receipt.json \
             --continue-on-error \
             --receipt .codex-run/pokemon-ja-variant-reconciled-build-receipt.json \
             > .codex-run/pokemon-ja-variant-reconciled-build-output.json
