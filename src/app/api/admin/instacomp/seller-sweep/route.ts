@@ -166,6 +166,7 @@ export async function POST(request: Request) {
 
     const photosReady = listings.filter((listing) => listing.status === "photos_ready").length;
     const failed = listings.length - photosReady;
+    const photoTotal = listings.reduce((sum, listing) => sum + listing.imageCount, 0);
     let persistenceWarning: string | null = null;
 
     try {
@@ -175,12 +176,11 @@ export async function POST(request: Request) {
         seller_name: seller,
         seller_url: sellerUrl,
         search_query: query,
-        status: failed > 0 ? "photos_ready_with_errors" : "photos_ready",
-        progress: listings.length ? 55 : 20,
-        total_listings: listings.length,
-        collected_listings: listings.length,
-        photos_ready_listings: photosReady,
-        failed_listings: failed,
+        status: "photos",
+        listing_count: listings.length,
+        photos_total: photoTotal,
+        photos_processed: photoTotal,
+        error_message: failed > 0 ? `${failed} listing photo retrieval failure(s)` : null,
       });
       if (sweepError) throw sweepError;
 
@@ -194,13 +194,13 @@ export async function POST(request: Request) {
               ebay_item_id: listing.itemId,
               title: listing.title,
               item_url: listing.itemWebUrl,
-              currency: listing.currency,
-              current_price: listing.price,
-              shipping_price: listing.shipping,
-              end_date: listing.endDate,
+              primary_image_url: listing.imageUrl,
               image_urls: listing.imageUrls,
-              image_count: listing.imageCount,
-              status: listing.status,
+              price: listing.price,
+              shipping: listing.shipping,
+              currency: listing.currency,
+              end_date: listing.endDate,
+              status: listing.status === "photos_ready" ? "photos" : "failed",
               target_players: listing.targetPlayers,
               error_message: listing.error,
             }))
@@ -221,6 +221,7 @@ export async function POST(request: Request) {
       total: listings.length,
       photosReady,
       failed,
+      photoTotal,
       progress: 55,
       status: failed > 0 ? "photos_ready_with_errors" : "photos_ready",
       listings,
