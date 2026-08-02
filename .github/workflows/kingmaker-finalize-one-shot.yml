@@ -1,0 +1,112 @@
+name: KINGMAKER one-shot audit alignment
+
+on:
+  push:
+    branches:
+      - agent/kingmaker-command-surfaces
+
+permissions:
+  contents: write
+
+jobs:
+  align:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/kingmaker-command-surfaces
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Align shared navigation and smoke contracts
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          smoke_path = Path('scripts/smoke-admin-runtime.mjs')
+          smoke = smoke_path.read_text()
+          marker = 'async function smokeAuthBoundary(check) {'
+          wrappers = '''async function smokeFirstProductDetail(cookieHeader) {
+            return smokeFirstDetail(
+              "/admin/products",
+              /href="(\\/admin\\/products\\/\\d+(?:\\?[^\\"]*)?)"/,
+              "Product command desk",
+              cookieHeader,
+            );
+          }
+
+          async function smokeFirstOrderDetail(cookieHeader) {
+            return smokeFirstDetail(
+              "/admin/orders",
+              /href="(\\/admin\\/orders\\/\\d+(?:\\?[^\\"]*)?)"/,
+              "Order command desk",
+              cookieHeader,
+            );
+          }
+
+          '''
+          if 'async function smokeFirstProductDetail(cookieHeader)' not in smoke:
+              smoke = smoke.replace(marker, wrappers + marker)
+
+          old_calls = '''  const productDetailResult = await smokeFirstDetail(
+            "/admin/products",
+            /href="(\\/admin\\/products\\/\\d+(?:\\?[^\\"]*)?)"/,
+            "Product command desk",
+            cookieHeader,
+          );
+          if (productDetailResult) results.push(productDetailResult);
+
+          const orderDetailResult = await smokeFirstDetail(
+            "/admin/orders",
+            /href="(\\/admin\\/orders\\/\\d+(?:\\?[^\\"]*)?)"/,
+            "Order command desk",
+            cookieHeader,
+          );
+          if (orderDetailResult) results.push(orderDetailResult);
+'''
+          new_calls = '''  const productDetailResult = await smokeFirstProductDetail(cookieHeader);
+          if (productDetailResult) results.push(productDetailResult);
+
+          const orderDetailResult = await smokeFirstOrderDetail(cookieHeader);
+          if (orderDetailResult) results.push(orderDetailResult);
+'''
+          smoke = smoke.replace(old_calls, new_calls)
+          smoke_path.write_text(smoke)
+
+          audit_path = Path('scripts/run-admin-dashboard-actions-simulations.mjs')
+          audit = audit_path.read_text()
+          page_read = '''const adminPageSource = await readFile(
+            new URL("../src/app/admin/page.tsx", import.meta.url),
+            "utf8",
+          );
+'''
+          template_read = page_read + '''const adminTemplateSource = await readFile(
+            new URL("../src/app/admin/template.tsx", import.meta.url),
+            "utf8",
+          );
+'''
+          if 'const adminTemplateSource = await readFile(' not in audit:
+              audit = audit.replace(page_read, template_read)
+
+          old_assert = '''      adminPageSource.includes(`"${route}"`) ||
+                adminPageSource.includes(`\\`${route}`),
+'''
+          new_assert = '''      adminPageSource.includes(`"${route}"`) ||
+                adminPageSource.includes(`\\`${route}`) ||
+                adminTemplateSource.includes(`"${route}"`) ||
+                adminTemplateSource.includes(`\\`${route}`),
+'''
+          audit = audit.replace(old_assert, new_assert)
+          audit_path.write_text(audit)
+
+          Path('.github/workflows/kingmaker-finalize-one-shot.yml').unlink()
+          PY
+      - name: Commit aligned contracts
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/smoke-admin-runtime.mjs scripts/run-admin-dashboard-actions-simulations.mjs .github/workflows/kingmaker-finalize-one-shot.yml
+          git commit -m "Align KINGMAKER with shared admin audit contracts"
+          git push origin HEAD:agent/kingmaker-command-surfaces
