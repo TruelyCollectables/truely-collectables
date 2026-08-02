@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { adminMutationSecurityDecision } from "../../../../lib/admin-request-security";
 import { sanitizeAuthenticityProfile } from "../../../../lib/authenticity";
 import { buildCardListingTitle } from "../../../../lib/card-listing-title";
 import {
@@ -186,6 +187,17 @@ function descriptionForItem(params: {
 }
 
 export async function POST(request: Request) {
+const mutation = adminMutationSecurityDecision(request);
+if (!mutation.allowed) {
+  return Response.json(
+    {
+      success: false,
+      error: mutation.reason || "Privileged mutation rejected.",
+      code: mutation.code,
+    },
+    { status: 403 },
+  );
+}
   try {
     const actor = await requireInstaCompJobActor(request);
     if (actor.type !== "admin") {

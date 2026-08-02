@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { adminMutationSecurityDecision } from "../../../../lib/admin-request-security";
 import { POST as runInstaCompFast } from "../../instacomp/scan-fast/route";
 import { buildCardListingTitle } from "../../../../lib/card-listing-title";
 import { handleGuardedDualMarketplaceGet } from "../../../../lib/dual-marketplace-admin-route-guard";
@@ -685,6 +686,17 @@ async function runCardInstaComp(request: NextRequest, inventoryItemId: string) {
 }
 
 export async function POST(request: NextRequest) {
+const mutation = adminMutationSecurityDecision(request);
+if (!mutation.allowed) {
+  return Response.json(
+    {
+      success: false,
+      error: mutation.reason || "Privileged mutation rejected.",
+      code: mutation.code,
+    },
+    { status: 403 },
+  );
+}
   try {
     await requireAdmin(request);
     const body = await request.json().catch(() => ({}));
@@ -758,6 +770,17 @@ async function removeStorageFiles(
 }
 
 export async function DELETE(request: Request) {
+const mutation = adminMutationSecurityDecision(request);
+if (!mutation.allowed) {
+  return Response.json(
+    {
+      success: false,
+      error: mutation.reason || "Privileged mutation rejected.",
+      code: mutation.code,
+    },
+    { status: 403 },
+  );
+}
   try {
     await requireAdmin(request);
     const body = await request.json().catch(() => ({}));

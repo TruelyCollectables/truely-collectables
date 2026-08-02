@@ -10,6 +10,10 @@ import {
 } from "./dual-marketplace-listing";
 import { ebayListingContentProblems } from "./ebay-listing-content";
 import {
+  buildInstaCompScanPayload,
+  evaluateInstaCompPublicationGate,
+} from "./instacomp-publication-gate";
+import {
   MAX_DUAL_MARKETPLACE_REQUEST_ITEMS,
   MAX_DUAL_MARKETPLACE_SELECTION,
   dualMarketplaceReadinessErrors,
@@ -701,6 +705,42 @@ async function updateChannelMetadata(params: {
   params.prepared.metadata = nextMetadata;
 }
 
+async function requireInstaCompPublicationAuthorization(params: {
+  supabase: ReturnType<typeof getSupabaseClient>;
+  prepared: PreparedListing;
+}) {
+  const metadata = record(params.prepared.inventory.metadata);
+  const scanId = nullableText(record(metadata.instacomp).scanId, 160);
+  let scanPayload: ReturnType<typeof buildInstaCompScanPayload> | null = null;
+
+  if (scanId) {
+    const { data: scan, error } = await params.supabase
+      .from("instacomp_scans")
+      .select("id,raw_ai_result,raw_comp_results")
+      .eq("id", scanId)
+      .maybeSingle();
+    if (error) throw error;
+    if (scan) {
+      scanPayload = buildInstaCompScanPayload({
+        scanId: scan.id,
+        rawAiResult: scan.raw_ai_result,
+        rawCompResults: scan.raw_comp_results,
+      });
+    }
+  }
+
+  const authorization = evaluateInstaCompPublicationGate({
+    metadata,
+    scanPayload,
+  });
+  if (!authorization.allowed) {
+    throw new Error(
+      `InstaComp publication gate blocked this draft: ${authorization.reasons.join(", ") || "authorization_missing"}.`,
+    );
+  }
+  return authorization;
+}
+
 async function activateWebsite(params: {
   supabase: ReturnType<typeof getSupabaseClient>;
   storeId: string;
@@ -975,6 +1015,13 @@ export async function handleDualMarketplacePost(request: Request) {
           incoming,
           feeProfile,
         });
+if (action !== "save") {
+  await requireInstaCompPublicationAuthorization({
+    supabase,
+    prepared,
+  });
+}
+
         await saveDraftMetadata({ supabase, storeId, prepared });
       } catch (error: any) {
         errors.push({
