@@ -1,0 +1,90 @@
+name: Apply InstaComp Mutation Security Round Two
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/apply-instacomp-mutation-security-round2.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instacomp-round2-branch-writer
+  cancel-in-progress: false
+
+jobs:
+  apply-mutation-security:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Protect the direct core scan mutation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/app/api/instacomp/scan/route.ts')
+          source = path.read_text()
+
+          import_marker = '''} from "../../../../lib/instacomp-job-server";
+          import {
+            checkPublicEndpointRateLimit,'''
+          import_value = '''} from "../../../../lib/instacomp-job-server";
+          import { assertTrustedInstaCompMutationRequest } from "../../../../lib/instacomp-mutation-security";
+          import {
+            checkPublicEndpointRateLimit,'''
+          if 'instacomp-mutation-security' not in source:
+              if source.count(import_marker) != 1:
+                  raise SystemExit(f'core mutation import marker count was {source.count(import_marker)}')
+              source = source.replace(import_marker, import_value, 1)
+
+          actor_marker = '''    const actor = await requireInstaCompJobActor(request);
+            persistentContext = await resolvePersistentScanContext({'''
+          actor_value = '''    const actor = await requireInstaCompJobActor(request);
+            assertTrustedInstaCompMutationRequest({ request, actor });
+            persistentContext = await resolvePersistentScanContext({'''
+          if 'assertTrustedInstaCompMutationRequest({ request, actor });' not in source:
+              if source.count(actor_marker) != 1:
+                  raise SystemExit(f'core actor marker count was {source.count(actor_marker)}')
+              source = source.replace(actor_marker, actor_value, 1)
+
+          path.write_text(source)
+          PY
+
+      - name: Verify paid-mutation authentication channels
+        run: |
+          npm ci
+          node --import tsx scripts/run-instacomp-mutation-security-regressions.ts
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const core = fs.readFileSync('src/app/api/instacomp/scan/route.ts', 'utf8');
+          const fast = fs.readFileSync('src/app/api/instacomp/scan-fast/route.ts', 'utf8');
+          const confirm = fs.readFileSync('src/app/api/instacomp/knowledge/confirm/route.ts', 'utf8');
+          for (const source of [core, fast, confirm]) {
+            if (!source.includes('assertTrustedInstaCompMutationRequest')) {
+              throw new Error('An InstaComp paid or learning mutation bypasses channel security.');
+            }
+          }
+          NODE
+          npx eslint \
+            src/app/api/instacomp/scan/route.ts \
+            src/app/api/instacomp/scan-fast/route.ts \
+            src/app/api/instacomp/knowledge/confirm/route.ts \
+            src/lib/instacomp-mutation-security.ts \
+            scripts/run-instacomp-mutation-security-regressions.ts
+          npx tsc --noEmit --pretty false
+
+      - name: Commit permanent fix and remove one-time workflow
+        run: |
+          git rm -f .github/workflows/apply-instacomp-mutation-security-round2.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/api/instacomp/scan/route.ts
+          git commit -m "Protect core InstaComp mutations by authentication channel"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
