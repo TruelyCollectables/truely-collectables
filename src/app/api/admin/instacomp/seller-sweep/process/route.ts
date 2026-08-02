@@ -6,6 +6,10 @@ import {
   type SellerSweepCardCandidate,
 } from "../../../../../../lib/instacomp-seller-sweep-identify";
 import { verifySellerSweepCandidates } from "../../../../../../lib/instacomp-seller-sweep-proof";
+import {
+  reconcileSellerSweepCandidates,
+  sellerSweepPhysicalCardCount,
+} from "../../../../../../lib/instacomp-seller-sweep-reconcile";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,35 +41,6 @@ function clampBatchSize(value: unknown) {
     : DEFAULT_BATCH_SIZE;
 }
 
-function dedupeCandidates(cards: SellerSweepCardCandidate[]) {
-  const seen = new Set<string>();
-  const result: SellerSweepCardCandidate[] = [];
-  for (const card of cards) {
-    const key = [
-      card.player,
-      card.year,
-      card.brand,
-      card.setName,
-      card.cardNumber,
-      card.parallel,
-      card.serialNumber,
-      card.isAutograph,
-      card.isRelic,
-      card.isGraded,
-      card.gradingCompany,
-      card.grade,
-      card.packagingState,
-      card.sourceImageUrl,
-    ]
-      .map((value) => String(value ?? "").toLowerCase().trim())
-      .join("|");
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(card);
-  }
-  return result;
-}
-
 async function processListing(listing: any) {
   const imageUrls = list(listing.image_urls).slice(0, MAX_IMAGES_PER_LISTING);
   if (!imageUrls.length) throw new Error("Listing has no staged images.");
@@ -93,7 +68,7 @@ async function processListing(listing: any) {
       }
     }
 
-    const extractedCards = dedupeCandidates(candidates);
+    const extractedCards = reconcileSellerSweepCandidates(candidates);
     if (!extractedCards.length) {
       throw new Error(
         imageErrors.length
@@ -245,8 +220,8 @@ export async function POST(request: Request) {
 
     const rows = allRows || [];
     const candidatesIdentified = rows.reduce(
-      (sum, row) => sum + (Array.isArray(row.identified_cards) ? row.identified_cards.length : 0),
-      0
+      (sum, row) => sum + sellerSweepPhysicalCardCount(row.identified_cards),
+      0,
     );
     const processedListings = rows.filter((row) =>
       ["comping", "ranked", "review"].includes(String(row.status))

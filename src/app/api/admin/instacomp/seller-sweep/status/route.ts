@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { sellerSweepPhysicalCardCount } from "../../../../../../lib/instacomp-seller-sweep-reconcile";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 
 export const runtime = "nodejs";
@@ -91,7 +92,7 @@ export async function GET(request: NextRequest) {
           status: String(row.status),
           targetPlayers: stringList(row.target_players),
           identifiedCards,
-          cardCount: identifiedCards.length,
+          cardCount: sellerSweepPhysicalCardCount(identifiedCards),
           retailValue: numberOrNull(row.retail_value),
           quickSaleValue: numberOrNull(row.quick_sale_value),
           targetBid: numberOrNull(row.target_bid),
@@ -113,7 +114,7 @@ export async function GET(request: NextRequest) {
       });
 
     const cardsIdentified = rows.reduce(
-      (sum, row) => sum + cardList(row.identified_cards).length,
+      (sum, row) => sum + sellerSweepPhysicalCardCount(row.identified_cards),
       0,
     );
 

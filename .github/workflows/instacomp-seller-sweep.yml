@@ -11,6 +11,7 @@ on:
       - "scripts/run-instacomp-seller-sweep-contracts.mjs"
       - "scripts/run-instacomp-seller-sweep-live-smoke.mjs"
       - "scripts/run-instacomp-seller-sweep-live-verifier-simulations.ts"
+      - "scripts/run-instacomp-seller-sweep-reconciliation-simulations.ts"
       - ".github/workflows/instacomp-seller-sweep.yml"
       - ".github/workflows/release-instacomp-seller-sweep-production.yml"
   workflow_dispatch:
@@ -33,6 +34,8 @@ jobs:
         run: npm ci
       - name: Verify exact-identity receipt proof adapter
         run: node --import tsx scripts/run-instacomp-seller-sweep-proof-simulations.ts
+      - name: Verify conservative photo reconciliation
+        run: node --import tsx scripts/run-instacomp-seller-sweep-reconciliation-simulations.ts
       - name: Verify bounded Production smoke harness
         run: node scripts/run-instacomp-seller-sweep-live-smoke.mjs --self-test
       - name: Verify scoped Production live verifier
