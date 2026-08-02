@@ -106,7 +106,7 @@ jobs:
           }
 
           export function instaCompVerifiedSalePrice'''
-          source, count = key_pattern.subn(key_replacement, source, count=1)
+          source, count = key_pattern.subn(lambda _match: key_replacement, source, count=1)
           if count != 1:
               raise SystemExit(f'sale key replacement count was {count}')
 
@@ -142,21 +142,30 @@ jobs:
           }
 
           export function isVerifiedInstaCompCompletedSale'''
-          source, count = price_pattern.subn(price_replacement, source, count=1)
+          source, count = price_pattern.subn(lambda _match: price_replacement, source, count=1)
           if count != 1:
               raise SystemExit(f'verified price replacement count was {count}')
 
+          url_old = '  if (!String(comp.url || "").trim()) return false;'
+          if source.count(url_old) != 1:
+              raise SystemExit(f'evidence URL marker count was {source.count(url_old)}')
           source = source.replace(
-              '  if (!String(comp.url || "").trim()) return false;',
+              url_old,
               '  if (!canonicalEvidenceUrl(comp.url)) return false;',
           )
-          verification_old = '''  const saleVerified =
-            comp.saleVerified === true || hasFlag(comp, "verified completed sale");
-          if (!saleVerified) return false;'''
-          verification_new = '''  if (comp.saleVerified !== true) return false;'''
-          if source.count(verification_old) != 1:
-              raise SystemExit(f'sale verification marker count was {source.count(verification_old)}')
-          source = source.replace(verification_old, verification_new)
+
+          verification_pattern = re.compile(
+              r'''  const saleVerified =\s*'''
+              r'''comp\.saleVerified === true \|\| hasFlag\(comp, "verified completed sale"\);\s*'''
+              r'''if \(!saleVerified\) return false;'''
+          )
+          source, count = verification_pattern.subn(
+              lambda _match: '  if (comp.saleVerified !== true) return false;',
+              source,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit(f'sale verification replacement count was {count}')
 
           unique_pattern = re.compile(
               r'''export function uniqueInstaCompComps\(rows: InstaCompMarketComp\[\]\) \{[\s\S]*?\n\}\n\nexport function verifiedInstaCompCompletedSales'''
@@ -193,7 +202,7 @@ jobs:
           }
 
           export function verifiedInstaCompCompletedSales'''
-          source, count = unique_pattern.subn(unique_replacement, source, count=1)
+          source, count = unique_pattern.subn(lambda _match: unique_replacement, source, count=1)
           if count != 1:
               raise SystemExit(f'unique evidence replacement count was {count}')
 
