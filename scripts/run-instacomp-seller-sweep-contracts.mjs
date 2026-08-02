@@ -84,6 +84,9 @@ assert.match(extractor, /strict: true/);
 
 assert.match(collector, /buy\/browse\/v1\/item_summary\/search/);
 assert.match(collector, /buy\/browse\/v1\/item\//);
+assert.match(collector, /const MAX_LISTING_LIMIT = 200/);
+assert.match(collector, /Math\.max\(1, Math\.min\(MAX_LISTING_LIMIT/);
+assert.match(collector, /limit: String\(limit\)/);
 assert.match(collector, /photos_total: photoTotal/);
 assert.match(collector, /identified_cards/);
 
@@ -174,6 +177,22 @@ for (const column of [
 ]) {
   assert.ok(migration.includes(column), `Missing Seller Sweep column: ${column}`);
 }
+assert.match(
+  migration,
+  /revoke all on table public\.instacomp_seller_sweeps from anon, authenticated/,
+);
+assert.match(
+  migration,
+  /revoke all on table public\.instacomp_seller_sweep_listings from anon, authenticated/,
+);
+assert.match(
+  migration,
+  /grant select, insert, update, delete on table public\.instacomp_seller_sweeps to service_role/,
+);
+assert.match(
+  migration,
+  /grant select, insert, update, delete on table public\.instacomp_seller_sweep_listings to service_role/,
+);
 
 console.log(
   JSON.stringify(

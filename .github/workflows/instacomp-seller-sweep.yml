@@ -8,7 +8,9 @@ on:
       - "src/lib/instacomp-seller-sweep-*.ts"
       - "supabase/migrations/20260802002500_instacomp_seller_sweeps.sql"
       - "scripts/run-instacomp-seller-sweep-contracts.mjs"
+      - "scripts/run-instacomp-seller-sweep-live-smoke.mjs"
       - ".github/workflows/instacomp-seller-sweep.yml"
+      - ".github/workflows/release-instacomp-seller-sweep-production.yml"
   workflow_dispatch:
 
 permissions:
@@ -29,5 +31,7 @@ jobs:
         run: npm ci
       - name: Verify exact-identity receipt proof adapter
         run: node --import tsx scripts/run-instacomp-seller-sweep-proof-simulations.ts
+      - name: Verify bounded Production smoke harness
+        run: node scripts/run-instacomp-seller-sweep-live-smoke.mjs --self-test
       - name: TypeScript check
         run: npx tsc --noEmit --pretty false

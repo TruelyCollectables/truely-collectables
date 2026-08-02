@@ -4,6 +4,8 @@ import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
 export const dynamic = "force-dynamic";
 
 const EBAY_API = "https://api.ebay.com";
+const DEFAULT_LISTING_LIMIT = 200;
+const MAX_LISTING_LIMIT = 200;
 const TARGET_PLAYERS = [
   "Paige Bueckers",
   "Sonia Citron",
@@ -72,6 +74,13 @@ function numeric(value: unknown) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function listingLimit(value: unknown) {
+  const parsed = Number(value ?? DEFAULT_LISTING_LIMIT);
+  return Number.isFinite(parsed)
+    ? Math.max(1, Math.min(MAX_LISTING_LIMIT, Math.floor(parsed)))
+    : DEFAULT_LISTING_LIMIT;
+}
+
 function uniqueImages(item: any) {
   const urls = [
     item?.image?.imageUrl,
@@ -112,6 +121,7 @@ export async function POST(request: Request) {
     const sellerUrl = String(body?.sellerUrl || "").trim();
     const seller = extractSeller(sellerUrl);
     const query = String(body?.query || "WNBA lot").trim() || "WNBA lot";
+    const limit = listingLimit(body?.limit);
     const token = await getBrowseToken();
     const headers = {
       Authorization: `Bearer ${token}`,
@@ -119,7 +129,7 @@ export async function POST(request: Request) {
     };
     const params = new URLSearchParams({
       q: query,
-      limit: "200",
+      limit: String(limit),
       filter: `sellers:{${seller}}`,
     });
     const response = await fetch(`${EBAY_API}/buy/browse/v1/item_summary/search?${params}`, {
@@ -230,6 +240,7 @@ export async function POST(request: Request) {
       sweepId,
       seller,
       query,
+      listingLimit: limit,
       total: listings.length,
       photosReady,
       failed,

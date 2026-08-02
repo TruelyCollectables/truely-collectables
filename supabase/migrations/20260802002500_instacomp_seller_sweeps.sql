@@ -54,5 +54,10 @@ create index if not exists instacomp_seller_sweeps_created_at_idx
 alter table public.instacomp_seller_sweeps enable row level security;
 alter table public.instacomp_seller_sweep_listings enable row level security;
 
+revoke all on table public.instacomp_seller_sweeps from anon, authenticated;
+revoke all on table public.instacomp_seller_sweep_listings from anon, authenticated;
+grant select, insert, update, delete on table public.instacomp_seller_sweeps to service_role;
+grant select, insert, update, delete on table public.instacomp_seller_sweep_listings to service_role;
+
 comment on table public.instacomp_seller_sweeps is 'Durable InstaComp Seller Sweep jobs and progress counters.';
 comment on table public.instacomp_seller_sweep_listings is 'Collected eBay listings and card-level valuation results for Seller Sweep.';
