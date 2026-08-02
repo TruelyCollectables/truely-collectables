@@ -48,6 +48,12 @@ function dedupeCandidates(cards: SellerSweepCardCandidate[]) {
       card.cardNumber,
       card.parallel,
       card.serialNumber,
+      card.isAutograph,
+      card.isRelic,
+      card.isGraded,
+      card.gradingCompany,
+      card.grade,
+      card.packagingState,
       card.sourceImageUrl,
     ]
       .map((value) => String(value ?? "").toLowerCase().trim())
