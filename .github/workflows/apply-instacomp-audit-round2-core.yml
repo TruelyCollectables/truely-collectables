@@ -1,5 +1,6 @@
 name: Apply InstaComp Audit Round Two Core Patch
 
+# One-time branch-local transformation. The successful job deletes this file.
 on:
   push:
     branches:
