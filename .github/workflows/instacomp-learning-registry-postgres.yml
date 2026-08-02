@@ -5,9 +5,12 @@ on:
     paths:
       - "supabase/migrations/20260716170000_create_tcos_card_knowledge_base.sql"
       - "supabase/migrations/20260731160500_instacomp_automatic_learning.sql"
-      - "supabase/migrations/20260725_tcos_checklist_registry_core.sql"
-      - "supabase/migrations/20260725_tcos_checklist_source_storage.sql"
+      - "supabase/migrations/20260725200000_tcos_checklist_registry_core.sql"
+      - "supabase/migrations/20260725201000_tcos_checklist_source_storage.sql"
       - "supabase/migrations/20260731161500_checklist_registry_transactional_writer.sql"
+      - "supabase/migrations/20260801132000_checklist_registry_versioned_identities.sql"
+      - "supabase/migrations/20260801134500_checklist_registry_repair_printing_filter.sql"
+      - "supabase/migrations/20260801201000_checklist_registry_preserve_active_version.sql"
       - "src/lib/checklist-registry/**"
       - "src/lib/instacomp-learning-server.ts"
       - "scripts/write-checklist-registry-integration-plan.ts"
@@ -44,9 +47,12 @@ jobs:
       PGDATABASE: instacomp_learning_registry_test
       KNOWLEDGE_MIGRATION: supabase/migrations/20260716170000_create_tcos_card_knowledge_base.sql
       LEARNING_MIGRATION: supabase/migrations/20260731160500_instacomp_automatic_learning.sql
-      REGISTRY_CORE_MIGRATION: supabase/migrations/20260725_tcos_checklist_registry_core.sql
-      REGISTRY_STORAGE_MIGRATION: supabase/migrations/20260725_tcos_checklist_source_storage.sql
+      REGISTRY_CORE_MIGRATION: supabase/migrations/20260725200000_tcos_checklist_registry_core.sql
+      REGISTRY_STORAGE_MIGRATION: supabase/migrations/20260725201000_tcos_checklist_source_storage.sql
       REGISTRY_WRITER_MIGRATION: supabase/migrations/20260731161500_checklist_registry_transactional_writer.sql
+      REGISTRY_VERSIONED_IDENTITIES_MIGRATION: supabase/migrations/20260801132000_checklist_registry_versioned_identities.sql
+      REGISTRY_PRINTING_FILTER_MIGRATION: supabase/migrations/20260801134500_checklist_registry_repair_printing_filter.sql
+      REGISTRY_PRESERVE_ACTIVE_VERSION_MIGRATION: supabase/migrations/20260801201000_checklist_registry_preserve_active_version.sql
 
     steps:
       - uses: actions/checkout@v4
@@ -147,6 +153,9 @@ jobs:
           psql -v ON_ERROR_STOP=1 --file "$REGISTRY_CORE_MIGRATION"
           psql -v ON_ERROR_STOP=1 --file "$REGISTRY_STORAGE_MIGRATION"
           psql -v ON_ERROR_STOP=1 --file "$REGISTRY_WRITER_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$REGISTRY_VERSIONED_IDENTITIES_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$REGISTRY_PRINTING_FILTER_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$REGISTRY_PRESERVE_ACTIVE_VERSION_MIGRATION"
 
       - name: Reapply additive migrations to prove idempotence
         run: |
@@ -154,6 +163,9 @@ jobs:
           psql -v ON_ERROR_STOP=1 --file "$REGISTRY_CORE_MIGRATION"
           psql -v ON_ERROR_STOP=1 --file "$REGISTRY_STORAGE_MIGRATION"
           psql -v ON_ERROR_STOP=1 --file "$REGISTRY_WRITER_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$REGISTRY_VERSIONED_IDENTITIES_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$REGISTRY_PRINTING_FILTER_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$REGISTRY_PRESERVE_ACTIVE_VERSION_MIGRATION"
 
       - name: Verify learning, trust, cache, backfill, and Registry transactions
         run: psql -v ON_ERROR_STOP=1 --file scripts/verify-instacomp-learning-registry.sql
