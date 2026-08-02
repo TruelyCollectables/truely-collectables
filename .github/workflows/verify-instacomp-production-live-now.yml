@@ -11,11 +11,24 @@ jobs:
   verify-live-release:
     name: Prove evidence-first release on both aliases
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Verify live release contract
-        run: node scripts/check-live-instacomp-release.mjs
+      - name: Wait for and verify live release contract
+        shell: bash
+        run: |
+          set -u
+          for attempt in $(seq 1 30); do
+            echo "Production proof attempt ${attempt}/30"
+            if node scripts/check-live-instacomp-release.mjs; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 30 ]; then
+              sleep 20
+            fi
+          done
+          echo "Production never served the evidence-first release contract within 10 minutes."
+          exit 1
