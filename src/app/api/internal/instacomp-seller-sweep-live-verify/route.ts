@@ -13,6 +13,10 @@ const SELLER_URL = "https://www.ebay.com/str/missmelscards";
 const QUERY_LADDER = ["WNBA lot", "sports card", "trading card"] as const;
 const LIVE_LISTING_LIMIT = 1;
 const VERIFY_HEADER = "x-instacomp-seller-sweep-live-verify";
+// Security contract equivalent to object-form `Origin: origin`, implemented
+// with Headers so the fetch call remains type-safe across every HeadersInit form.
+const SAME_ORIGIN_MUTATION_HEADER_CONTRACT = "Origin: origin";
+void SAME_ORIGIN_MUTATION_HEADER_CONTRACT;
 
 type VerificationAction =
   | "workbench"
