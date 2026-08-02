@@ -136,7 +136,13 @@ export default async function KingmakerMorningIntelligencePage({
               <p className="text-xs font-black uppercase tracking-[.18em] text-emerald-300">Safe Verification</p>
               <h2 className="mt-2 text-2xl font-black">Build without sending</h2>
               <p className="mt-2 text-sm font-semibold leading-6 text-neutral-400">Loads live deals, Purchase Ledger positions, truth health, readiness, and the prior fingerprint.</p>
-              <AdminSubmitButton className="mt-5 w-full rounded-2xl border border-white/15 bg-white/[.08] px-4 py-3 font-black hover:bg-white/[.12]" pendingChildren="Building live payload...">Run Controlled Dry Test</AdminSubmitButton>
+              <AdminSubmitButton
+                title="Build the current KINGMAKER morning-intelligence payload without sending email or changing delivery state."
+                className="mt-5 w-full rounded-2xl border border-white/15 bg-white/[.08] px-4 py-3 font-black hover:bg-white/[.12]"
+                pendingChildren="Building live payload..."
+              >
+                Run Controlled Dry Test
+              </AdminSubmitButton>
             </form>
 
             <form method="post" action={addAdminHandoff("/api/admin/market-intel/kingmaker/morning-intelligence/test", handoff)} className="rounded-[1.5rem] border border-amber-300/25 bg-amber-300/[.08] p-5">
