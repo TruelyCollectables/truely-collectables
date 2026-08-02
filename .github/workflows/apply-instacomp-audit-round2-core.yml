@@ -1,0 +1,72 @@
+name: Apply InstaComp Audit Round Two Core Patch
+
+on:
+  push:
+    branches:
+      - agent/instacomp-audit-round2
+    paths:
+      - "scripts/apply-instacomp-audit-round2-core.mjs"
+      - ".github/workflows/apply-instacomp-audit-round2-core.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-instacomp-audit-round2-core
+  cancel-in-progress: false
+
+jobs:
+  apply-core-hardening:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/instacomp-audit-round2
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Apply deterministic scanner patch
+        run: node scripts/apply-instacomp-audit-round2-core.mjs
+
+      - name: Verify core hardening markers
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const source = fs.readFileSync('src/app/api/instacomp/scan/route.ts', 'utf8');
+          for (const marker of [
+            'INSTACOMP_AUDIT_ROUND2_CORE_V1',
+            'resolveInstaCompCouncilPolicy',
+            'aiCouncilPolicy.effectiveTier',
+            'normalizeOpenAiCompatibleBaseUrl',
+            'openAiCompatibleProviderFamily',
+            'formatUntrustedOcrEvidence',
+            'basic_tier_disabled_by_server_policy',
+            'operation: (signal: AbortSignal) => Promise<T>',
+            'signal: options.signal',
+            'const externalSerialCandidate = externalOcr?.serialNumber || null',
+            'A serial candidate from OCR must be visibly confirmed',
+          ]) {
+            if (!source.includes(marker)) throw new Error(`Missing core hardening marker: ${marker}`);
+          }
+          if (source.includes('confidence: 0.99,\n      evidence: `${externalOcr.provider} OCR text contained')) {
+            throw new Error('OCR-only serial auto-trust remains in the scanner.');
+          }
+          if (source.includes('Use this text heavily for exact player')) {
+            throw new Error('Raw hostile OCR instruction remains in the primary prompt.');
+          }
+          NODE
+
+      - name: Remove one-time patch machinery and commit permanent code
+        run: |
+          git rm scripts/apply-instacomp-audit-round2-core.mjs
+          git rm .github/workflows/apply-instacomp-audit-round2-core.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/api/instacomp/scan/route.ts
+          git commit -m "Harden AI council cost, endpoint, OCR, and cancellation boundaries"
+          git push origin HEAD:agent/instacomp-audit-round2
