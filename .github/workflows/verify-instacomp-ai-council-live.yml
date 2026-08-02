@@ -56,29 +56,55 @@ jobs:
             --token "$VERCEL_TOKEN" >/dev/null
           chmod 600 .env.production.local
 
-      - name: Validate merged AI council source
+      - name: Converge, validate, and deploy exact main
         shell: bash
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-anon-key
-          SUPABASE_SERVICE_ROLE_KEY: build-only-service-role-key
         run: |
           set -euo pipefail
-          npx tsx scripts/run-instacomp-evidence-first-regressions.ts
-          npx tsx scripts/run-instacomp-ai-council-30-regressions.ts
-          npx eslint \
-            src/lib/instacomp-learning-server.ts \
-            src/app/api/instacomp/scan/route.ts \
-            scripts/run-instacomp-evidence-first-regressions.ts \
-            scripts/run-instacomp-ai-council-30-regressions.ts \
-            scripts/check-live-instacomp-release.mjs
-          npm run build
 
-      - name: Deploy merged main to Production
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm run deploy:production
+          validate_current_main() {
+            git fetch origin main
+            git reset --hard origin/main
+            npm ci
+            npx tsx scripts/run-instacomp-evidence-first-regressions.ts
+            npx tsx scripts/run-instacomp-ai-council-30-regressions.ts
+            npx eslint \
+              src/lib/instacomp-learning-server.ts \
+              src/app/api/instacomp/scan/route.ts \
+              scripts/run-instacomp-evidence-first-regressions.ts \
+              scripts/run-instacomp-ai-council-30-regressions.ts \
+              scripts/check-live-instacomp-release.mjs
+            NEXT_PUBLIC_SUPABASE_URL=https://example.supabase.co \
+            NEXT_PUBLIC_SUPABASE_ANON_KEY=build-only-anon-key \
+            SUPABASE_SERVICE_ROLE_KEY=build-only-service-role-key \
+              npm run build
+          }
+
+          for attempt in 1 2 3; do
+            echo "Exact-main production attempt ${attempt}/3"
+            validate_current_main
+
+            git fetch origin main
+            if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+              echo "main advanced during validation; rebuilding the newer commit."
+              continue
+            fi
+
+            deploy_log="$RUNNER_TEMP/instacomp-deploy-${attempt}.log"
+            if npm run deploy:production 2>&1 | tee "$deploy_log"; then
+              exit 0
+            fi
+
+            if grep -q "Local HEAD does not match origin/main" "$deploy_log"; then
+              echo "main advanced at the deploy boundary; rebuilding the newer commit."
+              continue
+            fi
+
+            echo "Deployment failed for a reason other than a moving main branch."
+            exit 1
+          done
+
+          echo "main changed during all three exact-commit deployment attempts."
+          exit 1
 
       - name: Prove both Production aliases
         shell: bash
