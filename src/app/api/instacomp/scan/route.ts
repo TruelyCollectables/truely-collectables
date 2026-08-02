@@ -2931,6 +2931,10 @@ async function saveScanToSupabase(input: {
   soldComps: InstaCompComp[];
   remainingCards: InstaCompComp[];
   catalogEvidence?: unknown;
+  catalogCandidateEvidence?: unknown;
+  consensus?: unknown;
+  compSearchDecision?: unknown;
+  checklistRegistry?: unknown;
   imageOrientation?: unknown;
 }) {
   if (!SUPABASE_URL || !SUPABASE_KEY) {
@@ -2991,6 +2995,10 @@ async function saveScanToSupabase(input: {
         remainingCards: input.remainingCards,
         sourceLinks: input.links,
         catalogEvidence: input.catalogEvidence || null,
+        catalogCandidateEvidence: input.catalogCandidateEvidence || null,
+        consensus: input.consensus || null,
+        compSearchDecision: input.compSearchDecision || null,
+        checklistRegistry: input.checklistRegistry || null,
         imageOrientation: input.imageOrientation || null,
       } as any,
     })
@@ -3741,6 +3749,17 @@ export async function POST(req: NextRequest) {
     const stats = verifiedStats;
     const soldStats = verifiedStats;
     const sourceCoverage = buildSourceCoverage(links, providers);
+    const checklistRegistrySnapshot = registryMatch
+      ? {
+          matched: true,
+          identityId: registryMatch.identityId,
+          fingerprintSha256: registryMatch.fingerprintSha256,
+          score: registryMatch.score,
+          sourceLabel: registryMatch.sourceLabel,
+        }
+      : null;
+    const catalogEvidenceTrustedForLearning =
+      compSearchDecision.allowed && consensus.trustedForIdentity;
 
     const scanId = ephemeralBenchmark
       ? null
@@ -3757,7 +3776,15 @@ export async function POST(req: NextRequest) {
           marketValueComps,
           soldComps,
           remainingCards,
-          catalogEvidence,
+          catalogEvidence: catalogEvidenceTrustedForLearning
+            ? catalogEvidence
+            : null,
+          catalogCandidateEvidence: catalogEvidenceTrustedForLearning
+            ? null
+            : catalogEvidence,
+          consensus,
+          compSearchDecision,
+          checklistRegistry: checklistRegistrySnapshot,
           imageOrientation,
         });
 
@@ -3771,15 +3798,7 @@ export async function POST(req: NextRequest) {
       consensusEscalation,
       compSearchDecision,
       catalogEvidence,
-      checklistRegistry: registryMatch
-        ? {
-            matched: true,
-            identityId: registryMatch.identityId,
-            fingerprintSha256: registryMatch.fingerprintSha256,
-            score: registryMatch.score,
-            sourceLabel: registryMatch.sourceLabel,
-          }
-        : null,
+      checklistRegistry: checklistRegistrySnapshot,
       imageOrientation,
       benchmarkDiagnostics: {
         ephemeral: ephemeralBenchmark,
