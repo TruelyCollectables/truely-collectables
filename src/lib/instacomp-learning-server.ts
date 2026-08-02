@@ -641,30 +641,28 @@ export function chooseRegistryMatch(
       const parallelName = identity.parallel?.name || "Base";
       const serialRun = asNumber(identity.parallel?.serial_run);
 
-      // A printed serial denominator is stronger evidence than an AI visual
-      // parallel guess. When /199 is observed, only checklist identities with
-      // serial_run 199 may survive. The registry's official parallel name then
-      // becomes authoritative.
+      // The printed serial denominator narrows the official checklist
+      // candidates, but it never authorizes a parallel by itself. The visible
+      // parallel/color/finish must also agree with the official checklist row.
+      // For example, a blue /199 card cannot resolve to a red /199 identity.
+      const registryBase = isBaseParallel(parallelName);
+      const targetBase = isBaseParallel(targetParallel);
+      const offeredParallelTokens = new Set(
+        checklistParallelTokens(parallelName),
+      );
+      const visualParallelMatches =
+        targetParallelTokens.length > 0 &&
+        targetParallelTokens.every((token) => offeredParallelTokens.has(token));
+
       if (targetSerialRun) {
         if (serialRun !== Number(targetSerialRun)) continue;
+        if (registryBase || targetBase || !visualParallelMatches) continue;
       } else {
-        // Without printed serial evidence, keep the stricter visual-parallel
-        // matching behavior and reject numbered checklist identities.
+        // Without printed serial evidence, reject numbered checklist identities
+        // and retain the same strict visual parallel compatibility requirement.
         if (serialRun) continue;
-
-        const registryBase = isBaseParallel(parallelName);
-        const targetBase = isBaseParallel(targetParallel);
         if (targetBase !== registryBase) continue;
-
-        if (!targetBase) {
-          const offered = new Set(checklistParallelTokens(parallelName));
-          if (
-            !targetParallelTokens.length ||
-            !targetParallelTokens.every((token) => offered.has(token))
-          ) {
-            continue;
-          }
-        }
+        if (!targetBase && !visualParallelMatches) continue;
       }
 
       const registryVariation = normalizedText(identity.variation || card.variation);
