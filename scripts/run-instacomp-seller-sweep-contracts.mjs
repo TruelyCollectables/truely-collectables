@@ -21,6 +21,14 @@ const ranker = readFileSync(
   "src/app/api/admin/instacomp/seller-sweep/rank/route.ts",
   "utf8",
 );
+const statusRoute = readFileSync(
+  "src/app/api/admin/instacomp/seller-sweep/status/route.ts",
+  "utf8",
+);
+const client = readFileSync(
+  "src/app/admin/instacomp/seller-sweep/SellerSweepClient.tsx",
+  "utf8",
+);
 const migration = readFileSync(
   "supabase/migrations/20260802002500_instacomp_seller_sweeps.sql",
   "utf8",
@@ -89,6 +97,16 @@ assert.match(ranker, /roi_percent: economics\.roiPercent/);
 assert.match(ranker, /status\.eq\.comping,and\(status\.eq\.review,retail_value\.is\.null\)/);
 assert.match(ranker, /pendingValuation === 0/);
 assert.match(ranker, /Unverified cards and cards with fewer than two independently verified completed sales/);
+
+assert.match(statusRoute, /export async function GET/);
+assert.match(statusRoute, /identified_cards/);
+assert.match(statusRoute, /expected_profit/);
+assert.match(statusRoute, /progress: Math\.max\(0, Math\.min\(100, progress\)\)/);
+assert.match(client, /seller-sweep\/status\?sweepId=/);
+assert.match(client, /seller-sweep\/process/);
+assert.match(client, /seller-sweep\/rank/);
+assert.match(client, /window\.setInterval/);
+assert.match(client, /never changes a listing, publishes an item, or applies a price automatically/);
 
 for (const column of [
   "identified_cards jsonb",
