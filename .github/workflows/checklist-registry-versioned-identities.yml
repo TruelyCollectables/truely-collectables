@@ -41,8 +41,8 @@ jobs:
       PGUSER: postgres
       PGPASSWORD: postgres
       PGDATABASE: checklist_versioned_identity_test
-      CORE_MIGRATION: supabase/migrations/20260725_tcos_checklist_registry_core.sql
-      STORAGE_MIGRATION: supabase/migrations/20260725_tcos_checklist_source_storage.sql
+      CORE_MIGRATION: supabase/migrations/20260725200000_tcos_checklist_registry_core.sql
+      STORAGE_MIGRATION: supabase/migrations/20260725201000_tcos_checklist_source_storage.sql
       WRITER_MIGRATION: supabase/migrations/20260731161500_checklist_registry_transactional_writer.sql
       VERSIONED_IDENTITY_MIGRATION: supabase/migrations/20260801132000_checklist_registry_versioned_identities.sql
       PRINTING_FILTER_MIGRATION: supabase/migrations/20260801134500_checklist_registry_repair_printing_filter.sql
