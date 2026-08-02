@@ -58,24 +58,17 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Materialize final hardened source
+      - name: Validate checked-in hardened source
         id: materialize
         continue-on-error: true
         run: |
           set -euo pipefail
           {
             python -m py_compile scripts/harden-instacomp-*.py scripts/apply-instacomp-*.py scripts/repair-instacomp-*.py scripts/run-instacomp-*.py
-            python scripts/harden-instacomp-ebay-benchmark.py
-            python scripts/harden-instacomp-benchmark-source.py
-            python scripts/harden-instacomp-benchmark-cleanup.py
-            python scripts/run-instacomp-certification-safe.py
-            python scripts/run-instacomp-visual-proof-safe.py
-            python scripts/harden-instacomp-visual-review-types.py
-            python scripts/harden-instacomp-benchmark-report.py
-            python scripts/run-instacomp-final-materialization.py
             git diff --check
             python scripts/check-instacomp-control-characters.py
             python scripts/assert-instacomp-final-source.py
+            node --import tsx scripts/run-instacomp-evidence-first-regressions.ts
             git status --short | tee instacomp-materialization-status.log
           } 2>&1 | tee instacomp-final-materialization.log
 
@@ -94,14 +87,11 @@ jobs:
           {
             node --import tsx scripts/run-instacomp-exact-provider-regressions.ts
             node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
-            node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
-            node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
-            node --import tsx scripts/run-instacomp-final-audit-regressions.ts
-            node --import tsx scripts/run-instacomp-final-audit-regressions.ts
             node --import tsx scripts/run-instacomp-final-audit-regressions.ts
             node --import tsx scripts/run-instacomp-live-pipeline-regressions.ts
             node --import tsx scripts/run-instacomp-provider-safety-regressions.ts
             node --import tsx scripts/run-instacomp-batch-drop-regressions.ts
+            node --import tsx scripts/run-instacomp-evidence-first-regressions.ts
           } 2>&1 | tee instacomp-final-regressions.log
 
       - name: Lint hardened InstaComp paths
@@ -118,6 +108,7 @@ jobs:
             src/lib/instacomp.ts \
             src/lib/instacomp-benchmark-title.ts \
             src/lib/instacomp-live-pipeline.ts \
+            src/lib/instacomp-learning-server.ts \
             src/lib/instacomp-exact-market-provider.ts \
             src/lib/instacomp-openai-web-market-provider.ts \
             src/lib/instacomp-comp-visual-verification.ts \
@@ -125,6 +116,7 @@ jobs:
             src/lib/instacomp-image-safety.ts \
             src/lib/instacomp-image-orientation.ts \
             src/lib/instacomp-provider-safety.ts \
+            scripts/run-instacomp-evidence-first-regressions.ts \
             scripts/run-instacomp-exact-provider-regressions.ts \
             scripts/run-instacomp-provider-safety-regressions.ts \
             scripts/run-instacomp-exact-market-proof-regressions.ts \
@@ -178,12 +170,14 @@ jobs:
             src/lib/instacomp.ts
             src/lib/instacomp-benchmark-title.ts
             src/lib/instacomp-live-pipeline.ts
+            src/lib/instacomp-learning-server.ts
             src/lib/instacomp-exact-market-provider.ts
             src/lib/instacomp-comp-visual-verification.ts
             src/lib/instacomp-curated-checklist.ts
             src/lib/instacomp-image-safety.ts
             src/lib/instacomp-image-orientation.ts
             src/lib/instacomp-provider-safety.ts
+            scripts/run-instacomp-evidence-first-regressions.ts
             scripts/run-instacomp-exact-provider-regressions.ts
             scripts/run-instacomp-provider-safety-regressions.ts
             scripts/run-instacomp-exact-market-proof-regressions.ts
