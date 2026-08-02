@@ -4,11 +4,19 @@ on:
   pull_request:
     paths:
       - "src/app/api/instacomp/scan/route.ts"
+      - "src/app/api/instacomp/scan-fast/route.ts"
+      - "src/app/api/instacomp/knowledge/confirm/route.ts"
       - "src/app/api/admin/instacomp/seller-sweep/**"
+      - "src/app/api/admin/pending-card-import/route.ts"
+      - "src/app/api/admin/card-listing-queue/route.ts"
       - "src/app/api/internal/instacomp-seller-sweep-live-verify/**"
       - "src/lib/admin-request-security.ts"
+      - "src/lib/dual-marketplace-admin-route*.ts"
       - "src/lib/instacomp-ai-council-security.ts"
       - "src/lib/instacomp-learning-server.ts"
+      - "src/lib/instacomp-market-evidence.ts"
+      - "src/lib/instacomp-mutation-security.ts"
+      - "src/lib/instacomp-publication-gate.ts"
       - "src/lib/instacomp-seller-sweep-*.ts"
       - "public/instacomp-release.json"
       - "supabase/migrations/20260802224500_instacomp_learning_provenance_receipt.sql"
@@ -17,6 +25,9 @@ on:
       - "scripts/run-instacomp-ai-council-30-regressions.ts"
       - "scripts/run-instacomp-evidence-first-regressions.ts"
       - "scripts/run-instacomp-learning-trust-gate-regressions.ts"
+      - "scripts/run-instacomp-market-evidence-replay-regressions.ts"
+      - "scripts/run-instacomp-mutation-security-regressions.ts"
+      - "scripts/run-instacomp-publication-gate-regressions.ts"
       - "scripts/run-instacomp-release-attestation-regressions.mjs"
       - "scripts/run-instacomp-v2-hardening-simulations.ts"
       - "scripts/write-instacomp-release-manifest.mjs"
@@ -35,7 +46,7 @@ concurrency:
 jobs:
   adversarial-audit:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 35
 
     steps:
       - uses: actions/checkout@v4
@@ -51,11 +62,20 @@ jobs:
       - name: Run privileged request and remote-image attacks
         run: node --import tsx scripts/run-instacomp-audit-round2-security-regressions.ts
 
+      - name: Run paid-mutation authentication-channel attacks
+        run: node --import tsx scripts/run-instacomp-mutation-security-regressions.ts
+
       - name: Run council tier, endpoint, and hostile OCR attacks
         run: node --import tsx scripts/run-instacomp-ai-council-security-regressions.ts
 
       - name: Run 8-30 council capacity and family-vote regressions
         run: node --import tsx scripts/run-instacomp-ai-council-30-regressions.ts
+
+      - name: Run sold-evidence authority and replay attacks
+        run: node --import tsx scripts/run-instacomp-market-evidence-replay-regressions.ts
+
+      - name: Run Card Intake publication-bypass attacks
+        run: node --import tsx scripts/run-instacomp-publication-gate-regressions.ts
 
       - name: Run evidence-first identity regressions
         run: node --import tsx scripts/run-instacomp-evidence-first-regressions.ts
@@ -73,7 +93,9 @@ jobs:
         run: |
           node - <<'NODE'
           const fs = require('node:fs');
-          const source = fs.readFileSync('src/app/api/instacomp/scan/route.ts', 'utf8');
+          const core = fs.readFileSync('src/app/api/instacomp/scan/route.ts', 'utf8');
+          const fast = fs.readFileSync('src/app/api/instacomp/scan-fast/route.ts', 'utf8');
+          const confirm = fs.readFileSync('src/app/api/instacomp/knowledge/confirm/route.ts', 'utf8');
           for (const marker of [
             'INSTACOMP_AUDIT_ROUND2_CORE_V1',
             'resolveInstaCompCouncilPolicy',
@@ -85,17 +107,22 @@ jobs:
             'signal: options.signal',
             'A serial candidate from OCR must be visibly confirmed',
           ]) {
-            if (!source.includes(marker)) throw new Error(`Missing scanner integration marker: ${marker}`);
+            if (!core.includes(marker)) throw new Error(`Missing scanner integration marker: ${marker}`);
           }
-          if (source.includes('Use this text heavily for exact player')) {
+          if (core.includes('Use this text heavily for exact player')) {
             throw new Error('The primary scanner still promotes raw OCR as instructions.');
           }
-          if (/if \(externalOcr\?\.serialNumber\) \{[\s\S]{0,500}confidence: 0\.99/.test(source)) {
+          if (/if \(externalOcr\?\.serialNumber\) \{[\s\S]{0,500}confidence: 0\.99/.test(core)) {
             throw new Error('OCR-only serial evidence still receives automatic 0.99 trust.');
+          }
+          for (const source of [core, fast, confirm]) {
+            if (!source.includes('assertTrustedInstaCompMutationRequest')) {
+              throw new Error('An InstaComp mutation bypasses authentication-channel security.');
+            }
           }
           NODE
 
-      - name: Verify release and provenance fail-closed markers
+      - name: Verify publication, release, and provenance fail-closed markers
         run: |
           node - <<'NODE'
           const fs = require('node:fs');
@@ -118,11 +145,21 @@ jobs:
           );
           for (const marker of [
             'tcos_instacomp_payload_exact_identity_trusted',
+            'tcos_instacomp_observation_exact_identity_trusted',
             "'{checklistRegistry,identityId}'",
             "'{catalogEvidence,selectedMatch,catalogId}'",
             'trusted_for_pricing := false',
           ]) {
             if (!migration.includes(marker)) throw new Error(`Missing learning provenance marker: ${marker}`);
+          }
+          const publishRoute = fs.readFileSync('src/lib/dual-marketplace-admin-route.ts', 'utf8');
+          for (const marker of [
+            'requireInstaCompPublicationAuthorization',
+            '.from("instacomp_scans")',
+            'evaluateInstaCompPublicationGate',
+            'if (action !== "save")',
+          ]) {
+            if (!publishRoute.includes(marker)) throw new Error(`Missing publication boundary marker: ${marker}`);
           }
           NODE
 
@@ -130,16 +167,28 @@ jobs:
         run: >-
           npx eslint
           src/app/api/instacomp/scan/route.ts
+          src/app/api/instacomp/scan-fast/route.ts
+          src/app/api/instacomp/knowledge/confirm/route.ts
           src/app/api/admin/instacomp/seller-sweep/route.ts
           src/app/api/admin/instacomp/seller-sweep/process/route.ts
           src/app/api/admin/instacomp/seller-sweep/rank/route.ts
+          src/app/api/admin/pending-card-import/route.ts
+          src/app/api/admin/card-listing-queue/route.ts
           src/app/api/internal/instacomp-seller-sweep-live-verify/route.ts
           src/lib/admin-request-security.ts
+          src/lib/dual-marketplace-admin-route-guard.ts
+          src/lib/dual-marketplace-admin-route.ts
           src/lib/instacomp-ai-council-security.ts
+          src/lib/instacomp-market-evidence.ts
+          src/lib/instacomp-mutation-security.ts
+          src/lib/instacomp-publication-gate.ts
           src/lib/instacomp-seller-sweep-identify.ts
           src/lib/instacomp-seller-sweep-security.ts
           scripts/run-instacomp-ai-council-security-regressions.ts
           scripts/run-instacomp-audit-round2-security-regressions.ts
+          scripts/run-instacomp-market-evidence-replay-regressions.ts
+          scripts/run-instacomp-mutation-security-regressions.ts
+          scripts/run-instacomp-publication-gate-regressions.ts
           scripts/run-instacomp-release-attestation-regressions.mjs
           scripts/write-instacomp-release-manifest.mjs
           scripts/check-live-instacomp-release.mjs
