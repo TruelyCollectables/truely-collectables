@@ -11,8 +11,8 @@ permissions:
   contents: write
 
 concurrency:
-  group: apply-instacomp-release-prebuild-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  group: instacomp-round2-branch-writer
+  cancel-in-progress: false
 
 jobs:
   apply-release-prebuild:
