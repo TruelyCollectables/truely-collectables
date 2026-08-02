@@ -62,3 +62,15 @@ The response reports:
 - Every completed, failed, skipped, or unconfigured attempt.
 
 Insufficient council capacity does not fabricate an identity. Existing checklist, confidence, comp-search, listing, and learning gates remain fail-closed.
+
+## Validation contract
+
+Every council change must pass all of the following before merge:
+
+- Existing evidence-first regressions.
+- Dedicated 8-30 council capacity and family-vote regressions.
+- ESLint on the scan route and council regression file.
+- Full Next.js production build with TypeScript and page-data collection.
+- The repository-wide InstaComp, benchmark, integrity, and full-stack workflows.
+
+Passing these checks proves the code compiles and the safety contracts remain intact. It does not prove real-card accuracy; that requires a front/back benchmark of ordinary cards, parallels, serial-numbered cards, autographs, relics, and deliberately difficult examples.
