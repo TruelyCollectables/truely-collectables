@@ -229,6 +229,60 @@ test("Registry match fails closed on auto mismatch and ambiguity", () => {
   equal(chooseRegistryMatch({ ...ai, league: "WNBA" }, [ambiguous]), null, "ambiguous match");
 });
 
+test("Registry serial run overrides a visual parallel guess but stays fail closed", () => {
+  const row = {
+    card_number: "149",
+    variation: null,
+    autograph_status: "non-auto",
+    memorabilia_status: "non-memorabilia",
+    set: { name: "Base Set" },
+    release: {
+      product_name: "Prizm WNBA",
+      release_year: "2025",
+      manufacturer: { name: "Panini" },
+      brand: { name: "Panini" },
+      sport: { name: "Basketball" },
+      league: { name: "WNBA" },
+    },
+    players: [{ player: { canonical_name: "Kiki Iriafen" } }],
+    teams: [{ team: { canonical_name: "Washington Mystics" } }],
+    identities: [{
+      id: "serial-identity-one",
+      fingerprint_sha256: "e".repeat(64),
+      canonical_key: "configuration=∅|language_code=∅",
+      variation: null,
+      autograph_status: "non-auto",
+      memorabilia_status: "non-memorabilia",
+      configuration_exclusivity: null,
+      metadata: {},
+      parallel: { name: "Blue Prizm", serial_run: 199 },
+    }],
+  };
+  const serialAi = {
+    ...ai,
+    parallel: "Green Prizm",
+    serialNumber: "12/199",
+    league: "WNBA",
+  };
+  assert(
+    chooseRegistryMatch(serialAi, [row]),
+    "visible /199 should identify the unique /199 Registry identity",
+  );
+
+  const ambiguous = JSON.parse(JSON.stringify(row));
+  ambiguous.identities.push({
+    ...ambiguous.identities[0],
+    id: "serial-identity-two",
+    fingerprint_sha256: "f".repeat(64),
+    parallel: { name: "Purple Prizm", serial_run: 199 },
+  });
+  equal(
+    chooseRegistryMatch(serialAi, [ambiguous]),
+    null,
+    "multiple /199 identities must remain ambiguous",
+  );
+});
+
 test("verified sale count deduplicates immutable sale IDs", () => {
   const first = sale("same", 50);
   equal(independentVerifiedInstaCompSaleCount([first, { ...first, url: "https://example.test/duplicate" }], now), 1, "sale dedupe");

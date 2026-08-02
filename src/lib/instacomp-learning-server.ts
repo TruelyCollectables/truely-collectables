@@ -437,15 +437,17 @@ export function chooseRegistryMatch(
       const parallelName = identity.parallel?.name || "Base";
       const registryBase = isBaseParallel(parallelName);
       const targetBase = isBaseParallel(targetParallel);
-      if (targetBase !== registryBase) continue;
+      if (!targetSerialRun) {
+        if (targetBase !== registryBase) continue;
 
-      if (!targetBase) {
-        const offered = new Set(checklistParallelTokens(parallelName));
-        if (
-          !targetParallelTokens.length ||
-          !targetParallelTokens.every((token) => offered.has(token))
-        ) {
-          continue;
+        if (!targetBase) {
+          const offered = new Set(checklistParallelTokens(parallelName));
+          if (
+            !targetParallelTokens.length ||
+            !targetParallelTokens.every((token) => offered.has(token))
+          ) {
+            continue;
+          }
         }
       }
 
