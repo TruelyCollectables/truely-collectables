@@ -172,7 +172,7 @@ export default async function KingmakerCapitalLedgerPage({
                             </span>
                           </div>
                           <h3 className="mt-2 truncate text-xl font-black">
-                            {row.lot.collectible_identity?.display_name || "Unresolved collectible position"}
+                            {row.lot.collectible?.display_name || "Unresolved collectible position"}
                           </h3>
                           <p className="mt-1 text-sm font-semibold text-neutral-400">
                             Cost {money(row.lot.total_acquisition_cost)} · Unit {money(row.lot.unit_cost_basis)} · Remaining {remaining} · Current unit {money(row.current_market?.conservative_value)}
