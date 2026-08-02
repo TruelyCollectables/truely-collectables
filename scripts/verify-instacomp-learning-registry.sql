@@ -174,13 +174,24 @@ begin
       'isRookie',true,'isAuto',false,'isRelic',false,'confidence',0.995
     ),
     jsonb_build_object(
-      'consensus',jsonb_build_object(
-        'trustedForIdentity',true
-      ),
-      'catalogEvidence',jsonb_build_object(
-        'status','catalog_confirmed','catalogConfirmed',true
-      ),
-      'sourceCoverage','[]'::jsonb
+    'consensus',jsonb_build_object(
+      'trustedForIdentity',true
+    ),
+    'compSearchDecision',jsonb_build_object(
+      'allowed',true
+    ),
+    'checklistRegistry',jsonb_build_object(
+      'matched',true,
+      'identityId','integration-catalog-identity-7-white-disco-75'
+    ),
+    'catalogEvidence',jsonb_build_object(
+      'status','catalog_confirmed',
+      'catalogConfirmed',true,
+      'selectedMatch',jsonb_build_object(
+        'catalogId','integration-catalog-identity-7-white-disco-75'
+      )
+    ),
+    'sourceCoverage','[]'::jsonb
     ),
     now()
   );
