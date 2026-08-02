@@ -28,203 +28,182 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
+          import textwrap
 
-          pending = Path('src/app/api/admin/pending-card-import/route.ts')
-          source = pending.read_text()
-          import_marker = 'import crypto from "node:crypto";\n'
-          import_value = '''import crypto from "node:crypto";
-          import {
-            AdminMutationSecurityError,
-            assertTrustedAdminMutationRequest,
-          } from "../../../../lib/admin-request-security";
-          '''
-          if 'admin-request-security' not in source:
-              if source.count(import_marker) != 1:
-                  raise SystemExit('pending import security import marker missing')
-              source = source.replace(import_marker, import_value, 1)
-          post_marker = '''export async function POST(request: Request) {
-            try {
-              const actor = await requireInstaCompJobActor(request);'''
-          post_value = '''export async function POST(request: Request) {
-            try {
-              assertTrustedAdminMutationRequest(request);
-              const actor = await requireInstaCompJobActor(request);'''
-          if 'assertTrustedAdminMutationRequest(request);' not in source:
-              if source.count(post_marker) != 1:
-                  raise SystemExit('pending import POST marker missing')
-              source = source.replace(post_marker, post_value, 1)
-          catch_marker = '''    const status = error instanceof InventoryEngineError ? error.statusCode : 500;'''
-          catch_value = '''    const status =
-              error instanceof AdminMutationSecurityError
-                ? error.status
-                : error instanceof InventoryEngineError
-                  ? error.statusCode
-                  : 500;'''
-          if source.count(catch_marker) != 1:
-              raise SystemExit('pending import catch marker missing')
-          source = source.replace(catch_marker, catch_value, 1)
-          pending.write_text(source)
+          def replace_once(source: str, pattern: str, replacement: str, label: str) -> str:
+              compiled = re.compile(pattern, re.MULTILINE | re.DOTALL)
+              source, count = compiled.subn(lambda _match: replacement, source, count=1)
+              if count != 1:
+                  raise SystemExit(f'{label} replacement count was {count}')
+              return source
 
-          queue = Path('src/app/api/admin/card-listing-queue/route.ts')
-          source = queue.read_text()
-          queue_import = 'import { NextRequest } from "next/server";\n'
-          queue_import_value = '''import { NextRequest } from "next/server";
-          import {
-            AdminMutationSecurityError,
-            assertTrustedAdminMutationRequest,
-          } from "../../../../lib/admin-request-security";
-          '''
-          if 'admin-request-security' not in source:
-              if source.count(queue_import) != 1:
-                  raise SystemExit('queue security import marker missing')
-              source = source.replace(queue_import, queue_import_value, 1)
-          for signature in [
-              'export async function POST(request: NextRequest) {',
-              'export async function DELETE(request: Request) {',
-          ]:
-              marker = f'''{signature}
-            try {{
-              await requireAdmin(request);'''
-              replacement = f'''{signature}
-            try {{
-              assertTrustedAdminMutationRequest(request);
-              await requireAdmin(request);'''
-              if marker not in source:
-                  raise SystemExit(f'queue mutation marker missing: {signature}')
-              source = source.replace(marker, replacement, 1)
-          catch_marker = '''  } catch (error) {
-              if ('''
-          catch_value = '''  } catch (error) {
-              if (error instanceof AdminMutationSecurityError) {
-                return Response.json(
-                  { success: false, error: error.message, code: error.code },
-                  { status: error.status },
-                );
-              }
-              if ('''
-          catch_count = source.count(catch_marker)
-          if catch_count < 2:
-              raise SystemExit(f'queue catch marker count was {catch_count}')
-          source = source.replace(catch_marker, catch_value)
-          queue.write_text(source)
-
-          guard = Path('src/lib/dual-marketplace-admin-route-guard.ts')
-          source = guard.read_text()
-          guard_import = 'import { ebayListingContentProblems } from "./ebay-listing-content";\n'
-          guard_import_value = '''import { adminMutationSecurityDecision } from "./admin-request-security";
-          import { ebayListingContentProblems } from "./ebay-listing-content";
-          '''
-          if 'adminMutationSecurityDecision' not in source:
-              if source.count(guard_import) != 1:
-                  raise SystemExit('dual guard security import marker missing')
-              source = source.replace(guard_import, guard_import_value, 1)
-          guard_post = '''export async function handleGuardedDualMarketplacePost(request: Request) {
-            normalizePercentEnvironment();'''
-          guard_post_value = '''export async function handleGuardedDualMarketplacePost(request: Request) {
+          security_import = textwrap.dedent('''\
+          import { adminMutationSecurityDecision } from "../../../../lib/admin-request-security";
+          ''')
+          mutation_block = textwrap.dedent('''\
             const mutation = adminMutationSecurityDecision(request);
             if (!mutation.allowed) {
               return Response.json(
                 {
                   success: false,
-                  error: mutation.reason || "Privileged listing mutation rejected.",
+                  error: mutation.reason || "Privileged mutation rejected.",
                   code: mutation.code,
                 },
                 { status: 403 },
               );
             }
-            normalizePercentEnvironment();'''
-          if source.count(guard_post) != 1:
-              raise SystemExit('dual guard POST marker missing')
-          source = source.replace(guard_post, guard_post_value, 1)
+          ''')
+
+          pending = Path('src/app/api/admin/pending-card-import/route.ts')
+          source = pending.read_text()
+          if 'adminMutationSecurityDecision' not in source:
+              source = replace_once(
+                  source,
+                  r'^(import \{ createHash, randomUUID \} from "node:crypto";\n)',
+                  r'\1' + security_import,
+                  'pending security import',
+              )
+          if 'const mutation = adminMutationSecurityDecision(request);' not in source:
+              source = replace_once(
+                  source,
+                  r'(export async function POST\(request: Request\) \{\n)',
+                  r'\1' + mutation_block,
+                  'pending POST origin guard',
+              )
+          pending.write_text(source)
+
+          queue = Path('src/app/api/admin/card-listing-queue/route.ts')
+          source = queue.read_text()
+          if 'adminMutationSecurityDecision' not in source:
+              source = replace_once(
+                  source,
+                  r'^(import \{ NextRequest \} from "next/server";\n)',
+                  r'\1' + security_import,
+                  'queue security import',
+              )
+          for signature, label in [
+              (r'export async function POST\(request: NextRequest\) \{\n', 'queue POST origin guard'),
+              (r'export async function DELETE\(request: Request\) \{\n', 'queue DELETE origin guard'),
+          ]:
+              pattern = f'({signature})'
+              match = re.search(pattern, source, re.MULTILINE)
+              if not match:
+                  raise SystemExit(f'{label} signature missing')
+              block_start = match.end()
+              nearby = source[block_start:block_start + 500]
+              if 'adminMutationSecurityDecision(request)' not in nearby:
+                  source = source[:block_start] + mutation_block + source[block_start:]
+          queue.write_text(source)
+
+          guard = Path('src/lib/dual-marketplace-admin-route-guard.ts')
+          source = guard.read_text()
+          if 'adminMutationSecurityDecision' not in source:
+              source = replace_once(
+                  source,
+                  r'^(import \{ ebayListingContentProblems \} from "\.\/ebay-listing-content";\n)',
+                  'import { adminMutationSecurityDecision } from "./admin-request-security";\n\\1',
+                  'dual guard security import',
+              )
+          if 'Privileged listing mutation rejected.' not in source:
+              guard_block = textwrap.dedent('''\
+                const mutation = adminMutationSecurityDecision(request);
+                if (!mutation.allowed) {
+                  return Response.json(
+                    {
+                      success: false,
+                      error: mutation.reason || "Privileged listing mutation rejected.",
+                      code: mutation.code,
+                    },
+                    { status: 403 },
+                  );
+                }
+              ''')
+              source = replace_once(
+                  source,
+                  r'(export async function handleGuardedDualMarketplacePost\(request: Request\) \{\n)',
+                  r'\1' + guard_block,
+                  'dual guard POST origin guard',
+              )
           guard.write_text(source)
 
           route = Path('src/lib/dual-marketplace-admin-route.ts')
           source = route.read_text()
-          route_import = 'import { ebayListingContentProblems } from "./ebay-listing-content";\n'
-          route_import_value = '''import { ebayListingContentProblems } from "./ebay-listing-content";
-          import {
-            buildInstaCompScanPayload,
-            evaluateInstaCompPublicationGate,
-          } from "./instacomp-publication-gate";
-          '''
           if 'evaluateInstaCompPublicationGate' not in source:
-              if source.count(route_import) != 1:
-                  raise SystemExit('dual route publication import marker missing')
-              source = source.replace(route_import, route_import_value, 1)
+              publication_import = textwrap.dedent('''\
+              import {
+                buildInstaCompScanPayload,
+                evaluateInstaCompPublicationGate,
+              } from "./instacomp-publication-gate";
+              ''')
+              source = replace_once(
+                  source,
+                  r'^(import \{ ebayListingContentProblems \} from "\.\/ebay-listing-content";\n)',
+                  r'\1' + publication_import,
+                  'publication gate import',
+              )
 
-          activation_marker = '''async function activateWebsite(params: {
-            supabase: ReturnType<typeof getSupabaseClient>;'''
-          authorization = '''async function requireInstaCompPublicationAuthorization(params: {
-            supabase: ReturnType<typeof getSupabaseClient>;
-            prepared: PreparedListing;
-          }) {
-            const metadata = record(params.prepared.inventory.metadata);
-            const scanId = nullableText(record(metadata.instacomp).scanId, 160);
-            let scanPayload: ReturnType<typeof buildInstaCompScanPayload> | null = null;
+          if 'async function requireInstaCompPublicationAuthorization' not in source:
+              authorization = textwrap.dedent('''\
+              async function requireInstaCompPublicationAuthorization(params: {
+                supabase: ReturnType<typeof getSupabaseClient>;
+                prepared: PreparedListing;
+              }) {
+                const metadata = record(params.prepared.inventory.metadata);
+                const scanId = nullableText(record(metadata.instacomp).scanId, 160);
+                let scanPayload: ReturnType<typeof buildInstaCompScanPayload> | null = null;
 
-            if (scanId) {
-              const { data: scan, error } = await params.supabase
-                .from("instacomp_scans")
-                .select("id,raw_ai_result,raw_comp_results")
-                .eq("id", scanId)
-                .maybeSingle();
-              if (error) throw error;
-              if (scan) {
-                scanPayload = buildInstaCompScanPayload({
-                  scanId: scan.id,
-                  rawAiResult: scan.raw_ai_result,
-                  rawCompResults: scan.raw_comp_results,
+                if (scanId) {
+                  const { data: scan, error } = await params.supabase
+                    .from("instacomp_scans")
+                    .select("id,raw_ai_result,raw_comp_results")
+                    .eq("id", scanId)
+                    .maybeSingle();
+                  if (error) throw error;
+                  if (scan) {
+                    scanPayload = buildInstaCompScanPayload({
+                      scanId: scan.id,
+                      rawAiResult: scan.raw_ai_result,
+                      rawCompResults: scan.raw_comp_results,
+                    });
+                  }
+                }
+
+                const authorization = evaluateInstaCompPublicationGate({
+                  metadata,
+                  scanPayload,
                 });
+                if (!authorization.allowed) {
+                  throw new Error(
+                    `InstaComp publication gate blocked this draft: ${authorization.reasons.join(", ") || "authorization_missing"}.`,
+                  );
+                }
+                return authorization;
               }
-            }
 
-            const authorization = evaluateInstaCompPublicationGate({
-              metadata,
-              scanPayload,
-            });
-            if (!authorization.allowed) {
-              throw new Error(
-                `InstaComp publication gate blocked this draft: ${authorization.reasons.join(", ") || "authorization_missing"}.`,
-              );
-            }
-            return authorization;
-          }
+              ''')
+              source = replace_once(
+                  source,
+                  r'(?=async function activateWebsite\(params: \{)',
+                  authorization,
+                  'publication authorization function',
+              )
 
-          async function activateWebsite(params: {
-            supabase: ReturnType<typeof getSupabaseClient>;'''
-          if source.count(activation_marker) != 1:
-              raise SystemExit('publication authorization insertion marker missing')
-          source = source.replace(activation_marker, authorization, 1)
-
-          save_marker = '''        prepared = prepareListing({
-                  inventory,
-                  product: inventory.legacy_product_id
-                    ? data.productsById.get(Number(inventory.legacy_product_id)) || null
-                    : null,
-                  images: data.imagesByInventoryId.get(inventory.id) || [],
-                  incoming,
-                  feeProfile,
-                });
-                await saveDraftMetadata({ supabase, storeId, prepared });'''
-          save_value = '''        prepared = prepareListing({
-                  inventory,
-                  product: inventory.legacy_product_id
-                    ? data.productsById.get(Number(inventory.legacy_product_id)) || null
-                    : null,
-                  images: data.imagesByInventoryId.get(inventory.id) || [],
-                  incoming,
-                  feeProfile,
-                });
+          if 'await requireInstaCompPublicationAuthorization({' not in source:
+              call = textwrap.dedent('''\
                 if (action !== "save") {
                   await requireInstaCompPublicationAuthorization({
                     supabase,
                     prepared,
                   });
                 }
-                await saveDraftMetadata({ supabase, storeId, prepared });'''
-          if source.count(save_marker) != 1:
-              raise SystemExit('publication authorization call marker missing')
-          source = source.replace(save_marker, save_value, 1)
+              ''')
+              source = replace_once(
+                  source,
+                  r'(\n\s*prepared = prepareListing\(\{[\s\S]*?\n\s*\}\);)(\n\s*await saveDraftMetadata\(\{ supabase, storeId, prepared \}\);)',
+                  r'\1\n' + call + r'\2',
+                  'publication authorization call',
+              )
           route.write_text(source)
           PY
 
@@ -240,7 +219,7 @@ jobs:
           const guard = fs.readFileSync('src/lib/dual-marketplace-admin-route-guard.ts', 'utf8');
           const route = fs.readFileSync('src/lib/dual-marketplace-admin-route.ts', 'utf8');
           for (const source of [intake, queue]) {
-            if (!source.includes('assertTrustedAdminMutationRequest(request);')) {
+            if (!source.includes('adminMutationSecurityDecision(request)')) {
               throw new Error('A Card Intake mutation path lacks exact-origin enforcement.');
             }
           }
