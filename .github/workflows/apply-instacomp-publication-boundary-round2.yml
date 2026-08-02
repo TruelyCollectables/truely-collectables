@@ -31,16 +31,15 @@ jobs:
           import re
           import textwrap
 
-          def replace_once(source: str, pattern: str, replacement: str, label: str) -> str:
+          def replace_once(source: str, pattern: str, replacement, label: str) -> str:
               compiled = re.compile(pattern, re.MULTILINE | re.DOTALL)
-              source, count = compiled.subn(lambda _match: replacement, source, count=1)
-              if count != 1:
-                  raise SystemExit(f'{label} replacement count was {count}')
-              return source
+              match = compiled.search(source)
+              if not match:
+                  raise SystemExit(f'{label} replacement count was 0')
+              value = replacement(match) if callable(replacement) else replacement
+              return source[:match.start()] + value + source[match.end():]
 
-          security_import = textwrap.dedent('''\
-          import { adminMutationSecurityDecision } from "../../../../lib/admin-request-security";
-          ''')
+          security_import = 'import { adminMutationSecurityDecision } from "../../../../lib/admin-request-security";\n'
           mutation_block = textwrap.dedent('''\
             const mutation = adminMutationSecurityDecision(request);
             if (!mutation.allowed) {
@@ -61,14 +60,14 @@ jobs:
               source = replace_once(
                   source,
                   r'^(import \{ createHash, randomUUID \} from "node:crypto";\n)',
-                  r'\1' + security_import,
+                  lambda match: match.group(1) + security_import,
                   'pending security import',
               )
           if 'const mutation = adminMutationSecurityDecision(request);' not in source:
               source = replace_once(
                   source,
                   r'(export async function POST\(request: Request\) \{\n)',
-                  r'\1' + mutation_block,
+                  lambda match: match.group(1) + mutation_block,
                   'pending POST origin guard',
               )
           pending.write_text(source)
@@ -79,15 +78,14 @@ jobs:
               source = replace_once(
                   source,
                   r'^(import \{ NextRequest \} from "next/server";\n)',
-                  r'\1' + security_import,
+                  lambda match: match.group(1) + security_import,
                   'queue security import',
               )
           for signature, label in [
               (r'export async function POST\(request: NextRequest\) \{\n', 'queue POST origin guard'),
               (r'export async function DELETE\(request: Request\) \{\n', 'queue DELETE origin guard'),
           ]:
-              pattern = f'({signature})'
-              match = re.search(pattern, source, re.MULTILINE)
+              match = re.search(signature, source, re.MULTILINE)
               if not match:
                   raise SystemExit(f'{label} signature missing')
               block_start = match.end()
@@ -102,7 +100,7 @@ jobs:
               source = replace_once(
                   source,
                   r'^(import \{ ebayListingContentProblems \} from "\.\/ebay-listing-content";\n)',
-                  'import { adminMutationSecurityDecision } from "./admin-request-security";\n\\1',
+                  lambda match: 'import { adminMutationSecurityDecision } from "./admin-request-security";\n' + match.group(1),
                   'dual guard security import',
               )
           if 'Privileged listing mutation rejected.' not in source:
@@ -122,7 +120,7 @@ jobs:
               source = replace_once(
                   source,
                   r'(export async function handleGuardedDualMarketplacePost\(request: Request\) \{\n)',
-                  r'\1' + guard_block,
+                  lambda match: match.group(1) + guard_block,
                   'dual guard POST origin guard',
               )
           guard.write_text(source)
@@ -139,7 +137,7 @@ jobs:
               source = replace_once(
                   source,
                   r'^(import \{ ebayListingContentProblems \} from "\.\/ebay-listing-content";\n)',
-                  r'\1' + publication_import,
+                  lambda match: match.group(1) + publication_import,
                   'publication gate import',
               )
 
@@ -201,7 +199,7 @@ jobs:
               source = replace_once(
                   source,
                   r'(\n\s*prepared = prepareListing\(\{[\s\S]*?\n\s*\}\);)(\n\s*await saveDraftMetadata\(\{ supabase, storeId, prepared \}\);)',
-                  r'\1\n' + call + r'\2',
+                  lambda match: match.group(1) + '\n' + call + match.group(2),
                   'publication authorization call',
               )
           route.write_text(source)
