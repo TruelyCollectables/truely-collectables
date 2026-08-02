@@ -62,14 +62,36 @@ jobs:
           npm run verify:instacomp
           npx tsc --noEmit --pretty false
 
+      - name: Detect Seller Sweep migration change
+        id: migration_change
+        shell: bash
+        run: |
+          set -euo pipefail
+          migration_path="supabase/migrations/20260802002500_instacomp_seller_sweeps.sql"
+          base_sha="${{ github.event.before }}"
+          if [ "${{ github.event_name }}" != "push" ] || \
+            [ -z "$base_sha" ] || \
+            [ "$base_sha" = "0000000000000000000000000000000000000000" ] || \
+            ! git cat-file -e "$base_sha^{commit}" 2>/dev/null; then
+            base_sha="$(git rev-parse HEAD^)"
+          fi
+          if git diff --quiet "$base_sha" "$GITHUB_SHA" -- "$migration_path"; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Seller Sweep migration is unchanged; production persistence will be certified by the bounded live sweep."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Seller Sweep migration changed and requires privileged application and verification."
+          fi
+
       - name: Link Vercel and pull protected Production environment
         shell: bash
         run: |
           set -euo pipefail
           test -n "${VERCEL_TOKEN:-}"
-          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
           echo "::add-mask::$VERCEL_TOKEN"
-          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          if [ -n "${GH_SUPABASE_ACCESS_TOKEN:-}" ]; then
+            echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          fi
           mkdir -p .vercel "$RUNNER_TEMP/seller-sweep-release"
           if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
             printf '{"orgId":"%s","projectId":"%s"}\n' \
@@ -87,7 +109,8 @@ jobs:
             --token "$VERCEL_TOKEN" >/dev/null
           chmod 600 "$RUNNER_TEMP/seller-sweep-release/production.env"
 
-      - name: Apply and verify Seller Sweep Production migration
+      - name: Apply and verify changed Seller Sweep Production migration
+        if: steps.migration_change.outputs.changed == 'true'
         shell: bash
         env:
           PRODUCTION_ENV_FILE: ${{ runner.temp }}/seller-sweep-release/production.env

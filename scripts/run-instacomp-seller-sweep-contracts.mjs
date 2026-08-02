@@ -204,6 +204,23 @@ assert.match(liveSmoke, /const MAX_RANK_CALLS = 2/);
 assert.doesNotMatch(liveSmoke, /ADMIN_PASSWORD|\/api\/admin\/login/);
 assert.match(releaseWorkflow, /openssl rand -hex 32/);
 assert.match(releaseWorkflow, /INSTACOMP_SELLER_SWEEP_LIVE_VERIFY_SECRET/);
+assert.match(releaseWorkflow, /name: Detect Seller Sweep migration change/);
+assert.match(
+  releaseWorkflow,
+  /git diff --quiet \"\$base_sha\" \"\$GITHUB_SHA\"/,
+);
+assert.match(
+  releaseWorkflow,
+  /if: steps\.migration_change\.outputs\.changed == 'true'/,
+);
+assert.match(
+  releaseWorkflow,
+  /Seller Sweep migration is unchanged; production persistence will be certified by the bounded live sweep/,
+);
+assert.doesNotMatch(
+  releaseWorkflow,
+  /test -n \"\$\{GH_SUPABASE_ACCESS_TOKEN:-\}\"/,
+);
 assert.match(releaseWorkflow, /env rm \\/);
 assert.match(releaseWorkflow, /Redeploy clean Production without temporary secret/);
 assert.doesNotMatch(releaseWorkflow, /ADMIN_PASSWORD/);
