@@ -22,6 +22,7 @@ import {
 } from "../../../../lib/instacomp-market-evidence";
 import {
   applyInstaCompConsensusToAi,
+  applyInstaCompRegistryFastLane,
   buildInstaCompMultiScannerConsensus,
   buildInstaCompReaderFindingFromAi,
   decideInstaCompConsensusEscalation,
@@ -3651,23 +3652,10 @@ export async function POST(req: NextRequest) {
       pairingConfidence: persistentContext?.pairingConfidence ?? null,
     });
     const consensusEscalation = registryMatch
-      ? {
-          ...baselineConsensusEscalation,
-          runSecondaryVision: false,
-          speedLane: "fast_lane" as const,
-          councilMode: "fast_lane_council" as const,
-          riskTier: "low" as const,
-          scannerPlan: [
-            "primary_vision",
-            "external_ocr",
-            "checklist_registry_referee",
-          ],
-          reasons: [
-            `Checklist Registry exact identity ${registryMatch.identityId} confirmed before secondary readers.`,
-          ],
-          explanation:
-            "Primary vision and printed evidence matched a private exact Checklist Registry identity, so secondary AI readers were not required.",
-        }
+      ? applyInstaCompRegistryFastLane(
+          baselineConsensusEscalation,
+          registryMatch.identityId,
+        )
       : baselineConsensusEscalation;
     const aiCouncilRaw = await runInstaCompAiCouncil({
       runSecondaryVision: consensusEscalation.runSecondaryVision,
