@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 const DEFAULT_ORIGIN = "https://truelycollectables.com";
-const ADMIN_COOKIE_NAME = "tcos_admin_auth_v3";
-const SELLER_URL = "https://www.ebay.com/str/missmelscards";
 const QUERY_LADDER = ["WNBA lot", "sports card", "trading card"];
 const LIVE_LISTING_LIMIT = 1;
 const MAX_COLLECTION_ATTEMPTS = QUERY_LADDER.length;
 const MAX_PROCESS_CALLS = 2;
 const MAX_RANK_CALLS = 2;
+const VERIFY_PATH = "/api/internal/instacomp-seller-sweep-live-verify";
+const VERIFY_HEADER = "x-instacomp-seller-sweep-live-verify";
 
 function normalizeProductionOrigin(value) {
   const url = new URL(String(value || DEFAULT_ORIGIN));
@@ -27,17 +27,6 @@ function normalizeProductionOrigin(value) {
     );
   }
   return DEFAULT_ORIGIN;
-}
-
-function adminSessionCookie(setCookies) {
-  let selected = "";
-  for (const value of setCookies) {
-    const match = new RegExp(`^${ADMIN_COOKIE_NAME}=([^;]+)`).exec(value);
-    if (match?.[1]) selected = `${ADMIN_COOKIE_NAME}=${match[1]}`;
-  }
-  if (!selected)
-    throw new Error("Production admin login did not create an admin session.");
-  return selected;
 }
 
 function diagnosticMessage(value) {
@@ -78,78 +67,50 @@ async function responseJson(response, label) {
   return body;
 }
 
-async function apiPost(origin, cookie, path, body, timeoutMs = 60_000) {
+async function verifierPost(
+  origin,
+  secret,
+  action,
+  body = {},
+  timeoutMs = 60_000,
+) {
   const response = await fetchWithTimeout(
-    `${origin}${path}`,
+    `${origin}${VERIFY_PATH}`,
     {
       method: "POST",
       headers: {
-        Cookie: cookie,
         "Content-Type": "application/json",
+        [VERIFY_HEADER]: secret,
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ action, ...body }),
     },
     timeoutMs,
   );
-  return responseJson(response, path);
+  const payload = await responseJson(response, `Seller Sweep ${action}`);
+  if (payload?.ok !== true || payload?.action !== action) {
+    throw new Error(`Seller Sweep ${action} verifier returned an invalid result.`);
+  }
+  return payload.result;
 }
 
-async function apiGet(origin, cookie, path, timeoutMs = 60_000) {
-  const response = await fetchWithTimeout(
-    `${origin}${path}`,
-    { headers: { Cookie: cookie } },
-    timeoutMs,
-  );
-  return responseJson(response, path);
-}
-
-async function login(origin, password) {
-  const response = await fetchWithTimeout(`${origin}/api/admin/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      password,
-      nextPath: "/admin/instacomp/seller-sweep",
-    }),
-  });
-  const body = await responseJson(response, "Production admin login");
-  if (body?.success !== true)
-    throw new Error("Production admin login was not successful.");
-  const setCookies =
-    typeof response.headers.getSetCookie === "function"
-      ? response.headers.getSetCookie()
-      : [response.headers.get("set-cookie")].filter(Boolean);
-  return adminSessionCookie(setCookies);
-}
-
-async function verifyWorkbench(origin, cookie) {
-  const response = await fetchWithTimeout(
-    `${origin}/admin/instacomp/seller-sweep?production_smoke=${Date.now()}`,
-    { headers: { Cookie: cookie } },
-  );
-  const html = await response.text();
-  if (!response.ok || !html.includes("Seller Sweep")) {
-    throw new Error(
-      `Seller Sweep workbench was unavailable (HTTP ${response.status}).`,
-    );
+async function verifyWorkbench(origin, secret) {
+  const result = await verifierPost(origin, secret, "workbench");
+  if (result?.available !== true) {
+    throw new Error("Seller Sweep workbench verification did not pass.");
   }
 }
 
-async function finalizeNonProcessableSweep(origin, cookie, sweepId) {
-  await apiPost(origin, cookie, "/api/admin/instacomp/seller-sweep/rank", {
-    sweepId,
-    batchSize: 1,
-  });
+async function finalizeNonProcessableSweep(origin, secret, sweepId) {
+  await verifierPost(origin, secret, "rank", { sweepId });
 }
 
-async function collectOneProcessableListing(origin, cookie) {
+async function collectOneProcessableListing(origin, secret) {
   for (let index = 0; index < MAX_COLLECTION_ATTEMPTS; index += 1) {
-    const query = QUERY_LADDER[index];
-    const result = await apiPost(
+    const result = await verifierPost(
       origin,
-      cookie,
-      "/api/admin/instacomp/seller-sweep",
-      { sellerUrl: SELLER_URL, query, limit: LIVE_LISTING_LIMIT },
+      secret,
+      "collect",
+      { queryIndex: index },
       120_000,
     );
     if (result?.persistenceWarning) {
@@ -169,7 +130,7 @@ async function collectOneProcessableListing(origin, cookie) {
       return result;
     }
     if (result?.sweepId) {
-      await finalizeNonProcessableSweep(origin, cookie, result.sweepId);
+      await finalizeNonProcessableSweep(origin, secret, result.sweepId);
     }
   }
   throw new Error(
@@ -177,14 +138,14 @@ async function collectOneProcessableListing(origin, cookie) {
   );
 }
 
-async function processSweep(origin, cookie, sweepId) {
+async function processSweep(origin, secret, sweepId) {
   let remaining = 1;
   for (let calls = 0; remaining > 0 && calls < MAX_PROCESS_CALLS; calls += 1) {
-    const result = await apiPost(
+    const result = await verifierPost(
       origin,
-      cookie,
-      "/api/admin/instacomp/seller-sweep/process",
-      { sweepId, batchSize: 1 },
+      secret,
+      "process",
+      { sweepId },
       330_000,
     );
     remaining = Math.max(0, Number(result?.remaining) || 0);
@@ -196,14 +157,14 @@ async function processSweep(origin, cookie, sweepId) {
     throw new Error("Live candidate extraction exceeded its call limit.");
 }
 
-async function rankSweep(origin, cookie, sweepId) {
+async function rankSweep(origin, secret, sweepId) {
   let remaining = 1;
   for (let calls = 0; remaining > 0 && calls < MAX_RANK_CALLS; calls += 1) {
-    const result = await apiPost(
+    const result = await verifierPost(
       origin,
-      cookie,
-      "/api/admin/instacomp/seller-sweep/rank",
-      { sweepId, batchSize: 1 },
+      secret,
+      "rank",
+      { sweepId },
       120_000,
     );
     remaining = Math.max(0, Number(result?.remaining) || 0);
@@ -249,22 +210,22 @@ function verifyCompletedSnapshot(snapshot) {
 
 async function runLive() {
   const origin = normalizeProductionOrigin(process.env.PRODUCTION_ORIGIN);
-  const passwordFile = process.env.SELLER_SWEEP_ADMIN_PASSWORD_FILE;
-  if (!passwordFile)
-    throw new Error("SELLER_SWEEP_ADMIN_PASSWORD_FILE is required.");
-  const password = fs.readFileSync(passwordFile, "utf8").trim();
-  if (!password)
-    throw new Error("The Production admin password file is empty.");
+  const secretFile = process.env.SELLER_SWEEP_LIVE_VERIFY_SECRET_FILE;
+  if (!secretFile)
+    throw new Error("SELLER_SWEEP_LIVE_VERIFY_SECRET_FILE is required.");
+  const secret = fs.readFileSync(secretFile, "utf8").trim();
+  if (!secret)
+    throw new Error("The Seller Sweep live-verification secret file is empty.");
 
-  const cookie = await login(origin, password);
-  await verifyWorkbench(origin, cookie);
-  const collected = await collectOneProcessableListing(origin, cookie);
-  await processSweep(origin, cookie, collected.sweepId);
-  await rankSweep(origin, cookie, collected.sweepId);
-  const snapshot = await apiGet(
+  await verifyWorkbench(origin, secret);
+  const collected = await collectOneProcessableListing(origin, secret);
+  await processSweep(origin, secret, collected.sweepId);
+  await rankSweep(origin, secret, collected.sweepId);
+  const snapshot = await verifierPost(
     origin,
-    cookie,
-    `/api/admin/instacomp/seller-sweep/status?sweepId=${encodeURIComponent(collected.sweepId)}`,
+    secret,
+    "status",
+    { sweepId: collected.sweepId },
   );
   verifyCompletedSnapshot(snapshot);
 
@@ -295,13 +256,10 @@ function selfTest() {
   );
   assert.throws(() => normalizeProductionOrigin("https://example.com"));
   assert.throws(() => normalizeProductionOrigin(`${DEFAULT_ORIGIN}/admin`));
-  assert.equal(
-    adminSessionCookie([
-      `${ADMIN_COOKIE_NAME}=; Max-Age=0; Path=/`,
-      `${ADMIN_COOKIE_NAME}=signed-session; Max-Age=86400; Path=/`,
-    ]),
-    `${ADMIN_COOKIE_NAME}=signed-session`,
-  );
+  assert.equal(MAX_COLLECTION_ATTEMPTS, 3);
+  assert.equal(LIVE_LISTING_LIMIT, 1);
+  assert.equal(MAX_PROCESS_CALLS, 2);
+  assert.equal(MAX_RANK_CALLS, 2);
   verifyCompletedSnapshot({
     ok: true,
     sweep: { status: "completed" },

@@ -45,6 +45,10 @@ const statusRoute = readFileSync(
   "src/app/api/admin/instacomp/seller-sweep/status/route.ts",
   "utf8",
 );
+const liveVerifierRoute = readFileSync(
+  "src/app/api/internal/instacomp-seller-sweep-live-verify/route.ts",
+  "utf8",
+);
 const client = readFileSync(
   "src/app/admin/instacomp/seller-sweep/SellerSweepClient.tsx",
   "utf8",
@@ -55,6 +59,14 @@ const migration = readFileSync(
 );
 const workflow = readFileSync(
   ".github/workflows/instacomp-seller-sweep.yml",
+  "utf8",
+);
+const releaseWorkflow = readFileSync(
+  ".github/workflows/release-instacomp-seller-sweep-production.yml",
+  "utf8",
+);
+const liveSmoke = readFileSync(
+  "scripts/run-instacomp-seller-sweep-live-smoke.mjs",
   "utf8",
 );
 
@@ -164,6 +176,25 @@ assert.match(client, /seller-sweep\/rank/);
 assert.match(client, /window\.setInterval/);
 assert.match(client, /never changes a listing, publishes an item, or applies a price automatically/);
 assert.match(workflow, /run-instacomp-seller-sweep-proof-simulations\.ts/);
+
+assert.match(liveVerifierRoute, /timingSafeEqual/);
+assert.match(liveVerifierRoute, /INSTACOMP_SELLER_SWEEP_LIVE_VERIFY_SECRET/);
+assert.match(liveVerifierRoute, /activeConfiguredSecret/);
+assert.match(liveVerifierRoute, /createAdminSessionValue/);
+assert.match(liveVerifierRoute, /https:\/\/www\.ebay\.com\/str\/missmelscards/);
+assert.match(liveVerifierRoute, /const LIVE_LISTING_LIMIT = 1/);
+assert.match(liveVerifierRoute, /body: JSON\.stringify\(\{ sweepId, batchSize: 1 \}\)/);
+assert.doesNotMatch(liveVerifierRoute, /publish|price change/i);
+assert.match(liveSmoke, /SELLER_SWEEP_LIVE_VERIFY_SECRET_FILE/);
+assert.match(liveSmoke, /MAX_COLLECTION_ATTEMPTS = QUERY_LADDER\.length/);
+assert.match(liveSmoke, /const MAX_PROCESS_CALLS = 2/);
+assert.match(liveSmoke, /const MAX_RANK_CALLS = 2/);
+assert.doesNotMatch(liveSmoke, /ADMIN_PASSWORD|\/api\/admin\/login/);
+assert.match(releaseWorkflow, /openssl rand -hex 32/);
+assert.match(releaseWorkflow, /INSTACOMP_SELLER_SWEEP_LIVE_VERIFY_SECRET/);
+assert.match(releaseWorkflow, /env rm \\/);
+assert.match(releaseWorkflow, /Redeploy clean Production without temporary secret/);
+assert.doesNotMatch(releaseWorkflow, /ADMIN_PASSWORD/);
 
 for (const column of [
   "identified_cards jsonb",

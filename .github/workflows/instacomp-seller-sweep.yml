@@ -5,10 +5,12 @@ on:
     paths:
       - "src/app/admin/instacomp/seller-sweep/**"
       - "src/app/api/admin/instacomp/seller-sweep/**"
+      - "src/app/api/internal/instacomp-seller-sweep-live-verify/**"
       - "src/lib/instacomp-seller-sweep-*.ts"
       - "supabase/migrations/20260802002500_instacomp_seller_sweeps.sql"
       - "scripts/run-instacomp-seller-sweep-contracts.mjs"
       - "scripts/run-instacomp-seller-sweep-live-smoke.mjs"
+      - "scripts/run-instacomp-seller-sweep-live-verifier-simulations.ts"
       - ".github/workflows/instacomp-seller-sweep.yml"
       - ".github/workflows/release-instacomp-seller-sweep-production.yml"
   workflow_dispatch:
@@ -33,5 +35,7 @@ jobs:
         run: node --import tsx scripts/run-instacomp-seller-sweep-proof-simulations.ts
       - name: Verify bounded Production smoke harness
         run: node scripts/run-instacomp-seller-sweep-live-smoke.mjs --self-test
+      - name: Verify scoped Production live verifier
+        run: node --import tsx scripts/run-instacomp-seller-sweep-live-verifier-simulations.ts
       - name: TypeScript check
         run: npx tsc --noEmit --pretty false
