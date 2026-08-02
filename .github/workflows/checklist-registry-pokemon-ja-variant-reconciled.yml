@@ -1,0 +1,184 @@
+name: Checklist Registry Pokémon Japanese Variant Reconciliation
+
+on:
+  pull_request:
+    paths:
+      - "src/lib/checklist-registry/pokemon-japanese-variant-reconciled.ts"
+      - "src/lib/checklist-registry/server.ts"
+      - "scripts/build-pokemon-japanese-variant-reconciled-bundles.ts"
+      - "scripts/import-pokemon-japanese-variant-reconciled-bundles.ts"
+      - "scripts/run-pokemon-japanese-variant-reconciled-simulations.ts"
+      - ".github/workflows/checklist-registry-pokemon-ja-variant-reconciled.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checklist-registry-pokemon-ja-variant-reconciled-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TCGDEX_SOURCE_COMMIT: 138c145b80f1a0d6a533f98fd3afe1ffc5b4f8d6
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint variant reconciliation
+        run: >-
+          npx eslint
+          src/lib/checklist-registry/pokemon-japanese-variant-reconciled.ts
+          src/lib/checklist-registry/server.ts
+          scripts/build-pokemon-japanese-variant-reconciled-bundles.ts
+          scripts/import-pokemon-japanese-variant-reconciled-bundles.ts
+          scripts/run-pokemon-japanese-variant-reconciled-simulations.ts
+
+      - name: Prove adapter boundaries
+        run: >-
+          node --import tsx
+          scripts/run-pokemon-japanese-variant-reconciled-simulations.ts
+
+      - name: Check out pinned TCGdex source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .codex-run
+          git clone --filter=blob:none https://github.com/tcgdex/cards-database.git \
+            .codex-run/tcgdex-cards-database
+          git -C .codex-run/tcgdex-cards-database checkout --detach "$TCGDEX_SOURCE_COMMIT"
+          test "$(git -C .codex-run/tcgdex-cards-database rev-parse HEAD)" = "$TCGDEX_SOURCE_COMMIT"
+
+      - name: Rebuild Japanese source receipt
+        run: |
+          node --import tsx scripts/build-tcgdex-japanese-registry-bundles.ts \
+            .codex-run/tcgdex-cards-database \
+            .codex-run/tcgdex-ja-registry-bundles \
+            --receipt .codex-run/tcgdex-ja-build-receipt.json \
+            > .codex-run/tcgdex-ja-build-output.json
+
+      - name: Rebuild incomplete-set inventory
+        run: |
+          node --import tsx scripts/inventory-pokemon-japanese-incomplete-sets.ts \
+            .codex-run/tcgdex-cards-database \
+            --build-receipt .codex-run/tcgdex-ja-build-receipt.json \
+            --delay-ms 75 \
+            --continue-on-error \
+            --receipt .codex-run/pokemon-ja-incomplete-inventory-receipt.json \
+            --queue .codex-run/pokemon-ja-incomplete-inventory-queue.json \
+            > .codex-run/pokemon-ja-incomplete-inventory-output.json
+
+      - name: Resolve S10a evidence
+        run: |
+          mkdir -p .codex-run/resolutions/s10a
+          node --import tsx scripts/resolve-pokemon-japanese-historical-products.ts \
+            .codex-run/tcgdex-cards-database \
+            --build-receipt .codex-run/tcgdex-ja-build-receipt.json \
+            --phase4a-receipt .codex-run/pokemon-ja-incomplete-inventory-receipt.json \
+            --set S10a \
+            --delay-ms 250 \
+            --continue-on-error \
+            --receipt .codex-run/resolutions/s10a/pokemon-ja-historical-product-resolution-receipt.json \
+            --queue .codex-run/resolutions/s10a/pokemon-ja-historical-product-resolution-queue.json \
+            > .codex-run/resolutions/s10a/pokemon-ja-historical-product-resolution-output.json
+
+      - name: Resolve S11a evidence
+        run: |
+          mkdir -p .codex-run/resolutions/s11a
+          node --import tsx scripts/resolve-pokemon-japanese-historical-products.ts \
+            .codex-run/tcgdex-cards-database \
+            --build-receipt .codex-run/tcgdex-ja-build-receipt.json \
+            --phase4a-receipt .codex-run/pokemon-ja-incomplete-inventory-receipt.json \
+            --set S11a \
+            --delay-ms 250 \
+            --continue-on-error \
+            --receipt .codex-run/resolutions/s11a/pokemon-ja-historical-product-resolution-receipt.json \
+            --queue .codex-run/resolutions/s11a/pokemon-ja-historical-product-resolution-queue.json \
+            > .codex-run/resolutions/s11a/pokemon-ja-historical-product-resolution-output.json
+
+      - name: Build the final two variant bundles
+        run: |
+          node --import tsx scripts/build-pokemon-japanese-variant-reconciled-bundles.ts \
+            .codex-run/tcgdex-cards-database \
+            .codex-run/pokemon-ja-variant-reconciled-bundles \
+            --build-receipt .codex-run/tcgdex-ja-build-receipt.json \
+            --resolution-receipt .codex-run/resolutions/s10a \
+            --resolution-receipt .codex-run/resolutions/s11a \
+            --continue-on-error \
+            --receipt .codex-run/pokemon-ja-variant-reconciled-build-receipt.json \
+            > .codex-run/pokemon-ja-variant-reconciled-build-output.json
+
+      - name: Validate the final two bundles
+        run: |
+          node --import tsx scripts/import-pokemon-japanese-variant-reconciled-bundles.ts \
+            .codex-run/pokemon-ja-variant-reconciled-bundles \
+            --continue-on-error \
+            --receipt .codex-run/pokemon-ja-variant-reconciled-validation-receipt.json \
+            > .codex-run/pokemon-ja-variant-reconciled-validation-output.json
+
+      - name: Require complete S10a and S11a populations
+        run: |
+          node - <<'NODE'
+          const build = require('./.codex-run/pokemon-ja-variant-reconciled-build-receipt.json');
+          const validation = require('./.codex-run/pokemon-ja-variant-reconciled-validation-receipt.json');
+          const expectedRows = {
+            S10a: { sourceCards: 71, reversePokeballPrintings: 49, numberedOfficialAdditions: 28, baseCards: 99, officialPrintings: 148 },
+            S11a: { sourceCards: 68, reversePokeballPrintings: 46, numberedOfficialAdditions: 26, baseCards: 94, officialPrintings: 140 },
+          };
+          const actualRows = Object.fromEntries(build.rows.map((row) => [row.setId, {
+            sourceCards: row.sourceCards,
+            reversePokeballPrintings: row.reversePokeballPrintings,
+            numberedOfficialAdditions: row.numberedOfficialAdditions,
+            baseCards: row.baseCards,
+            officialPrintings: row.officialPrintings,
+          }]));
+          const checks = {
+            buildSchema: build.schema === 'tcos.checklist.pokemonJapaneseVariantReconciledBuildReceipt.v1',
+            sourceCommit: build.sourceCommit === process.env.TCGDEX_SOURCE_COMMIT,
+            attemptedSets: build.attemptedSets === 2,
+            successfulSets: build.successfulSets === 2,
+            failedSets: build.failedSets === 0,
+            exactRows: JSON.stringify(actualRows) === JSON.stringify(expectedRows),
+            totalSourceCards: build.totals.sourceCards === 139,
+            totalReverses: build.totals.reversePokeballPrintings === 95,
+            totalAdditions: build.totals.numberedOfficialAdditions === 54,
+            totalBaseCards: build.totals.baseCards === 193,
+            totalPrintings: build.totals.officialPrintings === 288,
+            validationMode: validation.mode === 'validate_only',
+            validationAttempted: validation.attemptedFiles === 2,
+            validationSuccessful: validation.successfulFiles === 2,
+            validationFailed: validation.failedFiles === 0,
+            validatedBaseCards: validation.totals.baseCards === 193,
+            validatedPrintings: validation.totals.officialPrintings === 288,
+            oneParallelPerSet: validation.totals.parallelDefinitions === 2,
+          };
+          console.log(JSON.stringify({ checks, actualRows, buildTotals: build.totals, validationTotals: validation.totals }, null, 2));
+          if (Object.values(checks).some((value) => value !== true)) process.exit(1);
+          NODE
+
+      - name: Upload private validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pokemon-ja-final-two-variant-reconciliation
+          path: |
+            .codex-run/resolutions
+            .codex-run/pokemon-ja-variant-reconciled-bundles
+            .codex-run/pokemon-ja-variant-reconciled-build-receipt.json
+            .codex-run/pokemon-ja-variant-reconciled-build-output.json
+            .codex-run/pokemon-ja-variant-reconciled-validation-receipt.json
+            .codex-run/pokemon-ja-variant-reconciled-validation-output.json
+          if-no-files-found: error
+          retention-days: 90
