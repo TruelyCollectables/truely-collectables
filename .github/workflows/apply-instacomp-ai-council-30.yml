@@ -17,6 +17,10 @@ jobs:
     if: ${{ github.event_name == 'pull_request' || !contains(github.event.head_commit.message, '[council-applied]') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-service-role-key
     steps:
       - name: Check out council branch
         uses: actions/checkout@v4
