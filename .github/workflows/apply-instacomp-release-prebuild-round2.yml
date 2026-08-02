@@ -1,6 +1,7 @@
 name: Apply InstaComp Exact Release Prebuild Round Two
 
 # One-time same-repository PR transformation. The successful job deletes itself.
+# Retried after the permanent scan-ledger provenance correction landed.
 on:
   pull_request:
     paths:
