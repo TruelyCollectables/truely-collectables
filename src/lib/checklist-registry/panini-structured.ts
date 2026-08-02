@@ -276,6 +276,18 @@ export function parsePaniniStructuredChecklist(
           `${rowReference}.parallels[${parallelIndex}]`,
         );
       }
+      if (
+        rawParallel.serialRun != null &&
+        comparable(parallelName) === "base"
+      ) {
+        issue(
+          issues,
+          "numbered_base_parallel_invalid",
+          "error",
+          `Base parallel cannot have serial run ${rawParallel.serialRun}`,
+          `${rowReference}.parallels[${parallelIndex}]`,
+        );
+      }
       if (parallelKeys.has(parallelSourceKey)) {
         issue(
           issues,
