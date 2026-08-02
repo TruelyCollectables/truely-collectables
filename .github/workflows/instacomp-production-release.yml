@@ -1,25 +1,85 @@
-name: InstaComp Production Release Probe
+name: Release InstaComp Evidence-First Production
 
 on:
-  pull_request:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-production-release.yml"
+      - "public/instacomp-release.json"
+      - "src/app/api/instacomp/scan/route.ts"
+      - "src/lib/instacomp-learning-server.ts"
+      - "scripts/run-instacomp-evidence-first-regressions.ts"
+      - "scripts/check-live-instacomp-release.mjs"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: instacomp-production-release-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: release-instacomp-evidence-first-production
+  cancel-in-progress: false
 
 jobs:
-  verify-production-release:
-    name: Verify evidence-first production aliases
+  verify-deploy-smoke:
+    name: Verify, deploy, and prove evidence-first production
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 90
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Check out merged main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Check live InstaComp release contract
-        run: node scripts/check-live-instacomp-release.mjs
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Verify evidence-first source
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx tsx scripts/run-instacomp-evidence-first-regressions.ts
+          npx eslint \
+            src/lib/instacomp-learning-server.ts \
+            src/app/api/instacomp/scan/route.ts \
+            scripts/run-instacomp-evidence-first-regressions.ts \
+            scripts/check-live-instacomp-release.mjs
+          npm run build
+
+      - name: Link Vercel Production project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          echo "::add-mask::$VERCEL_TOKEN"
+          mkdir -p .vercel
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' \
+              "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          fi
+          npx vercel@56.2.0 link --yes \
+            --project truely-collectables \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Deploy merged main to Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run deploy:production
+
+      - name: Prove both Production aliases
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/check-live-instacomp-release.mjs
