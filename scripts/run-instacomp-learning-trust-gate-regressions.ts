@@ -62,7 +62,38 @@ const trustedOperator = decideInstaCompOperatorConfirmation({
   corrections: {},
   status: "operator_confirmed",
 });
-assert(trustedOperator.allowed, "Trusted identity may be owner-confirmed without retyping it");
+assert(trustedOperator.allowed, "Trusted exact identity may be owner-confirmed without retyping it");
+
+const booleanOnlyOperator = decideInstaCompOperatorConfirmation({
+  payload: {
+    ai: trustedPayload.ai,
+    consensus: trustedPayload.consensus,
+    compSearchDecision: trustedPayload.compSearchDecision,
+    catalogEvidence: { catalogConfirmed: true },
+  },
+  corrections: {},
+  status: "operator_confirmed",
+});
+assert(
+  !booleanOnlyOperator.allowed,
+  "Boolean-only trust without matching Registry/catalog receipts must not promote",
+);
+
+const mismatchedOperator = decideInstaCompOperatorConfirmation({
+  payload: {
+    ...trustedPayload,
+    catalogEvidence: {
+      ...trustedPayload.catalogEvidence,
+      selectedMatch: { catalogId: "forged-different-identity" },
+    },
+  },
+  corrections: {},
+  status: "operator_confirmed",
+});
+assert(
+  !mismatchedOperator.allowed,
+  "Operator confirmation must reject disagreeing Registry and catalog IDs",
+);
 
 const blockedOperator = decideInstaCompOperatorConfirmation({
   payload: {
@@ -116,4 +147,18 @@ assert(
   "Permanent scan ledger must retain the comp-search identity decision",
 );
 
-console.log("InstaComp learning trust gate regressions passed (10 assertions).");
+const migration = readFileSync(
+  "supabase/migrations/20260802224500_instacomp_learning_provenance_receipt.sql",
+  "utf8",
+);
+assert(
+  migration.includes("tcos_instacomp_payload_exact_identity_trusted"),
+  "Database gate must require a complete exact identity trust receipt",
+);
+assert(
+  migration.includes("checklistRegistry,identityId") &&
+    migration.includes("catalogEvidence,selectedMatch,catalogId"),
+  "Database receipt must bind Registry and catalog identity IDs",
+);
+
+console.log("InstaComp learning trust gate regressions passed (14 assertions).");
