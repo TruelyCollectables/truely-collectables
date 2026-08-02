@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +14,17 @@ const TARGET_PLAYERS = [
   "Hailey Van Lith",
   "Aneesah Morrow",
 ];
+
+type EbayListingSummary = {
+  itemId: string;
+  title: string;
+  itemWebUrl: string;
+  imageUrl: string | null;
+  price: number | null;
+  shipping: number | null;
+  currency: string;
+  endDate: string | null;
+};
 
 function extractSeller(input: string) {
   const trimmed = input.trim();
@@ -120,7 +131,7 @@ export async function POST(request: Request) {
       throw new Error(data?.errors?.[0]?.message || `eBay Browse failed (${response.status}).`);
     }
 
-    const summaries = (data.itemSummaries || []).map((item: any) => ({
+    const summaries: EbayListingSummary[] = (data.itemSummaries || []).map((item: any) => ({
       itemId: String(item.itemId || ""),
       title: String(item.title || "Untitled listing"),
       itemWebUrl: String(item.itemWebUrl || item.itemAffiliateWebUrl || "#"),
@@ -202,6 +213,7 @@ export async function POST(request: Request) {
               end_date: listing.endDate,
               status: listing.status === "photos_ready" ? "photos" : "failed",
               target_players: listing.targetPlayers,
+              identified_cards: [],
               error_message: listing.error,
             }))
           );

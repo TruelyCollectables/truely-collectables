@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 import {
   identifySellerSweepLotPhoto,
   sellerSweepTargetPlayers,
   type SellerSweepCardCandidate,
-} from "@/lib/instacomp-seller-sweep-identify";
+} from "../../../../../../lib/instacomp-seller-sweep-identify";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

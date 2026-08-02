@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 import {
   calculateSellerSweepLotEconomics,
   type SellerSweepValuedCard,
-} from "@/lib/instacomp-seller-sweep-economics";
+} from "../../../../../../lib/instacomp-seller-sweep-economics";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -105,7 +105,6 @@ export async function POST(request: Request) {
           ? listing.target_players
           : [],
         confidence: Number(listing.confidence) || 0,
-        status,
         ...economics,
       });
     }
