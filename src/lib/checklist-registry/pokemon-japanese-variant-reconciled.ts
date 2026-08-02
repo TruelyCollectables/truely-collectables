@@ -454,7 +454,7 @@ function validateBundle(
       const reverseId = Number(reverse.cardID);
       if (
         clean(reverse.parallelName) !==
-          POKEMON_JAPANESE_POKEBALL_REVERSE_NAME ||
+          clean(POKEMON_JAPANESE_POKEBALL_REVERSE_NAME) ||
         !Number.isSafeInteger(baseId) ||
         !Number.isSafeInteger(reverseId) ||
         reverseId <= baseId ||
