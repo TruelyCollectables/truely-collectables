@@ -46,13 +46,16 @@ jobs:
           if old_counter in source:
               source = source.replace(old_counter, new_counter)
 
-          old_cancel = '''    '      method: "POST",\\n      headers:',
-              '      method: "POST",\\n      signal,\\n      headers:',﻿'''
-          new_cancel = '''    'method: "POST",',
-              'method: "POST",\\n      signal,',﻿'''
-          if old_cancel not in source:
-              raise SystemExit('provider cancellation transformer marker not found')
-          source = source.replace(old_cancel, new_cancel)
+          old_before = "'      method: \"POST\",\\n      headers:'"
+          new_before = "'method: \"POST\",'"
+          old_after = "'      method: \"POST\",\\n      signal,\\n      headers:'"
+          new_after = "'method: \"POST\",\\n      signal,'"
+          if source.count(old_before) != 2 or source.count(old_after) != 2:
+              raise SystemExit(
+                  f'provider cancellation markers unexpected: before={source.count(old_before)} after={source.count(old_after)}'
+              )
+          source = source.replace(old_before, new_before)
+          source = source.replace(old_after, new_after)
 
           path.write_text(source)
           PY
