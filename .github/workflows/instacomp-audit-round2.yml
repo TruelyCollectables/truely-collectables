@@ -1,0 +1,101 @@
+name: InstaComp Adversarial Audit Round Two
+
+on:
+  pull_request:
+    paths:
+      - "src/app/api/instacomp/scan/route.ts"
+      - "src/app/api/admin/instacomp/seller-sweep/**"
+      - "src/app/api/internal/instacomp-seller-sweep-live-verify/**"
+      - "src/lib/admin-request-security.ts"
+      - "src/lib/instacomp-ai-council-security.ts"
+      - "src/lib/instacomp-learning-server.ts"
+      - "src/lib/instacomp-seller-sweep-*.ts"
+      - "scripts/run-instacomp-ai-council-security-regressions.ts"
+      - "scripts/run-instacomp-audit-round2-security-regressions.ts"
+      - "scripts/run-instacomp-ai-council-30-regressions.ts"
+      - "scripts/run-instacomp-evidence-first-regressions.ts"
+      - "scripts/run-instacomp-v2-hardening-simulations.ts"
+      - ".github/workflows/instacomp-audit-round2.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instacomp-audit-round2-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  adversarial-audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run privileged request and remote-image attacks
+        run: node --import tsx scripts/run-instacomp-audit-round2-security-regressions.ts
+
+      - name: Run council tier, endpoint, and hostile OCR attacks
+        run: node --import tsx scripts/run-instacomp-ai-council-security-regressions.ts
+
+      - name: Run 8-30 council capacity and family-vote regressions
+        run: node --import tsx scripts/run-instacomp-ai-council-30-regressions.ts
+
+      - name: Run evidence-first identity regressions
+        run: node --import tsx scripts/run-instacomp-evidence-first-regressions.ts
+
+      - name: Run V2 money and registry hardening simulations
+        run: node --import tsx scripts/run-instacomp-v2-hardening-simulations.ts
+
+      - name: Verify core scanner Round Two integration
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const source = fs.readFileSync('src/app/api/instacomp/scan/route.ts', 'utf8');
+          for (const marker of [
+            'INSTACOMP_AUDIT_ROUND2_CORE_V1',
+            'resolveInstaCompCouncilPolicy',
+            'aiCouncilPolicy.effectiveTier',
+            'normalizeOpenAiCompatibleBaseUrl',
+            'openAiCompatibleProviderFamily',
+            'formatUntrustedOcrEvidence',
+            'operation: (signal: AbortSignal) => Promise<T>',
+            'signal: options.signal',
+            'A serial candidate from OCR must be visibly confirmed',
+          ]) {
+            if (!source.includes(marker)) throw new Error(`Missing scanner integration marker: ${marker}`);
+          }
+          if (source.includes('Use this text heavily for exact player')) {
+            throw new Error('The primary scanner still promotes raw OCR as instructions.');
+          }
+          if (/if \(externalOcr\?\.serialNumber\) \{[\s\S]{0,500}confidence: 0\.99/.test(source)) {
+            throw new Error('OCR-only serial evidence still receives automatic 0.99 trust.');
+          }
+          NODE
+
+      - name: Lint audit boundary
+        run: >-
+          npx eslint
+          src/app/api/instacomp/scan/route.ts
+          src/app/api/admin/instacomp/seller-sweep/route.ts
+          src/app/api/admin/instacomp/seller-sweep/process/route.ts
+          src/app/api/admin/instacomp/seller-sweep/rank/route.ts
+          src/app/api/internal/instacomp-seller-sweep-live-verify/route.ts
+          src/lib/admin-request-security.ts
+          src/lib/instacomp-ai-council-security.ts
+          src/lib/instacomp-seller-sweep-identify.ts
+          src/lib/instacomp-seller-sweep-security.ts
+          scripts/run-instacomp-ai-council-security-regressions.ts
+          scripts/run-instacomp-audit-round2-security-regressions.ts
+
+      - name: TypeScript
+        run: npx tsc --noEmit --pretty false
