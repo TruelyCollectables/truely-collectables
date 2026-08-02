@@ -76,7 +76,7 @@ const scheduled = vercel.crons.find(
 assert.ok(scheduled, "Vercel cron must include KINGMAKER morning intelligence.");
 assert.equal(
   scheduled.schedule,
-  "5 * * * *",
+  "12 * * * *",
   "Hourly UTC invocation must remain guarded to 7 AM America/Denver in the route.",
 );
 
