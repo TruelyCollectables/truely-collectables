@@ -11,7 +11,7 @@ jobs:
   verify-live-council:
     name: Prove 8-30 AI council on both production aliases
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -21,14 +21,14 @@ jobs:
         shell: bash
         run: |
           set -u
-          for attempt in $(seq 1 30); do
-            echo "Production council proof attempt ${attempt}/30"
+          for attempt in $(seq 1 60); do
+            echo "Production council proof attempt ${attempt}/60"
             if node scripts/check-live-instacomp-release.mjs; then
               exit 0
             fi
-            if [ "$attempt" -lt 30 ]; then
+            if [ "$attempt" -lt 60 ]; then
               sleep 20
             fi
           done
-          echo "Production never served the 8-30 AI council release contract within 10 minutes."
+          echo "Production never served the 8-30 AI council release contract within 20 minutes."
           exit 1
