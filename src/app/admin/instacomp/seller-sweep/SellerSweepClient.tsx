@@ -25,6 +25,7 @@ type SweepResponse = {
   total: number;
   photosReady: number;
   failed: number;
+  photoTotal: number;
   progress: number;
   status: string;
   listings: SweepListing[];
@@ -68,7 +69,7 @@ export default function SellerSweepClient() {
       setResult(data);
       setProgress(data.progress || 55);
       setStatus(
-        `Saved sweep ${data.sweepId.slice(0, 8)}. ${data.photosReady}/${data.total} listings have full photo sets.`
+        `Saved sweep ${data.sweepId.slice(0, 8)}. ${data.photosReady}/${data.total} listings and ${data.photoTotal} photos are staged.`
       );
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Seller Sweep failed");
@@ -114,7 +115,7 @@ export default function SellerSweepClient() {
         <section className="overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-sm">
           <div className="border-b border-neutral-200 p-5">
             <p className="text-xs font-black uppercase tracking-[0.18em] text-cyan-700">Seller @{result.seller}</p>
-            <h2 className="mt-1 text-2xl font-black">{result.total} listings collected · {result.photosReady} photo-ready · {result.failed} errors</h2>
+            <h2 className="mt-1 text-2xl font-black">{result.total} listings · {result.photoTotal} photos · {result.failed} errors</h2>
             <p className="mt-2 text-sm font-semibold text-neutral-600">Sweep ID: {result.sweepId}</p>
             <p className="mt-2 text-sm font-semibold text-neutral-600">{result.nextStep}</p>
           </div>
