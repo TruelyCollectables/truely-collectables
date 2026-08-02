@@ -10,12 +10,19 @@ on:
       - "src/lib/instacomp-ai-council-security.ts"
       - "src/lib/instacomp-learning-server.ts"
       - "src/lib/instacomp-seller-sweep-*.ts"
+      - "public/instacomp-release.json"
+      - "supabase/migrations/20260802224500_instacomp_learning_provenance_receipt.sql"
       - "scripts/run-instacomp-ai-council-security-regressions.ts"
       - "scripts/run-instacomp-audit-round2-security-regressions.ts"
       - "scripts/run-instacomp-ai-council-30-regressions.ts"
       - "scripts/run-instacomp-evidence-first-regressions.ts"
+      - "scripts/run-instacomp-learning-trust-gate-regressions.ts"
+      - "scripts/run-instacomp-release-attestation-regressions.mjs"
       - "scripts/run-instacomp-v2-hardening-simulations.ts"
+      - "scripts/write-instacomp-release-manifest.mjs"
+      - "scripts/check-live-instacomp-release.mjs"
       - ".github/workflows/instacomp-audit-round2.yml"
+      - ".github/workflows/instacomp-production-release.yml"
   workflow_dispatch:
 
 permissions:
@@ -53,6 +60,12 @@ jobs:
       - name: Run evidence-first identity regressions
         run: node --import tsx scripts/run-instacomp-evidence-first-regressions.ts
 
+      - name: Run learning provenance regressions
+        run: node --import tsx scripts/run-instacomp-learning-trust-gate-regressions.ts
+
+      - name: Run exact-commit release attestation attacks
+        run: node scripts/run-instacomp-release-attestation-regressions.mjs
+
       - name: Run V2 money and registry hardening simulations
         run: node --import tsx scripts/run-instacomp-v2-hardening-simulations.ts
 
@@ -82,6 +95,37 @@ jobs:
           }
           NODE
 
+      - name: Verify release and provenance fail-closed markers
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const manifest = JSON.parse(fs.readFileSync('public/instacomp-release.json', 'utf8'));
+          if (manifest.sourceCommit !== 'BUILD_INJECTED_AT_BUILD') {
+            throw new Error('Committed manifest must remain a fail-closed build template.');
+          }
+          const workflow = fs.readFileSync('.github/workflows/instacomp-production-release.yml', 'utf8');
+          for (const marker of [
+            'TCOS_RELEASE_COMMIT="$exact_commit"',
+            'INSTACOMP_EXPECTED_COMMIT="$(cat "$deployed_commit_file")"',
+            'node scripts/write-instacomp-release-manifest.mjs',
+            'node scripts/check-live-instacomp-release.mjs',
+          ]) {
+            if (!workflow.includes(marker)) throw new Error(`Missing release attestation marker: ${marker}`);
+          }
+          const migration = fs.readFileSync(
+            'supabase/migrations/20260802224500_instacomp_learning_provenance_receipt.sql',
+            'utf8',
+          );
+          for (const marker of [
+            'tcos_instacomp_payload_exact_identity_trusted',
+            "'{checklistRegistry,identityId}'",
+            "'{catalogEvidence,selectedMatch,catalogId}'",
+            'trusted_for_pricing := false',
+          ]) {
+            if (!migration.includes(marker)) throw new Error(`Missing learning provenance marker: ${marker}`);
+          }
+          NODE
+
       - name: Lint audit boundary
         run: >-
           npx eslint
@@ -96,6 +140,9 @@ jobs:
           src/lib/instacomp-seller-sweep-security.ts
           scripts/run-instacomp-ai-council-security-regressions.ts
           scripts/run-instacomp-audit-round2-security-regressions.ts
+          scripts/run-instacomp-release-attestation-regressions.mjs
+          scripts/write-instacomp-release-manifest.mjs
+          scripts/check-live-instacomp-release.mjs
 
       - name: TypeScript
         run: npx tsc --noEmit --pretty false
