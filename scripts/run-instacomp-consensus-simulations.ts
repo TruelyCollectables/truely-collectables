@@ -3,6 +3,7 @@ import {
   applyInstaCompRegistryFastLane,
   buildInstaCompMultiScannerConsensus,
   buildInstaCompReaderFindingFromAi,
+  decideInstaCompCompSearch,
   decideInstaCompConsensusEscalation,
   type InstaCompConsensusReaderFinding,
 } from "../src/lib/instacomp-consensus";
@@ -402,6 +403,28 @@ const scenarios = [
         "Expected visible fast-lane thin evidence reason",
       );
       assert(consensus.trustedForIdentity, "Warning should not block a high-confidence fast lane");
+    },
+  },
+  {
+    name: "comp search requires trusted exact identity",
+    run() {
+      const trusted = decideInstaCompCompSearch({
+        trustedForIdentity: true,
+      });
+      const untrusted = decideInstaCompCompSearch({
+        trustedForIdentity: false,
+      });
+
+      assert(trusted.allowed, "Trusted identity should allow comp search");
+      assert(
+        trusted.reason === "identity_confirmed",
+        "Trusted identity should report confirmation",
+      );
+      assert(!untrusted.allowed, "Untrusted identity must block comp search");
+      assert(
+        untrusted.reason === "identity_review_required",
+        "Blocked search should report identity review",
+      );
     },
   },
   {

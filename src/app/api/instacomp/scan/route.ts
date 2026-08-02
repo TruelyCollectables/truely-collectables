@@ -25,6 +25,7 @@ import {
   applyInstaCompRegistryFastLane,
   buildInstaCompMultiScannerConsensus,
   buildInstaCompReaderFindingFromAi,
+  decideInstaCompCompSearch,
   decideInstaCompConsensusEscalation,
   type InstaCompConsensusIdentity,
   type InstaCompConsensusReaderFinding,
@@ -3696,30 +3697,24 @@ export async function POST(req: NextRequest) {
       escalation: consensusEscalation,
     });
     const ai = applyInstaCompConsensusToAi(guardedAi, consensus);
+    const compSearchDecision = decideInstaCompCompSearch(consensus);
 
     const queries = buildInstaCompQueries(ai);
     const links = buildCompLinks(queries.primary);
     const compQueries = [queries.primary, ...queries.backupQueries];
 
-    const [
-      ebayProvider,
-      tcosProvider,
-      priceChartingProvider,
-      externalSearchProvider,
-    ] =
-      await Promise.all([
-        getBestEbayProvider(compQueries, ai, links.ebayActiveUrl),
-        getTcosInventoryProvider(queries.primary, ai, actor),
-        getPriceChartingProvider(queries.primary, ai),
-        getExternalSearchProvider(queries.primary, ai, links.broadCardMarketUrl),
-      ]);
-
-    const providers = [
-      ebayProvider,
-      tcosProvider,
-      priceChartingProvider,
-      externalSearchProvider,
-    ];
+    const providers: InstaCompProviderResult[] = compSearchDecision.allowed
+      ? await Promise.all([
+          getBestEbayProvider(compQueries, ai, links.ebayActiveUrl),
+          getTcosInventoryProvider(queries.primary, ai, actor),
+          getPriceChartingProvider(queries.primary, ai),
+          getExternalSearchProvider(
+            queries.primary,
+            ai,
+            links.broadCardMarketUrl,
+          ),
+        ])
+      : [];
 
     const allLiveComps = providers.flatMap((provider) => provider.results);
     const rawSoldComps = allLiveComps.filter(
@@ -3774,6 +3769,7 @@ export async function POST(req: NextRequest) {
       review: scanReview,
       consensus,
       consensusEscalation,
+      compSearchDecision,
       catalogEvidence,
       checklistRegistry: registryMatch
         ? {
@@ -3831,9 +3827,11 @@ export async function POST(req: NextRequest) {
       remainingCards,
       stats,
       note:
-        scanReview.trustedForPricing
-          ? "Transactional value is based only on independently verified completed sales. Current asks, guide prices, and internal inventory remain display-only."
-          : "InstaComp™ found provider candidates, but identity review or insufficient independently verified completed sales prevents transaction value, buy calls, ROI, and auto-pricing.",
+        !compSearchDecision.allowed
+          ? "Comp search was blocked because exact card identity requires review. No market provider received this unresolved identity."
+          : scanReview.trustedForPricing
+            ? "Transactional value is based only on independently verified completed sales. Current asks, guide prices, and internal inventory remain display-only."
+            : "InstaComp™ found provider candidates, but insufficient independently verified completed sales prevents transaction value, buy calls, ROI, and auto-pricing.",
       ...(persistentContext
         ? {
             queue: {

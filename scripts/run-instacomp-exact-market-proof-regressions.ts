@@ -467,6 +467,21 @@ const benchmarkTitleSource = fs.readFileSync(
 );
 assert.ok(scanSource.includes("authorizedEphemeralBenchmark"));
 assert.ok(scanSource.includes("const scanId = ephemeralBenchmark"));
+assert.ok(
+  scanSource.includes(
+    "const compSearchDecision = decideInstaCompCompSearch(consensus);",
+  ),
+);
+assert.ok(
+  scanSource.includes(
+    "const providers: InstaCompProviderResult[] = compSearchDecision.allowed",
+  ),
+);
+assert.ok(
+  scanSource.includes(
+    "No market provider received this unresolved identity.",
+  ),
+);
 assert.ok(benchmarkSource.includes("x-instacomp-benchmark-ephemeral"));
 assert.ok(benchmarkTitleSource.includes("benchmarkTitleHasExpectedSerialRun"));
 
