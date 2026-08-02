@@ -4,6 +4,7 @@ import { pokemonJapaneseHistoricalReconciledAdapter } from "./pokemon-japanese-h
 import { pokemonJapaneseIncompleteReconciledAdapter } from "./pokemon-japanese-incomplete-reconciled";
 import { pokemonJapaneseMPReconciledAdapter } from "./pokemon-japanese-mp-reconciled";
 import { pokemonJapaneseOfficialReconciledAdapter } from "./pokemon-japanese-official-reconciled";
+import { pokemonJapaneseVariantReconciledAdapter } from "./pokemon-japanese-variant-reconciled";
 import { pokemonTcgDataSourceIdSafeAdapter } from "./pokemon-tcg-data-source-ids";
 import type {
   ChecklistImportPlan,
@@ -15,6 +16,7 @@ import { tcgdexJapaneseSetBundleAdapter } from "./tcgdex-japanese";
 
 const CHECKLIST_ADAPTERS: ChecklistSourceAdapter[] = [
   pokemonJapaneseMPReconciledAdapter,
+  pokemonJapaneseVariantReconciledAdapter,
   pokemonJapaneseHistoricalReconciledAdapter,
   pokemonJapaneseIncompleteReconciledAdapter,
   pokemonJapaneseOfficialReconciledAdapter,
