@@ -68,7 +68,6 @@ jobs:
             git diff --check
             python scripts/check-instacomp-control-characters.py
             python scripts/assert-instacomp-final-source.py
-            node --import tsx scripts/run-instacomp-evidence-first-regressions.ts
             git status --short | tee instacomp-materialization-status.log
           } 2>&1 | tee instacomp-final-materialization.log
 
@@ -86,7 +85,7 @@ jobs:
           set -euo pipefail
           {
             node --import tsx scripts/run-instacomp-exact-provider-regressions.ts
-            node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
+            node scripts/run-instacomp-exact-market-proof-evidence-first.mjs
             node --import tsx scripts/run-instacomp-final-audit-regressions.ts
             node --import tsx scripts/run-instacomp-live-pipeline-regressions.ts
             node --import tsx scripts/run-instacomp-provider-safety-regressions.ts
@@ -117,6 +116,7 @@ jobs:
             src/lib/instacomp-image-orientation.ts \
             src/lib/instacomp-provider-safety.ts \
             scripts/run-instacomp-evidence-first-regressions.ts \
+            scripts/run-instacomp-exact-market-proof-evidence-first.mjs \
             scripts/run-instacomp-exact-provider-regressions.ts \
             scripts/run-instacomp-provider-safety-regressions.ts \
             scripts/run-instacomp-exact-market-proof-regressions.ts \
@@ -178,6 +178,7 @@ jobs:
             src/lib/instacomp-image-orientation.ts
             src/lib/instacomp-provider-safety.ts
             scripts/run-instacomp-evidence-first-regressions.ts
+            scripts/run-instacomp-exact-market-proof-evidence-first.mjs
             scripts/run-instacomp-exact-provider-regressions.ts
             scripts/run-instacomp-provider-safety-regressions.ts
             scripts/run-instacomp-exact-market-proof-regressions.ts
