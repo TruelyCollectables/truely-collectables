@@ -9,7 +9,7 @@ const generatedPath = resolve(
   ".check-production-guardrails-evidence-first.generated.mjs",
 );
 
-const staleMarker = '  "buildInstaCompCuratedChecklistEvidence",\n';
+const staleMarker = '  "buildInstaCompCuratedChecklistEvidence",';
 const evidenceFirstMarkers = [
   '  "resolveChecklistRegistry",',
   '  "buildChecklistRegistryReviewEvidence",',
@@ -17,22 +17,29 @@ const evidenceFirstMarkers = [
   '  "evidenceConsensus",',
   '  "identityDecision.confirmed",',
   '  "threshold: 0.95",',
-  "",
 ].join("\n");
+const routeAssertionPattern =
+  /assertFileIncludes\(\s*"instacomp multi-scanner consensus route wiring",\s*"src\/app\/api\/instacomp\/scan\/route\.ts",\s*\[[\s\S]*?\n\]\);/g;
 
 const source = readFileSync(sourcePath, "utf8");
-const occurrences = source.split(staleMarker).length - 1;
-if (occurrences !== 1) {
+let patchedRouteAssertions = 0;
+const patchedSource = source.replace(routeAssertionPattern, (block) => {
+  if (!block.includes(staleMarker)) {
+    throw new Error(
+      "The InstaComp route guardrail no longer contains the expected stale curated-checklist marker.",
+    );
+  }
+  patchedRouteAssertions += 1;
+  return block.replace(staleMarker, evidenceFirstMarkers);
+});
+
+if (patchedRouteAssertions < 1) {
   throw new Error(
-    `Expected exactly one stale curated-checklist route marker, found ${occurrences}.`,
+    "No InstaComp multi-scanner route guardrail assertion was found to patch.",
   );
 }
 
-writeFileSync(
-  generatedPath,
-  source.replace(staleMarker, evidenceFirstMarkers),
-  "utf8",
-);
+writeFileSync(generatedPath, patchedSource, "utf8");
 
 try {
   await import(`${pathToFileURL(generatedPath).href}?v=${Date.now()}`);
