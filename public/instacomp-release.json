@@ -1,0 +1,9 @@
+{
+  "schema": "tcos.instacomp.release.v1",
+  "backendRelease": "evidence-first-95",
+  "identityThreshold": 0.95,
+  "requiresBackImage": true,
+  "compSearchRequiresConfirmedIdentity": true,
+  "learningRequiresConfirmedIdentity": true,
+  "sourceCommit": "8bdbdac80df9f4dbb2b6ebe09f6fb99c3c84c40d"
+}
