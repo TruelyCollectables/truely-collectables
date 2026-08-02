@@ -435,17 +435,31 @@ export function chooseRegistryMatch(
     const identities = Array.isArray(card.identities) ? card.identities : [];
     for (const identity of identities) {
       const parallelName = identity.parallel?.name || "Base";
-      const registryBase = isBaseParallel(parallelName);
-      const targetBase = isBaseParallel(targetParallel);
-      if (targetBase !== registryBase) continue;
+      const serialRun = asNumber(identity.parallel?.serial_run);
 
-      if (!targetBase) {
-        const offered = new Set(checklistParallelTokens(parallelName));
-        if (
-          !targetParallelTokens.length ||
-          !targetParallelTokens.every((token) => offered.has(token))
-        ) {
-          continue;
+      // A printed serial denominator is stronger evidence than an AI visual
+      // parallel guess. When /199 is observed, only checklist identities with
+      // serial_run 199 may survive. The registry's official parallel name then
+      // becomes authoritative.
+      if (targetSerialRun) {
+        if (serialRun !== Number(targetSerialRun)) continue;
+      } else {
+        // Without printed serial evidence, keep the stricter visual-parallel
+        // matching behavior and reject numbered checklist identities.
+        if (serialRun) continue;
+
+        const registryBase = isBaseParallel(parallelName);
+        const targetBase = isBaseParallel(targetParallel);
+        if (targetBase !== registryBase) continue;
+
+        if (!targetBase) {
+          const offered = new Set(checklistParallelTokens(parallelName));
+          if (
+            !targetParallelTokens.length ||
+            !targetParallelTokens.every((token) => offered.has(token))
+          ) {
+            continue;
+          }
         }
       }
 
@@ -490,10 +504,6 @@ export function chooseRegistryMatch(
           continue;
         }
       }
-
-      const serialRun = asNumber(identity.parallel?.serial_run);
-      if (serialRun && !targetSerialRun) continue;
-      if (targetSerialRun && serialRun !== Number(targetSerialRun)) continue;
 
       const fingerprint = String(identity.fingerprint_sha256 || "");
       if (!fingerprint) continue;
