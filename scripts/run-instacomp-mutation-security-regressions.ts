@@ -33,14 +33,16 @@ const sameOriginAdmin = instaCompMutationSecurityDecision({
 assert.equal(sameOriginAdmin.allowed, true);
 assert.equal(sameOriginAdmin.channel, "admin_same_origin");
 
-for (const headers of [
+const rejectedAdminHeaders: Array<Record<string, string>> = [
   {},
   { Origin: "https://attacker.truelycollectables.com" },
   {
     Origin: "https://evil.example",
     "Sec-Fetch-Site": "cross-site",
   },
-]) {
+];
+
+for (const headers of rejectedAdminHeaders) {
   const decision = instaCompMutationSecurityDecision({
     request: request(headers),
     actor: adminActor,

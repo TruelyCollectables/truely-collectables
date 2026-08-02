@@ -22,7 +22,7 @@ insert into public.instacomp_scan_knowledge_cache (
 ) values (
   'trust-gate-trusted-catalog',
   repeat('b', 64),
-  '{"consensus":{"trustedForIdentity":true},"catalogEvidence":{"catalogConfirmed":true}}'::jsonb,
+  '{"consensus":{"trustedForIdentity":true},"compSearchDecision":{"allowed":true},"checklistRegistry":{"matched":true,"identityId":"registry-identity-1"},"catalogEvidence":{"status":"catalog_confirmed","catalogConfirmed":true,"selectedMatch":{"catalogId":"registry-identity-1"}}}'::jsonb,
   'catalog_confirmed'
 );
 
