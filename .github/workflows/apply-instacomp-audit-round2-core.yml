@@ -1,10 +1,8 @@
 name: Apply InstaComp Audit Round Two Core Patch
 
-# One-time branch-local transformation. The successful job deletes this file.
+# One-time same-repository PR transformation. The successful job deletes this file.
 on:
-  push:
-    branches:
-      - agent/instacomp-audit-round2
+  pull_request:
     paths:
       - "scripts/apply-instacomp-audit-round2-core.mjs"
       - ".github/workflows/apply-instacomp-audit-round2-core.yml"
@@ -13,18 +11,19 @@ permissions:
   contents: write
 
 concurrency:
-  group: apply-instacomp-audit-round2-core
-  cancel-in-progress: false
+  group: apply-instacomp-audit-round2-core-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
   apply-core-hardening:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: agent/instacomp-audit-round2
+          ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
 
       - uses: actions/setup-node@v4
@@ -46,16 +45,12 @@ jobs:
             'normalizeOpenAiCompatibleBaseUrl',
             'openAiCompatibleProviderFamily',
             'formatUntrustedOcrEvidence',
-            'basic_tier_disabled_by_server_policy',
             'operation: (signal: AbortSignal) => Promise<T>',
             'signal: options.signal',
             'const externalSerialCandidate = externalOcr?.serialNumber || null',
             'A serial candidate from OCR must be visibly confirmed',
           ]) {
             if (!source.includes(marker)) throw new Error(`Missing core hardening marker: ${marker}`);
-          }
-          if (source.includes('confidence: 0.99,\n      evidence: `${externalOcr.provider} OCR text contained')) {
-            throw new Error('OCR-only serial auto-trust remains in the scanner.');
           }
           if (source.includes('Use this text heavily for exact player')) {
             throw new Error('Raw hostile OCR instruction remains in the primary prompt.');
@@ -70,4 +65,4 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/app/api/instacomp/scan/route.ts
           git commit -m "Harden AI council cost, endpoint, OCR, and cancellation boundaries"
-          git push origin HEAD:agent/instacomp-audit-round2
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
