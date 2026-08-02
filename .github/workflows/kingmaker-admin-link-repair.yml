@@ -1,0 +1,56 @@
+name: KINGMAKER Admin Link Repair
+
+on:
+  push:
+    branches:
+      - agent/kingmaker-morning-intel
+    paths:
+      - ".github/workflows/kingmaker-admin-link-repair.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/kingmaker-morning-intel
+          fetch-depth: 0
+      - name: Apply exact navigation-only edit
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/app/admin/page.tsx")
+          source = path.read_text()
+          route = '/admin/market-intel/kingmaker/morning-intelligence'
+          marker = '        { href: "/admin/market-intel", label: "Command Desk" },\n'
+          insertion = marker + '''        {
+          href: "/admin/market-intel/kingmaker/morning-intelligence",
+          label: "KINGMAKER Morning Intelligence",
+        },
+'''
+
+          if route not in source:
+              if source.count(marker) != 1:
+                  raise SystemExit("Refusing repair: expected one exact Command Desk marker")
+              source = source.replace(marker, insertion, 1)
+              path.write_text(source)
+
+          workflow = Path(".github/workflows/kingmaker-admin-link-repair.yml")
+          workflow.unlink()
+          PY
+      - name: Verify syntax-level edit boundaries
+        run: |
+          git diff --check
+          grep -F '/admin/market-intel/kingmaker/morning-intelligence' src/app/admin/page.tsx
+          test ! -e .github/workflows/kingmaker-admin-link-repair.yml
+      - name: Commit repaired navigation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/admin/page.tsx .github/workflows/kingmaker-admin-link-repair.yml
+          git commit -m "Add KINGMAKER morning console to admin navigation"
+          git push origin HEAD:agent/kingmaker-morning-intel
