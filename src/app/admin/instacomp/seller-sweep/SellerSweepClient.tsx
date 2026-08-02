@@ -337,7 +337,7 @@ export default function SellerSweepClient() {
             Search focus
             <input value={query} onChange={(event) => setQuery(event.target.value)} className="rounded-2xl border border-neutral-300 px-4 py-3 font-semibold" />
           </label>
-          <button disabled={loading} className="rounded-2xl bg-neutral-950 px-6 py-3 font-black text-white disabled:opacity-50">
+          <button type="submit" disabled={loading} className="rounded-2xl bg-neutral-950 px-6 py-3 font-black text-white disabled:opacity-50">
             {loading ? "Sweeping…" : "Start Seller Sweep"}
           </button>
         </form>
