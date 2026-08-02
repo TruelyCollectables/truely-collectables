@@ -6,7 +6,7 @@ export const revalidate = 0;
 
 const modules = [
   ["Acquisition Radar", "/admin/market-intel/deals", "Verified opportunities, deal-watch discoveries, mislistings, price drops, and ending-soon targets."],
-  ["Capital Ledger", "/admin/market-intel/purchases", "Canonical Purchase Ledger ownership, delivered cost basis, receiving, sales, and position aging."],
+  ["Capital Ledger", "/admin/market-intel/kingmaker/capital-ledger", "Canonical Purchase Ledger ownership, delivered cost basis, receiving, sales, and position aging."],
   ["Market Truth Lab", "/admin/market-intel/comps", "Exact-card sold evidence, liquidity, confidence, break-even values, and market direction."],
   ["Operations Control", "/admin/market-intel/readiness", "Freshness, reconciliation, ingestion failures, audit warnings, and fail-closed system health."],
 ] as const;
