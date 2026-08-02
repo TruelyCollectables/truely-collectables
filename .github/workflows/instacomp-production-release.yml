@@ -10,6 +10,8 @@ on:
       - "src/lib/instacomp-learning-server.ts"
       - "scripts/run-instacomp-evidence-first-regressions.ts"
       - "scripts/run-instacomp-ai-council-30-regressions.ts"
+      - "scripts/run-instacomp-release-attestation-regressions.mjs"
+      - "scripts/write-instacomp-release-manifest.mjs"
       - "scripts/check-live-instacomp-release.mjs"
   workflow_dispatch:
 
@@ -72,11 +74,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          deployed_commit_file="$RUNNER_TEMP/instacomp-deployed-commit"
+          rm -f "$deployed_commit_file"
 
           validate_current_main() {
             git fetch origin main
             git reset --hard origin/main
+            exact_commit="$(git rev-parse HEAD)"
             npm ci
+            TCOS_RELEASE_COMMIT="$exact_commit" \
+              node scripts/write-instacomp-release-manifest.mjs
+            node scripts/run-instacomp-release-attestation-regressions.mjs
             npx tsx scripts/run-instacomp-evidence-first-regressions.ts
             npx tsx scripts/run-instacomp-ai-council-30-regressions.ts
             npx eslint \
@@ -84,25 +92,31 @@ jobs:
               src/app/api/instacomp/scan/route.ts \
               scripts/run-instacomp-evidence-first-regressions.ts \
               scripts/run-instacomp-ai-council-30-regressions.ts \
+              scripts/run-instacomp-release-attestation-regressions.mjs \
+              scripts/write-instacomp-release-manifest.mjs \
               scripts/check-live-instacomp-release.mjs
             NEXT_PUBLIC_SUPABASE_URL=https://example.supabase.co \
             NEXT_PUBLIC_SUPABASE_ANON_KEY=build-only-anon-key \
             SUPABASE_SERVICE_ROLE_KEY=build-only-service-role-key \
+            TCOS_RELEASE_COMMIT="$exact_commit" \
               npm run build
           }
 
           for attempt in 1 2 3; do
             echo "Exact-main production attempt ${attempt}/3"
             validate_current_main
+            candidate_commit="$(git rev-parse HEAD)"
 
             git fetch origin main
-            if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+            if [ "$candidate_commit" != "$(git rev-parse origin/main)" ]; then
               echo "main advanced during validation; rebuilding the newer commit."
               continue
             fi
 
             deploy_log="$RUNNER_TEMP/instacomp-deploy-${attempt}.log"
-            if npm run deploy:production 2>&1 | tee "$deploy_log"; then
+            if TCOS_RELEASE_COMMIT="$candidate_commit" \
+              npm run deploy:production 2>&1 | tee "$deploy_log"; then
+              printf '%s\n' "$candidate_commit" > "$deployed_commit_file"
               exit 0
             fi
 
@@ -118,13 +132,18 @@ jobs:
           echo "main changed during all three exact-commit deployment attempts."
           exit 1
 
-      - name: Prove both Production aliases
+      - name: Prove both Production aliases serve the exact deployed commit
         shell: bash
         run: |
           set -euo pipefail
-          node scripts/check-live-instacomp-release.mjs
+          deployed_commit_file="$RUNNER_TEMP/instacomp-deployed-commit"
+          test -s "$deployed_commit_file"
+          INSTACOMP_EXPECTED_COMMIT="$(cat "$deployed_commit_file")" \
+            node scripts/check-live-instacomp-release.mjs
 
-      - name: Remove protected Production environment file
+      - name: Remove protected Production and attestation files
         if: always()
         shell: bash
-        run: rm -f .env.production.local
+        run: |
+          rm -f .env.production.local
+          rm -f "$RUNNER_TEMP/instacomp-deployed-commit"
