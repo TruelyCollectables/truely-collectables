@@ -1,11 +1,16 @@
 const EXPECTED = {
   schema: "tcos.instacomp.release.v1",
-  backendRelease: "evidence-first-95",
+  backendRelease: "evidence-first-95-ai-council-30",
   identityThreshold: 0.95,
   requiresBackImage: true,
   compSearchRequiresConfirmedIdentity: true,
   learningRequiresConfirmedIdentity: true,
-  sourceCommit: "8bdbdac80df9f4dbb2b6ebe09f6fb99c3c84c40d",
+  aiCouncilDefaultReaders: 8,
+  aiCouncilMaxReaders: 30,
+  aiCouncilFamilyVoteCap: true,
+  aiCouncilReserveReaders: true,
+  aiCouncilCustomProviderSlots: 14,
+  sourceCommit: "468d2de8018b3bd353875f767d63e86e6bcc1762",
 };
 
 const origins = [
@@ -46,7 +51,7 @@ async function fetchRelease(origin) {
     }
 
     console.log(
-      `PASS ${origin} serves ${payload.backendRelease} from ${payload.sourceCommit.slice(0, 8)}`,
+      `PASS ${origin} serves ${payload.backendRelease} from ${payload.sourceCommit.slice(0, 8)} with ${payload.aiCouncilDefaultReaders}-${payload.aiCouncilMaxReaders} AI readers`,
     );
   } finally {
     clearTimeout(timeout);
