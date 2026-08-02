@@ -1,0 +1,58 @@
+name: InstaComp Serial Color Test Refresh
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  refresh-and-validate:
+    if: github.head_ref == 'fix/instacomp-serial-color-checklist-gate'
+    runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/instacomp-serial-color-checklist-gate
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Update stale adversarial expectation
+        run: python3 scripts/apply-instacomp-v2-serial-color-test-update.py
+
+      - name: Run targeted serial color regression
+        run: npx tsx scripts/run-instacomp-serial-color-gate-regressions.ts
+
+      - name: Run V2 adversarial simulations
+        run: npx tsx scripts/run-instacomp-v2-hardening-simulations.ts
+
+      - name: Run evidence-first regression
+        run: npx tsx scripts/run-instacomp-evidence-first-regressions.ts
+
+      - name: Lint affected files
+        run: npx eslint src/lib/instacomp-learning-server.ts scripts/run-instacomp-serial-color-gate-regressions.ts scripts/run-instacomp-v2-hardening-simulations.ts
+
+      - name: Production build
+        run: npm run build
+
+      - name: Commit validated test update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/run-instacomp-v2-hardening-simulations.ts
+          if ! git diff --cached --quiet; then
+            git commit -m "Require serial and color agreement in adversarial tests"
+            git push origin HEAD:fix/instacomp-serial-color-checklist-gate
+          fi
