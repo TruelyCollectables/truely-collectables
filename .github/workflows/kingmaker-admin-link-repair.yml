@@ -1,23 +1,26 @@
 name: KINGMAKER Admin Link Repair
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/kingmaker-morning-intel
+      - main
     paths:
       - ".github/workflows/kingmaker-admin-link-repair.yml"
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
   repair:
+    if: github.head_ref == 'agent/kingmaker-morning-intel'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
           ref: agent/kingmaker-morning-intel
           fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
       - name: Apply exact navigation-only edit
         run: |
           python - <<'PY'
@@ -27,7 +30,7 @@ jobs:
           source = path.read_text()
           route = '/admin/market-intel/kingmaker/morning-intelligence'
           marker = '        { href: "/admin/market-intel", label: "Command Desk" },\n'
-          insertion = marker + '''        {
+          addition = '''        {
           href: "/admin/market-intel/kingmaker/morning-intelligence",
           label: "KINGMAKER Morning Intelligence",
         },
@@ -36,17 +39,20 @@ jobs:
           if route not in source:
               if source.count(marker) != 1:
                   raise SystemExit("Refusing repair: expected one exact Command Desk marker")
-              source = source.replace(marker, insertion, 1)
+              source = source.replace(marker, marker + addition, 1)
               path.write_text(source)
 
           workflow = Path(".github/workflows/kingmaker-admin-link-repair.yml")
           workflow.unlink()
           PY
-      - name: Verify exact edit and parse boundary
+      - name: Verify exact repair
         run: |
           git diff --check
-          grep -F '/admin/market-intel/kingmaker/morning-intelligence' src/app/admin/page.tsx
+          test "$(grep -F -c '/admin/market-intel/kingmaker/morning-intelligence' src/app/admin/page.tsx)" -eq 1
           test ! -e .github/workflows/kingmaker-admin-link-repair.yml
+          npm ci
+          npm run verify:admin-dashboard
+          npx tsc --noEmit
       - name: Commit repaired navigation
         run: |
           git config user.name "github-actions[bot]"
