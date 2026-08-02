@@ -44,6 +44,14 @@ require(
         'ocrDiagnostics: {\n        imageOrientation,',
     ],
 )
+scan_text = scan.read_text()
+orientation_persistence = 'imageOrientation: input.imageOrientation || null,'
+orientation_persistence_count = scan_text.count(orientation_persistence)
+if orientation_persistence_count != 1:
+    raise SystemExit(
+        f"{scan}: expected one scan persistence orientation field, "
+        f"found {orientation_persistence_count}"
+    )
 
 benchmark = Path("src/app/api/instacomp/benchmark/ebay-25/route.ts")
 require(

@@ -659,15 +659,18 @@ import { readValidatedInstaCompImage } from "../../../../lib/instacomp-image-saf
 ''',
         "scan persistence orientation signature",
     )
-    text = replace_once(
-        text,
-        '''        catalogEvidence: input.catalogEvidence || null,
+    orientation_persistence = '''        imageOrientation: input.imageOrientation || null,
+'''
+    if orientation_persistence not in text:
+        text = replace_once(
+            text,
+            '''        catalogEvidence: input.catalogEvidence || null,
 ''',
-        '''        catalogEvidence: input.catalogEvidence || null,
+            '''        catalogEvidence: input.catalogEvidence || null,
         imageOrientation: input.imageOrientation || null,
 ''',
-        "scan persistence orientation data",
-    )
+            "scan persistence orientation data",
+        )
     text = replace_once(
         text,
         '''      catalogEvidence,
