@@ -12,10 +12,6 @@ permissions:
   contents: write
   pull-requests: read
 
-concurrency:
-  group: apply-instacomp-ai-council-30
-  cancel-in-progress: false
-
 jobs:
   apply-test-and-commit:
     if: ${{ github.event_name == 'pull_request' || !contains(github.event.head_commit.message, '[council-applied]') }}
