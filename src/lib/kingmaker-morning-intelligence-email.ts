@@ -21,6 +21,12 @@ function percent(value: number | null | undefined) {
     : `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
 }
 
+function confidence(value: number | null | undefined) {
+  return value === null || value === undefined || !Number.isFinite(value)
+    ? "—"
+    : `${(value * 100).toFixed(0)}%`;
+}
+
 function safeHref(value: string | null | undefined) {
   if (!value) return null;
   try {
@@ -46,6 +52,11 @@ function section(title: string, count: number, cards: string[]) {
   return `<section style="margin-top:24px"><p style="margin:0;color:#34d399;font-size:10px;font-weight:900;letter-spacing:.18em;text-transform:uppercase">${escapeHtml(title)}</p><h2 style="margin:5px 0 12px;color:#f8fafc;font-size:23px">${count} ${escapeHtml(title.toLowerCase())}</h2>${cards.join("")}</section>`;
 }
 
+function pushLink(lines: string[], href: string | null | undefined) {
+  const link = safeHref(href);
+  if (link) lines.push(`Open intelligence: ${link}`);
+}
+
 export function renderKingmakerMorningIntelligenceEmail(
   payload: KingmakerMorningIntelligencePayload,
 ) {
@@ -53,9 +64,7 @@ export function renderKingmakerMorningIntelligenceEmail(
     itemCard(item.title, item.detail, item.href, [
       `Expected profit ${money(item.expectedProfit)}`,
       `ROI ${percent(item.roiPercent)}`,
-      item.confidence === null || item.confidence === undefined
-        ? "Confidence —"
-        : `Confidence ${(item.confidence * 100).toFixed(0)}%`,
+      `Confidence ${confidence(item.confidence)}`,
     ]),
   );
   const changeCards = payload.meaningfulChanges.map((item) =>
@@ -78,24 +87,49 @@ export function renderKingmakerMorningIntelligenceEmail(
     payload.subject,
     payload.headline,
     `Generated: ${payload.generatedAt}`,
+    `Delivery mode: ${payload.mode.toUpperCase()}`,
     "",
   ];
-  for (const [label, items] of [
-    ["ACTIONABLE DEALS", payload.actionableDeals],
-    ["MEANINGFUL CHANGES", payload.meaningfulChanges],
-  ] as const) {
-    if (!items.length) continue;
-    textLines.push(label);
-    items.forEach((item, index) => {
-      textLines.push(`${index + 1}. ${item.title}`, item.detail, item.href || "", "");
+
+  if (payload.actionableDeals.length) {
+    textLines.push("ACTIONABLE DEALS");
+    payload.actionableDeals.forEach((item, index) => {
+      textLines.push(
+        `${index + 1}. ${item.title}`,
+        item.detail,
+        `Expected profit: ${money(item.expectedProfit)} | ROI: ${percent(item.roiPercent)} | Confidence: ${confidence(item.confidence)}`,
+      );
+      pushLink(textLines, item.href);
+      textLines.push("");
     });
   }
+
+  if (payload.meaningfulChanges.length) {
+    textLines.push("MEANINGFUL CHANGES");
+    payload.meaningfulChanges.forEach((item, index) => {
+      textLines.push(
+        `${index + 1}. ${item.title}`,
+        item.detail,
+        `Severity: ${item.severity.toUpperCase()}`,
+      );
+      pushLink(textLines, item.href);
+      textLines.push("");
+    });
+  }
+
   if (payload.portfolioMovements.length) {
     textLines.push("PORTFOLIO MOVEMENT");
     payload.portfolioMovements.forEach((item, index) => {
-      textLines.push(`${index + 1}. ${item.title}`, item.detail, item.href || "", "");
+      textLines.push(
+        `${index + 1}. ${item.title}`,
+        item.detail,
+        `Movement: ${item.movementType.replaceAll("_", " ").toUpperCase()}${item.amount === null || item.amount === undefined ? "" : ` | Amount: ${money(item.amount)}`}`,
+      );
+      pushLink(textLines, item.href);
+      textLines.push("");
     });
   }
+
   if (payload.warnings.length) {
     textLines.push("WARNINGS", ...payload.warnings.map((warning) => `- ${warning}`), "");
   }
@@ -105,7 +139,7 @@ export function renderKingmakerMorningIntelligenceEmail(
 
   return {
     subject: payload.subject.slice(0, 180),
-    text: textLines.filter(Boolean).join("\n"),
+    text: textLines.join("\n"),
     html,
   };
 }
