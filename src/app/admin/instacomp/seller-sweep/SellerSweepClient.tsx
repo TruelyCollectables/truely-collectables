@@ -44,6 +44,10 @@ type IdentifiedCard = {
   confidence?: number | null;
   reviewRequired?: boolean;
   reviewReasons?: string[];
+  identityProof?: {
+    status?: string | null;
+  } | null;
+  verifiedCompletedSales?: unknown[];
 };
 
 type SnapshotListing = {
@@ -395,7 +399,7 @@ export default function SellerSweepClient() {
                     <td className="max-w-sm p-4">
                       <div className="font-black">{listing.cardCount}</div>
                       {listing.identifiedCards.length ? (
-                        <details className="mt-2"><summary className="cursor-pointer text-xs font-black text-blue-700">View cards</summary><ul className="mt-2 grid gap-2 text-xs font-semibold text-neutral-700">{listing.identifiedCards.map((card, index) => <li key={`${listing.id}-${index}`}>{cardName(card) || `Card ${index + 1}`}{card.reviewRequired ? " · REVIEW" : ""}</li>)}</ul></details>
+                        <details className="mt-2"><summary className="cursor-pointer text-xs font-black text-blue-700">View cards</summary><ul className="mt-2 grid gap-2 text-xs font-semibold text-neutral-700">{listing.identifiedCards.map((card, index) => <li key={`${listing.id}-${index}`}>{cardName(card) || `Card ${index + 1}`}{card.identityProof?.status === "verified_exact" ? " · REGISTRY VERIFIED" : card.reviewRequired ? " · REVIEW" : ""}{` · ${card.verifiedCompletedSales?.length || 0} verified sales`}</li>)}</ul></details>
                       ) : null}
                     </td>
                     <td className="p-4">{listing.targetPlayers.length ? <div className="flex flex-wrap gap-1">{listing.targetPlayers.map((player) => <span key={player} className="rounded-full bg-fuchsia-100 px-2 py-1 text-xs font-black text-fuchsia-900">{player}</span>)}</div> : "—"}</td>

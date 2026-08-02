@@ -9,6 +9,10 @@ const economics = readFileSync(
   "src/lib/instacomp-seller-sweep-economics.ts",
   "utf8",
 );
+const proof = readFileSync(
+  "src/lib/instacomp-seller-sweep-proof.ts",
+  "utf8",
+);
 const collector = readFileSync(
   "src/app/api/admin/instacomp/seller-sweep/route.ts",
   "utf8",
@@ -67,6 +71,7 @@ assert.match(processor, /MAX_BATCH_SIZE = 3/);
 assert.match(processor, /MAX_IMAGES_PER_LISTING = 8/);
 assert.match(processor, /LISTING_TIMEOUT_MS = 180_000/);
 assert.match(processor, /status: reviewRequired \? "review" : "comping"/);
+assert.match(processor, /verifySellerSweepCandidates/);
 assert.match(processor, /exactCandidateCount !== cards\.length/);
 assert.match(processor, /cards_identified: candidatesIdentified/);
 assert.match(processor, /Math\.min\(80/);
@@ -75,6 +80,15 @@ assert.doesNotMatch(processor, /\["photos", "failed"\]/);
 assert.doesNotMatch(processor, /retail_value:/);
 assert.doesNotMatch(processor, /quick_sale_value:/);
 assert.doesNotMatch(processor, /roi_percent:/);
+
+assert.match(proof, /findChecklistRegistryMatch/);
+assert.match(proof, /status: "verified_exact"/);
+assert.match(proof, /exactIdentityConfirmed: true/);
+assert.match(proof, /checklistConfirmed: true/);
+assert.match(proof, /noConflictingEvidence: true/);
+assert.match(proof, /verifiedCompletedSales: \[\]/);
+assert.match(proof, /graded_identity_requires_certification_verification/);
+assert.match(proof, /listing_candidate_limit_exceeded/);
 
 assert.match(economics, /proof\?\.status === "verified_exact"/);
 assert.match(economics, /proof\.exactIdentityConfirmed === true/);

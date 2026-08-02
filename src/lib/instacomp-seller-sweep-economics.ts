@@ -27,6 +27,10 @@ export type SellerSweepValuedCard = {
     exactIdentityConfirmed?: boolean | null;
     checklistConfirmed?: boolean | null;
     noConflictingEvidence?: boolean | null;
+    source?: string | null;
+    checklistIdentityId?: string | null;
+    marketIdentityId?: string | null;
+    matchedEvidence?: string[] | null;
   } | null;
   verifiedCompletedSales?: SellerSweepVerifiedSale[] | null;
 };

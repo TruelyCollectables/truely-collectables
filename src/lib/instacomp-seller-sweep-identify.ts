@@ -219,6 +219,10 @@ export async function identifySellerSweepLotPhoto(params: {
       : "unknown";
 
     if (!player) reviewReasons.push("player_not_readable");
+    if (!text(card?.year)) reviewReasons.push("year_not_confirmed");
+    if (!text(card?.brand) || !text(card?.setName)) {
+      reviewReasons.push("brand_or_set_not_confirmed");
+    }
     if (!cardNumber) reviewReasons.push("card_number_not_confirmed");
     if (!parallel) reviewReasons.push("parallel_not_confirmed");
     if (isAutograph === null) reviewReasons.push("autograph_state_not_confirmed");

@@ -5,6 +5,7 @@ import {
   sellerSweepTargetPlayers,
   type SellerSweepCardCandidate,
 } from "../../../../../../lib/instacomp-seller-sweep-identify";
+import { verifySellerSweepCandidates } from "../../../../../../lib/instacomp-seller-sweep-proof";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -92,8 +93,8 @@ async function processListing(listing: any) {
       }
     }
 
-    const cards = dedupeCandidates(candidates);
-    if (!cards.length) {
+    const extractedCards = dedupeCandidates(candidates);
+    if (!extractedCards.length) {
       throw new Error(
         imageErrors.length
           ? `No cards extracted. ${imageErrors[0].error}`
@@ -101,14 +102,15 @@ async function processListing(listing: any) {
       );
     }
 
+    const cards = await verifySellerSweepCandidates(extractedCards);
+
     const targetPlayers = sellerSweepTargetPlayers(cards);
     const exactCandidateCount = cards.filter(
       (card) =>
-        !card.reviewRequired &&
-        card.confidence >= 0.9 &&
-        card.player &&
-        card.cardNumber &&
-        card.parallel
+        card.identityProof.status === "verified_exact" &&
+        card.identityProof.exactIdentityConfirmed === true &&
+        card.identityProof.checklistConfirmed === true &&
+        card.identityProof.noConflictingEvidence === true
     ).length;
     const averageConfidence =
       cards.reduce((sum, card) => sum + card.confidence, 0) / cards.length;
