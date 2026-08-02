@@ -50,11 +50,25 @@ async function main() {
   delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   const requestedUrls: URL[] = [];
+  let mockMode: "default" | "narrow-only" = "default";
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = new URL(typeof input === "string" ? input : input.toString());
     requestedUrls.push(url);
     const sold = url.searchParams.get("show_only") === "Sold";
-    return new Response(JSON.stringify(payload(sold ? soldRows : soldRows.slice(0, 3))), {
+    const query = url.searchParams.get("_nkw");
+    const rows =
+      mockMode === "narrow-only"
+        ? query === "Test Player #107 holo blue /199"
+          ? [[
+              "2025 Panini Origins Test Player Holo Blue #107 14/199",
+              12,
+              "2026-07-25",
+            ] as const]
+          : []
+        : sold
+          ? soldRows
+          : soldRows.slice(0, 3);
+    return new Response(JSON.stringify(payload(rows)), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
@@ -131,6 +145,44 @@ async function main() {
     assert.equal(stats.low, 1.99);
     assert.equal(stats.high, 5);
 
+    mockMode = "narrow-only";
+    requestedUrls.length = 0;
+    const numberedAi: InstaCompAiResult = {
+      player: "Test Player",
+      year: "2025",
+      brand: "Panini",
+      setName: "Origins",
+      cardNumber: "107",
+      parallel: "Holo Blue",
+      serialNumber: "14/199",
+      team: "Test Team",
+      sport: "Football",
+      isRookie: true,
+      isAuto: false,
+      isRelic: false,
+      conditionGuess: "raw",
+      confidence: 1,
+      notes: null,
+    };
+    const numbered = await getUniversalEbaySerpProviders({
+      exactTitle: "2025 Panini Origins Test Player RC Holo Blue #107 /199",
+      fallbackQuery:
+        "2025 Panini Origins Test Player rookie Holo Blue #107 /199 raw",
+      ai: numberedAi,
+    });
+    assert.equal(numbered.queries.length, 6);
+    assert.equal(numbered.soldQueries.at(-1), "Test Player #107 holo blue /199");
+    assert.equal(numbered.activeQueries.at(-1), "Test Player #107 holo blue /199");
+    assert.equal(numbered.sold.results.length, 1);
+    assert.equal(numbered.active.results.length, 1);
+    assert.equal(
+      requestedUrls.filter(
+        (url) => url.searchParams.get("_nkw") === "Test Player #107 holo blue /199",
+      ).length,
+      2,
+      "The production seller provider must reach the final narrow query in both sold and active lanes.",
+    );
+
     const universalRoute = fs.readFileSync(
       "src/app/api/account/seller/inventory/instacomp-universal/route.ts",
       "utf8",
@@ -138,7 +190,12 @@ async function main() {
     const nextConfig = fs.readFileSync("next.config.ts", "utf8");
     assert.ok(universalRoute.includes("getUniversalEbaySerpProviders"));
     assert.ok(universalRoute.includes("exactTitle: item.title"));
-    assert.ok(universalRoute.includes("const suggestedPrice = soldSuggestion(soldCompEvidence)"));
+    assert.match(
+      universalRoute,
+      /const suggestedPrice = hasReliableSoldComps\s*\? rawPricingAnalysis\.suggestedPrice\s*:\s*0;/,
+      "The production seller route must return $0 when exact sold evidence is absent.",
+    );
+    assert.ok(universalRoute.includes('const pricingStatus = hasReliableSoldComps'));
     assert.ok(universalRoute.includes("visualSoldReview") || universalRoute.includes("soldReview"));
     assert.ok(nextConfig.includes("beforeFiles"));
     assert.ok(nextConfig.includes("instacomp-universal"));
