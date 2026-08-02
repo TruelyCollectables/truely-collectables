@@ -290,6 +290,31 @@ function hasNumberedSignal(value: string | null | undefined) {
   return numberedPattern.test(text) || /\b(?:one\s+of\s+one|1\s+of\s+1)\b/i.test(text);
 }
 
+export function applyInstaCompRegistryFastLane(
+  baseline: InstaCompConsensusEscalationDecision,
+  registryIdentityId: string,
+): InstaCompConsensusEscalationDecision {
+  if (baseline.runSecondaryVision) return baseline;
+
+  return {
+    ...baseline,
+    runSecondaryVision: false,
+    speedLane: "fast_lane",
+    councilMode: "fast_lane_council",
+    riskTier: "low",
+    scannerPlan: [
+      "primary_vision",
+      "external_ocr",
+      "checklist_registry_referee",
+    ],
+    reasons: [
+      `Checklist Registry exact identity ${registryIdentityId} confirmed after baseline safety checks.`,
+    ],
+    explanation:
+      "Primary vision and printed evidence matched a private exact Checklist Registry identity, and baseline safety checks found no reason to require secondary AI readers.",
+  };
+}
+
 export function decideInstaCompConsensusEscalation(params: {
   ai: InstaCompConsensusIdentity & { confidence?: number | null; notes?: string | null };
   externalOcrText?: string | null;

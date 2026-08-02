@@ -1,5 +1,6 @@
 import {
   applyInstaCompConsensusToAi,
+  applyInstaCompRegistryFastLane,
   buildInstaCompMultiScannerConsensus,
   buildInstaCompReaderFindingFromAi,
   decideInstaCompConsensusEscalation,
@@ -267,6 +268,40 @@ const scenarios = [
             decision.conflictingValues.includes("Base"),
         ),
         "Expected catalog referee to preserve base conflict evidence",
+      );
+    },
+  },
+  {
+    name: "numbered registry match cannot suppress required secondary vision",
+    run() {
+      const baseline = decideInstaCompConsensusEscalation({
+        ai: {
+          ...baseAi,
+          parallel: "Gold Foil",
+          serialNumber: "17/199",
+          confidence: 0.98,
+        },
+        externalOcrText: "17/199",
+        hasBackImage: true,
+        pairingConfidence: 0.96,
+      });
+      const decision = applyInstaCompRegistryFastLane(
+        baseline,
+        "malformed-base-199",
+      );
+
+      assert(baseline.runSecondaryVision, "Numbered card must require full council");
+      assert(
+        decision.runSecondaryVision,
+        "Registry match must not suppress required secondary vision",
+      );
+      assert(
+        decision.councilMode === "full_council",
+        "Numbered registry match must remain full council",
+      );
+      assert(
+        decision.reasons.includes("serial_numbered_or_numbered_signal"),
+        "Numbered-card escalation reason must be preserved",
       );
     },
   },
