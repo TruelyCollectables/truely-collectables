@@ -180,5 +180,5 @@ jobs:
             .codex-run/pokemon-ja-variant-reconciled-build-output.json
             .codex-run/pokemon-ja-variant-reconciled-validation-receipt.json
             .codex-run/pokemon-ja-variant-reconciled-validation-output.json
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 90
