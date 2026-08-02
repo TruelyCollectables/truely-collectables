@@ -113,6 +113,30 @@ export type InstaCompConsensusEscalationDecision = {
   explanation: string;
 };
 
+export type InstaCompCompSearchDecision = {
+  allowed: boolean;
+  reason: "identity_confirmed" | "identity_review_required";
+  explanation: string;
+};
+
+export function decideInstaCompCompSearch(
+  consensus: Pick<InstaCompMultiScannerConsensus, "trustedForIdentity">,
+): InstaCompCompSearchDecision {
+  return consensus.trustedForIdentity
+    ? {
+        allowed: true,
+        reason: "identity_confirmed",
+        explanation:
+          "Exact card identity is trusted, so market providers may search for matching comps.",
+      }
+    : {
+        allowed: false,
+        reason: "identity_review_required",
+        explanation:
+          "Comp search is blocked until exact card identity is trusted.",
+      };
+}
+
 const CONSENSUS_FIELDS: InstaCompConsensusField[] = [
   "year",
   "brand",
