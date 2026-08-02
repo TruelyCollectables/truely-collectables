@@ -42,7 +42,7 @@ jobs:
           workflow = Path(".github/workflows/kingmaker-admin-link-repair.yml")
           workflow.unlink()
           PY
-      - name: Verify syntax-level edit boundaries
+      - name: Verify exact edit and parse boundary
         run: |
           git diff --check
           grep -F '/admin/market-intel/kingmaker/morning-intelligence' src/app/admin/page.tsx
