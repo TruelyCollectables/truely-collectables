@@ -1,0 +1,565 @@
+name: Checklist Registry Pokémon Japanese Historical Safe Bundles
+
+on:
+  pull_request:
+    paths:
+      - "src/lib/checklist-registry/pokemon-japanese-historical-reconciled.ts"
+      - "src/lib/checklist-registry/server.ts"
+      - "scripts/build-pokemon-japanese-historical-safe-bundles.ts"
+      - "scripts/import-pokemon-japanese-historical-safe-bundles.ts"
+      - "scripts/run-pokemon-japanese-historical-reconciled-simulations.ts"
+      - ".github/workflows/checklist-registry-pokemon-ja-historical-safe-bundles.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checklist-registry-pokemon-ja-historical-safe-bundles-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TCGDEX_SOURCE_COMMIT: 138c145b80f1a0d6a533f98fd3afe1ffc5b4f8d6
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint Phase 4D source
+        run: >-
+          npx eslint
+          src/lib/checklist-registry/pokemon-japanese-historical-reconciled.ts
+          src/lib/checklist-registry/server.ts
+          scripts/build-pokemon-japanese-historical-safe-bundles.ts
+          scripts/import-pokemon-japanese-historical-safe-bundles.ts
+          scripts/run-pokemon-japanese-historical-reconciled-simulations.ts
+
+      - name: Prove adapter boundaries
+        run: >-
+          node --import tsx
+          scripts/run-pokemon-japanese-historical-reconciled-simulations.ts
+
+      - name: Check out pinned TCGdex source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .codex-run
+          git clone --filter=blob:none https://github.com/tcgdex/cards-database.git \
+            .codex-run/tcgdex-cards-database
+          git -C .codex-run/tcgdex-cards-database checkout --detach "$TCGDEX_SOURCE_COMMIT"
+          test "$(git -C .codex-run/tcgdex-cards-database rev-parse HEAD)" = "$TCGDEX_SOURCE_COMMIT"
+
+      - name: Rebuild Japanese source receipt
+        run: |
+          node --import tsx scripts/build-tcgdex-japanese-registry-bundles.ts \
+            .codex-run/tcgdex-cards-database \
+            .codex-run/tcgdex-ja-registry-bundles \
+            --receipt .codex-run/tcgdex-ja-build-receipt.json \
+            > .codex-run/tcgdex-ja-build-output.json
+
+      - name: Rebuild Phase 4A source classification
+        run: |
+          node --import tsx scripts/inventory-pokemon-japanese-incomplete-sets.ts \
+            .codex-run/tcgdex-cards-database \
+            --build-receipt .codex-run/tcgdex-ja-build-receipt.json \
+            --delay-ms 75 \
+            --continue-on-error \
+            --receipt .codex-run/pokemon-ja-incomplete-inventory-receipt.json \
+            --queue .codex-run/pokemon-ja-incomplete-inventory-queue.json \
+            > .codex-run/pokemon-ja-incomplete-inventory-output.json
+
+      - name: Require the 17 safe and 2 held targets
+        run: |
+          node - <<'NODE'
+          const source = require('./.codex-run/tcgdex-ja-build-receipt.json');
+          const phase4a = require('./.codex-run/pokemon-ja-incomplete-inventory-receipt.json');
+          const safe = [
+            'S4','S4a','S5I','S5R','S5a','S6H','S6K','S6a','S7D','S7R',
+            'S8','S8a','S8b','S10D','S10P','S10b','S11',
+          ];
+          const held = ['S10a', 'S11a'];
+          const incomplete = new Map(
+            source.rows
+              .filter((row) => row.status === 'incomplete_japanese')
+              .map((row) => [row.setId.toLowerCase(), row])
+          );
+          const phaseRows = new Map(
+            phase4a.rows.map((row) => [row.setId.toLowerCase(), row])
+          );
+          const checks = {
+            sourceSchema: source.schema === 'tcos.checklist.tcgdexJapaneseBuildReceipt.v1',
+            phase4aSchema: phase4a.schema === 'tcos.checklist.pokemonJapaneseIncompleteInventory.v1',
+            sourceCommit: source.sourceCommit === process.env.TCGDEX_SOURCE_COMMIT,
+            phase4aCommit: phase4a.sourceCommit === process.env.TCGDEX_SOURCE_COMMIT,
+            safeSourceRows: safe.every((setId) => incomplete.has(setId.toLowerCase())),
+            heldSourceRows: held.every((setId) => incomplete.has(setId.toLowerCase())),
+            safePhaseRows: safe.every((setId) => phaseRows.has(setId.toLowerCase())),
+            heldPhaseRows: held.every((setId) => phaseRows.has(setId.toLowerCase())),
+            failedSets: phase4a.totals?.failedSets === 0,
+          };
+          console.log(JSON.stringify({ checks, safe, held }, null, 2));
+          if (Object.values(checks).some((value) => value !== true)) process.exit(1);
+          NODE
+
+      - name: Upload pinned source receipts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pokemon-ja-phase4d-source-receipts
+          path: |
+            .codex-run/tcgdex-ja-build-receipt.json
+            .codex-run/pokemon-ja-incomplete-inventory-receipt.json
+          if-no-files-found: error
+          retention-days: 90
+
+  validate-set:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - set: S4
+            key: s4
+            resolver: historical
+            sourceCards: 100
+            numberCrosswalks: 100
+            energyAliases: 0
+            numberedAdditions: 11
+            unnumberedAdditions: 0
+            officialCards: 111
+          - set: S4a
+            key: s4a
+            resolver: historical
+            sourceCards: 190
+            numberCrosswalks: 190
+            energyAliases: 0
+            numberedAdditions: 136
+            unnumberedAdditions: 0
+            officialCards: 326
+          - set: S5I
+            key: s5i
+            resolver: historical
+            sourceCards: 70
+            numberCrosswalks: 70
+            energyAliases: 0
+            numberedAdditions: 11
+            unnumberedAdditions: 0
+            officialCards: 81
+          - set: S5R
+            key: s5r
+            resolver: historical
+            sourceCards: 70
+            numberCrosswalks: 70
+            energyAliases: 0
+            numberedAdditions: 11
+            unnumberedAdditions: 0
+            officialCards: 81
+          - set: S5a
+            key: s5a
+            resolver: historical
+            sourceCards: 70
+            numberCrosswalks: 70
+            energyAliases: 0
+            numberedAdditions: 14
+            unnumberedAdditions: 0
+            officialCards: 84
+          - set: S6H
+            key: s6h
+            resolver: historical
+            sourceCards: 70
+            numberCrosswalks: 70
+            energyAliases: 0
+            numberedAdditions: 13
+            unnumberedAdditions: 0
+            officialCards: 83
+          - set: S6K
+            key: s6k
+            resolver: historical
+            sourceCards: 70
+            numberCrosswalks: 70
+            energyAliases: 0
+            numberedAdditions: 13
+            unnumberedAdditions: 0
+            officialCards: 83
+          - set: S6a
+            key: s6a
+            resolver: historical
+            sourceCards: 69
+            numberCrosswalks: 69
+            energyAliases: 0
+            numberedAdditions: 18
+            unnumberedAdditions: 0
+            officialCards: 87
+          - set: S7D
+            key: s7d
+            resolver: historical
+            sourceCards: 67
+            numberCrosswalks: 67
+            energyAliases: 0
+            numberedAdditions: 12
+            unnumberedAdditions: 0
+            officialCards: 79
+          - set: S7R
+            key: s7r
+            resolver: historical
+            sourceCards: 67
+            numberCrosswalks: 67
+            energyAliases: 0
+            numberedAdditions: 12
+            unnumberedAdditions: 0
+            officialCards: 79
+          - set: S8
+            key: s8
+            resolver: historical
+            sourceCards: 100
+            numberCrosswalks: 100
+            energyAliases: 0
+            numberedAdditions: 15
+            unnumberedAdditions: 0
+            officialCards: 115
+          - set: S8a
+            key: s8a
+            resolver: energy
+            sourceCards: 33
+            numberCrosswalks: 25
+            energyAliases: 8
+            numberedAdditions: 1
+            unnumberedAdditions: 0
+            officialCards: 34
+          - set: S8b
+            key: s8b
+            resolver: energy
+            sourceCards: 181
+            numberCrosswalks: 181
+            energyAliases: 0
+            numberedAdditions: 90
+            unnumberedAdditions: 8
+            officialCards: 279
+          - set: S10D
+            key: s10d
+            resolver: historical
+            sourceCards: 67
+            numberCrosswalks: 67
+            energyAliases: 0
+            numberedAdditions: 21
+            unnumberedAdditions: 0
+            officialCards: 88
+          - set: S10P
+            key: s10p
+            resolver: historical
+            sourceCards: 67
+            numberCrosswalks: 67
+            energyAliases: 0
+            numberedAdditions: 21
+            unnumberedAdditions: 0
+            officialCards: 88
+          - set: S10b
+            key: s10b
+            resolver: energy
+            sourceCards: 79
+            numberCrosswalks: 71
+            energyAliases: 8
+            numberedAdditions: 22
+            unnumberedAdditions: 0
+            officialCards: 101
+          - set: S11
+            key: s11
+            resolver: historical
+            sourceCards: 100
+            numberCrosswalks: 100
+            energyAliases: 0
+            numberedAdditions: 27
+            unnumberedAdditions: 0
+            officialCards: 127
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check out pinned TCGdex source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .codex-run
+          git clone --filter=blob:none https://github.com/tcgdex/cards-database.git \
+            .codex-run/tcgdex-cards-database
+          git -C .codex-run/tcgdex-cards-database checkout --detach "$TCGDEX_SOURCE_COMMIT"
+          test "$(git -C .codex-run/tcgdex-cards-database rev-parse HEAD)" = "$TCGDEX_SOURCE_COMMIT"
+
+      - name: Download pinned source receipts
+        uses: actions/download-artifact@v4
+        with:
+          name: pokemon-ja-phase4d-source-receipts
+          path: .codex-run/source-receipts
+
+      - name: Resolve ${{ matrix.set }} historical evidence
+        if: matrix.resolver == 'historical'
+        run: |
+          node --import tsx scripts/resolve-pokemon-japanese-historical-products.ts \
+            .codex-run/tcgdex-cards-database \
+            --build-receipt .codex-run/source-receipts/tcgdex-ja-build-receipt.json \
+            --phase4a-receipt .codex-run/source-receipts/pokemon-ja-incomplete-inventory-receipt.json \
+            --set "${{ matrix.set }}" \
+            --delay-ms 250 \
+            --continue-on-error \
+            --receipt .codex-run/pokemon-ja-resolution-receipt.json \
+            --queue .codex-run/pokemon-ja-resolution-queue.json \
+            > .codex-run/pokemon-ja-resolution-output.json
+
+      - name: Resolve ${{ matrix.set }} energy evidence
+        if: matrix.resolver == 'energy'
+        run: |
+          node --import tsx scripts/resolve-pokemon-japanese-unnumbered-energy-sets.ts \
+            .codex-run/tcgdex-cards-database \
+            --build-receipt .codex-run/source-receipts/tcgdex-ja-build-receipt.json \
+            --phase4a-receipt .codex-run/source-receipts/pokemon-ja-incomplete-inventory-receipt.json \
+            --set "${{ matrix.set }}" \
+            --delay-ms 250 \
+            --continue-on-error \
+            --receipt .codex-run/pokemon-ja-resolution-receipt.json \
+            --queue .codex-run/pokemon-ja-resolution-queue.json \
+            > .codex-run/pokemon-ja-resolution-output.json
+
+      - name: Build ${{ matrix.set }} private replacement bundle
+        run: |
+          node --import tsx scripts/build-pokemon-japanese-historical-safe-bundles.ts \
+            .codex-run/tcgdex-cards-database \
+            .codex-run/pokemon-ja-historical-safe-bundles \
+            --build-receipt .codex-run/source-receipts/tcgdex-ja-build-receipt.json \
+            --resolution-receipt .codex-run/pokemon-ja-resolution-receipt.json \
+            --set "${{ matrix.set }}" \
+            --continue-on-error \
+            --receipt .codex-run/pokemon-ja-historical-safe-build-receipt.json \
+            > .codex-run/pokemon-ja-historical-safe-build-output.json
+
+      - name: Require exact ${{ matrix.set }} build population
+        run: |
+          node - <<'NODE'
+          const receipt = require('./.codex-run/pokemon-ja-historical-safe-build-receipt.json');
+          const row = receipt.rows?.[0];
+          const checks = {
+            schema: receipt.schema === 'tcos.checklist.pokemonJapaneseHistoricalSafeBundleBuildReceipt.v1',
+            sourceCommit: receipt.sourceCommit === process.env.TCGDEX_SOURCE_COMMIT,
+            attemptedSets: receipt.attemptedSets === 1,
+            successfulSets: receipt.successfulSets === 1,
+            failedSets: receipt.failedSets === 0,
+            setId: row?.setId?.toLowerCase() === '${{ matrix.set }}'.toLowerCase(),
+            status: row?.status === 'built',
+            sourceCards: row?.sourceCards === Number('${{ matrix.sourceCards }}'),
+            numberCrosswalks: row?.sourceNumberCrosswalks === Number('${{ matrix.numberCrosswalks }}'),
+            energyAliases: row?.sourceEnergyAliases === Number('${{ matrix.energyAliases }}'),
+            numberedAdditions: row?.numberedOfficialAdditions === Number('${{ matrix.numberedAdditions }}'),
+            unnumberedAdditions: row?.unnumberedOfficialAdditions === Number('${{ matrix.unnumberedAdditions }}'),
+            officialCards: row?.officialCards === Number('${{ matrix.officialCards }}'),
+            noError: row?.error === null,
+          };
+          console.log(JSON.stringify({ checks, row }, null, 2));
+          if (Object.values(checks).some((value) => value !== true)) process.exit(1);
+          NODE
+
+      - name: Validate ${{ matrix.set }} without Registry or Production writes
+        run: |
+          node --import tsx scripts/import-pokemon-japanese-historical-safe-bundles.ts \
+            .codex-run/pokemon-ja-historical-safe-bundles \
+            --continue-on-error \
+            --receipt .codex-run/pokemon-ja-historical-safe-validation-receipt.json \
+            > .codex-run/pokemon-ja-historical-safe-validation-output.json
+
+      - name: Require exact ${{ matrix.set }} validation population
+        run: |
+          node - <<'NODE'
+          const receipt = require('./.codex-run/pokemon-ja-historical-safe-validation-receipt.json');
+          const row = receipt.rows?.[0];
+          const checks = {
+            schema: receipt.schema === 'tcos.checklist.pokemonJapaneseHistoricalSafeBundleImportReceipt.v1',
+            mode: receipt.mode === 'validate_only',
+            attemptedFiles: receipt.attemptedFiles === 1,
+            successfulFiles: receipt.successfulFiles === 1,
+            failedFiles: receipt.failedFiles === 0,
+            status: row?.status === 'validated',
+            adapterId: row?.adapterId === 'pokemon-japanese-official-historical-reconciled',
+            adapterVersion: row?.adapterVersion === '1.0.0',
+            cards: row?.counts?.cards === Number('${{ matrix.officialCards }}'),
+            identitiesAtLeastCards: row?.counts?.identities >= Number('${{ matrix.officialCards }}'),
+            sourceCards: row?.sourceCards === Number('${{ matrix.sourceCards }}'),
+            numberCrosswalks: row?.sourceNumberCrosswalks === Number('${{ matrix.numberCrosswalks }}'),
+            energyAliases: row?.sourceEnergyAliases === Number('${{ matrix.energyAliases }}'),
+            numberedAdditions: row?.numberedOfficialAdditions === Number('${{ matrix.numberedAdditions }}'),
+            unnumberedAdditions: row?.unnumberedOfficialAdditions === Number('${{ matrix.unnumberedAdditions }}'),
+            noPersistence: row?.persistence === null,
+            noError: row?.error === null,
+          };
+          console.log(JSON.stringify({ checks, row }, null, 2));
+          if (Object.values(checks).some((value) => value !== true)) process.exit(1);
+          NODE
+
+      - name: Upload ${{ matrix.set }} private validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pokemon-ja-phase4d-${{ matrix.key }}
+          path: |
+            .codex-run/pokemon-ja-resolution-receipt.json
+            .codex-run/pokemon-ja-historical-safe-bundles
+            .codex-run/pokemon-ja-historical-safe-build-receipt.json
+            .codex-run/pokemon-ja-historical-safe-validation-receipt.json
+            .codex-run/pokemon-ja-historical-safe-build-output.json
+            .codex-run/pokemon-ja-historical-safe-validation-output.json
+          if-no-files-found: error
+          retention-days: 90
+
+  aggregate:
+    needs: [prepare, validate-set]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all Phase 4D evidence
+        uses: actions/download-artifact@v4
+        with:
+          pattern: pokemon-ja-phase4d-*
+          path: .codex-run/phase4d-results
+
+      - name: Require exact 17-set aggregate
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          function walk(directory) {
+            return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+              const full = path.join(directory, entry.name);
+              return entry.isDirectory() ? walk(full) : [full];
+            });
+          }
+          const allFiles = walk('.codex-run/phase4d-results');
+          const buildFiles = allFiles.filter((file) =>
+            file.endsWith('pokemon-ja-historical-safe-build-receipt.json')
+          );
+          const validationFiles = allFiles.filter((file) =>
+            file.endsWith('pokemon-ja-historical-safe-validation-receipt.json')
+          );
+          const buildRows = buildFiles.flatMap((file) =>
+            JSON.parse(fs.readFileSync(file, 'utf8')).rows || []
+          );
+          const validationRows = validationFiles.flatMap((file) =>
+            JSON.parse(fs.readFileSync(file, 'utf8')).rows || []
+          );
+          const buildTotals = buildRows.reduce((sum, row) => {
+            sum.sourceCards += row.sourceCards || 0;
+            sum.sourceNumberCrosswalks += row.sourceNumberCrosswalks || 0;
+            sum.sourceEnergyAliases += row.sourceEnergyAliases || 0;
+            sum.numberedOfficialAdditions += row.numberedOfficialAdditions || 0;
+            sum.unnumberedOfficialAdditions += row.unnumberedOfficialAdditions || 0;
+            sum.officialCards += row.officialCards || 0;
+            sum.variantEvidence += row.variantEvidence || 0;
+            return sum;
+          }, {
+            sourceCards: 0,
+            sourceNumberCrosswalks: 0,
+            sourceEnergyAliases: 0,
+            numberedOfficialAdditions: 0,
+            unnumberedOfficialAdditions: 0,
+            officialCards: 0,
+            variantEvidence: 0,
+          });
+          const validationTotals = validationRows.reduce((sum, row) => {
+            sum.sets += row.counts?.sets || 0;
+            sum.cards += row.counts?.cards || 0;
+            sum.parallels += row.counts?.parallels || 0;
+            sum.identities += row.counts?.identities || 0;
+            return sum;
+          }, { sets: 0, cards: 0, parallels: 0, identities: 0 });
+          const checks = {
+            buildFiles: buildFiles.length === 17,
+            validationFiles: validationFiles.length === 17,
+            buildRows: buildRows.length === 17,
+            validationRows: validationRows.length === 17,
+            uniqueBuildSets: new Set(buildRows.map((row) => row.setId.toLowerCase())).size === 17,
+            uniqueValidationSets: new Set(validationRows.map((row) => row.setId.toLowerCase())).size === 17,
+            allBuilt: buildRows.every((row) => row.status === 'built' && !row.error),
+            allValidated: validationRows.every((row) =>
+              row.status === 'validated' && row.persistence === null && !row.error
+            ),
+            sourceCards: buildTotals.sourceCards === 1470,
+            numberCrosswalks: buildTotals.sourceNumberCrosswalks === 1454,
+            energyAliases: buildTotals.sourceEnergyAliases === 16,
+            numberedAdditions: buildTotals.numberedOfficialAdditions === 448,
+            unnumberedAdditions: buildTotals.unnumberedOfficialAdditions === 8,
+            officialCards: buildTotals.officialCards === 1926,
+            sets: validationTotals.sets === 17,
+            cards: validationTotals.cards === 1926,
+            identitiesAtLeastCards: validationTotals.identities >= 1926,
+          };
+          const summary = {
+            schema: 'tcos.checklist.pokemonJapaneseHistoricalSafeBundleValidationAggregate.v1',
+            mode: 'validate_only',
+            sourceCommit: process.env.TCGDEX_SOURCE_COMMIT,
+            attemptedSets: buildRows.length,
+            buildTotals,
+            validationTotals,
+            rows: validationRows
+              .map((row) => ({
+                setId: row.setId,
+                setName: row.setName,
+                status: row.status,
+                counts: row.counts,
+                sourceCards: row.sourceCards,
+                sourceNumberCrosswalks: row.sourceNumberCrosswalks,
+                sourceEnergyAliases: row.sourceEnergyAliases,
+                numberedOfficialAdditions: row.numberedOfficialAdditions,
+                unnumberedOfficialAdditions: row.unnumberedOfficialAdditions,
+                validationIssues: row.validationIssues,
+                error: row.error,
+              }))
+              .sort((left, right) => left.setId.localeCompare(right.setId)),
+          };
+          fs.writeFileSync(
+            '.codex-run/pokemon-ja-phase4d-validation-aggregate.json',
+            `${JSON.stringify(summary, null, 2)}\n`,
+          );
+          console.log(JSON.stringify({ checks, summary }, null, 2));
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, [
+            '# Japanese Phase 4D safe bundle validation',
+            '',
+            '```json',
+            JSON.stringify(summary, null, 2),
+            '```',
+            '',
+          ].join('\n'));
+          if (Object.values(checks).some((value) => value !== true)) process.exit(1);
+          NODE
+
+      - name: Upload aggregate Phase 4D evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pokemon-ja-phase4d-validation-aggregate
+          path: |
+            .codex-run/pokemon-ja-phase4d-validation-aggregate.json
+            .codex-run/phase4d-results
+          if-no-files-found: error
+          retention-days: 90
