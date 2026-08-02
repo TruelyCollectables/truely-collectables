@@ -1,0 +1,261 @@
+name: Release InstaComp Seller Sweep Production
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/release-instacomp-seller-sweep-production.yml"
+      - "src/app/admin/instacomp/seller-sweep/**"
+      - "src/app/api/admin/instacomp/seller-sweep/**"
+      - "src/lib/instacomp-seller-sweep-*.ts"
+      - "supabase/migrations/20260802002500_instacomp_seller_sweeps.sql"
+      - "scripts/run-instacomp-seller-sweep-*.mjs"
+      - "scripts/run-instacomp-seller-sweep-*.ts"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-instacomp-seller-sweep-production
+  cancel-in-progress: false
+
+jobs:
+  migrate-deploy-live-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      PRODUCTION_ORIGIN: https://truelycollectables.com
+    steps:
+      - name: Check out merged main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Verify Seller Sweep release source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f supabase/migrations/20260802002500_instacomp_seller_sweeps.sql
+          node scripts/run-instacomp-seller-sweep-contracts.mjs
+          node --import tsx scripts/run-instacomp-seller-sweep-proof-simulations.ts
+          node scripts/run-instacomp-seller-sweep-live-smoke.mjs --self-test
+          npm run verify:instacomp
+          npx tsc --noEmit --pretty false
+
+      - name: Link Vercel and pull protected Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$VERCEL_TOKEN"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          mkdir -p .vercel "$RUNNER_TEMP/seller-sweep-release"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' \
+              "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          fi
+          npx vercel@56.2.0 link --yes \
+            --project truely-collectables \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" >/dev/null
+          npx vercel@56.2.0 env pull \
+            "$RUNNER_TEMP/seller-sweep-release/production.env" \
+            --yes \
+            --environment production \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" >/dev/null
+          chmod 600 "$RUNNER_TEMP/seller-sweep-release/production.env"
+
+      - name: Apply and verify Seller Sweep Production migration
+        shell: bash
+        env:
+          PRODUCTION_ENV_FILE: ${{ runner.temp }}/seller-sweep-release/production.env
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+
+          function parseEnvFile(file) {
+            const parsed = {};
+            for (const rawLine of fs.readFileSync(file, "utf8").split(/\r?\n/)) {
+              const line = rawLine.trim();
+              if (!line || line.startsWith("#")) continue;
+              const index = line.indexOf("=");
+              if (index < 1) continue;
+              const key = line.slice(0, index).trim();
+              let value = line.slice(index + 1).trim();
+              if (value.startsWith('"') && value.endsWith('"')) {
+                try { value = JSON.parse(value); } catch { value = value.slice(1, -1); }
+              } else if (value.startsWith("'") && value.endsWith("'")) {
+                value = value.slice(1, -1);
+              }
+              parsed[key] = value;
+            }
+            return parsed;
+          }
+
+          const envFile = process.env.PRODUCTION_ENV_FILE;
+          const accessToken = process.env.GH_SUPABASE_ACCESS_TOKEN;
+          if (!envFile || !accessToken) {
+            throw new Error("Production environment and Supabase access token are required.");
+          }
+          const env = parseEnvFile(envFile);
+          const productionUrl = env.NEXT_PUBLIC_SUPABASE_URL;
+          if (!productionUrl || !/^https:\/\/[a-z0-9]+\.supabase\.co\/?$/i.test(productionUrl)) {
+            throw new Error("Production Supabase URL was not pulled from Vercel.");
+          }
+          const projectRef = new URL(productionUrl).hostname.split(".")[0];
+          const endpoint = `https://api.supabase.com/v1/projects/${projectRef}/database/query`;
+
+          async function databaseQuery(query, readOnly = false) {
+            const response = await fetch(endpoint, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ query, parameters: [], read_only: readOnly }),
+            });
+            const body = await response.text();
+            if (!response.ok) {
+              throw new Error(`Supabase query failed with HTTP ${response.status}: ${body.slice(0, 1200)}`);
+            }
+            return body;
+          }
+
+          const migrationPath =
+            "supabase/migrations/20260802002500_instacomp_seller_sweeps.sql";
+          await databaseQuery(fs.readFileSync(migrationPath, "utf8"), false);
+
+          const verificationBody = await databaseQuery(`
+            with required_columns(table_name, column_name) as (
+              values
+                ('instacomp_seller_sweeps', 'id'),
+                ('instacomp_seller_sweeps', 'seller_name'),
+                ('instacomp_seller_sweeps', 'status'),
+                ('instacomp_seller_sweeps', 'cards_identified'),
+                ('instacomp_seller_sweeps', 'listings_ranked'),
+                ('instacomp_seller_sweep_listings', 'sweep_id'),
+                ('instacomp_seller_sweep_listings', 'identified_cards'),
+                ('instacomp_seller_sweep_listings', 'retail_value'),
+                ('instacomp_seller_sweep_listings', 'quick_sale_value'),
+                ('instacomp_seller_sweep_listings', 'target_bid'),
+                ('instacomp_seller_sweep_listings', 'hard_max_bid'),
+                ('instacomp_seller_sweep_listings', 'expected_profit'),
+                ('instacomp_seller_sweep_listings', 'roi_percent'),
+                ('instacomp_seller_sweep_listings', 'confidence'),
+                ('instacomp_seller_sweep_listings', 'rank')
+            )
+            select
+              to_regclass('public.instacomp_seller_sweeps') is not null as sweeps_table,
+              to_regclass('public.instacomp_seller_sweep_listings') is not null as listings_table,
+              coalesce((select relrowsecurity from pg_class where oid = 'public.instacomp_seller_sweeps'::regclass), false) as sweeps_rls,
+              coalesce((select relrowsecurity from pg_class where oid = 'public.instacomp_seller_sweep_listings'::regclass), false) as listings_rls,
+              has_table_privilege('service_role', 'public.instacomp_seller_sweeps', 'select')
+                and has_table_privilege('service_role', 'public.instacomp_seller_sweeps', 'insert')
+                and has_table_privilege('service_role', 'public.instacomp_seller_sweeps', 'update')
+                and has_table_privilege('service_role', 'public.instacomp_seller_sweeps', 'delete')
+                and has_table_privilege('service_role', 'public.instacomp_seller_sweep_listings', 'select')
+                and has_table_privilege('service_role', 'public.instacomp_seller_sweep_listings', 'insert')
+                and has_table_privilege('service_role', 'public.instacomp_seller_sweep_listings', 'update')
+                and has_table_privilege('service_role', 'public.instacomp_seller_sweep_listings', 'delete')
+                as service_role_access,
+              not has_table_privilege('anon', 'public.instacomp_seller_sweeps', 'select')
+                and not has_table_privilege('authenticated', 'public.instacomp_seller_sweeps', 'select')
+                and not has_table_privilege('anon', 'public.instacomp_seller_sweep_listings', 'select')
+                and not has_table_privilege('authenticated', 'public.instacomp_seller_sweep_listings', 'select')
+                as public_roles_revoked,
+              not exists (
+                select 1
+                from required_columns required
+                where not exists (
+                  select 1
+                  from information_schema.columns present
+                  where present.table_schema = 'public'
+                    and present.table_name = required.table_name
+                    and present.column_name = required.column_name
+                )
+              ) as required_columns_present;
+          `, true);
+          const rows = JSON.parse(verificationBody);
+          const row = Array.isArray(rows) ? rows[0] : rows;
+          for (const key of [
+            "sweeps_table",
+            "listings_table",
+            "sweeps_rls",
+            "listings_rls",
+            "service_role_access",
+            "public_roles_revoked",
+            "required_columns_present",
+          ]) {
+            if (row?.[key] !== true) {
+              throw new Error(`Production Seller Sweep migration verification failed: ${key}.`);
+            }
+          }
+          console.log("Production Seller Sweep schema, RLS, and service-role access verified.");
+          NODE
+
+      - name: Deploy merged main to Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run deploy:production
+
+      - name: Run repository Production smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run smoke:production
+
+      - name: Prepare protected admin credential
+        shell: bash
+        env:
+          PRODUCTION_ENV_FILE: ${{ runner.temp }}/seller-sweep-release/production.env
+          ADMIN_PASSWORD_FILE: ${{ runner.temp }}/seller-sweep-release/admin-password
+        run: |
+          set -euo pipefail
+          node - "$PRODUCTION_ENV_FILE" "$ADMIN_PASSWORD_FILE" <<'NODE'
+          const fs = require("node:fs");
+          const text = fs.readFileSync(process.argv[2], "utf8");
+          const match = text.match(/^ADMIN_PASSWORD=(.*)$/m);
+          if (!match) throw new Error("ADMIN_PASSWORD is not present in Vercel Production.");
+          let value = match[1].trim();
+          if (value.startsWith('"')) value = JSON.parse(value);
+          else if (value.startsWith("'") && value.endsWith("'")) value = value.slice(1, -1);
+          if (!value) throw new Error("ADMIN_PASSWORD is empty in Vercel Production.");
+          fs.writeFileSync(process.argv[3], value, { mode: 0o600 });
+          NODE
+          password="$(cat "$ADMIN_PASSWORD_FILE")"
+          echo "::add-mask::$password"
+
+      - name: Run bounded live Miss Mels Seller Sweep
+        shell: bash
+        env:
+          SELLER_SWEEP_ADMIN_PASSWORD_FILE: ${{ runner.temp }}/seller-sweep-release/admin-password
+        run: |
+          set -euo pipefail
+          node scripts/run-instacomp-seller-sweep-live-smoke.mjs
+
+      - name: Remove protected temporary files
+        if: always()
+        shell: bash
+        run: |
+          rm -f \
+            "$RUNNER_TEMP/seller-sweep-release/production.env" \
+            "$RUNNER_TEMP/seller-sweep-release/admin-password"

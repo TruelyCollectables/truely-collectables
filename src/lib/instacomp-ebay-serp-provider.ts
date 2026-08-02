@@ -7,6 +7,7 @@ import {
   type InstaCompComp,
   type InstaCompProviderResult,
 } from "./instacomp";
+import { buildExactEbayQueryLadder } from "./instacomp-exact-market-provider";
 
 const SERPAPI_API_KEY = process.env.SERPAPI_API_KEY;
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -403,20 +404,49 @@ function hasExactResult(result: InstaCompProviderResult) {
   );
 }
 
-function mergeProviders(primary: InstaCompProviderResult, fallback: InstaCompProviderResult | null) {
+function mergeProviders(
+  primary: InstaCompProviderResult,
+  fallback: InstaCompProviderResult | null,
+  limit: number,
+) {
   if (!fallback) return primary;
   const seen = new Set<string>();
   const results = [...primary.results, ...fallback.results].filter((comp) => {
     if (seen.has(comp.url)) return false;
     seen.add(comp.url);
     return true;
-  });
+  }).slice(0, limit);
   return {
     ...primary,
     status: results.length ? "live" : primary.status,
     results,
-    message: [primary.message, fallback.message].filter(Boolean).join(" Fallback query: "),
+    message: [primary.message, fallback.message].filter(Boolean).join(" Additional query: "),
   } satisfies InstaCompProviderResult;
+}
+
+async function providerAcrossQueries(
+  queries: string[],
+  ai: InstaCompAiResult,
+  lane: EbayLane,
+) {
+  let merged: InstaCompProviderResult | null = null;
+  const attemptedQueries: string[] = [];
+
+  for (const query of queries) {
+    const next = await provider(query, ai, lane);
+    attemptedQueries.push(query);
+    merged = merged
+      ? mergeProviders(merged, next, lane === "sold" ? 50 : 30)
+      : next;
+    if (hasExactResult(merged)) break;
+  }
+
+  return {
+    provider:
+      merged ||
+      (await provider(queries[0] || "sports card", ai, lane)),
+    attemptedQueries,
+  };
 }
 
 export async function getUniversalEbaySerpProviders(params: {
@@ -424,31 +454,23 @@ export async function getUniversalEbaySerpProviders(params: {
   fallbackQuery: string;
   ai: InstaCompAiResult;
 }) {
-  const primaryQuery = String(params.exactTitle || params.fallbackQuery || "").trim();
+  const queries = buildExactEbayQueryLadder(params);
+  const primaryQuery = queries[0] || String(params.fallbackQuery || "").trim();
   const fallbackQuery = String(params.fallbackQuery || "").trim();
-  const [primarySold, primaryActive] = await Promise.all([
-    provider(primaryQuery, params.ai, "sold"),
-    provider(primaryQuery, params.ai, "active"),
-  ]);
-
-  const fallbackIsDifferent =
-    Boolean(normalizeKey(fallbackQuery)) &&
+  const fallbackIsDifferent = Boolean(normalizeKey(fallbackQuery)) &&
     normalizeKey(fallbackQuery) !== normalizeKey(primaryQuery);
-  const [fallbackSold, fallbackActive] = fallbackIsDifferent
-    ? await Promise.all([
-        hasExactResult(primarySold)
-          ? Promise.resolve(null)
-          : provider(fallbackQuery, params.ai, "sold"),
-        hasExactResult(primaryActive)
-          ? Promise.resolve(null)
-          : provider(fallbackQuery, params.ai, "active"),
-      ])
-    : [null, null];
+  const [sold, active] = await Promise.all([
+    providerAcrossQueries(queries, params.ai, "sold"),
+    providerAcrossQueries(queries, params.ai, "active"),
+  ]);
 
   return {
     query: primaryQuery,
+    queries,
     fallbackQuery: fallbackIsDifferent ? fallbackQuery : null,
-    sold: mergeProviders(primarySold, fallbackSold),
-    active: mergeProviders(primaryActive, fallbackActive),
+    soldQueries: sold.attemptedQueries,
+    activeQueries: active.attemptedQueries,
+    sold: sold.provider,
+    active: active.provider,
   };
 }

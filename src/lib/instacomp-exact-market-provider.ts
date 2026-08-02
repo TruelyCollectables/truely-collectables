@@ -15,7 +15,7 @@ const SUPABASE_KEY =
 const SOLD_CACHE_TTL_MS = 3 * 24 * 60 * 60 * 1000;
 const ACTIVE_CACHE_TTL_MS = 45 * 60 * 1000;
 const RESULT_LIMIT = 100;
-const MAX_QUERY_ATTEMPTS = 5;
+const MAX_QUERY_ATTEMPTS = 6;
 
 type EbayLane = "sold" | "active";
 
@@ -279,7 +279,7 @@ async function fetchLane(query: string, lane: EbayLane) {
 function cleanSearchPart(value: string | null | undefined) {
   return cleanSpaces(value)
     .replace(/\b(?:cert|certification)\s*(?:number|#|no\.?|num)?\s*[a-z0-9-]{5,}\b/gi, " ")
-    .replace(/\b\d{1,6}\s*\/\s*(\d{1,6})\b/g, "/$1")
+    .replace(/(?<!#)\b\d{1,6}\s*\/\s*(\d{1,6})\b/g, "/$1")
     .replace(/\s+/g, " ")
     .trim();
 }

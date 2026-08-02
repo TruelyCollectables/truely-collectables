@@ -346,17 +346,22 @@ export async function POST(request: NextRequest) {
       60,
     );
 
-    const pricingAnalysis = calculateInstaCompSweetSpot({
+    const rawPricingAnalysis = calculateInstaCompSweetSpot({
       sold: soldCompEvidence,
       active: activeCompetition,
     });
-    const suggestedPrice = pricingAnalysis.suggestedPrice;
+    const hasReliableSoldComps = rawPricingAnalysis.soldCount > 0;
+    const suggestedPrice = hasReliableSoldComps
+      ? rawPricingAnalysis.suggestedPrice
+      : 0;
+    const pricingAnalysis = { ...rawPricingAnalysis, suggestedPrice };
     const reliableSoldCompCount = pricingAnalysis.soldCount;
-    const hasReliableSoldComps = pricingAnalysis.soldCount > 0;
-    const pricingStatus = suggestedPrice > 0
+    const pricingStatus = hasReliableSoldComps
       ? "suggested_from_reliable_sold_comps"
       : "seller_price_required";
-    const pricingReason = pricingAnalysis.explanation;
+    const pricingReason = hasReliableSoldComps
+      ? pricingAnalysis.explanation
+      : `${pricingAnalysis.explanation} InstaComp will not issue a suggested price without at least one image-verified exact sold listing.`;
     const checkedAt = new Date().toISOString();
 
     const existingCoverage = Array.isArray(currentInstaComp.providerCoverage)

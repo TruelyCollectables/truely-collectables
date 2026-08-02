@@ -22,6 +22,10 @@ export type EbayPurchaseCompInput = {
   salesTax: number;
   otherCost: number;
   totalPaid: number;
+  currency: string;
+  receiptVerificationSource: string;
+  connectedBuyerOrderVerified: boolean;
+  receiptOrderLineCount: number;
 };
 
 function numberValue(value: unknown, fallback = 0) {
@@ -65,6 +69,9 @@ function validateInput(input: EbayPurchaseCompInput) {
   if (!Number.isInteger(input.quantity) || input.quantity <= 0) {
     throw new Error("Comp quantity must be a positive whole number.");
   }
+  if (clean(input.currency).toUpperCase() !== "USD") {
+    throw new Error("Only explicitly confirmed USD eBay receipts can sync as sold comps.");
+  }
   for (const [label, value] of [
     ["item subtotal", input.itemSubtotal],
     ["inbound shipping", input.inboundShipping],
@@ -84,9 +91,17 @@ export async function syncEbayPurchaseReceiptComp(input: EbayPurchaseCompInput) 
   const supabase = createSupabaseServerClient({ admin: true });
   const externalSaleId = stableExternalSaleId(input);
   const soldAt = validDate(input.purchasedAt);
+  const connectedReceipt =
+    input.receiptVerificationSource === "connected_ebay_buyer_order" &&
+    input.connectedBuyerOrderVerified === true &&
+    Boolean(clean(input.externalOrderId));
+  const singleLineReceipt =
+    connectedReceipt && input.receiptOrderLineCount === 1;
   const metadata: JsonRecord = {
     source: "ebay_buyer_order_receipt",
-    verified_from: "connected_ebay_purchase_inbox",
+    verified_from: connectedReceipt
+      ? "connected_ebay_buyer_order"
+      : "purchase_inbox_manual_review",
     purchase_lot_id: input.purchaseId,
     purchase_inbox_id: clean(input.purchaseInboxId) || null,
     ebay_order_id: clean(input.externalOrderId) || null,
@@ -97,6 +112,13 @@ export async function syncEbayPurchaseReceiptComp(input: EbayPurchaseCompInput) 
     actual_sales_tax: roundMoney(input.salesTax),
     actual_other_cost: roundMoney(input.otherCost),
     actual_out_the_door_cost: roundMoney(input.totalPaid),
+    currency: "USD",
+    independently_verified: connectedReceipt,
+    exact_identity_confirmed: true,
+    final_price_confirmed: connectedReceipt,
+    shipping_price_confirmed: singleLineReceipt,
+    connected_buyer_order_verified: connectedReceipt,
+    receipt_order_line_count: input.receiptOrderLineCount,
     comparable_comp_value_excludes_sales_tax: true,
     comparable_comp_value_excludes_other_acquisition_cost: true,
     synced_at: new Date().toISOString(),
@@ -174,7 +196,7 @@ export async function backfillRecordedEbayPurchaseComps(limit = 500) {
   const { data: inboxRows, error: inboxError } = await supabase
     .from("tcos_mi_purchase_inbox")
     .select(
-      "id,marketplace_id,external_order_id,external_listing_id,direct_url,title,purchased_at,quantity,item_subtotal,inbound_shipping,sales_tax,buyer_fees,other_cost,total_paid,purchase_lot_id,status",
+      "id,marketplace_id,external_order_id,external_listing_id,direct_url,title,purchased_at,quantity,item_subtotal,inbound_shipping,sales_tax,buyer_fees,other_cost,total_paid,purchase_lot_id,status,metadata",
     )
     .eq("status", "recorded")
     .not("purchase_lot_id", "is", null)
@@ -250,6 +272,25 @@ export async function backfillRecordedEbayPurchaseComps(limit = 500) {
         totalPaid: numberValue(
           purchase.total_acquisition_cost,
           numberValue(inbox.total_paid),
+        ),
+        currency: String(
+          inbox.metadata && typeof inbox.metadata === "object"
+            ? (inbox.metadata as JsonRecord).currency || ""
+            : "",
+        ),
+        receiptVerificationSource: String(
+          inbox.metadata && typeof inbox.metadata === "object"
+            ? (inbox.metadata as JsonRecord).source || ""
+            : "",
+        ),
+        connectedBuyerOrderVerified:
+          inbox.metadata && typeof inbox.metadata === "object"
+            ? (inbox.metadata as JsonRecord).connected_buyer_order_verified === true
+            : false,
+        receiptOrderLineCount: numberValue(
+          inbox.metadata && typeof inbox.metadata === "object"
+            ? (inbox.metadata as JsonRecord).receipt_order_line_count
+            : null,
         ),
       });
       result[synced.status] += 1;
