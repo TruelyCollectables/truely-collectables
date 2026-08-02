@@ -271,6 +271,72 @@ const scenarios = [
     },
   },
   {
+    name: "malformed numbered Base catalog identity is rejected",
+    run() {
+      const numberedAi: InstaCompAiResult = {
+        ...baseAi,
+        parallel: "Gold Foil",
+        serialNumber: "17/199",
+        confidence: 0.98,
+      };
+
+      const consensus = buildInstaCompMultiScannerConsensus({
+        baseIdentity: numberedAi,
+        readers: [
+          primary(numberedAi),
+          {
+            readerId: "serial",
+            label: "Serial vision/OCR",
+            kind: "serial_vision",
+            identity: {
+              parallel: "Gold Foil",
+              serialNumber: "17/199",
+            },
+            confidence: 0.99,
+            evidence: ["foil stamp reads 17/199"],
+          },
+        ],
+        catalogReferee: {
+          status: "catalog_confirmed",
+          sourceLabel: "Malformed Fixture Checklist",
+          catalogId: "malformed-base-199",
+          matchExplanation: "Fixture incorrectly labels numbered card as Base.",
+          identity: {
+            player: "Connor McDavid",
+            year: "2025-26",
+            setName: "SP Authentic",
+            cardNumber: "O-8",
+            parallel: "Base",
+            serialRun: "199",
+          },
+        },
+      });
+
+      assert(
+        consensus.catalogReferee.status === "review_required",
+        "Malformed numbered Base catalog identity must be demoted",
+      );
+      assert(
+        consensus.catalogReferee.matchExplanation?.includes(
+          "cannot be Base with serial run /199",
+        ),
+        "Expected numbered Base rejection reason",
+      );
+      assert(
+        consensus.finalIdentity.parallel === "Gold Foil",
+        "Rejected catalog identity must not overwrite scanner parallel",
+      );
+      assert(
+        !consensus.fieldDecisions.some(
+          (decision) =>
+            decision.field === "parallel" &&
+            decision.status === "catalog_referee",
+        ),
+        "Rejected catalog identity must not act as parallel referee",
+      );
+    },
+  },
+  {
     name: "fast lane exposes thin single-reader council warning",
     run() {
       const decision = decideInstaCompConsensusEscalation({

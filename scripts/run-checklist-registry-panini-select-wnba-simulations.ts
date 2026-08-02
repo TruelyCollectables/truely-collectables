@@ -212,6 +212,32 @@ scenario(
   },
 );
 
+const numberedBaseSnapshot = JSON.parse(fixtureText);
+numberedBaseSnapshot.cardsets[0].parallels.push({
+  name: "Base",
+  serialRun: 199,
+});
+
+const numberedBasePlan = parsePaniniStructuredChecklist({
+  ...artifact,
+  content: JSON.stringify(numberedBaseSnapshot),
+});
+
+scenario(
+  "numbered_base_parallel_is_rejected",
+  "A parallel named Base cannot carry a serial run such as /199 because that represents a distinct named parallel.",
+  numberedBasePlan.validation.status === "validation_required" &&
+    numberedBasePlan.validation.issues.some(
+      (entry) =>
+        entry.code === "numbered_base_parallel_invalid" &&
+        entry.severity === "error",
+    ),
+  {
+    status: numberedBasePlan.validation.status,
+    issues: numberedBasePlan.validation.issues,
+  },
+);
+
 let unsupportedMimeRejected = false;
 try {
   buildChecklistSourceStorageReceipt({
