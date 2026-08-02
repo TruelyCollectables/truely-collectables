@@ -240,6 +240,17 @@ export default async function MarketIntelAdminPage({
             tone="neutral"
           />
           <Workbench
+            eyebrow="KINGMAKER Delivery"
+            title="Morning Intelligence"
+            detail="Preview the canonical decision-grade briefing, run a safe dry test, and send one controlled verification email."
+            href={addAdminHandoff(
+              "/admin/market-intel/kingmaker/morning-intelligence",
+              handoff,
+            )}
+            action="Open KINGMAKER Morning Intel"
+            tone="amber"
+          />
+          <Workbench
             eyebrow="Delivery"
             title="Email Delivery Center"
             detail="Send pending qualifying deals and daily intelligence through Resend, with delivery history and duplicate suppression."
