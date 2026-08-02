@@ -21,6 +21,10 @@ function verifierRequest(secret: string, body: Record<string, unknown>) {
   });
 }
 
+function requestHeaders(init?: RequestInit) {
+  return new Headers(init?.headers);
+}
+
 async function responseBody(response: Response) {
   return (await response.json()) as {
     ok?: boolean;
@@ -67,10 +71,13 @@ async function main() {
     assert.ok(workbenchRequest);
     assert.match(workbenchRequest.url, /\/admin\/instacomp\/seller-sweep/);
     assert.match(
-      String(
-        (workbenchRequest.init?.headers as Record<string, string>)?.Cookie,
-      ),
+      requestHeaders(workbenchRequest.init).get("cookie") || "",
       /^tcos_admin_auth_v3=/,
+    );
+    assert.equal(
+      requestHeaders(workbenchRequest.init).get("origin"),
+      null,
+      "Safe workbench GET should not claim a mutation Origin",
     );
     assert.equal(response.headers.get("set-cookie"), null);
 
@@ -99,6 +106,15 @@ async function main() {
       query: "sports card",
       limit: 1,
     });
+    assert.equal(
+      requestHeaders(collectRequest.init).get("origin"),
+      "https://truelycollectables.com",
+      "Protected collect POST must prove its exact origin",
+    );
+    assert.match(
+      requestHeaders(collectRequest.init).get("cookie") || "",
+      /^tcos_admin_auth_v3=/,
+    );
 
     globalThis.fetch = (async (
       input: string | URL | Request,
@@ -118,6 +134,11 @@ async function main() {
       sweepId,
       batchSize: 1,
     });
+    assert.equal(
+      requestHeaders(processRequest.init).get("origin"),
+      "https://truelycollectables.com",
+      "Protected process POST must prove its exact origin",
+    );
 
     let unexpectedFetch = false;
     globalThis.fetch = (async () => {
