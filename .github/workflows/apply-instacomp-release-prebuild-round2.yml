@@ -1,0 +1,132 @@
+name: Apply InstaComp Exact Release Prebuild Round Two
+
+# One-time same-repository PR transformation. The successful job deletes itself.
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/apply-instacomp-release-prebuild-round2.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-instacomp-release-prebuild-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  apply-release-prebuild:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Inject the exact release manifest before every build
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          package = Path('package.json')
+          source = package.read_text()
+          old = '    "build": "next build --webpack",'
+          new = (
+              '    "prebuild": "node scripts/write-instacomp-release-manifest.mjs --auto",\n'
+              '    "build": "next build --webpack",'
+          )
+          if source.count(old) != 1:
+              raise SystemExit(f'package build marker count was {source.count(old)}')
+          if '"prebuild": "node scripts/write-instacomp-release-manifest.mjs --auto"' not in source:
+              source = source.replace(old, new)
+          package.write_text(source)
+
+          learning = Path('src/lib/instacomp-learning-server.ts')
+          code = learning.read_text()
+          malformed = '''  const promotionDecision = decideInstaCompLearningPromotion(params.payload);
+          if (promotionDecision.allowed) {
+            return {
+              allowed: true,
+              reason: "trusted_identity_confirmation",
+              missingCorrections: [],
+              explanation:
+                "The operator is confirming an identity already bound to matching Registry and catalog receipts.",
+            };
+          }
+
+          const consensus = record(params.payload.consensus);
+          const missingCorrections = OPERATOR_CONFIRMATION_IDENTITY_FIELDS.filter('''
+          formatted = '''  const promotionDecision = decideInstaCompLearningPromotion(params.payload);
+          if (promotionDecision.allowed) {
+            return {
+              allowed: true,
+              reason: "trusted_identity_confirmation",
+              missingCorrections: [],
+              explanation:
+                "The operator is confirming an identity already bound to matching Registry and catalog receipts.",
+            };
+          }
+
+          const consensus = record(params.payload.consensus);
+          const missingCorrections = OPERATOR_CONFIRMATION_IDENTITY_FIELDS.filter('''
+          # The transformer may already have the correctly indented form. Normalize
+          # only the known left-shifted variant without touching unrelated code.
+          left_shifted = '''  const promotionDecision = decideInstaCompLearningPromotion(params.payload);
+          if (promotionDecision.allowed) {
+            return {
+              allowed: true,
+              reason: "trusted_identity_confirmation",
+              missingCorrections: [],
+              explanation:
+                "The operator is confirming an identity already bound to matching Registry and catalog receipts.",
+            };
+          }
+
+          const consensus = record(params.payload.consensus);
+          const missingCorrections = OPERATOR_CONFIRMATION_IDENTITY_FIELDS.filter('''
+          # Reindent the function block structurally after locating its boundaries.
+          start = code.index('  const promotionDecision = decideInstaCompLearningPromotion(params.payload);')
+          end = code.index('    (field) => !hasMeaningfulValue(params.corrections[field]),', start)
+          prefix = code[:start]
+          suffix = code[end:]
+          normalized = '''  const promotionDecision = decideInstaCompLearningPromotion(params.payload);
+          if (promotionDecision.allowed) {
+            return {
+              allowed: true,
+              reason: "trusted_identity_confirmation",
+              missingCorrections: [],
+              explanation:
+                "The operator is confirming an identity already bound to matching Registry and catalog receipts.",
+            };
+          }
+
+          const consensus = record(params.payload.consensus);
+          const missingCorrections = OPERATOR_CONFIRMATION_IDENTITY_FIELDS.filter(
+'''
+          learning.write_text(prefix + normalized + suffix)
+          PY
+
+      - name: Verify universal build attestation
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          if (pkg.scripts.prebuild !== 'node scripts/write-instacomp-release-manifest.mjs --auto') {
+            throw new Error('Universal exact-release prebuild hook is missing.');
+          }
+          NODE
+          TCOS_RELEASE_COMMIT="$(git rev-parse HEAD)" \
+            node scripts/write-instacomp-release-manifest.mjs --auto
+          node -e "const p=require('./public/instacomp-release.json'); if(p.sourceCommit!==process.argv[1]) process.exit(1)" "$(git rev-parse HEAD)"
+          git checkout -- public/instacomp-release.json
+
+      - name: Commit permanent code and remove one-time workflow
+        run: |
+          git rm -f .github/workflows/apply-instacomp-release-prebuild-round2.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json src/lib/instacomp-learning-server.ts
+          git commit -m "Inject exact InstaComp release commit before every build"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
