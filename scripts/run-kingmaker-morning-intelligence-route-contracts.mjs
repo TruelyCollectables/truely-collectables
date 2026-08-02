@@ -23,7 +23,7 @@ for (const fragment of [
   'TIME_ZONE = "America/Denver"',
   "DELIVERY_HOUR = 7",
   "isAuthorizedMarketIntelIngest",
-  'statusOnly === "1"',
+  'const statusOnly = url.searchParams.get("statusOnly") === "1"',
   'force = url.searchParams.get("force") === "1"',
   'sendEmail = url.searchParams.get("sendEmail") !== "0"',
   "outside_mountain_delivery_hour",
