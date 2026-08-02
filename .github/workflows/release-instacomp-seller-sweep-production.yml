@@ -217,12 +217,6 @@ jobs:
           set -euo pipefail
           npm run deploy:production
 
-      - name: Run repository Production smoke
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm run smoke:production
-
       - name: Prepare protected admin credential
         shell: bash
         env:
@@ -243,6 +237,16 @@ jobs:
           NODE
           password="$(cat "$ADMIN_PASSWORD_FILE")"
           echo "::add-mask::$password"
+
+      - name: Run repository Production smoke
+        shell: bash
+        env:
+          ADMIN_PASSWORD_FILE: ${{ runner.temp }}/seller-sweep-release/admin-password
+        run: |
+          set -euo pipefail
+          password="$(cat "$ADMIN_PASSWORD_FILE")"
+          echo "::add-mask::$password"
+          SMOKE_ADMIN_PASSWORD="$password" npm run smoke:production
 
       - name: Run bounded live Miss Mels Seller Sweep
         shell: bash
