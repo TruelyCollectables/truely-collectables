@@ -12,6 +12,9 @@ export type ChecklistSourceArtifact = {
   originalFilename: string;
   mimeType: string;
   content: string | Uint8Array;
+  archiveContent?: string | Uint8Array;
+  archiveFilename?: string;
+  archiveMimeType?: string;
   retrievedAt: string;
   authority: ChecklistSourceAuthority;
   redistributionAllowed: boolean;
