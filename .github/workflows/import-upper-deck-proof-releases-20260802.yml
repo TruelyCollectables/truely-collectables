@@ -115,7 +115,7 @@ jobs:
           })().catch((error) => { console.error(error); process.exit(1); });
           NODE
 
-      - name: Apply fail-closed service-role and payload-integrity patch
+      - name: Apply fail-closed service-role and structural-integrity patch
         shell: bash
         run: |
           set -euo pipefail
@@ -194,41 +194,61 @@ jobs:
                     identities: Number(observed.identities),
                     serializedBytes: Number(observed.serialized_bytes),
                   });''',
-          '''        const expectedPayloadChecksum = createHash("md5")
-                    .update(serialized)
-                    .digest("hex");
-                  const probe = await client.query(
+          '''        const probe = await client.query(
                     `select
+                      ($1::jsonb)->>'adapterId' as adapter_id,
+                      ($1::jsonb)->'release'->>'releaseSlug' as release_slug,
+                      jsonb_array_length(($1::jsonb)->'sets')::integer as sets,
                       jsonb_array_length(($1::jsonb)->'cards')::integer as cards,
+                      jsonb_array_length(($1::jsonb)->'parallels')::integer as parallels,
                       jsonb_array_length(($1::jsonb)->'identities')::integer as identities,
-                      md5($1::text) as payload_checksum`,
-                    [serialized],
+                      (
+                        select count(*)::integer
+                        from jsonb_array_elements(($1::jsonb)->'identities') identity
+                        where identity->'fingerprint'->>'fingerprintSha256' = any($2::text[])
+                      ) as known_fingerprints`,
+                    [serialized, entry.source.expected.fingerprints],
                   );
                   const observed = probe.rows?.[0];
-                  const observedPayloadChecksum = String(observed?.payload_checksum || "");
+                  const knownFingerprintCount = Number(observed?.known_fingerprints);
                   if (
+                    String(observed?.adapter_id || "") !== EXPECTED_ADAPTER ||
+                    String(observed?.release_slug || "") !== entry.source.expected.releaseSlug ||
+                    Number(observed?.sets) !== entry.source.expected.sets ||
                     Number(observed?.cards) !== entry.source.expected.cards ||
+                    Number(observed?.parallels) !== entry.source.expected.parallels ||
                     Number(observed?.identities) !== entry.source.expected.identities ||
-                    observedPayloadChecksum !== expectedPayloadChecksum
+                    knownFingerprintCount !== entry.source.expected.fingerprints.length
                   ) {
                     throw new Error(
                       `${entry.source.id} PostgreSQL payload probe failed: ${JSON.stringify({
+                        observedAdapterId: String(observed?.adapter_id || ""),
+                        expectedAdapterId: EXPECTED_ADAPTER,
+                        observedReleaseSlug: String(observed?.release_slug || ""),
+                        expectedReleaseSlug: entry.source.expected.releaseSlug,
+                        observedSets: Number(observed?.sets),
+                        expectedSets: entry.source.expected.sets,
                         observedCards: Number(observed?.cards),
                         expectedCards: entry.source.expected.cards,
+                        observedParallels: Number(observed?.parallels),
+                        expectedParallels: entry.source.expected.parallels,
                         observedIdentities: Number(observed?.identities),
                         expectedIdentities: entry.source.expected.identities,
-                        payloadChecksumMatches:
-                          observedPayloadChecksum === expectedPayloadChecksum,
+                        knownFingerprintCount,
+                        expectedKnownFingerprints: entry.source.expected.fingerprints.length,
                       })}`,
                     );
                   }
                   payloads.push({
                     id: entry.source.id,
+                    releaseSlug: String(observed.release_slug),
+                    sets: Number(observed.sets),
                     cards: Number(observed.cards),
+                    parallels: Number(observed.parallels),
                     identities: Number(observed.identities),
-                    payloadChecksum: observedPayloadChecksum,
+                    knownFingerprints: knownFingerprintCount,
                   });''',
-          'payload integrity probe')
+          'payload structural integrity probe')
 
           replace_once(
           '''      return {
@@ -300,7 +320,7 @@ jobs:
           path.write_text(text)
           PY
           grep -q 'set local role service_role' scripts/ops/import-upper-deck-proof-releases-20260802.ts
-          grep -q 'payloadChecksumMatches' scripts/ops/import-upper-deck-proof-releases-20260802.ts
+          grep -q 'knownFingerprintCount' scripts/ops/import-upper-deck-proof-releases-20260802.ts
           test "$(grep -c 'writerRole = connected.writerRole' scripts/ops/import-upper-deck-proof-releases-20260802.ts)" -eq 1
 
       - name: Import Allure canary then Series 1 through temporary Postgres login
@@ -322,7 +342,7 @@ jobs:
           if (receipt.schema !== 'tcos.checklist.upperDeckProofProductionImport.v3' || receipt.status !== 'passed') throw new Error('Upper Deck Production receipt did not pass.');
           if (receipt.imports?.length !== 2 || receipt.auditStates?.length !== 3 || receipt.finalTargets?.length !== 2) throw new Error('Upper Deck verification cardinality is wrong.');
           const preflight = receipt.postgresConnectionPreflight || {};
-          if (preflight.writerPrivilegeVerified !== true || !['current_user', 'service_role'].includes(preflight.writerRole) || preflight.delaySeconds !== 35 || preflight.planPayloads?.length !== 2 || preflight.planPayloads.some((entry) => !/^[a-f0-9]{32}$/.test(String(entry.payloadChecksum || '')))) throw new Error('Temporary PostgreSQL preflight is incomplete.');
+          if (preflight.writerPrivilegeVerified !== true || !['current_user', 'service_role'].includes(preflight.writerRole) || preflight.delaySeconds !== 35 || preflight.planPayloads?.length !== 2 || preflight.planPayloads.some((entry) => Number(entry.knownFingerprints) !== 4)) throw new Error('Temporary PostgreSQL preflight is incomplete.');
           const totals = receipt.imports.reduce((sum, entry) => ({ cards: sum.cards + Number(entry.counts?.cards || 0), identities: sum.identities + Number(entry.counts?.identities || 0) }), { cards: 0, identities: 0 });
           if (totals.cards !== 2454 || totals.identities !== 7318) throw new Error(`Unexpected totals ${JSON.stringify(totals)}`);
           if (receipt.imports.some((entry) => entry.transport !== 'temporary-postgresql-login')) throw new Error('Wrong writer transport.');
