@@ -69,7 +69,11 @@ export default function PricingWorkbench({ mode, title, eyebrow, description }: 
   }
 
   useEffect(() => {
-    void refresh();
+    const initialLoad = window.setTimeout(() => {
+      void refresh();
+    }, 0);
+
+    return () => window.clearTimeout(initialLoad);
   }, []);
 
   const cards = useMemo(() => snapshot ? buildCards(mode, snapshot) : [], [mode, snapshot]);
@@ -120,11 +124,11 @@ export default function PricingWorkbench({ mode, title, eyebrow, description }: 
         ) : null}
 
         <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {(loading ? Array.from({ length: 4 }) : cards).map((card, index) => loading ? (
-            <div key={index} className="h-32 animate-pulse rounded-3xl border border-neutral-200 bg-white" />
-          ) : (
-            <MetricCard key={card.label} {...card} />
-          ))}
+          {loading
+            ? Array.from({ length: 4 }, (_, index) => (
+                <div key={index} className="h-32 animate-pulse rounded-3xl border border-neutral-200 bg-white" />
+              ))
+            : cards.map((card) => <MetricCard key={card.label} {...card} />)}
         </section>
 
         {!loading && snapshot ? <ModePanel mode={mode} snapshot={snapshot} /> : null}
@@ -133,7 +137,7 @@ export default function PricingWorkbench({ mode, title, eyebrow, description }: 
   );
 }
 
-function buildCards(mode: Mode, snapshot: Snapshot) {
+function buildCards(mode: Mode, snapshot: Snapshot): Array<{ label: string; value: string; detail: string }> {
   const r = snapshot.receipts;
   const percent = (value: number | null) => value === null ? "—" : `${Math.round(value * 100)}%`;
   const number = (value: number | null) => value === null ? "—" : value.toFixed(1);
@@ -197,7 +201,7 @@ function ModePanel({ mode, snapshot }: { mode: Mode; snapshot: Snapshot }) {
 }
 
 function ReceiptPanel({ snapshot }: { snapshot: Snapshot }) {
-  const rows = [
+  const rows: Array<[string, number, string]> = [
     ["Ready", snapshot.receipts.ready, "Evidence and economics cleared"],
     ["Review required", snapshot.receipts.reviewRequired, "Operator judgment required"],
     ["Insufficient evidence", snapshot.receipts.insufficientEvidence, "More verified sold comps required"],
@@ -232,7 +236,7 @@ function ProfilePanel({ snapshot }: { snapshot: Snapshot }) {
 }
 
 function ReviewPanel({ snapshot }: { snapshot: Snapshot }) {
-  const rows = [
+  const rows: Array<[string, number, string]> = [
     ["Review required", snapshot.receipts.reviewRequired, "Check identity, confidence, fees, shipping, and acquisition cost"],
     ["Insufficient evidence", snapshot.receipts.insufficientEvidence, "Do not act until verified sold evidence improves"],
   ];
