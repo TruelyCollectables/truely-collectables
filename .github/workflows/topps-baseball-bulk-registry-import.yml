@@ -1,6 +1,12 @@
 name: Topps Baseball Bulk Registry Import
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - "scripts/bulk-import-topps-baseball-checklists.ts"
+      - ".github/workflows/topps-baseball-bulk-registry-import.yml"
   workflow_dispatch:
     inputs:
       mode:
