@@ -1,0 +1,54 @@
+name: KINGMAKER Phase 3 Intelligence Fusion
+
+on:
+  pull_request:
+    paths:
+      - "src/lib/kingmaker-intelligence-fusion.ts"
+      - "src/lib/kingmaker-intelligence-ingestion.ts"
+      - "src/lib/kingmaker-signal-engine.ts"
+      - "scripts/run-kingmaker-intelligence-fusion-regressions.ts"
+      - "scripts/run-kingmaker-intelligence-ingestion-regressions.ts"
+      - "scripts/run-kingmaker-signal-engine-regressions.ts"
+      - "supabase/migrations/20260803030000_kingmaker_intelligence_fusion.sql"
+      - ".github/workflows/kingmaker-phase-3-intelligence-fusion.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-intelligence-fusion:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Canonical observation regressions
+        run: node --import tsx scripts/run-kingmaker-intelligence-fusion-regressions.ts
+      - name: Canonical ingestion regressions
+        run: node --import tsx scripts/run-kingmaker-intelligence-ingestion-regressions.ts
+      - name: Identity scoring and truth-gate regressions
+        run: node --import tsx scripts/run-kingmaker-signal-engine-regressions.ts
+      - name: Migration contracts
+        run: |
+          grep -q "tcos_kingmaker_source_runs" supabase/migrations/20260803030000_kingmaker_intelligence_fusion.sql
+          grep -q "tcos_kingmaker_observations" supabase/migrations/20260803030000_kingmaker_intelligence_fusion.sql
+          grep -q "tcos_kingmaker_signals" supabase/migrations/20260803030000_kingmaker_intelligence_fusion.sql
+          grep -q "tcos_kingmaker_signal_evidence" supabase/migrations/20260803030000_kingmaker_intelligence_fusion.sql
+          grep -q "tcos_kingmaker_decisions" supabase/migrations/20260803030000_kingmaker_intelligence_fusion.sql
+          grep -q "enable row level security" supabase/migrations/20260803030000_kingmaker_intelligence_fusion.sql
+          grep -q "revoke all" supabase/migrations/20260803030000_kingmaker_intelligence_fusion.sql
+      - name: Lint
+        run: npx eslint src/lib/kingmaker-intelligence-fusion.ts src/lib/kingmaker-intelligence-ingestion.ts src/lib/kingmaker-signal-engine.ts scripts/run-kingmaker-intelligence-fusion-regressions.ts scripts/run-kingmaker-intelligence-ingestion-regressions.ts scripts/run-kingmaker-signal-engine-regressions.ts
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Production build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-placeholder
+          SUPABASE_SERVICE_ROLE_KEY: build-placeholder
+        run: npm run build
