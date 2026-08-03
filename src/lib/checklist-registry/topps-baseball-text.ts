@@ -23,6 +23,7 @@ export type ToppsBaseballTextParseResult = {
 const TEAM_SUFFIX = /(?:Angels|Athletics|Blue Jays|Braves|Brewers|Cardinals|Cubs|Diamondbacks|Dodgers|Giants|Guardians|Mariners|Marlins|Mets|Nationals|Orioles|Padres|Phillies|Pirates|Rangers|Rays|Red Sox|Reds|Rockies|Royals|Tigers|Twins|White Sox|Yankees)[®™]?$/i;
 const CARD_START = /^([A-Z0-9][A-Z0-9-]*)\s+(.+)$/;
 const HEADING = /^[A-Z0-9][A-Z0-9 &'®™./+-]{2,}$/;
+const NUMBERED_CARD_PREFIX = /^(?:\d{1,4}|[A-Z]{1,8}-[A-Z0-9]{1,12})\s+/;
 
 function clean(value: string) {
   return value
@@ -31,6 +32,11 @@ function clean(value: string) {
     .replace(/[‐‑‒–—―]/g, "-")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function normalizedHeading(value: string) {
+  const heading = clean(value);
+  return /^(?:BASE|BASE CARDS|BASE SET)$/i.test(heading) ? "Base Set" : heading;
 }
 
 function splitJoinedCards(line: string) {
@@ -90,8 +96,8 @@ export function parseToppsBaseballChecklistText(input: {
     if (/checklist$/i.test(original) && sourceLine < 5) continue;
 
     for (const line of splitJoinedCards(original)) {
-      if (HEADING.test(line) && !CARD_START.test(line)) {
-        setName = clean(line.replace(/^BASE$/i, "Base Set"));
+      if (HEADING.test(line) && !NUMBERED_CARD_PREFIX.test(line)) {
+        setName = normalizedHeading(line);
         continue;
       }
 
