@@ -45,15 +45,19 @@ jobs:
             ".github/workflows/instacomp-upper-deck-referee-live-certification.yml"
             ".github/workflows/instacomp-upper-deck-referee-recovery.yml"
             "scripts/check-production-guardrails.mjs"
+            "scripts/run-instacomp-registry-semantic-referee-regression.ts"
             "scripts/run-instacomp-upper-deck-referee-recovery-regression.ts"
+            "src/lib/instacomp-consensus.ts"
             "src/lib/instacomp-learning-server.ts"
           )
           test "${#changed[@]}" -eq "${#expected[@]}"
           test "$(printf '%s\n' "${changed[@]}")" = "$(printf '%s\n' "${expected[@]}")"
           grep -Fq 'allowAdjacentYearRecovery: usedAdjacentYearRecovery' \
             src/lib/instacomp-learning-server.ts
-          grep -Fq 'registryParallelSignature !== parallelProfile.signature' \
-            src/lib/instacomp-learning-server.ts
+          grep -Fq 'catalog Base parallel conflicts with unresolved visible surface/finish evidence' \
+            src/lib/instacomp-consensus.ts
+          grep -Fq 'catalog non-Base parallel lacks agreement from two independent scanner families' \
+            src/lib/instacomp-consensus.ts
           git diff --check "$merge_base"...HEAD
 
       - uses: actions/setup-node@v4
@@ -66,6 +70,7 @@ jobs:
 
       - name: Reprove matcher and fail-closed identity gates
         run: |
+          node --import tsx scripts/run-instacomp-registry-semantic-referee-regression.ts
           node --import tsx scripts/run-instacomp-upper-deck-referee-recovery-regression.ts
           node scripts/check-production-guardrails.mjs
           npx tsx scripts/run-instacomp-registry-consensus-bridge-regression.ts
@@ -74,7 +79,9 @@ jobs:
           npx tsx scripts/run-instacomp-identity-firewall-regressions.ts
           npx eslint \
             src/lib/instacomp-learning-server.ts \
+            src/lib/instacomp-consensus.ts \
             scripts/check-production-guardrails.mjs \
+            scripts/run-instacomp-registry-semantic-referee-regression.ts \
             scripts/run-instacomp-upper-deck-referee-recovery-regression.ts \
             scripts/run-instacomp-ebay-25-through-vercel-curl.mjs
 
