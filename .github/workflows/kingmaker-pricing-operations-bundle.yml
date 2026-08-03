@@ -1,0 +1,56 @@
+name: KINGMAKER Pricing Operations Bundle
+
+on:
+  pull_request:
+    paths:
+      - "src/lib/kingmaker-pricing-receipt-operations.ts"
+      - "src/lib/kingmaker-pricing-operations-query.ts"
+      - "src/app/api/instacomp/pricing/receipts/**"
+      - "scripts/run-kingmaker-pricing-operations-regressions.ts"
+      - ".github/workflows/kingmaker-pricing-operations-bundle.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify-pricing-operations:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Operations regressions
+        run: node --import tsx scripts/run-kingmaker-pricing-operations-regressions.ts
+      - name: Read-only and privacy contracts
+        run: |
+          set -euo pipefail
+          grep -q 'export async function GET' src/app/api/instacomp/pricing/receipts/operations/route.ts
+          ! grep -REn 'export async function (POST|PUT|PATCH|DELETE)' src/app/api/instacomp/pricing/receipts
+          grep -q 'sourceDisclosure: null' src/app/api/instacomp/pricing/receipts/operations/route.ts
+          grep -q 'cache-control.*no-store' src/app/api/instacomp/pricing/receipts/operations/route.ts
+          ! grep -RIni 'beckett' src/lib/kingmaker-pricing-receipt-operations.ts src/lib/kingmaker-pricing-operations-query.ts src/app/api/instacomp/pricing/receipts scripts/run-kingmaker-pricing-operations-regressions.ts
+          ! grep -RIn 'seller_account_id\|store_id' src/lib/kingmaker-pricing-receipt-operations.ts src/lib/kingmaker-pricing-operations-query.ts src/app/api/instacomp/pricing/receipts/analytics src/app/api/instacomp/pricing/receipts/export src/app/api/instacomp/pricing/receipts/operations
+      - name: Lint
+        run: npx eslint src/lib/kingmaker-pricing-receipt-operations.ts src/lib/kingmaker-pricing-operations-query.ts src/app/api/instacomp/pricing/receipts/analytics/route.ts src/app/api/instacomp/pricing/receipts/export/route.ts src/app/api/instacomp/pricing/receipts/operations/route.ts scripts/run-kingmaker-pricing-operations-regressions.ts
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Production build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-placeholder
+          SUPABASE_SERVICE_ROLE_KEY: build-placeholder
+          ADMIN_PASSWORD: build-placeholder
+          ADMIN_SESSION_SECRET: build-placeholder-admin-session
+          STRIPE_SECRET_KEY: sk_test_build_placeholder
+          STRIPE_WEBHOOK_SECRET: whsec_build_placeholder
+          EBAY_CLIENT_ID: build-placeholder
+          EBAY_CLIENT_SECRET: build-placeholder
+          EBAY_ENVIRONMENT: production
+          TCOS_LIVE_PAYMENTS_ENABLED: "false"
+          TCOS_LIVE_SHIPPING_ENABLED: "false"
+          TCOS_SHIPPING_PURCHASE_MODE: dry_run
+        run: npm run build
