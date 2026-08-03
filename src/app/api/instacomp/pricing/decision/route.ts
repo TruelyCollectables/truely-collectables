@@ -11,6 +11,12 @@ function badRequest(message: string) {
   return NextResponse.json({ ok: false, error: message }, { status: 400 });
 }
 
+function optionalNumber(value: unknown) {
+  if (value == null || value === "") return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const actor = await requireInstaCompJobActor(request);
@@ -47,7 +53,11 @@ export async function POST(request: NextRequest) {
           }
         : null,
       soldComps,
-      targetMarginPct: body.targetMarginPct == null ? undefined : Number(body.targetMarginPct),
+      targetMarginPct: optionalNumber(body.targetMarginPct),
+      marketplaceFeePct: optionalNumber(body.marketplaceFeePct),
+      paymentFeePct: optionalNumber(body.paymentFeePct),
+      paymentFixedFee: optionalNumber(body.paymentFixedFee),
+      shippingCost: optionalNumber(body.shippingCost),
     });
 
     return NextResponse.json({
