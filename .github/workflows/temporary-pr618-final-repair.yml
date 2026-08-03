@@ -20,13 +20,11 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Add restored pricing routes to runtime smoke
+      - name: Add restored pricing routes to runtime smoke and admin command center
         run: |
           node <<'NODE'
           const fs = require('node:fs');
-          const path = 'scripts/smoke-admin-runtime.mjs';
-          let source = fs.readFileSync(path, 'utf8');
-          const routes = [
+          const routeDefinitions = [
             ['/admin/instacomp/pricing', 'KINGMAKER Pricing Command Center'],
             ['/admin/instacomp/pricing/receipts', 'Pricing Receipt History'],
             ['/admin/instacomp/pricing/analytics', 'Pricing Analytics'],
@@ -36,16 +34,35 @@ jobs:
             ['/admin/instacomp/pricing/review', 'Pricing Review'],
             ['/admin/instacomp/pricing/views', 'Pricing Views'],
             ['/admin/instacomp/pricing/audit', 'Pricing Audit'],
-          ].map(([route, text]) => `  {\n    path: "${route}",\n    auth: true,\n    expectedText: "${text}",\n  },`).join('\n');
-          if (!source.includes('path: "/admin/instacomp/pricing"')) {
+          ];
+
+          const smokePath = 'scripts/smoke-admin-runtime.mjs';
+          let smokeSource = fs.readFileSync(smokePath, 'utf8');
+          const smokeRoutes = routeDefinitions
+            .map(([route, text]) => `  {\n    path: "${route}",\n    auth: true,\n    expectedText: "${text}",\n  },`)
+            .join('\n');
+          if (!smokeSource.includes('path: "/admin/instacomp/pricing"')) {
             const marker = 'path: "/admin/instacomp",';
-            const markerIndex = source.indexOf(marker);
+            const markerIndex = smokeSource.indexOf(marker);
             if (markerIndex < 0) throw new Error('runtime smoke marker not found');
-            const blockEnd = source.indexOf('\n  },', markerIndex);
+            const blockEnd = smokeSource.indexOf('\n  },', markerIndex);
             if (blockEnd < 0) throw new Error('runtime smoke block end not found');
             const insertAt = blockEnd + '\n  },'.length;
-            source = `${source.slice(0, insertAt)}\n${routes}${source.slice(insertAt)}`;
-            fs.writeFileSync(path, source);
+            smokeSource = `${smokeSource.slice(0, insertAt)}\n${smokeRoutes}${smokeSource.slice(insertAt)}`;
+            fs.writeFileSync(smokePath, smokeSource);
+          }
+
+          const adminPath = 'src/app/admin/page.tsx';
+          let adminSource = fs.readFileSync(adminPath, 'utf8');
+          if (!adminSource.includes('"/admin/instacomp/pricing"')) {
+            const marker = '  "/admin/inventory"';
+            const markerIndex = adminSource.indexOf(marker);
+            if (markerIndex < 0) throw new Error('admin command center route marker not found');
+            const adminRoutes = routeDefinitions
+              .map(([route]) => `  "${route}"`)
+              .join('\n');
+            adminSource = `${adminSource.slice(0, markerIndex)}${adminRoutes}\n${adminSource.slice(markerIndex)}`;
+            fs.writeFileSync(adminPath, adminSource);
           }
           NODE
       - name: Diagnose and repair production dependencies
@@ -63,7 +80,7 @@ jobs:
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add scripts/smoke-admin-runtime.mjs package-lock.json
+          git add scripts/smoke-admin-runtime.mjs src/app/admin/page.tsx package-lock.json
           git diff --cached --quiet && exit 0
           git commit -m "fix: complete admin smoke and dependency repair"
           git push origin HEAD:${{ github.event.pull_request.head.ref }}
