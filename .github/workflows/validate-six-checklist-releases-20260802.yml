@@ -56,7 +56,7 @@ jobs:
           npm ci
           npm install --no-save --package-lock=false xlsx@0.18.5
 
-      - name: Add fail-closed malformed-row diagnostics
+      - name: Preserve checklist entries whose official card number is unstated
         shell: bash
         run: |
           set -euo pipefail
@@ -64,10 +64,17 @@ jobs:
           from pathlib import Path
           file = Path('scripts/ops/validate-six-checklist-releases-20260802.mjs')
           text = file.read_text()
-          old = 'if (malformed.length) throw new Error(`${source.id} has ${malformed.length} malformed populated rows`);'
-          new = 'if (malformed.length) throw new Error(`${source.id} has ${malformed.length} malformed populated rows: ${JSON.stringify(malformed)}`);'
+          old = '''    if (!physicalSet || !number || !name) { malformed.push({row:i+1,physicalSet,number,name,team,printRun}); continue; }
+              rows.push({sourceRow:i+1,physicalSet,number,name,team,printRun,odds});
+            }
+            if (malformed.length) throw new Error(`${source.id} has ${malformed.length} malformed populated rows`);'''
+          new = '''    const effectiveNumber = number || (physicalSet && name ? `UNN-${sha256(`${normalizeText(physicalSet)}|${normalizeText(name)}|${normalizeText(team)}`).slice(0,16)}` : "");
+              if (!physicalSet || !effectiveNumber || !name) { malformed.push({row:i+1,physicalSet,number,name,team,printRun}); continue; }
+              rows.push({sourceRow:i+1,physicalSet,number:effectiveNumber,sourceNumber:number || null,name,team,printRun,odds});
+            }
+            if (malformed.length) throw new Error(`${source.id} has ${malformed.length} malformed populated rows: ${JSON.stringify(malformed)}`);'''
           if text.count(old) != 1:
-              raise SystemExit('Malformed-row diagnostic patch did not match exactly once')
+              raise SystemExit('Unnumbered-card patch did not match exactly once')
           file.write_text(text.replace(old, new, 1))
           PY
 
