@@ -1,25 +1,28 @@
 import assert from "node:assert/strict";
+import type { KingmakerPricingDecision } from "../src/lib/kingmaker-pricing-decision";
 import { buildKingmakerPricingDecisionReceiptRow } from "../src/lib/kingmaker-pricing-decision-receipt-server";
 
-const decision = {
-  schema: "tcos.kingmaker.pricingDecision.v1" as const,
-  status: "ready" as const,
+const decision: KingmakerPricingDecision = {
+  schema: "tcos.kingmaker.pricingDecision.v1",
+  status: "ready",
   suggestedListPrice: 120,
+  minimumProfitableListPrice: 88,
   buyCeiling: 70,
+  estimatedNetProceeds: 95,
+  estimatedProfitAtCeiling: 25,
   marketMedian: 110,
   referenceMidpoint: 100,
-  estimatedNetProceeds: 95,
-  expectedProfit: 25,
-  minimumProfitableListPrice: 88,
   confidence: 0.91,
   soldCompCount: 4,
+  economics: {
+    marketplaceFeePct: 0.08,
+    paymentFeePct: 0.029,
+    paymentFixedFee: 0.3,
+    shippingCost: 6.99,
+    targetMarginPct: 0.3,
+  },
   reviewReasons: [],
-  marketplaceFeePct: 0.08,
-  paymentFeePct: 0.029,
-  paymentFixedFee: 0.3,
-  shippingCost: 6.99,
-  targetMarginPct: 0.3,
-  boundary: "advisory_only" as const,
+  boundary: "advisory_only",
 };
 
 const sellerRow = buildKingmakerPricingDecisionReceiptRow({
@@ -47,9 +50,11 @@ assert.equal(sellerRow.identity_id, "identity-1");
 assert.equal(sellerRow.profile_selection, "default");
 assert.equal(sellerRow.boundary, "advisory_only");
 assert.equal(sellerRow.expected_profit, 25);
+assert.equal(sellerRow.marketplace_fee_pct, 0.08);
+assert.equal(sellerRow.target_margin_pct, 0.3);
 
 const adminFallback = buildKingmakerPricingDecisionReceiptRow({
-  actor: { type: "admin", storeId: "store-1" },
+  actor: { type: "admin", storeId: "store-1", sellerAccountId: null },
   identityId: "identity-2",
   profileResolution: {
     selection: "fallback",
@@ -64,7 +69,15 @@ const adminFallback = buildKingmakerPricingDecisionReceiptRow({
       isDefault: true,
     },
   },
-  decision: { ...decision, status: "review_required", suggestedListPrice: null, buyCeiling: null },
+  decision: {
+    ...decision,
+    status: "review_required",
+    suggestedListPrice: null,
+    minimumProfitableListPrice: null,
+    buyCeiling: null,
+    estimatedNetProceeds: null,
+    estimatedProfitAtCeiling: null,
+  },
 });
 
 assert.equal(adminFallback.seller_account_id, null);
