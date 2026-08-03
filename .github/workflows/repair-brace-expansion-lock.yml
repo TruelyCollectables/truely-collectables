@@ -1,0 +1,50 @@
+name: Repair Brace Expansion Lock
+
+on:
+  push:
+    branches:
+      - fix/brace-expansion-advisory-20260803
+    paths:
+      - vendor/brace-expansion-compat/**
+      - package-lock.json
+      - .github/workflows/repair-brace-expansion-lock.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  repair-lock:
+    if: ${{ !contains(github.event.head_commit.message, '[lock-refresh]') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/brace-expansion-advisory-20260803
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Regenerate lockfile
+        run: npm install --package-lock-only --ignore-scripts
+      - name: Verify advisory removed
+        run: |
+          npm ci --ignore-scripts
+          npm audit --audit-level=high
+          node - <<'NODE'
+          const expand = require('brace-expansion')
+          const result = expand('{a,b}{1,2}')
+          if (!Array.isArray(result) || result.length !== 4) process.exit(1)
+          NODE
+      - name: Commit lockfile
+        run: |
+          if git diff --quiet -- package-lock.json; then
+            echo 'Lockfile already current.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add package-lock.json
+          git commit -m 'Refresh dependency lock [lock-refresh]'
+          git push
