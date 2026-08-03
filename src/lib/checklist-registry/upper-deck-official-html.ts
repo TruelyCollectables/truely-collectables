@@ -12,9 +12,9 @@ export const UPPER_DECK_OFFICIAL_HTML_ADAPTER_VERSION = "1.0.0" as const;
 
 function inferredSportFromSource(artifact: ChecklistSourceArtifact) {
   const context = `${artifact.sourceUrl} ${artifact.originalFilename}`.toLowerCase();
-  if (context.includes("hockey")) return { sport: "Hockey", league: "NHL" };
   if (context.includes("pwhl")) return { sport: "Hockey", league: "PWHL" };
   if (context.includes("ahl")) return { sport: "Hockey", league: "AHL" };
+  if (context.includes("hockey")) return { sport: "Hockey", league: "NHL" };
   if (context.includes("golf")) return { sport: "Golf", league: null };
   if (context.includes("aew")) return { sport: "Wrestling", league: "AEW" };
   return null;
