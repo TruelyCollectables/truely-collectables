@@ -8,7 +8,7 @@ import { parseUpperDeckOfficialHtmlChecklist } from "./upper-deck-official-html"
 
 export const UPPER_DECK_MVP_OFFICIAL_HTML_ADAPTER_ID =
   "upper-deck-mvp-official-html-checklist" as const;
-export const UPPER_DECK_MVP_OFFICIAL_HTML_ADAPTER_VERSION = "1.0.1" as const;
+export const UPPER_DECK_MVP_OFFICIAL_HTML_ADAPTER_VERSION = "1.0.2" as const;
 
 type CanonicalBaseRow = {
   description: string;
@@ -70,6 +70,7 @@ function sanitizeMvpSource(html: string) {
   );
   const canonical = new Map<string, CanonicalBaseRow>();
   let spreadsheetLeakRepairs = 0;
+  let duplicateBaseOwnerRepairs = 0;
   let parallelOwnerRepairs = 0;
 
   for (const row of rows) {
@@ -81,11 +82,14 @@ function sanitizeMvpSource(html: string) {
     const rawDescription = text(cells[2].inner);
     const description = cleanSpreadsheetLeak(rawDescription);
     if (description !== rawDescription) spreadsheetLeakRepairs += 1;
-    canonical.set(cardNumber.toLowerCase(), {
-      description,
-      teamCity: text(cells[3].inner),
-      teamName: text(cells[4].inner),
-    });
+    const key = cardNumber.toLowerCase();
+    if (!canonical.has(key)) {
+      canonical.set(key, {
+        description,
+        teamCity: text(cells[3].inner),
+        teamName: text(cells[4].inner),
+      });
+    }
   }
 
   const repaired = html.replace(/<tr\b[^>]*>[\s\S]*?<\/tr>/gi, (rowHtml) => {
@@ -103,9 +107,20 @@ function sanitizeMvpSource(html: string) {
     const currentTeam = text(cells[4].inner);
 
     if (isCanonicalMvpBaseSet(setName, rawCardNumber)) {
-      if (currentDescription !== text(cells[2].inner)) {
-        output = replaceCell(output, cells[2].full, cells[2].attributes, currentDescription);
+      if (
+        currentDescription === base.description &&
+        currentCity === base.teamCity &&
+        currentTeam === base.teamName
+      ) {
+        if (currentDescription !== text(cells[2].inner)) {
+          output = replaceCell(output, cells[2].full, cells[2].attributes, currentDescription);
+        }
+        return output;
       }
+      output = replaceCell(output, cells[2].full, cells[2].attributes, base.description);
+      output = replaceCell(output, cells[3].full, cells[3].attributes, base.teamCity);
+      output = replaceCell(output, cells[4].full, cells[4].attributes, base.teamName);
+      duplicateBaseOwnerRepairs += 1;
       return output;
     }
 
@@ -128,6 +143,7 @@ function sanitizeMvpSource(html: string) {
   return {
     html: repaired,
     spreadsheetLeakRepairs,
+    duplicateBaseOwnerRepairs,
     parallelOwnerRepairs,
   };
 }
@@ -170,6 +186,14 @@ export function parseUpperDeckMvpOfficialHtmlChecklist(
               code: "official_source_spreadsheet_leak_repaired",
               severity: "warning" as const,
               message: `Removed ${repaired.spreadsheetLeakRepairs} trailing spreadsheet range artifact(s) from MVP subject text while retaining the original source archive.`,
+              rowReference: null,
+            }]
+          : []),
+        ...(repaired.duplicateBaseOwnerRepairs
+          ? [{
+              code: "official_source_duplicate_base_owner_reconciled",
+              severity: "warning" as const,
+              message: `Reconciled ${repaired.duplicateBaseOwnerRepairs} duplicate MVP Base Set row(s) to the first official same-number owner while retaining the original source archive.`,
               rowReference: null,
             }]
           : []),
