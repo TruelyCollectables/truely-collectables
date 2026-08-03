@@ -1,4 +1,5 @@
 name: Topps Baseball Catalog Accelerator
+run-name: Topps Baseball Catalog Accelerator — ${{ github.event_name }}
 
 on:
   push:
@@ -6,7 +7,7 @@ on:
       - main
     paths:
       - ".github/workflows/topps-baseball-catalog-accelerator.yml"
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 permissions:
   contents: read
