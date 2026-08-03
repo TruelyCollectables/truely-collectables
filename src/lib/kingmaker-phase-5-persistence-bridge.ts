@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { KingmakerCommandCenterDecision, KingmakerOwnerActionRequest } from "./kingmaker-phase-5-command-center";
-import type { KingmakerAdapterRunResult, KingmakerRuntimeEvent } from "./kingmaker-phase-5-operations-runtime";
+import type { KingmakerAdapterResult, KingmakerRuntimeEvent } from "./kingmaker-phase-5-operations-runtime";
 
 export type KingmakerPersistenceOperation = {
   table: "tcos_kingmaker_live_cycles" | "tcos_kingmaker_live_decisions" | "tcos_kingmaker_source_adapter_runs" | "tcos_kingmaker_owner_actions";
@@ -33,7 +33,7 @@ export function buildKingmakerPersistencePlan(input: {
   cycleFingerprint: string;
   snapshot: Record<string, unknown>;
   decisions: KingmakerCommandCenterDecision[];
-  adapterRuns: KingmakerAdapterRunResult[];
+  adapterRuns: KingmakerAdapterResult[];
   events: KingmakerRuntimeEvent[];
   ownerActions?: KingmakerOwnerActionRequest[];
 }): KingmakerPersistencePlan {
@@ -85,6 +85,7 @@ export function buildKingmakerPersistencePlan(input: {
 
   for (const run of input.adapterRuns) {
     const runFingerprint = hash({ cycle: input.cycleFingerprint, run });
+    const status = run.error ? "offline" : run.rateLimited || run.rejected > run.observations.length ? "degraded" : "healthy";
     operations.push(operation({
       table: "tcos_kingmaker_source_adapter_runs",
       conflictTarget: "run_fingerprint",
@@ -100,8 +101,8 @@ export function buildKingmakerPersistencePlan(input: {
         rejected: run.rejected,
         retries: run.retries,
         rate_limited: run.rateLimited,
-        status: run.status,
-        error: run.error,
+        status,
+        error: run.error ?? null,
         payload: run,
       },
     }));
