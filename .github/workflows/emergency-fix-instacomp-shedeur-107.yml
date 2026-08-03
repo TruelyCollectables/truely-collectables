@@ -1,0 +1,150 @@
+name: Emergency Fix InstaComp Shedeur 107
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/emergency-fix-instacomp-shedeur-107.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-push:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Patch exact checklist resolver
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/lib/instacomp-learning-server.ts')
+          s = p.read_text()
+          def r(old, new, name):
+              global s
+              if old not in s:
+                  raise SystemExit(f'missing expected block: {name}')
+              s = s.replace(old, new, 1)
+          r('''function checklistParallelTokens(value: unknown) {
+            return normalizedText(value)
+              .replace(/\\bcracked\\s+ice\\b/g, "ice")
+          ''','''function checklistParallelTokens(value: unknown) {
+            return normalizedText(value)
+              .replace(/\\bcracked\\s+ice\\b/g, "ice")
+              .replace(/\\bfoil\\b/g, "holo")
+          ''','foil-holo alias')
+          r('''    if (teams.length && !targetTeam) continue;
+              if (
+                targetTeam &&
+                !teams.some((team: string) => normalizedText(team) === targetTeam)
+              ) {
+                continue;
+              }
+
+              const registrySport = normalizedText(release.sport?.name);
+              const registryLeague = normalizedText(release.league?.name);
+              if (registrySport && (!targetSport || registrySport !== targetSport)) continue;
+              if (registryLeague && targetLeague && registryLeague !== targetLeague) continue;
+          ''','''    if (
+                targetTeam &&
+                !teams.some((team: string) => normalizedText(team) === targetTeam)
+              ) {
+                continue;
+              }
+
+              const registrySport = normalizedText(release.sport?.name);
+              const registryLeague = normalizedText(release.league?.name);
+              if (registrySport && targetSport && registrySport !== targetSport) continue;
+              if (registryLeague && targetLeague && registryLeague !== targetLeague) continue;
+          ''','optional team sport')
+          r('''      const registryVariation = normalizedText(identity.variation || card.variation);
+                if (registryVariation || targetVariation) {
+                  if (!registryVariation || !targetVariation || registryVariation !== targetVariation) {
+                    continue;
+                  }
+                }
+          ''','''      const registryVariation = normalizedText(identity.variation || card.variation);
+                if (targetVariation && registryVariation !== targetVariation) continue;
+          ''','optional variation')
+          r('''      if (registryLanguage || targetLanguage) {
+                  if (!registryLanguage || !targetLanguage || registryLanguage !== targetLanguage) {
+                    continue;
+                  }
+                }
+          ''','''      if (targetLanguage && registryLanguage !== targetLanguage) continue;
+          ''','optional language')
+          r('''      if (registryConfiguration || targetConfiguration) {
+                  if (
+                    !registryConfiguration ||
+                    !targetConfiguration ||
+                    registryConfiguration !== targetConfiguration
+                  ) {
+                    continue;
+                  }
+                }
+          ''','''      if (targetConfiguration && registryConfiguration !== targetConfiguration) {
+                  continue;
+                }
+          ''','optional configuration')
+          r('''  for (const card of rows) {
+              const players = Array.isArray(card.players)
+          ''','''  for (const card of rows) {
+              if (normalizedCardNumber(card.card_number) !== normalizedCardNumber(ai.cardNumber)) {
+                continue;
+              }
+
+              const players = Array.isArray(card.players)
+          ''','card number gate')
+          p.write_text(s)
+          PY
+      - name: Create exact live regression
+        shell: bash
+        run: |
+          cat > scripts/run-instacomp-live-shedeur-107-regression.ts <<'TS'
+          import assert from "node:assert/strict";
+          import { chooseRegistryMatch } from "../src/lib/instacomp-learning-server";
+          const row = {
+            card_number: "107", variation: "Rookie",
+            players: [{ player: { canonical_name: "Shedeur Sanders" } }],
+            teams: [{ team: { canonical_name: "Cleveland Browns" } }],
+            release: { release_year: "2025", season: "2025", manufacturer: { name: "Panini" }, brand: { name: "Origins" }, product_name: "Panini Origins Football", sport: { name: "Football" }, league: { name: "NFL" } },
+            set: { name: "Base" }, autograph_status: "none", memorabilia_status: "none",
+            identities: [{ id: "shedeur-107-holo-blue-199", fingerprint_sha256: "a".repeat(64), parallel: { name: "Holo Blue", serial_run: 199 }, variation: "Rookie", autograph_status: "none", memorabilia_status: "none", metadata: { languageCode: "en" }, canonical_key: "configuration=hobby" }],
+          };
+          const scan = { player: "Shedeur Sanders", year: "2025", brand: "Panini", setName: "Origins Football Base", cardNumber: "107", parallel: "Blue Foil", serialNumber: "162/199", isAuto: false, isRelic: false };
+          assert.equal(chooseRegistryMatch(scan, [row])?.identityId, "shedeur-107-holo-blue-199");
+          assert.equal(chooseRegistryMatch({ ...scan, cardNumber: "108" }, [row]), null);
+          assert.equal(chooseRegistryMatch({ ...scan, parallel: "Red Foil" }, [row]), null);
+          assert.equal(chooseRegistryMatch({ ...scan, serialNumber: "162/99" }, [row]), null);
+          console.log("Shedeur #107 Holo Blue /199 exact checklist regression passed.");
+          TS
+      - name: Test and build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder
+        run: |
+          npx tsx scripts/run-instacomp-live-shedeur-107-regression.ts
+          npx tsx scripts/run-instacomp-serial-color-gate-regressions.ts
+          npx tsx scripts/run-instacomp-evidence-first-regressions.ts
+          npx eslint src/lib/instacomp-learning-server.ts scripts/run-instacomp-live-shedeur-107-regression.ts
+          npm run build
+      - name: Push validated fix to main
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/instacomp-learning-server.ts scripts/run-instacomp-live-shedeur-107-regression.ts
+          git commit -m "Fix Shedeur 107 Holo Blue checklist resolution"
+          git push origin HEAD:main
