@@ -13,6 +13,7 @@ import type {
 } from "./source-adapter";
 import { CHECKLIST_SOURCE_BUCKET } from "./storage";
 import { tcgdexJapaneseSetBundleAdapter } from "./tcgdex-japanese";
+import { toppsBaseballTextChecklistAdapter } from "./topps-baseball-text-adapter";
 import { upperDeckOfficialHtmlChecklistAdapter } from "./upper-deck-official-html";
 
 const CHECKLIST_ADAPTERS: ChecklistSourceAdapter[] = [
@@ -25,6 +26,7 @@ const CHECKLIST_ADAPTERS: ChecklistSourceAdapter[] = [
   pokemonTcgDataSourceIdSafeAdapter,
   upperDeckOfficialHtmlChecklistAdapter,
   paniniStructuredChecklistAdapter,
+  toppsBaseballTextChecklistAdapter,
 ];
 
 export const CHECKLIST_IMPORT_COMPLEXITY_LIMITS = {
@@ -150,10 +152,11 @@ export async function importChecklistArtifact(params: {
   }
 
   const supabase = serviceClient();
+  const archiveContent = params.artifact.archiveContent ?? params.artifact.content;
   const content =
-    typeof params.artifact.content === "string"
-      ? Buffer.from(params.artifact.content, "utf8")
-      : Buffer.from(params.artifact.content);
+    typeof archiveContent === "string"
+      ? Buffer.from(archiveContent, "utf8")
+      : Buffer.from(archiveContent);
   const storage = plan.source.storage;
   let uploadedByThisRequest = false;
 
