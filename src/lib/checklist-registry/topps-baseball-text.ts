@@ -73,7 +73,7 @@ function normalizedHeading(value: string) {
 
 function splitJoinedCards(line: string) {
   const normalized = clean(line);
-  const boundaries = [...normalized.matchAll(/(?<!^)(?=\d{1,3}\s+[A-ZÀ-ÖØ-Ý])/g)].map(
+  const boundaries = [...normalized.matchAll(/(?<=[A-Za-zÀ-ÖØ-öø-ÿ])(?=\d{1,4}\s+[A-ZÀ-ÖØ-Ý])/g)].map(
     (match) => match.index || 0,
   );
   if (!boundaries.length) return [normalized];
