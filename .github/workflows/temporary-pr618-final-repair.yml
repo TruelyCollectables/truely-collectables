@@ -70,6 +70,7 @@ jobs:
           npm audit --omit=dev --json > /tmp/audit-before.json || true
           node -e "const a=require('/tmp/audit-before.json'); console.log('BEFORE', JSON.stringify(a.vulnerabilities,null,2))"
           npm audit fix --omit=dev || true
+          npm install --ignore-scripts
           npm audit --omit=dev --json > /tmp/audit-after.json || true
           node -e "const a=require('/tmp/audit-after.json'); console.log('AFTER', JSON.stringify(a.vulnerabilities,null,2)); if((a.metadata?.vulnerabilities?.moderate||0)>0||(a.metadata?.vulnerabilities?.high||0)>0||(a.metadata?.vulnerabilities?.critical||0)>0) process.exit(1)"
       - name: Validate repaired surfaces
