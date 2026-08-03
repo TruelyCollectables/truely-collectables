@@ -29,20 +29,37 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Repair initial workbench load effect
+      - name: Repair workbench effect and types
         run: |
           node <<'NODE'
           const fs = require('node:fs');
           const path = 'src/app/admin/instacomp/pricing/_components/pricing-workbench.tsx';
           let source = fs.readFileSync(path, 'utf8');
-          const before = `  useEffect(() => {\n    void refresh();\n  }, []);`;
-          const after = `  useEffect(() => {\n    const initialLoad = window.setTimeout(() => {\n      void refresh();\n    }, 0);\n\n    return () => window.clearTimeout(initialLoad);\n  }, []);`;
-          if (source.includes(before)) {
-            source = source.replace(before, after);
-            fs.writeFileSync(path, source);
-          } else if (!source.includes('const initialLoad = window.setTimeout')) {
-            throw new Error('pricing workbench effect anchor not found');
-          }
+
+          const effectBefore = `  useEffect(() => {\n    void refresh();\n  }, []);`;
+          const effectAfter = `  useEffect(() => {\n    const initialLoad = window.setTimeout(() => {\n      void refresh();\n    }, 0);\n\n    return () => window.clearTimeout(initialLoad);\n  }, []);`;
+          if (source.includes(effectBefore)) source = source.replace(effectBefore, effectAfter);
+          if (!source.includes('const initialLoad = window.setTimeout')) throw new Error('pricing workbench effect repair missing');
+
+          const mapBefore = `          {(loading ? Array.from({ length: 4 }) : cards).map((card, index) => loading ? (\n            <div key={index} className="h-32 animate-pulse rounded-3xl border border-neutral-200 bg-white" />\n          ) : (\n            <MetricCard key={card.label} {...card} />\n          ))}`;
+          const mapAfter = `          {loading\n            ? Array.from({ length: 4 }, (_, index) => (\n                <div key={index} className="h-32 animate-pulse rounded-3xl border border-neutral-200 bg-white" />\n              ))\n            : cards.map((card) => <MetricCard key={card.label} {...card} />)}`;
+          if (source.includes(mapBefore)) source = source.replace(mapBefore, mapAfter);
+          if (!source.includes(': cards.map((card) => <MetricCard')) throw new Error('metric rendering repair missing');
+
+          source = source.replace(
+            'function buildCards(mode: Mode, snapshot: Snapshot) {',
+            'function buildCards(mode: Mode, snapshot: Snapshot): Array<{ label: string; value: string; detail: string }> {'
+          );
+          source = source.replace(
+            'function ReceiptPanel({ snapshot }: { snapshot: Snapshot }) {\n  const rows = [',
+            'function ReceiptPanel({ snapshot }: { snapshot: Snapshot }) {\n  const rows: Array<[string, number, string]> = ['
+          );
+          source = source.replace(
+            'function ReviewPanel({ snapshot }: { snapshot: Snapshot }) {\n  const rows = [',
+            'function ReviewPanel({ snapshot }: { snapshot: Snapshot }) {\n  const rows: Array<[string, number, string]> = ['
+          );
+
+          fs.writeFileSync(path, source);
           NODE
       - name: Validate repair
         run: |
@@ -55,5 +72,5 @@ jobs:
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add src/app/admin/instacomp/pricing/_components/pricing-workbench.tsx
           git diff --cached --quiet && exit 0
-          git commit -m "fix: defer pricing workbench initial refresh"
+          git commit -m "fix: stabilize pricing workbench loading and types"
           git push origin HEAD:${{ github.event.pull_request.head.ref }}
