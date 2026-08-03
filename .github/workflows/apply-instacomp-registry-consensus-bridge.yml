@@ -39,37 +39,29 @@ jobs:
 
           path = Path("src/lib/instacomp-learning-server.ts")
           text = path.read_text()
-          old = '''  const identity = {
-            manufacturer: match.manufacturer,
-            brand: match.brand,
-            product: match.product,
-            player: match.player,
-            year: match.year,
-            setName: match.setName,
-            cardNumber: match.cardNumber,
-            parallel: match.parallel,
-            variation: match.variation,
-          '''
-          new = '''  const identity = {
-            manufacturer: match.manufacturer,
-            brand: match.manufacturer || match.brand,
-            registryBrand: match.brand,
-            product: match.product,
-            player: match.player,
-            year: match.year,
-            setName: match.product || match.setName,
-            registrySetName: match.setName,
-            cardNumber: match.cardNumber,
-            parallel: match.parallel,
-            variation: match.variation,
-          '''
-          if new in text:
-              print("Registry consensus identity mapping is already applied.")
-          else:
+          replacements = [
+              (
+                  "    brand: match.brand,",
+                  "    brand: match.manufacturer || match.brand,\n    registryBrand: match.brand,",
+              ),
+              (
+                  "    setName: match.setName,",
+                  "    setName: match.product || match.setName,\n    registrySetName: match.setName,",
+              ),
+          ]
+          changed = False
+          for old, new in replacements:
+              if new in text:
+                  continue
               if text.count(old) != 1:
-                  raise SystemExit("Expected Registry identity mapping block was not found exactly once.")
-              path.write_text(text.replace(old, new, 1))
+                  raise SystemExit(f"Expected field mapping was not found exactly once: {old}")
+              text = text.replace(old, new, 1)
+              changed = True
+          if changed:
+              path.write_text(text)
               print("Applied Registry manufacturer/product consensus mapping.")
+          else:
+              print("Registry consensus identity mapping is already applied.")
           PY
 
       - name: Run exact Registry bridge and identity firewall regressions
