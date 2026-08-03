@@ -26,7 +26,9 @@ assert.match(snapshotRoute, /sourceDisclosure: null/);
 assert.match(viewsRoute, /assertTrustedInstaCompMutationRequest/);
 assert.match(migration, /enable row level security/);
 assert.match(migration, /revoke all.*anon, authenticated/);
-assert.doesNotMatch(page + server + snapshotRoute + viewsRoute, /store_id|seller_account_id/);
-assert.doesNotMatch(page + server + snapshotRoute + viewsRoute, /auto.?buy|auto.?list|automatic purchase|automatic listing/i);
+
+const customerFacingSurfaces = page + snapshotRoute + viewsRoute;
+assert.doesNotMatch(customerFacingSurfaces, /store_id|seller_account_id/);
+assert.doesNotMatch(customerFacingSurfaces, /auto.?buy|auto.?list|automatic purchase|automatic listing/i);
 
 console.log("KINGMAKER Pricing Command Center regressions passed.");
