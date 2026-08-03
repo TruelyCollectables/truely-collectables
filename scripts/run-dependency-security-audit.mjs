@@ -24,12 +24,22 @@ function auditJson(args) {
   }
 }
 
-function advisoryUrls(vulnerability) {
-  const via = Array.isArray(vulnerability?.via) ? vulnerability.via : [];
-  return via
-    .filter((entry) => entry && typeof entry === "object")
-    .map((entry) => entry.url)
-    .filter(Boolean);
+function resolveAdvisoryUrls(name, vulnerabilities, visiting = new Set()) {
+  if (visiting.has(name)) return new Set();
+  const vulnerability = vulnerabilities[name];
+  if (!vulnerability) return new Set();
+
+  const nextVisiting = new Set(visiting);
+  nextVisiting.add(name);
+  const urls = new Set();
+  for (const entry of Array.isArray(vulnerability.via) ? vulnerability.via : []) {
+    if (typeof entry === "string") {
+      for (const url of resolveAdvisoryUrls(entry, vulnerabilities, nextVisiting)) urls.add(url);
+    } else if (entry && typeof entry === "object" && typeof entry.url === "string") {
+      urls.add(entry.url);
+    }
+  }
+  return urls;
 }
 
 const production = auditJson(["--omit=dev", "--audit-level=moderate"]);
@@ -38,25 +48,31 @@ assert.equal(production.metadata?.vulnerabilities?.high ?? 0, 0, "Production dep
 assert.equal(production.metadata?.vulnerabilities?.critical ?? 0, 0, "Production dependency audit found critical vulnerabilities");
 
 const full = auditJson(["--audit-level=high"]);
-const vulnerabilities = Object.entries(full.vulnerabilities ?? {});
-const blocking = vulnerabilities.filter(([, vulnerability]) => {
-  const severity = vulnerability?.severity;
-  if (severity !== "high" && severity !== "critical") return false;
-  return !advisoryUrls(vulnerability).includes(ALLOWED_ADVISORY);
-});
-
-assert.deepEqual(
-  blocking.map(([name]) => name),
-  [],
-  `Unexpected high/critical dependency advisories: ${blocking.map(([name]) => name).join(", ")}`,
+const vulnerabilityMap = full.vulnerabilities ?? {};
+const highOrCritical = Object.entries(vulnerabilityMap).filter(([, vulnerability]) =>
+  vulnerability?.severity === "high" || vulnerability?.severity === "critical",
 );
 
-const allowedHigh = vulnerabilities.filter(([, vulnerability]) => {
-  const severity = vulnerability?.severity;
-  return (severity === "high" || severity === "critical") && advisoryUrls(vulnerability).includes(ALLOWED_ADVISORY);
+const classified = highOrCritical.map(([name, vulnerability]) => {
+  const urls = [...resolveAdvisoryUrls(name, vulnerabilityMap)].sort();
+  return {
+    name,
+    severity: vulnerability.severity,
+    urls,
+    accepted: urls.length > 0 && urls.every((url) => url === ALLOWED_ADVISORY),
+  };
 });
 
-if (allowedHigh.length > 0) {
+const blocking = classified.filter((entry) => !entry.accepted);
+assert.deepEqual(
+  blocking.map((entry) => ({ name: entry.name, urls: entry.urls })),
+  [],
+  `Unexpected high/critical dependency advisories: ${blocking.map((entry) => `${entry.name}[${entry.urls.join(",") || "unresolved"}]`).join(", ")}`,
+);
+
+const acceptedPackages = classified.filter((entry) => entry.accepted).map((entry) => entry.name).sort();
+if (acceptedPackages.length > 0) {
+  assert.ok(acceptedPackages.includes("brace-expansion"), "Allowed advisory chain does not include brace-expansion");
   assert.equal(sha256(SHIM_PATH), EXPECTED_SHIM_SHA256, "Patched brace-expansion compatibility shim changed");
   assert.equal(sha256(SHIM_PACKAGE_PATH), EXPECTED_PACKAGE_SHA256, "Patched brace-expansion package metadata changed");
 
@@ -76,6 +92,6 @@ if (allowedHigh.length > 0) {
 console.log(JSON.stringify({
   ok: true,
   productionVulnerabilities: production.metadata?.vulnerabilities ?? {},
-  acceptedAdvisory: allowedHigh.length > 0 ? ALLOWED_ADVISORY : null,
-  acceptedPackages: allowedHigh.map(([name]) => name).sort(),
+  acceptedAdvisory: acceptedPackages.length > 0 ? ALLOWED_ADVISORY : null,
+  acceptedPackages,
 }, null, 2));
