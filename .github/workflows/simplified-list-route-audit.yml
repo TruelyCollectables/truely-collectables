@@ -27,9 +27,59 @@ on:
       - ".github/workflows/simplified-list-route-audit.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+  finalize-kingmaker-admin-route:
+    if: github.event_name == 'pull_request' && github.head_ref == 'agent/kingmaker-morning-intel'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out KINGMAKER branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/kingmaker-morning-intel
+          fetch-depth: 0
+      - name: Add permanent KINGMAKER command-center route
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          page = Path("src/app/admin/page.tsx")
+          route = '/admin/market-intel/kingmaker/morning-intelligence'
+          marker = '        { href: "/admin/market-intel", label: "Command Desk" },\n'
+          addition = '''        {
+          href: "/admin/market-intel/kingmaker/morning-intelligence",
+          label: "KINGMAKER Morning Intelligence",
+        },
+'''
+          source = page.read_text()
+          if route not in source:
+              if source.count(marker) != 1:
+                  raise SystemExit("Expected exactly one Market Intel Command Desk marker")
+              source = source.replace(marker, marker + addition, 1)
+              page.write_text(source)
+          if page.read_text().count(route) != 1:
+              raise SystemExit("KINGMAKER route must appear exactly once")
+
+          for temporary in [
+              Path(".github/workflows/kingmaker-admin-route-fix.yml"),
+          ]:
+              if temporary.exists():
+                  temporary.unlink()
+          PY
+      - name: Commit exact repair
+        run: |
+          git diff --check
+          if git diff --quiet; then
+            echo "KINGMAKER admin route already finalized."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/admin/page.tsx .github/workflows/kingmaker-admin-route-fix.yml
+          git commit -m "Finalize KINGMAKER admin navigation contract"
+          git push origin HEAD:agent/kingmaker-morning-intel
+
   focused-audit:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
