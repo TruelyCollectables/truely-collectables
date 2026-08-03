@@ -115,7 +115,7 @@ jobs:
           })().catch((error) => { console.error(error); process.exit(1); });
           NODE
 
-      - name: Apply fail-closed service-role escalation patch
+      - name: Apply fail-closed service-role and payload-integrity patch
         shell: bash
         run: |
           set -euo pipefail
@@ -170,6 +170,62 @@ jobs:
                   }
                   await client.query("set local statement_timeout = '120s'");''',
           'connect privilege escalation')
+
+          replace_once(
+          '''        const probe = await client.query(
+                    `select
+                      jsonb_array_length(($1::jsonb)->'cards')::integer as cards,
+                      jsonb_array_length(($1::jsonb)->'identities')::integer as identities,
+                      octet_length($1::text)::integer as serialized_bytes`,
+                    [serialized],
+                  );
+                  const observed = probe.rows?.[0];
+                  if (
+                    Number(observed?.cards) !== entry.source.expected.cards ||
+                    Number(observed?.identities) !== entry.source.expected.identities ||
+                    Number(observed?.serialized_bytes) !==
+                      Buffer.byteLength(serialized, "utf8")
+                  ) {
+                    throw new Error(`${entry.source.id} PostgreSQL payload probe failed.`);
+                  }
+                  payloads.push({
+                    id: entry.source.id,
+                    cards: Number(observed.cards),
+                    identities: Number(observed.identities),
+                    serializedBytes: Number(observed.serialized_bytes),
+                  });''',
+          '''        const expectedPayloadSha256 = sha256(serialized);
+                  const probe = await client.query(
+                    `select
+                      jsonb_array_length(($1::jsonb)->'cards')::integer as cards,
+                      jsonb_array_length(($1::jsonb)->'identities')::integer as identities,
+                      encode(digest($1::text, 'sha256'), 'hex') as payload_sha256`,
+                    [serialized],
+                  );
+                  const observed = probe.rows?.[0];
+                  const observedPayloadSha256 = String(observed?.payload_sha256 || "");
+                  if (
+                    Number(observed?.cards) !== entry.source.expected.cards ||
+                    Number(observed?.identities) !== entry.source.expected.identities ||
+                    observedPayloadSha256 !== expectedPayloadSha256
+                  ) {
+                    throw new Error(
+                      `${entry.source.id} PostgreSQL payload probe failed: ${JSON.stringify({
+                        observedCards: Number(observed?.cards),
+                        expectedCards: entry.source.expected.cards,
+                        observedIdentities: Number(observed?.identities),
+                        expectedIdentities: entry.source.expected.identities,
+                        payloadShaMatches: observedPayloadSha256 === expectedPayloadSha256,
+                      })}`,
+                    );
+                  }
+                  payloads.push({
+                    id: entry.source.id,
+                    cards: Number(observed.cards),
+                    identities: Number(observed.identities),
+                    payloadSha256: observedPayloadSha256,
+                  });''',
+          'payload integrity probe')
 
           replace_once(
           '''      return {
@@ -241,6 +297,7 @@ jobs:
           path.write_text(text)
           PY
           grep -q 'set local role service_role' scripts/ops/import-upper-deck-proof-releases-20260802.ts
+          grep -q 'payloadShaMatches' scripts/ops/import-upper-deck-proof-releases-20260802.ts
           test "$(grep -c 'writerRole = connected.writerRole' scripts/ops/import-upper-deck-proof-releases-20260802.ts)" -eq 1
 
       - name: Import Allure canary then Series 1 through temporary Postgres login
@@ -262,7 +319,7 @@ jobs:
           if (receipt.schema !== 'tcos.checklist.upperDeckProofProductionImport.v3' || receipt.status !== 'passed') throw new Error('Upper Deck Production receipt did not pass.');
           if (receipt.imports?.length !== 2 || receipt.auditStates?.length !== 3 || receipt.finalTargets?.length !== 2) throw new Error('Upper Deck verification cardinality is wrong.');
           const preflight = receipt.postgresConnectionPreflight || {};
-          if (preflight.writerPrivilegeVerified !== true || !['current_user', 'service_role'].includes(preflight.writerRole) || preflight.delaySeconds !== 35 || preflight.planPayloads?.length !== 2) throw new Error('Temporary PostgreSQL preflight is incomplete.');
+          if (preflight.writerPrivilegeVerified !== true || !['current_user', 'service_role'].includes(preflight.writerRole) || preflight.delaySeconds !== 35 || preflight.planPayloads?.length !== 2 || preflight.planPayloads.some((entry) => !/^[a-f0-9]{64}$/.test(String(entry.payloadSha256 || '')))) throw new Error('Temporary PostgreSQL preflight is incomplete.');
           const totals = receipt.imports.reduce((sum, entry) => ({ cards: sum.cards + Number(entry.counts?.cards || 0), identities: sum.identities + Number(entry.counts?.identities || 0) }), { cards: 0, identities: 0 });
           if (totals.cards !== 2454 || totals.identities !== 7318) throw new Error(`Unexpected totals ${JSON.stringify(totals)}`);
           if (receipt.imports.some((entry) => entry.transport !== 'temporary-postgresql-login')) throw new Error('Wrong writer transport.');
