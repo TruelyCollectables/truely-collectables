@@ -78,4 +78,5 @@ assert(
   "Multiple OpenAI models must not be treated as independent provider families.",
 );
 
+// This is the exact runtime contract exposed by the 75% phone failure.
 console.log("InstaComp independent AI council runtime regressions passed.");
