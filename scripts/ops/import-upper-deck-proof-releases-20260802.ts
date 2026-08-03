@@ -10,31 +10,943 @@ import type {
 } from "../../src/lib/checklist-registry/source-adapter";
 import { CHECKLIST_SOURCE_BUCKET } from "../../src/lib/checklist-registry/storage";
 
-type SourceDefinition = { id: string; url: string; filename: string; expected: { releaseSlug: string; sets: number; cards: number; parallels: number; identities: number; normalizedPlanSha256: string; fingerprints: string[]; }; };
-type AuditTarget = { release_slug: string; release_id: string; active_version_id: string; adapter_id: string | null; cards: number; identities: number; expected_cards: number; expected_identities: number; };
-type AuditState = { releases: number; active_versions: number; active_cards: number; active_identities: number; identity_deficit_versions: number; failed_import_runs: number; registry_public_grants: number; writer_rpc: boolean; private_source_bucket: boolean; targets: AuditTarget[]; };
-type PreparedSource = { source: SourceDefinition; artifact: ChecklistSourceArtifact; plan: ChecklistImportPlan; rawSha256: string; rawSizeBytes: number; normalizedPlanSha256: string; };
+type SourceDefinition = {
+  id: string;
+  url: string;
+  filename: string;
+  expected: {
+    releaseSlug: string;
+    sets: number;
+    cards: number;
+    parallels: number;
+    identities: number;
+    normalizedPlanSha256: string;
+    fingerprints: string[];
+  };
+};
+
+type AuditTarget = {
+  release_slug: string;
+  release_id: string;
+  active_version_id: string;
+  adapter_id: string | null;
+  cards: number;
+  identities: number;
+  expected_cards: number;
+  expected_identities: number;
+};
+
+type AuditState = {
+  releases: number;
+  active_versions: number;
+  active_cards: number;
+  active_identities: number;
+  identity_deficit_versions: number;
+  failed_import_runs: number;
+  registry_public_grants: number;
+  writer_rpc: boolean;
+  private_source_bucket: boolean;
+  targets: AuditTarget[];
+};
+
+type PreparedSource = {
+  source: SourceDefinition;
+  artifact: ChecklistSourceArtifact;
+  plan: ChecklistImportPlan;
+  rawSha256: string;
+  rawSizeBytes: number;
+  normalizedPlanSha256: string;
+};
+
+type TemporaryLoginRole = {
+  role: string;
+  password: string;
+  ttl_seconds: number;
+};
+
+type PoolerCandidate = {
+  host: string;
+  port: number;
+  database: string;
+  user: string;
+  password: string;
+  poolMode: string;
+  source: string;
+};
 
 const EXPECTED_ADAPTER = "upper-deck-official-html-checklist";
 const SOURCES: SourceDefinition[] = [
-  { id: "2025-26-upper-deck-allure-hockey", url: "https://upperdeck.com/checklist/2025-2026-allure-hockey-checklist/", filename: "2025-2026-allure-hockey-checklist.html", expected: { releaseSlug: "2025-2026-allure-hockey-checklist", sets: 29, cards: 1056, parallels: 80, identities: 2900, normalizedPlanSha256: "c58b8ea64a9f8888ca5f9970f702155337c7fe2bc21943fa73d019c073f40d5e", fingerprints: ["0a23ea9b6145cdf06848581757744f3457be39e045c39ac574d2b873198f9753","8745a58544a05a7db6cc5927aef9264e6d8c0da108220eada9b04a7addac6078","f3b226690d0e01c556d9b3b1e03254e8934d11d527f14876b4f8d41f076fbb54","37c9629f99665e30eb437a53dffcebdbd926ebaa83198cd4e494773ce4082aa0"] } },
-  { id: "2024-25-upper-deck-series-1-hockey", url: "https://upperdeck.com/checklist/2024-25-ud-series-1-hockey-checklist/", filename: "2024-25-ud-series-1-hockey-checklist.html", expected: { releaseSlug: "2024-25-ud-series-1-hockey-checklist", sets: 28, cards: 1398, parallels: 66, identities: 4418, normalizedPlanSha256: "eb95670a8a5338cb3000e57c0d05d36c84b15ebecb956b746d6768c5941e739d", fingerprints: ["ac52753699f82515e39bd65f7a8d29914de45a7c481e50b6fdd81a5b08dea104","058ef272d8ca7d30bf7e3d39d6adda6331198f3a75c6b0b683a39ab67a53e03c","7b4685ca5aff3fbe4e4d4ad744c01cf04041f840d249bdb19a21c085b16937a9","c8908644316b81c5b488e1348507a7437560746db059364c7bc8cb4ff2d9d5d1"] } },
+  {
+    id: "2025-26-upper-deck-allure-hockey",
+    url: "https://upperdeck.com/checklist/2025-2026-allure-hockey-checklist/",
+    filename: "2025-2026-allure-hockey-checklist.html",
+    expected: {
+      releaseSlug: "2025-2026-allure-hockey-checklist",
+      sets: 29,
+      cards: 1_056,
+      parallels: 80,
+      identities: 2_900,
+      normalizedPlanSha256:
+        "c58b8ea64a9f8888ca5f9970f702155337c7fe2bc21943fa73d019c073f40d5e",
+      fingerprints: [
+        "0a23ea9b6145cdf06848581757744f3457be39e045c39ac574d2b873198f9753",
+        "8745a58544a05a7db6cc5927aef9264e6d8c0da108220eada9b04a7addac6078",
+        "f3b226690d0e01c556d9b3b1e03254e8934d11d527f14876b4f8d41f076fbb54",
+        "37c9629f99665e30eb437a53dffcebdbd926ebaa83198cd4e494773ce4082aa0",
+      ],
+    },
+  },
+  {
+    id: "2024-25-upper-deck-series-1-hockey",
+    url: "https://upperdeck.com/checklist/2024-25-ud-series-1-hockey-checklist/",
+    filename: "2024-25-ud-series-1-hockey-checklist.html",
+    expected: {
+      releaseSlug: "2024-25-ud-series-1-hockey-checklist",
+      sets: 28,
+      cards: 1_398,
+      parallels: 66,
+      identities: 4_418,
+      normalizedPlanSha256:
+        "eb95670a8a5338cb3000e57c0d05d36c84b15ebecb956b746d6768c5941e739d",
+      fingerprints: [
+        "ac52753699f82515e39bd65f7a8d29914de45a7c481e50b6fdd81a5b08dea104",
+        "058ef272d8ca7d30bf7e3d39d6adda6331198f3a75c6b0b683a39ab67a53e03c",
+        "7b4685ca5aff3fbe4e4d4ad744c01cf04041f840d249bdb19a21c085b16937a9",
+        "c8908644316b81c5b488e1348507a7437560746db059364c7bc8cb4ff2d9d5d1",
+      ],
+    },
+  },
 ];
 
-function requireApplyGate(){ if(!process.argv.includes("--apply")) throw new Error("Production import requires the explicit --apply flag."); if(process.env.ALLOW_PRODUCTION_UPPER_DECK_IMPORT!=="YES") throw new Error("Production import requires ALLOW_PRODUCTION_UPPER_DECK_IMPORT=YES."); }
-function receiptPath(){ const i=process.argv.indexOf("--receipt"); return resolve(process.cwd(),i>=0&&process.argv[i+1]?process.argv[i+1]:"evidence/upper-deck-proof-production.json"); }
-function sha256(v:string|Buffer){ return createHash("sha256").update(v).digest("hex"); }
-function sortedBySourceKey<T extends {sourceKey:string}>(rows:T[]){ return [...rows].sort((a,b)=>a.sourceKey.localeCompare(b.sourceKey)); }
-function normalizedPlanDigest(plan:ChecklistImportPlan){ return sha256(JSON.stringify({schema:"tcos.checklist.normalizedDigest.v1",adapterId:plan.adapterId,adapterVersion:plan.adapterVersion,release:plan.release,sets:sortedBySourceKey(plan.sets),cards:sortedBySourceKey(plan.cards),parallels:sortedBySourceKey(plan.parallels),identities:[...plan.identities].sort((a,b)=>`${a.cardSourceKey}|${a.parallelSourceKey||""}|${a.fingerprint.fingerprintSha256}`.localeCompare(`${b.cardSourceKey}|${b.parallelSourceKey||""}|${b.fingerprint.fingerprintSha256}`))})); }
-function validateExactPlan(plan:ChecklistImportPlan,source:SourceDefinition){ const e=source.expected,c=plan.validation.counts,d=normalizedPlanDigest(plan),f:string[]=[]; for(const [l,a,w] of [["releaseSlug",plan.release.releaseSlug,e.releaseSlug],["adapterId",plan.adapterId,EXPECTED_ADAPTER],["sets",c.sets,e.sets],["cards",c.cards,e.cards],["parallels",c.parallels,e.parallels],["identities",c.identities,e.identities],["normalizedPlanSha256",d,e.normalizedPlanSha256]] as Array<[string,string|number,string|number]>) if(a!==w) f.push(`${l}=${a}, expected=${w}`); if(plan.validation.status!=="passed") f.push(`validationStatus=${plan.validation.status}`); f.push(...plan.validation.issues.filter(i=>i.severity==="error").map(i=>`${i.code}: ${i.message}`)); const fps=plan.identities.map(i=>i.fingerprint.fingerprintSha256); if(new Set(fps).size!==fps.length) f.push("duplicate physical-printing fingerprints generated"); for(const fp of e.fingerprints) if(!fps.includes(fp)) f.push(`missing known fingerprint ${fp}`); if(f.length) throw new Error(`${source.id} validation blocked: ${f.join(", ")}`); return d; }
-async function fetchOfficialHtml(source:SourceDefinition){ const r=await fetch(source.url,{headers:{Accept:"text/html,application/xhtml+xml","Cache-Control":"no-cache","User-Agent":"TCOS-Checklist-Registry/1.0 (+private import; contact sales@truelycollectables.com)"},redirect:"follow",signal:AbortSignal.timeout(60000)}); if(!r.ok) throw new Error(`${source.id} returned HTTP ${r.status} ${r.statusText}`); const ct=r.headers.get("content-type")||""; if(!ct.toLowerCase().includes("text/html")) throw new Error(`${source.id} returned ${ct||"unknown content type"}`); const html=await r.text(),bytes=Buffer.from(html,"utf8"); if(bytes.length<500000||bytes.length>2000000) throw new Error(`${source.id} returned implausible size ${bytes.length}`); return {html,rawSha256:sha256(bytes),rawSizeBytes:bytes.length}; }
-function context(){ const accessToken=String(process.env.GH_SUPABASE_ACCESS_TOKEN||""),productionUrl=String(process.env.NEXT_PUBLIC_SUPABASE_URL||""); if(!accessToken||!productionUrl) throw new Error("Production Management API credentials are incomplete."); const ref=new URL(productionUrl).hostname.split(".")[0]; return {accessToken,productionUrl,endpoint:`https://api.supabase.com/v1/projects/${ref}/database/query`}; }
-async function q(label:string,query:string,parameters:unknown[]=[],readOnly=true){ const {accessToken,endpoint}=context(); const r=await fetch(endpoint,{method:"POST",headers:{Authorization:`Bearer ${accessToken}`,"Content-Type":"application/json"},body:JSON.stringify({query,parameters,read_only:readOnly})}); const t=await r.text(); if(!r.ok) throw new Error(`Supabase ${label} failed with HTTP ${r.status}: ${t.slice(0,1500)}`); const rows=t?JSON.parse(t):[]; if(!Array.isArray(rows)) throw new Error(`Supabase ${label} returned an unexpected payload.`); return rows as Array<Record<string,unknown>>; }
-function targetSlugsSql(){ return SOURCES.map(s=>`'${s.expected.releaseSlug}'`).join(", "); }
-async function auditProduction(label:string):Promise<AuditState>{ const query=`with active_versions as (select * from public.checklist_versions where is_active), identity_counts as (select v.id,v.normalized_identity_count as expected_identities,count(i.id)::bigint as actual_identities from active_versions v left join public.checklist_card_identities i on i.version_id=v.id group by v.id,v.normalized_identity_count), target_rows as (select r.slug as release_slug,r.id as release_id,v.id as active_version_id,r.metadata->>'latestAdapterId' as adapter_id,v.normalized_card_count as expected_cards,v.normalized_identity_count as expected_identities,(select count(*) from public.checklist_cards c where c.version_id=v.id) as cards,(select count(*) from public.checklist_card_identities i where i.version_id=v.id) as identities from public.checklist_releases r join active_versions v on v.release_id=r.id where r.slug in (${targetSlugsSql()})) select json_build_object('releases',(select count(*) from public.checklist_releases),'active_versions',(select count(*) from active_versions),'active_cards',(select count(*) from public.checklist_cards c join active_versions v on v.id=c.version_id),'active_identities',(select count(*) from public.checklist_card_identities i join active_versions v on v.id=i.version_id),'identity_deficit_versions',(select count(*) from identity_counts where actual_identities<>expected_identities),'failed_import_runs',(select count(*) from public.checklist_import_runs where status='failed'),'registry_public_grants',(select count(*) from information_schema.role_table_grants where table_schema='public' and table_name like 'checklist\\_%' escape '\\' and grantee in ('anon','authenticated')),'writer_rpc',to_regprocedure('public.tcos_apply_checklist_import_plan(jsonb,text,text,bigint,text,text,text)') is not null,'private_source_bucket',exists(select 1 from storage.buckets where id='tcos-checklist-source-files' and public=false),'targets',coalesce((select jsonb_agg(to_jsonb(target_rows) order by release_slug) from target_rows),'[]'::jsonb)) as state;`; const rows=await q(`${label} audit`,query); const state=rows?.[0]?.state as AuditState|undefined; if(!state) throw new Error(`Supabase ${label} audit returned no state.`); state.targets=Array.isArray(state.targets)?state.targets:[]; return state; }
-function requireHealthyState(s:AuditState,label:string){ const f:string[]=[]; if(Number(s.identity_deficit_versions)!==0)f.push(`identity_deficit_versions=${s.identity_deficit_versions}`); if(Number(s.failed_import_runs)!==0)f.push(`failed_import_runs=${s.failed_import_runs}`); if(Number(s.registry_public_grants)!==0)f.push(`registry_public_grants=${s.registry_public_grants}`); if(s.writer_rpc!==true)f.push("writer_rpc=false"); if(s.private_source_bucket!==true)f.push("private_source_bucket=false"); if(f.length)throw new Error(`Production ${label} health blocked: ${f.join(", ")}`); }
-function requireImportedTargets(s:AuditState,imported:SourceDefinition[],base:AuditState){ requireHealthyState(s,`after-${imported.length}`); if(s.targets.length!==imported.length)throw new Error(`Production has ${s.targets.length} target releases; expected ${imported.length}`); for(const src of imported){ const t=s.targets.find(r=>r.release_slug===src.expected.releaseSlug); if(!t)throw new Error(`Missing ${src.expected.releaseSlug}`); if(t.adapter_id!==EXPECTED_ADAPTER||Number(t.cards)!==src.expected.cards||Number(t.expected_cards)!==src.expected.cards||Number(t.identities)!==src.expected.identities||Number(t.expected_identities)!==src.expected.identities)throw new Error(`${src.expected.releaseSlug} verification blocked`); } const cards=imported.reduce((n,x)=>n+x.expected.cards,0),ids=imported.reduce((n,x)=>n+x.expected.identities,0); if(Number(s.releases)<Number(base.releases)+imported.length||Number(s.active_versions)<Number(base.active_versions)+imported.length||Number(s.active_cards)<Number(base.active_cards)+cards||Number(s.active_identities)<Number(base.active_identities)+ids)throw new Error("Global Registry totals did not increase by exact target counts."); }
-function serviceClient(){ const {productionUrl}=context(),key=String(process.env.SUPABASE_SERVICE_ROLE_KEY||""); if(!key)throw new Error("Production Supabase service-role key is missing."); return createClient(productionUrl,key,{auth:{persistSession:false,autoRefreshToken:false}}); }
-async function persist(entry:PreparedSource,base:AuditState,expected:SourceDefinition[]){ const supabase=serviceClient(),storage=entry.plan.source.storage,content=typeof entry.artifact.content==="string"?Buffer.from(entry.artifact.content,"utf8"):Buffer.from(entry.artifact.content); const {error:up}=await supabase.storage.from(CHECKLIST_SOURCE_BUCKET).upload(storage.objectPath,content,{contentType:storage.mimeType,upsert:false,cacheControl:"0"}); if(up)throw new Error(`Could not archive ${entry.source.id}: ${up.message}`); try{ const rows=await q(`${entry.source.id} transactional writer`,`select public.tcos_apply_checklist_import_plan($1::jsonb,$2::text,$3::text,$4::bigint,$5::text,$6::text,$7::text) as persistence`,[JSON.stringify(entry.plan),storage.originalFilename,storage.mimeType,storage.sizeBytes,storage.sha256,storage.bucket,storage.objectPath],false); const p=rows?.[0]?.persistence; if(!p||typeof p!=="object")throw new Error(`${entry.source.id} writer returned no persistence receipt.`); return p; }catch(error){ const recovery=await auditProduction(`recovery-${entry.source.id}`); try{requireImportedTargets(recovery,expected,base); return {ok:true,recoveredFromAudit:true};}catch{ if(!recovery.targets.some(r=>r.release_slug===entry.source.expected.releaseSlug))await supabase.storage.from(CHECKLIST_SOURCE_BUCKET).remove([storage.objectPath]); throw error; } } }
-async function main(){ requireApplyGate(); const retrievedAt=new Date().toISOString(),prepared:PreparedSource[]=[]; for(const source of SOURCES){ const f=await fetchOfficialHtml(source),artifact:ChecklistSourceArtifact={sourceUrl:source.url,originalFilename:source.filename,mimeType:"text/html",content:f.html,retrievedAt,authority:"official_manufacturer",redistributionAllowed:false},v=await importChecklistArtifact({artifact,validateOnly:true}); prepared.push({source,artifact,plan:v.plan,rawSha256:f.rawSha256,rawSizeBytes:f.rawSizeBytes,normalizedPlanSha256:validateExactPlan(v.plan,source)}); } const base=await auditProduction("baseline"); requireHealthyState(base,"baseline"); if(base.targets.length)throw new Error("Production already contains target releases."); const marker=`upper-deck-${Date.now()}`,probe=await q("Management API timeout preflight","select $1::text as marker,(select setting::bigint from pg_settings where name='statement_timeout') as timeout_ms,pg_sleep(35)",[marker]); if(String(probe?.[0]?.marker)!==marker)throw new Error("Management API parameter probe failed."); const timeoutMs=Number(probe?.[0]?.timeout_ms); if(timeoutMs!==0&&timeoutMs<120000)throw new Error(`Unsafe Management API statement timeout ${timeoutMs}`); for(const e of prepared){ const s=JSON.stringify(e.plan),r=await q(`${e.source.id} plan probe`,`select jsonb_array_length(($1::jsonb)->'cards')::int as cards,jsonb_array_length(($1::jsonb)->'identities')::int as identities`,[s]); if(Number(r?.[0]?.cards)!==e.source.expected.cards||Number(r?.[0]?.identities)!==e.source.expected.identities)throw new Error(`${e.source.id} plan payload probe failed.`); } const imports:any[]=[],states:any[]=[{label:"baseline",state:base}],done:SourceDefinition[]=[]; for(const e of prepared){ const persistence=await persist(e,base,[...done,e.source]); done.push(e.source); const state=await auditProduction(`after-${e.source.id}`); requireImportedTargets(state,done,base); states.push({label:`after-${e.source.id}`,state}); imports.push({id:e.source.id,rawSourceSha256:e.rawSha256,rawSourceSizeBytes:e.rawSizeBytes,normalizedPlanSha256:e.normalizedPlanSha256,releaseSlug:e.source.expected.releaseSlug,counts:e.plan.validation.counts,transport:"supabase-management-api",persistence}); } const receipt={schema:"tcos.checklist.upperDeckProofProductionImport.v2",generatedAt:new Date().toISOString(),status:"passed",managementPreflight:{statementTimeoutMs:timeoutMs,delaySeconds:35},imports,auditStates:states,finalTargets:states.at(-1)?.state.targets||[],safety:{semanticDigestPinned:true,rawSourceHashRecorded:true,writerTransport:"supabase-management-api",postgrestStatementTimeoutBypassed:true,canaryVerifiedBeforeSecondImport:true,migrationsApplied:false,deploymentPerformed:false,rawOfficialHtmlIncluded:false}}; const out=receiptPath(); mkdirSync(dirname(out),{recursive:true}); writeFileSync(out,`${JSON.stringify(receipt,null,2)}\n`); console.log(JSON.stringify(receipt,null,2)); }
-main().catch(e=>{console.error(e instanceof Error?e.stack||e.message:String(e));process.exitCode=1;});
+function requireApplyGate() {
+  if (!process.argv.includes("--apply")) {
+    throw new Error("Production import requires the explicit --apply flag.");
+  }
+  if (process.env.ALLOW_PRODUCTION_UPPER_DECK_IMPORT !== "YES") {
+    throw new Error(
+      "Production import requires ALLOW_PRODUCTION_UPPER_DECK_IMPORT=YES.",
+    );
+  }
+}
+
+function receiptPath() {
+  const index = process.argv.indexOf("--receipt");
+  return resolve(
+    process.cwd(),
+    index >= 0 && process.argv[index + 1]
+      ? process.argv[index + 1]
+      : "evidence/upper-deck-proof-production.json",
+  );
+}
+
+function sha256(value: string | Buffer) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function sortedBySourceKey<T extends { sourceKey: string }>(rows: T[]) {
+  return [...rows].sort((a, b) => a.sourceKey.localeCompare(b.sourceKey));
+}
+
+function normalizedPlanDigest(plan: ChecklistImportPlan) {
+  return sha256(
+    JSON.stringify({
+      schema: "tcos.checklist.normalizedDigest.v1",
+      adapterId: plan.adapterId,
+      adapterVersion: plan.adapterVersion,
+      release: plan.release,
+      sets: sortedBySourceKey(plan.sets),
+      cards: sortedBySourceKey(plan.cards),
+      parallels: sortedBySourceKey(plan.parallels),
+      identities: [...plan.identities].sort((a, b) =>
+        `${a.cardSourceKey}|${a.parallelSourceKey || ""}|${a.fingerprint.fingerprintSha256}`.localeCompare(
+          `${b.cardSourceKey}|${b.parallelSourceKey || ""}|${b.fingerprint.fingerprintSha256}`,
+        ),
+      ),
+    }),
+  );
+}
+
+function validateExactPlan(plan: ChecklistImportPlan, source: SourceDefinition) {
+  const expected = source.expected;
+  const counts = plan.validation.counts;
+  const digest = normalizedPlanDigest(plan);
+  const failures: string[] = [];
+  const checks: Array<[string, string | number, string | number]> = [
+    ["releaseSlug", plan.release.releaseSlug, expected.releaseSlug],
+    ["adapterId", plan.adapterId, EXPECTED_ADAPTER],
+    ["sets", counts.sets, expected.sets],
+    ["cards", counts.cards, expected.cards],
+    ["parallels", counts.parallels, expected.parallels],
+    ["identities", counts.identities, expected.identities],
+    ["normalizedPlanSha256", digest, expected.normalizedPlanSha256],
+  ];
+  for (const [label, actual, wanted] of checks) {
+    if (actual !== wanted) failures.push(`${label}=${actual}, expected=${wanted}`);
+  }
+  if (plan.validation.status !== "passed") {
+    failures.push(`validationStatus=${plan.validation.status}`);
+  }
+  failures.push(
+    ...plan.validation.issues
+      .filter((issue) => issue.severity === "error")
+      .map((issue) => `${issue.code}: ${issue.message}`),
+  );
+
+  const fingerprints = plan.identities.map(
+    (identity) => identity.fingerprint.fingerprintSha256,
+  );
+  if (new Set(fingerprints).size !== fingerprints.length) {
+    failures.push("duplicate physical-printing fingerprints generated");
+  }
+  for (const expectedFingerprint of expected.fingerprints) {
+    if (!fingerprints.includes(expectedFingerprint)) {
+      failures.push(`missing known fingerprint ${expectedFingerprint}`);
+    }
+  }
+  if (failures.length) {
+    throw new Error(`${source.id} validation blocked: ${failures.join(", ")}`);
+  }
+  return digest;
+}
+
+async function fetchOfficialHtml(source: SourceDefinition) {
+  const response = await fetch(source.url, {
+    headers: {
+      Accept: "text/html,application/xhtml+xml",
+      "Cache-Control": "no-cache",
+      "User-Agent":
+        "TCOS-Checklist-Registry/1.0 (+private import; contact sales@truelycollectables.com)",
+    },
+    redirect: "follow",
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!response.ok) {
+    throw new Error(
+      `${source.id} returned HTTP ${response.status} ${response.statusText}`,
+    );
+  }
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.toLowerCase().includes("text/html")) {
+    throw new Error(`${source.id} returned ${contentType || "unknown content type"}`);
+  }
+  const html = await response.text();
+  const bytes = Buffer.from(html, "utf8");
+  if (bytes.length < 500_000 || bytes.length > 2_000_000) {
+    throw new Error(`${source.id} returned implausible size ${bytes.length}`);
+  }
+  return { html, rawSha256: sha256(bytes), rawSizeBytes: bytes.length };
+}
+
+function managementContext() {
+  const accessToken = String(process.env.GH_SUPABASE_ACCESS_TOKEN || "");
+  const productionUrl = String(process.env.NEXT_PUBLIC_SUPABASE_URL || "");
+  if (!accessToken || !productionUrl) {
+    throw new Error("Production Management API credentials are incomplete.");
+  }
+  const projectRef = new URL(productionUrl).hostname.split(".")[0];
+  if (!projectRef) throw new Error("Could not resolve Production project ref.");
+  return { accessToken, productionUrl, projectRef };
+}
+
+async function managementRequest(params: {
+  path: string;
+  method?: string;
+  body?: unknown;
+  allowFailure?: boolean;
+}) {
+  const { accessToken } = managementContext();
+  const response = await fetch(`https://api.supabase.com${params.path}`, {
+    method: params.method || "GET",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: "application/json",
+      ...(params.body === undefined
+        ? {}
+        : { "Content-Type": "application/json" }),
+    },
+    body:
+      params.body === undefined ? undefined : JSON.stringify(params.body),
+  });
+  const text = await response.text();
+  if (!response.ok && !params.allowFailure) {
+    throw new Error(
+      `Supabase Management API ${params.method || "GET"} ${params.path} failed with HTTP ${response.status}: ${text.slice(0, 1000)}`,
+    );
+  }
+  if (!response.ok) return null;
+  return text ? JSON.parse(text) : {};
+}
+
+async function managementQuery(params: {
+  label: string;
+  query: string;
+  parameters?: unknown[];
+  readOnly: boolean;
+}) {
+  const { projectRef } = managementContext();
+  const response = await managementRequest({
+    path: `/v1/projects/${projectRef}/database/query`,
+    method: "POST",
+    body: {
+      query: params.query,
+      parameters: params.parameters || [],
+      read_only: params.readOnly,
+    },
+  });
+  if (!Array.isArray(response)) {
+    throw new Error(`Supabase ${params.label} returned an unexpected payload.`);
+  }
+  return response as Array<Record<string, unknown>>;
+}
+
+function targetSlugsSql() {
+  return SOURCES.map((source) => `'${source.expected.releaseSlug}'`).join(", ");
+}
+
+async function auditProduction(label: string): Promise<AuditState> {
+  const query = `with active_versions as (
+      select * from public.checklist_versions where is_active
+    ), identity_counts as (
+      select v.id, v.normalized_identity_count as expected_identities,
+        count(i.id)::bigint as actual_identities
+      from active_versions v
+      left join public.checklist_card_identities i on i.version_id = v.id
+      group by v.id, v.normalized_identity_count
+    ), target_rows as (
+      select r.slug as release_slug,
+        r.id as release_id,
+        v.id as active_version_id,
+        r.metadata->>'latestAdapterId' as adapter_id,
+        v.normalized_card_count as expected_cards,
+        v.normalized_identity_count as expected_identities,
+        (select count(*) from public.checklist_cards c where c.version_id = v.id) as cards,
+        (select count(*) from public.checklist_card_identities i where i.version_id = v.id) as identities
+      from public.checklist_releases r
+      join active_versions v on v.release_id = r.id
+      where r.slug in (${targetSlugsSql()})
+    )
+    select json_build_object(
+      'releases', (select count(*) from public.checklist_releases),
+      'active_versions', (select count(*) from active_versions),
+      'active_cards', (
+        select count(*) from public.checklist_cards c
+        join active_versions v on v.id = c.version_id
+      ),
+      'active_identities', (
+        select count(*) from public.checklist_card_identities i
+        join active_versions v on v.id = i.version_id
+      ),
+      'identity_deficit_versions', (
+        select count(*) from identity_counts
+        where actual_identities <> expected_identities
+      ),
+      'failed_import_runs', (
+        select count(*) from public.checklist_import_runs where status = 'failed'
+      ),
+      'registry_public_grants', (
+        select count(*) from information_schema.role_table_grants
+        where table_schema = 'public'
+          and table_name like 'checklist\\_%' escape '\\'
+          and grantee in ('anon', 'authenticated')
+      ),
+      'writer_rpc', to_regprocedure(
+        'public.tcos_apply_checklist_import_plan(jsonb,text,text,bigint,text,text,text)'
+      ) is not null,
+      'private_source_bucket', exists (
+        select 1 from storage.buckets
+        where id = 'tcos-checklist-source-files' and public = false
+      ),
+      'targets', coalesce((
+        select jsonb_agg(to_jsonb(target_rows) order by release_slug)
+        from target_rows
+      ), '[]'::jsonb)
+    ) as state;`;
+
+  const rows = await managementQuery({
+    label: `${label} audit`,
+    query,
+    readOnly: true,
+  });
+  const state = rows?.[0]?.state as AuditState | undefined;
+  if (!state) throw new Error(`Supabase ${label} audit returned no state.`);
+  state.targets = Array.isArray(state.targets) ? state.targets : [];
+  return state;
+}
+
+function requireHealthyState(state: AuditState, label: string) {
+  const failures: string[] = [];
+  if (Number(state.identity_deficit_versions) !== 0) {
+    failures.push(`identity_deficit_versions=${state.identity_deficit_versions}`);
+  }
+  if (Number(state.failed_import_runs) !== 0) {
+    failures.push(`failed_import_runs=${state.failed_import_runs}`);
+  }
+  if (Number(state.registry_public_grants) !== 0) {
+    failures.push(`registry_public_grants=${state.registry_public_grants}`);
+  }
+  if (state.writer_rpc !== true) failures.push("writer_rpc=false");
+  if (state.private_source_bucket !== true) failures.push("private_source_bucket=false");
+  if (failures.length) {
+    throw new Error(`Production ${label} health blocked: ${failures.join(", ")}`);
+  }
+}
+
+function requireImportedTargets(
+  state: AuditState,
+  imported: SourceDefinition[],
+  baseline: AuditState,
+) {
+  requireHealthyState(state, `after-${imported.length}`);
+  if (state.targets.length !== imported.length) {
+    throw new Error(
+      `Production has ${state.targets.length} target releases; expected ${imported.length}`,
+    );
+  }
+
+  for (const source of imported) {
+    const target = state.targets.find(
+      (row) => row.release_slug === source.expected.releaseSlug,
+    );
+    if (!target) throw new Error(`Missing ${source.expected.releaseSlug}`);
+    const mismatches: string[] = [];
+    if (target.adapter_id !== EXPECTED_ADAPTER) {
+      mismatches.push(`adapter_id=${target.adapter_id}`);
+    }
+    if (Number(target.cards) !== source.expected.cards) {
+      mismatches.push(`cards=${target.cards}`);
+    }
+    if (Number(target.expected_cards) !== source.expected.cards) {
+      mismatches.push(`expected_cards=${target.expected_cards}`);
+    }
+    if (Number(target.identities) !== source.expected.identities) {
+      mismatches.push(`identities=${target.identities}`);
+    }
+    if (Number(target.expected_identities) !== source.expected.identities) {
+      mismatches.push(`expected_identities=${target.expected_identities}`);
+    }
+    if (mismatches.length) {
+      throw new Error(
+        `${source.expected.releaseSlug} verification blocked: ${mismatches.join(", ")}`,
+      );
+    }
+  }
+
+  const expectedCards = imported.reduce(
+    (total, source) => total + source.expected.cards,
+    0,
+  );
+  const expectedIdentities = imported.reduce(
+    (total, source) => total + source.expected.identities,
+    0,
+  );
+  if (Number(state.releases) < Number(baseline.releases) + imported.length) {
+    throw new Error("Global release count did not increase by imported targets.");
+  }
+  if (
+    Number(state.active_versions) <
+    Number(baseline.active_versions) + imported.length
+  ) {
+    throw new Error("Global active-version count did not increase by imported targets.");
+  }
+  if (Number(state.active_cards) < Number(baseline.active_cards) + expectedCards) {
+    throw new Error("Global active-card count did not increase by target cards.");
+  }
+  if (
+    Number(state.active_identities) <
+    Number(baseline.active_identities) + expectedIdentities
+  ) {
+    throw new Error("Global active-identity count did not increase by target identities.");
+  }
+}
+
+function parseConnectionString(
+  value: string,
+  user: string,
+  password: string,
+  poolMode: string,
+  source: string,
+): PoolerCandidate | null {
+  try {
+    const normalized = value.replace(/^postgres:\/\//, "postgresql://");
+    const url = new URL(normalized);
+    return {
+      host: url.hostname,
+      port: Number(url.port || 5432),
+      database: url.pathname.replace(/^\//, "") || "postgres",
+      user,
+      password,
+      poolMode,
+      source,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function candidateUsers(role: string, projectRef: string) {
+  return Array.from(
+    new Set([
+      role.includes(".") ? role : `${role}.${projectRef}`,
+      role,
+    ]),
+  );
+}
+
+async function createTemporaryLoginRole() {
+  const { projectRef } = managementContext();
+  const payload = (await managementRequest({
+    path: `/v1/projects/${projectRef}/cli/login-role`,
+    method: "POST",
+    body: { read_only: false },
+  })) as TemporaryLoginRole;
+  if (!payload?.role || !payload?.password || !payload?.ttl_seconds) {
+    throw new Error("Supabase temporary login role response was incomplete.");
+  }
+  console.log(`::add-mask::${payload.password}`);
+  return payload;
+}
+
+async function deleteTemporaryLoginRole() {
+  const { projectRef } = managementContext();
+  await managementRequest({
+    path: `/v1/projects/${projectRef}/cli/login-role`,
+    method: "DELETE",
+  });
+}
+
+async function loadPoolerCandidates(login: TemporaryLoginRole) {
+  const { projectRef } = managementContext();
+  const candidates: PoolerCandidate[] = [];
+  const users = candidateUsers(login.role, projectRef);
+
+  const shared = await managementRequest({
+    path: `/v1/projects/${projectRef}/config/database/pooler`,
+    allowFailure: true,
+  });
+  if (Array.isArray(shared)) {
+    const sorted = [...shared].sort((a, b) => {
+      const left = String(a?.pool_mode || "").toLowerCase() === "session" ? 0 : 1;
+      const right = String(b?.pool_mode || "").toLowerCase() === "session" ? 0 : 1;
+      return left - right;
+    });
+    for (const entry of sorted) {
+      const connection = String(
+        entry?.connection_string || entry?.connectionString || "",
+      );
+      const poolMode = String(entry?.pool_mode || "unknown");
+      for (const user of users) {
+        const parsed = connection
+          ? parseConnectionString(
+              connection,
+              user,
+              login.password,
+              poolMode,
+              "shared-pooler",
+            )
+          : null;
+        if (parsed) candidates.push(parsed);
+        if (entry?.db_host) {
+          candidates.push({
+            host: String(entry.db_host),
+            port: Number(entry.db_port || 5432),
+            database: String(entry.db_name || "postgres"),
+            user,
+            password: login.password,
+            poolMode,
+            source: "shared-pooler-fields",
+          });
+        }
+      }
+    }
+  }
+
+  const dedicated = await managementRequest({
+    path: `/v1/projects/${projectRef}/config/database/pgbouncer`,
+    allowFailure: true,
+  });
+  if (dedicated && typeof dedicated === "object") {
+    const connection = String(
+      dedicated.connection_string || dedicated.connectionString || "",
+    );
+    for (const user of users) {
+      const parsed = connection
+        ? parseConnectionString(
+            connection,
+            user,
+            login.password,
+            String(dedicated.pool_mode || "transaction"),
+            "dedicated-pooler",
+          )
+        : null;
+      if (parsed) candidates.push(parsed);
+    }
+  }
+
+  candidates.push({
+    host: `db.${projectRef}.supabase.co`,
+    port: 5432,
+    database: "postgres",
+    user: login.role,
+    password: login.password,
+    poolMode: "direct",
+    source: "direct-fallback",
+  });
+
+  const unique = new Map<string, PoolerCandidate>();
+  for (const candidate of candidates) {
+    const key = [
+      candidate.host,
+      candidate.port,
+      candidate.database,
+      candidate.user,
+    ].join("|");
+    if (!unique.has(key)) unique.set(key, candidate);
+  }
+  return [...unique.values()];
+}
+
+async function connectTemporaryPostgres(
+  login: TemporaryLoginRole,
+  prepared: PreparedSource[],
+) {
+  const { Client } = await import("pg");
+  const candidates = await loadPoolerCandidates(login);
+  const errors: string[] = [];
+
+  for (const candidate of candidates) {
+    const client = new Client({
+      host: candidate.host,
+      port: candidate.port,
+      database: candidate.database,
+      user: candidate.user,
+      password: candidate.password,
+      ssl: { rejectUnauthorized: false },
+      connectionTimeoutMillis: 20_000,
+      application_name: "tcos-upper-deck-import-20260802",
+    });
+    try {
+      await client.connect();
+      const privilege = await client.query(`select
+        current_user as current_user,
+        session_user as session_user,
+        has_function_privilege(
+          current_user,
+          'public.tcos_apply_checklist_import_plan(jsonb,text,text,bigint,text,text,text)',
+          'EXECUTE'
+        ) as can_execute_writer`);
+      if (privilege.rows?.[0]?.can_execute_writer !== true) {
+        throw new Error("temporary role cannot execute the Registry writer");
+      }
+
+      await client.query("begin");
+      try {
+        await client.query("set local statement_timeout = '120s'");
+        await client.query("select pg_sleep(35)");
+        await client.query("rollback");
+      } catch (error) {
+        await client.query("rollback").catch(() => undefined);
+        throw error;
+      }
+
+      const payloads = [];
+      for (const entry of prepared) {
+        const serialized = JSON.stringify(entry.plan);
+        const probe = await client.query(
+          `select
+            jsonb_array_length(($1::jsonb)->'cards')::integer as cards,
+            jsonb_array_length(($1::jsonb)->'identities')::integer as identities,
+            octet_length($1::text)::integer as serialized_bytes`,
+          [serialized],
+        );
+        const observed = probe.rows?.[0];
+        if (
+          Number(observed?.cards) !== entry.source.expected.cards ||
+          Number(observed?.identities) !== entry.source.expected.identities ||
+          Number(observed?.serialized_bytes) !==
+            Buffer.byteLength(serialized, "utf8")
+        ) {
+          throw new Error(`${entry.source.id} PostgreSQL payload probe failed.`);
+        }
+        payloads.push({
+          id: entry.source.id,
+          cards: Number(observed.cards),
+          identities: Number(observed.identities),
+          serializedBytes: Number(observed.serialized_bytes),
+        });
+      }
+
+      return {
+        client,
+        receipt: {
+          source: candidate.source,
+          poolMode: candidate.poolMode,
+          hostClass: candidate.host.includes("pooler.supabase.com")
+            ? "supabase-pooler"
+            : "supabase-direct",
+          userClass: candidate.user.startsWith("cli_login_")
+            ? "temporary-cli-login"
+            : "temporary-login",
+          writerPrivilegeVerified: true,
+          delaySeconds: 35,
+          planPayloads: payloads,
+        },
+      };
+    } catch (error) {
+      errors.push(
+        `${candidate.source}/${candidate.poolMode}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      await client.end().catch(() => undefined);
+    }
+  }
+
+  throw new Error(
+    `Could not establish a verified temporary PostgreSQL connection: ${errors.join(" | ")}`,
+  );
+}
+
+function serviceClient() {
+  const { productionUrl } = managementContext();
+  const serviceKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || "");
+  if (!serviceKey) {
+    throw new Error("Production Supabase service-role key is missing.");
+  }
+  return createClient(productionUrl, serviceKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
+
+async function persistPreparedSource(params: {
+  client: any;
+  entry: PreparedSource;
+  baseline: AuditState;
+  expectedImported: SourceDefinition[];
+}) {
+  const { client, entry, baseline, expectedImported } = params;
+  const supabase = serviceClient();
+  const content =
+    typeof entry.artifact.content === "string"
+      ? Buffer.from(entry.artifact.content, "utf8")
+      : Buffer.from(entry.artifact.content);
+  const storage = entry.plan.source.storage;
+
+  const { error: uploadError } = await supabase.storage
+    .from(CHECKLIST_SOURCE_BUCKET)
+    .upload(storage.objectPath, content, {
+      contentType: storage.mimeType,
+      upsert: false,
+      cacheControl: "0",
+    });
+  if (uploadError) {
+    throw new Error(
+      `Could not archive ${entry.source.id}: ${uploadError.message}`,
+    );
+  }
+
+  try {
+    await client.query("begin");
+    try {
+      await client.query("set local statement_timeout = '15min'");
+      const result = await client.query(
+        `select public.tcos_apply_checklist_import_plan(
+          $1::jsonb,
+          $2::text,
+          $3::text,
+          $4::bigint,
+          $5::text,
+          $6::text,
+          $7::text
+        ) as persistence`,
+        [
+          JSON.stringify(entry.plan),
+          storage.originalFilename,
+          storage.mimeType,
+          storage.sizeBytes,
+          storage.sha256,
+          storage.bucket,
+          storage.objectPath,
+        ],
+      );
+      await client.query("commit");
+      const persistence = result.rows?.[0]?.persistence;
+      if (!persistence || typeof persistence !== "object") {
+        throw new Error(`${entry.source.id} writer returned no persistence receipt.`);
+      }
+      return {
+        persistence,
+        recoveredAfterAmbiguousResponse: false,
+      };
+    } catch (error) {
+      await client.query("rollback").catch(() => undefined);
+      throw error;
+    }
+  } catch (error) {
+    const recovery = await auditProduction(`recovery-${entry.source.id}`);
+    try {
+      requireImportedTargets(recovery, expectedImported, baseline);
+      return {
+        persistence: {
+          ok: true,
+          recoveredFromAudit: true,
+          releaseSlug: entry.source.expected.releaseSlug,
+        },
+        recoveredAfterAmbiguousResponse: true,
+      };
+    } catch {
+      const targetExists = recovery.targets.some(
+        (row) => row.release_slug === entry.source.expected.releaseSlug,
+      );
+      if (!targetExists) {
+        const { error: removeError } = await supabase.storage
+          .from(CHECKLIST_SOURCE_BUCKET)
+          .remove([storage.objectPath]);
+        if (removeError) {
+          throw new Error(
+            `${error instanceof Error ? error.message : String(error)}; source cleanup failed: ${removeError.message}`,
+          );
+        }
+      }
+      throw error;
+    }
+  }
+}
+
+async function main() {
+  requireApplyGate();
+  const retrievedAt = new Date().toISOString();
+  const prepared: PreparedSource[] = [];
+
+  for (const source of SOURCES) {
+    const fetched = await fetchOfficialHtml(source);
+    const artifact: ChecklistSourceArtifact = {
+      sourceUrl: source.url,
+      originalFilename: source.filename,
+      mimeType: "text/html",
+      content: fetched.html,
+      retrievedAt,
+      authority: "official_manufacturer",
+      redistributionAllowed: false,
+    };
+    const validation = await importChecklistArtifact({
+      artifact,
+      validateOnly: true,
+    });
+    prepared.push({
+      source,
+      artifact,
+      plan: validation.plan,
+      rawSha256: fetched.rawSha256,
+      rawSizeBytes: fetched.rawSizeBytes,
+      normalizedPlanSha256: validateExactPlan(validation.plan, source),
+    });
+  }
+
+  const baseline = await auditProduction("baseline");
+  requireHealthyState(baseline, "baseline");
+  if (baseline.targets.length) {
+    throw new Error(
+      `Production already contains target releases: ${baseline.targets
+        .map((row) => row.release_slug)
+        .join(", ")}`,
+    );
+  }
+
+  let login: TemporaryLoginRole | null = null;
+  let postgresClient: any = null;
+  let connectionReceipt: Record<string, unknown> | null = null;
+  let receipt: Record<string, unknown> | null = null;
+  let temporaryRoleDeleted = false;
+
+  try {
+    login = await createTemporaryLoginRole();
+    const connected = await connectTemporaryPostgres(login, prepared);
+    postgresClient = connected.client;
+    connectionReceipt = connected.receipt;
+
+    const imports = [];
+    const auditStates = [{ label: "baseline", state: baseline }];
+    const importedSources: SourceDefinition[] = [];
+
+    for (const entry of prepared) {
+      const expectedImported = [...importedSources, entry.source];
+      const persisted = await persistPreparedSource({
+        client: postgresClient,
+        entry,
+        baseline,
+        expectedImported,
+      });
+      importedSources.push(entry.source);
+      const state = await auditProduction(`after-${entry.source.id}`);
+      requireImportedTargets(state, importedSources, baseline);
+      auditStates.push({ label: `after-${entry.source.id}`, state });
+      imports.push({
+        id: entry.source.id,
+        rawSourceSha256: entry.rawSha256,
+        rawSourceSizeBytes: entry.rawSizeBytes,
+        normalizedPlanSha256: entry.normalizedPlanSha256,
+        releaseSlug: entry.source.expected.releaseSlug,
+        counts: entry.plan.validation.counts,
+        adapter: {
+          id: entry.plan.adapterId,
+          version: entry.plan.adapterVersion,
+        },
+        persistence: persisted.persistence,
+        transport: "temporary-postgresql-login",
+        recoveredAfterAmbiguousResponse:
+          persisted.recoveredAfterAmbiguousResponse,
+      });
+    }
+
+    receipt = {
+      schema: "tcos.checklist.upperDeckProofProductionImport.v3",
+      generatedAt: new Date().toISOString(),
+      sourceCommit: process.env.EXPECTED_MAIN_SHA || null,
+      status: "passed",
+      postgresConnectionPreflight: connectionReceipt,
+      temporaryLoginRoleTtlSeconds: login.ttl_seconds,
+      imports,
+      auditStates,
+      finalTargets: auditStates.at(-1)?.state.targets || [],
+      safety: {
+        semanticDigestPinned: true,
+        rawSourceHashRecorded: true,
+        writerTransport: "temporary-postgresql-login",
+        managementApiBodyLimitBypassed: true,
+        postgrestStatementTimeoutBypassed: true,
+        canaryVerifiedBeforeSecondImport: true,
+        temporaryLoginRoleDeleted: false,
+        migrationsApplied: false,
+        deploymentPerformed: false,
+        rawOfficialHtmlIncluded: false,
+        importedReleaseSlugs: SOURCES.map(
+          (source) => source.expected.releaseSlug,
+        ),
+      },
+    };
+  } finally {
+    if (postgresClient) {
+      await postgresClient.end().catch(() => undefined);
+    }
+    if (login) {
+      await deleteTemporaryLoginRole();
+      temporaryRoleDeleted = true;
+    }
+  }
+
+  if (!receipt || !temporaryRoleDeleted) {
+    throw new Error("Production import did not produce a cleaned passing receipt.");
+  }
+  (receipt.safety as Record<string, unknown>).temporaryLoginRoleDeleted = true;
+  const output = receiptPath();
+  mkdirSync(dirname(output), { recursive: true });
+  writeFileSync(output, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
+  console.log(JSON.stringify(receipt, null, 2));
+}
+
+main().catch((error) => {
+  console.error(
+    error instanceof Error ? error.stack || error.message : String(error),
+  );
+  process.exitCode = 1;
+});
