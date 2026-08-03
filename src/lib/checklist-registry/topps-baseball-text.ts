@@ -20,7 +20,39 @@ export type ToppsBaseballTextParseResult = {
   }>;
 };
 
-const TEAM_SUFFIX = /(?:Angels|Athletics|Blue Jays|Braves|Brewers|Cardinals|Cubs|Diamondbacks|Dodgers|Giants|Guardians|Mariners|Marlins|Mets|Nationals|Orioles|Padres|Phillies|Pirates|Rangers|Rays|Red Sox|Reds|Rockies|Royals|Tigers|Twins|White Sox|Yankees)[®™]?$/i;
+const MLB_TEAMS = [
+  "Arizona Diamondbacks",
+  "Atlanta Braves",
+  "Baltimore Orioles",
+  "Boston Red Sox",
+  "Chicago Cubs",
+  "Chicago White Sox",
+  "Cincinnati Reds",
+  "Cleveland Guardians",
+  "Colorado Rockies",
+  "Detroit Tigers",
+  "Houston Astros",
+  "Kansas City Royals",
+  "Los Angeles Angels",
+  "Los Angeles Dodgers",
+  "Miami Marlins",
+  "Milwaukee Brewers",
+  "Minnesota Twins",
+  "New York Mets",
+  "New York Yankees",
+  "Oakland Athletics",
+  "Philadelphia Phillies",
+  "Pittsburgh Pirates",
+  "San Diego Padres",
+  "San Francisco Giants",
+  "Seattle Mariners",
+  "St. Louis Cardinals",
+  "Tampa Bay Rays",
+  "Texas Rangers",
+  "Toronto Blue Jays",
+  "Washington Nationals",
+].sort((left, right) => right.length - left.length);
+
 const CARD_START = /^([A-Z0-9][A-Z0-9-]*)\s+(.+)$/;
 const HEADING = /^[A-Z0-9][A-Z0-9 &'®™./+-]{2,}$/;
 const NUMBERED_CARD_PREFIX = /^(?:\d{1,4}|[A-Z]{1,8}-[A-Z0-9]{1,12})\s+/;
@@ -65,17 +97,17 @@ function parseTitle(title: string) {
 function splitPlayerAndTeam(value: string) {
   const rookie = /\s+Rookie$/i.test(value);
   const withoutRookie = clean(value.replace(/\s+Rookie$/i, ""));
-  const words = withoutRookie.split(" ");
-  for (let index = 1; index < words.length; index += 1) {
-    const candidateTeam = words.slice(index).join(" ");
-    if (TEAM_SUFFIX.test(candidateTeam)) {
-      return {
-        player: words.slice(0, index).join(" "),
-        team: candidateTeam,
-        rookie,
-      };
-    }
+  const normalizedLower = withoutRookie.toLowerCase();
+
+  for (const team of MLB_TEAMS) {
+    const teamLower = team.toLowerCase();
+    if (normalizedLower === teamLower) continue;
+    if (!normalizedLower.endsWith(` ${teamLower}`)) continue;
+
+    const player = withoutRookie.slice(0, -(team.length + 1)).trim();
+    if (player) return { player, team, rookie };
   }
+
   return { player: withoutRookie, team: null, rookie };
 }
 
