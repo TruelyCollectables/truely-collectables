@@ -1,0 +1,55 @@
+name: Topps Baseball Catalog Accelerator
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/topps-baseball-catalog-accelerator.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: topps-baseball-catalog-accelerator
+  cancel-in-progress: false
+
+jobs:
+  discover-and-apply:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 180
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TOPPS_BASEBALL_MAX_PRODUCTS: "500"
+      TOPPS_BASEBALL_DISCOVERY_OUTPUT: .checklist-discovery/topps-baseball-accelerator-discovery.json
+      TOPPS_BASEBALL_BULK_APPLY: "true"
+      TOPPS_BASEBALL_BULK_MAX_SOURCES: "500"
+      TOPPS_BASEBALL_BULK_STATUSES: "discovered,validated,quarantined,failed"
+      TOPPS_BASEBALL_BULK_OUTPUT: .checklist-discovery/topps-baseball-accelerator-import.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install deterministic PDF text extractor
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends poppler-utils
+          pdftotext -v
+      - run: npm ci
+      - name: Discover official Topps and Bowman baseball checklists
+        run: node --import tsx scripts/discover-topps-baseball-checklists.ts
+      - name: Apply all clean Topps and Bowman checklists to the Registry
+        run: node --import tsx scripts/bulk-import-topps-baseball-checklists.ts
+      - name: Upload accelerator receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: topps-baseball-catalog-accelerator-receipts
+          path: .checklist-discovery/*.json
+          if-no-files-found: warn
+          retention-days: 90
