@@ -37,7 +37,7 @@ jobs:
         run: |
           set -euo pipefail
           ! grep -RIni 'beckett' src/app/admin/instacomp/pricing scripts/run-kingmaker-pricing-workbenches-regressions.ts
-          ! grep -RIniE 'from\(["'"'](products|orders|offers|market_intel_purchases)["'"']\).*(insert|update|upsert|delete)\(' src/app/admin/instacomp/pricing
+          ! grep -RIniE "from\\([\"'](products|orders|offers|market_intel_purchases)[\"']\\).*(insert|update|upsert|delete)\\(" src/app/admin/instacomp/pricing
       - name: Lint
         run: npx eslint src/app/admin/instacomp/pricing scripts/run-kingmaker-pricing-workbenches-regressions.ts
       - name: TypeScript
