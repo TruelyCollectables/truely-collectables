@@ -17,17 +17,31 @@ export type KingmakerPricingDecision = {
   schema: "tcos.kingmaker.pricingDecision.v1";
   status: "ready" | "review_required" | "insufficient_evidence";
   suggestedListPrice: number | null;
+  minimumProfitableListPrice: number | null;
   buyCeiling: number | null;
+  estimatedNetProceeds: number | null;
+  estimatedProfitAtCeiling: number | null;
   marketMedian: number | null;
   referenceMidpoint: number | null;
   confidence: number;
   soldCompCount: number;
+  economics: {
+    targetMarginPct: number;
+    marketplaceFeePct: number;
+    paymentFeePct: number;
+    paymentFixedFee: number;
+    shippingCost: number;
+  };
   reviewReasons: string[];
   boundary: "advisory_only";
 };
 
 function money(value: number) {
   return Math.round(value * 100) / 100;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(value, max));
 }
 
 function median(values: number[]) {
@@ -44,9 +58,24 @@ export function buildKingmakerPricingDecision(params: {
   pricing: KingmakerPricingReference | null;
   soldComps: KingmakerVerifiedSoldComp[];
   targetMarginPct?: number;
+  marketplaceFeePct?: number;
+  paymentFeePct?: number;
+  paymentFixedFee?: number;
+  shippingCost?: number;
 }): KingmakerPricingDecision {
   const reviewReasons: string[] = [];
-  const targetMarginPct = Math.max(0.05, Math.min(params.targetMarginPct ?? 0.3, 0.8));
+  const targetMarginPct = clamp(params.targetMarginPct ?? 0.3, 0.05, 0.8);
+  const marketplaceFeePct = clamp(params.marketplaceFeePct ?? 0.08, 0, 0.4);
+  const paymentFeePct = clamp(params.paymentFeePct ?? 0.029, 0, 0.2);
+  const paymentFixedFee = clamp(params.paymentFixedFee ?? 0.3, 0, 10);
+  const shippingCost = clamp(params.shippingCost ?? 0, 0, 500);
+  const economics = {
+    targetMarginPct,
+    marketplaceFeePct,
+    paymentFeePct,
+    paymentFixedFee: money(paymentFixedFee),
+    shippingCost: money(shippingCost),
+  };
 
   if (!params.exactIdentity) reviewReasons.push("exact_identity_required");
   if (!params.pricing) reviewReasons.push("pricing_reference_missing");
@@ -76,11 +105,15 @@ export function buildKingmakerPricingDecision(params: {
       schema: "tcos.kingmaker.pricingDecision.v1",
       status,
       suggestedListPrice: null,
+      minimumProfitableListPrice: null,
       buyCeiling: null,
+      estimatedNetProceeds: null,
+      estimatedProfitAtCeiling: null,
       marketMedian: marketMedian == null ? null : money(marketMedian),
       referenceMidpoint: referenceMidpoint == null ? null : money(referenceMidpoint),
       confidence: 0,
       soldCompCount: soldTotals.length,
+      economics,
       reviewReasons: Array.from(new Set(reviewReasons)),
       boundary: "advisory_only",
     };
@@ -91,21 +124,34 @@ export function buildKingmakerPricingDecision(params: {
     : marketMedian * 0.75 + referenceMidpoint * 0.25;
   const trendMultiplier = params.pricing?.trendPct == null
     ? 1
-    : Math.max(0.85, Math.min(1 + params.pricing.trendPct / 100, 1.15));
+    : clamp(1 + params.pricing.trendPct / 100, 0.85, 1.15);
   const suggestedListPrice = money(blended * trendMultiplier);
-  const buyCeiling = money(suggestedListPrice * (1 - targetMarginPct));
+  const totalVariableFeePct = marketplaceFeePct + paymentFeePct;
+  const estimatedNetProceeds = money(
+    suggestedListPrice * (1 - totalVariableFeePct) - paymentFixedFee - shippingCost,
+  );
+  const buyCeiling = money(Math.max(0, estimatedNetProceeds - suggestedListPrice * targetMarginPct));
+  const estimatedProfitAtCeiling = money(Math.max(0, estimatedNetProceeds - buyCeiling));
+  const denominator = 1 - totalVariableFeePct - targetMarginPct;
+  const minimumProfitableListPrice = denominator > 0
+    ? money((paymentFixedFee + shippingCost) / denominator)
+    : null;
   const compConfidence = Math.min(1, soldTotals.length / 8);
-  const referenceConfidence = Math.max(0, Math.min(params.pricing?.confidence ?? 0, 1));
+  const referenceConfidence = clamp(params.pricing?.confidence ?? 0, 0, 1);
 
   return {
     schema: "tcos.kingmaker.pricingDecision.v1",
     status: "ready",
     suggestedListPrice,
+    minimumProfitableListPrice,
     buyCeiling,
+    estimatedNetProceeds,
+    estimatedProfitAtCeiling,
     marketMedian: money(marketMedian),
     referenceMidpoint: referenceMidpoint == null ? null : money(referenceMidpoint),
     confidence: Math.round((compConfidence * 0.7 + referenceConfidence * 0.3) * 1000) / 1000,
     soldCompCount: soldTotals.length,
+    economics,
     reviewReasons: [],
     boundary: "advisory_only",
   };
