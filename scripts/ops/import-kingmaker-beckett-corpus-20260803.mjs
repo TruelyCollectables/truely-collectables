@@ -164,7 +164,11 @@ async function main() {
   mkdirSync(bundlesDir, { recursive: true });
   execFileSync('tar', ['-xf', plainPath, '-C', bundlesDir]);
   const summary = JSON.parse(readFileSync(join(bundlesDir, 'validation-summary.json'), 'utf8'));
-  if (summary.totalRows !== EXPECTED_TOTAL_ROWS || summary.totalPages !== EXPECTED_TOTAL_PAGES) throw new Error('Certified corpus totals mismatch.');
+  const certifiedRows = Number(summary?.totals?.entries ?? summary?.totalRows);
+  const certifiedPages = Number(summary?.totals?.pages ?? summary?.totalPages);
+  if (certifiedRows !== EXPECTED_TOTAL_ROWS || certifiedPages !== EXPECTED_TOTAL_PAGES) {
+    throw new Error(`Certified corpus totals mismatch: pages=${certifiedPages}, rows=${certifiedRows}.`);
+  }
 
   const imports = [];
   for (const zipName of FILES) {
