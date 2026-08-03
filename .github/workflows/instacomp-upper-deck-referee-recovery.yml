@@ -5,7 +5,9 @@ on:
     branches: [main]
     paths:
       - "src/lib/instacomp-learning-server.ts"
+      - "src/lib/instacomp-consensus.ts"
       - "scripts/check-production-guardrails.mjs"
+      - "scripts/run-instacomp-registry-semantic-referee-regression.ts"
       - "scripts/run-instacomp-upper-deck-referee-recovery-regression.ts"
       - ".github/workflows/instacomp-upper-deck-referee-recovery.yml"
 
@@ -30,8 +32,10 @@ jobs:
       - name: Install exact dependencies
         run: npm ci
 
-      - name: Prove Upper Deck Registry referee recovery
-        run: node --import tsx scripts/run-instacomp-upper-deck-referee-recovery-regression.ts
+      - name: Prove Registry semantic referee recovery
+        run: |
+          node --import tsx scripts/run-instacomp-registry-semantic-referee-regression.ts
+          node --import tsx scripts/run-instacomp-upper-deck-referee-recovery-regression.ts
 
       - name: Preserve existing Registry and identity firewalls
         run: |
@@ -48,7 +52,9 @@ jobs:
         run: |
           npx eslint \
             src/lib/instacomp-learning-server.ts \
+            src/lib/instacomp-consensus.ts \
             scripts/check-production-guardrails.mjs \
+            scripts/run-instacomp-registry-semantic-referee-regression.ts \
             scripts/run-instacomp-upper-deck-referee-recovery-regression.ts
 
       - name: Build production application
