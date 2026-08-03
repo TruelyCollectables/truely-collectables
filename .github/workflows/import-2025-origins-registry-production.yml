@@ -1,0 +1,139 @@
+name: Import 2025 Origins Registry Production
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/fixtures/checklist-registry/2025-panini-origins-football-base-rookies.structured.json"
+      - "scripts/run-instacomp-origins-registry-production.ts"
+      - ".github/workflows/import-2025-origins-registry-production.yml"
+  push:
+    branches: [main]
+    paths:
+      - "scripts/fixtures/checklist-registry/2025-panini-origins-football-base-rookies.structured.json"
+      - "scripts/run-instacomp-origins-registry-production.ts"
+      - ".github/workflows/import-2025-origins-registry-production.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: import-2025-origins-registry-production
+  cancel-in-progress: false
+
+env:
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+jobs:
+  validate-origins-registry:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Validate complete Base Rookies slice and exact Shedeur identity
+        run: npx tsx scripts/run-instacomp-origins-registry-production.ts
+
+      - name: Run existing identity firewall regressions
+        run: |
+          npx tsx scripts/run-instacomp-live-shedeur-107-regression.ts
+          npx tsx scripts/run-instacomp-identity-firewall-regressions.ts
+          npx tsx scripts/run-instacomp-serial-color-gate-regressions.ts
+          npm run simulate:instacomp-consensus
+
+      - name: Lint permanent Registry files
+        run: npx eslint scripts/run-instacomp-origins-registry-production.ts
+
+  import-and-prove-production:
+    if: github.event_name != 'pull_request' && github.ref_name == 'main'
+    needs: validate-origins-registry
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Resolve protected Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p .vercel "$RUNNER_TEMP/origins-registry"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' \
+              "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables \
+              --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          fi
+          npx vercel@56.2.0 env pull \
+            "$RUNNER_TEMP/origins-registry/production.env" \
+            --yes --environment production --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" >/dev/null
+          chmod 600 "$RUNNER_TEMP/origins-registry/production.env"
+          echo "PRODUCTION_ENV_PATH=$RUNNER_TEMP/origins-registry/production.env" >> "$GITHUB_ENV"
+
+      - name: Import Registry slice and prove exact production identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source "$PRODUCTION_ENV_PATH"
+          set +a
+          mkdir -p evidence
+          npx tsx scripts/run-instacomp-origins-registry-production.ts --apply \
+            | tee evidence/origins-registry-production.json
+
+      - name: Require exact production proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const proof = JSON.parse(fs.readFileSync('evidence/origins-registry-production.json', 'utf8'));
+          if (proof.ok !== true) throw new Error('Production Registry import did not report success.');
+          if (proof.match?.player !== 'Shedeur Sanders') throw new Error('Production player mismatch.');
+          if (proof.match?.cardNumber !== '107') throw new Error('Production card-number mismatch.');
+          if (proof.match?.parallel !== 'Holo Blue') throw new Error('Production parallel mismatch.');
+          if (proof.match?.serialRun !== 199) throw new Error('Production serial-run mismatch.');
+          if (proof.consensusTrusted !== true) throw new Error('Production consensus is not trusted.');
+          if (proof.identityConfirmed !== true || Number(proof.identityConfidence) < 0.95) {
+            throw new Error('Production identity did not clear the 95% gate.');
+          }
+          NODE
+
+      - name: Upload sanitized proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: origins-registry-production-proof
+          path: evidence/origins-registry-production.json
+          retention-days: 90
+
+      - name: Remove protected Production files
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/origins-registry/production.env" .env.local .env.production.local
