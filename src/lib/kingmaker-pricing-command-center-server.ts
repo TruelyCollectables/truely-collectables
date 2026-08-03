@@ -3,6 +3,30 @@ import type { requireInstaCompJobActor } from "./instacomp-job-server";
 import { kingmakerPricingProfileOwner } from "./kingmaker-pricing-profile-server";
 
 type Actor = Awaited<ReturnType<typeof requireInstaCompJobActor>>;
+type SavedViewRow = {
+  id: string | number;
+  name: string;
+  filters: Record<string, unknown> | null;
+  is_default: boolean | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+type ReceiptRow = {
+  status: string | null;
+  confidence: number | string | null;
+  sold_comp_count: number | string | null;
+  estimated_profit_at_ceiling: number | string | null;
+  created_at: string | null;
+};
+type ProfileRow = { id: string | number; is_default: boolean | null; archived_at: string | null };
+type AuditRow = {
+  id: string | number;
+  profile_id: string | number | null;
+  action: string;
+  profile_name: string;
+  created_at: string | null;
+};
+type SavedViewSummaryRow = { id: string | number; is_default: boolean | null };
 
 type SavedViewInput = {
   name?: unknown;
@@ -40,7 +64,7 @@ export async function listKingmakerPricingSavedViews(actor: Actor) {
     actor,
   );
   if (error) throw error;
-  return (data || []).map((row) => ({
+  return ((data || []) as SavedViewRow[]).map((row: SavedViewRow) => ({
     id: String(row.id),
     name: String(row.name),
     filters: row.filters || {},
@@ -71,13 +95,14 @@ export async function createKingmakerPricingSavedView(actor: Actor, input: Saved
     is_default: isDefault,
   }).select("id,name,filters,is_default,created_at,updated_at").single();
   if (error) throw error;
+  const row = data as SavedViewRow;
   return {
-    id: String(data.id),
-    name: String(data.name),
-    filters: data.filters || {},
-    isDefault: data.is_default === true,
-    createdAt: data.created_at,
-    updatedAt: data.updated_at,
+    id: String(row.id),
+    name: String(row.name),
+    filters: row.filters || {},
+    isDefault: row.is_default === true,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }
 
@@ -135,11 +160,14 @@ export async function getKingmakerPricingCommandCenterSnapshot(actor: Actor) {
     if (result.error) throw result.error;
   }
 
-  const receipts = receiptsResult.data || [];
-  const ready = receipts.filter((row) => row.status === "ready");
-  const review = receipts.filter((row) => row.status === "review_required");
-  const insufficient = receipts.filter((row) => row.status === "insufficient_evidence");
-  const average = (values: number[]) => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+  const receipts = (receiptsResult.data || []) as ReceiptRow[];
+  const profiles = (profilesResult.data || []) as ProfileRow[];
+  const auditRows = (auditResult.data || []) as AuditRow[];
+  const savedViews = (viewsResult.data || []) as SavedViewSummaryRow[];
+  const ready = receipts.filter((row: ReceiptRow) => row.status === "ready");
+  const review = receipts.filter((row: ReceiptRow) => row.status === "review_required");
+  const insufficient = receipts.filter((row: ReceiptRow) => row.status === "insufficient_evidence");
+  const average = (values: number[]) => values.length ? values.reduce((sum: number, value: number) => sum + value, 0) / values.length : null;
 
   return {
     window: { receiptLimit: 250, limited: true },
@@ -149,19 +177,19 @@ export async function getKingmakerPricingCommandCenterSnapshot(actor: Actor) {
       reviewRequired: review.length,
       insufficientEvidence: insufficient.length,
       readyRate: receipts.length ? ready.length / receipts.length : null,
-      averageConfidence: average(receipts.map((row) => Number(row.confidence)).filter(Number.isFinite)),
-      averageSoldCompCount: average(receipts.map((row) => Number(row.sold_comp_count)).filter(Number.isFinite)),
-      estimatedProfitAtCeiling: receipts.reduce((sum, row) => sum + Number(row.estimated_profit_at_ceiling || 0), 0),
+      averageConfidence: average(receipts.map((row: ReceiptRow) => Number(row.confidence)).filter(Number.isFinite)),
+      averageSoldCompCount: average(receipts.map((row: ReceiptRow) => Number(row.sold_comp_count)).filter(Number.isFinite)),
+      estimatedProfitAtCeiling: receipts.reduce((sum: number, row: ReceiptRow) => sum + Number(row.estimated_profit_at_ceiling || 0), 0),
     },
     profiles: {
-      active: profilesResult.data?.length || 0,
-      hasDefault: (profilesResult.data || []).some((row) => row.is_default === true),
+      active: profiles.length,
+      hasDefault: profiles.some((row: ProfileRow) => row.is_default === true),
     },
     savedViews: {
-      active: viewsResult.data?.length || 0,
-      hasDefault: (viewsResult.data || []).some((row) => row.is_default === true),
+      active: savedViews.length,
+      hasDefault: savedViews.some((row: SavedViewSummaryRow) => row.is_default === true),
     },
-    audit: (auditResult.data || []).map((row) => ({
+    audit: auditRows.map((row: AuditRow) => ({
       id: String(row.id),
       profileId: row.profile_id ? String(row.profile_id) : null,
       action: String(row.action),
