@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireInstaCompJobActor } from "../../../../../lib/instacomp-job-server";
 import { confirmInstaCompKnowledge } from "../../../../../lib/instacomp-learning-server";
+import {
+  InstaCompMutationSecurityError,
+  assertTrustedInstaCompMutationRequest,
+} from "../../../../../lib/instacomp-mutation-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,6 +55,7 @@ function cleanCorrections(value: unknown) {
 export async function POST(request: NextRequest) {
   try {
     const actor = await requireInstaCompJobActor(request);
+    assertTrustedInstaCompMutationRequest({ request, actor });
 
     // The current direct scan ledger is store-wide. Keep corrections owner/admin-only
     // until seller-scoped scan ownership is added to the ledger schema.
@@ -98,16 +103,22 @@ export async function POST(request: NextRequest) {
       error instanceof Error
         ? error.message
         : "Could not confirm InstaComp knowledge.";
-    const status = message.startsWith(
-      "Operator confirmation requires explicit corrected identity fields",
-    )
-      ? 400
-      : 500;
+    const status =
+      error instanceof InstaCompMutationSecurityError
+        ? error.status
+        : message.startsWith(
+              "Operator confirmation requires explicit corrected identity fields",
+            )
+          ? 400
+          : 500;
 
     return NextResponse.json(
       {
         ok: false,
         error: message,
+        ...(error instanceof InstaCompMutationSecurityError
+          ? { code: error.code }
+          : {}),
       },
       { status },
     );

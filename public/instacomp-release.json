@@ -10,5 +10,5 @@
   "aiCouncilFamilyVoteCap": true,
   "aiCouncilReserveReaders": true,
   "aiCouncilCustomProviderSlots": 14,
-  "sourceCommit": "468d2de8018b3bd353875f767d63e86e6bcc1762"
+  "sourceCommit": "BUILD_INJECTED_AT_BUILD"
 }

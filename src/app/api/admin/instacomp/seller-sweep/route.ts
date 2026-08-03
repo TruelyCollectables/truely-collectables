@@ -1,4 +1,12 @@
 import { NextResponse } from "next/server";
+import {
+  AdminMutationSecurityError,
+  assertTrustedAdminMutationRequest,
+} from "../../../../../lib/admin-request-security";
+import {
+  normalizeSellerSweepImageUrl,
+  trustedSellerSweepImageUrls,
+} from "../../../../../lib/instacomp-seller-sweep-security";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
 
 export const dynamic = "force-dynamic";
@@ -6,6 +14,7 @@ export const dynamic = "force-dynamic";
 const EBAY_API = "https://api.ebay.com";
 const DEFAULT_LISTING_LIMIT = 200;
 const MAX_LISTING_LIMIT = 200;
+const EBAY_REQUEST_TIMEOUT_MS = 30_000;
 const TARGET_PLAYERS = [
   "Paige Bueckers",
   "Sonia Citron",
@@ -61,6 +70,7 @@ async function getBrowseToken() {
       scope: "https://api.ebay.com/oauth/api_scope",
     }),
     cache: "no-store",
+    signal: AbortSignal.timeout(EBAY_REQUEST_TIMEOUT_MS),
   });
   const data = await response.json();
   if (!response.ok || !data.access_token) {
@@ -82,13 +92,15 @@ function listingLimit(value: unknown) {
 }
 
 function uniqueImages(item: any) {
-  const urls = [
-    item?.image?.imageUrl,
-    ...(Array.isArray(item?.additionalImages)
-      ? item.additionalImages.map((image: any) => image?.imageUrl)
-      : []),
-  ].filter((value): value is string => typeof value === "string" && value.length > 0);
-  return [...new Set(urls)];
+  return trustedSellerSweepImageUrls(
+    [
+      item?.image?.imageUrl,
+      ...(Array.isArray(item?.additionalImages)
+        ? item.additionalImages.map((image: any) => image?.imageUrl)
+        : []),
+    ],
+    24,
+  );
 }
 
 function titleTargets(title: string) {
@@ -117,6 +129,7 @@ async function mapWithConcurrency<T, R>(
 export async function POST(request: Request) {
   const sweepId = crypto.randomUUID();
   try {
+    assertTrustedAdminMutationRequest(request);
     const body = await request.json();
     const sellerUrl = String(body?.sellerUrl || "").trim();
     const seller = extractSeller(sellerUrl);
@@ -135,6 +148,7 @@ export async function POST(request: Request) {
     const response = await fetch(`${EBAY_API}/buy/browse/v1/item_summary/search?${params}`, {
       headers,
       cache: "no-store",
+      signal: AbortSignal.timeout(EBAY_REQUEST_TIMEOUT_MS),
     });
     const data = await response.json();
     if (!response.ok) {
@@ -145,7 +159,7 @@ export async function POST(request: Request) {
       itemId: String(item.itemId || ""),
       title: String(item.title || "Untitled listing"),
       itemWebUrl: String(item.itemWebUrl || item.itemAffiliateWebUrl || "#"),
-      imageUrl: item.image?.imageUrl || null,
+      imageUrl: normalizeSellerSweepImageUrl(item.image?.imageUrl),
       price: numeric(item.price?.value),
       shipping: numeric(item.shippingOptions?.[0]?.shippingCost?.value),
       currency: item.price?.currency || "USD",
@@ -156,7 +170,11 @@ export async function POST(request: Request) {
       try {
         const detailResponse = await fetch(
           `${EBAY_API}/buy/browse/v1/item/${encodeURIComponent(summary.itemId)}`,
-          { headers, cache: "no-store" }
+          {
+            headers,
+            cache: "no-store",
+            signal: AbortSignal.timeout(EBAY_REQUEST_TIMEOUT_MS),
+          }
         );
         const detail = await detailResponse.json();
         if (!detailResponse.ok) {
@@ -168,9 +186,11 @@ export async function POST(request: Request) {
           imageUrl: imageUrls[0] || summary.imageUrl,
           imageUrls,
           imageCount: imageUrls.length,
-          status: "photos_ready" as const,
+          status: imageUrls.length ? ("photos_ready" as const) : ("photo_error" as const),
           targetPlayers: titleTargets(summary.title),
-          error: null,
+          error: imageUrls.length
+            ? null
+            : "eBay returned no trusted HTTPS image resources.",
         };
       } catch (error) {
         const fallbackImages = summary.imageUrl ? [summary.imageUrl] : [];
@@ -178,9 +198,12 @@ export async function POST(request: Request) {
           ...summary,
           imageUrls: fallbackImages,
           imageCount: fallbackImages.length,
-          status: "photo_error" as const,
+          status: fallbackImages.length ? ("photos_ready" as const) : ("photo_error" as const),
           targetPlayers: titleTargets(summary.title),
-          error: error instanceof Error ? error.message : "Could not retrieve listing photos.",
+          error:
+            error instanceof Error
+              ? error.message
+              : "Could not retrieve listing photos.",
         };
       }
     });
@@ -253,12 +276,14 @@ export async function POST(request: Request) {
         "Photos are staged. The next worker will segment multi-card images, run InstaComp identity and comps, then rank ROI.",
     });
   } catch (error) {
+    const status = error instanceof AdminMutationSecurityError ? error.status : 400;
     return NextResponse.json(
       {
         sweepId,
         error: error instanceof Error ? error.message : "Seller Sweep failed.",
+        ...(error instanceof AdminMutationSecurityError ? { code: error.code } : {}),
       },
-      { status: 400 }
+      { status }
     );
   }
 }

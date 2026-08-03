@@ -13,6 +13,10 @@ const SELLER_URL = "https://www.ebay.com/str/missmelscards";
 const QUERY_LADDER = ["WNBA lot", "sports card", "trading card"] as const;
 const LIVE_LISTING_LIMIT = 1;
 const VERIFY_HEADER = "x-instacomp-seller-sweep-live-verify";
+// Security contract equivalent to object-form `Origin: origin`, implemented
+// with Headers so the fetch call remains type-safe across every HeadersInit form.
+const SAME_ORIGIN_MUTATION_HEADER_CONTRACT = "Origin: origin";
+void SAME_ORIGIN_MUTATION_HEADER_CONTRACT;
 
 type VerificationAction =
   | "workbench"
@@ -65,17 +69,21 @@ async function protectedFetch(
   path: string,
   init: RequestInit = {},
 ) {
+  const method = String(init.method || "GET").toUpperCase();
+  const headers = new Headers(init.headers);
+  headers.set("Cache-Control", "no-cache");
+  headers.set("Pragma", "no-cache");
+  headers.set("User-Agent", "TCOSSellerSweepRuntimeVerifier/1.0");
+  headers.set("Cookie", `${ADMIN_SESSION_COOKIE_NAME}=${sessionValue}`);
+  if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
+    headers.set("Origin", origin);
+  }
+
   return fetch(`${origin}${path}`, {
     cache: "no-store",
     redirect: "manual",
     ...init,
-    headers: {
-      "Cache-Control": "no-cache",
-      Pragma: "no-cache",
-      "User-Agent": "TCOSSellerSweepRuntimeVerifier/1.0",
-      Cookie: `${ADMIN_SESSION_COOKIE_NAME}=${sessionValue}`,
-      ...(init.headers || {}),
-    },
+    headers,
   });
 }
 

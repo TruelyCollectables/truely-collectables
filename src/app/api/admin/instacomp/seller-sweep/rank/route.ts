@@ -1,4 +1,8 @@
 import { NextResponse } from "next/server";
+import {
+  AdminMutationSecurityError,
+  assertTrustedAdminMutationRequest,
+} from "../../../../../../lib/admin-request-security";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 import {
   calculateSellerSweepLotEconomics,
@@ -45,6 +49,7 @@ function rankScore(row: {
 
 export async function POST(request: Request) {
   try {
+    assertTrustedAdminMutationRequest(request);
     const body = await request.json();
     const sweepId = requireUuid(body?.sweepId, "sweepId");
     const limit = batchSize(body?.batchSize);
@@ -61,7 +66,7 @@ export async function POST(request: Request) {
     const { data: listings, error: listingError } = await supabase
       .from("instacomp_seller_sweep_listings")
       .select(
-        "id,ebay_item_id,title,item_url,price,shipping,status,target_players,identified_cards,confidence",
+        "id,ebay_item_id,title,item_url,price,shipping,status,target_players,identified_cards,confidence,retail_value,updated_at",
       )
       .eq("sweep_id", sweepId)
       .or("status.eq.comping,and(status.eq.review,retail_value.is.null)")
@@ -77,7 +82,7 @@ export async function POST(request: Request) {
         inboundShipping: listing.shipping,
       });
       const status = economics.status === "ranked" ? "ranked" : "review";
-      const { error: updateError } = await supabase
+      let update = supabase
         .from("instacomp_seller_sweep_listings")
         .update({
           status,
@@ -93,8 +98,18 @@ export async function POST(request: Request) {
               : null,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", listing.id);
+        .eq("id", listing.id)
+        .eq("sweep_id", sweepId)
+        .eq("status", listing.status)
+        .eq("updated_at", listing.updated_at);
+      if (listing.status === "review") {
+        update = update.is("retail_value", null);
+      }
+      const { data: updated, error: updateError } = await update
+        .select("id")
+        .maybeSingle();
       if (updateError) throw updateError;
+      if (!updated) continue;
 
       outcomes.push({
         listingId: listing.id,
@@ -145,7 +160,9 @@ export async function POST(request: Request) {
       const { error: rankError } = await supabase
         .from("instacomp_seller_sweep_listings")
         .update({ rank: index + 1, updated_at: new Date().toISOString() })
-        .eq("id", rankedRows[index].id);
+        .eq("id", rankedRows[index].id)
+        .eq("sweep_id", sweepId)
+        .eq("status", "ranked");
       if (rankError) throw rankError;
     }
 
@@ -183,6 +200,7 @@ export async function POST(request: Request) {
         "Unverified cards and cards with fewer than two independently verified completed sales remain review-only with $0 projected value.",
     });
   } catch (error) {
+    const status = error instanceof AdminMutationSecurityError ? error.status : 400;
     return NextResponse.json(
       {
         ok: false,
@@ -190,8 +208,9 @@ export async function POST(request: Request) {
           error instanceof Error
             ? error.message
             : "Seller Sweep ranking failed.",
+        ...(error instanceof AdminMutationSecurityError ? { code: error.code } : {}),
       },
-      { status: 400 },
+      { status },
     );
   }
 }

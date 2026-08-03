@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "dev:isolated": "NEXT_DIST_DIR=.next-dev-check next dev",
+    "prebuild": "node scripts/write-instacomp-release-manifest.mjs --auto",
     "build": "next build --webpack",
     "build:isolated": "node scripts/prepare-next-build-check.mjs && NEXT_DIST_DIR=.next-build-check-current NEXT_TSCONFIG_PATH=tsconfig.build.json next build --webpack",
     "start": "next start",

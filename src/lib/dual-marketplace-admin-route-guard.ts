@@ -1,3 +1,4 @@
+import { adminMutationSecurityDecision } from "./admin-request-security";
 import { ebayListingContentProblems } from "./ebay-listing-content";
 import {
   handleDualMarketplaceGet,
@@ -133,6 +134,17 @@ export async function handleGuardedDualMarketplaceGet(request: Request) {
 }
 
 export async function handleGuardedDualMarketplacePost(request: Request) {
+const mutation = adminMutationSecurityDecision(request);
+if (!mutation.allowed) {
+  return Response.json(
+    {
+      success: false,
+      error: mutation.reason || "Privileged listing mutation rejected.",
+      code: mutation.code,
+    },
+    { status: 403 },
+  );
+}
   normalizePercentEnvironment();
   const body = await request.json().catch(() => ({}));
   const items = (Array.isArray(body.items) ? body.items : []).map((item: unknown) =>

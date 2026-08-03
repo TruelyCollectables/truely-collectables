@@ -77,37 +77,100 @@ function hasBlockingFlag(comp: InstaCompMarketComp) {
   );
 }
 
-export function instaCompCompletedSaleKey(comp: InstaCompMarketComp) {
-  const saleId = String(comp.saleId || "").trim().toLowerCase();
-  if (!saleId) return null;
-  const source = String(comp.source || comp.sourceLabel || "unknown")
+function canonicalEvidenceUrl(value: unknown) {
+  const input = String(value || "").trim();
+  if (!input || input.length > 2_048) return null;
+
+  let url: URL;
+  try {
+    url = new URL(input);
+  } catch {
+    return null;
+  }
+
+  if (url.protocol !== "https:" || url.username || url.password) return null;
+  if (url.port && url.port !== "443") return null;
+  url.hash = "";
+
+  const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
+  if (!hostname) return null;
+  url.hostname = hostname;
+
+  if (hostname === "ebay.com" || hostname.endsWith(".ebay.com")) {
+    const itemId = url.pathname.match(/\/(?:itm|p)\/(?:[^/]+\/)?(\d{9,15})(?:\/|$)/i)?.[1];
+    if (itemId) return `https://www.ebay.com/itm/${itemId}`;
+
+    const orderId = url.searchParams.get("orderId") || url.searchParams.get("orderid");
+    if (orderId) {
+      return `https://order.ebay.com/ord/show?orderId=${encodeURIComponent(orderId)}`;
+    }
+  }
+
+  const trackingKeys = [
+    "campid",
+    "customid",
+    "hash",
+    "mkcid",
+    "mkevt",
+    "mkrid",
+    "siteid",
+    "toolid",
+    "var",
+    "widget_ver",
+  ];
+  for (const key of trackingKeys) url.searchParams.delete(key);
+  url.searchParams.sort();
+  return url.toString();
+}
+
+function marketplaceFamily(comp: InstaCompMarketComp) {
+  const source = String(comp.source || comp.sourceLabel || "")
     .trim()
     .toLowerCase();
-  return `${source}:${saleId}`;
+  const evidenceUrl = canonicalEvidenceUrl(comp.url);
+  let hostname = "";
+  try {
+    hostname = evidenceUrl ? new URL(evidenceUrl).hostname : "";
+  } catch {
+    hostname = "";
+  }
+  if (source.includes("ebay") || hostname === "ebay.com" || hostname.endsWith(".ebay.com")) {
+    return "ebay";
+  }
+  return source.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "unknown";
+}
+
+export function instaCompCompletedSaleKey(comp: InstaCompMarketComp) {
+  const saleId = String(comp.saleId || "").trim().toLowerCase();
+  if (!saleId || saleId.length > 240) return null;
+  return `${marketplaceFamily(comp)}:${saleId}`;
 }
 
 export function instaCompVerifiedSalePrice(comp: InstaCompMarketComp) {
   const displayedPrice = positiveMoney(comp.price);
   const itemPrice = positiveMoney(comp.itemPrice);
   const shippingPrice = nonNegativeMoney(comp.shippingPrice);
+  const finalPriceVerified = comp.finalPriceVerified === true;
+  const shippingVerified = comp.shippingVerified === true;
+
+  if (!finalPriceVerified || !shippingVerified) return null;
+
+  const calculatedTotal =
+    itemPrice !== null && shippingPrice !== null
+      ? rounded(itemPrice + shippingPrice)
+      : null;
 
   if (comp.priceIncludesShipping === true && displayedPrice !== null) {
+    if (
+      calculatedTotal !== null &&
+      Math.abs(displayedPrice - calculatedTotal) > 0.02
+    ) {
+      return null;
+    }
     return rounded(displayedPrice);
   }
 
-  if (itemPrice !== null && shippingPrice !== null) {
-    return rounded(itemPrice + shippingPrice);
-  }
-
-  const finalPriceVerified =
-    comp.finalPriceVerified === true || hasFlag(comp, "final price verified");
-  const shippingVerified =
-    comp.shippingVerified === true || hasFlag(comp, "shipping verified");
-
-  if (finalPriceVerified && shippingVerified && displayedPrice !== null) {
-    return rounded(displayedPrice);
-  }
-
+  if (calculatedTotal !== null) return calculatedTotal;
   return null;
 }
 
@@ -120,11 +183,9 @@ export function isVerifiedInstaCompCompletedSale(
   if (!instaCompCompletedSaleKey(comp)) return false;
   if (instaCompVerifiedSalePrice(comp) === null) return false;
   if (comp.currency && String(comp.currency).toUpperCase() !== "USD") return false;
-  if (!String(comp.url || "").trim()) return false;
+  if (!canonicalEvidenceUrl(comp.url)) return false;
 
-  const saleVerified =
-    comp.saleVerified === true || hasFlag(comp, "verified completed sale");
-  if (!saleVerified) return false;
+  if (comp.saleVerified !== true) return false;
 
   const soldAt = Date.parse(String(comp.soldAt || ""));
   const now = nowInput instanceof Date ? nowInput.getTime() : Number(nowInput);
@@ -138,11 +199,13 @@ export function isVerifiedInstaCompCompletedSale(
 }
 
 export function uniqueInstaCompComps(rows: InstaCompMarketComp[]) {
-  const seen = new Set<string>();
+  const seenKeys = new Set<string>();
+  const seenEvidenceUrls = new Set<string>();
   const unique: InstaCompMarketComp[] = [];
 
   for (const comp of rows) {
     const saleKey = instaCompCompletedSaleKey(comp);
+    const evidenceUrl = canonicalEvidenceUrl(comp.url);
     const price =
       instaCompVerifiedSalePrice(comp) ??
       positiveMoney(comp.price) ??
@@ -150,13 +213,16 @@ export function uniqueInstaCompComps(rows: InstaCompMarketComp[]) {
     if (price === null) continue;
 
     const fallbackKey = [
-      String(comp.url || "").trim().toLowerCase(),
+      evidenceUrl || String(comp.url || "").trim().toLowerCase(),
       String(comp.title || "").trim().toLowerCase(),
       rounded(price),
     ].join("|");
     const key = saleKey || fallbackKey;
-    if (seen.has(key)) continue;
-    seen.add(key);
+    if (seenKeys.has(key)) continue;
+    if (evidenceUrl && seenEvidenceUrls.has(evidenceUrl)) continue;
+
+    seenKeys.add(key);
+    if (evidenceUrl) seenEvidenceUrls.add(evidenceUrl);
     unique.push(comp);
   }
 

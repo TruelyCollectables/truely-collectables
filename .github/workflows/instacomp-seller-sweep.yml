@@ -6,8 +6,10 @@ on:
       - "src/app/admin/instacomp/seller-sweep/**"
       - "src/app/api/admin/instacomp/seller-sweep/**"
       - "src/app/api/internal/instacomp-seller-sweep-live-verify/**"
+      - "src/lib/admin-request-security.ts"
       - "src/lib/instacomp-seller-sweep-*.ts"
       - "supabase/migrations/20260802002500_instacomp_seller_sweeps.sql"
+      - "scripts/run-instacomp-audit-round2-security-regressions.ts"
       - "scripts/run-instacomp-seller-sweep-contracts.mjs"
       - "scripts/run-instacomp-seller-sweep-live-smoke.mjs"
       - "scripts/run-instacomp-seller-sweep-live-verifier-simulations.ts"
@@ -32,6 +34,8 @@ jobs:
         run: node scripts/run-instacomp-seller-sweep-contracts.mjs
       - name: Install dependencies
         run: npm ci
+      - name: Run Round Two hostile request and image regressions
+        run: node --import tsx scripts/run-instacomp-audit-round2-security-regressions.ts
       - name: Verify exact-identity receipt proof adapter
         run: node --import tsx scripts/run-instacomp-seller-sweep-proof-simulations.ts
       - name: Verify conservative photo reconciliation

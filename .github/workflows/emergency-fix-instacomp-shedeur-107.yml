@@ -38,75 +38,75 @@ jobs:
                   raise SystemExit(f'missing expected block: {name}')
               s = s.replace(old, new, 1)
           r('''function checklistParallelTokens(value: unknown) {
-  return normalizedText(value)
-    .replace(/\\bcracked\\s+ice\\b/g, "ice")
-''','''function checklistParallelTokens(value: unknown) {
-  return normalizedText(value)
-    .replace(/\\bcracked\\s+ice\\b/g, "ice")
-    .replace(/\\bfoil\\b/g, "holo")
-''','foil-holo alias')
+            return normalizedText(value)
+              .replace(/\\bcracked\\s+ice\\b/g, "ice")
+          ''','''function checklistParallelTokens(value: unknown) {
+            return normalizedText(value)
+              .replace(/\\bcracked\\s+ice\\b/g, "ice")
+              .replace(/\\bfoil\\b/g, "holo")
+          ''','foil-holo alias')
           r('''    if (teams.length && !targetTeam) continue;
-    if (
-      targetTeam &&
-      !teams.some((team: string) => normalizedText(team) === targetTeam)
-    ) {
-      continue;
-    }
+              if (
+                targetTeam &&
+                !teams.some((team: string) => normalizedText(team) === targetTeam)
+              ) {
+                continue;
+              }
 
-    const registrySport = normalizedText(release.sport?.name);
-    const registryLeague = normalizedText(release.league?.name);
-    if (registrySport && (!targetSport || registrySport !== targetSport)) continue;
-    if (registryLeague && targetLeague && registryLeague !== targetLeague) continue;
-''','''    if (
-      targetTeam &&
-      !teams.some((team: string) => normalizedText(team) === targetTeam)
-    ) {
-      continue;
-    }
+              const registrySport = normalizedText(release.sport?.name);
+              const registryLeague = normalizedText(release.league?.name);
+              if (registrySport && (!targetSport || registrySport !== targetSport)) continue;
+              if (registryLeague && targetLeague && registryLeague !== targetLeague) continue;
+          ''','''    if (
+                targetTeam &&
+                !teams.some((team: string) => normalizedText(team) === targetTeam)
+              ) {
+                continue;
+              }
 
-    const registrySport = normalizedText(release.sport?.name);
-    const registryLeague = normalizedText(release.league?.name);
-    if (registrySport && targetSport && registrySport !== targetSport) continue;
-    if (registryLeague && targetLeague && registryLeague !== targetLeague) continue;
-''','optional team sport')
+              const registrySport = normalizedText(release.sport?.name);
+              const registryLeague = normalizedText(release.league?.name);
+              if (registrySport && targetSport && registrySport !== targetSport) continue;
+              if (registryLeague && targetLeague && registryLeague !== targetLeague) continue;
+          ''','optional team sport')
           r('''      const registryVariation = normalizedText(identity.variation || card.variation);
-      if (registryVariation || targetVariation) {
-        if (!registryVariation || !targetVariation || registryVariation !== targetVariation) {
-          continue;
-        }
-      }
-''','''      const registryVariation = normalizedText(identity.variation || card.variation);
-      if (targetVariation && registryVariation !== targetVariation) continue;
-''','optional variation')
+                if (registryVariation || targetVariation) {
+                  if (!registryVariation || !targetVariation || registryVariation !== targetVariation) {
+                    continue;
+                  }
+                }
+          ''','''      const registryVariation = normalizedText(identity.variation || card.variation);
+                if (targetVariation && registryVariation !== targetVariation) continue;
+          ''','optional variation')
           r('''      if (registryLanguage || targetLanguage) {
-        if (!registryLanguage || !targetLanguage || registryLanguage !== targetLanguage) {
-          continue;
-        }
-      }
-''','''      if (targetLanguage && registryLanguage !== targetLanguage) continue;
-''','optional language')
+                  if (!registryLanguage || !targetLanguage || registryLanguage !== targetLanguage) {
+                    continue;
+                  }
+                }
+          ''','''      if (targetLanguage && registryLanguage !== targetLanguage) continue;
+          ''','optional language')
           r('''      if (registryConfiguration || targetConfiguration) {
-        if (
-          !registryConfiguration ||
-          !targetConfiguration ||
-          registryConfiguration !== targetConfiguration
-        ) {
-          continue;
-        }
-      }
-''','''      if (targetConfiguration && registryConfiguration !== targetConfiguration) {
-        continue;
-      }
-''','optional configuration')
+                  if (
+                    !registryConfiguration ||
+                    !targetConfiguration ||
+                    registryConfiguration !== targetConfiguration
+                  ) {
+                    continue;
+                  }
+                }
+          ''','''      if (targetConfiguration && registryConfiguration !== targetConfiguration) {
+                  continue;
+                }
+          ''','optional configuration')
           r('''  for (const card of rows) {
-    const players = Array.isArray(card.players)
-''','''  for (const card of rows) {
-    if (normalizedCardNumber(card.card_number) !== normalizedCardNumber(ai.cardNumber)) {
-      continue;
-    }
+              const players = Array.isArray(card.players)
+          ''','''  for (const card of rows) {
+              if (normalizedCardNumber(card.card_number) !== normalizedCardNumber(ai.cardNumber)) {
+                continue;
+              }
 
-    const players = Array.isArray(card.players)
-''','card number gate')
+              const players = Array.isArray(card.players)
+          ''','card number gate')
           p.write_text(s)
           PY
       - name: Create exact live regression

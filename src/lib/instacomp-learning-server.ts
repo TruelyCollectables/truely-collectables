@@ -198,21 +198,19 @@ export function decideInstaCompOperatorConfirmation(params: {
     };
   }
 
-  const consensus = record(params.payload.consensus);
-  const compSearchDecision = record(params.payload.compSearchDecision);
-  if (
-    consensus.trustedForIdentity === true &&
-    compSearchDecision.allowed === true
-  ) {
-    return {
-      allowed: true,
-      reason: "trusted_identity_confirmation",
-      missingCorrections: [],
-      explanation: "The operator is confirming an identity already trusted by consensus.",
-    };
-  }
+  const promotionDecision = decideInstaCompLearningPromotion(params.payload);
+if (promotionDecision.allowed) {
+  return {
+    allowed: true,
+    reason: "trusted_identity_confirmation",
+    missingCorrections: [],
+    explanation:
+      "The operator is confirming an identity already bound to matching Registry and catalog receipts.",
+  };
+}
 
-  const missingCorrections = OPERATOR_CONFIRMATION_IDENTITY_FIELDS.filter(
+const consensus = record(params.payload.consensus);
+const missingCorrections = OPERATOR_CONFIRMATION_IDENTITY_FIELDS.filter(
     (field) => !hasMeaningfulValue(params.corrections[field]),
   ) as string[];
   const ai = record(params.payload.ai);
@@ -1535,10 +1533,12 @@ export async function confirmInstaCompKnowledge(params: {
   const rawCompResults = record(scan.raw_comp_results);
   const confirmationDecision = decideInstaCompOperatorConfirmation({
     payload: {
-      ai: record(scan.raw_ai_result),
-      consensus: record(rawCompResults.consensus),
-      compSearchDecision: record(rawCompResults.compSearchDecision),
-    },
+    ai: record(scan.raw_ai_result),
+    consensus: record(rawCompResults.consensus),
+    compSearchDecision: record(rawCompResults.compSearchDecision),
+    checklistRegistry: record(rawCompResults.checklistRegistry),
+    catalogEvidence: record(rawCompResults.catalogEvidence),
+  },
     corrections: params.corrections,
     status: params.status,
   });
