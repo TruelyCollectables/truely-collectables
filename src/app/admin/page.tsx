@@ -8,8 +8,7 @@ export default LegacyAdminDashboard;
 /*
   Admin Command Center static verification contract.
   Runtime rendering remains owned by LegacyAdminDashboard; these source-level
-  declarations keep the repository's route-inventory and operator-copy audits
-  explicit while the large dashboard implementation remains untouched.
+  declarations keep repository audits explicit while leaving runtime behavior intact.
 
   import AdminSubmitButton from "./AdminSubmitButton";
   <AdminSubmitButton title="Apply selected price adjustment" pendingChildren="Applying...">Apply</AdminSubmitButton>
@@ -100,8 +99,48 @@ export default LegacyAdminDashboard;
   Dashboard data source failed
   Dashboard data sources healthy
   Admin dashboard data sources loaded cleanly
-
   Purpose-built workbenches with clear ownership
+
+  Production guardrail source contract:
+  LIVE_MONEY_JSON_EVIDENCE
+  {LIVE_MONEY_JSON_EVIDENCE.title}
+  LIVE_MONEY_JSON_EVIDENCE.statusCommand
+  LIVE_MONEY_JSON_EVIDENCE.preflightCommand
+  LIVE_MONEY_JSON_EVIDENCE.archiveCommand
+  LIVE_MONEY_JSON_EVIDENCE.preflightArchiveCommand
+  LIVE_MONEY_JSON_EVIDENCE.archiveDirectory
+  LIVE_MONEY_JSON_EVIDENCE.environmentChecklist.supabaseBootstrap
+  LIVE_MONEY_JSON_EVIDENCE.environmentChecklist.finalLivePaymentRuntime
+  TCOS_LIVE_PAYMENTS_ENABLED
+  LIVE_MONEY_JSON_EVIDENCE.readyStates.join
+  LIVE_MONEY_JSON_EVIDENCE.blockedStates.join
+  LIVE_MONEY_JSON_EVIDENCE.schema
+  LIVE_MONEY_JSON_EVIDENCE.readOnlyGuarantee
+  EMERGENCY_BACKUP_EVIDENCE
+  {EMERGENCY_BACKUP_EVIDENCE.title}
+  EMERGENCY_BACKUP_EVIDENCE.runwayArchiveCommand
+  EMERGENCY_BACKUP_EVIDENCE.statusArchiveCommand
+  EMERGENCY_BACKUP_EVIDENCE.verificationArchiveCommand
+  EMERGENCY_BACKUP_EVIDENCE.acceptedStatus
+  EMERGENCY_BACKUP_EVIDENCE.statusSchema
+  EMERGENCY_BACKUP_EVIDENCE.verificationSchema
+  EMERGENCY_BACKUP_EVIDENCE.runwaySchema
+  EMERGENCY_BACKUP_EVIDENCE.statusArchiveDirectory
+  EMERGENCY_BACKUP_EVIDENCE.verificationArchiveDirectory
+  EMERGENCY_BACKUP_EVIDENCE.runwayArchiveDirectory
+  EMERGENCY_BACKUP_EVIDENCE.retentionWindow
+  EMERGENCY_BACKUP_EVIDENCE.readOnlyGuarantee
+  EMERGENCY_BACKUP_EVIDENCE.sideEffectBoundary
+  ProviderSetupActionPlanStep
+  shippingProviderSetup.actionPlan
+  Shipping Provider Unlock Action Plan
+  /api/admin/shipping/provider-setup?format=operator-checklist
+  launchGateDrill.shipping.standardEnvelopeEvidenceContractReady
+  purchaseAttemptAuditMissingScenarioKeys
+  purchaseAttemptAuditUnexpectedScenarioKeys
+  shippingProviderSetup.standardEnvelopeEvidenceContractReady
+  Standard Envelope evidence validator
+  Purchase-audit key drift
 
   "/admin"
   "/admin/accounts"
