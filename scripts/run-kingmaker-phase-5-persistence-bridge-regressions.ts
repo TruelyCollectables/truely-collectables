@@ -73,16 +73,14 @@ const adapterRun = {
   rejected: 2,
   retries: 0,
   rateLimited: false,
-  status: "healthy" as const,
-  error: null,
 };
 
 const event = {
   type: "decision_created" as const,
   source: "ebay" as const,
   occurredAt: "2026-08-03T12:00:02Z",
-  message: "decision_created",
-  payload: { fingerprint: decision.fingerprint },
+  decisionFingerprint: decision.fingerprint,
+  metadata: { action: "buy_now", priority: 140 },
   fingerprint: "event-fingerprint",
 };
 
@@ -109,6 +107,7 @@ assert.equal(plan.adapterRunCount, 1);
 assert.equal(plan.ownerActionCount, 1);
 assert.equal(plan.operations[0].table, "tcos_kingmaker_live_cycles");
 assert.equal(plan.operations[1].mode, "upsert");
+assert.equal(plan.operations[2].row.status, "healthy");
 assert.equal(plan.operations[3].conflictTarget, "idempotency_key");
 assert.equal(plan.fingerprint.length, 64);
 assert.equal(new Set(plan.operations.map((entry) => entry.fingerprint)).size, plan.operations.length);
