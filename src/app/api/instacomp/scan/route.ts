@@ -2105,6 +2105,7 @@ function buildInstaCompConsensusReaders(params: {
       readerId: "primary_vision",
       label: "Primary AI vision",
       kind: "primary_vision",
+      family: "openai",
       ai: params.baseAi,
       evidence: ["front/back image model identity pass"],
       weight: 1,
@@ -2116,6 +2117,9 @@ function buildInstaCompConsensusReaders(params: {
       readerId: "serial_vision",
       label: "Serial vision/OCR",
       kind: "serial_vision",
+      family: params.externalOcr?.provider
+        ? `ocr:${params.externalOcr.provider}`
+        : "openai",
       identity: {
         serialNumber: params.serialOcr.serialNumber,
       },
@@ -2136,6 +2140,7 @@ function buildInstaCompConsensusReaders(params: {
         readerId: `secondary_vision_${councilReader.readerId}`,
         label: councilReader.label,
         kind: "secondary_vision",
+        family: councilReader.family,
         ai: councilReader.ai,
         evidence: [
           `AI council ${params.aiCouncil.tier} identity witness ${index + 1}/${params.aiCouncil.desiredReaders}`,
@@ -2160,6 +2165,9 @@ function buildInstaCompConsensusReaders(params: {
       readerId: "ocr_printed_evidence_guard",
       label: "OCR/printed evidence guard",
       kind: "ocr_printed_evidence",
+      family: params.externalOcr?.provider
+        ? `ocr:${params.externalOcr.provider}`
+        : "openai",
       identity: printedGuardIdentity,
       confidence: Math.max(0.84, params.guardedAi.confidence || 0),
       weight: 1.15,
