@@ -29,6 +29,7 @@ on:
       - "scripts/run-instacomp-mutation-security-regressions.ts"
       - "scripts/run-instacomp-publication-gate-regressions.ts"
       - "scripts/run-instacomp-release-attestation-regressions.mjs"
+      - "scripts/apply-instacomp-learning-provenance-production.mjs"
       - "scripts/run-instacomp-v2-hardening-simulations.ts"
       - "scripts/write-instacomp-release-manifest.mjs"
       - "scripts/check-live-instacomp-release.mjs"
@@ -190,6 +191,7 @@ jobs:
           scripts/run-instacomp-mutation-security-regressions.ts
           scripts/run-instacomp-publication-gate-regressions.ts
           scripts/run-instacomp-release-attestation-regressions.mjs
+          scripts/apply-instacomp-learning-provenance-production.mjs
           scripts/write-instacomp-release-manifest.mjs
           scripts/check-live-instacomp-release.mjs
 

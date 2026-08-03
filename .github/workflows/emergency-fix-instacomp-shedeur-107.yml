@@ -134,6 +134,7 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder
+          SUPABASE_SERVICE_ROLE_KEY: build-only-service-role-key
         run: |
           npx tsx scripts/run-instacomp-live-shedeur-107-regression.ts
           npx tsx scripts/run-instacomp-serial-color-gate-regressions.ts

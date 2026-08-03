@@ -8,6 +8,8 @@ on:
       - "public/instacomp-release.json"
       - "src/app/api/instacomp/scan/route.ts"
       - "src/lib/instacomp-learning-server.ts"
+      - "supabase/migrations/20260802224500_instacomp_learning_provenance_receipt.sql"
+      - "scripts/apply-instacomp-learning-provenance-production.mjs"
       - "scripts/run-instacomp-evidence-first-regressions.ts"
       - "scripts/run-instacomp-ai-council-30-regressions.ts"
       - "scripts/run-instacomp-release-attestation-regressions.mjs"
@@ -32,6 +34,7 @@ jobs:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_SCOPE: truelycollectables-projects
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
     steps:
       - name: Check out merged main
         uses: actions/checkout@v4
@@ -70,6 +73,41 @@ jobs:
             --token "$VERCEL_TOKEN" >/dev/null
           chmod 600 .env.production.local
 
+      - name: Detect learning-provenance Production migration release
+        id: learning_migration_change
+        shell: bash
+        run: |
+          set -euo pipefail
+          base_sha="${{ github.event.before }}"
+          if [ "${{ github.event_name }}" != "push" ] || \
+            [ -z "$base_sha" ] || \
+            [ "$base_sha" = "0000000000000000000000000000000000000000" ] || \
+            ! git cat-file -e "$base_sha^{commit}" 2>/dev/null; then
+            base_sha="$(git rev-parse HEAD^)"
+          fi
+          release_paths=(
+            .github/workflows/instacomp-production-release.yml
+            scripts/apply-instacomp-learning-provenance-production.mjs
+            supabase/migrations/20260802224500_instacomp_learning_provenance_receipt.sql
+          )
+          if git diff --quiet "$base_sha" "$GITHUB_SHA" -- "${release_paths[@]}"; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Learning-provenance migration release is unchanged."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Learning-provenance migration release changed and requires privileged convergence."
+          fi
+
+      - name: Apply and verify learning-provenance Production migration
+        if: steps.learning_migration_change.outputs.changed == 'true'
+        env:
+          PRODUCTION_ENV_FILE: .env.production.local
+        run: |
+          set -euo pipefail
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          node scripts/apply-instacomp-learning-provenance-production.mjs
+
       - name: Converge, validate, and deploy exact main
         shell: bash
         run: |
@@ -85,6 +123,7 @@ jobs:
             TCOS_RELEASE_COMMIT="$exact_commit" \
               node scripts/write-instacomp-release-manifest.mjs
             node scripts/run-instacomp-release-attestation-regressions.mjs
+            node scripts/apply-instacomp-learning-provenance-production.mjs --self-test
             npx tsx scripts/run-instacomp-evidence-first-regressions.ts
             npx tsx scripts/run-instacomp-ai-council-30-regressions.ts
             npx eslint \
@@ -93,6 +132,7 @@ jobs:
               scripts/run-instacomp-evidence-first-regressions.ts \
               scripts/run-instacomp-ai-council-30-regressions.ts \
               scripts/run-instacomp-release-attestation-regressions.mjs \
+              scripts/apply-instacomp-learning-provenance-production.mjs \
               scripts/write-instacomp-release-manifest.mjs \
               scripts/check-live-instacomp-release.mjs
             NEXT_PUBLIC_SUPABASE_URL=https://example.supabase.co \
