@@ -49,19 +49,25 @@ if count != 1:
         f"V2 semantic set-match boundary changed; refusing to run ({count} replacements)."
     )
 
-old_parallel_support = '''} else if (supportingParallelFamilies.length < 1) {
-      conflicts.push(
-        "catalog non-Base parallel lacks visible scanner support",
-      );'''
-new_parallel_support = '''} else if (supportingParallelFamilies.length < 2) {
+parallel_support_pattern = re.compile(
+    r"\} else if \(supportingParallelFamilies\.length < 1\) \{\n"
+    r"\s*conflicts\.push\(\n"
+    r"\s*\"catalog non-Base parallel lacks visible scanner support\",\n"
+    r"\s*\);"
+)
+parallel_support_replacement = '''} else if (supportingParallelFamilies.length < 2) {
       conflicts.push(
         "catalog non-Base parallel lacks agreement from two independent scanner families",
       );'''
-if script.count(old_parallel_support) != 1:
+script, count = parallel_support_pattern.subn(
+    parallel_support_replacement,
+    script,
+    count=1,
+)
+if count != 1:
     raise SystemExit(
-        f"V2 independent-family boundary changed; refusing to run ({script.count(old_parallel_support)} matches)."
+        f"V2 independent-family boundary changed; refusing to run ({count} replacements)."
     )
-script = script.replace(old_parallel_support, new_parallel_support, 1)
 
 guardrail_start = 'guardrails = Path("scripts/check-production-guardrails.mjs")\n'
 if script.count(guardrail_start) != 1:
