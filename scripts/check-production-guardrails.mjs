@@ -3882,6 +3882,35 @@ assertFileIncludes("instacomp trial results export UI wiring", "src/app/admin/in
   "targetAverageSeconds",
   "targetP95Seconds",
 ]);
+assertFileIncludes("instacomp exact identity firewall consensus source", "src/lib/instacomp-consensus.ts", [
+  "families: string[]",
+  "function readerFamily",
+  "presentReaderFamilies",
+  "catalog parallel lacks agreement from two independent scanner families",
+  "weighted voting is forbidden for exact identity",
+  "multi_scanner_${decision.field}_single_reader",
+  "family: readerFamily(reader)",
+]);
+assertFileIncludes("instacomp exact identity firewall checklist source", "src/lib/instacomp-learning-server.ts", [
+  "function checklistParallelSignature",
+  "registryParallelSignature === targetParallelSignature",
+  "parallel_not_independently_confirmed",
+  "parallelEvidenceStrong",
+  '"parallel",',
+]);
+assertFileIncludes("instacomp exact identity firewall route families", "src/app/api/instacomp/scan/route.ts", [
+  'family: "openai"',
+  "family: councilReader.family",
+  "ocr:${params.externalOcr.provider}",
+]);
+assertFileIncludes("instacomp exact identity firewall regressions", "scripts/run-instacomp-identity-firewall-regressions.ts", [
+  "serial denominator cannot erase parallel finish",
+  "catalog cannot override conflicting visible colors",
+  "two readers from one AI family are not independent",
+  "two independent families plus checklist can confirm exact parallel",
+  "parallel is mandatory for the 95 percent identity gate",
+  "manufacturer or brand disagreement is a hard stop",
+]);
 assertFileIncludes("instacomp multi-scanner consensus simulations", "scripts/run-instacomp-consensus-simulations.ts", [
   "obvious complete identity stays on fast lane",
   "copyright season slash does not trigger numbered-card escalation",
@@ -3892,11 +3921,12 @@ assertFileIncludes("instacomp multi-scanner consensus simulations", "scripts/run
   "low confidence or missing critical fields escalates to second AI identity reader",
   "Expected full council",
   "Expected fast council",
-  "fast lane exposes thin single-reader council warning",
+  "fast lane single-reader identity remains blocked",
   "full council missing second AI reader forces review",
-  "catalog referee overrides two generic base scanner votes",
-  "specific printed clear cut beats generic base without catalog",
-  "serial reader fills missing serial number",
+  "catalog referee cannot override conflicting scanner parallel evidence",
+  "specific printed parallel cannot beat conflicting base without confirmation",
+  "single serial reader preserves candidate but cannot confirm identity",
+  "single positive autograph marker preserves candidate but remains blocked",
   "unresolved player disagreement blocks trusted identity",
 ]);
 assertFileIncludes("instacomp verify includes consensus simulations", "package.json", [
