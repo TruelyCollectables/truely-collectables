@@ -3897,7 +3897,7 @@ assertFileIncludes("instacomp exact identity firewall consensus source", "src/li
 ]);
 assertFileIncludes("instacomp exact identity firewall checklist source", "src/lib/instacomp-learning-server.ts", [
   "function checklistParallelSignature",
-  "registryParallelSignature === targetParallelSignature",
+  "registryParallelSignature !== parallelProfile.signature",
   "parallel_not_independently_confirmed",
   "parallelEvidenceStrong",
   '"parallel",',
