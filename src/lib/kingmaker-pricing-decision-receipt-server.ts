@@ -1,7 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
+import type { requireInstaCompJobActor } from "./instacomp-job-server";
 import type { KingmakerPricingDecision } from "./kingmaker-pricing-decision";
 import type { KingmakerPricingProfileResolution } from "./kingmaker-pricing-profile-server";
-import type { ScanActor } from "./instacomp-learning-server";
+
+type InstaCompActor = Awaited<ReturnType<typeof requireInstaCompJobActor>>;
 
 function client() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -11,7 +13,7 @@ function client() {
 }
 
 export async function writeKingmakerPricingDecisionReceipt(params: {
-  actor: ScanActor;
+  actor: InstaCompActor;
   identityId: string;
   profileResolution: KingmakerPricingProfileResolution;
   decision: KingmakerPricingDecision;
