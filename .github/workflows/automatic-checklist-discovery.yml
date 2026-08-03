@@ -1,0 +1,60 @@
+name: Automatic Checklist Discovery
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Validate only or import clean discoveries
+        required: true
+        default: validate
+        type: choice
+        options:
+          - validate
+          - apply
+      max_pages:
+        description: Archive pages to inspect
+        required: true
+        default: "3"
+      max_sources:
+        description: Maximum checklist sources per run
+        required: true
+        default: "25"
+  schedule:
+    - cron: "17 11 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: automatic-checklist-discovery
+  cancel-in-progress: false
+
+jobs:
+  discover-and-import:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 45
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      CHECKLIST_DISCOVERY_AUTO_IMPORT: ${{ github.event_name == 'schedule' || inputs.mode == 'apply' }}
+      CHECKLIST_DISCOVERY_MAX_PAGES: ${{ inputs.max_pages || '3' }}
+      CHECKLIST_DISCOVERY_MAX_SOURCES: ${{ inputs.max_sources || '25' }}
+      CHECKLIST_DISCOVERY_OUTPUT: .checklist-discovery/receipt.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Discover, validate, and safely import
+        run: npx tsx scripts/discover-and-import-checklists.ts
+      - name: Upload sanitized receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: automatic-checklist-discovery-receipt
+          path: .checklist-discovery/*.json
+          if-no-files-found: warn
+          retention-days: 90
