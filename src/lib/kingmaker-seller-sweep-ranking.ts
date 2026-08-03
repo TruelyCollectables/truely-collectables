@@ -53,7 +53,7 @@ export function rankKingmakerSellerSweep(input: {
     const issuePenalty = clamp(seller.issueRate ?? 0, 0, 1);
     const opportunityBonus = clamp(sellerCandidates.length / 10, 0, 1);
 
-    let score = (
+    const rawScore = (
       reliability * 0.3 +
       winRate * 0.2 +
       Math.max(0, roi) * 0.15 +
@@ -63,7 +63,10 @@ export function rankKingmakerSellerSweep(input: {
       cancellationPenalty * 0.2 -
       issuePenalty * 0.25
     ) * 100;
-    score = Number(clamp(score, 0, 100).toFixed(2));
+    // A tiny sample can look perfect by accident. Discount the rank until the
+    // seller has enough closed history to compete with proven sellers.
+    const sampleAdjustedScore = rawScore * (0.35 + sampleFactor * 0.65);
+    const score = Number(clamp(sampleAdjustedScore, 0, 100).toFixed(2));
 
     let tier: KingmakerSellerSweepRank["tier"] = "watch";
     let maximumExposureMultiplier = 0.5;
@@ -96,6 +99,7 @@ export function rankKingmakerSellerSweep(input: {
       score,
       tier,
       maximumExposureMultiplier,
+      sampleFactor: Number(sampleFactor.toFixed(4)),
       candidateFingerprints: sellerCandidates.map((candidate) => candidate.signalFingerprint).sort(),
       profile: seller,
     };
