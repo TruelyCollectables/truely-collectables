@@ -1,12 +1,14 @@
-import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
-const MIGRATION =
+const CORE_MIGRATION =
+  "supabase/migrations/20260803030000_kingmaker_intelligence_fusion.sql";
+const BECKETT_MIGRATION =
   "supabase/migrations/20260803043000_kingmaker_beckett_price_guides.sql";
 const RECEIPT_SCHEMA = "tcos.kingmaker.beckettProductionSchemaReceipt.v1";
 const REQUIRED_TRUE_FIELDS = [
+  "observation_table",
   "five_tables",
   "rls_enabled",
   "public_table_grants_revoked",
@@ -75,6 +77,8 @@ async function queryManagement({ project, token, query, readOnly, stage }) {
 function verificationSql() {
   return `
     select
+      to_regclass('public.tcos_kingmaker_observations') is not null
+        as observation_table,
       (
         select count(*) = 5
         from pg_class relation
@@ -181,6 +185,15 @@ function assertVerified(row) {
   }
 }
 
+function migrationReceipt(path) {
+  const sql = readFileSync(path, "utf8");
+  return {
+    path,
+    sql,
+    sha256: createHash("sha256").update(sql).digest("hex"),
+  };
+}
+
 async function main() {
   const envPath = process.env.PRODUCTION_ENV_FILE;
   const token = process.env.GH_SUPABASE_ACCESS_TOKEN;
@@ -196,19 +209,24 @@ async function main() {
     throw new Error("ALLOW_KINGMAKER_BECKETT_SCHEMA_APPLY=YES is required.");
   }
 
-  const migrationSql = readFileSync(MIGRATION, "utf8");
-  const migrationSha256 = createHash("sha256")
-    .update(migrationSql)
-    .digest("hex");
+  const core = migrationReceipt(CORE_MIGRATION);
+  const beckett = migrationReceipt(BECKETT_MIGRATION);
   const env = parseEnv(readFileSync(envPath, "utf8"));
   const project = projectRef(env.NEXT_PUBLIC_SUPABASE_URL);
 
   await queryManagement({
     project,
     token,
-    query: migrationSql,
+    query: core.sql,
     readOnly: false,
-    stage: "migration apply",
+    stage: "KINGMAKER core migration apply",
+  });
+  await queryManagement({
+    project,
+    token,
+    query: beckett.sql,
+    readOnly: false,
+    stage: "Beckett migration apply",
   });
   const verification = await queryManagement({
     project,
@@ -224,8 +242,10 @@ async function main() {
     schema: RECEIPT_SCHEMA,
     status: "passed",
     generatedAt: new Date().toISOString(),
-    migration: MIGRATION,
-    migrationSha256,
+    migrations: [
+      { path: core.path, sha256: core.sha256 },
+      { path: beckett.path, sha256: beckett.sha256 },
+    ],
     expectedMainSha: process.env.EXPECTED_MAIN_SHA || null,
     verification: Object.fromEntries(
       REQUIRED_TRUE_FIELDS.map((field) => [field, row[field]]),
