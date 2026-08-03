@@ -1,0 +1,174 @@
+name: KINGMAKER Beckett Price Guides
+
+on:
+  pull_request:
+    paths:
+      - "src/lib/kingmaker-intelligence-fusion.ts"
+      - "src/lib/kingmaker-beckett-price-guide.ts"
+      - "scripts/run-kingmaker-beckett-price-guide-import.ts"
+      - "scripts/run-kingmaker-beckett-price-guide-regressions.ts"
+      - "scripts/extract-kingmaker-beckett-price-guides.py"
+      - "supabase/migrations/20260803043000_kingmaker_beckett_price_guides.sql"
+      - "docs/KINGMAKER_BECKETT_PRICE_GUIDES.md"
+      - ".github/workflows/kingmaker-beckett-price-guide.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-beckett-price-guide-ingestion:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: kingmaker_beckett_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d kingmaker_beckett_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: kingmaker_beckett_test
+      CHECKLIST_MIGRATION: supabase/migrations/20260725200000_tcos_checklist_registry_core.sql
+      KINGMAKER_MIGRATION: supabase/migrations/20260803030000_kingmaker_intelligence_fusion.sql
+      BECKETT_MIGRATION: supabase/migrations/20260803043000_kingmaker_beckett_price_guides.sql
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install exact Node dependencies
+        run: npm ci
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+
+      - name: Create Supabase-compatible roles and storage contract
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          do $$ begin create role anon nologin; exception when duplicate_object then null; end $$;
+          do $$ begin create role authenticated nologin; exception when duplicate_object then null; end $$;
+          do $$ begin create role service_role nologin bypassrls; exception when duplicate_object then null; end $$;
+          create schema if not exists storage;
+          create table if not exists storage.buckets (
+            id text primary key,
+            name text not null unique,
+            public boolean not null default false,
+            file_size_limit bigint,
+            allowed_mime_types text[]
+          );
+          SQL
+
+      - name: Apply database foundations and Beckett migration
+        run: |
+          psql -v ON_ERROR_STOP=1 --file "$CHECKLIST_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$KINGMAKER_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$BECKETT_MIGRATION"
+
+      - name: Reapply Beckett migration to prove idempotence
+        run: psql -v ON_ERROR_STOP=1 --file "$BECKETT_MIGRATION"
+
+      - name: Verify private database contracts
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          do $$
+          declare
+            table_count integer;
+            rls_count integer;
+            public_grant_count integer;
+            service_grant_count integer;
+            source_type_allows_beckett boolean;
+            private_bucket boolean;
+          begin
+            select count(*) into table_count
+            from pg_class relation
+            join pg_namespace namespace on namespace.oid = relation.relnamespace
+            where namespace.nspname = 'public'
+              and relation.relkind = 'r'
+              and relation.relname like 'tcos_kingmaker_price_%';
+            if table_count <> 5 then
+              raise exception 'Expected 5 KINGMAKER price-guide tables, found %', table_count;
+            end if;
+
+            select count(*) into rls_count
+            from pg_class relation
+            join pg_namespace namespace on namespace.oid = relation.relnamespace
+            where namespace.nspname = 'public'
+              and relation.relkind = 'r'
+              and relation.relname like 'tcos_kingmaker_price_%'
+              and relation.relrowsecurity;
+            if rls_count <> 5 then
+              raise exception 'Expected RLS on all 5 price-guide tables, found %', rls_count;
+            end if;
+
+            select count(*) into public_grant_count
+            from information_schema.role_table_grants
+            where table_schema = 'public'
+              and table_name like 'tcos_kingmaker_price_%'
+              and grantee in ('anon', 'authenticated');
+            if public_grant_count <> 0 then
+              raise exception 'Public roles unexpectedly have % price-guide grants', public_grant_count;
+            end if;
+
+            select count(*) into service_grant_count
+            from information_schema.role_table_grants
+            where table_schema = 'public'
+              and table_name like 'tcos_kingmaker_price_%'
+              and grantee = 'service_role';
+            if service_grant_count < 20 then
+              raise exception 'Expected service-role access to private price-guide tables, found % grants', service_grant_count;
+            end if;
+
+            select exists (
+              select 1
+              from storage.buckets
+              where id = 'tcos-kingmaker-price-guide-sources'
+                and public = false
+                and file_size_limit = 524288000
+                and 'application/pdf' = any(allowed_mime_types)
+            ) into private_bucket;
+            if not private_bucket then
+              raise exception 'Private Beckett source bucket contract is missing';
+            end if;
+
+            select true into source_type_allows_beckett
+            from public.tcos_kingmaker_price_guides
+            where false;
+          end;
+          $$;
+          SQL
+
+      - name: Run TypeScript regressions
+        run: node --import tsx scripts/run-kingmaker-beckett-price-guide-regressions.ts
+
+      - name: Compile Python extractor
+        run: python -m py_compile scripts/extract-kingmaker-beckett-price-guides.py
+
+      - name: Lint permanent files
+        run: npx eslint src/lib/kingmaker-intelligence-fusion.ts src/lib/kingmaker-beckett-price-guide.ts scripts/run-kingmaker-beckett-price-guide-import.ts scripts/run-kingmaker-beckett-price-guide-regressions.ts
+
+      - name: TypeScript
+        run: npx tsc --noEmit
