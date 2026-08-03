@@ -1,0 +1,43 @@
+name: KINGMAKER Phase 4 Learning Loop
+
+on:
+  pull_request:
+    paths:
+      - "src/lib/kingmaker-learning-engine.ts"
+      - "scripts/run-kingmaker-learning-engine-regressions.ts"
+      - "supabase/migrations/20260803040000_kingmaker_learning_loop.sql"
+      - ".github/workflows/kingmaker-phase-4-learning-loop.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-learning-loop:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Outcome learning regressions
+        run: node --import tsx scripts/run-kingmaker-learning-engine-regressions.ts
+      - name: Migration contracts
+        run: |
+          grep -q "tcos_kingmaker_learning_outcomes" supabase/migrations/20260803040000_kingmaker_learning_loop.sql
+          grep -q "enable row level security" supabase/migrations/20260803040000_kingmaker_learning_loop.sql
+          grep -q "revoke all" supabase/migrations/20260803040000_kingmaker_learning_loop.sql
+          grep -q "outcome_fingerprint text not null unique" supabase/migrations/20260803040000_kingmaker_learning_loop.sql
+      - name: Lint
+        run: npx eslint src/lib/kingmaker-learning-engine.ts scripts/run-kingmaker-learning-engine-regressions.ts
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Production build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-placeholder
+          SUPABASE_SERVICE_ROLE_KEY: build-placeholder
+        run: npm run build
