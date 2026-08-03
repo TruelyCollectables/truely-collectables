@@ -461,6 +461,42 @@ function visibleParallelNoteTokens(value: unknown) {
   return tokens;
 }
 
+function hasVisibleParallelSurfaceRisk(value: unknown) {
+  const clauses = String(value || "").split(/[.;]/g);
+  const finishCue =
+    /\b(speckle(?:d)?|sparkle|glitter|rainbow|holo(?:graphic)?|foil|acetate|clear[-\s]*stock|transparent|translucent|outburst|refractor|prizm|prism|shimmer|wave|pulsar|mojo|mosaic|laser|black\s+and\s+white)\b/i;
+  const colorContext =
+    /\b(black|blue|gold|green|orange|pink|purple|red|silver|white)\b(?:\s+\w+){0,3}\s+\b(border|background|frame|finish|foil|parallel)\b/i;
+  const negation = /\b(no|not|without|none|absent|neither)\b/i;
+
+  return clauses.some((clause) => {
+    const cue = finishCue.exec(clause) || colorContext.exec(clause);
+    if (!cue) return false;
+    return !negation.test(clause.slice(0, cue.index));
+  });
+}
+
+function canonicalParallelName(signature: string) {
+  if (signature === "black white") return "Black and White";
+  return signature
+    .split(" ")
+    .filter(Boolean)
+    .map((token) => `${token.slice(0, 1).toUpperCase()}${token.slice(1)}`)
+    .join(" ");
+}
+
+function setNameSupportsParallelSignature(
+  setName: unknown,
+  signature: string,
+) {
+  const setTokens = new Set(checklistParallelTokens(setName));
+  const signatureTokens = signature.split(" ").filter(Boolean);
+  return (
+    signatureTokens.length > 0 &&
+    signatureTokens.every((token) => setTokens.has(token))
+  );
+}
+
 function targetParallelProfile(ai: Record<string, any>, setContext: unknown) {
   const setTokens = new Set(meaningfulTokens(setContext));
   const explicitBase = isBaseParallel(ai.parallel);
@@ -473,14 +509,17 @@ function targetParallelProfile(ai: Record<string, any>, setContext: unknown) {
       );
   const noteTokens = visibleParallelNoteTokens(ai.notes);
   const signatureTokens = noteTokens.length ? noteTokens : directTokens;
+  const signature = [...new Set(signatureTokens)].sort().join(" ");
   const baseLike =
     explicitBase ||
-    (!signatureTokens.length &&
+    (!signature &&
       (directTokens.length === 0 ||
         evidenceTextIsUncertain(ai.parallel)));
   return {
+    explicitBase,
     baseLike,
-    signature: [...new Set(signatureTokens)].sort().join(" "),
+    signature,
+    surfaceRisk: hasVisibleParallelSurfaceRisk(ai.notes),
   };
 }
 
@@ -799,36 +838,54 @@ export function chooseRegistryMatch(
     if (targetLeague && registryLeague !== targetLeague) continue;
 
     const parallelProfile = targetParallelProfile(
-      ai,
-      [ai.setName, brand, product, setName].filter(Boolean).join(" "),
-    );
-    const identities = Array.isArray(card.identities) ? card.identities : [];
-    for (const identity of identities) {
-      const parallelName = identity.parallel?.name || "Base";
-      const serialRun = asNumber(identity.parallel?.serial_run);
-      const registryBase = isBaseParallel(parallelName);
-      const registryParallelSignature = checklistParallelSignature(parallelName);
+    ai,
+    [ai.setName, brand, product, setName].filter(Boolean).join(" "),
+  );
+  if (
+    parallelProfile.baseLike &&
+    (parallelProfile.surfaceRisk || adjacentYearRecovered)
+  ) {
+    continue;
+  }
 
-      if (targetSerialRun) {
-        if (serialRun !== Number(targetSerialRun)) continue;
-        if (
-          registryBase ||
-          !parallelProfile.signature ||
-          registryParallelSignature !== parallelProfile.signature
-        ) {
-          continue;
-        }
-      } else {
-        if (serialRun) continue;
-        if (parallelProfile.baseLike) {
-          if (!registryBase) continue;
-        } else if (
-          registryBase ||
-          registryParallelSignature !== parallelProfile.signature
-        ) {
-          continue;
-        }
+  const identities = Array.isArray(card.identities) ? card.identities : [];
+  for (const identity of identities) {
+    const storedParallelName = identity.parallel?.name || "Base";
+    const serialRun = asNumber(identity.parallel?.serial_run);
+    const storedRegistryBase = isBaseParallel(storedParallelName);
+    const setEncodedParallel =
+      storedRegistryBase &&
+      !parallelProfile.baseLike &&
+      Boolean(parallelProfile.signature) &&
+      setNameSupportsParallelSignature(setName, parallelProfile.signature);
+    const parallelName = setEncodedParallel
+      ? canonicalParallelName(parallelProfile.signature)
+      : storedParallelName;
+    const registryBase = isBaseParallel(parallelName);
+    const registryParallelSignature = setEncodedParallel
+      ? parallelProfile.signature
+      : checklistParallelSignature(parallelName);
+
+    if (targetSerialRun) {
+      if (serialRun !== Number(targetSerialRun)) continue;
+      if (
+        registryBase ||
+        !parallelProfile.signature ||
+        registryParallelSignature !== parallelProfile.signature
+      ) {
+        continue;
       }
+    } else {
+      if (serialRun) continue;
+      if (parallelProfile.baseLike) {
+        if (!registryBase) continue;
+      } else if (
+        registryBase ||
+        registryParallelSignature !== parallelProfile.signature
+      ) {
+        continue;
+      }
+    }
 
       const registryVariation = normalizedText(identity.variation || card.variation);
       if (targetVariation && registryVariation !== targetVariation) continue;
