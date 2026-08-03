@@ -61,10 +61,11 @@ jobs:
       - name: Install exact Node dependencies
         run: npm ci
 
-      - name: Install PostgreSQL client
+      - name: Install extractor and PostgreSQL dependencies
         run: |
+          python -m pip install --disable-pip-version-check --no-cache-dir pymupdf pillow
           sudo apt-get update
-          sudo apt-get install --yes postgresql-client
+          sudo apt-get install --yes postgresql-client tesseract-ocr
 
       - name: Create Supabase-compatible roles and storage contract
         run: |
@@ -100,7 +101,6 @@ jobs:
             rls_count integer;
             public_grant_count integer;
             service_grant_count integer;
-            source_type_allows_beckett boolean;
             private_bucket boolean;
           begin
             select count(*) into table_count
@@ -153,10 +153,6 @@ jobs:
             if not private_bucket then
               raise exception 'Private Beckett source bucket contract is missing';
             end if;
-
-            select true into source_type_allows_beckett
-            from public.tcos_kingmaker_price_guides
-            where false;
           end;
           $$;
           SQL
@@ -164,8 +160,10 @@ jobs:
       - name: Run TypeScript regressions
         run: node --import tsx scripts/run-kingmaker-beckett-price-guide-regressions.ts
 
-      - name: Compile Python extractor
-        run: python -m py_compile scripts/extract-kingmaker-beckett-price-guides.py
+      - name: Verify Python extractor loads
+        run: |
+          python -m py_compile scripts/extract-kingmaker-beckett-price-guides.py
+          python scripts/extract-kingmaker-beckett-price-guides.py --help >/dev/null
 
       - name: Lint permanent files
         run: npx eslint src/lib/kingmaker-intelligence-fusion.ts src/lib/kingmaker-beckett-price-guide.ts scripts/run-kingmaker-beckett-price-guide-import.ts scripts/run-kingmaker-beckett-price-guide-regressions.ts
