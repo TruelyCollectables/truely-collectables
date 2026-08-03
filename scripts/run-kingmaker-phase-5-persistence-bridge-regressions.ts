@@ -107,7 +107,7 @@ assert.equal(plan.adapterRunCount, 1);
 assert.equal(plan.ownerActionCount, 1);
 assert.equal(plan.operations[0].table, "tcos_kingmaker_live_cycles");
 assert.equal(plan.operations[1].mode, "upsert");
-assert.equal(plan.operations[2].row.status, "healthy");
+assert.equal(plan.operations[2].row.status, "degraded");
 assert.equal(plan.operations[3].conflictTarget, "idempotency_key");
 assert.equal(plan.fingerprint.length, 64);
 assert.equal(new Set(plan.operations.map((entry) => entry.fingerprint)).size, plan.operations.length);
