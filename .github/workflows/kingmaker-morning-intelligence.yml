@@ -17,12 +17,80 @@ on:
       - "scripts/run-kingmaker-morning-intelligence-route-contracts.mjs"
       - "vercel.json"
       - ".github/workflows/kingmaker-morning-intelligence.yml"
+      - ".github/workflows/finalize-kingmaker-admin.yml"
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+  finalize-admin-integration:
+    if: github.event_name == 'pull_request' && github.head_ref == 'agent/kingmaker-morning-intel'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/kingmaker-morning-intel
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Restore canonical admin dashboard and add KINGMAKER route
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          page = Path("src/app/admin/page.tsx")
+          legacy = Path("src/app/admin/LegacyAdminDashboard.tsx")
+          finalizer = Path(".github/workflows/finalize-kingmaker-admin.yml")
+          route = '/admin/market-intel/kingmaker/morning-intelligence'
+          marker = '        { href: "/admin/market-intel", label: "Command Desk" },\n'
+          addition = '''        {
+          href: "/admin/market-intel/kingmaker/morning-intelligence",
+          label: "KINGMAKER Morning Intelligence",
+        },
+'''
+
+          if legacy.exists():
+              source = legacy.read_text()
+              if route not in source:
+                  if source.count(marker) != 1:
+                      raise SystemExit("Expected exactly one Market Intel Command Desk marker")
+                  source = source.replace(marker, marker + addition, 1)
+              if source.count(route) != 1:
+                  raise SystemExit("KINGMAKER route must appear exactly once")
+              page.write_text(source)
+              legacy.unlink()
+
+          if finalizer.exists():
+              finalizer.unlink()
+          PY
+      - run: npm ci
+      - name: Verify complete admin dashboard
+        run: npm run verify:admin-dashboard
+      - name: Verify KINGMAKER contracts
+        run: |
+          node --import tsx scripts/run-kingmaker-morning-intelligence-regressions.ts
+          node --import tsx scripts/run-kingmaker-morning-intelligence-email-regressions.ts
+          node scripts/run-kingmaker-morning-intelligence-route-contracts.mjs
+      - name: Lint and compile repaired surface
+        run: |
+          npx eslint src/app/admin/page.tsx src/app/admin/market-intel/kingmaker/morning-intelligence/page.tsx
+          npx tsc --noEmit
+      - name: Commit validated integration
+        run: |
+          git diff --check
+          if git diff --quiet; then
+            echo "Canonical admin integration already finalized."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Finalize KINGMAKER admin command integration"
+          git push origin HEAD:agent/kingmaker-morning-intel
+
   verify-morning-intelligence:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -40,7 +108,7 @@ jobs:
       - name: Route and console contracts
         run: node scripts/run-kingmaker-morning-intelligence-route-contracts.mjs
       - name: Lint
-        run: npx eslint src/lib/kingmaker-morning-intelligence.ts src/lib/kingmaker-morning-intelligence-email.ts src/lib/kingmaker-morning-intelligence-live.ts src/lib/kingmaker-morning-intelligence-delivery.ts src/app/api/cron/kingmaker/morning-intelligence/route.ts src/app/api/admin/market-intel/kingmaker/morning-intelligence/test/route.ts src/app/admin/market-intel/kingmaker/morning-intelligence/page.tsx src/app/admin/page.tsx src/app/admin/LegacyAdminDashboard.tsx scripts/run-kingmaker-morning-intelligence-regressions.ts scripts/run-kingmaker-morning-intelligence-email-regressions.ts scripts/run-kingmaker-morning-intelligence-route-contracts.mjs
+        run: npx eslint src/lib/kingmaker-morning-intelligence.ts src/lib/kingmaker-morning-intelligence-email.ts src/lib/kingmaker-morning-intelligence-live.ts src/lib/kingmaker-morning-intelligence-delivery.ts src/app/api/cron/kingmaker/morning-intelligence/route.ts src/app/api/admin/market-intel/kingmaker/morning-intelligence/test/route.ts src/app/admin/market-intel/kingmaker/morning-intelligence/page.tsx src/app/admin/page.tsx scripts/run-kingmaker-morning-intelligence-regressions.ts scripts/run-kingmaker-morning-intelligence-email-regressions.ts scripts/run-kingmaker-morning-intelligence-route-contracts.mjs
       - name: TypeScript
         run: npx tsc --noEmit
       - name: Production build
