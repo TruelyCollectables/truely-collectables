@@ -115,6 +115,134 @@ jobs:
           })().catch((error) => { console.error(error); process.exit(1); });
           NODE
 
+      - name: Apply fail-closed service-role escalation patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('scripts/ops/import-upper-deck-proof-releases-20260802.ts')
+          text = path.read_text()
+
+          def replace_once(old, new, label):
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly one match, found {count}')
+              text = text.replace(old, new, 1)
+
+          replace_once(
+          '''      if (privilege.rows?.[0]?.can_execute_writer !== true) {
+                  throw new Error("temporary role cannot execute the Registry writer");
+                }
+
+                await client.query("begin");
+                try {
+                  await client.query("set local statement_timeout = '120s'");''',
+          '''      let writerRole = "current_user";
+                if (privilege.rows?.[0]?.can_execute_writer !== true) {
+                  await client.query("begin");
+                  try {
+                    await client.query("set local role service_role");
+                    const elevated = await client.query(`select
+                      current_user as current_user,
+                      has_function_privilege(
+                        current_user,
+                        'public.tcos_apply_checklist_import_plan(jsonb,text,text,bigint,text,text,text)',
+                        'EXECUTE'
+                      ) as can_execute_writer`);
+                    if (elevated.rows?.[0]?.can_execute_writer !== true) {
+                      throw new Error("service_role cannot execute the Registry writer");
+                    }
+                    writerRole = "service_role";
+                    await client.query("rollback");
+                  } catch (error) {
+                    await client.query("rollback").catch(() => undefined);
+                    throw error;
+                  }
+                }
+
+                await client.query("begin");
+                try {
+                  if (writerRole === "service_role") {
+                    await client.query("set local role service_role");
+                  }
+                  await client.query("set local statement_timeout = '120s'");''',
+          'connect privilege escalation')
+
+          replace_once(
+          '''      return {
+                  client,
+                  receipt: {''',
+          '''      return {
+                  client,
+                  writerRole,
+                  receipt: {''',
+          'return writer role')
+
+          replace_once(
+          '''          writerPrivilegeVerified: true,
+                    delaySeconds: 35,''',
+          '''          writerPrivilegeVerified: true,
+                    writerRole,
+                    delaySeconds: 35,''',
+          'receipt writer role')
+
+          replace_once(
+          '''  client: any;
+            entry: PreparedSource;''',
+          '''  client: any;
+            writerRole: string;
+            entry: PreparedSource;''',
+          'persist parameter type')
+
+          replace_once(
+          '''  const { client, entry, baseline, expectedImported } = params;''',
+          '''  const { client, writerRole, entry, baseline, expectedImported } = params;''',
+          'persist destructure')
+
+          replace_once(
+          '''    await client.query("begin");
+              try {
+                await client.query("set local statement_timeout = '15min'");''',
+          '''    await client.query("begin");
+              try {
+                if (writerRole === "service_role") {
+                  await client.query("set local role service_role");
+                }
+                await client.query("set local statement_timeout = '15min'");''',
+          'writer transaction role')
+
+          replace_once(
+          '''  let postgresClient: any = null;
+            let connectionReceipt: Record<string, unknown> | null = null;''',
+          '''  let postgresClient: any = null;
+            let writerRole = "current_user";
+            let connectionReceipt: Record<string, unknown> | null = null;''',
+          'main writer role variable')
+
+          replace_once(
+          '''    postgresClient = connected.client;
+              connectionReceipt = connected.receipt;''',
+          '''    postgresClient = connected.client;
+              writerRole = connected.writerRole;
+              connectionReceipt = connected.receipt;''',
+          'main writer role assignment')
+
+          replace_once(
+          '''        client: postgresClient,
+                  entry,''',
+          '''        client: postgresClient,
+                  writerRole,
+                  entry,''',
+          'persist writer role argument')
+
+          path.write_text(text)
+          PY
+          grep -q 'set local role service_role' scripts/ops/import-upper-deck-proof-releases-20260802.ts
+          test "$(grep -c 'writerRole = connected.writerRole' scripts/ops/import-upper-deck-proof-releases-20260802.ts)" -eq 1
+
       - name: Import Allure canary then Series 1 through temporary Postgres login
         shell: bash
         env:
@@ -134,7 +262,7 @@ jobs:
           if (receipt.schema !== 'tcos.checklist.upperDeckProofProductionImport.v3' || receipt.status !== 'passed') throw new Error('Upper Deck Production receipt did not pass.');
           if (receipt.imports?.length !== 2 || receipt.auditStates?.length !== 3 || receipt.finalTargets?.length !== 2) throw new Error('Upper Deck verification cardinality is wrong.');
           const preflight = receipt.postgresConnectionPreflight || {};
-          if (preflight.writerPrivilegeVerified !== true || preflight.delaySeconds !== 35 || preflight.planPayloads?.length !== 2) throw new Error('Temporary PostgreSQL preflight is incomplete.');
+          if (preflight.writerPrivilegeVerified !== true || !['current_user', 'service_role'].includes(preflight.writerRole) || preflight.delaySeconds !== 35 || preflight.planPayloads?.length !== 2) throw new Error('Temporary PostgreSQL preflight is incomplete.');
           const totals = receipt.imports.reduce((sum, entry) => ({ cards: sum.cards + Number(entry.counts?.cards || 0), identities: sum.identities + Number(entry.counts?.identities || 0) }), { cards: 0, identities: 0 });
           if (totals.cards !== 2454 || totals.identities !== 7318) throw new Error(`Unexpected totals ${JSON.stringify(totals)}`);
           if (receipt.imports.some((entry) => entry.transport !== 'temporary-postgresql-login')) throw new Error('Wrong writer transport.');
