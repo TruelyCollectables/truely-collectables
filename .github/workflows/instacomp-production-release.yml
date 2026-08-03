@@ -140,6 +140,10 @@ jobs:
             SUPABASE_SERVICE_ROLE_KEY=build-only-service-role-key \
             TCOS_RELEASE_COMMIT="$exact_commit" \
               npm run build
+            git diff --exit-code -- . \
+              ':(exclude)public/instacomp-release.json'
+            git restore --source=HEAD -- public/instacomp-release.json
+            test -z "$(git status --porcelain --untracked-files=no)"
           }
 
           for attempt in 1 2 3; do

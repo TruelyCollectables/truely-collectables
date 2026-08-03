@@ -24,6 +24,9 @@ for (const marker of [
   "Apply and verify learning-provenance Production migration",
   "scripts/apply-instacomp-learning-provenance-production.mjs",
   "supabase/migrations/20260802224500_instacomp_learning_provenance_receipt.sql",
+  "git diff --exit-code -- .",
+  "git restore --source=HEAD -- public/instacomp-release.json",
+  "git status --porcelain --untracked-files=no",
 ]) {
   assert.match(
     productionWorkflow,
