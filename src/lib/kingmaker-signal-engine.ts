@@ -134,12 +134,14 @@ function amountByType(evidence: KingmakerSignalEvidence[], observationTypes: str
 export function scoreKingmakerSignal(input: {
   evidence: KingmakerSignalEvidence[];
   now?: Date;
+  maximumEvidenceAgeHours?: number;
   minimumConfidence?: number;
   minimumProfit?: number;
   minimumRoiPercent?: number;
   minimumSupportingSources?: number;
 }): KingmakerSignalScore {
   const now = input.now ?? new Date();
+  const maximumEvidenceAgeHours = input.maximumEvidenceAgeHours ?? 168;
   const minimumConfidence = input.minimumConfidence ?? 0.55;
   const minimumProfit = input.minimumProfit ?? 5;
   const minimumRoiPercent = input.minimumRoiPercent ?? 20;
@@ -155,7 +157,14 @@ export function scoreKingmakerSignal(input: {
 
   const identity = primary[0]?.identity;
   for (const entry of input.evidence) {
-    if (!isKingmakerObservationFresh(entry.observation, now)) blockers.push("stale_or_invalid_evidence");
+    const observedAt = Date.parse(entry.observation.observedAt);
+    const ageHours = Number.isFinite(observedAt)
+      ? (now.getTime() - observedAt) / 3_600_000
+      : Number.POSITIVE_INFINITY;
+    const staleByAge = ageHours > maximumEvidenceAgeHours;
+    if (!isKingmakerObservationFresh(entry.observation, now) || staleByAge) {
+      blockers.push("stale_or_invalid_evidence");
+    }
     if (identity) {
       const match = compareKingmakerIdentity(identity, entry.identity);
       if (!match.matches) blockers.push(...match.blockers.length ? match.blockers : ["identity_uncertain"]);
@@ -175,7 +184,7 @@ export function scoreKingmakerSignal(input: {
 
   const freshnessValues = supporting.map((entry) => {
     const ageHours = Math.max(0, (now.getTime() - Date.parse(entry.observation.observedAt)) / 3_600_000);
-    return bounded(1 - ageHours / 168);
+    return bounded(1 - ageHours / maximumEvidenceAgeHours);
   });
   const freshnessScore = freshnessValues.length ? freshnessValues.reduce((sum, value) => sum + value, 0) / freshnessValues.length : 0;
 
@@ -211,7 +220,7 @@ export function scoreKingmakerSignal(input: {
 
   const fingerprint = createHash("sha256").update(JSON.stringify({
     evidence: input.evidence.map((entry) => ({ fingerprint: entry.observation.fingerprint, role: entry.role })).sort((a, b) => a.fingerprint.localeCompare(b.fingerprint)),
-    thresholds: { minimumConfidence, minimumProfit, minimumRoiPercent, minimumSupportingSources },
+    thresholds: { maximumEvidenceAgeHours, minimumConfidence, minimumProfit, minimumRoiPercent, minimumSupportingSources },
   })).digest("hex");
 
   return {
