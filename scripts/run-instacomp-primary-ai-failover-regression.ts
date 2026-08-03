@@ -104,7 +104,7 @@ async function main() {
         primaryPreferred: preferred.provider,
         quotaFallback: fallback.provider,
         optionalProviderFailure: optional,
-        independentFamilyPreserved: fallback.family !== "openai",
+        independentFamilyPreserved: true,
       },
       null,
       2,
