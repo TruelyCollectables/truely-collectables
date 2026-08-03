@@ -1,0 +1,46 @@
+name: KINGMAKER Pricing Workbenches
+
+on:
+  pull_request:
+    paths:
+      - "src/app/admin/instacomp/pricing/**"
+      - "src/app/api/instacomp/pricing/**"
+      - "src/lib/kingmaker-pricing-command-center-server.ts"
+      - "scripts/run-kingmaker-pricing-workbench-regressions.ts"
+      - ".github/workflows/kingmaker-pricing-workbenches.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify-pricing-workbenches:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder
+      SUPABASE_SERVICE_ROLE_KEY: placeholder
+      ADMIN_SESSION_SECRET: placeholder-placeholder-placeholder-placeholder
+      OPENAI_API_KEY: placeholder
+      STRIPE_SECRET_KEY: sk_test_placeholder
+      RESEND_API_KEY: placeholder
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Workbench regressions
+        run: node --import tsx scripts/run-kingmaker-pricing-workbench-regressions.ts
+      - name: Privacy and advisory contracts
+        run: |
+          set -euo pipefail
+          ! grep -RIni 'beckett' src/app/admin/instacomp/pricing scripts/run-kingmaker-pricing-workbench-regressions.ts
+          ! grep -RIniE 'from\(["'"'](products|orders|offers|market_intel_purchases)["'"']\).*(insert|update|upsert|delete)\(' src/app/admin/instacomp/pricing
+      - name: Lint
+        run: npx eslint src/app/admin/instacomp/pricing scripts/run-kingmaker-pricing-workbench-regressions.ts
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Production build
+        run: npm run build
