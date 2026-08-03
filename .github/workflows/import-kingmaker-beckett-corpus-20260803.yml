@@ -22,6 +22,8 @@ env:
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
   VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
   GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  GH_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+  GH_SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
   DRIVE_FILE_ID: 1uBtwoVY9CNl7aO6-eDeXnFZLSLSRgXQa
   EVIDENCE_DIR: evidence/kingmaker-beckett-production-import-20260803
 
@@ -76,6 +78,8 @@ jobs:
           test -n "${VERCEL_TOKEN:-}"
           test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
           echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          [ -z "${GH_SUPABASE_SERVICE_ROLE_KEY:-}" ] || echo "::add-mask::$GH_SUPABASE_SERVICE_ROLE_KEY"
+          [ -z "${GH_SUPABASE_SERVICE_KEY:-}" ] || echo "::add-mask::$GH_SUPABASE_SERVICE_KEY"
           mkdir -p .vercel "$RUNNER_TEMP/prod"
           if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
             printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
