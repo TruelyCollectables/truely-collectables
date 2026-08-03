@@ -182,4 +182,32 @@ assert(
   "Function owners must converge before any trigger-backed backfill executes",
 );
 
-console.log("InstaComp learning trust gate regressions passed (16 assertions).");
+const payloadOwnerIndex = migration.indexOf(ownerConvergenceMarkers[0]);
+const observationDefinitionIndex = migration.indexOf(
+  "create or replace function public.tcos_instacomp_observation_exact_identity_trusted(",
+);
+const observationOwnerIndex = migration.indexOf(ownerConvergenceMarkers[1]);
+const observationEnforcerDefinitionIndex = migration.indexOf(
+  "create or replace function public.tcos_instacomp_enforce_observation_identity_trust()",
+);
+const observationEnforcerOwnerIndex = migration.indexOf(ownerConvergenceMarkers[2]);
+const observationTriggerIndex = migration.indexOf(
+  "drop trigger if exists tcos_instacomp_observation_identity_trust_gate",
+);
+const cacheEnforcerOwnerIndex = migration.indexOf(ownerConvergenceMarkers[3]);
+const cacheTriggerIndex = migration.indexOf(
+  "drop trigger if exists tcos_instacomp_cache_identity_trust_gate",
+);
+assert(
+  payloadOwnerIndex > 0 &&
+    payloadOwnerIndex < observationDefinitionIndex &&
+    observationOwnerIndex > observationDefinitionIndex &&
+    observationOwnerIndex < observationEnforcerDefinitionIndex &&
+    observationEnforcerOwnerIndex > observationEnforcerDefinitionIndex &&
+    observationEnforcerOwnerIndex < observationTriggerIndex &&
+    cacheEnforcerOwnerIndex > 0 &&
+    cacheEnforcerOwnerIndex < cacheTriggerIndex,
+  "Each preserved ACL must converge before PostgreSQL validates or installs its dependent function chain",
+);
+
+console.log("InstaComp learning trust gate regressions passed (17 assertions).");
