@@ -67,3 +67,5 @@ jobs:
           git add -A
           git commit -m "Finalize KINGMAKER admin route contract"
           git push origin HEAD:agent/kingmaker-morning-intel
+
+# trigger exact route repair
