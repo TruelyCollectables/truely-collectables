@@ -1,0 +1,178 @@
+name: Apply InstaComp Independent Reader Runtime
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/app/api/instacomp/scan/route.ts"
+      - "src/lib/instacomp-ai-council-runtime.ts"
+      - "scripts/run-instacomp-ai-council-runtime-regressions.ts"
+      - ".github/workflows/apply-instacomp-independent-reader-runtime.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Patch real scan route
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/app/api/instacomp/scan/route.ts')
+          text = path.read_text()
+
+          import_anchor = '''import {
+  formatUntrustedOcrEvidence,
+  normalizeOpenAiCompatibleBaseUrl,
+  openAiCompatibleProviderFamily,
+  resolveInstaCompCouncilPolicy,
+} from "../../../../lib/instacomp-ai-council-security";
+'''
+          import_replacement = import_anchor + '''import {
+  prioritizeIndependentCouncilProviders,
+  shouldContinueCouncilRuntime,
+} from "../../../../lib/instacomp-ai-council-runtime";
+'''
+          if 'instacomp-ai-council-runtime' not in text:
+              if text.count(import_anchor) != 1:
+                  raise SystemExit('AI council security import anchor not found exactly once.')
+              text = text.replace(import_anchor, import_replacement, 1)
+
+          old_plan = '''  const providerPlan = buildAiCouncilProviderPlan();
+  const configuredPlan = providerPlan.filter((provider) => provider.configured);
+  const configuredFamilies = Array.from(
+    new Set(configuredPlan.map((provider) => provider.family)),
+  );
+'''
+          new_plan = '''  const providerPlan = buildAiCouncilProviderPlan();
+  const configuredPlan = prioritizeIndependentCouncilProviders(
+    providerPlan.filter((provider) => provider.configured),
+    "openai",
+  );
+  const configuredFamilies = Array.from(
+    new Set(configuredPlan.map((provider) => provider.family)),
+  );
+'''
+          if new_plan not in text:
+              if text.count(old_plan) != 1:
+                  raise SystemExit('Configured provider plan block not found exactly once.')
+              text = text.replace(old_plan, new_plan, 1)
+
+          old_loop = '''  let cursor = 0;
+  let completedReaders = 0;
+
+  while (
+    completedReaders < desiredReaders &&
+    cursor < configuredPlan.length
+  ) {
+'''
+          new_loop = '''  let cursor = 0;
+  let completedReaders = 0;
+  let completedFamilies: string[] = [];
+
+  while (
+    shouldContinueCouncilRuntime({
+      completedReaders,
+      desiredReaders,
+      completedFamilies,
+      configuredFamilies,
+      cursor,
+      configuredReaderCount: configuredPlan.length,
+      primaryFamily: "openai",
+    })
+  ) {
+'''
+          if new_loop not in text:
+              if text.count(old_loop) != 1:
+                  raise SystemExit('AI council loop header not found exactly once.')
+              text = text.replace(old_loop, new_loop, 1)
+
+          old_update = '''    allAttempts.push(...batchAttempts);
+    completedReaders = allAttempts.filter((attempt) => attempt.reader).length;
+  }
+'''
+          new_update = '''    allAttempts.push(...batchAttempts);
+    const completed = allAttempts.flatMap((attempt) =>
+      attempt.reader ? [attempt.reader] : [],
+    );
+    completedReaders = completed.length;
+    completedFamilies = Array.from(
+      new Set(completed.map((reader) => reader.family)),
+    );
+  }
+'''
+          if new_update not in text:
+              if text.count(old_update) != 1:
+                  raise SystemExit('AI council completion update not found exactly once.')
+              text = text.replace(old_update, new_update, 1)
+
+          path.write_text(text)
+          PY
+
+      - name: Run runtime and identity regressions
+        run: |
+          npx tsx scripts/run-instacomp-ai-council-runtime-regressions.ts
+          npx tsx scripts/run-instacomp-registry-consensus-bridge-regression.ts
+          npx tsx scripts/run-instacomp-live-shedeur-107-regression.ts
+          npx tsx scripts/run-instacomp-identity-firewall-regressions.ts
+          npx tsx scripts/run-instacomp-serial-color-gate-regressions.ts
+          npm run simulate:instacomp-consensus
+
+      - name: Lint, typecheck, and build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+          ADMIN_PASSWORD: build-only-placeholder-password
+          ADMIN_SESSION_SECRET: build-only-placeholder-admin-session-secret
+          NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+          STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+          STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+          EBAY_CLIENT_ID: build-only-placeholder-client-id
+          EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+          EBAY_ENVIRONMENT: production
+          TCOS_LIVE_PAYMENTS_ENABLED: "false"
+          TCOS_SHIPPING_PURCHASE_MODE: dry_run
+          TCOS_LIVE_SHIPPING_ENABLED: "false"
+        run: |
+          npx eslint \
+            src/app/api/instacomp/scan/route.ts \
+            src/lib/instacomp-ai-council-runtime.ts \
+            scripts/run-instacomp-ai-council-runtime-regressions.ts
+          npx tsc --noEmit
+          npm run build
+
+      - name: Commit validated route patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- src/app/api/instacomp/scan/route.ts; then
+            echo "Validated route patch already committed."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/api/instacomp/scan/route.ts
+          git commit -m "Require independent AI family in live scanner council"
+          git push origin "HEAD:${{ github.head_ref }}"
