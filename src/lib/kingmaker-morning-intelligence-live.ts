@@ -11,6 +11,9 @@ import {
   type KingmakerPortfolioMovement,
 } from "./kingmaker-morning-intelligence";
 
+const MIN_ACTIONABLE_CONFIDENCE = 0.55;
+const MAX_OPPORTUNITY_AGE_HOURS = 72;
+
 function record(value: unknown): Record<string, any> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, any>)
@@ -38,31 +41,54 @@ function roi(cost: unknown, profit: unknown) {
   return costValue && profitValue !== null ? (profitValue / costValue) * 100 : null;
 }
 
-function opportunityItem(rowValue: unknown): KingmakerIntelItem | null {
+function ageHours(value: unknown, nowMs: number) {
+  const parsed = Date.parse(text(value));
+  return Number.isFinite(parsed) ? Math.max(0, (nowMs - parsed) / 3_600_000) : null;
+}
+
+function safeSourceWarning(source: string, code: string) {
+  return `${source} unavailable (${code}). Raw diagnostics were retained server-side.`;
+}
+
+function opportunityItem(rowValue: unknown, nowMs: number): KingmakerIntelItem | null {
   const row = record(rowValue);
   const score = record(row.score);
-  if (!score.actionable) return null;
+  if (score.actionable !== true) return null;
+
   const title = text(row.original_title || row.title || row.exact_identity);
-  if (!title) return null;
   const deliveredCost = number(score.delivered_cost);
   const expectedProfit = number(score.expected_net_profit);
   const itemRoi = number(score.expected_net_roi_percent) ?? roi(deliveredCost, expectedProfit);
+  const itemConfidence = confidence(score.comp_confidence ?? score.confidence);
+  const observedAt = text(row.last_seen_at || row.updated_at) || null;
+  const observedAge = ageHours(observedAt, nowMs);
+
+  const eligible =
+    Boolean(title) &&
+    deliveredCost !== null && deliveredCost > 0 &&
+    expectedProfit !== null && expectedProfit > 0 &&
+    itemRoi !== null && itemRoi > 0 &&
+    itemConfidence !== null && itemConfidence >= MIN_ACTIONABLE_CONFIDENCE &&
+    (observedAge === null || observedAge <= MAX_OPPORTUNITY_AGE_HOURS);
+  if (!eligible) return null;
+
   const directUrl = text(row.direct_url || row.url) || null;
   return {
     key: `opportunity:${text(row.id || directUrl || title)}`,
     title,
     detail: [
-      deliveredCost === null ? null : `Delivered cost $${deliveredCost.toFixed(2)}`,
-      expectedProfit === null ? null : `Expected net profit $${expectedProfit.toFixed(2)}`,
-      itemRoi === null ? null : `Expected ROI ${itemRoi.toFixed(1)}%`,
+      `Delivered cost $${deliveredCost.toFixed(2)}`,
+      `Expected net profit $${expectedProfit.toFixed(2)}`,
+      `Expected ROI ${itemRoi.toFixed(1)}%`,
+      `Confidence ${(itemConfidence * 100).toFixed(0)}%`,
       score.buy_score === undefined ? null : `Buy score ${score.buy_score}`,
     ].filter(Boolean).join(" · "),
     href: directUrl,
     severity: "action",
     expectedProfit,
     roiPercent: itemRoi,
-    confidence: confidence(score.comp_confidence ?? score.confidence),
-    observedAt: text(row.last_seen_at || row.updated_at) || null,
+    confidence: itemConfidence,
+    observedAt,
   };
 }
 
@@ -111,6 +137,8 @@ export type BuildLiveKingmakerMorningIntelligenceOptions = {
 export async function buildLiveKingmakerMorningIntelligence(
   options: BuildLiveKingmakerMorningIntelligenceOptions = {},
 ): Promise<KingmakerMorningIntelligencePayload> {
+  const generatedAt = options.generatedAt || new Date().toISOString();
+  const nowMs = Date.parse(generatedAt) || Date.now();
   const [dealResult, ledgerResult, readinessResult, truthResult] = await Promise.allSettled([
     getMarketIntelDealWorkbench(),
     getPurchaseLedgerIntelligence(),
@@ -123,20 +151,26 @@ export async function buildLiveKingmakerMorningIntelligence(
   const truthHealth = truthResult.status === "fulfilled" ? record(truthResult.value) : null;
   const readiness = readinessResult.status === "fulfilled" ? record(readinessResult.value) : null;
 
-  if (truthResult.status === "rejected") truthWarnings.push(`Truth Engine unavailable: ${String(truthResult.reason)}`);
-  if (ledgerResult.status === "rejected") truthWarnings.push(`Purchase Ledger unavailable: ${String(ledgerResult.reason)}`);
-  if (dealResult.status === "rejected") systemWarnings.push(`Opportunity workbench unavailable: ${String(dealResult.reason)}`);
-  if (readinessResult.status === "rejected") systemWarnings.push(`Market Intel readiness unavailable: ${String(readinessResult.reason)}`);
+  if (truthResult.status === "rejected") truthWarnings.push(safeSourceWarning("Truth Engine", "truth_source_failed"));
+  if (ledgerResult.status === "rejected") truthWarnings.push(safeSourceWarning("Purchase Ledger", "ledger_source_failed"));
+  if (dealResult.status === "rejected") systemWarnings.push(safeSourceWarning("Opportunity workbench", "opportunity_source_failed"));
+  if (readinessResult.status === "rejected") systemWarnings.push(safeSourceWarning("Market Intel readiness", "readiness_source_failed"));
   if (truthHealth && truthHealth.ready !== true) truthWarnings.push(`${number(truthHealth.inconsistent) ?? 0} KINGMAKER lifecycle record(s) require reconciliation.`);
   if (readiness && readiness.ready !== true) systemWarnings.push("Market Intel readiness is restricted or incomplete.");
 
   const dealWorkbench = dealResult.status === "fulfilled" ? record(dealResult.value) : {};
   const listings = Array.isArray(dealWorkbench.listings) ? dealWorkbench.listings : [];
   const actionableDeals = listings
-    .map(opportunityItem)
+    .map((row) => opportunityItem(row, nowMs))
     .filter((item): item is KingmakerIntelItem => Boolean(item))
     .sort((a, b) => (b.expectedProfit ?? 0) - (a.expectedProfit ?? 0))
     .slice(0, 20);
+
+  const upstreamActionableCount = listings.filter((value) => record(record(value).score).actionable === true).length;
+  const rejectedActionableCount = Math.max(0, upstreamActionableCount - actionableDeals.length);
+  if (rejectedActionableCount > 0) {
+    systemWarnings.push(`${rejectedActionableCount} upstream actionable candidate(s) were withheld by KINGMAKER eligibility guards.`);
+  }
 
   const ledgerRows = ledgerResult.status === "fulfilled" && Array.isArray(ledgerResult.value)
     ? ledgerResult.value
@@ -152,7 +186,7 @@ export async function buildLiveKingmakerMorningIntelligence(
     truthHealth?.ready === true;
 
   return buildKingmakerMorningIntelligence({
-    generatedAt: options.generatedAt || new Date().toISOString(),
+    generatedAt,
     truthReady,
     truthWarnings,
     actionableDeals,
