@@ -26,11 +26,6 @@ jobs:
           const fs = require('node:fs');
           const path = 'scripts/smoke-admin-runtime.mjs';
           let source = fs.readFileSync(path, 'utf8');
-          const anchor = `  {
-            path: "/admin/instacomp",
-            auth: true,
-            expectedText: "InstaComp™ Scan Lab",
-          },`;
           const routes = [
             ['/admin/instacomp/pricing', 'KINGMAKER Pricing Command Center'],
             ['/admin/instacomp/pricing/receipts', 'Pricing Receipt History'],
@@ -43,8 +38,13 @@ jobs:
             ['/admin/instacomp/pricing/audit', 'Pricing Audit'],
           ].map(([route, text]) => `  {\n    path: "${route}",\n    auth: true,\n    expectedText: "${text}",\n  },`).join('\n');
           if (!source.includes('path: "/admin/instacomp/pricing"')) {
-            if (!source.includes(anchor)) throw new Error('runtime smoke anchor not found');
-            source = source.replace(anchor, `${anchor}\n${routes}`);
+            const marker = 'path: "/admin/instacomp",';
+            const markerIndex = source.indexOf(marker);
+            if (markerIndex < 0) throw new Error('runtime smoke marker not found');
+            const blockEnd = source.indexOf('\n  },', markerIndex);
+            if (blockEnd < 0) throw new Error('runtime smoke block end not found');
+            const insertAt = blockEnd + '\n  },'.length;
+            source = `${source.slice(0, insertAt)}\n${routes}${source.slice(insertAt)}`;
             fs.writeFileSync(path, source);
           }
           NODE
