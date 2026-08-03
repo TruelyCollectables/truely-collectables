@@ -17,7 +17,7 @@ jobs:
       - name: Inspect exact merged Origins Registry production run
         env:
           GH_TOKEN: ${{ github.token }}
-          EXPECTED_SHA: cc1391ec213207cab00af8ec936b25c3dd23e147
+          EXPECTED_SHA: d1327449353ea3385bdd709d6198a42e95418006
         shell: bash
         run: |
           set -euo pipefail
