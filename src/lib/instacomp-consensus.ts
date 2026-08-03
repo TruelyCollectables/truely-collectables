@@ -239,6 +239,7 @@ function comparableParallel(value: string | boolean | null | undefined) {
   if (isGenericBase(value)) return "base";
   return comparableText(value)
     .replace(/\bcracked\s+ice\b/g, "ice")
+    .replace(/\bfoil\b/g, "holo")
     .replace(/\bx[-\s]*fractor\b/g, "xfractor")
     .replace(/\bcolor\s+blast\b/g, "colorblast")
     .split(" ")
