@@ -5,6 +5,7 @@ export const KINGMAKER_SOURCE_TYPES = [
   "mercari",
   "poshmark",
   "instacomp",
+  "beckett",
   "purchase_ledger",
   "portfolio",
   "seller_sweep",
