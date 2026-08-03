@@ -1,0 +1,102 @@
+name: Apply InstaComp Registry Consensus Bridge
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/lib/instacomp-learning-server.ts"
+      - "scripts/run-instacomp-registry-consensus-bridge-regression.ts"
+      - ".github/workflows/apply-instacomp-registry-consensus-bridge.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Canonicalize Registry identity for scanner consensus
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/lib/instacomp-learning-server.ts")
+          text = path.read_text()
+          old = '''  const identity = {
+            manufacturer: match.manufacturer,
+            brand: match.brand,
+            product: match.product,
+            player: match.player,
+            year: match.year,
+            setName: match.setName,
+            cardNumber: match.cardNumber,
+            parallel: match.parallel,
+            variation: match.variation,
+          '''
+          new = '''  const identity = {
+            manufacturer: match.manufacturer,
+            brand: match.manufacturer || match.brand,
+            registryBrand: match.brand,
+            product: match.product,
+            player: match.player,
+            year: match.year,
+            setName: match.product || match.setName,
+            registrySetName: match.setName,
+            cardNumber: match.cardNumber,
+            parallel: match.parallel,
+            variation: match.variation,
+          '''
+          if new in text:
+              print("Registry consensus identity mapping is already applied.")
+          else:
+              if text.count(old) != 1:
+                  raise SystemExit("Expected Registry identity mapping block was not found exactly once.")
+              path.write_text(text.replace(old, new, 1))
+              print("Applied Registry manufacturer/product consensus mapping.")
+          PY
+
+      - name: Run exact Registry bridge and identity firewall regressions
+        run: |
+          npx tsx scripts/run-instacomp-registry-consensus-bridge-regression.ts
+          npx tsx scripts/run-instacomp-live-shedeur-107-regression.ts
+          npx tsx scripts/run-instacomp-identity-firewall-regressions.ts
+          npx tsx scripts/run-instacomp-serial-color-gate-regressions.ts
+          npm run simulate:instacomp-consensus
+
+      - name: Lint and typecheck changed identity files
+        run: |
+          npx eslint \
+            src/lib/instacomp-learning-server.ts \
+            scripts/run-instacomp-registry-consensus-bridge-regression.ts
+          npx tsc --noEmit
+
+      - name: Commit validated source change
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- src/lib/instacomp-learning-server.ts; then
+            echo "Validated source already committed."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/instacomp-learning-server.ts
+          git commit -m "Fix Registry identity fields for scanner consensus"
+          git push origin "HEAD:${{ github.head_ref }}"
