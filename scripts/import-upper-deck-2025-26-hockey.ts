@@ -94,7 +94,14 @@ async function fetchArtifact(source: SourceDefinition): Promise<ChecklistSourceA
 }
 
 async function validateSource(source: SourceDefinition, artifact: ChecklistSourceArtifact) {
-  const result = await importChecklistArtifact({ artifact, validateOnly: true });
+  let result: Awaited<ReturnType<typeof importChecklistArtifact>>;
+  try {
+    result = await importChecklistArtifact({ artifact, validateOnly: true });
+  } catch (error) {
+    throw new Error(
+      `${source.id} parser failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
   const errors = result.plan.validation.issues.filter((issue) => issue.severity === "error");
   if (!result.ok || result.plan.validation.status !== "passed" || errors.length) {
     throw new Error(`${source.id} failed validation: ${errors.map((issue) => `${issue.code}: ${issue.message}`).join(" | ") || result.plan.validation.status}`);
