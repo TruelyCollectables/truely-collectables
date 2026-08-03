@@ -59,6 +59,10 @@ import {
   resolveInstaCompCouncilPolicy,
 } from "../../../../lib/instacomp-ai-council-security";
 import {
+  optionalInstaCompProviderResult,
+  runInstaCompPrimaryAiFailover,
+} from "../../../../lib/instacomp-ai-provider-failover";
+import {
   buildChecklistRegistryCatalogEvidence,
   buildChecklistRegistryReviewEvidence,
   buildInstaCompEvidenceIdentityDecision,
@@ -3891,6 +3895,59 @@ function authorizedEphemeralBenchmark(req: NextRequest) {
   return timingSafeEqual(Buffer.from(supplied), Buffer.from(expected));
 }
 
+async function identifyCardWithConfiguredProviderFailover(params: {
+  frontDataUrl: string;
+  backDataUrl?: string;
+  detailImages: InstaCompDetailImage[];
+  externalOcr: ExternalOcrResult | null;
+}) {
+  const backupRank: Record<InstaCompAiCouncilProviderKind, number> = {
+    gemini: 0,
+    groq: 1,
+    openai_compatible: 2,
+    ollama: 3,
+    openai: 4,
+  };
+  const backupPlan = buildAiCouncilProviderPlan()
+    .filter((config) => config.configured && config.kind !== "openai")
+    .sort((left, right) => backupRank[left.kind] - backupRank[right.kind]);
+
+  return runInstaCompPrimaryAiFailover<InstaCompAiResult>([
+    {
+      provider: "openai_primary",
+      family: "openai",
+      configured: Boolean(OPENAI_API_KEY),
+      run: () =>
+        identifyCardWithOpenAI(
+          params.frontDataUrl,
+          params.backDataUrl,
+          params.detailImages.slice(0, 8),
+          params.externalOcr,
+        ),
+    },
+    ...backupPlan.map((config) => ({
+      provider: config.provider,
+      family: config.family,
+      configured: config.configured,
+      run: async () => {
+        const outcome = await runAiCouncilReader({
+          config,
+          frontDataUrl: params.frontDataUrl,
+          backDataUrl: params.backDataUrl,
+          detailImages: params.detailImages,
+          externalOcr: params.externalOcr,
+        });
+        if (!outcome.reader) {
+          throw new Error(
+            outcome.attempt.message || `${config.label} did not return a reader result.`,
+          );
+        }
+        return outcome.reader.ai;
+      },
+    })),
+  ]);
+}
+
 export async function POST(req: NextRequest) {
   let persistentContext: PersistentJobScanContext | null = null;
   let requestedAiCouncilTier: string | null = null;
@@ -4071,27 +4128,30 @@ export async function POST(req: NextRequest) {
     ];
     const externalOcr = await getBestExternalOcr(externalOcrImages);
     const preflightSerialOcrPromise = shouldPreflightSerialVision({
-      externalOcr,
-      requestedTier: requestedAiCouncilTier,
-    })
-      ? detectSerialNumberWithOpenAI(
+    externalOcr,
+    requestedTier: requestedAiCouncilTier,
+  })
+    ? optionalInstaCompProviderResult(
+        detectSerialNumberWithOpenAI(
           frontDataUrl,
           backDataUrl,
           detailImages.slice(0, 16),
-          externalOcr
-        )
-      : null;
+          externalOcr,
+        ),
+      )
+    : null;
 
-    const baseAi = mergeGradingDetection(
-      await identifyCardWithOpenAI(
-        frontDataUrl,
-        backDataUrl,
-        detailImages.slice(0, 8),
-        externalOcr
-      ),
-      externalOcr
-    );
-    const serialOcr =
+  const primaryAiResult = await identifyCardWithConfiguredProviderFailover({
+    frontDataUrl,
+    backDataUrl,
+    detailImages,
+    externalOcr,
+  });
+  const baseAi = mergeGradingDetection(
+    primaryAiResult.value,
+    externalOcr,
+  );
+  const serialOcr =
       (preflightSerialOcrPromise
         ? await preflightSerialOcrPromise
         : shouldRunSerialVision({
@@ -4099,11 +4159,13 @@ export async function POST(req: NextRequest) {
               externalOcr,
               requestedTier: requestedAiCouncilTier,
             })
-          ? await detectSerialNumberWithOpenAI(
-              frontDataUrl,
-              backDataUrl,
-              detailImages.slice(0, 16),
-              externalOcr
+          ? await optionalInstaCompProviderResult(
+              detectSerialNumberWithOpenAI(
+                frontDataUrl,
+                backDataUrl,
+                detailImages.slice(0, 16),
+                externalOcr,
+              ),
             )
           : null);
     const baseAiForConsensus = applyOperatorSerialNumberOverride(
@@ -4393,6 +4455,9 @@ export async function POST(req: NextRequest) {
         councilMode: consensusEscalation.councilMode,
         consensusRiskTier: consensusEscalation.riskTier,
         scannerPlan: consensusEscalation.scannerPlan,
+        primaryAiProvider: primaryAiResult.provider,
+        primaryAiFamily: primaryAiResult.family,
+        primaryAiAttempts: primaryAiResult.attempts,
         secondaryVisionRan: aiCouncil.completedReaders > 0,
         secondaryVisionReasons: consensusEscalation.reasons,
         aiCouncil,
