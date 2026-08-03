@@ -1,0 +1,231 @@
+name: Apply InstaComp Primary AI Failover
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/apply-instacomp-primary-ai-failover.yml"
+      - "src/lib/instacomp-ai-provider-failover.ts"
+      - "scripts/run-instacomp-primary-ai-failover-regression.ts"
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  patch-and-verify:
+    if: github.head_ref == 'fix/instacomp-primary-ai-failover'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/instacomp-primary-ai-failover
+          fetch-depth: 0
+
+      - name: Patch live scanner failover orchestration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/app/api/instacomp/scan/route.ts")
+          text = path.read_text()
+
+          def replace_once(label, old, new):
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label} anchor changed; refusing to patch ({count} matches).")
+              text = text.replace(old, new, 1)
+
+          import_anchor = '''} from "../../../../lib/instacomp-ai-council-security";
+          '''
+          import_replacement = import_anchor + '''import {
+            optionalInstaCompProviderResult,
+            runInstaCompPrimaryAiFailover,
+          } from "../../../../lib/instacomp-ai-provider-failover";
+          '''
+          replace_once("provider failover import", import_anchor, import_replacement)
+
+          benchmark_anchor = '''function authorizedEphemeralBenchmark(req: NextRequest) {
+            if (String(process.env.VERCEL_ENV || "").trim() !== "preview") return false;
+            const expected = String(process.env.INSTACOMP_BENCHMARK_TOKEN || "").trim();
+            const supplied = String(req.headers.get("x-instacomp-benchmark-ephemeral") || "").trim();
+            if (expected.length < 32 || supplied.length !== expected.length) return false;
+            return timingSafeEqual(Buffer.from(supplied), Buffer.from(expected));
+          }
+          '''
+          helper = benchmark_anchor + '''
+          async function identifyCardWithConfiguredProviderFailover(params: {
+            frontDataUrl: string;
+            backDataUrl?: string;
+            detailImages: InstaCompDetailImage[];
+            externalOcr: ExternalOcrResult | null;
+          }) {
+            const backupRank: Record<InstaCompAiCouncilProviderKind, number> = {
+              gemini: 0,
+              groq: 1,
+              openai_compatible: 2,
+              ollama: 3,
+              openai: 4,
+            };
+            const backupPlan = buildAiCouncilProviderPlan()
+              .filter((config) => config.configured && config.kind !== "openai")
+              .sort((left, right) => backupRank[left.kind] - backupRank[right.kind]);
+
+            return runInstaCompPrimaryAiFailover<InstaCompAiResult>([
+              {
+                provider: "openai_primary",
+                family: "openai",
+                configured: Boolean(OPENAI_API_KEY),
+                run: () =>
+                  identifyCardWithOpenAI(
+                    params.frontDataUrl,
+                    params.backDataUrl,
+                    params.detailImages.slice(0, 8),
+                    params.externalOcr,
+                  ),
+              },
+              ...backupPlan.map((config) => ({
+                provider: config.provider,
+                family: config.family,
+                configured: config.configured,
+                run: async () => {
+                  const outcome = await runAiCouncilReader({
+                    config,
+                    frontDataUrl: params.frontDataUrl,
+                    backDataUrl: params.backDataUrl,
+                    detailImages: params.detailImages,
+                    externalOcr: params.externalOcr,
+                  });
+                  if (!outcome.reader) {
+                    throw new Error(
+                      outcome.attempt.message || `${config.label} did not return a reader result.`,
+                    );
+                  }
+                  return outcome.reader.ai;
+                },
+              })),
+            ]);
+          }
+          '''
+          replace_once("primary provider helper", benchmark_anchor, helper)
+
+          old_primary = '''    const preflightSerialOcrPromise = shouldPreflightSerialVision({
+              externalOcr,
+              requestedTier: requestedAiCouncilTier,
+            })
+              ? detectSerialNumberWithOpenAI(
+                  frontDataUrl,
+                  backDataUrl,
+                  detailImages.slice(0, 16),
+                  externalOcr
+                )
+              : null;
+
+            const baseAi = mergeGradingDetection(
+              await identifyCardWithOpenAI(
+                frontDataUrl,
+                backDataUrl,
+                detailImages.slice(0, 8),
+                externalOcr
+              ),
+              externalOcr
+            );
+          '''
+          new_primary = '''    const preflightSerialOcrPromise = shouldPreflightSerialVision({
+              externalOcr,
+              requestedTier: requestedAiCouncilTier,
+            })
+              ? optionalInstaCompProviderResult(
+                  detectSerialNumberWithOpenAI(
+                    frontDataUrl,
+                    backDataUrl,
+                    detailImages.slice(0, 16),
+                    externalOcr,
+                  ),
+                )
+              : null;
+
+            const primaryAiResult = await identifyCardWithConfiguredProviderFailover({
+              frontDataUrl,
+              backDataUrl,
+              detailImages,
+              externalOcr,
+            });
+            const baseAi = mergeGradingDetection(
+              primaryAiResult.value,
+              externalOcr,
+            );
+          '''
+          replace_once("primary OpenAI scan", old_primary, new_primary)
+
+          old_serial = '''          ? await detectSerialNumberWithOpenAI(
+                        frontDataUrl,
+                        backDataUrl,
+                        detailImages.slice(0, 16),
+                        externalOcr
+                      )
+                    : null);
+          '''
+          new_serial = '''          ? await optionalInstaCompProviderResult(
+                        detectSerialNumberWithOpenAI(
+                          frontDataUrl,
+                          backDataUrl,
+                          detailImages.slice(0, 16),
+                          externalOcr,
+                        ),
+                      )
+                    : null);
+          '''
+          replace_once("optional serial OCR", old_serial, new_serial)
+
+          diagnostic_anchor = '''        secondaryVisionRan: aiCouncil.completedReaders > 0,
+          '''
+          diagnostic_replacement = '''        primaryAiProvider: primaryAiResult.provider,
+                  primaryAiFamily: primaryAiResult.family,
+                  primaryAiAttempts: primaryAiResult.attempts,
+                  secondaryVisionRan: aiCouncil.completedReaders > 0,
+          '''
+          replace_once("primary provider diagnostics", diagnostic_anchor, diagnostic_replacement)
+
+          path.write_text(text)
+          PY
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Prove provider failover and existing identity firewalls
+        run: |
+          node --import tsx scripts/run-instacomp-primary-ai-failover-regression.ts
+          npx tsx scripts/run-instacomp-live-shedeur-107-regression.ts
+          npx tsx scripts/run-instacomp-registry-consensus-bridge-regression.ts
+          npx tsx scripts/run-instacomp-identity-firewall-regressions.ts
+          npx tsx scripts/run-instacomp-serial-color-gate-regressions.ts
+
+      - name: Lint permanent repair
+        run: |
+          npx eslint \
+            src/app/api/instacomp/scan/route.ts \
+            src/lib/instacomp-ai-provider-failover.ts \
+            scripts/run-instacomp-primary-ai-failover-regression.ts
+          git diff --check
+
+      - name: Commit live scanner repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$(git status --short src/app/api/instacomp/scan/route.ts)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/api/instacomp/scan/route.ts
+          git commit -m "Fail over InstaComp primary AI readers"
+          git push origin HEAD:fix/instacomp-primary-ai-failover
