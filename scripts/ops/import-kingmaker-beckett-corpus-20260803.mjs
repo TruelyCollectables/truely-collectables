@@ -12,6 +12,7 @@ const EXPECTED_TOTAL_PAGES = 642;
 const FILES = ['baseball.zip', 'football.zip', 'basketball.zip', 'hockey.zip', 'vintage.zip'];
 const ENTRY_BATCH = 500;
 const PAGE_BATCH = 20;
+const MAX_INDEXED_SOURCE_KEY_BYTES = 1024;
 
 function sha256(buffer) { return createHash('sha256').update(buffer).digest('hex'); }
 function parseEnv(contents) {
@@ -55,6 +56,12 @@ function chunks(rows, size) {
   return out;
 }
 function firstRow(result) { return Array.isArray(result) ? result[0] : result; }
+function indexedSourceKey(sourceRowKey) {
+  const original = String(sourceRowKey || '');
+  return Buffer.byteLength(original, 'utf8') <= MAX_INDEXED_SOURCE_KEY_BYTES
+    ? original
+    : `sha256:${sha256(Buffer.from(original, 'utf8'))}`;
+}
 
 async function upsertGuide(project, token, manifest) {
   const g = manifest.guide;
@@ -103,20 +110,26 @@ async function upsertPages(project, token, guideId, runId, pages) {
 async function upsertEntries(project, token, guideId, runId, entries) {
   let done = 0;
   for (const batch of chunks(entries, ENTRY_BATCH)) {
-    const payload = batch.map((e) => ({
-      guide_id: guideId, import_run_id: runId, page_number: e.pageNumber, row_order: e.rowOrder, source_row_key: e.sourceRowKey,
-      entry_kind: e.entryKind, release_year: e.releaseYear || null, season: e.season || null, manufacturer: e.manufacturer || null,
-      brand: e.brand || null, product: e.product || null, set_name: e.setName || null, parallel_name: e.parallelName || null,
-      card_number: e.cardNumber || null, player_name: e.playerName || null, team_name: e.teamName || null,
-      rookie_designation: e.rookieDesignation ?? null, autograph_designation: e.autographDesignation ?? null,
-      memorabilia_designation: e.memorabiliaDesignation ?? null, short_print_designation: e.shortPrintDesignation ?? null,
-      error_designation: e.errorDesignation ?? null, variation: e.variation || null, serial_run: e.serialRun ?? null,
-      condition_basis: e.conditionBasis || null, value_low: e.valueLow ?? null, value_high: e.valueHigh ?? null,
-      currency: e.currency || 'USD', multiplier_low: e.multiplierLow ?? null, multiplier_high: e.multiplierHigh ?? null,
-      raw_text: e.rawText, parse_confidence: e.parseConfidence, validation_status: e.validationStatus,
-      validation_reasons: e.validationReasons || [], identity_match_status: 'unmatched', entity_key: e.entityKey || null,
-      metadata: e.metadata || {},
-    }));
+    const payload = batch.map((e) => {
+      const originalSourceRowKey = String(e.sourceRowKey || '');
+      const safeSourceRowKey = indexedSourceKey(originalSourceRowKey);
+      return {
+        guide_id: guideId, import_run_id: runId, page_number: e.pageNumber, row_order: e.rowOrder, source_row_key: safeSourceRowKey,
+        entry_kind: e.entryKind, release_year: e.releaseYear || null, season: e.season || null, manufacturer: e.manufacturer || null,
+        brand: e.brand || null, product: e.product || null, set_name: e.setName || null, parallel_name: e.parallelName || null,
+        card_number: e.cardNumber || null, player_name: e.playerName || null, team_name: e.teamName || null,
+        rookie_designation: e.rookieDesignation ?? null, autograph_designation: e.autographDesignation ?? null,
+        memorabilia_designation: e.memorabiliaDesignation ?? null, short_print_designation: e.shortPrintDesignation ?? null,
+        error_designation: e.errorDesignation ?? null, variation: e.variation || null, serial_run: e.serialRun ?? null,
+        condition_basis: e.conditionBasis || null, value_low: e.valueLow ?? null, value_high: e.valueHigh ?? null,
+        currency: e.currency || 'USD', multiplier_low: e.multiplierLow ?? null, multiplier_high: e.multiplierHigh ?? null,
+        raw_text: e.rawText, parse_confidence: e.parseConfidence, validation_status: e.validationStatus,
+        validation_reasons: e.validationReasons || [], identity_match_status: 'unmatched', entity_key: e.entityKey || null,
+        metadata: safeSourceRowKey === originalSourceRowKey
+          ? (e.metadata || {})
+          : { ...(e.metadata || {}), originalSourceRowKey, sourceRowKeyHashed: true },
+      };
+    });
     await managementQuery({
       project, token, readOnly: false, parameters: [JSON.stringify(payload)],
       query: `insert into public.tcos_kingmaker_price_entries (guide_id,import_run_id,page_number,row_order,source_row_key,entry_kind,release_year,season,manufacturer,brand,product,set_name,parallel_name,card_number,player_name,team_name,rookie_designation,autograph_designation,memorabilia_designation,short_print_designation,error_designation,variation,serial_run,condition_basis,value_low,value_high,currency,multiplier_low,multiplier_high,raw_text,parse_confidence,validation_status,validation_reasons,identity_match_status,entity_key,metadata)
