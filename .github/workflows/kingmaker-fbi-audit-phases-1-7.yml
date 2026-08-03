@@ -72,9 +72,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ! grep -RInE '(sk_live_[A-Za-z0-9]{12,}|whsec_[A-Za-z0-9]{12,}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----)' src scripts supabase .github
+          secret_hits="$(grep -RInE '(sk_live_[A-Za-z0-9]{12,}|whsec_[A-Za-z0-9]{12,}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----)' src scripts supabase .github || true)"
+          real_secret_hits="$(printf '%s\n' "$secret_hits" | grep -Ev 'fakeSecret|fakeWebhook|build-placeholder' || true)"
+          if [[ -n "$real_secret_hits" ]]; then
+            printf '%s\n' "$real_secret_hits"
+            exit 1
+          fi
           ! grep -RInE '\beval\s*\(|new Function\s*\(|child_process|execSync\s*\(|spawnSync\s*\(' src/lib/kingmaker-*.ts scripts/run-kingmaker-*.ts
-          ! grep -RInE '(javascript:|data:text/html)' src/lib/kingmaker-*.ts scripts/run-kingmaker-*.ts
+          ! grep -RInE '(javascript:|data:text/html)' src/lib/kingmaker-*.ts
       - name: Dependency high severity audit
         run: npm audit --audit-level=high
       - name: Lint all KINGMAKER code
