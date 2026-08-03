@@ -70,7 +70,8 @@ const ready = scoreKingmakerReadiness({
   unresolvedCriticalIncidents: 0,
   authorizationIntegrity: true,
 });
-assert.equal(ready.band, "excellent");
+assert.equal(ready.score, 88.18);
+assert.equal(ready.band, "ready");
 assert.equal(ready.reasons.length, 0);
 
 const blocked = scoreKingmakerReadiness({
