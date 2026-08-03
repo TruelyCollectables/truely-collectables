@@ -325,11 +325,14 @@ function isBaseParallel(value: unknown) {
 function checklistParallelTokens(value: unknown) {
   return normalizedText(value)
     .replace(/\bcracked\s+ice\b/g, "ice")
+    .replace(/\bx[-\s]*fractor\b/g, "xfractor")
+    .replace(/\bcolor\s+blast\b/g, "colorblast")
     .split(" ")
     .filter(Boolean)
     .filter(
       (token) =>
         ![
+          "prism",
           "prizm",
           "prizms",
           "parallel",
@@ -338,6 +341,11 @@ function checklistParallelTokens(value: unknown) {
           "card",
         ].includes(token),
     );
+}
+
+function checklistParallelSignature(value: unknown) {
+  if (isBaseParallel(value)) return "base";
+  return [...new Set(checklistParallelTokens(value))].sort().join(" ");
 }
 
 function asNumber(value: unknown) {
@@ -571,7 +579,7 @@ export function chooseRegistryMatch(
   const targetBrand = normalizedText(ai.brand);
   const targetSetTokens = new Set(meaningfulTokens(ai.setName));
   const targetParallel = normalizedText(ai.parallel);
-  const targetParallelTokens = checklistParallelTokens(ai.parallel);
+  const targetParallelSignature = checklistParallelSignature(ai.parallel);
   const targetVariation = normalizedText(ai.variation);
   const targetTeam = normalizedText(ai.team);
   const targetSport = normalizedText(ai.sport);
@@ -647,12 +655,11 @@ export function chooseRegistryMatch(
       // For example, a blue /199 card cannot resolve to a red /199 identity.
       const registryBase = isBaseParallel(parallelName);
       const targetBase = isBaseParallel(targetParallel);
-      const offeredParallelTokens = new Set(
-        checklistParallelTokens(parallelName),
-      );
+      const registryParallelSignature =
+        checklistParallelSignature(parallelName);
       const visualParallelMatches =
-        targetParallelTokens.length > 0 &&
-        targetParallelTokens.every((token) => offeredParallelTokens.has(token));
+        targetParallelSignature.length > 0 &&
+        registryParallelSignature === targetParallelSignature;
 
       if (targetSerialRun) {
         if (serialRun !== Number(targetSerialRun)) continue;
@@ -1117,21 +1124,37 @@ export function buildInstaCompEvidenceIdentityDecision(params: {
   const exactInternalMatch =
     resolution.status === "internal_exact_match" && Boolean(match);
   const consensusTrusted = consensus.trustedForIdentity === true;
-  const requiredFields = ["player", "year", "brand", "setName", "cardNumber"];
+  const requiredFields = [
+    "player",
+    "year",
+    "brand",
+    "setName",
+    "cardNumber",
+    "parallel",
+  ];
   const presentRequiredFields = requiredFields.filter(
     (field) => hasMeaningfulValue(finalIdentity[field]),
   );
   const criticalDecisionFields = [
     "player",
     "year",
+    "brand",
     "setName",
     "cardNumber",
+    "parallel",
     ...(match?.serialRun ? ["serialNumber"] : []),
   ];
   const criticalDecisionsConflictFree = criticalDecisionFields.every((field) => {
     const decision = fieldDecisions.find((item) => item.field === field);
     return decision && decision.status !== "review_required";
   });
+  const parallelDecision = fieldDecisions.find(
+    (item) => item.field === "parallel",
+  );
+  const parallelEvidenceStrong =
+    parallelDecision?.status === "catalog_referee" &&
+    Array.isArray(parallelDecision.conflictingValues) &&
+    parallelDecision.conflictingValues.length === 0;
   const councilNotBlocked = councilReadiness.status !== "review_required";
   const visibleSerialRun = String(finalIdentity.serialNumber || "").match(
     /\/\s*(\d{1,7})\b/,
@@ -1167,6 +1190,9 @@ export function buildInstaCompEvidenceIdentityDecision(params: {
   if (!criticalDecisionsConflictFree) {
     reviewReasons.push("critical_visible_evidence_conflict");
   }
+  if (!parallelEvidenceStrong) {
+    reviewReasons.push("parallel_not_independently_confirmed");
+  }
   if (!councilNotBlocked) reviewReasons.push("required_scanner_council_not_ready");
   if (exactInternalMatch && !serialConsistent) {
     reviewReasons.push("serial_denominator_conflicts_with_checklist");
@@ -1183,6 +1209,7 @@ export function buildInstaCompEvidenceIdentityDecision(params: {
     consensusTrusted &&
     params.hasBackImage &&
     criticalDecisionsConflictFree &&
+    parallelEvidenceStrong &&
     councilNotBlocked &&
     serialConsistent &&
     markersConsistent &&
