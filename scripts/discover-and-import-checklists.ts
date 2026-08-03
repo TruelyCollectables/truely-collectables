@@ -87,21 +87,25 @@ async function main() {
       if (error) throw new Error(`Could not read source catalog: ${error.message}`);
 
       if (["imported", "unchanged"].includes(existing?.status || "") && existing?.source_sha256 === sourceSha256) {
-        await upsert(db, { manufacturer: "Upper Deck", source_url: sourceUrl, source_sha256: sourceSha256, status: "unchanged", last_seen_at: checkedAt, last_checked_at: checkedAt });
-        results.push({ sourceUrl, status: "unchanged", sourceSha256 });
+        const preservedStatus = existing?.status === "imported" ? "imported" : "unchanged";
+        await upsert(db, { manufacturer: "Upper Deck", source_url: sourceUrl, source_sha256: sourceSha256, status: preservedStatus, last_seen_at: checkedAt, last_checked_at: checkedAt });
+        results.push({ sourceUrl, status: preservedStatus, sourceSha256, unchanged: true });
         continue;
       }
 
       const sourceArtifact = artifact(sourceUrl, content);
       const validation = await importChecklistArtifact({ artifact: sourceArtifact, validateOnly: true });
       const validationErrors = validation.plan.validation.issues.filter((value) => value.severity === "error");
+      const releaseName = [validation.plan.release.season || validation.plan.release.releaseYear, validation.plan.release.product]
+        .filter(Boolean)
+        .join(" ");
       const common = {
         manufacturer: validation.plan.release.manufacturer,
         sport: validation.plan.release.sport,
         source_url: sourceUrl,
         source_sha256: sourceSha256,
         release_slug: validation.plan.release.releaseSlug,
-        release_name: validation.plan.release.name,
+        release_name: releaseName,
         adapter_id: validation.adapter.id,
         adapter_version: validation.adapter.version,
         last_seen_at: checkedAt,
@@ -113,19 +117,19 @@ async function main() {
 
       if (!validation.ok || validationErrors.length) {
         await upsert(db, { ...common, status: "quarantined" });
-        results.push({ sourceUrl, status: "quarantined", release: validation.plan.release.name, errors: issues(validationErrors) });
+        results.push({ sourceUrl, status: "quarantined", release: releaseName, errors: issues(validationErrors) });
         continue;
       }
       if (!AUTO_IMPORT) {
         await upsert(db, { ...common, status: "validated" });
-        results.push({ sourceUrl, status: "validated", release: validation.plan.release.name, counts: validation.plan.validation.counts });
+        results.push({ sourceUrl, status: "validated", release: releaseName, counts: validation.plan.validation.counts });
         continue;
       }
 
       const imported = await importChecklistArtifact({ artifact: sourceArtifact });
       if (!imported.ok || imported.validatedOnly) throw new Error("Validated checklist did not complete persistence.");
       await upsert(db, { ...common, status: "imported", imported_at: checkedAt });
-      results.push({ sourceUrl, status: "imported", release: imported.plan.release.name, counts: imported.plan.validation.counts, persistence: imported.persistence });
+      results.push({ sourceUrl, status: "imported", release: releaseName, counts: imported.plan.validation.counts, persistence: imported.persistence });
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : String(caught);
       await upsert(db, { manufacturer: "Upper Deck", source_url: sourceUrl, status: "failed", last_seen_at: checkedAt, last_checked_at: checkedAt, issue_summary: [{ code: "discovery_failure", severity: "error", message }] });
