@@ -6,12 +6,16 @@ on:
     paths:
       - "scripts/fixtures/checklist-registry/2025-panini-origins-football-base-rookies.structured.json"
       - "scripts/run-instacomp-origins-registry-production.ts"
+      - "scripts/run-instacomp-registry-consensus-bridge-regression.ts"
+      - "src/lib/instacomp-learning-server.ts"
       - ".github/workflows/import-2025-origins-registry-production.yml"
   push:
     branches: [main]
     paths:
       - "scripts/fixtures/checklist-registry/2025-panini-origins-football-base-rookies.structured.json"
       - "scripts/run-instacomp-origins-registry-production.ts"
+      - "scripts/run-instacomp-registry-consensus-bridge-regression.ts"
+      - "src/lib/instacomp-learning-server.ts"
       - ".github/workflows/import-2025-origins-registry-production.yml"
   workflow_dispatch:
 
@@ -51,6 +55,7 @@ jobs:
 
       - name: Run existing identity firewall regressions
         run: |
+          npx tsx scripts/run-instacomp-registry-consensus-bridge-regression.ts
           npx tsx scripts/run-instacomp-live-shedeur-107-regression.ts
           npx tsx scripts/run-instacomp-identity-firewall-regressions.ts
           npx tsx scripts/run-instacomp-serial-color-gate-regressions.ts
@@ -70,7 +75,11 @@ jobs:
           test "$selected" = "service-fixture"
 
       - name: Lint permanent Registry files
-        run: npx eslint scripts/run-instacomp-origins-registry-production.ts
+        run: |
+          npx eslint \
+            scripts/run-instacomp-origins-registry-production.ts \
+            scripts/run-instacomp-registry-consensus-bridge-regression.ts \
+            src/lib/instacomp-learning-server.ts
 
   import-and-prove-production:
     if: github.event_name != 'pull_request' && github.ref_name == 'main'
