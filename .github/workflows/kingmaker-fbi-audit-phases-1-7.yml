@@ -1,0 +1,110 @@
+name: KINGMAKER FBI Audit Phases 1-7
+
+on:
+  pull_request:
+    paths:
+      - "src/lib/kingmaker-*.ts"
+      - "scripts/run-kingmaker-*.ts"
+      - "supabase/migrations/*kingmaker*.sql"
+      - ".github/workflows/kingmaker-fbi-audit-phases-1-7.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kingmaker-fbi-1-7-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fbi-audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Execute every KINGMAKER regression suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t suites < <(find scripts -maxdepth 1 -type f -name 'run-kingmaker-*-regressions.ts' | sort)
+          test "${#suites[@]}" -ge 15
+          for suite in "${suites[@]}"; do
+            echo "=== $suite ==="
+            node --import tsx "$suite"
+          done
+      - name: Migration privilege and RLS audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t migrations < <(find supabase/migrations -maxdepth 1 -type f -iname '*kingmaker*.sql' | sort)
+          test "${#migrations[@]}" -ge 5
+          for migration in "${migrations[@]}"; do
+            echo "=== $migration ==="
+            ! grep -Eiq 'grant .* to (anon|authenticated)' "$migration"
+            if grep -Eiq 'create table' "$migration"; then
+              grep -Eiq 'enable row level security' "$migration"
+              grep -Eiq 'revoke all' "$migration"
+            fi
+            if grep -Eiq 'security definer' "$migration"; then
+              grep -Eiq 'set search_path' "$migration"
+            fi
+          done
+      - name: Authorization and deterministic control audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Rqi 'timingSafeEqual' src/lib/kingmaker-phase-5-*.ts
+          grep -Rqi 'idempotency' src/lib/kingmaker-phase-5-*.ts
+          grep -Rqi 'nonce' src/lib/kingmaker-phase-5-*.ts
+          grep -Rqi 'owner.*approval\|approval_required' src/lib/kingmaker-phase-6-*.ts
+          grep -Rqi 'open_circuit' src/lib/kingmaker-phase-7-*.ts
+          grep -Rqi 'rollback' src/lib/kingmaker-phase-7-*.ts
+          grep -Rqi 'reconcil' src/lib/kingmaker-phase-7-*.ts
+          grep -Rqi 'fingerprint' src/lib/kingmaker-phase-7-*.ts
+      - name: Secret and dangerous execution scan
+        shell: bash
+        run: |
+          set -euo pipefail
+          secret_hits="$(grep -RInE '(sk_live_[A-Za-z0-9]{12,}|whsec_[A-Za-z0-9]{12,}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----)' src scripts supabase .github || true)"
+          real_secret_hits="$(printf '%s\n' "$secret_hits" | grep -Ev 'fakeSecret|fakeWebhook|build-placeholder' || true)"
+          if [[ -n "$real_secret_hits" ]]; then
+            printf '%s\n' "$real_secret_hits"
+            exit 1
+          fi
+          ! grep -RInE '\beval\s*\(|new Function\s*\(|child_process|execSync\s*\(|spawnSync\s*\(' src/lib/kingmaker-*.ts scripts/run-kingmaker-*.ts
+          ! grep -RInE '(javascript:|data:text/html)' src/lib/kingmaker-*.ts
+      - name: Dependency high severity audit
+        run: npm audit --audit-level=high
+      - name: Lint all KINGMAKER code
+        run: npx eslint src/lib/kingmaker-*.ts scripts/run-kingmaker-*.ts
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Diff integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+          git diff --check "origin/${{ github.base_ref }}...HEAD"
+      - name: Production build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-placeholder
+          SUPABASE_SERVICE_ROLE_KEY: build-placeholder
+          ADMIN_PASSWORD: build-placeholder
+          ADMIN_SESSION_SECRET: build-placeholder-admin-session
+          STRIPE_SECRET_KEY: sk_test_build_placeholder
+          STRIPE_WEBHOOK_SECRET: whsec_build_placeholder
+          EBAY_CLIENT_ID: build-placeholder
+          EBAY_CLIENT_SECRET: build-placeholder
+          EBAY_ENVIRONMENT: production
+          TCOS_LIVE_PAYMENTS_ENABLED: "false"
+          TCOS_LIVE_SHIPPING_ENABLED: "false"
+          TCOS_SHIPPING_PURCHASE_MODE: dry_run
+        run: npm run build
