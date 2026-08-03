@@ -1,0 +1,65 @@
+name: Topps Baseball Bulk Registry Import
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Validate sources or apply clean imports to the Registry
+        required: true
+        type: choice
+        options:
+          - validate
+          - apply
+        default: validate
+      max_sources:
+        description: Maximum source-catalog rows to process
+        required: true
+        default: "100"
+      statuses:
+        description: Comma-separated source statuses to process
+        required: true
+        default: "discovered,validated,quarantined,failed"
+  schedule:
+    - cron: "23 14 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: topps-baseball-bulk-registry-import
+  cancel-in-progress: false
+
+jobs:
+  bulk-import:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 120
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TOPPS_BASEBALL_BULK_APPLY: ${{ github.event_name == 'schedule' || inputs.mode == 'apply' }}
+      TOPPS_BASEBALL_BULK_MAX_SOURCES: ${{ inputs.max_sources || '100' }}
+      TOPPS_BASEBALL_BULK_STATUSES: ${{ inputs.statuses || 'discovered,validated,quarantined,failed' }}
+      TOPPS_BASEBALL_BULK_OUTPUT: .checklist-discovery/topps-baseball-bulk-import-receipt.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install deterministic PDF text extractor
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends poppler-utils
+          pdftotext -v
+      - run: npm ci
+      - name: Process Topps and Bowman source catalog
+        run: node --import tsx scripts/bulk-import-topps-baseball-checklists.ts
+      - name: Upload sanitized import receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: topps-baseball-bulk-registry-import-receipt
+          path: .checklist-discovery/*.json
+          if-no-files-found: warn
+          retention-days: 90
