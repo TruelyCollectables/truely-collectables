@@ -13,10 +13,10 @@ jobs:
   inspect-release:
     runs-on: ubuntu-24.04
     steps:
-      - name: Inspect fixed InstaComp production release
+      - name: Inspect Registry-bridge production release
         env:
           GH_TOKEN: ${{ github.token }}
-          EXPECTED_SHA: caba3a751a502c12800fe4640f4a6c143ab9d7b7
+          EXPECTED_SHA: 0d2c94bff0b7d04d5483bb534398af9187833e8f
         run: |
           set -euo pipefail
           response="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/instacomp-production-release.yml/runs?branch=main&event=push&per_page=20")"
