@@ -74,9 +74,11 @@ export function validateKingmakerOwnerAction(input: KingmakerOwnerActionRequest,
   const amount = finiteMoney(input.amount);
   if (input.action === "approve") {
     if (!(["buy_now", "make_offer"] as KingmakerExecutiveAction[]).includes(decision.action)) errors.push("approval_not_required");
-    if (amount === null || amount <= 0) errors.push("invalid_action_amount");
-    if (decision.action === "buy_now" && amount !== decision.deliveredCost) errors.push("buy_amount_mismatch");
-    if (decision.action === "make_offer") {
+    if (amount === null || amount <= 0) {
+      errors.push("invalid_action_amount");
+    } else if (decision.action === "buy_now" && amount !== decision.deliveredCost) {
+      errors.push("buy_amount_mismatch");
+    } else if (decision.action === "make_offer") {
       if (decision.recommendedOffer === null || decision.walkAwayPrice === null) errors.push("offer_economics_missing");
       if (amount !== decision.recommendedOffer) errors.push("offer_amount_mismatch");
       if (decision.walkAwayPrice !== null && amount > decision.walkAwayPrice) errors.push("offer_above_walkaway");
