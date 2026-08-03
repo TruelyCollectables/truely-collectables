@@ -159,10 +159,11 @@ jobs:
           const raw = fs.readFileSync('benchmark-manifest.json', 'utf8').trim();
           if (!raw) throw new Error('Protected-preview manifest response was empty.');
           const payload = JSON.parse(raw);
-          if (!payload.ok || !Array.isArray(payload.cases) || payload.cases.length < 50) {
+          const target = Number(process.env.INSTACOMP_BENCHMARK_TARGET || 25);
+          if (!payload.ok || !Array.isArray(payload.cases) || payload.cases.length < target) {
             throw new Error(`Benchmark manifest was not ready: ${raw.slice(0, 1200)}`);
           }
-          console.log(`Protected preview exposes ${payload.cases.length} official benchmark cases.`);
+          console.log(`Protected preview exposes ${payload.cases.length} official benchmark cases for a ${target}-card run.`);
           NODE
 
       - name: Run 25+ real cards through current InstaComp
