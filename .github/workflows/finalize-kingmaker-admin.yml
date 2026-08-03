@@ -61,6 +61,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/app/admin/page.tsx src/app/admin/LegacyAdminDashboard.tsx .github/workflows/finalize-kingmaker-admin.yml
+          git add -A
           git commit -m "Finalize KINGMAKER admin command integration"
           git push origin HEAD:agent/kingmaker-morning-intel
