@@ -27,6 +27,7 @@ env:
   VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
   VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
 jobs:
   validate-origins-registry:
@@ -54,6 +55,19 @@ jobs:
           npx tsx scripts/run-instacomp-identity-firewall-regressions.ts
           npx tsx scripts/run-instacomp-serial-color-gate-regressions.ts
           npm run simulate:instacomp-consensus
+
+      - name: Verify protected service-role key selection
+        shell: bash
+        run: |
+          set -euo pipefail
+          fixture='[{"name":"anon","api_key":"anon-fixture"},{"name":"service_role","api_key":"service-fixture"}]'
+          selected="$(printf '%s' "$fixture" | jq -r '
+            map(select(
+              (((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or
+              (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role")
+            )) | .[0].api_key // empty
+          ')"
+          test "$selected" = "service-fixture"
 
       - name: Lint permanent Registry files
         run: npx eslint scripts/run-instacomp-origins-registry-production.ts
@@ -97,6 +111,36 @@ jobs:
           chmod 600 "$RUNNER_TEMP/origins-registry/production.env"
           echo "PRODUCTION_ENV_PATH=$RUNNER_TEMP/origins-registry/production.env" >> "$GITHUB_ENV"
 
+      - name: Resolve protected Supabase service-role key
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          set -a
+          source "$PRODUCTION_ENV_PATH"
+          set +a
+          test -n "${NEXT_PUBLIC_SUPABASE_URL:-}"
+          project_ref="$(node -e '
+            const url = new URL(process.argv[1]);
+            const ref = url.hostname.split(".")[0];
+            if (!/^[a-z0-9]{16,40}$/.test(ref)) throw new Error("Invalid Supabase project reference");
+            process.stdout.write(ref);
+          ' "$NEXT_PUBLIC_SUPABASE_URL")"
+          keys_file="$RUNNER_TEMP/origins-registry/api-keys.json"
+          curl --silent --show-error --fail \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --output "$keys_file" \
+            "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
+          service_key="$(jq -r '
+            map(select(
+              (((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or
+              (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role")
+            )) | .[0].api_key // empty
+          ' "$keys_file")"
+          test -n "$service_key"
+          echo "::add-mask::$service_key"
+          echo "RESOLVED_SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
+
       - name: Import Registry slice and prove exact production identity
         shell: bash
         run: |
@@ -104,6 +148,8 @@ jobs:
           set -a
           source "$PRODUCTION_ENV_PATH"
           set +a
+          test -n "${RESOLVED_SUPABASE_SERVICE_ROLE_KEY:-}"
+          export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
           mkdir -p evidence
           npx tsx scripts/run-instacomp-origins-registry-production.ts --apply \
             | tee evidence/origins-registry-production.json
@@ -136,4 +182,9 @@ jobs:
       - name: Remove protected Production files
         if: always()
         shell: bash
-        run: rm -f "$RUNNER_TEMP/origins-registry/production.env" .env.local .env.production.local
+        run: |
+          rm -f \
+            "$RUNNER_TEMP/origins-registry/production.env" \
+            "$RUNNER_TEMP/origins-registry/api-keys.json" \
+            .env.local \
+            .env.production.local
