@@ -167,7 +167,7 @@ export function buildKingmakerDeadLetter(input: {
   if (!input.queue.trim() || !input.messageId.trim() || !input.tenantId.trim() || !input.reason.trim()) throw new Error("invalid_dead_letter_identity");
   if (!Number.isInteger(input.attempts) || input.attempts < 1) throw new Error("invalid_attempt_count");
   const maxAttempts = Math.max(1, Math.floor(input.maxAttempts ?? 5));
-  const nextAction = input.reason.includes("authorization") || input.reason.includes("identity")
+  const nextAction: KingmakerDeadLetter["nextAction"] = input.reason.includes("authorization") || input.reason.includes("identity")
     ? "manual_review"
     : input.attempts >= maxAttempts
       ? "quarantine"
@@ -190,7 +190,7 @@ export function reconcileKingmakerLedger(input: { ledger: string; expectedIds: s
   const unexpectedIds = actual.filter((id) => !expectedSet.has(id));
   const denominator = Math.max(1, expected.length);
   const driftRate = Number(((missingIds.length + unexpectedIds.length) / denominator).toFixed(6));
-  const status = driftRate === 0 ? "clean" : driftRate > policy.maxReconciliationDrift ? "critical" : "warning";
+  const status: KingmakerReconciliation["status"] = driftRate === 0 ? "clean" : driftRate > policy.maxReconciliationDrift ? "critical" : "warning";
   const canonical = { ledger: input.ledger.trim(), expectedCount: expected.length, actualCount: actual.length, missingIds, unexpectedIds, driftRate, status };
   return { ...canonical, fingerprint: hash(canonical) };
 }
