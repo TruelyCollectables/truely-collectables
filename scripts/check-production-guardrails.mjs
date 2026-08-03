@@ -3911,6 +3911,46 @@ assertFileIncludes("instacomp exact identity firewall regressions", "scripts/run
   "parallel is mandatory for the 95 percent identity gate",
   "manufacturer or brand disagreement is a hard stop",
 ]);
+assertFileIncludes("instacomp Shedeur 107 real-card regression", "scripts/run-instacomp-live-shedeur-107-regression.ts", [
+  "Shedeur Sanders",
+  "Origins Football Base",
+  'cardNumber: "107"',
+  'parallel: "Blue Foil"',
+  'serialNumber: "162/199"',
+  "shedeur-107-holo-blue-199",
+  "wrong card number must fail closed",
+  "wrong color must fail closed",
+  "wrong finish must fail closed",
+  "wrong serial denominator must fail closed",
+  "observed language mismatch must fail closed",
+  "observed configuration mismatch must fail closed",
+  "Blue versus red evidence must never confirm",
+]);
+assertFileIncludes("instacomp foil-holo exact identity aliases", "src/lib/instacomp-learning-server.ts", [
+  '.replace(/\\bfoil\\b/g, "holo")',
+  "function checklistParallelSignature",
+  "normalizedCardNumber(card.card_number)",
+  "if (targetLanguage && registryLanguage !== targetLanguage) continue;",
+  "if (targetConfiguration && registryConfiguration !== targetConfiguration)",
+]);
+assertFileIncludes("instacomp consensus foil-holo exact identity aliases", "src/lib/instacomp-consensus.ts", [
+  '.replace(/\\bfoil\\b/g, "holo")',
+  "function comparableParallel",
+  "catalog parallel lacks agreement from two independent scanner families",
+]);
+assertFileIncludes("instacomp production release runs real-card firewall", ".github/workflows/instacomp-production-release.yml", [
+  '"src/lib/instacomp-consensus.ts"',
+  '"scripts/run-instacomp-live-shedeur-107-regression.ts"',
+  "npx tsx scripts/run-instacomp-identity-firewall-regressions.ts",
+  "npx tsx scripts/run-instacomp-serial-color-gate-regressions.ts",
+  "npx tsx scripts/run-instacomp-live-shedeur-107-regression.ts",
+  "npm run simulate:instacomp-consensus",
+]);
+assertFileIncludes("instacomp package runs Shedeur real-card regression", "package.json", [
+  '"simulate:instacomp-shedeur-107"',
+  "run-instacomp-live-shedeur-107-regression.ts",
+  "npm run simulate:instacomp-consensus && npm run simulate:instacomp-shedeur-107",
+]);
 assertFileIncludes("instacomp multi-scanner consensus simulations", "scripts/run-instacomp-consensus-simulations.ts", [
   "obvious complete identity stays on fast lane",
   "copyright season slash does not trigger numbered-card escalation",

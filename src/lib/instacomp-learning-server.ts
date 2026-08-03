@@ -323,6 +323,7 @@ function isBaseParallel(value: unknown) {
 function checklistParallelTokens(value: unknown) {
   return normalizedText(value)
     .replace(/\bcracked\s+ice\b/g, "ice")
+    .replace(/\bfoil\b/g, "holo")
     .replace(/\bx[-\s]*fractor\b/g, "xfractor")
     .replace(/\bcolor\s+blast\b/g, "colorblast")
     .split(" ")
@@ -595,6 +596,13 @@ export function chooseRegistryMatch(
   const matches = new Map<string, RegistryMatch>();
 
   for (const card of rows) {
+    if (
+      normalizedCardNumber(card.card_number) !==
+      normalizedCardNumber(ai.cardNumber)
+    ) {
+      continue;
+    }
+
     const players = Array.isArray(card.players)
       ? card.players
           .map((link: any) => link?.player?.canonical_name)
@@ -629,7 +637,6 @@ export function chooseRegistryMatch(
           .map((link: any) => link?.team?.canonical_name)
           .filter(Boolean)
       : [];
-    if (teams.length && !targetTeam) continue;
     if (
       targetTeam &&
       !teams.some((team: string) => normalizedText(team) === targetTeam)
@@ -639,8 +646,8 @@ export function chooseRegistryMatch(
 
     const registrySport = normalizedText(release.sport?.name);
     const registryLeague = normalizedText(release.league?.name);
-    if (registrySport && (!targetSport || registrySport !== targetSport)) continue;
-    if (registryLeague && targetLeague && registryLeague !== targetLeague) continue;
+    if (targetSport && registrySport !== targetSport) continue;
+    if (targetLeague && registryLeague !== targetLeague) continue;
 
     const identities = Array.isArray(card.identities) ? card.identities : [];
     for (const identity of identities) {
@@ -692,24 +699,14 @@ export function chooseRegistryMatch(
           identity.metadata?.language_code ||
           canonicalField(identity.canonical_key, "language_code"),
       );
-      if (registryLanguage || targetLanguage) {
-        if (!registryLanguage || !targetLanguage || registryLanguage !== targetLanguage) {
-          continue;
-        }
-      }
+      if (targetLanguage && registryLanguage !== targetLanguage) continue;
 
       const registryConfiguration = normalizedText(
         identity.configuration_exclusivity ||
           canonicalField(identity.canonical_key, "configuration"),
       );
-      if (registryConfiguration || targetConfiguration) {
-        if (
-          !registryConfiguration ||
-          !targetConfiguration ||
-          registryConfiguration !== targetConfiguration
-        ) {
-          continue;
-        }
+      if (targetConfiguration && registryConfiguration !== targetConfiguration) {
+        continue;
       }
 
       const fingerprint = String(identity.fingerprint_sha256 || "");
