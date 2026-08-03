@@ -13,7 +13,7 @@ function record(index: number, soldAmount: number, sellerKey = "trusted"): Kingm
     sellerKey,
     predictedProfit: 18,
     predictedRoiPercent: 60,
-    predictedConfidence: 0.82,
+    predictedConfidence: 0.9,
     landedCost: 30,
     soldAmount,
     soldAt: `2026-0${Math.min(index, 7)}-20T00:00:00Z`,
