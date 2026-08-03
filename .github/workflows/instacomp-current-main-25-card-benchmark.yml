@@ -72,7 +72,6 @@ jobs:
             src/app/api/instacomp/benchmark/ebay-25/route.ts \
             src/app/api/instacomp/live-scan/route.ts \
             src/app/api/instacomp/scan/route.ts \
-            src/lib/instacomp-benchmark-grading.ts \
             src/lib/instacomp-ebay-benchmark-cases.ts \
             src/lib/instacomp-identity-guard.ts \
             src/lib/instacomp-consensus.ts \
