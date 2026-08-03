@@ -8,9 +8,9 @@ permissions:
   contents: write
 
 jobs:
-  repair:
+  sync-and-verify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 35
     env:
       NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
       NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder
@@ -24,53 +24,22 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
+      - name: Merge certified main
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git fetch origin main
+          git merge --no-edit origin/main
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Repair workbench effect and types
-        run: |
-          node <<'NODE'
-          const fs = require('node:fs');
-          const path = 'src/app/admin/instacomp/pricing/_components/pricing-workbench.tsx';
-          let source = fs.readFileSync(path, 'utf8');
-
-          const effectBefore = `  useEffect(() => {\n    void refresh();\n  }, []);`;
-          const effectAfter = `  useEffect(() => {\n    const initialLoad = window.setTimeout(() => {\n      void refresh();\n    }, 0);\n\n    return () => window.clearTimeout(initialLoad);\n  }, []);`;
-          if (source.includes(effectBefore)) source = source.replace(effectBefore, effectAfter);
-          if (!source.includes('const initialLoad = window.setTimeout')) throw new Error('pricing workbench effect repair missing');
-
-          const mapBefore = `          {(loading ? Array.from({ length: 4 }) : cards).map((card, index) => loading ? (\n            <div key={index} className="h-32 animate-pulse rounded-3xl border border-neutral-200 bg-white" />\n          ) : (\n            <MetricCard key={card.label} {...card} />\n          ))}`;
-          const mapAfter = `          {loading\n            ? Array.from({ length: 4 }, (_, index) => (\n                <div key={index} className="h-32 animate-pulse rounded-3xl border border-neutral-200 bg-white" />\n              ))\n            : cards.map((card) => <MetricCard key={card.label} {...card} />)}`;
-          if (source.includes(mapBefore)) source = source.replace(mapBefore, mapAfter);
-          if (!source.includes(': cards.map((card) => <MetricCard')) throw new Error('metric rendering repair missing');
-
-          source = source.replace(
-            'function buildCards(mode: Mode, snapshot: Snapshot) {',
-            'function buildCards(mode: Mode, snapshot: Snapshot): Array<{ label: string; value: string; detail: string }> {'
-          );
-          source = source.replace(
-            'function ReceiptPanel({ snapshot }: { snapshot: Snapshot }) {\n  const rows = [',
-            'function ReceiptPanel({ snapshot }: { snapshot: Snapshot }) {\n  const rows: Array<[string, number, string]> = ['
-          );
-          source = source.replace(
-            'function ReviewPanel({ snapshot }: { snapshot: Snapshot }) {\n  const rows = [',
-            'function ReviewPanel({ snapshot }: { snapshot: Snapshot }) {\n  const rows: Array<[string, number, string]> = ['
-          );
-
-          fs.writeFileSync(path, source);
-          NODE
-      - name: Validate repair
+      - name: Validate synchronized workbenches
         run: |
           node --import tsx scripts/run-kingmaker-pricing-workbenches-regressions.ts
           npx eslint src/app/admin/instacomp/pricing scripts/run-kingmaker-pricing-workbenches-regressions.ts
           npx tsc --noEmit
-      - name: Commit repair
-        run: |
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add src/app/admin/instacomp/pricing/_components/pricing-workbench.tsx
-          git diff --cached --quiet && exit 0
-          git commit -m "fix: stabilize pricing workbench loading and types"
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          node scripts/run-dependency-security-audit.mjs
+      - name: Push synchronized branch
+        run: git push origin HEAD:${{ github.event.pull_request.head.ref }}
