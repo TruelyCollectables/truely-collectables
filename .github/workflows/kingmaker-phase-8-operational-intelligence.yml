@@ -1,0 +1,78 @@
+name: KINGMAKER Phase 8 Operational Intelligence
+
+on:
+  pull_request:
+    paths:
+      - "src/lib/kingmaker-phase-8-*.ts"
+      - "scripts/run-kingmaker-phase-8-*.ts"
+      - "supabase/migrations/20260803160000_kingmaker_phase_8_operational_intelligence.sql"
+      - ".github/workflows/kingmaker-phase-8-operational-intelligence.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kingmaker-phase-8-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-operational-intelligence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Phase 8 operational intelligence regressions
+        run: node --import tsx scripts/run-kingmaker-phase-8-operational-intelligence-regressions.ts
+      - name: Migration security contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          migration=supabase/migrations/20260803160000_kingmaker_phase_8_operational_intelligence.sql
+          for table in \
+            tcos_kingmaker_dependency_graphs \
+            tcos_kingmaker_operational_assessments \
+            tcos_kingmaker_capacity_forecasts \
+            tcos_kingmaker_maintenance_windows \
+            tcos_kingmaker_runbooks \
+            tcos_kingmaker_executive_health
+          do
+            grep -q "$table" "$migration"
+          done
+          test "$(grep -c 'enable row level security' "$migration")" -eq 6
+          test "$(grep -c 'revoke all' "$migration")" -eq 6
+          test "$(grep -c 'grant all' "$migration")" -eq 6
+          ! grep -Eiq 'grant .* to (anon|authenticated)' "$migration"
+      - name: Diff integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+          git diff --check "origin/${{ github.base_ref }}...HEAD"
+      - name: Lint Phase 8
+        run: npx eslint src/lib/kingmaker-phase-8-*.ts scripts/run-kingmaker-phase-8-*.ts
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Production build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-placeholder
+          SUPABASE_SERVICE_ROLE_KEY: build-placeholder
+          ADMIN_PASSWORD: build-placeholder
+          ADMIN_SESSION_SECRET: build-placeholder-admin-session
+          STRIPE_SECRET_KEY: sk_test_build_placeholder
+          STRIPE_WEBHOOK_SECRET: whsec_build_placeholder
+          EBAY_CLIENT_ID: build-placeholder
+          EBAY_CLIENT_SECRET: build-placeholder
+          EBAY_ENVIRONMENT: production
+          TCOS_LIVE_PAYMENTS_ENABLED: "false"
+          TCOS_LIVE_SHIPPING_ENABLED: "false"
+          TCOS_SHIPPING_PURCHASE_MODE: dry_run
+        run: npm run build
