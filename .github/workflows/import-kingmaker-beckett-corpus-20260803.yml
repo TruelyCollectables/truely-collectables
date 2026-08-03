@@ -1,0 +1,131 @@
+name: Import KINGMAKER Beckett Corpus 20260803
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/import-kingmaker-beckett-corpus-20260803.yml"
+      - "scripts/ops/import-kingmaker-beckett-corpus-20260803.mjs"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: import-kingmaker-beckett-corpus-20260803
+  cancel-in-progress: false
+
+env:
+  EXPECTED_BRANCH: ops/import-kingmaker-beckett-corpus-20260803
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  DRIVE_FILE_ID: 1uBtwoVY9CNl7aO6-eDeXnFZLSLSRgXQa
+  EVIDENCE_DIR: evidence/kingmaker-beckett-production-import-20260803
+
+jobs:
+  import-and-verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on exact operations scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main
+          mapfile -t changed < <(git diff --name-only origin/main...HEAD)
+          printf '%s\n' "${changed[@]}"
+          test "${#changed[@]}" -eq 2
+          test "${changed[0]}" = '.github/workflows/import-kingmaker-beckett-corpus-20260803.yml'
+          test "${changed[1]}" = 'scripts/ops/import-kingmaker-beckett-corpus-20260803.mjs'
+          git diff --check origin/main...HEAD
+          cp scripts/ops/import-kingmaker-beckett-corpus-20260803.mjs "$RUNNER_TEMP/import-kingmaker-beckett-corpus-20260803.mjs"
+          git checkout --detach origin/main
+          mkdir -p scripts/ops "$EVIDENCE_DIR"
+          cp "$RUNNER_TEMP/import-kingmaker-beckett-corpus-20260803.mjs" scripts/ops/import-kingmaker-beckett-corpus-20260803.mjs
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install exact dependencies
+        run: |
+          npm ci
+          python -m pip install --disable-pip-version-check --no-cache-dir gdown
+          sudo apt-get update
+          sudo apt-get install --yes unzip
+
+      - name: Pull protected Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          mkdir -p .vercel "$RUNNER_TEMP/kingmaker-beckett-production"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/kingmaker-beckett-production/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          test -s "$RUNNER_TEMP/kingmaker-beckett-production/production.env"
+          echo "PRODUCTION_ENV_FILE=$RUNNER_TEMP/kingmaker-beckett-production/production.env" >> "$GITHUB_ENV"
+
+      - name: Download encrypted corpus from Google Drive
+        shell: bash
+        run: |
+          set -euo pipefail
+          gdown --id "$DRIVE_FILE_ID" --output "$RUNNER_TEMP/kingmaker-beckett-encrypted-transport-20260803.tar"
+          test -s "$RUNNER_TEMP/kingmaker-beckett-encrypted-transport-20260803.tar"
+          echo 'd36d658f415283a313268b10ac55894844fb22e39a62d02d99ac94f844a29bc0  '"$RUNNER_TEMP/kingmaker-beckett-encrypted-transport-20260803.tar" | sha256sum --check
+
+      - name: Decrypt, stage, match, and verify all five guides
+        shell: bash
+        env:
+          ALLOW_KINGMAKER_BECKETT_IMPORT: "YES"
+          ENCRYPTED_TAR_PATH: ${{ runner.temp }}/kingmaker-beckett-encrypted-transport-20260803.tar
+          WORK_DIR: ${{ runner.temp }}/kingmaker-beckett-import
+          RECEIPT_PATH: evidence/kingmaker-beckett-production-import-20260803/receipt.json
+        run: |
+          set -euo pipefail
+          node scripts/ops/import-kingmaker-beckett-corpus-20260803.mjs
+
+      - name: Require sanitized passing receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const path = 'evidence/kingmaker-beckett-production-import-20260803/receipt.json';
+          const receipt = JSON.parse(fs.readFileSync(path, 'utf8'));
+          if (receipt.schema !== 'tcos.kingmaker.beckettProductionImportReceipt.v1') throw new Error('Unexpected receipt schema');
+          if (receipt.status !== 'passed') throw new Error('Import receipt did not pass');
+          if (receipt.certifiedCorpus?.guides !== 5 || receipt.certifiedCorpus?.pages !== 642 || receipt.certifiedCorpus?.rows !== 128636) throw new Error('Certified corpus totals mismatch');
+          if (receipt.production?.guides < 5 || receipt.production?.pages < 642 || receipt.production?.entries < 128636) throw new Error('Production totals mismatch');
+          if (receipt.production?.promoted !== 0 || receipt.promotedAutomatically !== false) throw new Error('Unexpected automatic promotion');
+          if (receipt.secretsPersisted !== false) throw new Error('Secret persistence assertion failed');
+          const text = fs.readFileSync(path, 'utf8');
+          if (/BEGIN PRIVATE KEY|sb_secret_|SUPABASE_SERVICE_ROLE_KEY|SUPABASE_ACCESS_TOKEN|postgres(?:ql)?:\/\//i.test(text)) throw new Error('Receipt contains secret-like material');
+          NODE
+
+      - name: Upload sanitized Production receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: kingmaker-beckett-production-import-20260803
+          path: evidence/kingmaker-beckett-production-import-20260803/receipt.json
+          if-no-files-found: error
+          retention-days: 30
