@@ -94,6 +94,20 @@ equal(
 );
 
 equal(
+  chooseRegistryMatch(
+    {
+      ...scanIdentity,
+      team: undefined,
+      sport: undefined,
+      league: undefined,
+    },
+    [checklistRow],
+  )?.identityId,
+  "shedeur-107-holo-blue-199",
+  "unobserved optional team and league evidence must not block the core identity",
+);
+
+equal(
   chooseRegistryMatch({ ...scanIdentity, cardNumber: "108" }, [checklistRow]),
   null,
   "wrong card number must fail closed",
@@ -117,6 +131,19 @@ equal(
   chooseRegistryMatch({ ...scanIdentity, player: "Cam Ward" }, [checklistRow]),
   null,
   "wrong player must fail closed",
+);
+equal(
+  chooseRegistryMatch({ ...scanIdentity, languageCode: "fr" }, [checklistRow]),
+  null,
+  "observed language mismatch must fail closed",
+);
+equal(
+  chooseRegistryMatch(
+    { ...scanIdentity, configurationExclusivity: "retail" },
+    [checklistRow],
+  ),
+  null,
+  "observed configuration mismatch must fail closed",
 );
 
 const consensus = buildInstaCompMultiScannerConsensus({
