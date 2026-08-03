@@ -81,3 +81,4 @@ assert.equal(
 );
 
 console.log("KINGMAKER morning intelligence route contracts passed.");
+// Navigation-repair validation trigger.
