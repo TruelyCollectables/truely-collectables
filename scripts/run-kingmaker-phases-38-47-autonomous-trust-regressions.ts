@@ -58,10 +58,10 @@ const future = certifyAutonomousTrust({
 assert.equal(future.verdict, 'review');
 assert.ok(future.reasons.includes('future_evidence:e-0'));
 
-const duplicateDigest = certifyAutonomousTrust({
-  ...base,
-  evidence: [{ ...evidence[1], artifactDigest: evidence[0].artifactDigest }, ...evidence.slice(1)],
-});
+const duplicateDigestEvidence = evidence.map((item, index) =>
+  index === 1 ? { ...item, artifactDigest: evidence[0].artifactDigest } : item,
+);
+const duplicateDigest = certifyAutonomousTrust({ ...base, evidence: duplicateDigestEvidence });
 assert.equal(duplicateDigest.verdict, 'quarantine');
 assert.ok(duplicateDigest.reasons.some((reason) => reason.startsWith('duplicate_artifact_digest:')));
 
