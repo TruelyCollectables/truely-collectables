@@ -7,6 +7,7 @@ on:
       - 'scripts/run-kingmaker-phases-60-73-sovereign-resilience-regressions.ts'
       - 'supabase/migrations/20260803200000_kingmaker_phases_60_73_sovereign_resilience.sql'
       - '.github/workflows/kingmaker-phases-60-73-sovereign-resilience.yml'
+      - 'package-lock.json'
 
 permissions:
   contents: read
@@ -22,6 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
