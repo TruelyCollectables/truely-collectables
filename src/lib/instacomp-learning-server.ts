@@ -643,8 +643,8 @@ export function chooseRegistryMatch(
 
     const registrySport = normalizedText(release.sport?.name);
     const registryLeague = normalizedText(release.league?.name);
-    if (registrySport && targetSport && registrySport !== targetSport) continue;
-    if (registryLeague && targetLeague && registryLeague !== targetLeague) continue;
+    if (targetSport && registrySport !== targetSport) continue;
+    if (targetLeague && registryLeague !== targetLeague) continue;
 
     const identities = Array.isArray(card.identities) ? card.identities : [];
     for (const identity of identities) {
