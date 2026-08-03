@@ -1,0 +1,96 @@
+name: KINGMAKER Morning Intelligence
+
+on:
+  pull_request:
+    paths:
+      - "src/lib/kingmaker-morning-intelligence.ts"
+      - "src/lib/kingmaker-morning-intelligence-email.ts"
+      - "src/lib/kingmaker-morning-intelligence-live.ts"
+      - "src/lib/kingmaker-morning-intelligence-delivery.ts"
+      - "src/app/api/cron/kingmaker/morning-intelligence/route.ts"
+      - "src/app/api/admin/market-intel/kingmaker/morning-intelligence/test/route.ts"
+      - "src/app/admin/market-intel/kingmaker/morning-intelligence/page.tsx"
+      - "src/app/admin/page.tsx"
+      - "scripts/run-kingmaker-morning-intelligence-regressions.ts"
+      - "scripts/run-kingmaker-morning-intelligence-email-regressions.ts"
+      - "scripts/run-kingmaker-morning-intelligence-route-contracts.mjs"
+      - "vercel.json"
+      - ".github/workflows/kingmaker-morning-intelligence.yml"
+      - ".github/workflows/kingmaker-admin-route-fix.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  verify-morning-intelligence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/kingmaker-morning-intel
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Finalize canonical admin route
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          page = Path("src/app/admin/page.tsx")
+          temporary = Path(".github/workflows/kingmaker-admin-route-fix.yml")
+          source = page.read_text()
+          route = '/admin/market-intel/kingmaker/morning-intelligence'
+          marker = '        { href: "/admin/market-intel", label: "Command Desk" },\n'
+          addition = '''        {
+          href: "/admin/market-intel/kingmaker/morning-intelligence",
+          label: "KINGMAKER Morning Intelligence",
+        },
+'''
+
+          if route not in source:
+              if source.count(marker) != 1:
+                  raise SystemExit("Expected exactly one Market Intel Command Desk marker")
+              source = source.replace(marker, marker + addition, 1)
+              page.write_text(source)
+
+          if page.read_text().count(route) != 1:
+              raise SystemExit("KINGMAKER admin route must appear exactly once")
+
+          if temporary.exists():
+              temporary.unlink()
+          PY
+      - run: npm ci
+      - name: Core regressions
+        run: node --import tsx scripts/run-kingmaker-morning-intelligence-regressions.ts
+      - name: Email regressions
+        run: node --import tsx scripts/run-kingmaker-morning-intelligence-email-regressions.ts
+      - name: Route and console contracts
+        run: node scripts/run-kingmaker-morning-intelligence-route-contracts.mjs
+      - name: Admin dashboard contracts
+        run: npm run verify:admin-dashboard
+      - name: Lint
+        run: npx eslint src/lib/kingmaker-morning-intelligence.ts src/lib/kingmaker-morning-intelligence-email.ts src/lib/kingmaker-morning-intelligence-live.ts src/lib/kingmaker-morning-intelligence-delivery.ts src/app/api/cron/kingmaker/morning-intelligence/route.ts src/app/api/admin/market-intel/kingmaker/morning-intelligence/test/route.ts src/app/admin/market-intel/kingmaker/morning-intelligence/page.tsx src/app/admin/page.tsx scripts/run-kingmaker-morning-intelligence-regressions.ts scripts/run-kingmaker-morning-intelligence-email-regressions.ts scripts/run-kingmaker-morning-intelligence-route-contracts.mjs
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Production build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-placeholder
+          SUPABASE_SERVICE_ROLE_KEY: build-placeholder
+        run: npm run build
+      - name: Commit validated admin integration
+        run: |
+          git diff --check
+          if git diff --quiet; then
+            echo "KINGMAKER admin route already finalized."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Finalize KINGMAKER admin route contract"
+          git push origin HEAD:agent/kingmaker-morning-intel

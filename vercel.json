@@ -12,6 +12,10 @@
       "schedule": "1 * * * *"
     },
     {
+      "path": "/api/cron/kingmaker/morning-intelligence",
+      "schedule": "12 * * * *"
+    },
+    {
       "path": "/api/cron/market-intel/ebay/scan?maxTargets=10&resultsPerTarget=10&minimumConfidence=70",
       "schedule": "5 */6 * * *"
     },

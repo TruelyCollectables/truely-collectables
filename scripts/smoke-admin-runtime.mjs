@@ -94,6 +94,11 @@ const smokeRoutes = [
     expectedText: "Market Intel",
   },
   {
+    path: "/admin/market-intel/kingmaker/morning-intelligence",
+    auth: true,
+    expectedText: "Controlled Delivery Console",
+  },
+  {
     path: "/admin/production-smoke",
     auth: true,
     expectedText: "Production smoke",
