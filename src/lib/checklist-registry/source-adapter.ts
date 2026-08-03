@@ -15,6 +15,9 @@ export type ChecklistSourceArtifact = {
   retrievedAt: string;
   authority: ChecklistSourceAuthority;
   redistributionAllowed: boolean;
+  archiveContent?: string | Uint8Array;
+  archiveFilename?: string;
+  archiveMimeType?: string;
 };
 
 export type ChecklistImportValidationIssue = {
