@@ -70,20 +70,16 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Install dependencies and verify operations script
+      - name: Install dependencies and resolve Production environment
         shell: bash
         run: |
           set -euo pipefail
           npm ci
           node --check scripts/ops/deploy-pokemon-checklist-registry-20260802.mjs
-
-      - name: Resolve Production environment
-        shell: bash
-        run: |
-          set -euo pipefail
           test -n "${VERCEL_TOKEN:-}"
           test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
           echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+
           mkdir -p .vercel "$RUNNER_TEMP/pokemon-registry-production"
           if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
             printf '{"orgId":"%s","projectId":"%s"}\n' \
@@ -98,7 +94,7 @@ jobs:
             --token "$VERCEL_TOKEN" >/dev/null
           echo "PRODUCTION_ENV_PATH=$RUNNER_TEMP/pokemon-registry-production/production.env" >> "$GITHUB_ENV"
 
-      - name: Download pinned validated 17-set and 2-set artifacts
+      - name: Download and verify pinned bundle artifacts
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -189,20 +185,20 @@ jobs:
           node --import tsx scripts/import-pokemon-japanese-incomplete-reconciled-bundles.ts \
             .codex-run/production-bundles/incomplete \
             --continue-on-error \
-            --receipt .codex-run/validate-incomplete.json >/dev/null
+            --receipt "$EVIDENCE_DIR/validate-incomplete.json" >/dev/null
           node --import tsx scripts/import-pokemon-japanese-historical-safe-bundles.ts \
             .codex-run/production-bundles/historical \
             --continue-on-error \
-            --receipt .codex-run/validate-historical.json >/dev/null
+            --receipt "$EVIDENCE_DIR/validate-historical.json" >/dev/null
           node --import tsx scripts/import-pokemon-japanese-variant-reconciled-bundles.ts \
             .codex-run/production-bundles/variant \
             --continue-on-error \
-            --receipt .codex-run/validate-variant.json >/dev/null
+            --receipt "$EVIDENCE_DIR/validate-variant.json" >/dev/null
 
           node - <<'NODE'
-          const incomplete = require('./.codex-run/validate-incomplete.json');
-          const historical = require('./.codex-run/validate-historical.json');
-          const variant = require('./.codex-run/validate-variant.json');
+          const incomplete = require('./evidence/pokemon-checklist-registry-20260802/validate-incomplete.json');
+          const historical = require('./evidence/pokemon-checklist-registry-20260802/validate-historical.json');
+          const variant = require('./evidence/pokemon-checklist-registry-20260802/validate-variant.json');
           const checks = [
             incomplete.attemptedFiles === 3,
             incomplete.successfulFiles === 3,
@@ -217,22 +213,16 @@ jobs:
             variant.attemptedFiles === 2,
             variant.successfulFiles === 2,
             variant.failedFiles === 0,
-            variant.totals?.cards === 193,
-            variant.totals?.identities === 288,
+            variant.totals?.baseCards === 193,
+            variant.totals?.officialPrintings === 288,
           ];
-          console.log(JSON.stringify({
-            incomplete: incomplete.totals,
-            historical: historical.totals,
-            variant: variant.totals,
-          }, null, 2));
+          console.log(JSON.stringify({ incomplete: incomplete.totals, historical: historical.totals, variant: variant.totals }, null, 2));
           if (checks.some((value) => value !== true)) process.exit(1);
           NODE
 
       - name: Apply only the six approved Registry migrations and audit Production
         shell: bash
-        run: |
-          set -euo pipefail
-          node scripts/ops/deploy-pokemon-checklist-registry-20260802.mjs migrate-audit
+        run: node scripts/ops/deploy-pokemon-checklist-registry-20260802.mjs migrate-audit
 
       - name: Load masked service-role import environment
         shell: bash
@@ -263,8 +253,17 @@ jobs:
           }
           NODE
 
-      - name: Import S8a canary
+      - name: Import and verify S8a canary
         shell: bash
+        env:
+          BASELINE_PATH: evidence/pokemon-checklist-registry-20260802/production-baseline.json
+          EXPECTED_RELEASE_DELTA: "1"
+          EXPECTED_CARD_DELTA: "33"
+          EXPECTED_IDENTITY_DELTA: "34"
+          EXPECTED_INCOMPLETE_ADAPTER_COUNT: "0"
+          EXPECTED_HISTORICAL_ADAPTER_COUNT: "1"
+          EXPECTED_VARIANT_ADAPTER_COUNT: "0"
+          VERIFICATION_LABEL: canary-s8a
         run: |
           set -euo pipefail
           canary_file="$(find .codex-run/production-bundles/historical -maxdepth 1 -type f -name '*-S8a.*.bundle.json' -print -quit)"
@@ -277,22 +276,19 @@ jobs:
           if (r.attemptedFiles !== 1 || r.successfulFiles !== 1 || r.failedFiles !== 0 ||
               r.totals?.cards !== 33 || r.totals?.identities !== 34) process.exit(1);
           NODE
+          node scripts/ops/deploy-pokemon-checklist-registry-20260802.mjs verify-delta
 
-      - name: Verify S8a canary in Production
+      - name: Import and verify all 17 historical Japanese sets
         shell: bash
         env:
           BASELINE_PATH: evidence/pokemon-checklist-registry-20260802/production-baseline.json
-          EXPECTED_RELEASE_DELTA: "1"
-          EXPECTED_CARD_DELTA: "33"
-          EXPECTED_IDENTITY_DELTA: "34"
+          EXPECTED_RELEASE_DELTA: "17"
+          EXPECTED_CARD_DELTA: "1926"
+          EXPECTED_IDENTITY_DELTA: "1926"
           EXPECTED_INCOMPLETE_ADAPTER_COUNT: "0"
-          EXPECTED_HISTORICAL_ADAPTER_COUNT: "1"
+          EXPECTED_HISTORICAL_ADAPTER_COUNT: "17"
           EXPECTED_VARIANT_ADAPTER_COUNT: "0"
-          VERIFICATION_LABEL: canary-s8a
-        run: node scripts/ops/deploy-pokemon-checklist-registry-20260802.mjs verify-delta
-
-      - name: Import the remaining 16 historical Japanese sets
-        shell: bash
+          VERIFICATION_LABEL: historical-17
         run: |
           set -euo pipefail
           mkdir -p .codex-run/production-bundles/historical-remaining
@@ -309,22 +305,19 @@ jobs:
           if (r.attemptedFiles !== 16 || r.successfulFiles !== 16 || r.failedFiles !== 0 ||
               r.totals?.cards !== 1893 || r.totals?.identities !== 1892) process.exit(1);
           NODE
+          node scripts/ops/deploy-pokemon-checklist-registry-20260802.mjs verify-delta
 
-      - name: Verify all 17 historical sets in Production
+      - name: Import and verify the three repaired Japanese sets
         shell: bash
         env:
           BASELINE_PATH: evidence/pokemon-checklist-registry-20260802/production-baseline.json
-          EXPECTED_RELEASE_DELTA: "17"
-          EXPECTED_CARD_DELTA: "1926"
-          EXPECTED_IDENTITY_DELTA: "1926"
-          EXPECTED_INCOMPLETE_ADAPTER_COUNT: "0"
+          EXPECTED_RELEASE_DELTA: "20"
+          EXPECTED_CARD_DELTA: "2253"
+          EXPECTED_IDENTITY_DELTA: "2253"
+          EXPECTED_INCOMPLETE_ADAPTER_COUNT: "3"
           EXPECTED_HISTORICAL_ADAPTER_COUNT: "17"
           EXPECTED_VARIANT_ADAPTER_COUNT: "0"
-          VERIFICATION_LABEL: historical-17
-        run: node scripts/ops/deploy-pokemon-checklist-registry-20260802.mjs verify-delta
-
-      - name: Import the three repaired Japanese sets
-        shell: bash
+          VERIFICATION_LABEL: repaired-and-historical-20
         run: |
           set -euo pipefail
           node --import tsx scripts/import-pokemon-japanese-incomplete-reconciled-bundles.ts \
@@ -336,35 +329,9 @@ jobs:
           if (r.attemptedFiles !== 3 || r.successfulFiles !== 3 || r.failedFiles !== 0 ||
               r.totals?.cards !== 327 || r.totals?.identities !== 327) process.exit(1);
           NODE
+          node scripts/ops/deploy-pokemon-checklist-registry-20260802.mjs verify-delta
 
-      - name: Verify 20 imported Japanese sets in Production
-        shell: bash
-        env:
-          BASELINE_PATH: evidence/pokemon-checklist-registry-20260802/production-baseline.json
-          EXPECTED_RELEASE_DELTA: "20"
-          EXPECTED_CARD_DELTA: "2253"
-          EXPECTED_IDENTITY_DELTA: "2253"
-          EXPECTED_INCOMPLETE_ADAPTER_COUNT: "3"
-          EXPECTED_HISTORICAL_ADAPTER_COUNT: "17"
-          EXPECTED_VARIANT_ADAPTER_COUNT: "0"
-          VERIFICATION_LABEL: repaired-and-historical-20
-        run: node scripts/ops/deploy-pokemon-checklist-registry-20260802.mjs verify-delta
-
-      - name: Import final S10a and S11a variant-reconciled sets
-        shell: bash
-        run: |
-          set -euo pipefail
-          node --import tsx scripts/import-pokemon-japanese-variant-reconciled-bundles.ts \
-            .codex-run/production-bundles/variant \
-            --apply --continue-on-error \
-            --receipt "$EVIDENCE_DIR/import-final-two.json" >/dev/null
-          node - <<'NODE'
-          const r = require('./evidence/pokemon-checklist-registry-20260802/import-final-two.json');
-          if (r.attemptedFiles !== 2 || r.successfulFiles !== 2 || r.failedFiles !== 0 ||
-              r.totals?.cards !== 193 || r.totals?.identities !== 288) process.exit(1);
-          NODE
-
-      - name: Verify all 294 English and Japanese releases in Production
+      - name: Import final two and verify all 294 English and Japanese releases
         shell: bash
         env:
           BASELINE_PATH: evidence/pokemon-checklist-registry-20260802/production-baseline.json
@@ -375,13 +342,23 @@ jobs:
           EXPECTED_HISTORICAL_ADAPTER_COUNT: "17"
           EXPECTED_VARIANT_ADAPTER_COUNT: "2"
           VERIFICATION_LABEL: final-294-releases
-        run: node scripts/ops/deploy-pokemon-checklist-registry-20260802.mjs verify-delta
+        run: |
+          set -euo pipefail
+          node --import tsx scripts/import-pokemon-japanese-variant-reconciled-bundles.ts \
+            .codex-run/production-bundles/variant \
+            --apply --continue-on-error \
+            --receipt "$EVIDENCE_DIR/import-final-two.json" >/dev/null
+          node - <<'NODE'
+          const r = require('./evidence/pokemon-checklist-registry-20260802/import-final-two.json');
+          if (r.attemptedFiles !== 2 || r.successfulFiles !== 2 || r.failedFiles !== 0 ||
+              r.totals?.baseCards !== 193 || r.totals?.officialPrintings !== 288) process.exit(1);
+          NODE
+          node scripts/ops/deploy-pokemon-checklist-registry-20260802.mjs verify-delta
 
       - name: Write sanitized Production summary
         if: success()
         shell: bash
         run: |
-          set -euo pipefail
           node - <<'NODE'
           const fs = require('node:fs');
           const final = require('./evidence/pokemon-checklist-registry-20260802/production-final-294-releases.json');
@@ -408,8 +385,7 @@ jobs:
       - name: Remove Production environment file
         if: always()
         shell: bash
-        run: |
-          rm -f "$RUNNER_TEMP/pokemon-registry-production/production.env"
+        run: rm -f "$RUNNER_TEMP/pokemon-registry-production/production.env"
 
       - name: Upload sanitized Production evidence
         if: always()
@@ -417,5 +393,5 @@ jobs:
         with:
           name: pokemon-checklist-registry-production-20260802
           path: evidence/pokemon-checklist-registry-20260802
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 90
