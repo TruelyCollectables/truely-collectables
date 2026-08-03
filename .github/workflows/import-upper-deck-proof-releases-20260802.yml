@@ -63,6 +63,7 @@ jobs:
         run: |
           set -euo pipefail
           npm ci
+          npm install --no-save --package-lock=false pg@8.16.3
           test -n "${VERCEL_TOKEN:-}"
           test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
           echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
@@ -114,7 +115,7 @@ jobs:
           })().catch((error) => { console.error(error); process.exit(1); });
           NODE
 
-      - name: Import Allure canary then Series 1 through Management API
+      - name: Import Allure canary then Series 1 through temporary Postgres login
         shell: bash
         env:
           ALLOW_PRODUCTION_UPPER_DECK_IMPORT: "YES"
@@ -130,15 +131,15 @@ jobs:
           const fs = require('node:fs');
           const path = 'evidence/upper-deck-proof-production-20260802/production-import.json';
           const receipt = JSON.parse(fs.readFileSync(path, 'utf8'));
-          if (receipt.schema !== 'tcos.checklist.upperDeckProofProductionImport.v2' || receipt.status !== 'passed') throw new Error('Upper Deck Production receipt did not pass.');
+          if (receipt.schema !== 'tcos.checklist.upperDeckProofProductionImport.v3' || receipt.status !== 'passed') throw new Error('Upper Deck Production receipt did not pass.');
           if (receipt.imports?.length !== 2 || receipt.auditStates?.length !== 3 || receipt.finalTargets?.length !== 2) throw new Error('Upper Deck verification cardinality is wrong.');
-          const timeout = Number(receipt.managementPreflight?.statementTimeoutMs);
-          if (!Number.isFinite(timeout) || (timeout !== 0 && timeout < 120000) || receipt.managementPreflight?.delaySeconds !== 35) throw new Error(`Unsafe Management API preflight ${timeout}`);
+          const preflight = receipt.postgresConnectionPreflight || {};
+          if (preflight.writerPrivilegeVerified !== true || preflight.delaySeconds !== 35 || preflight.planPayloads?.length !== 2) throw new Error('Temporary PostgreSQL preflight is incomplete.');
           const totals = receipt.imports.reduce((sum, entry) => ({ cards: sum.cards + Number(entry.counts?.cards || 0), identities: sum.identities + Number(entry.counts?.identities || 0) }), { cards: 0, identities: 0 });
           if (totals.cards !== 2454 || totals.identities !== 7318) throw new Error(`Unexpected totals ${JSON.stringify(totals)}`);
-          if (receipt.imports.some((entry) => entry.transport !== 'supabase-management-api')) throw new Error('Wrong writer transport.');
+          if (receipt.imports.some((entry) => entry.transport !== 'temporary-postgresql-login')) throw new Error('Wrong writer transport.');
           const safety = receipt.safety || {};
-          if (safety.semanticDigestPinned !== true || safety.rawSourceHashRecorded !== true || safety.writerTransport !== 'supabase-management-api' || safety.postgrestStatementTimeoutBypassed !== true || safety.canaryVerifiedBeforeSecondImport !== true || safety.migrationsApplied !== false || safety.deploymentPerformed !== false || safety.rawOfficialHtmlIncluded !== false) throw new Error('Safety receipt is incomplete.');
+          if (safety.semanticDigestPinned !== true || safety.rawSourceHashRecorded !== true || safety.writerTransport !== 'temporary-postgresql-login' || safety.managementApiBodyLimitBypassed !== true || safety.postgrestStatementTimeoutBypassed !== true || safety.canaryVerifiedBeforeSecondImport !== true || safety.temporaryLoginRoleDeleted !== true || safety.migrationsApplied !== false || safety.deploymentPerformed !== false || safety.rawOfficialHtmlIncluded !== false) throw new Error('Safety receipt is incomplete.');
           console.log(JSON.stringify({ status: receipt.status, totals, finalTargets: receipt.finalTargets }, null, 2));
           NODE
 
