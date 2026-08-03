@@ -1,0 +1,46 @@
+name: Checklist Registry Upper Deck
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/checklist-registry-upper-deck.yml"
+      - "src/lib/checklist-registry/upper-deck-html.ts"
+      - "src/lib/checklist-registry/upper-deck-official-html.ts"
+      - "src/lib/checklist-registry/server.ts"
+      - "src/lib/checklist-registry/source-adapter.ts"
+      - "src/lib/checklist-registry/identity.ts"
+      - "src/lib/checklist-registry/storage.ts"
+      - "scripts/run-checklist-registry-upper-deck-simulations.ts"
+      - "scripts/fixtures/checklist-registry/2024-25-upper-deck-series-1.sample.html"
+      - "scripts/fixtures/checklist-registry/2025-26-upper-deck-allure.sample.html"
+
+permissions:
+  contents: read
+
+jobs:
+  validate-upper-deck-adapter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Upper Deck checklist simulations
+        run: npx tsx scripts/run-checklist-registry-upper-deck-simulations.ts
+
+      - name: Lint Upper Deck checklist slice
+        run: |
+          npx eslint \
+            src/lib/checklist-registry/upper-deck-html.ts \
+            src/lib/checklist-registry/upper-deck-official-html.ts \
+            src/lib/checklist-registry/server.ts \
+            scripts/run-checklist-registry-upper-deck-simulations.ts
