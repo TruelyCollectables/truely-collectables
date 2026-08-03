@@ -55,7 +55,11 @@ jobs:
           mkdir -p scripts/ops "$EVIDENCE_DIR"
           cp "$RUNNER_TEMP/import.mjs" scripts/ops/import-kingmaker-beckett-corpus-20260803.mjs
           sed -i "/pg_get_indexdef(index_row.indexrelid) like '%left(coalesce(release_year%'/,+2c\        true as bounded_lookup_index" scripts/ops/import-kingmaker-beckett-corpus-20260803.mjs
+          sed -i "s/serial_run: entry.serialRun ?? null,/serial_run: Number.isInteger(entry.serialRun) \&\& entry.serialRun > 0 ? entry.serialRun : null,/" scripts/ops/import-kingmaker-beckett-corpus-20260803.mjs
+          sed -i "s/multiplier_low: entry.multiplierLow ?? null,/multiplier_low: Number.isFinite(entry.multiplierLow) \&\& entry.multiplierLow > 0 ? entry.multiplierLow : null,/" scripts/ops/import-kingmaker-beckett-corpus-20260803.mjs
+          sed -i "s/multiplier_high: entry.multiplierHigh ?? null,/multiplier_high: Number.isFinite(entry.multiplierHigh) \&\& entry.multiplierHigh > 0 ? entry.multiplierHigh : null,/" scripts/ops/import-kingmaker-beckett-corpus-20260803.mjs
           grep -q "true as bounded_lookup_index" scripts/ops/import-kingmaker-beckett-corpus-20260803.mjs
+          grep -q "entry.serialRun > 0" scripts/ops/import-kingmaker-beckett-corpus-20260803.mjs
 
       - uses: actions/setup-node@v4
         with:
