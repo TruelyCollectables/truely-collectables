@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  EXPECTED_MAIN_SHA: 4ac3ba0c2ca64dca1988a6d834b855126838be31
+  EXPECTED_MAIN_SHA: ffac25980def8f2c44792ddef5a793901266aa48
   EXPECTED_BRANCH: ops/deploy-pokemon-checklist-registry-20260802
   TCGDEX_SOURCE_COMMIT: 138c145b80f1a0d6a533f98fd3afe1ffc5b4f8d6
   HISTORICAL_ARTIFACT_ID: "8841223344"
