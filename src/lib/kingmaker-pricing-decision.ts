@@ -67,11 +67,11 @@ export function buildKingmakerPricingDecision(params: {
 
   const status = !params.exactIdentity || params.pricing?.status === "review_required"
     ? "review_required"
-    : soldTotals.length < 3 || !marketMedian
+    : soldTotals.length < 3 || marketMedian == null
       ? "insufficient_evidence"
       : "ready";
 
-  if (status !== "ready") {
+  if (status !== "ready" || marketMedian == null) {
     return {
       schema: "tcos.kingmaker.pricingDecision.v1",
       status,
