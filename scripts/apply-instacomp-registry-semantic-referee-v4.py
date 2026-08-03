@@ -32,6 +32,21 @@ if count != 1:
         f"V2 Registry parallel marker definition changed; refusing to run ({count} replacements)."
     )
 
+old_set_match = '''return (
+        readerTokens.length > 0 &&
+        readerTokens.every((token) => catalogTokens.has(token)) &&
+        logicalSetTokens.every((token) => readerTokens.includes(token))
+      );'''
+new_set_match = '''return (
+        readerTokens.length > 0 &&
+        readerTokens.every((token) => catalogTokens.has(token))
+      );'''
+if script.count(old_set_match) != 1:
+    raise SystemExit(
+        f"V2 semantic set-match boundary changed; refusing to run ({script.count(old_set_match)} matches)."
+    )
+script = script.replace(old_set_match, new_set_match, 1)
+
 guardrail_start = 'guardrails = Path("scripts/check-production-guardrails.mjs")\n'
 if script.count(guardrail_start) != 1:
     raise SystemExit(
