@@ -135,6 +135,19 @@ begin
 end;
 $$;
 
+-- CREATE OR REPLACE preserves the owner and ACL of an existing function.
+-- Production can therefore contain these helpers under different historical
+-- owners with PUBLIC execution already revoked. Converge all SECURITY DEFINER
+-- call-chain ownership before triggers or backfill statements execute.
+alter function public.tcos_instacomp_payload_exact_identity_trusted(jsonb)
+  owner to current_user;
+alter function public.tcos_instacomp_observation_exact_identity_trusted(text,jsonb)
+  owner to current_user;
+alter function public.tcos_instacomp_enforce_observation_identity_trust()
+  owner to current_user;
+alter function public.tcos_instacomp_enforce_cache_identity_trust()
+  owner to current_user;
+
 do $$
 begin
   if to_regclass('public.instacomp_scan_knowledge_cache') is not null then
