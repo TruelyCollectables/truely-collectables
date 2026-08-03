@@ -90,7 +90,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gdown --id "$DRIVE_FILE_ID" --output "$RUNNER_TEMP/corpus.tar"
+          gdown "$DRIVE_FILE_ID" -O "$RUNNER_TEMP/corpus.tar"
           echo 'd36d658f415283a313268b10ac55894844fb22e39a62d02d99ac94f844a29bc0  '"$RUNNER_TEMP/corpus.tar" | sha256sum --check
 
       - name: Decrypt, stage, match, and verify
