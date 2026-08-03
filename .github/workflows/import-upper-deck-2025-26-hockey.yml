@@ -1,6 +1,13 @@
 name: Import 2025-26 Upper Deck Hockey
 
 on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/import-upper-deck-2025-26-hockey.yml"
+      - "scripts/import-upper-deck-2025-26-hockey.ts"
+      - "src/lib/checklist-registry/**"
   workflow_dispatch:
     inputs:
       mode:
@@ -16,11 +23,41 @@ permissions:
   contents: read
 
 concurrency:
-  group: import-upper-deck-2025-26-hockey
+  group: import-upper-deck-2025-26-hockey-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  checklist-registry-import:
+  validate-season:
+    if: github.event_name == 'pull_request' || inputs.mode == 'validate'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate all official sources
+        run: |
+          npx tsx scripts/import-upper-deck-2025-26-hockey.ts \
+            --output .upper-deck-work/2025-26-hockey-validation-receipt.json
+
+      - name: Upload sanitized validation receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upper-deck-2025-26-hockey-validation-receipt
+          path: .upper-deck-work/*.json
+          if-no-files-found: warn
+          retention-days: 90
+
+  guarded-production-import:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'apply'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     environment: production
@@ -35,14 +72,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Validate all official sources
-        if: inputs.mode == 'validate'
-        run: |
-          npx tsx scripts/import-upper-deck-2025-26-hockey.ts \
-            --output .upper-deck-work/2025-26-hockey-validation-receipt.json
-
       - name: Run guarded canary and batch import
-        if: inputs.mode == 'apply'
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -52,11 +82,11 @@ jobs:
             --confirm-season=2025-26-hockey \
             --output .upper-deck-work/2025-26-hockey-production-receipt.json
 
-      - name: Upload sanitized receipt
+      - name: Upload sanitized Production receipt
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: upper-deck-2025-26-hockey-${{ inputs.mode }}-receipt
+          name: upper-deck-2025-26-hockey-production-receipt
           path: .upper-deck-work/*.json
           if-no-files-found: warn
           retention-days: 90
