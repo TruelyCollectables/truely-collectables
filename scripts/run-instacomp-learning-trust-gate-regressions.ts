@@ -161,4 +161,25 @@ assert(
   "Database receipt must bind Registry and catalog identity IDs",
 );
 
-console.log("InstaComp learning trust gate regressions passed (14 assertions).");
+const ownerConvergenceMarkers = [
+  "alter function public.tcos_instacomp_payload_exact_identity_trusted(jsonb)\n  owner to current_user;",
+  "alter function public.tcos_instacomp_observation_exact_identity_trusted(text,jsonb)\n  owner to current_user;",
+  "alter function public.tcos_instacomp_enforce_observation_identity_trust()\n  owner to current_user;",
+  "alter function public.tcos_instacomp_enforce_cache_identity_trust()\n  owner to current_user;",
+];
+assert(
+  ownerConvergenceMarkers.every((marker) => migration.includes(marker)),
+  "Production reruns must converge the complete SECURITY DEFINER owner chain",
+);
+const firstBackfillStatement = migration.indexOf(
+  "create temporary table instacomp_learning_provenance_impacted_entries",
+);
+assert(
+  firstBackfillStatement > 0 &&
+    ownerConvergenceMarkers.every(
+      (marker) => migration.indexOf(marker) < firstBackfillStatement,
+    ),
+  "Function owners must converge before any trigger-backed backfill executes",
+);
+
+console.log("InstaComp learning trust gate regressions passed (16 assertions).");
