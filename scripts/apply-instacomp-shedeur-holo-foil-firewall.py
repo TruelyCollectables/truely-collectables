@@ -30,6 +30,99 @@ replace_once(
 )
 
 replace_once(
+    learning,
+    '''  for (const card of rows) {
+    const players = Array.isArray(card.players)
+''',
+    '''  for (const card of rows) {
+    if (
+      normalizedCardNumber(card.card_number) !==
+      normalizedCardNumber(ai.cardNumber)
+    ) {
+      continue;
+    }
+
+    const players = Array.isArray(card.players)
+''',
+    "exact card number gate",
+)
+
+replace_once(
+    learning,
+    '''    if (teams.length && !targetTeam) continue;
+    if (
+      targetTeam &&
+      !teams.some((team: string) => normalizedText(team) === targetTeam)
+    ) {
+      continue;
+    }
+
+    const registrySport = normalizedText(release.sport?.name);
+    const registryLeague = normalizedText(release.league?.name);
+    if (registrySport && (!targetSport || registrySport !== targetSport)) continue;
+    if (registryLeague && targetLeague && registryLeague !== targetLeague) continue;
+''',
+    '''    if (
+      targetTeam &&
+      !teams.some((team: string) => normalizedText(team) === targetTeam)
+    ) {
+      continue;
+    }
+
+    const registrySport = normalizedText(release.sport?.name);
+    const registryLeague = normalizedText(release.league?.name);
+    if (targetSport && registrySport !== targetSport) continue;
+    if (targetLeague && registryLeague !== targetLeague) continue;
+''',
+    "optional team sport league evidence",
+)
+
+replace_once(
+    learning,
+    '''      const registryLanguage = normalizedText(
+        identity.metadata?.languageCode ||
+          identity.metadata?.language_code ||
+          canonicalField(identity.canonical_key, "language_code"),
+      );
+      if (registryLanguage || targetLanguage) {
+        if (!registryLanguage || !targetLanguage || registryLanguage !== targetLanguage) {
+          continue;
+        }
+      }
+
+      const registryConfiguration = normalizedText(
+        identity.configuration_exclusivity ||
+          canonicalField(identity.canonical_key, "configuration"),
+      );
+      if (registryConfiguration || targetConfiguration) {
+        if (
+          !registryConfiguration ||
+          !targetConfiguration ||
+          registryConfiguration !== targetConfiguration
+        ) {
+          continue;
+        }
+      }
+''',
+    '''      const registryLanguage = normalizedText(
+        identity.metadata?.languageCode ||
+          identity.metadata?.language_code ||
+          canonicalField(identity.canonical_key, "language_code"),
+      );
+      if (targetLanguage && registryLanguage !== targetLanguage) continue;
+
+      const registryConfiguration = normalizedText(
+        identity.configuration_exclusivity ||
+          canonicalField(identity.canonical_key, "configuration"),
+      );
+      if (targetConfiguration && registryConfiguration !== targetConfiguration) {
+        continue;
+      }
+''',
+    "optional language and configuration evidence",
+)
+
+replace_once(
     consensus,
     '''  return comparableText(value)
     .replace(/\\bcracked\\s+ice\\b/g, "ice")
@@ -116,14 +209,20 @@ permanent = '''assertFileIncludes("instacomp Shedeur 107 real-card regression", 
   'parallel: "Blue Foil"',
   'serialNumber: "162/199"',
   "shedeur-107-holo-blue-199",
+  "wrong card number must fail closed",
   "wrong color must fail closed",
   "wrong finish must fail closed",
   "wrong serial denominator must fail closed",
+  "observed language mismatch must fail closed",
+  "observed configuration mismatch must fail closed",
   "Blue versus red evidence must never confirm",
 ]);
 assertFileIncludes("instacomp foil-holo exact identity aliases", "src/lib/instacomp-learning-server.ts", [
   '.replace(/\\\\bfoil\\\\b/g, "holo")',
   "function checklistParallelSignature",
+  "normalizedCardNumber(card.card_number)",
+  "if (targetLanguage && registryLanguage !== targetLanguage) continue;",
+  "if (targetConfiguration && registryConfiguration !== targetConfiguration)",
 ]);
 assertFileIncludes("instacomp consensus foil-holo exact identity aliases", "src/lib/instacomp-consensus.ts", [
   '.replace(/\\\\bfoil\\\\b/g, "holo")',
