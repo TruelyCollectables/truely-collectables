@@ -58,8 +58,10 @@ jobs:
           sed -i "s/serial_run: entry.serialRun ?? null,/serial_run: Number.isInteger(entry.serialRun) \&\& entry.serialRun > 0 ? entry.serialRun : null,/" scripts/ops/import-kingmaker-beckett-corpus-20260803.mjs
           sed -i "s/multiplier_low: entry.multiplierLow ?? null,/multiplier_low: Number.isFinite(entry.multiplierLow) \&\& entry.multiplierLow > 0 ? entry.multiplierLow : null,/" scripts/ops/import-kingmaker-beckett-corpus-20260803.mjs
           sed -i "s/multiplier_high: entry.multiplierHigh ?? null,/multiplier_high: Number.isFinite(entry.multiplierHigh) \&\& entry.multiplierHigh > 0 ? entry.multiplierHigh : null,/" scripts/ops/import-kingmaker-beckett-corpus-20260803.mjs
+          perl -0pi -e "s/    const matchResult = firstRow\(await managementQuery\(\{.*?^    \}\)\);/    const matchResult = { result: { status: 'deferred', reason: 'post_stage_batched_matching' } };/ms" scripts/ops/import-kingmaker-beckett-corpus-20260803.mjs
           grep -q "true as bounded_lookup_index" scripts/ops/import-kingmaker-beckett-corpus-20260803.mjs
           grep -q "entry.serialRun > 0" scripts/ops/import-kingmaker-beckett-corpus-20260803.mjs
+          grep -q "post_stage_batched_matching" scripts/ops/import-kingmaker-beckett-corpus-20260803.mjs
 
       - uses: actions/setup-node@v4
         with:
