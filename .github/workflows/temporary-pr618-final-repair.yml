@@ -1,0 +1,68 @@
+name: Temporary PR 618 Final Repair
+
+on:
+  push:
+    branches:
+      - agent/kingmaker-phases-90-107-adaptive-dominance-batch
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/kingmaker-phases-90-107-adaptive-dominance-batch
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Add restored pricing routes to runtime smoke
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = 'scripts/smoke-admin-runtime.mjs';
+          let source = fs.readFileSync(path, 'utf8');
+          const anchor = `  {
+              path: "/admin/instacomp",
+              auth: true,
+              expectedText: "InstaComp™ Scan Lab",
+            },`;
+          const routes = [
+            ['/admin/instacomp/pricing', 'KINGMAKER Pricing Command Center'],
+            ['/admin/instacomp/pricing/receipts', 'Pricing Receipt History'],
+            ['/admin/instacomp/pricing/analytics', 'Pricing Analytics'],
+            ['/admin/instacomp/pricing/profiles', 'Pricing Profiles'],
+            ['/admin/instacomp/pricing/bulk-plan', 'Bulk Pricing Plan'],
+            ['/admin/instacomp/pricing/scenarios', 'Pricing Scenarios'],
+            ['/admin/instacomp/pricing/review', 'Pricing Review'],
+            ['/admin/instacomp/pricing/views', 'Pricing Views'],
+            ['/admin/instacomp/pricing/audit', 'Pricing Audit'],
+          ].map(([route, text]) => `  {\n    path: "${route}",\n    auth: true,\n    expectedText: "${text}",\n  },`).join('\n');
+          if (!source.includes('path: "/admin/instacomp/pricing"')) {
+            if (!source.includes(anchor)) throw new Error('runtime smoke anchor not found');
+            source = source.replace(anchor, `${anchor}\n${routes}`);
+            fs.writeFileSync(path, source);
+          }
+          NODE
+      - name: Repair production dependency lockfile
+        run: |
+          npm audit fix --omit=dev || true
+          npm audit --omit=dev --json > /tmp/audit.json || true
+          node -e "const a=require('/tmp/audit.json'); console.log(JSON.stringify(a.vulnerabilities,null,2)); if((a.metadata?.vulnerabilities?.moderate||0)>0||(a.metadata?.vulnerabilities?.high||0)>0||(a.metadata?.vulnerabilities?.critical||0)>0) process.exit(1)"
+      - name: Validate repaired surfaces
+        run: |
+          npm run simulate:admin-dashboard-actions
+          node scripts/run-dependency-security-audit.mjs
+      - name: Commit repair
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add scripts/smoke-admin-runtime.mjs package-lock.json
+          git diff --cached --quiet && exit 0
+          git commit -m "fix: complete admin smoke and dependency repair"
+          git push origin HEAD:agent/kingmaker-phases-90-107-adaptive-dominance-batch
