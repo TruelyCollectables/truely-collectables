@@ -87,12 +87,20 @@ function findIdentity(
   });
 }
 
+function allUnique(plan: ChecklistImportPlan) {
+  return (
+    new Set(
+      plan.identities.map((entry) => entry.fingerprint.fingerprintSha256),
+    ).size === plan.identities.length
+  );
+}
+
 const seriesOne = parseUpperDeckOfficialHtmlChecklist(seriesOneArtifact);
 const allure = parseUpperDeckOfficialHtmlChecklist(allureArtifact);
 
 scenario(
   "official_upper_deck_html_is_selected",
-  "The adapter accepts official Upper Deck checklist HTML and rejects non-Upper-Deck HTML.",
+  "The adapter accepts official Upper Deck checklist HTML and rejects unrelated HTML.",
   upperDeckOfficialHtmlChecklistAdapter.supports(seriesOneArtifact) &&
     !upperDeckOfficialHtmlChecklistAdapter.supports({
       ...seriesOneArtifact,
@@ -108,7 +116,7 @@ scenario(
 
 scenario(
   "series_one_fixture_validates",
-  "The official Series 1 table shape parses with only the expected test-batch warning.",
+  "The Series 1 source-shaped fixture produces a passed plan with only the expected test-batch warning.",
   seriesOne.validation.status === "passed" &&
     seriesOne.validation.issues.every((entry) => entry.severity === "warning") &&
     seriesOne.validation.issues.some((entry) => entry.code === "test_batch_only"),
@@ -121,7 +129,7 @@ scenario(
 
 scenario(
   "series_one_release_context_is_hockey",
-  "A Series 1 page whose H1 omits the word Hockey still receives Hockey/NHL context from the official source path.",
+  "The official source path supplies Hockey/NHL context when the page heading omits Hockey.",
   seriesOne.release.product === "Upper Deck Series 1" &&
     seriesOne.release.season === "2024-25" &&
     seriesOne.release.sport === "Hockey" &&
@@ -136,9 +144,9 @@ scenario(
 
 scenario(
   "series_one_counts_match_fixture",
-  "Series 1 rows collapse shared card facts while preserving every physical printing identity.",
+  "Eight source rows collapse to two shared card facts while preserving eight physical printings.",
   seriesOne.validation.counts.sets === 2 &&
-    seriesOne.validation.counts.cards === 3 &&
+    seriesOne.validation.counts.cards === 2 &&
     seriesOne.validation.counts.parallels === 6 &&
     seriesOne.validation.counts.identities === 8,
   seriesOne.validation.counts,
@@ -153,7 +161,6 @@ const laneClearCut = findIdentity(seriesOne, {
   setName: "Young Guns",
   cardNumber: "229",
   parallel: "Clear Cut",
-  serialRun: "",
 });
 const laneDeluxe250 = findIdentity(seriesOne, {
   setName: "Young Guns",
@@ -176,7 +183,7 @@ const laneOutburstGoldOne = findIdentity(seriesOne, {
 
 scenario(
   "lane_hutson_young_guns_printings_never_merge",
-  "Lane Hutson Young Guns Base, Clear Cut, Deluxe /250, Outburst Red /25, and Outburst Gold 1/1 remain distinct identities.",
+  "Young Guns Base, Clear Cut, Deluxe /250, Outburst Red /25, and Outburst Gold 1/1 remain distinct.",
   Boolean(
     laneYoungGunsBase &&
       laneClearCut &&
@@ -212,18 +219,16 @@ const laneCanvasBlackWhite = findIdentity(seriesOne, {
   cardNumber: "C-111",
   parallel: "Black and White",
 });
-const laneCanvasPlate = seriesOne.identities.find((entry) => {
-  const value = entry.fingerprint.normalized;
-  return (
-    value.cardNumber === "c-111" &&
-    value.parallel === "ud canvas printing plates" &&
-    value.serialRun === "/4"
-  );
+const laneCanvasPlate = findIdentity(seriesOne, {
+  setName: "UD Canvas - Young Guns",
+  cardNumber: "C-111",
+  parallel: "Printing Plates",
+  serialRun: "/4",
 });
 
 scenario(
   "canvas_young_guns_and_printing_plates_stay_distinct",
-  "Canvas Young Guns, Black and White, and the four Printing Plates remain separate from the standard Young Guns card.",
+  "Canvas Young Guns, Black and White, and Printing Plates /4 remain separate from standard Young Guns.",
   Boolean(laneCanvas && laneCanvasBlackWhite && laneCanvasPlate) &&
     new Set(
       [laneYoungGunsBase, laneCanvas, laneCanvasBlackWhite, laneCanvasPlate].map(
@@ -240,7 +245,7 @@ scenario(
 
 scenario(
   "series_one_source_evidence_is_preserved",
-  "Official set labels, technology, odds, configurations, and points are retained as private row evidence rather than discarded.",
+  "Official labels, technology, odds, configurations, and points remain in private row evidence.",
   seriesOne.cards.some((card) => {
     if (card.cardNumber !== "229") return false;
     const notes = JSON.parse(card.sourceNotes || "{}") as {
@@ -268,7 +273,7 @@ scenario(
 
 scenario(
   "allure_fixture_validates",
-  "The 2025-26 Allure table shape parses with only expected warnings.",
+  "The Allure fixture validates while preserving the expected set-type and test-batch warnings.",
   allure.validation.status === "passed" &&
     allure.validation.issues.every((entry) => entry.severity === "warning") &&
     allure.validation.counts.sets === 2 &&
@@ -306,7 +311,7 @@ const demidovGoldGlitterBomb = findIdentity(allure, {
 
 scenario(
   "demidov_allure_printings_never_merge",
-  "Ivan Demidov Allure Base, Black Rainbow, Orange Slice, and Gold Glitter Bomb /199 remain distinct.",
+  "Allure Base, Black Rainbow, Orange Slice, and Gold Glitter Bomb /199 remain distinct.",
   Boolean(
     demidovBase &&
       demidovBlackRainbow &&
@@ -349,7 +354,7 @@ const demidovAuto = findIdentity(allure, {
 
 scenario(
   "allure_insert_parallel_auto_and_one_of_one_stay_distinct",
-  "The base insert, Golden Treasures 1/1, and SP autograph are separate exact identities.",
+  "The base insert, Golden Treasures 1/1, and SP autograph remain separate.",
   Boolean(
     demidovHittingGrooveBase && demidovGoldenTreasures && demidovAuto,
   ) &&
@@ -370,7 +375,7 @@ scenario(
 
 scenario(
   "private_archive_receipts_are_deterministic",
-  "Both official HTML pages receive private, content-addressed archive paths with no public URL.",
+  "Both HTML sources receive private content-addressed archive receipts.",
   [seriesOne, allure].every(
     (plan) =>
       plan.source.privateArchiveRequired &&
@@ -391,7 +396,7 @@ const wrongDomain = parseUpperDeckOfficialHtmlChecklist({
 });
 scenario(
   "claimed_official_wrong_domain_fails_closed",
-  "An HTML file claiming official-manufacturer authority cannot pass from a non-Upper-Deck domain.",
+  "A file claiming official-manufacturer authority fails from a non-Upper-Deck domain.",
   wrongDomain.validation.status === "validation_required" &&
     wrongDomain.validation.issues.some(
       (entry) =>
@@ -401,17 +406,18 @@ scenario(
   { issues: wrongDomain.validation.issues },
 );
 
-const duplicateRow = seriesOneHtml.replace(
-  "</tbody>",
-  '<tr><td>Base Set - Young Guns</td><td>229</td><td>Lane Hutson</td><td>Montreal</td><td>Canadiens</td><td>Rookie</td><td></td><td></td><td></td><td>1:2 h</td><td>20</td></tr></tbody>',
-);
+const exactSeriesOneBaseRow =
+  '<tr><td>Base Set - Young Guns</td><td>229</td><td>Lane Hutson</td><td>Montreal</td><td>Canadiens</td><td>Rookie</td><td></td><td></td><td></td><td>1:2 h, 1:2 e, 1:2.25 b, 1:2 starter, 1:2 tin, 1:2 hanger, 1:50 dollar</td><td>20</td></tr>';
 const duplicatePlan = parseUpperDeckOfficialHtmlChecklist({
   ...seriesOneArtifact,
-  content: duplicateRow,
+  content: seriesOneHtml.replace(
+    "</tbody>",
+    `${exactSeriesOneBaseRow}</tbody>`,
+  ),
 });
 scenario(
   "duplicate_printing_rows_enter_validation",
-  "Duplicate physical-printing rows are rejected instead of silently creating duplicate identities.",
+  "An exact duplicate physical-printing row is rejected rather than silently duplicated.",
   duplicatePlan.validation.status === "validation_required" &&
     duplicatePlan.validation.issues.some(
       (entry) => entry.code === "duplicate_identity" && entry.severity === "error",
@@ -419,17 +425,16 @@ scenario(
   { issues: duplicatePlan.validation.issues },
 );
 
-const malformedSerial = seriesOneHtml.replace(
-  "<td>250</td><td>Random Inserts in Hobby and e-Pack</td>",
-  "<td>unknown</td><td>Random Inserts in Hobby and e-Pack</td>",
-);
 const malformedSerialPlan = parseUpperDeckOfficialHtmlChecklist({
   ...seriesOneArtifact,
-  content: malformedSerial,
+  content: seriesOneHtml.replace(
+    "<td>250</td><td>Random Inserts in Hobby and e-Pack</td>",
+    "<td>unknown</td><td>Random Inserts in Hobby and e-Pack</td>",
+  ),
 });
 scenario(
   "unparseable_serial_runs_fail_closed",
-  "Unknown serial text cannot be converted into a fabricated print run.",
+  "Unknown serial text cannot become a fabricated print run.",
   malformedSerialPlan.validation.status === "validation_required" &&
     malformedSerialPlan.validation.issues.some(
       (entry) => entry.code === "serial_run_unparsed" && entry.severity === "error",
@@ -439,13 +444,8 @@ scenario(
 
 scenario(
   "all_identity_fingerprints_are_unique",
-  "Every generated Upper Deck physical-printing fingerprint is unique within each proof release.",
-  [seriesOne, allure].every(
-    (plan) =>
-      new Set(
-        plan.identities.map((entry) => entry.fingerprint.fingerprintSha256),
-      ).size === plan.identities.length,
-  ),
+  "Every generated physical-printing fingerprint is unique within each proof release.",
+  allUnique(seriesOne) && allUnique(allure),
   {
     seriesOneIdentities: seriesOne.identities.length,
     allureIdentities: allure.identities.length,
