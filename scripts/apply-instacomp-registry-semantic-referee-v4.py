@@ -18,18 +18,51 @@ script = "\n".join(
     line[10:] if line.startswith("          ") else line for line in lines
 ) + "\n"
 
-pattern = re.compile(
+parallel_pattern = re.compile(
     r"parallel_start = '''.*?'''\nparallel_end = ",
     re.DOTALL,
 )
-replacement = (
+parallel_replacement = (
     'parallel_start = "    const parallelProfile = targetParallelProfile("\n'
     "parallel_end = "
 )
-script, count = pattern.subn(replacement, script, count=1)
+script, count = parallel_pattern.subn(parallel_replacement, script, count=1)
 if count != 1:
     raise SystemExit(
         f"V2 Registry parallel marker definition changed; refusing to run ({count} replacements)."
+    )
+
+guardrail_pattern = re.compile(
+    r'guardrails = Path\("scripts/check-production-guardrails\\.mjs"\)\n'
+    r"replace_once\(\n.*?\n\)\n",
+    re.DOTALL,
+)
+guardrail_replacement = '''guardrails = Path("scripts/check-production-guardrails.mjs")
+guardrails_text = guardrails.read_text()
+old_guardrail_marker = '  "catalog parallel lacks agreement from two independent scanner families",\\n'
+if guardrails_text.count(old_guardrail_marker) != 2:
+    raise SystemExit(
+        f"Production consensus guardrail markers changed; refusing to patch ({guardrails_text.count(old_guardrail_marker)} matches)."
+    )
+guardrails_text = guardrails_text.replace(
+    old_guardrail_marker,
+    ''' + "'''" + '''  "catalog Base parallel conflicts with unresolved visible surface/finish evidence",
+  "catalog non-Base parallel lacks visible scanner support",
+  "parallelGroupMatchesCatalog",
+''' + "'''" + ''',
+    1,
+)
+guardrails_text = guardrails_text.replace(
+    old_guardrail_marker,
+    '  "parallelGroupMatchesCatalog",\\n',
+    1,
+)
+guardrails.write_text(guardrails_text)
+'''
+script, count = guardrail_pattern.subn(guardrail_replacement, script, count=1)
+if count != 1:
+    raise SystemExit(
+        f"V2 production guardrail patch block changed; refusing to run ({count} replacements)."
     )
 
 patch_script = Path(".codex-run/registry-semantic-referee-v4.py")
