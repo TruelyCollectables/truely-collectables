@@ -4,7 +4,9 @@ on:
   pull_request:
     paths:
       - "src/lib/kingmaker-intelligence-fusion.ts"
+      - "src/lib/kingmaker-intelligence-ingestion.ts"
       - "scripts/run-kingmaker-intelligence-fusion-regressions.ts"
+      - "scripts/run-kingmaker-intelligence-ingestion-regressions.ts"
       - "supabase/migrations/20260803030000_kingmaker_intelligence_fusion.sql"
       - ".github/workflows/kingmaker-phase-3-intelligence-fusion.yml"
   workflow_dispatch:
@@ -25,6 +27,8 @@ jobs:
       - run: npm ci
       - name: Canonical observation regressions
         run: node --import tsx scripts/run-kingmaker-intelligence-fusion-regressions.ts
+      - name: Canonical ingestion regressions
+        run: node --import tsx scripts/run-kingmaker-intelligence-ingestion-regressions.ts
       - name: Migration contracts
         run: |
           grep -q "tcos_kingmaker_source_runs" supabase/migrations/20260803030000_kingmaker_intelligence_fusion.sql
@@ -35,7 +39,7 @@ jobs:
           grep -q "enable row level security" supabase/migrations/20260803030000_kingmaker_intelligence_fusion.sql
           grep -q "revoke all" supabase/migrations/20260803030000_kingmaker_intelligence_fusion.sql
       - name: Lint
-        run: npx eslint src/lib/kingmaker-intelligence-fusion.ts scripts/run-kingmaker-intelligence-fusion-regressions.ts
+        run: npx eslint src/lib/kingmaker-intelligence-fusion.ts src/lib/kingmaker-intelligence-ingestion.ts scripts/run-kingmaker-intelligence-fusion-regressions.ts scripts/run-kingmaker-intelligence-ingestion-regressions.ts
       - name: TypeScript
         run: npx tsc --noEmit
       - name: Production build
