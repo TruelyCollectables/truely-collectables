@@ -78,3 +78,7 @@ export async function resolveKingmakerPricingProfile(params: {
     selection: "fallback" as const,
   };
 }
+
+export type KingmakerPricingProfileResolution = Awaited<
+  ReturnType<typeof resolveKingmakerPricingProfile>
+>;
