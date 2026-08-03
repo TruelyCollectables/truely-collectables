@@ -1,0 +1,47 @@
+name: KINGMAKER Phases 48-59 Systemic Assurance
+
+on:
+  pull_request:
+    paths:
+      - 'src/lib/kingmaker-phases-48-59-systemic-assurance.ts'
+      - 'scripts/run-kingmaker-phases-48-59-systemic-assurance-regressions.ts'
+      - 'supabase/migrations/20260803193000_kingmaker_phases_48_59_systemic_assurance.sql'
+      - '.github/workflows/kingmaker-phases-48-59-systemic-assurance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: ci-placeholder-service-role-key
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Phases 48-59 regressions
+        run: node --import tsx scripts/run-kingmaker-phases-48-59-systemic-assurance-regressions.ts
+      - name: Migration security
+        run: |
+          grep -q 'enable row level security' supabase/migrations/20260803193000_kingmaker_phases_48_59_systemic_assurance.sql
+          grep -q 'revoke all' supabase/migrations/20260803193000_kingmaker_phases_48_59_systemic_assurance.sql
+          grep -q 'service_role' supabase/migrations/20260803193000_kingmaker_phases_48_59_systemic_assurance.sql
+      - name: Dependency security
+        run: npm audit --audit-level=critical
+      - name: Lint
+        run: npm run lint
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Diff integrity
+        run: git diff --check origin/${{ github.base_ref }}...HEAD
+      - name: Production build
+        run: npm run build
