@@ -32,18 +32,22 @@ if count != 1:
         f"V2 Registry parallel marker definition changed; refusing to run ({count} replacements)."
     )
 
-old_guardrail_block = '''guardrails = Path("scripts/check-production-guardrails.mjs")
-replace_once(
-    guardrails,
-    "production consensus guardrail",
-    '  "catalog parallel lacks agreement from two independent scanner families",\\n',
-    ''' + '"""' + '''  "catalog Base parallel conflicts with unresolved visible surface/finish evidence",
-  "catalog non-Base parallel lacks visible scanner support",
-  "parallelGroupMatchesCatalog",
-''' + '"""' + ''',
-)
-'''
-new_guardrail_block = '''guardrails = Path("scripts/check-production-guardrails.mjs")
+guardrail_start = 'guardrails = Path("scripts/check-production-guardrails.mjs")\n'
+if script.count(guardrail_start) != 1:
+    raise SystemExit(
+        f"V2 production guardrail stanza changed; refusing to run ({script.count(guardrail_start)} starts)."
+    )
+guardrail_offset = script.index(guardrail_start)
+old_guardrail_tail = script[guardrail_offset:]
+old_marker = 'catalog parallel lacks agreement from two independent scanner families'
+if old_guardrail_tail.count(old_marker) != 1:
+    raise SystemExit(
+        f"V2 terminal guardrail marker changed; refusing to run ({old_guardrail_tail.count(old_marker)} matches)."
+    )
+if not old_guardrail_tail.rstrip().endswith(")"):
+    raise SystemExit("V2 terminal guardrail stanza no longer ends the patch script.")
+
+new_guardrail_tail = '''guardrails = Path("scripts/check-production-guardrails.mjs")
 guardrails_text = guardrails.read_text()
 old_guardrail_marker = '  "catalog parallel lacks agreement from two independent scanner families",\\n'
 if guardrails_text.count(old_guardrail_marker) != 2:
@@ -65,11 +69,7 @@ guardrails_text = guardrails_text.replace(
 )
 guardrails.write_text(guardrails_text)
 '''
-if script.count(old_guardrail_block) != 1:
-    raise SystemExit(
-        f"V2 production guardrail patch block changed; refusing to run ({script.count(old_guardrail_block)} matches)."
-    )
-script = script.replace(old_guardrail_block, new_guardrail_block, 1)
+script = script[:guardrail_offset] + new_guardrail_tail
 
 patch_script = Path(".codex-run/registry-semantic-referee-v4.py")
 patch_script.parent.mkdir(parents=True, exist_ok=True)
