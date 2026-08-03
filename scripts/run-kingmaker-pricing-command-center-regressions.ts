@@ -29,6 +29,11 @@ assert.match(migration, /revoke all.*anon, authenticated/);
 
 const customerFacingSurfaces = page + snapshotRoute + viewsRoute;
 assert.doesNotMatch(customerFacingSurfaces, /store_id|seller_account_id/);
-assert.doesNotMatch(customerFacingSurfaces, /auto.?buy|auto.?list|automatic purchase|automatic listing/i);
+
+const commandCenterCode = server + snapshotRoute + viewsRoute;
+assert.doesNotMatch(commandCenterCode, /from\(["']products["']\).*\.(insert|update|upsert|delete)\(/s);
+assert.doesNotMatch(commandCenterCode, /from\(["']orders["']\).*\.(insert|update|upsert|delete)\(/s);
+assert.doesNotMatch(commandCenterCode, /from\(["']offers["']\).*\.(insert|update|upsert|delete)\(/s);
+assert.doesNotMatch(commandCenterCode, /from\(["']market_intel_purchases["']\).*\.(insert|update|upsert|delete)\(/s);
 
 console.log("KINGMAKER Pricing Command Center regressions passed.");
