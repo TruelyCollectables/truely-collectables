@@ -4,6 +4,7 @@ import { assertTrustedInstaCompMutationRequest } from "../../../../../lib/instac
 import { getKingmakerPricingByIdentityId } from "../../../../../lib/kingmaker-pricing-server";
 import { buildKingmakerPricingDecision } from "../../../../../lib/kingmaker-pricing-decision";
 import { resolveKingmakerPricingProfile } from "../../../../../lib/kingmaker-pricing-profile-server";
+import { writeKingmakerPricingDecisionReceipt } from "../../../../../lib/kingmaker-pricing-decision-receipt-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -69,9 +70,17 @@ export async function POST(request: NextRequest) {
       shippingCost: optionalNumber(body.shippingCost) ?? profile.estimatedShippingCost,
     });
 
+    const receiptId = await writeKingmakerPricingDecisionReceipt({
+      actor,
+      identityId,
+      profileResolution: selectedProfile,
+      decision,
+    });
+
     return NextResponse.json({
       ok: true,
       identityId,
+      receiptId,
       decision,
       pricingProfile: {
         id: profile.id,
