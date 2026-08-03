@@ -1,0 +1,69 @@
+name: KINGMAKER admin route fix
+
+on:
+  push:
+    branches:
+      - agent/kingmaker-morning-intel
+    paths:
+      - ".github/workflows/kingmaker-admin-route-fix.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/kingmaker-morning-intel
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Add exact KINGMAKER admin route
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/app/admin/page.tsx")
+          workflow = Path(".github/workflows/kingmaker-admin-route-fix.yml")
+          source = path.read_text()
+          route = '/admin/market-intel/kingmaker/morning-intelligence'
+          marker = '        { href: "/admin/market-intel", label: "Command Desk" },\n'
+          addition = '''        {
+          href: "/admin/market-intel/kingmaker/morning-intelligence",
+          label: "KINGMAKER Morning Intelligence",
+        },
+'''
+
+          if route not in source:
+              if source.count(marker) != 1:
+                  raise SystemExit("Expected exactly one Market Intel Command Desk marker")
+              source = source.replace(marker, marker + addition, 1)
+              path.write_text(source)
+
+          if source.count(route) != 1:
+              raise SystemExit("KINGMAKER admin route must appear exactly once")
+
+          workflow.unlink()
+          PY
+      - run: npm ci
+      - name: Validate repaired release surface
+        run: |
+          git diff --check
+          npm run verify:admin-dashboard
+          node --import tsx scripts/run-kingmaker-morning-intelligence-regressions.ts
+          node --import tsx scripts/run-kingmaker-morning-intelligence-email-regressions.ts
+          node scripts/run-kingmaker-morning-intelligence-route-contracts.mjs
+          npx eslint src/app/admin/page.tsx src/app/admin/market-intel/kingmaker/morning-intelligence/page.tsx
+          npx tsc --noEmit
+      - name: Commit validated route fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Finalize KINGMAKER admin route contract"
+          git push origin HEAD:agent/kingmaker-morning-intel
