@@ -61,13 +61,29 @@ for (const fragment of [
 
 for (const fragment of [
   "previousFingerprint",
-  "kingmaker_morning_fingerprint",
+  'from("tcos_kingmaker_delivery_runs")',
+  'rpc("tcos_claim_kingmaker_delivery"',
+  'const deliveryKey = ["kingmaker-morning", deliveryDate, payload.mode, payload.fingerprint].join(":")',
+  'reason: "delivery_already_claimed_or_sent"',
+  'status: "failed"',
+  'status: "sent"',
   "renderKingmakerMorningIntelligenceEmail",
   "resend.emails.send",
-  "persistDeliveryState",
   'reason: "dry_run"',
+  "safeErrorCode",
 ]) {
   assert.ok(delivery.includes(fragment), `Delivery service is missing ${fragment}.`);
+}
+
+for (const forbidden of [
+  'REPORT_TYPE = "hourly_deals"',
+  "kingmaker_morning_fingerprint",
+  "persistDeliveryState",
+]) {
+  assert.ok(
+    !delivery.includes(forbidden),
+    `Delivery service must not retain legacy state contract ${forbidden}.`,
+  );
 }
 
 const scheduled = vercel.crons.find(
@@ -81,4 +97,3 @@ assert.equal(
 );
 
 console.log("KINGMAKER morning intelligence route contracts passed.");
-// Navigation-repair validation trigger.
