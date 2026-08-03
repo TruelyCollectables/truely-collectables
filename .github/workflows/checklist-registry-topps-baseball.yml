@@ -1,0 +1,43 @@
+name: Checklist Registry Topps Baseball
+
+on:
+  pull_request:
+    paths:
+      - "src/lib/checklist-registry/topps-baseball-*.ts"
+      - "src/lib/checklist-registry/source-adapter.ts"
+      - "src/lib/checklist-registry/server.ts"
+      - "scripts/run-topps-baseball-*.ts"
+      - "vendor/brace-expansion-compat/**"
+      - "scripts/run-dependency-security-audit.mjs"
+      - ".github/workflows/checklist-registry-topps-baseball.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checklist-registry-topps-baseball-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-topps-baseball:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Dependency mitigation verification
+        run: node scripts/run-dependency-security-audit.mjs
+      - name: Topps parser regressions
+        run: node --import tsx scripts/run-topps-baseball-text-parser-regressions.ts
+      - name: Registry TypeScript contracts
+        run: npx tsc --noEmit
+      - name: Diff integrity
+        run: git diff --check
