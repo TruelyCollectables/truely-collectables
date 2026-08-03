@@ -11,6 +11,30 @@ import {
   verifyInstaCompReleasePayload,
 } from "./check-live-instacomp-release.mjs";
 
+const productionWorkflow = readFileSync(
+  new URL(
+    "../.github/workflows/instacomp-production-release.yml",
+    import.meta.url,
+  ),
+  "utf8",
+);
+for (const marker of [
+  "GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}",
+  "Detect learning-provenance Production migration release",
+  "Apply and verify learning-provenance Production migration",
+  "scripts/apply-instacomp-learning-provenance-production.mjs",
+  "supabase/migrations/20260802224500_instacomp_learning_provenance_receipt.sql",
+  "git diff --exit-code -- .",
+  "git restore --source=HEAD -- public/instacomp-release.json",
+  "git status --porcelain --untracked-files=no",
+]) {
+  assert.match(
+    productionWorkflow,
+    new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+    `Missing Production migration marker: ${marker}`,
+  );
+}
+
 const exactCommit = "a".repeat(40);
 const staleCommit = "b".repeat(40);
 const directory = mkdtempSync(join(tmpdir(), "instacomp-release-attestation-"));
@@ -54,20 +78,16 @@ try {
     /sourceCommit/,
     "A live manifest from a different commit must fail attestation",
   );
-  assert.throws(
-    () => normalizeExpectedCommit("main"),
-    /40-character Git SHA/,
-  );
+  assert.throws(() => normalizeExpectedCommit("main"), /40-character Git SHA/);
   assert.throws(
     () => resolveReleaseCommit("not-a-sha"),
     /40-character hexadecimal Git SHA/,
   );
-  assert.throws(
-    () =>
-      writeInstaCompReleaseManifest({
-        commit: exactCommit,
-        manifestPath: join(directory, "missing.json"),
-      }),
+  assert.throws(() =>
+    writeInstaCompReleaseManifest({
+      commit: exactCommit,
+      manifestPath: join(directory, "missing.json"),
+    }),
   );
 
   console.log("InstaComp exact-commit release attestation regressions passed.");
