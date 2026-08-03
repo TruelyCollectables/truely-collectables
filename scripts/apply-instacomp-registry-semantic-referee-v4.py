@@ -32,12 +32,18 @@ if count != 1:
         f"V2 Registry parallel marker definition changed; refusing to run ({count} replacements)."
     )
 
-guardrail_pattern = re.compile(
-    r'guardrails = Path\("scripts/check-production-guardrails\\.mjs"\)\n'
-    r"replace_once\(\n.*?\n\)\n",
-    re.DOTALL,
+old_guardrail_block = '''guardrails = Path("scripts/check-production-guardrails.mjs")
+replace_once(
+    guardrails,
+    "production consensus guardrail",
+    '  "catalog parallel lacks agreement from two independent scanner families",\\n',
+    ''' + '"""' + '''  "catalog Base parallel conflicts with unresolved visible surface/finish evidence",
+  "catalog non-Base parallel lacks visible scanner support",
+  "parallelGroupMatchesCatalog",
+''' + '"""' + ''',
 )
-guardrail_replacement = '''guardrails = Path("scripts/check-production-guardrails.mjs")
+'''
+new_guardrail_block = '''guardrails = Path("scripts/check-production-guardrails.mjs")
 guardrails_text = guardrails.read_text()
 old_guardrail_marker = '  "catalog parallel lacks agreement from two independent scanner families",\\n'
 if guardrails_text.count(old_guardrail_marker) != 2:
@@ -46,10 +52,10 @@ if guardrails_text.count(old_guardrail_marker) != 2:
     )
 guardrails_text = guardrails_text.replace(
     old_guardrail_marker,
-    ''' + "'''" + '''  "catalog Base parallel conflicts with unresolved visible surface/finish evidence",
+    ''' + '"""' + '''  "catalog Base parallel conflicts with unresolved visible surface/finish evidence",
   "catalog non-Base parallel lacks visible scanner support",
   "parallelGroupMatchesCatalog",
-''' + "'''" + ''',
+''' + '"""' + ''',
     1,
 )
 guardrails_text = guardrails_text.replace(
@@ -59,11 +65,11 @@ guardrails_text = guardrails_text.replace(
 )
 guardrails.write_text(guardrails_text)
 '''
-script, count = guardrail_pattern.subn(guardrail_replacement, script, count=1)
-if count != 1:
+if script.count(old_guardrail_block) != 1:
     raise SystemExit(
-        f"V2 production guardrail patch block changed; refusing to run ({count} replacements)."
+        f"V2 production guardrail patch block changed; refusing to run ({script.count(old_guardrail_block)} matches)."
     )
+script = script.replace(old_guardrail_block, new_guardrail_block, 1)
 
 patch_script = Path(".codex-run/registry-semantic-referee-v4.py")
 patch_script.parent.mkdir(parents=True, exist_ok=True)
