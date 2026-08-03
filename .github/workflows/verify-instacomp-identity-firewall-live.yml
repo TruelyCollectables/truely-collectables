@@ -1,0 +1,78 @@
+name: Verify InstaComp Identity Firewall Live
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  verify-production-firewall:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Wait for both production domains to include the firewall merge
+        env:
+          FIREWALL_COMMIT: ffac25980def8f2c44792ddef5a793901266aa48
+        run: |
+          set -euo pipefail
+          primary='https://truelycollectables.com/instacomp-release.json'
+          alias='https://truely-collectables.vercel.app/instacomp-release.json'
+
+          for attempt in $(seq 1 40); do
+            nonce="$(date +%s)-${attempt}"
+            echo "Production verification attempt ${attempt}/40"
+
+            primary_ok=false
+            alias_ok=false
+            curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "${primary}?v=${nonce}" -o /tmp/primary.json && primary_ok=true || true
+            curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "${alias}?v=${nonce}" -o /tmp/alias.json && alias_ok=true || true
+
+            if [[ "$primary_ok" == true && "$alias_ok" == true ]]; then
+              if node <<'NODE'
+          const fs = require('fs');
+          const primary = JSON.parse(fs.readFileSync('/tmp/primary.json', 'utf8'));
+          const alias = JSON.parse(fs.readFileSync('/tmp/alias.json', 'utf8'));
+          const expectedRelease = 'evidence-first-95-ai-council-30';
+          const validSha = (value) => /^[0-9a-f]{40}$/i.test(String(value || ''));
+          const contractOk = (value) =>
+            value.schema === 'tcos.instacomp.release.v1' &&
+            value.backendRelease === expectedRelease &&
+            value.identityThreshold === 0.95 &&
+            value.requiresBackImage === true &&
+            value.compSearchRequiresConfirmedIdentity === true &&
+            value.learningRequiresConfirmedIdentity === true &&
+            value.aiCouncilDefaultReaders === 8 &&
+            value.aiCouncilMaxReaders === 30 &&
+            value.aiCouncilFamilyVoteCap === true &&
+            validSha(value.sourceCommit);
+          if (!contractOk(primary) || !contractOk(alias)) process.exit(1);
+          if (primary.sourceCommit !== alias.sourceCommit) process.exit(1);
+          fs.writeFileSync('/tmp/production-sha', primary.sourceCommit);
+          console.log(`Both domains report release ${primary.backendRelease} at ${primary.sourceCommit}.`);
+          NODE
+              then
+                production_sha="$(cat /tmp/production-sha)"
+                git fetch --no-tags origin "$production_sha" --depth=1 || true
+                if git merge-base --is-ancestor "$FIREWALL_COMMIT" "$production_sha"; then
+                  echo "PASS: production commit ${production_sha} contains firewall merge ${FIREWALL_COMMIT}."
+                  exit 0
+                fi
+                echo "Production commit ${production_sha} does not yet contain the firewall merge."
+              else
+                echo "Production release contract is incomplete, stale, or inconsistent."
+              fi
+            else
+              echo "One or both production release endpoints are not ready."
+            fi
+
+            sleep 30
+          done
+
+          echo "FAIL: production did not prove the identity firewall within 20 minutes."
+          exit 1
