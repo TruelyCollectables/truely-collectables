@@ -11,6 +11,10 @@ import {
   createAdminSessionValue,
 } from "../../../../../lib/admin-session";
 import {
+  buildInstaCompBenchmarkLiveScanUrl,
+  buildInstaCompBenchmarkSameOriginHeaders,
+} from "../../../../../lib/instacomp-benchmark-request-security";
+import {
   INSTACOMP_EBAY_BENCHMARK_CASES,
   INSTACOMP_EBAY_BENCHMARK_TARGET,
   type InstaCompEbayBenchmarkCase,
@@ -847,9 +851,11 @@ export async function POST(request: NextRequest) {
     formData.append("aiCouncilTier", "adaptive");
 
     const adminSession = await createAdminSessionValue();
-    const scanRequest = new NextRequest("https://instacomp-benchmark.local/api/instacomp/live-scan", {
+    const scanUrl = buildInstaCompBenchmarkLiveScanUrl(request.url);
+    const scanRequest = new NextRequest(scanUrl, {
       method: "POST",
       headers: {
+        ...buildInstaCompBenchmarkSameOriginHeaders(scanUrl),
         cookie: `${ADMIN_SESSION_COOKIE_NAME}=${encodeURIComponent(adminSession)}`,
         "x-forwarded-for": "127.0.0.1",
         "x-instacomp-benchmark-ephemeral": clean(process.env.INSTACOMP_BENCHMARK_TOKEN),
