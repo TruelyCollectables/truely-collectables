@@ -102,12 +102,13 @@ function requireApplyGate() {
   }
 }
 
-function outputPath() {
+function receiptPath() {
   const index = process.argv.indexOf("--receipt");
-  const supplied = index >= 0 ? process.argv[index + 1] : null;
   return resolve(
     process.cwd(),
-    supplied || "evidence/upper-deck-proof-production.json",
+    index >= 0 && process.argv[index + 1]
+      ? process.argv[index + 1]
+      : "evidence/upper-deck-proof-production.json",
   );
 }
 
@@ -115,58 +116,57 @@ function sha256(value: string | Buffer) {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function sortBySourceKey<T extends { sourceKey: string }>(values: T[]) {
-  return [...values].sort((left, right) =>
-    left.sourceKey.localeCompare(right.sourceKey),
-  );
+function sortedBySourceKey<T extends { sourceKey: string }>(rows: T[]) {
+  return [...rows].sort((a, b) => a.sourceKey.localeCompare(b.sourceKey));
 }
 
 function normalizedPlanDigest(plan: ChecklistImportPlan) {
-  const canonical = {
-    schema: "tcos.checklist.normalizedDigest.v1",
-    adapterId: plan.adapterId,
-    adapterVersion: plan.adapterVersion,
-    release: plan.release,
-    sets: sortBySourceKey(plan.sets),
-    cards: sortBySourceKey(plan.cards),
-    parallels: sortBySourceKey(plan.parallels),
-    identities: [...plan.identities].sort((left, right) => {
-      const leftKey = `${left.cardSourceKey}|${left.parallelSourceKey || ""}|${left.fingerprint.fingerprintSha256}`;
-      const rightKey = `${right.cardSourceKey}|${right.parallelSourceKey || ""}|${right.fingerprint.fingerprintSha256}`;
-      return leftKey.localeCompare(rightKey);
+  return sha256(
+    JSON.stringify({
+      schema: "tcos.checklist.normalizedDigest.v1",
+      adapterId: plan.adapterId,
+      adapterVersion: plan.adapterVersion,
+      release: plan.release,
+      sets: sortedBySourceKey(plan.sets),
+      cards: sortedBySourceKey(plan.cards),
+      parallels: sortedBySourceKey(plan.parallels),
+      identities: [...plan.identities].sort((a, b) =>
+        `${a.cardSourceKey}|${a.parallelSourceKey || ""}|${a.fingerprint.fingerprintSha256}`.localeCompare(
+          `${b.cardSourceKey}|${b.parallelSourceKey || ""}|${b.fingerprint.fingerprintSha256}`,
+        ),
+      ),
     }),
-  };
-  return sha256(JSON.stringify(canonical));
+  );
 }
 
-function requireExactPlan(plan: ChecklistImportPlan, source: SourceDefinition) {
-  const actual = plan.validation.counts;
+function validateExactPlan(plan: ChecklistImportPlan, source: SourceDefinition) {
   const expected = source.expected;
-  const observedDigest = normalizedPlanDigest(plan);
+  const counts = plan.validation.counts;
+  const digest = normalizedPlanDigest(plan);
   const failures: string[] = [];
-  const comparisons: Array<[string, string | number, string | number]> = [
+  const checks: Array<[string, string | number, string | number]> = [
     ["releaseSlug", plan.release.releaseSlug, expected.releaseSlug],
-    ["sets", actual.sets, expected.sets],
-    ["cards", actual.cards, expected.cards],
-    ["parallels", actual.parallels, expected.parallels],
-    ["identities", actual.identities, expected.identities],
     ["adapterId", plan.adapterId, EXPECTED_ADAPTER],
-    ["normalizedPlanSha256", observedDigest, expected.normalizedPlanSha256],
+    ["sets", counts.sets, expected.sets],
+    ["cards", counts.cards, expected.cards],
+    ["parallels", counts.parallels, expected.parallels],
+    ["identities", counts.identities, expected.identities],
+    ["normalizedPlanSha256", digest, expected.normalizedPlanSha256],
   ];
-  for (const [label, value, target] of comparisons) {
-    if (value !== target) failures.push(`${label}=${value}, expected=${target}`);
+  for (const [label, actual, wanted] of checks) {
+    if (actual !== wanted) failures.push(`${label}=${actual}, expected=${wanted}`);
   }
   if (plan.validation.status !== "passed") {
     failures.push(`validationStatus=${plan.validation.status}`);
   }
-  for (const entry of plan.validation.issues) {
-    if (entry.severity === "error") {
-      failures.push(`${entry.code}: ${entry.message}`);
-    }
-  }
+  failures.push(
+    ...plan.validation.issues
+      .filter((issue) => issue.severity === "error")
+      .map((issue) => `${issue.code}: ${issue.message}`),
+  );
 
   const fingerprints = plan.identities.map(
-    (entry) => entry.fingerprint.fingerprintSha256,
+    (identity) => identity.fingerprint.fingerprintSha256,
   );
   if (new Set(fingerprints).size !== fingerprints.length) {
     failures.push("duplicate physical-printing fingerprints generated");
@@ -179,7 +179,7 @@ function requireExactPlan(plan: ChecklistImportPlan, source: SourceDefinition) {
   if (failures.length) {
     throw new Error(`${source.id} validation blocked: ${failures.join(", ")}`);
   }
-  return observedDigest;
+  return digest;
 }
 
 async function fetchOfficialHtml(source: SourceDefinition) {
@@ -207,11 +207,7 @@ async function fetchOfficialHtml(source: SourceDefinition) {
   if (bytes.length < 500_000 || bytes.length > 2_000_000) {
     throw new Error(`${source.id} returned implausible size ${bytes.length}`);
   }
-  return {
-    html,
-    rawSha256: sha256(bytes),
-    rawSizeBytes: bytes.length,
-  };
+  return { html, rawSha256: sha256(bytes), rawSizeBytes: bytes.length };
 }
 
 function targetSlugsSql() {
@@ -229,38 +225,34 @@ async function auditProduction(label: string): Promise<AuditState> {
   const query = `with active_versions as (
       select * from public.checklist_versions where is_active
     ), identity_counts as (
-      select version_row.id,
-        version_row.normalized_identity_count as expected_identities,
-        count(identity_row.id)::bigint as actual_identities
-      from active_versions version_row
-      left join public.checklist_card_identities identity_row
-        on identity_row.version_id = version_row.id
-      group by version_row.id, version_row.normalized_identity_count
+      select v.id, v.normalized_identity_count as expected_identities,
+        count(i.id)::bigint as actual_identities
+      from active_versions v
+      left join public.checklist_card_identities i on i.version_id = v.id
+      group by v.id, v.normalized_identity_count
     ), target_rows as (
-      select release_row.release_slug,
-        release_row.id as release_id,
-        version_row.id as active_version_id,
-        release_row.metadata->>'latestAdapterId' as adapter_id,
-        version_row.normalized_card_count as expected_cards,
-        version_row.normalized_identity_count as expected_identities,
-        (select count(*) from public.checklist_cards card_row
-          where card_row.version_id = version_row.id) as cards,
-        (select count(*) from public.checklist_card_identities identity_row
-          where identity_row.version_id = version_row.id) as identities
-      from public.checklist_releases release_row
-      join active_versions version_row on version_row.release_id = release_row.id
-      where release_row.release_slug in (${targetSlugsSql()})
+      select r.slug as release_slug,
+        r.id as release_id,
+        v.id as active_version_id,
+        r.metadata->>'latestAdapterId' as adapter_id,
+        v.normalized_card_count as expected_cards,
+        v.normalized_identity_count as expected_identities,
+        (select count(*) from public.checklist_cards c where c.version_id = v.id) as cards,
+        (select count(*) from public.checklist_card_identities i where i.version_id = v.id) as identities
+      from public.checklist_releases r
+      join active_versions v on v.release_id = r.id
+      where r.slug in (${targetSlugsSql()})
     )
     select json_build_object(
       'releases', (select count(*) from public.checklist_releases),
       'active_versions', (select count(*) from active_versions),
       'active_cards', (
-        select count(*) from public.checklist_cards card_row
-        join active_versions version_row on version_row.id = card_row.version_id
+        select count(*) from public.checklist_cards c
+        join active_versions v on v.id = c.version_id
       ),
       'active_identities', (
-        select count(*) from public.checklist_card_identities identity_row
-        join active_versions version_row on version_row.id = identity_row.version_id
+        select count(*) from public.checklist_card_identities i
+        join active_versions v on v.id = i.version_id
       ),
       'identity_deficit_versions', (
         select count(*) from identity_counts
@@ -321,9 +313,7 @@ function requireHealthyState(state: AuditState, label: string) {
     failures.push(`registry_public_grants=${state.registry_public_grants}`);
   }
   if (state.writer_rpc !== true) failures.push("writer_rpc=false");
-  if (state.private_source_bucket !== true) {
-    failures.push("private_source_bucket=false");
-  }
+  if (state.private_source_bucket !== true) failures.push("private_source_bucket=false");
   if (failures.length) {
     throw new Error(`Production ${label} health blocked: ${failures.join(", ")}`);
   }
@@ -331,36 +321,37 @@ function requireHealthyState(state: AuditState, label: string) {
 
 function requireImportedTargets(
   state: AuditState,
-  importedSources: SourceDefinition[],
+  imported: SourceDefinition[],
   baseline: AuditState,
 ) {
-  requireHealthyState(state, `after-${importedSources.length}`);
-  if (state.targets.length !== importedSources.length) {
+  requireHealthyState(state, `after-${imported.length}`);
+  if (state.targets.length !== imported.length) {
     throw new Error(
-      `Production has ${state.targets.length} target releases; expected ${importedSources.length}`,
+      `Production has ${state.targets.length} target releases; expected ${imported.length}`,
     );
   }
 
-  for (const source of importedSources) {
+  for (const source of imported) {
     const target = state.targets.find(
-      (entry) => entry.release_slug === source.expected.releaseSlug,
+      (row) => row.release_slug === source.expected.releaseSlug,
     );
-    if (!target) {
-      throw new Error(`Missing imported target ${source.expected.releaseSlug}`);
+    if (!target) throw new Error(`Missing ${source.expected.releaseSlug}`);
+    const mismatches: string[] = [];
+    if (target.adapter_id !== EXPECTED_ADAPTER) {
+      mismatches.push(`adapter_id=${target.adapter_id}`);
     }
-    const mismatches = [
-      ["adapter_id", target.adapter_id, EXPECTED_ADAPTER],
-      ["cards", Number(target.cards), source.expected.cards],
-      ["expected_cards", Number(target.expected_cards), source.expected.cards],
-      ["identities", Number(target.identities), source.expected.identities],
-      [
-        "expected_identities",
-        Number(target.expected_identities),
-        source.expected.identities,
-      ],
-    ]
-      .filter(([, actual, expected]) => actual !== expected)
-      .map(([field, actual, expected]) => `${field}=${actual}, expected=${expected}`);
+    if (Number(target.cards) !== source.expected.cards) {
+      mismatches.push(`cards=${target.cards}`);
+    }
+    if (Number(target.expected_cards) !== source.expected.cards) {
+      mismatches.push(`expected_cards=${target.expected_cards}`);
+    }
+    if (Number(target.identities) !== source.expected.identities) {
+      mismatches.push(`identities=${target.identities}`);
+    }
+    if (Number(target.expected_identities) !== source.expected.identities) {
+      mismatches.push(`expected_identities=${target.expected_identities}`);
+    }
     if (mismatches.length) {
       throw new Error(
         `${source.expected.releaseSlug} verification blocked: ${mismatches.join(", ")}`,
@@ -368,20 +359,20 @@ function requireImportedTargets(
     }
   }
 
-  const expectedCards = importedSources.reduce(
-    (sum, source) => sum + source.expected.cards,
+  const expectedCards = imported.reduce(
+    (total, source) => total + source.expected.cards,
     0,
   );
-  const expectedIdentities = importedSources.reduce(
-    (sum, source) => sum + source.expected.identities,
+  const expectedIdentities = imported.reduce(
+    (total, source) => total + source.expected.identities,
     0,
   );
-  if (Number(state.releases) < Number(baseline.releases) + importedSources.length) {
+  if (Number(state.releases) < Number(baseline.releases) + imported.length) {
     throw new Error("Global release count did not increase by imported targets.");
   }
   if (
     Number(state.active_versions) <
-    Number(baseline.active_versions) + importedSources.length
+    Number(baseline.active_versions) + imported.length
   ) {
     throw new Error("Global active-version count did not increase by imported targets.");
   }
@@ -423,23 +414,22 @@ async function main() {
       artifact,
       validateOnly: true,
     });
-    const digest = requireExactPlan(validation.plan, source);
     prepared.push({
       source,
       artifact,
       plan: validation.plan,
       rawSha256: fetched.rawSha256,
       rawSizeBytes: fetched.rawSizeBytes,
-      normalizedPlanSha256: digest,
+      normalizedPlanSha256: validateExactPlan(validation.plan, source),
     });
   }
 
   const baseline = await auditProduction("baseline");
   requireHealthyState(baseline, "baseline");
-  if (baseline.targets.length !== 0) {
+  if (baseline.targets.length) {
     throw new Error(
-      `Production baseline already contains target releases: ${baseline.targets
-        .map((entry) => entry.release_slug)
+      `Production already contains target releases: ${baseline.targets
+        .map((row) => row.release_slug)
         .join(", ")}`,
     );
   }
@@ -491,9 +481,9 @@ async function main() {
       ),
     },
   };
-  const receiptPath = outputPath();
-  mkdirSync(dirname(receiptPath), { recursive: true });
-  writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
+  const output = receiptPath();
+  mkdirSync(dirname(output), { recursive: true });
+  writeFileSync(output, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
   console.log(JSON.stringify(receipt, null, 2));
 }
 
