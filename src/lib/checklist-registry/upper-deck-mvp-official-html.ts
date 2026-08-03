@@ -8,7 +8,7 @@ import { parseUpperDeckOfficialHtmlChecklist } from "./upper-deck-official-html"
 
 export const UPPER_DECK_MVP_OFFICIAL_HTML_ADAPTER_ID =
   "upper-deck-mvp-official-html-checklist" as const;
-export const UPPER_DECK_MVP_OFFICIAL_HTML_ADAPTER_VERSION = "1.0.0" as const;
+export const UPPER_DECK_MVP_OFFICIAL_HTML_ADAPTER_VERSION = "1.0.1" as const;
 
 type CanonicalBaseRow = {
   description: string;
@@ -43,6 +43,17 @@ function cleanSpreadsheetLeak(value: string) {
   return value.replace(/\+[A-Z]+\d+:[A-Z]+\d+\s*$/i, "").trim();
 }
 
+function isCanonicalMvpBaseSet(setName: string, cardNumber: string) {
+  const number = Number(cardNumber);
+  if (!Number.isInteger(number)) return false;
+  if (/^Base Set$/i.test(setName)) return number >= 1 && number <= 200;
+  if (/^Base Set\s*-\s*SP'?s$/i.test(setName)) return number >= 201 && number <= 220;
+  if (/^Base Set\s*-\s*Rookie SP'?s$/i.test(setName)) {
+    return number >= 221 && number <= 250;
+  }
+  return false;
+}
+
 function cellsForRow(rowHtml: string) {
   return [...rowHtml.matchAll(/<td\b([^>]*)>([\s\S]*?)<\/td>/gi)].map(
     (match) => ({ full: match[0], attributes: match[1], inner: match[2] }),
@@ -66,10 +77,7 @@ function sanitizeMvpSource(html: string) {
     if (cells.length < 5) continue;
     const setName = text(cells[0].inner);
     const cardNumber = text(cells[1].inner).replace(/^#\s*/, "");
-    if (!/^Base Set(?:\s*-|$)/i.test(setName) || /\bParallel\b/i.test(setName)) {
-      continue;
-    }
-    if (!cardNumber) continue;
+    if (!isCanonicalMvpBaseSet(setName, cardNumber)) continue;
     const rawDescription = text(cells[2].inner);
     const description = cleanSpreadsheetLeak(rawDescription);
     if (description !== rawDescription) spreadsheetLeakRepairs += 1;
@@ -84,7 +92,8 @@ function sanitizeMvpSource(html: string) {
     const cells = cellsForRow(rowHtml);
     if (cells.length < 5) return rowHtml;
     const setName = text(cells[0].inner);
-    const cardNumber = text(cells[1].inner).replace(/^#\s*/, "").toLowerCase();
+    const rawCardNumber = text(cells[1].inner).replace(/^#\s*/, "");
+    const cardNumber = rawCardNumber.toLowerCase();
     const base = canonical.get(cardNumber);
     if (!base) return rowHtml;
 
@@ -93,7 +102,7 @@ function sanitizeMvpSource(html: string) {
     const currentCity = text(cells[3].inner);
     const currentTeam = text(cells[4].inner);
 
-    if (/^Base Set(?:\s*-|$)/i.test(setName) && !/\bParallel\b/i.test(setName)) {
+    if (isCanonicalMvpBaseSet(setName, rawCardNumber)) {
       if (currentDescription !== text(cells[2].inner)) {
         output = replaceCell(output, cells[2].full, cells[2].attributes, currentDescription);
       }
