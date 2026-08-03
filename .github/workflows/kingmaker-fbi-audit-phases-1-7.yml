@@ -5,6 +5,8 @@ on:
     paths:
       - "src/lib/kingmaker-*.ts"
       - "scripts/run-kingmaker-*.ts"
+      - "scripts/run-dependency-security-audit.mjs"
+      - "vendor/brace-expansion-compat/**"
       - "supabase/migrations/*kingmaker*.sql"
       - ".github/workflows/kingmaker-fbi-audit-phases-1-7.yml"
   workflow_dispatch:
@@ -80,8 +82,8 @@ jobs:
           fi
           ! grep -RInE '\beval\s*\(|new Function\s*\(|child_process|execSync\s*\(|spawnSync\s*\(' src/lib/kingmaker-*.ts scripts/run-kingmaker-*.ts
           ! grep -RInE '(javascript:|data:text/html)' src/lib/kingmaker-*.ts
-      - name: Dependency high severity audit
-        run: npm audit --audit-level=high
+      - name: Dependency security audit
+        run: node scripts/run-dependency-security-audit.mjs
       - name: Lint all KINGMAKER code
         run: npx eslint src/lib/kingmaker-*.ts scripts/run-kingmaker-*.ts
       - name: TypeScript

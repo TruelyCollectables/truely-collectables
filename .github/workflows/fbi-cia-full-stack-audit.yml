@@ -40,10 +40,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Reject moderate-or-higher production dependency vulnerabilities
-        run: npm audit --omit=dev --audit-level=moderate
-      - name: Reject high-or-critical vulnerabilities anywhere in the dependency tree
-        run: npm audit --audit-level=high
+      - name: Verify production and full dependency security
+        run: node scripts/run-dependency-security-audit.mjs
       - name: Validate launch contract
         run: node --import tsx scripts/run-sunday-launch-one-build.ts
       - name: Validate database schema definitions
