@@ -1,0 +1,111 @@
+name: Apply KINGMAKER Beckett Schema 20260802
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/apply-kingmaker-beckett-schema-20260802.yml"
+      - "scripts/ops/apply-kingmaker-beckett-schema-20260802.mjs"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apply-kingmaker-beckett-schema-20260802
+  cancel-in-progress: false
+
+env:
+  EXPECTED_MAIN_SHA: 86e6f67536d239b8bf3dc7a4e4489b806ab3d944
+  EXPECTED_BRANCH: ops/apply-kingmaker-beckett-schema-20260802
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  EVIDENCE_DIR: evidence/kingmaker-beckett-production-schema-20260802
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on exact operations scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          git merge-base --is-ancestor "$EXPECTED_MAIN_SHA" HEAD
+          mapfile -t changed < <(git diff --name-only "$EXPECTED_MAIN_SHA"...HEAD)
+          printf '%s\n' "${changed[@]}"
+          test "${#changed[@]}" -eq 2
+          test "${changed[0]}" = '.github/workflows/apply-kingmaker-beckett-schema-20260802.yml'
+          test "${changed[1]}" = 'scripts/ops/apply-kingmaker-beckett-schema-20260802.mjs'
+          git diff --check "$EXPECTED_MAIN_SHA"...HEAD
+          cp scripts/ops/apply-kingmaker-beckett-schema-20260802.mjs "$RUNNER_TEMP/apply-kingmaker-beckett-schema-20260802.mjs"
+          git checkout --detach "$EXPECTED_MAIN_SHA"
+          mkdir -p scripts/ops "$EVIDENCE_DIR"
+          cp "$RUNNER_TEMP/apply-kingmaker-beckett-schema-20260802.mjs" scripts/ops/apply-kingmaker-beckett-schema-20260802.mjs
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Pull protected Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          mkdir -p .vercel "$RUNNER_TEMP/kingmaker-beckett-production"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/kingmaker-beckett-production/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          test -s "$RUNNER_TEMP/kingmaker-beckett-production/production.env"
+          echo "PRODUCTION_ENV_FILE=$RUNNER_TEMP/kingmaker-beckett-production/production.env" >> "$GITHUB_ENV"
+
+      - name: Apply and verify private KINGMAKER pricing schema
+        shell: bash
+        env:
+          ALLOW_KINGMAKER_BECKETT_SCHEMA_APPLY: "YES"
+          RECEIPT_PATH: evidence/kingmaker-beckett-production-schema-20260802/receipt.json
+        run: |
+          set -euo pipefail
+          node scripts/ops/apply-kingmaker-beckett-schema-20260802.mjs
+
+      - name: Require sanitized passing receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const path = 'evidence/kingmaker-beckett-production-schema-20260802/receipt.json';
+          const receipt = JSON.parse(fs.readFileSync(path, 'utf8'));
+          if (receipt.schema !== 'tcos.kingmaker.beckettProductionSchemaReceipt.v1') throw new Error('Unexpected receipt schema');
+          if (receipt.status !== 'passed') throw new Error('Production schema receipt did not pass');
+          if (receipt.expectedMainSha !== process.env.EXPECTED_MAIN_SHA) throw new Error('Receipt main SHA mismatch');
+          if (receipt.secretsPersisted !== false || receipt.sourceFilesUploaded !== false) throw new Error('Receipt safety flags failed');
+          const required = ['five_tables','rls_enabled','public_table_grants_revoked','service_table_grants_present','match_rpc','promote_rpc','service_rpc_execute','public_rpc_execute_revoked','private_source_bucket','beckett_source_allowed'];
+          for (const field of required) if (receipt.verification?.[field] !== true) throw new Error(`Missing verification ${field}`);
+          const text = fs.readFileSync(path, 'utf8');
+          if (/eyJ[A-Za-z0-9_-]{20,}\.|sb_secret_|SUPABASE_ACCESS_TOKEN|VERCEL_TOKEN|postgres(?:ql)?:\/\//i.test(text)) throw new Error('Receipt contains secret-like material');
+          NODE
+
+      - name: Upload sanitized Production receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: kingmaker-beckett-production-schema-20260802
+          path: evidence/kingmaker-beckett-production-schema-20260802/receipt.json
+          if-no-files-found: error
+          retention-days: 30
