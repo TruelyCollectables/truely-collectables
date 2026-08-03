@@ -3,8 +3,8 @@ name: KINGMAKER Phase 5 Live Execution
 on:
   pull_request:
     paths:
-      - "src/lib/kingmaker-phase-5-live-execution.ts"
-      - "scripts/run-kingmaker-phase-5-live-execution-regressions.ts"
+      - "src/lib/kingmaker-phase-5-*.ts"
+      - "scripts/run-kingmaker-phase-5-*.ts"
       - "supabase/migrations/20260803053000_kingmaker_phase_5_live_execution.sql"
       - ".github/workflows/kingmaker-phase-5-live-execution.yml"
   workflow_dispatch:
@@ -31,6 +31,8 @@ jobs:
       - run: npm ci
       - name: Phase 5 live execution regressions
         run: node --import tsx scripts/run-kingmaker-phase-5-live-execution-regressions.ts
+      - name: Phase 5 owner authorization regressions
+        run: node --import tsx scripts/run-kingmaker-phase-5-action-control-regressions.ts
       - name: Migration security contracts
         shell: bash
         run: |
@@ -54,7 +56,7 @@ jobs:
           git fetch --no-tags origin "${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
           git diff --check "origin/${{ github.base_ref }}...HEAD"
       - name: Lint Phase 5
-        run: npx eslint src/lib/kingmaker-phase-5-live-execution.ts scripts/run-kingmaker-phase-5-live-execution-regressions.ts
+        run: npx eslint src/lib/kingmaker-phase-5-*.ts scripts/run-kingmaker-phase-5-*.ts
       - name: TypeScript
         run: npx tsc --noEmit
       - name: Production build
