@@ -33,6 +33,8 @@ jobs:
         run: node --import tsx scripts/run-kingmaker-phase-5-live-execution-regressions.ts
       - name: Phase 5 owner authorization regressions
         run: node --import tsx scripts/run-kingmaker-phase-5-action-control-regressions.ts
+      - name: Phase 5 operations runtime regressions
+        run: node --import tsx scripts/run-kingmaker-phase-5-operations-runtime-regressions.ts
       - name: Migration security contracts
         shell: bash
         run: |
