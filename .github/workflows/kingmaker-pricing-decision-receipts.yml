@@ -1,0 +1,58 @@
+name: KINGMAKER Pricing Decision Receipts
+
+on:
+  pull_request:
+    paths:
+      - "src/lib/kingmaker-pricing-decision-receipt-server.ts"
+      - "src/app/api/instacomp/pricing/decision/route.ts"
+      - "scripts/run-kingmaker-pricing-decision-receipt-regressions.ts"
+      - "supabase/migrations/20260803200000_kingmaker_pricing_decision_receipts.sql"
+      - ".github/workflows/kingmaker-pricing-decision-receipts.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-pricing-decision-receipts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Receipt regressions
+        run: node --import tsx scripts/run-kingmaker-pricing-decision-receipt-regressions.ts
+      - name: Immutability and privacy contracts
+        run: |
+          set -euo pipefail
+          grep -q 'advisory_only' supabase/migrations/20260803200000_kingmaker_pricing_decision_receipts.sql
+          grep -q 'revoke all.*anon, authenticated' supabase/migrations/20260803200000_kingmaker_pricing_decision_receipts.sql
+          ! grep -q 'for update' supabase/migrations/20260803200000_kingmaker_pricing_decision_receipts.sql
+          ! grep -q 'for delete' supabase/migrations/20260803200000_kingmaker_pricing_decision_receipts.sql
+          grep -q 'receiptId' src/app/api/instacomp/pricing/decision/route.ts
+          grep -q 'sourceDisclosure: null' src/app/api/instacomp/pricing/decision/route.ts
+          ! grep -RIni 'beckett' src/lib/kingmaker-pricing-decision-receipt-server.ts src/app/api/instacomp/pricing/decision/route.ts scripts/run-kingmaker-pricing-decision-receipt-regressions.ts supabase/migrations/20260803200000_kingmaker_pricing_decision_receipts.sql
+      - name: Lint
+        run: npx eslint src/lib/kingmaker-pricing-decision-receipt-server.ts src/app/api/instacomp/pricing/decision/route.ts scripts/run-kingmaker-pricing-decision-receipt-regressions.ts
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Production build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-placeholder
+          SUPABASE_SERVICE_ROLE_KEY: build-placeholder
+          ADMIN_PASSWORD: build-placeholder
+          ADMIN_SESSION_SECRET: build-placeholder-admin-session
+          STRIPE_SECRET_KEY: sk_test_build_placeholder
+          STRIPE_WEBHOOK_SECRET: whsec_build_placeholder
+          EBAY_CLIENT_ID: build-placeholder
+          EBAY_CLIENT_SECRET: build-placeholder
+          EBAY_ENVIRONMENT: production
+          TCOS_LIVE_PAYMENTS_ENABLED: "false"
+          TCOS_LIVE_SHIPPING_ENABLED: "false"
+          TCOS_SHIPPING_PURCHASE_MODE: dry_run
+        run: npm run build
