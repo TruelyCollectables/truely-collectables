@@ -32,15 +32,16 @@ jobs:
         run: |
           set -euo pipefail
           test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
-          git fetch origin main
+          git fetch origin main "$EXPECTED_BRANCH"
           git merge-base --is-ancestor "$EXPECTED_MAIN_SHA" origin/main
-          git merge-base --is-ancestor "$EXPECTED_MAIN_SHA" HEAD
-          mapfile -t changed < <(git diff --name-only "$EXPECTED_MAIN_SHA"...HEAD)
+          git merge-base --is-ancestor "$EXPECTED_MAIN_SHA" "origin/$EXPECTED_BRANCH"
+          mapfile -t changed < <(git diff --name-only "$EXPECTED_MAIN_SHA"..."origin/$EXPECTED_BRANCH")
           printf '%s\n' "${changed[@]}"
           test "${#changed[@]}" -eq 2
           test "${changed[0]}" = '.github/workflows/discover-six-official-checklists-20260802.yml'
           test "${changed[1]}" = 'scripts/ops/discover-six-official-checklists-20260802.mjs'
-          git diff --check "$EXPECTED_MAIN_SHA"...HEAD
+          git diff --check "$EXPECTED_MAIN_SHA"..."origin/$EXPECTED_BRANCH"
+          git checkout --detach "origin/$EXPECTED_BRANCH"
 
       - uses: actions/setup-node@v4
         with:
