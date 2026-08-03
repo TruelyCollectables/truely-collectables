@@ -56,6 +56,21 @@ jobs:
           npm ci
           npm install --no-save --package-lock=false xlsx@0.18.5
 
+      - name: Add fail-closed malformed-row diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          file = Path('scripts/ops/validate-six-checklist-releases-20260802.mjs')
+          text = file.read_text()
+          old = 'if (malformed.length) throw new Error(`${source.id} has ${malformed.length} malformed populated rows`);'
+          new = 'if (malformed.length) throw new Error(`${source.id} has ${malformed.length} malformed populated rows: ${JSON.stringify(malformed)}`);'
+          if text.count(old) != 1:
+              raise SystemExit('Malformed-row diagnostic patch did not match exactly once')
+          file.write_text(text.replace(old, new, 1))
+          PY
+
       - name: Fetch, normalize, and validate all six releases
         shell: bash
         run: |
@@ -74,7 +89,7 @@ jobs:
           const receipt = JSON.parse(fs.readFileSync(file, 'utf8'));
           if (receipt.releaseCount !== 6 || receipt.results?.length !== 6) throw new Error('Validation did not inspect six releases');
           if (receipt.safety?.productionDatabaseWrites !== false || receipt.safety?.migrationsApplied !== false || receipt.safety?.deploymentPerformed !== false || receipt.safety?.rowSourcesNeverRepresentedAsOfficialManufacturer !== true) throw new Error('Validation safety receipt is invalid');
-          console.log(JSON.stringify({ status: receipt.status, totals: receipt.totals, results: receipt.results.map((entry) => ({ id: entry.id, status: entry.validationStatus, sha256: entry.rawSourceSha256, counts: entry.counts, issues: entry.issues })) }, null, 2));
+          console.log(JSON.stringify({ status: receipt.status, totals: receipt.totals, results: receipt.results.map((entry) => ({ id: entry.id, status: entry.validationStatus, sha256: entry.rawSourceSha256, counts: entry.counts, issues: entry.issues, error: entry.error })) }, null, 2));
           NODE
 
       - name: Upload private six-release validation artifact
