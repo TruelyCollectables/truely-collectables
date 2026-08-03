@@ -13,6 +13,7 @@ import type {
 } from "./source-adapter";
 import { CHECKLIST_SOURCE_BUCKET } from "./storage";
 import { tcgdexJapaneseSetBundleAdapter } from "./tcgdex-japanese";
+import { upperDeckOfficialHtmlChecklistAdapter } from "./upper-deck-official-html";
 
 const CHECKLIST_ADAPTERS: ChecklistSourceAdapter[] = [
   pokemonJapaneseMPReconciledAdapter,
@@ -22,6 +23,7 @@ const CHECKLIST_ADAPTERS: ChecklistSourceAdapter[] = [
   pokemonJapaneseOfficialReconciledAdapter,
   tcgdexJapaneseSetBundleAdapter,
   pokemonTcgDataSourceIdSafeAdapter,
+  upperDeckOfficialHtmlChecklistAdapter,
   paniniStructuredChecklistAdapter,
 ];
 
