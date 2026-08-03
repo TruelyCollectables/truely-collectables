@@ -1,21 +1,20 @@
 name: Temporary PR 618 Final Repair
 
 on:
-  push:
-    branches:
-      - agent/kingmaker-phases-90-107-adaptive-dominance-batch
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: write
 
 jobs:
   repair:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: agent/kingmaker-phases-90-107-adaptive-dominance-batch
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -28,10 +27,10 @@ jobs:
           const path = 'scripts/smoke-admin-runtime.mjs';
           let source = fs.readFileSync(path, 'utf8');
           const anchor = `  {
-              path: "/admin/instacomp",
-              auth: true,
-              expectedText: "InstaComp™ Scan Lab",
-            },`;
+            path: "/admin/instacomp",
+            auth: true,
+            expectedText: "InstaComp™ Scan Lab",
+          },`;
           const routes = [
             ['/admin/instacomp/pricing', 'KINGMAKER Pricing Command Center'],
             ['/admin/instacomp/pricing/receipts', 'Pricing Receipt History'],
@@ -49,11 +48,13 @@ jobs:
             fs.writeFileSync(path, source);
           }
           NODE
-      - name: Repair production dependency lockfile
+      - name: Diagnose and repair production dependencies
         run: |
+          npm audit --omit=dev --json > /tmp/audit-before.json || true
+          node -e "const a=require('/tmp/audit-before.json'); console.log('BEFORE', JSON.stringify(a.vulnerabilities,null,2))"
           npm audit fix --omit=dev || true
-          npm audit --omit=dev --json > /tmp/audit.json || true
-          node -e "const a=require('/tmp/audit.json'); console.log(JSON.stringify(a.vulnerabilities,null,2)); if((a.metadata?.vulnerabilities?.moderate||0)>0||(a.metadata?.vulnerabilities?.high||0)>0||(a.metadata?.vulnerabilities?.critical||0)>0) process.exit(1)"
+          npm audit --omit=dev --json > /tmp/audit-after.json || true
+          node -e "const a=require('/tmp/audit-after.json'); console.log('AFTER', JSON.stringify(a.vulnerabilities,null,2)); if((a.metadata?.vulnerabilities?.moderate||0)>0||(a.metadata?.vulnerabilities?.high||0)>0||(a.metadata?.vulnerabilities?.critical||0)>0) process.exit(1)"
       - name: Validate repaired surfaces
         run: |
           npm run simulate:admin-dashboard-actions
@@ -65,4 +66,4 @@ jobs:
           git add scripts/smoke-admin-runtime.mjs package-lock.json
           git diff --cached --quiet && exit 0
           git commit -m "fix: complete admin smoke and dependency repair"
-          git push origin HEAD:agent/kingmaker-phases-90-107-adaptive-dominance-batch
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
