@@ -1,5 +1,5 @@
 name: Topps Baseball Catalog Accelerator
-run-name: Topps Baseball Catalog Accelerator — ${{ github.event_name }} — retry 2026-08-03T17:36-06:00
+run-name: Topps Baseball Catalog Accelerator — VERIFIED — ${{ github.event_name }}
 
 on:
   push:
@@ -46,11 +46,79 @@ jobs:
         run: node --import tsx scripts/discover-topps-baseball-checklists.ts
       - name: Apply all clean Topps and Bowman checklists to the Registry
         run: node --import tsx scripts/bulk-import-topps-baseball-checklists.ts
-      - name: Upload accelerator receipts
+      - name: Verify receipt and audit Production database
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, existsSync, writeFileSync } from 'node:fs';
+          import { createClient } from '@supabase/supabase-js';
+
+          const receiptPath = process.env.TOPPS_BASEBALL_BULK_OUTPUT;
+          if (!receiptPath || !existsSync(receiptPath)) {
+            throw new Error(`Topps import receipt is missing: ${receiptPath || '(unset)'}`);
+          }
+
+          const receipt = JSON.parse(readFileSync(receiptPath, 'utf8'));
+          if (receipt.mode !== 'apply') {
+            throw new Error(`Topps importer did not run in apply mode. Actual mode: ${receipt.mode}`);
+          }
+          if (!receipt.totals || typeof receipt.totals !== 'object') {
+            throw new Error('Topps import receipt has no totals object.');
+          }
+
+          const db = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL,
+            process.env.SUPABASE_SERVICE_ROLE_KEY,
+            { auth: { persistSession: false, autoRefreshToken: false } },
+          );
+          const { data, error } = await db
+            .from('checklist_source_catalog')
+            .select('status')
+            .eq('manufacturer', 'Topps')
+            .eq('sport', 'Baseball')
+            .limit(5000);
+          if (error) throw new Error(`Production audit failed: ${error.message}`);
+
+          const statusCounts = {};
+          for (const row of data || []) statusCounts[row.status || 'unknown'] = (statusCounts[row.status || 'unknown'] || 0) + 1;
+          const catalogTotal = (data || []).length;
+          if (catalogTotal === 0) throw new Error('Production audit found zero Topps Baseball catalog sources.');
+
+          const t = receipt.totals;
+          const audit = {
+            verifiedAt: new Date().toISOString(),
+            mode: receipt.mode,
+            receiptTotals: t,
+            productionCatalogTotal: catalogTotal,
+            productionStatusCounts: statusCounts,
+          };
+          writeFileSync('.checklist-discovery/topps-baseball-production-audit.json', `${JSON.stringify(audit, null, 2)}\n`);
+
+          const lines = [
+            '# Topps Baseball Production Audit',
+            '',
+            `**Apply mode:** ${receipt.mode === 'apply' ? 'YES' : 'NO'}`,
+            `**Sources selected this run:** ${t.selected ?? 0}`,
+            `**Sources imported this run:** ${t.imported ?? 0}`,
+            `**Cards imported this run:** ${t.cards ?? 0}`,
+            `**Sets imported this run:** ${t.sets ?? 0}`,
+            `**Parallels imported this run:** ${t.parallels ?? 0}`,
+            `**Identities imported this run:** ${t.identities ?? 0}`,
+            `**Quarantined this run:** ${t.quarantined ?? 0}`,
+            `**Failed this run:** ${t.failed ?? 0}`,
+            '',
+            `**Production Topps Baseball sources:** ${catalogTotal}`,
+            '',
+            '## Production source statuses',
+            ...Object.entries(statusCounts).sort().map(([status, count]) => `- ${status}: ${count}`),
+          ];
+          writeFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join('\n')}\n`, { flag: 'a' });
+          console.log(JSON.stringify(audit, null, 2));
+          NODE
+      - name: Upload accelerator receipts and audit
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: topps-baseball-catalog-accelerator-receipts
           path: .checklist-discovery/*.json
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 90
