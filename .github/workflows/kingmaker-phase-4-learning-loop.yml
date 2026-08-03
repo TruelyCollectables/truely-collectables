@@ -5,8 +5,10 @@ on:
     paths:
       - "src/lib/kingmaker-learning-engine.ts"
       - "src/lib/kingmaker-performance-profiles.ts"
+      - "src/lib/kingmaker-learning-policy.ts"
       - "scripts/run-kingmaker-learning-engine-regressions.ts"
       - "scripts/run-kingmaker-performance-profiles-regressions.ts"
+      - "scripts/run-kingmaker-learning-policy-regressions.ts"
       - "supabase/migrations/20260803040000_kingmaker_learning_loop.sql"
       - ".github/workflows/kingmaker-phase-4-learning-loop.yml"
   workflow_dispatch:
@@ -29,6 +31,8 @@ jobs:
         run: node --import tsx scripts/run-kingmaker-learning-engine-regressions.ts
       - name: Seller and strategy performance regressions
         run: node --import tsx scripts/run-kingmaker-performance-profiles-regressions.ts
+      - name: Outcome-driven buying policy regressions
+        run: node --import tsx scripts/run-kingmaker-learning-policy-regressions.ts
       - name: Migration contracts
         run: |
           grep -q "tcos_kingmaker_learning_outcomes" supabase/migrations/20260803040000_kingmaker_learning_loop.sql
@@ -36,7 +40,7 @@ jobs:
           grep -q "revoke all" supabase/migrations/20260803040000_kingmaker_learning_loop.sql
           grep -q "outcome_fingerprint text not null unique" supabase/migrations/20260803040000_kingmaker_learning_loop.sql
       - name: Lint
-        run: npx eslint src/lib/kingmaker-learning-engine.ts src/lib/kingmaker-performance-profiles.ts scripts/run-kingmaker-learning-engine-regressions.ts scripts/run-kingmaker-performance-profiles-regressions.ts
+        run: npx eslint src/lib/kingmaker-learning-engine.ts src/lib/kingmaker-performance-profiles.ts src/lib/kingmaker-learning-policy.ts scripts/run-kingmaker-learning-engine-regressions.ts scripts/run-kingmaker-performance-profiles-regressions.ts scripts/run-kingmaker-learning-policy-regressions.ts
       - name: TypeScript
         run: npx tsc --noEmit
       - name: Production build
