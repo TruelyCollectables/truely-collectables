@@ -74,7 +74,7 @@ export function rankKingmakerSellerSweep(input: {
       tier = "developing";
       maximumExposureMultiplier = 0.5;
       reasons.push("seller_sample_below_proven_threshold");
-    } else if (score >= 80 && cancellationPenalty <= 0.05 && issuePenalty <= 0.05) {
+    } else if (score >= 75 && cancellationPenalty <= 0.05 && issuePenalty <= 0.05) {
       tier = "priority";
       maximumExposureMultiplier = 1.25;
       reasons.push("repeatable_profitability_and_low_operational_risk");
