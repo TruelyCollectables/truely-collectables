@@ -19,6 +19,8 @@ export function buildKingmakerPricingDecisionReceiptRow(params: {
   decision: KingmakerPricingDecision;
 }) {
   const profile = params.profileResolution.profile;
+  const economics = params.decision.economics;
+
   return {
     store_id: params.actor.storeId,
     seller_account_id: params.actor.type === "seller" ? params.actor.sellerAccountId || null : null,
@@ -32,16 +34,16 @@ export function buildKingmakerPricingDecisionReceiptRow(params: {
     market_median: params.decision.marketMedian,
     reference_midpoint: params.decision.referenceMidpoint,
     estimated_net_proceeds: params.decision.estimatedNetProceeds,
-    expected_profit: params.decision.expectedProfit,
+    expected_profit: params.decision.estimatedProfitAtCeiling,
     minimum_profitable_list_price: params.decision.minimumProfitableListPrice,
     confidence: params.decision.confidence,
     sold_comp_count: params.decision.soldCompCount,
     review_reasons: params.decision.reviewReasons,
-    marketplace_fee_pct: params.decision.marketplaceFeePct,
-    payment_fee_pct: params.decision.paymentFeePct,
-    payment_fixed_fee: params.decision.paymentFixedFee,
-    shipping_cost: params.decision.shippingCost,
-    target_margin_pct: params.decision.targetMarginPct,
+    marketplace_fee_pct: economics.marketplaceFeePct,
+    payment_fee_pct: economics.paymentFeePct,
+    payment_fixed_fee: economics.paymentFixedFee,
+    shipping_cost: economics.shippingCost,
+    target_margin_pct: economics.targetMarginPct,
     boundary: params.decision.boundary,
   };
 }
