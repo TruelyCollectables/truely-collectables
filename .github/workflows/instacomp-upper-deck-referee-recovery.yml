@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "src/lib/instacomp-learning-server.ts"
+      - "scripts/check-production-guardrails.mjs"
       - "scripts/run-instacomp-upper-deck-referee-recovery-regression.ts"
       - ".github/workflows/instacomp-upper-deck-referee-recovery.yml"
 
@@ -40,10 +41,14 @@ jobs:
           npx tsx scripts/run-instacomp-serial-color-gate-regressions.ts
           npm run simulate:instacomp-consensus
 
+      - name: Require production guardrail coverage
+        run: node scripts/check-production-guardrails.mjs
+
       - name: Lint permanent recovery files
         run: |
           npx eslint \
             src/lib/instacomp-learning-server.ts \
+            scripts/check-production-guardrails.mjs \
             scripts/run-instacomp-upper-deck-referee-recovery-regression.ts
 
       - name: Build production application
