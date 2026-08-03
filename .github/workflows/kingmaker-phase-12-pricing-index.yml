@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - "src/lib/kingmaker-phase-12-*.ts"
+      - "src/lib/kingmaker-pricing-server.ts"
+      - "src/lib/instacomp-kingmaker-pricing.ts"
+      - "src/app/api/instacomp/pricing/route.ts"
       - "scripts/run-kingmaker-phase-12-*.ts"
       - "supabase/migrations/20260803180000_kingmaker_phase_12_pricing_index.sql"
       - ".github/workflows/kingmaker-phase-12-pricing-index.yml"
@@ -30,7 +33,9 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Phase 12 pricing regressions
-        run: node --import tsx scripts/run-kingmaker-phase-12-pricing-index-regressions.ts
+        run: |
+          node --import tsx scripts/run-kingmaker-phase-12-pricing-index-regressions.ts
+          node --import tsx scripts/run-kingmaker-phase-12-pricing-api-regressions.ts
       - name: Migration security contracts
         shell: bash
         run: |
@@ -42,14 +47,27 @@ jobs:
           test "$(grep -c 'enable row level security' "$migration")" -eq 2
           ! grep -Eiq 'grant .* to (anon|authenticated)' "$migration"
           grep -q "'promoted_observations',0" "$migration"
-      - name: Naming and safety contracts
+      - name: API privacy and safety contracts
         shell: bash
         run: |
           set -euo pipefail
+          files=(
+            src/lib/kingmaker-phase-12-pricing-index.ts
+            src/lib/kingmaker-pricing-server.ts
+            src/lib/instacomp-kingmaker-pricing.ts
+            src/app/api/instacomp/pricing/route.ts
+            scripts/run-kingmaker-phase-12-pricing-index-regressions.ts
+            scripts/run-kingmaker-phase-12-pricing-api-regressions.ts
+            supabase/migrations/20260803180000_kingmaker_phase_12_pricing_index.sql
+            .github/workflows/kingmaker-phase-12-pricing-index.yml
+          )
           ! git diff --name-only origin/main...HEAD | grep -i 'beckett'
-          ! grep -RIni 'beckett' src/lib/kingmaker-phase-12-* scripts/run-kingmaker-phase-12-* supabase/migrations/20260803180000_kingmaker_phase_12_pricing_index.sql .github/workflows/kingmaker-phase-12-pricing-index.yml
+          ! grep -RIni 'beckett' "${files[@]}"
           grep -q 'review_required' src/lib/kingmaker-phase-12-pricing-index.ts
           grep -q 'identityMatchStatus === "exact"' src/lib/kingmaker-phase-12-pricing-index.ts
+          grep -q 'requireInstaCompJobActor' src/app/api/instacomp/pricing/route.ts
+          grep -q 'pricingUse: "display_only"' src/lib/instacomp-kingmaker-pricing.ts
+          ! grep -E 'sourceGuideId|guideId|entryId|sourceEngine|metadata' src/lib/instacomp-kingmaker-pricing.ts
       - name: Diff integrity
         shell: bash
         run: |
@@ -57,7 +75,7 @@ jobs:
           git fetch --no-tags origin "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
           git diff --check "origin/${{ github.base_ref }}...HEAD"
       - name: Lint Phase 12
-        run: npx eslint src/lib/kingmaker-phase-12-*.ts scripts/run-kingmaker-phase-12-*.ts
+        run: npx eslint src/lib/kingmaker-phase-12-*.ts src/lib/kingmaker-pricing-server.ts src/lib/instacomp-kingmaker-pricing.ts src/app/api/instacomp/pricing/route.ts scripts/run-kingmaker-phase-12-*.ts
       - name: TypeScript
         run: npx tsc --noEmit
       - name: Production build
@@ -68,7 +86,7 @@ jobs:
           ADMIN_PASSWORD: build-placeholder
           ADMIN_SESSION_SECRET: build-placeholder-admin-session
           STRIPE_SECRET_KEY: sk_test_build_placeholder
-          STRIPE_WEBHOOK_SECRET: whsec_build_placeholder
+          STRIPE_WEBHOOK_SECRET: whsec_build-placeholder
           EBAY_CLIENT_ID: build-placeholder
           EBAY_CLIENT_SECRET: build-placeholder
           EBAY_ENVIRONMENT: production
