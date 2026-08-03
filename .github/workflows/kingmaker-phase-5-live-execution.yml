@@ -37,6 +37,8 @@ jobs:
         run: node --import tsx scripts/run-kingmaker-phase-5-operations-runtime-regressions.ts
       - name: Phase 5 Command Center regressions
         run: node --import tsx scripts/run-kingmaker-phase-5-command-center-regressions.ts
+      - name: Phase 5 persistence and eBay bridge regressions
+        run: node --import tsx scripts/run-kingmaker-phase-5-persistence-bridge-regressions.ts
       - name: Migration security contracts
         shell: bash
         run: |
