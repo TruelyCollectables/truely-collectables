@@ -179,6 +179,51 @@ const smokeRoutes = [
     expectedText: "InstaComp™ Scan Lab",
   },
   {
+    path: "/admin/instacomp/pricing",
+    auth: true,
+    expectedText: "KINGMAKER Pricing Command Center",
+  },
+  {
+    path: "/admin/instacomp/pricing/receipts",
+    auth: true,
+    expectedText: "Pricing Receipt History",
+  },
+  {
+    path: "/admin/instacomp/pricing/analytics",
+    auth: true,
+    expectedText: "Pricing Analytics",
+  },
+  {
+    path: "/admin/instacomp/pricing/profiles",
+    auth: true,
+    expectedText: "Pricing Profiles",
+  },
+  {
+    path: "/admin/instacomp/pricing/bulk-plan",
+    auth: true,
+    expectedText: "Bulk Pricing Plan",
+  },
+  {
+    path: "/admin/instacomp/pricing/scenarios",
+    auth: true,
+    expectedText: "Pricing Scenarios",
+  },
+  {
+    path: "/admin/instacomp/pricing/review",
+    auth: true,
+    expectedText: "Pricing Review",
+  },
+  {
+    path: "/admin/instacomp/pricing/views",
+    auth: true,
+    expectedText: "Pricing Views",
+  },
+  {
+    path: "/admin/instacomp/pricing/audit",
+    auth: true,
+    expectedText: "Pricing Audit",
+  },
+  {
     path: "/admin/instacomp/v2",
     auth: true,
     expectedText: "InstaComp™ 2.0",
