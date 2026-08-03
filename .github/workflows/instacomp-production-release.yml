@@ -91,11 +91,20 @@ jobs:
             ! git cat-file -e "$base_sha^{commit}" 2>/dev/null; then
             base_sha="$(git rev-parse HEAD^)"
           fi
+
+          # Scanner and release-workflow changes must deploy without replaying an
+          # already-certified database migration. Only changes to the migration
+          # SQL or its privileged convergence script may activate this step.
           release_paths=(
-            .github/workflows/instacomp-production-release.yml
             scripts/apply-instacomp-learning-provenance-production.mjs
             supabase/migrations/20260802224500_instacomp_learning_provenance_receipt.sql
           )
+          if printf '%s\n' "${release_paths[@]}" | \
+            grep -Fxq ".github/workflows/instacomp-production-release.yml"; then
+            echo "::error::The production workflow must never self-trigger the provenance migration."
+            exit 1
+          fi
+
           if git diff --quiet "$base_sha" "$GITHUB_SHA" -- "${release_paths[@]}"; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "Learning-provenance migration release is unchanged."
