@@ -14,6 +14,7 @@ import type {
 import { CHECKLIST_SOURCE_BUCKET } from "./storage";
 import { tcgdexJapaneseSetBundleAdapter } from "./tcgdex-japanese";
 import { upperDeckArtifactsOfficialHtmlChecklistAdapter } from "./upper-deck-artifacts-official-html";
+import { upperDeckBlackDiamondOfficialHtmlChecklistAdapter } from "./upper-deck-black-diamond-official-html";
 import { upperDeckMvpOfficialHtmlChecklistAdapter } from "./upper-deck-mvp-official-html";
 import { upperDeckTeamCanadaOfficialHtmlChecklistAdapter } from "./upper-deck-team-canada-official-html";
 import { upperDeckTimHortonsOfficialHtmlChecklistAdapter } from "./upper-deck-tim-hortons-official-html";
@@ -31,6 +32,7 @@ const CHECKLIST_ADAPTERS: ChecklistSourceAdapter[] = [
   upperDeckTeamCanadaOfficialHtmlChecklistAdapter,
   upperDeckArtifactsOfficialHtmlChecklistAdapter,
   upperDeckTimHortonsOfficialHtmlChecklistAdapter,
+  upperDeckBlackDiamondOfficialHtmlChecklistAdapter,
   upperDeckOfficialHtmlChecklistAdapter,
   paniniStructuredChecklistAdapter,
 ];
