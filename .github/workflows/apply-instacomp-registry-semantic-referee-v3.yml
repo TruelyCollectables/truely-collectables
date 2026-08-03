@@ -1,0 +1,112 @@
+name: Apply InstaComp Registry Semantic Referee V3
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/apply-instacomp-registry-semantic-referee-v3.yml"
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  patch-and-verify:
+    if: github.head_ref == 'fix/instacomp-upper-deck-referee-recovery'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/instacomp-upper-deck-referee-recovery
+          fetch-depth: 0
+
+      - name: Fail closed on exact branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_HEAD_REF" = "fix/instacomp-upper-deck-referee-recovery"
+          git diff --check
+
+      - name: Reuse audited V2 patch with unique statement marker
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .codex-run
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+
+          workflow = Path(".github/workflows/apply-instacomp-registry-semantic-referee-v2.yml").read_text()
+          marker = "          python - <<'PY'\n"
+          start = workflow.index(marker) + len(marker)
+          end = workflow.index("\n          PY\n", start)
+          lines = workflow[start:end].splitlines()
+          script = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in lines
+          ) + "\n"
+
+          old = '''parallel_start = \'\'\'    const parallelProfile = targetParallelProfile(
+  ai,
+  [ai.setName, brand, product, setName].filter(Boolean).join(" "),
+);
+\'\'\'
+'''
+          new = '''parallel_start = "    const parallelProfile = targetParallelProfile("
+'''
+          if script.count(old) != 1:
+              raise SystemExit(
+                  f"V2 statement-marker definition changed; refusing to run ({script.count(old)} matches)."
+              )
+          script = script.replace(old, new, 1)
+
+          patch_script = Path(".codex-run/registry-semantic-referee-v3.py")
+          patch_script.write_text(script)
+          subprocess.run(["python", str(patch_script)], check=True)
+          PY
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Prove semantic recovery and hard rejections
+        run: |
+          node --import tsx scripts/run-instacomp-registry-semantic-referee-regression.ts
+          node --import tsx scripts/run-instacomp-upper-deck-referee-recovery-regression.ts
+          npx tsx scripts/run-instacomp-registry-consensus-bridge-regression.ts
+          npx tsx scripts/run-instacomp-live-shedeur-107-regression.ts
+          npx tsx scripts/run-instacomp-serial-color-gate-regressions.ts
+          npx tsx scripts/run-instacomp-identity-firewall-regressions.ts
+          node scripts/check-production-guardrails.mjs
+
+      - name: Lint patched source and regressions
+        run: |
+          npx eslint \
+            src/lib/instacomp-learning-server.ts \
+            src/lib/instacomp-consensus.ts \
+            scripts/check-production-guardrails.mjs \
+            scripts/run-instacomp-registry-semantic-referee-regression.ts \
+            scripts/run-instacomp-upper-deck-referee-recovery-regression.ts
+          git diff --check
+
+      - name: Commit focused semantic referee repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .codex-run/registry-semantic-referee-v3.py
+          test -z "$(git status --short --untracked-files=all .codex-run)"
+          test -n "$(git status --short src/lib/instacomp-learning-server.ts src/lib/instacomp-consensus.ts scripts/check-production-guardrails.mjs)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            src/lib/instacomp-learning-server.ts \
+            src/lib/instacomp-consensus.ts \
+            scripts/check-production-guardrails.mjs
+          git commit -m "Harden Registry semantic referee"
+          git push origin HEAD:fix/instacomp-upper-deck-referee-recovery
