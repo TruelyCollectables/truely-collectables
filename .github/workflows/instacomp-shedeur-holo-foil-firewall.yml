@@ -98,7 +98,6 @@ jobs:
             src/lib/instacomp-learning-server.ts \
             src/lib/instacomp-consensus.ts \
             package.json \
-            .github/workflows/instacomp-production-release.yml \
             scripts/check-production-guardrails.mjs
           if ! git diff --cached --quiet; then
             git commit -m "Preserve Shedeur Holo Blue foil identity alias"
