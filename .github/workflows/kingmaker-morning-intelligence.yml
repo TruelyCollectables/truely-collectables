@@ -10,17 +10,65 @@ on:
       - "src/app/api/cron/kingmaker/morning-intelligence/route.ts"
       - "src/app/api/admin/market-intel/kingmaker/morning-intelligence/test/route.ts"
       - "src/app/admin/market-intel/kingmaker/morning-intelligence/page.tsx"
+      - "src/app/admin/page.tsx"
       - "scripts/run-kingmaker-morning-intelligence-regressions.ts"
       - "scripts/run-kingmaker-morning-intelligence-email-regressions.ts"
       - "scripts/run-kingmaker-morning-intelligence-route-contracts.mjs"
       - "vercel.json"
       - ".github/workflows/kingmaker-morning-intelligence.yml"
+      - ".github/workflows/kingmaker-admin-link-repair.yml"
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+  repair-admin-navigation:
+    if: github.event_name == 'pull_request' && github.head_ref == 'agent/kingmaker-morning-intel'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/kingmaker-morning-intel
+          fetch-depth: 0
+      - name: Apply exact admin navigation repair
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/app/admin/page.tsx")
+          source = path.read_text()
+          route = '/admin/market-intel/kingmaker/morning-intelligence'
+          marker = '        { href: "/admin/market-intel", label: "Command Desk" },\n'
+          addition = '''        {
+          href: "/admin/market-intel/kingmaker/morning-intelligence",
+          label: "KINGMAKER Morning Intelligence",
+        },
+'''
+
+          if route not in source:
+              if source.count(marker) != 1:
+                  raise SystemExit("Expected exactly one Market Intel Command Desk marker")
+              path.write_text(source.replace(marker, marker + addition, 1))
+
+          repair = Path(".github/workflows/kingmaker-admin-link-repair.yml")
+          if repair.exists():
+              repair.unlink()
+          PY
+      - name: Verify and commit repair
+        run: |
+          git diff --check
+          test "$(grep -F -c '/admin/market-intel/kingmaker/morning-intelligence' src/app/admin/page.tsx)" -eq 1
+          if git diff --quiet; then
+            echo "Navigation already repaired."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/admin/page.tsx .github/workflows/kingmaker-admin-link-repair.yml
+          git commit -m "Add KINGMAKER morning console to admin navigation"
+          git push origin HEAD:agent/kingmaker-morning-intel
+
   verify-morning-intelligence:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
