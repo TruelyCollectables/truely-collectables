@@ -229,7 +229,7 @@ const scenarios = [
     },
   },
   {
-    name: "catalog referee overrides two generic base scanner votes",
+    name: "catalog referee cannot override conflicting scanner parallel evidence",
     run() {
       const consensus = buildInstaCompMultiScannerConsensus({
         baseIdentity: baseAi,
@@ -248,7 +248,7 @@ const scenarios = [
           status: "catalog_confirmed",
           sourceLabel: "Fixture Checklist",
           catalogId: "spa-2025-o-8-outliers",
-          matchExplanation: "Checklist confirms O-8 is Outliers.",
+          matchExplanation: "Checklist claims O-8 is Outliers.",
           identity: {
             player: "Connor McDavid",
             year: "2025-26",
@@ -259,16 +259,19 @@ const scenarios = [
         },
       });
 
-      assert(consensus.status === "consensus_confirmed", "Expected confirmed consensus");
-      assert(consensus.finalIdentity.parallel === "Outliers", "Catalog should set Outliers");
+      assert(consensus.status === "review_required", "Conflicting catalog must require review");
+      assert(consensus.finalIdentity.parallel === "Base", "Scanner evidence must remain visible");
       assert(
-        consensus.fieldDecisions.some(
+        consensus.catalogReferee.status === "review_required",
+        "Catalog referee must be quarantined",
+      );
+      assert(
+        !consensus.fieldDecisions.some(
           (decision) =>
             decision.field === "parallel" &&
-            decision.status === "catalog_referee" &&
-            decision.conflictingValues.includes("Base"),
+            decision.status === "catalog_referee",
         ),
-        "Expected catalog referee to preserve base conflict evidence",
+        "Rejected catalog must not decide parallel",
       );
     },
   },
@@ -373,7 +376,7 @@ const scenarios = [
     },
   },
   {
-    name: "fast lane exposes thin single-reader council warning",
+    name: "fast lane single-reader identity remains blocked",
     run() {
       const decision = decideInstaCompConsensusEscalation({
         ai: {
@@ -394,7 +397,7 @@ const scenarios = [
         escalation: decision,
       });
 
-      assert(consensus.status === "consensus_confirmed", "Thin fast lane stays confirmed");
+      assert(consensus.status === "review_required", "Single-reader identity must be blocked");
       assert(consensus.councilReadiness.status === "warning", "Expected thin-council warning");
       assert(
         consensus.councilReadiness.reasons.includes(
@@ -402,7 +405,7 @@ const scenarios = [
         ),
         "Expected visible fast-lane thin evidence reason",
       );
-      assert(consensus.trustedForIdentity, "Warning should not block a high-confidence fast lane");
+      assert(!consensus.trustedForIdentity, "One reader cannot authorize exact identity");
     },
   },
   {
@@ -461,7 +464,7 @@ const scenarios = [
     },
   },
   {
-    name: "specific printed clear cut beats generic base without catalog",
+    name: "specific printed parallel cannot beat conflicting base without confirmation",
     run() {
       const consensus = buildInstaCompMultiScannerConsensus({
         baseIdentity: baseAi,
@@ -479,20 +482,21 @@ const scenarios = [
         ],
       });
 
-      assert(consensus.status === "consensus_confirmed", "Expected clear cut consensus");
-      assert(consensus.finalIdentity.parallel === "Clear Cut", "Expected Clear Cut parallel");
+      assert(consensus.status === "review_required", "Parallel conflict must require review");
+      assert(consensus.finalIdentity.parallel === "Clear Cut", "Candidate observation should remain visible");
       assert(
         consensus.fieldDecisions.some(
           (decision) =>
             decision.field === "parallel" &&
-            decision.status === "specific_variant_over_base",
+            decision.status === "review_required",
         ),
-        "Expected specific variant over base decision",
+        "Expected hard parallel review decision",
       );
+      assert(!consensus.trustedForIdentity, "Conflicting parallel evidence cannot be trusted");
     },
   },
   {
-    name: "serial reader fills missing serial number",
+    name: "single serial reader preserves candidate but cannot confirm identity",
     run() {
       const consensus = buildInstaCompMultiScannerConsensus({
         baseIdentity: baseAi,
@@ -510,9 +514,10 @@ const scenarios = [
       });
       const finalAi = applyInstaCompConsensusToAi(baseAi, consensus);
 
-      assert(consensus.status === "consensus_confirmed", "Expected serial consensus");
-      assert(finalAi.serialNumber === "07/50", "Expected serial to be applied");
-      assert(finalAi.notes?.includes("Multi-scanner consensus confirmed"), "Expected notes trail");
+      assert(consensus.status === "review_required", "One serial reader cannot confirm identity");
+      assert(finalAi.serialNumber === "07/50", "Candidate serial should remain visible");
+      assert(finalAi.notes?.includes("needs review"), "Expected review notes trail");
+      assert(!consensus.trustedForIdentity, "Single serial evidence cannot authorize comps");
     },
   },
   {
@@ -571,7 +576,7 @@ const scenarios = [
     },
   },
   {
-    name: "positive autograph marker beats generic false default",
+    name: "single positive autograph marker preserves candidate but remains blocked",
     run() {
       const consensus = buildInstaCompMultiScannerConsensus({
         baseIdentity: {
@@ -594,16 +599,17 @@ const scenarios = [
         ],
       });
 
-      assert(consensus.status === "consensus_confirmed", "Expected positive marker consensus");
-      assert(consensus.finalIdentity.isAuto === true, "Expected autograph marker to apply");
+      assert(consensus.status === "review_required", "One positive marker cannot confirm identity");
+      assert(consensus.finalIdentity.isAuto === true, "Autograph candidate should remain visible");
       assert(
         consensus.fieldDecisions.some(
           (decision) =>
             decision.field === "isAuto" &&
             decision.status === "positive_marker_over_negative_default",
         ),
-        "Expected positive marker over negative default decision",
+        "Expected positive marker observation",
       );
+      assert(!consensus.trustedForIdentity, "Single marker cannot authorize exact identity");
     },
   },
 ];

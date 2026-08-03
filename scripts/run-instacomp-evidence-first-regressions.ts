@@ -61,10 +61,17 @@ const consensus = {
   },
   councilReadiness: { status: "ready" },
   fieldDecisions: [
-    { field: "player", status: "agreed" },
-    { field: "year", status: "agreed" },
-    { field: "setName", status: "agreed" },
-    { field: "cardNumber", status: "agreed" },
+    { field: "player", status: "agreed", conflictingValues: [] },
+    { field: "year", status: "agreed", conflictingValues: [] },
+    { field: "brand", status: "agreed", conflictingValues: [] },
+    { field: "setName", status: "agreed", conflictingValues: [] },
+    { field: "cardNumber", status: "agreed", conflictingValues: [] },
+    {
+      field: "parallel",
+      status: "catalog_referee",
+      conflictingValues: [],
+      sources: ["OpenAI", "Gemini", "InstaComp Checklist Registry"],
+    },
   ],
 };
 
@@ -92,7 +99,7 @@ const conflict = buildInstaCompEvidenceIdentityDecision({
     ...consensus,
     fieldDecisions: [
       ...consensus.fieldDecisions.filter((item) => item.field !== "cardNumber"),
-      { field: "cardNumber", status: "review_required" },
+      { field: "cardNumber", status: "review_required", conflictingValues: ["302"] },
     ],
   },
   hasBackImage: true,
@@ -102,6 +109,28 @@ assert(!conflict.confirmed, "Critical conflicts must not confirm");
 assert(
   conflict.reviewReasons.includes("critical_visible_evidence_conflict"),
   "Expected critical conflict reason",
+);
+
+const parallelConflict = buildInstaCompEvidenceIdentityDecision({
+  resolution: exactResolution,
+  consensus: {
+    ...consensus,
+    fieldDecisions: [
+      ...consensus.fieldDecisions.filter((item) => item.field !== "parallel"),
+      {
+        field: "parallel",
+        status: "review_required",
+        conflictingValues: ["Red Prizm"],
+      },
+    ],
+  },
+  hasBackImage: true,
+  threshold: 0.95,
+});
+assert(!parallelConflict.confirmed, "Parallel conflicts must not confirm");
+assert(
+  parallelConflict.reviewReasons.includes("parallel_not_independently_confirmed"),
+  "Expected independent parallel evidence reason",
 );
 
 const internalMiss = buildInstaCompEvidenceIdentityDecision({
@@ -138,4 +167,4 @@ assert(
   "Both OCR providers must run in evidence-first mode",
 );
 
-console.log("InstaComp evidence-first regressions passed (11 assertions).");
+console.log("InstaComp evidence-first regressions passed (13 assertions).");
