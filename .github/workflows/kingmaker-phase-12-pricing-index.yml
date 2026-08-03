@@ -1,0 +1,78 @@
+name: KINGMAKER Phase 12 Pricing Index
+
+on:
+  pull_request:
+    paths:
+      - "src/lib/kingmaker-phase-12-*.ts"
+      - "scripts/run-kingmaker-phase-12-*.ts"
+      - "supabase/migrations/20260803180000_kingmaker_phase_12_pricing_index.sql"
+      - ".github/workflows/kingmaker-phase-12-pricing-index.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kingmaker-phase-12-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-pricing-index:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Phase 12 pricing regressions
+        run: node --import tsx scripts/run-kingmaker-phase-12-pricing-index-regressions.ts
+      - name: Migration security contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          migration=supabase/migrations/20260803180000_kingmaker_phase_12_pricing_index.sql
+          grep -q 'tcos_kingmaker_price_index' "$migration"
+          grep -q 'tcos_kingmaker_price_history' "$migration"
+          grep -q 'tcos_refresh_kingmaker_price_index' "$migration"
+          test "$(grep -c 'enable row level security' "$migration")" -eq 2
+          ! grep -Eiq 'grant .* to (anon|authenticated)' "$migration"
+          grep -q "'promoted_observations',0" "$migration"
+      - name: Naming and safety contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! git diff --name-only origin/main...HEAD | grep -i 'beckett'
+          ! grep -RIni 'beckett' src/lib/kingmaker-phase-12-* scripts/run-kingmaker-phase-12-* supabase/migrations/20260803180000_kingmaker_phase_12_pricing_index.sql .github/workflows/kingmaker-phase-12-pricing-index.yml
+          grep -q 'review_required' src/lib/kingmaker-phase-12-pricing-index.ts
+          grep -q 'identityMatchStatus === "exact"' src/lib/kingmaker-phase-12-pricing-index.ts
+      - name: Diff integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+          git diff --check "origin/${{ github.base_ref }}...HEAD"
+      - name: Lint Phase 12
+        run: npx eslint src/lib/kingmaker-phase-12-*.ts scripts/run-kingmaker-phase-12-*.ts
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Production build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-placeholder
+          SUPABASE_SERVICE_ROLE_KEY: build-placeholder
+          ADMIN_PASSWORD: build-placeholder
+          ADMIN_SESSION_SECRET: build-placeholder-admin-session
+          STRIPE_SECRET_KEY: sk_test_build_placeholder
+          STRIPE_WEBHOOK_SECRET: whsec_build_placeholder
+          EBAY_CLIENT_ID: build-placeholder
+          EBAY_CLIENT_SECRET: build-placeholder
+          EBAY_ENVIRONMENT: production
+          TCOS_LIVE_PAYMENTS_ENABLED: "false"
+          TCOS_LIVE_SHIPPING_ENABLED: "false"
+          TCOS_SHIPPING_PURCHASE_MODE: dry_run
+        run: npm run build
