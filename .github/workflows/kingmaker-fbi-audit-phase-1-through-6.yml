@@ -1,0 +1,145 @@
+name: KINGMAKER FBI Audit Phases 1-6
+
+on:
+  pull_request:
+    paths:
+      - "src/**/kingmaker-*.ts"
+      - "scripts/run-kingmaker-*.ts"
+      - "supabase/migrations/*kingmaker*.sql"
+      - ".github/workflows/kingmaker-*.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kingmaker-fbi-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  full-forensic-audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Dependency vulnerability audit
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Inventory KINGMAKER attack surface
+        shell: bash
+        run: |
+          set -euo pipefail
+          find src -type f -name 'kingmaker-*.ts' -print | sort | tee /tmp/kingmaker-source-files.txt
+          find scripts -type f -name 'run-kingmaker-*.ts' -print | sort | tee /tmp/kingmaker-regression-files.txt
+          find supabase/migrations -type f -iname '*kingmaker*.sql' -print | sort | tee /tmp/kingmaker-migrations.txt
+          test -s /tmp/kingmaker-source-files.txt
+          test -s /tmp/kingmaker-regression-files.txt
+          test -s /tmp/kingmaker-migrations.txt
+
+      - name: Run every KINGMAKER regression suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t suites < <(find scripts -maxdepth 1 -type f -name 'run-kingmaker-*-regressions.ts' | sort)
+          test "${#suites[@]}" -ge 10
+          for suite in "${suites[@]}"; do
+            echo "===== FBI RUNNING: $suite ====="
+            node --import tsx "$suite"
+          done
+
+      - name: Authorization and money-movement boundary audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=$(find src -type f -name 'kingmaker-*.ts' -print)
+          test -n "$files"
+          ! grep -RInE '\beval\s*\(|new Function\s*\(' $files
+          ! grep -RInE 'child_process|execSync\s*\(|spawnSync\s*\(' $files
+          ! grep -RInE 'javascript:|data:text/html' $files
+          grep -RInE 'authorization|owner approval|ownerAuthorization|approval_required' $files >/tmp/kingmaker-authorization-markers.txt
+          test -s /tmp/kingmaker-authorization-markers.txt
+          grep -RInE 'idempotenc|replay|nonce|fingerprint' $files >/tmp/kingmaker-replay-markers.txt
+          test -s /tmp/kingmaker-replay-markers.txt
+
+      - name: Database privilege and RLS forensic audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t migrations < <(find supabase/migrations -type f -iname '*kingmaker*.sql' | sort)
+          test "${#migrations[@]}" -ge 4
+          for migration in "${migrations[@]}"; do
+            echo "===== FBI DATABASE AUDIT: $migration ====="
+            ! grep -Eiq 'grant[[:space:]]+.*[[:space:]]+to[[:space:]]+(anon|authenticated)' "$migration"
+            if grep -Eiq 'create[[:space:]]+table' "$migration"; then
+              grep -Eiq 'enable[[:space:]]+row[[:space:]]+level[[:space:]]+security' "$migration"
+              grep -Eiq 'revoke[[:space:]]+all' "$migration"
+              grep -Eiq 'service_role' "$migration"
+            fi
+            if grep -Eiq 'security[[:space:]]+definer' "$migration"; then
+              grep -Eiq 'set[[:space:]]+search_path' "$migration"
+            fi
+          done
+
+      - name: Secrets and credential leakage audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          targets=$(find src scripts supabase/migrations -type f \( -name '*.ts' -o -name '*.sql' \) -print)
+          ! grep -RInE 'sk_live_[A-Za-z0-9]{16,}|whsec_[A-Za-z0-9]{16,}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----' $targets
+          ! grep -RInE 'SUPABASE_SERVICE_ROLE_KEY[[:space:]]*=[[:space:]]*["'"'][^"'"']+["'"']' $targets
+          ! grep -RInE 'EBAY_CLIENT_SECRET[[:space:]]*=[[:space:]]*["'"'][^"'"']+["'"']' $targets
+
+      - name: Determinism and unsafe timestamp audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=$(find src -type f -name 'kingmaker-*.ts' -print)
+          ! grep -RInE 'Math\.random\s*\(' $files
+          grep -RInE 'createHash|fingerprint|stableHash|sha256' $files >/tmp/kingmaker-determinism-markers.txt
+          test -s /tmp/kingmaker-determinism-markers.txt
+
+      - name: Lint all KINGMAKER code and regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(find src scripts -type f \( -name 'kingmaker-*.ts' -o -name 'run-kingmaker-*.ts' \) | sort)
+          npx eslint "${files[@]}"
+
+      - name: Full TypeScript compile
+        run: npx tsc --noEmit
+
+      - name: Diff integrity
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+          git diff --check "origin/${{ github.base_ref }}...HEAD"
+
+      - name: Production build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-placeholder
+          SUPABASE_SERVICE_ROLE_KEY: build-placeholder
+          ADMIN_PASSWORD: build-placeholder
+          ADMIN_SESSION_SECRET: build-placeholder-admin-session
+          STRIPE_SECRET_KEY: sk_test_build_placeholder
+          STRIPE_WEBHOOK_SECRET: whsec_build_placeholder
+          EBAY_CLIENT_ID: build-placeholder
+          EBAY_CLIENT_SECRET: build-placeholder
+          EBAY_ENVIRONMENT: production
+          TCOS_LIVE_PAYMENTS_ENABLED: "false"
+          TCOS_LIVE_SHIPPING_ENABLED: "false"
+          TCOS_SHIPPING_PURCHASE_MODE: dry_run
+        run: npm run build
