@@ -8,7 +8,7 @@ import { parseUpperDeckOfficialHtmlChecklist } from "./upper-deck-official-html"
 
 export const UPPER_DECK_TIM_HORTONS_OFFICIAL_HTML_ADAPTER_ID =
   "upper-deck-tim-hortons-official-html-checklist" as const;
-export const UPPER_DECK_TIM_HORTONS_OFFICIAL_HTML_ADAPTER_VERSION = "1.0.1" as const;
+export const UPPER_DECK_TIM_HORTONS_OFFICIAL_HTML_ADAPTER_VERSION = "1.0.2" as const;
 
 function text(value: string) {
   return value
@@ -29,16 +29,14 @@ function normalizeOfficialHeader(content: string) {
 function removeNonCardPrizeRows(content: string) {
   let removed = 0;
   const html = content.replace(/<tr\b[^>]*>[\s\S]*?<\/tr>/gi, (row) => {
-    const cells = [...row.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)].map(
-      (match) => text(match[1]),
-    );
-    if (cells.length < 3) return row;
+    const cells = [
+      ...row.matchAll(/<(?:th|td)\b[^>]*>([\s\S]*?)<\/(?:th|td)>/gi),
+    ].map((match) => text(match[1]));
+    if (!cells.length) return row;
 
     const setName = cells[0] || "";
     const cardNumber = cells[1] || "";
-    const description = cells[2] || "";
-    const isNonCardPrize =
-      /^Prize Card\b/i.test(setName) && !cardNumber && !description;
+    const isNonCardPrize = /^Prize Card\b/i.test(setName) && !cardNumber;
 
     if (!isNonCardPrize) return row;
     removed += 1;
@@ -92,7 +90,7 @@ export function parseUpperDeckTimHortonsOfficialHtmlChecklist(
               {
                 code: "non_card_prize_rows_excluded",
                 severity: "warning" as const,
-                message: `Excluded ${filtered.removed} promotional prize/redemption row(s) with no card number or player from Checklist Registry identities while retaining them in the original source archive.`,
+                message: `Excluded ${filtered.removed} promotional prize/redemption row(s) with no card number from Checklist Registry identities while retaining them in the original source archive.`,
                 rowReference: "Prize Card",
               },
             ]
