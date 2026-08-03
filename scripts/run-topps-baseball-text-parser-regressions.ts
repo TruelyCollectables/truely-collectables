@@ -11,6 +11,7 @@ BASE CARDS
 1 Shohei Ohtani Los Angeles Dodgers®
 2 J.T. Realmuto Philadelphia Phillies®
 3 Brooks Baldwin Chicago White Sox® Rookie
+4 Jose Altuve Houston Astros®
 50 Mookie Betts Los Angeles Dodgers®51 Miguel Vargas Chicago White Sox®
 FUTURE STARS
 FS-1 Jackson Chourio Milwaukee Brewers™
@@ -19,7 +20,7 @@ FS-1 Jackson Chourio Milwaukee Brewers™
 
 assert.equal(parsed.releaseYear, "2025");
 assert.equal(parsed.product, "Topps Chrome Baseball");
-assert.equal(parsed.cards.length, 6);
+assert.equal(parsed.cards.length, 7);
 assert.deepEqual(parsed.cards[0], {
   setName: "Base Set",
   cardNumber: "1",
@@ -28,11 +29,19 @@ assert.deepEqual(parsed.cards[0], {
   rookie: false,
   sourceLine: 5,
 });
+assert.deepEqual(parsed.cards[3], {
+  setName: "Base Set",
+  cardNumber: "4",
+  player: "Jose Altuve",
+  team: "Houston Astros",
+  rookie: false,
+  sourceLine: 8,
+});
 assert.equal(parsed.cards[2].rookie, true);
-assert.equal(parsed.cards[3].cardNumber, "50");
-assert.equal(parsed.cards[4].cardNumber, "51");
-assert.equal(parsed.cards[5].setName, "FUTURE STARS");
-assert.equal(parsed.cards[5].cardNumber, "FS-1");
+assert.equal(parsed.cards[4].cardNumber, "50");
+assert.equal(parsed.cards[5].cardNumber, "51");
+assert.equal(parsed.cards[6].setName, "FUTURE STARS");
+assert.equal(parsed.cards[6].cardNumber, "FS-1");
 assert.equal(parsed.issues.filter((issue) => issue.severity === "error").length, 0);
 
 const conflict = parseToppsBaseballChecklistText({
