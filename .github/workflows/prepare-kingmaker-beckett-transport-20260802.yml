@@ -21,6 +21,7 @@ env:
   VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
   VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
   EVIDENCE_DIR: evidence/kingmaker-beckett-transport-public-key-20260802
 
 jobs:
@@ -62,6 +63,8 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
           mkdir -p .vercel "$RUNNER_TEMP/kingmaker-beckett-production"
           if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
             printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
@@ -72,7 +75,7 @@ jobs:
           test -s "$RUNNER_TEMP/kingmaker-beckett-production/production.env"
           echo "PRODUCTION_ENV_FILE=$RUNNER_TEMP/kingmaker-beckett-production/production.env" >> "$GITHUB_ENV"
 
-      - name: Generate keypair and store private key only in private Supabase Storage
+      - name: Generate keypair and store private key only in the private database schema
         shell: bash
         env:
           ALLOW_KINGMAKER_BECKETT_TRANSPORT_PREP: "YES"
@@ -88,7 +91,7 @@ jobs:
           test -s "$EVIDENCE_DIR/public-key.pem"
           test -s "$EVIDENCE_DIR/transport.json"
           grep -q 'BEGIN PUBLIC KEY' "$EVIDENCE_DIR/public-key.pem"
-          ! grep -R -E 'BEGIN PRIVATE KEY|sb_secret_|SUPABASE_SERVICE_ROLE_KEY|postgres(ql)?://' "$EVIDENCE_DIR"
+          ! grep -R -E 'BEGIN PRIVATE KEY|sb_secret_|SUPABASE_SERVICE_ROLE_KEY|SUPABASE_ACCESS_TOKEN|postgres(ql)?://' "$EVIDENCE_DIR"
           node - <<'NODE'
           const fs = require('node:fs');
           const crypto = require('node:crypto');
@@ -98,7 +101,7 @@ jobs:
           const digest = crypto.createHash('sha256').update(publicKey).digest('hex');
           if (manifest.schema !== 'tcos.kingmaker.beckettTransportPublicKey.v1') throw new Error('Unexpected manifest schema');
           if (manifest.publicKeySha256 !== digest) throw new Error('Public key hash mismatch');
-          if (manifest.privateKeyPersistedOnlyInPrivateStorage !== true) throw new Error('Private-key storage assertion failed');
+          if (manifest.privateKeyPersistedOnlyInPrivateDatabase !== true) throw new Error('Private-key database assertion failed');
           if (manifest.publicKeyOnlyInArtifact !== true) throw new Error('Public artifact assertion failed');
           if (manifest.sourceFilesUploaded !== false) throw new Error('Source upload safety assertion failed');
           NODE
