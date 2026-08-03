@@ -671,6 +671,147 @@ function buildFieldDecision(params: {
   };
 }
 
+function semanticTokens(value: string | boolean | null | undefined) {
+  return comparableText(value)
+    .replace(/\b(?:19|20)\d{2}(?:[-\s]+\d{2,4})?\b/g, " ")
+    .replace(/\bcheck\s+point\b/g, "checkpoint")
+    .replace(/\byoung\s+gun\b/g, "young guns")
+    .replace(/[/-]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter(
+      (token) =>
+        ![
+          "upper",
+          "deck",
+          "series",
+          "hockey",
+          "base",
+          "set",
+          "parallel",
+          "card",
+          "the",
+        ].includes(token),
+    );
+}
+
+function sortedTokenKey(tokens: string[]) {
+  return [...new Set(tokens)].sort().join(" ");
+}
+
+function catalogRegistrySetName(
+  identity: Partial<InstaCompCatalogCompIdentity> | null | undefined,
+) {
+  return cleanText(
+    (identity as (Partial<InstaCompCatalogCompIdentity> & {
+      registrySetName?: string | null;
+    }) | null | undefined)?.registrySetName,
+  );
+}
+
+function logicalRegistrySetTokens(
+  identity: Partial<InstaCompCatalogCompIdentity> | null | undefined,
+) {
+  const registryTokens = semanticTokens(catalogRegistrySetName(identity));
+  const parallelTokens = semanticTokens(identity?.parallel);
+  return registryTokens.filter((token) => !parallelTokens.includes(token));
+}
+
+function parallelKeyAgainstCatalog(
+  value: string | boolean | null | undefined,
+  identity: Partial<InstaCompCatalogCompIdentity> | null | undefined,
+) {
+  const logicalSetTokens = new Set(logicalRegistrySetTokens(identity));
+  const tokens = comparableParallel(value)
+    .split(" ")
+    .filter(Boolean)
+    .filter((token) => !logicalSetTokens.has(token));
+  return tokens.length ? sortedTokenKey(tokens) : "base";
+}
+
+function parallelGroupMatchesCatalog(
+  group: ValueGroup,
+  identity: Partial<InstaCompCatalogCompIdentity> | null | undefined,
+) {
+  return (
+    parallelKeyAgainstCatalog(group.value, identity) ===
+    parallelKeyAgainstCatalog(identity?.parallel, identity)
+  );
+}
+
+function readerEvidenceText(reader: InstaCompConsensusReaderFinding) {
+  return (reader.evidence || []).join(" ");
+}
+
+function hasUnresolvedVisibleSurfaceRisk(value: string) {
+  const clauses = String(value || "").split(/[.;]/g);
+  const finishCue =
+    /\b(speckle(?:d)?|sparkle|glitter|rainbow|holo(?:graphic)?|foil|acetate|clear[-\s]*stock|transparent|translucent|outburst|refractor|prizm|prism|shimmer|wave|pulsar|mojo|mosaic|laser|black\s+and\s+white)\b/i;
+  const colorContext =
+    /\b(black|blue|gold|green|orange|pink|purple|red|silver|white)\b(?:\s+\w+){0,3}\s+\b(border|background|frame|finish|foil|parallel)\b/i;
+  const negation = /\b(no|not|without|none|absent|neither)\b/i;
+  return clauses.some((clause) => {
+    const cue = finishCue.exec(clause) || colorContext.exec(clause);
+    if (!cue) return false;
+    return !negation.test(clause.slice(0, cue.index));
+  });
+}
+
+function evidenceSupportsCatalogParallel(
+  reader: InstaCompConsensusReaderFinding,
+  identity: Partial<InstaCompCatalogCompIdentity> | null | undefined,
+) {
+  const catalogParallel = normalizeValue(identity?.parallel);
+  if (!knownValue(catalogParallel) || isGenericBase(catalogParallel)) return false;
+  const evidenceTokens = new Set(semanticTokens(readerEvidenceText(reader)));
+  const requiredTokens = semanticTokens(catalogParallel);
+  return (
+    requiredTokens.length > 0 &&
+    requiredTokens.every((token) => evidenceTokens.has(token))
+  );
+}
+
+function catalogTextFieldMatchesReader(
+  field: InstaCompConsensusField,
+  catalogIdentity: Partial<InstaCompCatalogCompIdentity>,
+  readerValue: string | boolean | null,
+) {
+  const catalogValue = normalizeValue(fieldValue(catalogIdentity, field));
+  if (field === "year") {
+    const catalogYear = comparableText(catalogValue).match(/\b((?:19|20)\d{2})\b/)?.[1];
+    const readerYear = comparableText(readerValue).match(/\b((?:19|20)\d{2})\b/)?.[1];
+    return Boolean(catalogYear && readerYear && catalogYear === readerYear);
+  }
+  if (field === "setName") {
+    const readerTokens = semanticTokens(readerValue);
+    const catalogTokens = new Set(
+      semanticTokens(
+        [catalogValue, catalogRegistrySetName(catalogIdentity)]
+          .filter(Boolean)
+          .join(" "),
+      ),
+    );
+    const logicalSetTokens = logicalRegistrySetTokens(catalogIdentity);
+    return (
+        readerTokens.length > 0 &&
+        readerTokens.every((token) => catalogTokens.has(token))
+      );
+  }
+  if (field === "player") {
+    return (
+      sortedTokenKey(semanticTokens(readerValue)) ===
+      sortedTokenKey(semanticTokens(catalogValue))
+    );
+  }
+  if (field === "cardNumber") {
+    return (
+      comparableText(readerValue).replace(/[\s-]/g, "") ===
+      comparableText(catalogValue).replace(/[\s-]/g, "")
+    );
+  }
+  return comparableText(readerValue) === comparableText(catalogValue);
+}
+
 function serialDenominator(value: string | boolean | null | undefined) {
   if (typeof value === "boolean") return null;
 
@@ -705,25 +846,42 @@ function guardCatalogRefereeAgainstHardEvidence(params: {
     );
   }
 
-  const catalogParallelKey = comparableFieldValue("parallel", catalogParallel);
   const readerParallelGroups = valueGroupsForField(params.readers, "parallel");
-  const matchingParallelGroups = readerParallelGroups.filter(
-    (group) => group.key === catalogParallelKey,
+  const matchingParallelGroups = readerParallelGroups.filter((group) =>
+    parallelGroupMatchesCatalog(group, catalogIdentity),
   );
   const matchingParallelFamilies = uniqueStrings(
     matchingParallelGroups.flatMap((group) => group.families),
   );
+  const evidenceParallelFamilies = uniqueStrings(
+    params.readers
+      .filter((reader) => evidenceSupportsCatalogParallel(reader, catalogIdentity))
+      .map((reader) => readerFamily(reader)),
+  );
+  const supportingParallelFamilies = uniqueStrings([
+    ...matchingParallelFamilies,
+    ...evidenceParallelFamilies,
+  ]);
   const conflictingSpecificParallelGroups = readerParallelGroups.filter(
     (group) =>
-      group.key !== catalogParallelKey &&
+      !parallelGroupMatchesCatalog(group, catalogIdentity) &&
       !group.hasGenericBase &&
       !group.hasUncertain,
   );
+  const unresolvedSurfaceRisk = params.readers.some((reader) =>
+    hasUnresolvedVisibleSurfaceRisk(readerEvidenceText(reader)),
+  );
 
-  if (!catalogParallelKey || matchingParallelFamilies.length < 2) {
-    conflicts.push(
-      "catalog parallel lacks agreement from two independent scanner families",
-    );
+  if (isGenericBase(catalogParallel)) {
+    if (unresolvedSurfaceRisk) {
+      conflicts.push(
+        "catalog Base parallel conflicts with unresolved visible surface/finish evidence",
+      );
+    }
+  } else if (supportingParallelFamilies.length < 2) {
+      conflicts.push(
+        "catalog non-Base parallel lacks agreement from two independent scanner families",
+      );
   }
   if (conflictingSpecificParallelGroups.length) {
     conflicts.push(
@@ -748,7 +906,9 @@ function guardCatalogRefereeAgainstHardEvidence(params: {
     if (readerGroups.length !== 1) continue;
 
     const [readerGroup] = readerGroups;
-    if (comparableText(readerGroup.value) === comparableText(catalogValue)) continue;
+    if (catalogTextFieldMatchesReader(field, catalogIdentity, readerGroup.value)) {
+      continue;
+    }
 
     conflicts.push(
       `catalog ${displayField(field)} "${catalogValue}" conflicts with unanimous scanner evidence "${readerGroup.value}"`,
@@ -1045,6 +1205,9 @@ export function buildInstaCompReaderFindingFromAi(params: {
     },
     confidence: params.ai.confidence,
     weight: params.weight,
-    evidence: params.evidence,
+    evidence: uniqueStrings([
+      ...(params.evidence || []),
+      ...(params.ai.notes ? [params.ai.notes] : []),
+    ]),
   };
 }

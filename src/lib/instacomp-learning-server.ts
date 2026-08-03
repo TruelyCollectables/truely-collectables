@@ -292,8 +292,19 @@ function yearStart(value: unknown) {
   return normalizedText(value).match(/\b((?:19|20)\d{2})\b/)?.[1] || "";
 }
 
-function meaningfulTokens(value: unknown) {
+function seasonlessText(value: unknown) {
   return normalizedText(value)
+    .replace(/\b(?:19|20)\d{2}\s+(?:\d{2}|(?:19|20)\d{2})\b/g, " ")
+    .replace(/\b(?:19|20)\d{2}\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function meaningfulTokens(value: unknown) {
+  return seasonlessText(value)
+    .replace(/\bcheck\s+point\b/g, "checkpoint")
+    .replace(/\bo\s+pee\s+chee\b/g, "opeechee")
+    .replace(/\byoung\s+gun\b/g, "young guns")
     .split(" ")
     .filter(Boolean)
     .filter(
@@ -313,6 +324,48 @@ function meaningfulTokens(value: unknown) {
           "topps",
         ].includes(token),
     );
+}
+
+function normalizedBrandAlternatives(value: unknown) {
+  return String(value ?? "")
+    .split(/\s*(?:\/|\||;)\s*/)
+    .map(normalizedText)
+    .filter(Boolean);
+}
+
+function brandEvidenceMatches(value: unknown, registryValues: unknown[]) {
+  const alternatives = normalizedBrandAlternatives(value);
+  if (!alternatives.length) return false;
+  const registryText = normalizedText(registryValues.filter(Boolean).join(" "));
+  return alternatives.some((alternative) => registryText.includes(alternative));
+}
+
+function normalizedSubjects(value: unknown) {
+  return Array.from(
+    new Set(
+      String(value ?? "")
+        .split(/\s*(?:\/|;|,|&|\band\b)\s*/i)
+        .map(normalizedText)
+        .filter(Boolean),
+    ),
+  ).sort();
+}
+
+function subjectsMatch(target: string[], registry: string[]) {
+  if (!target.length || target.length !== registry.length) return false;
+  return target.every((subject, index) => subject === registry[index]);
+}
+
+function yearMatches(
+  targetYear: string,
+  releaseYear: unknown,
+  allowAdjacentYearRecovery: boolean,
+) {
+  const registryYear = yearStart(releaseYear);
+  if (!targetYear || !registryYear) return false;
+  if (registryYear === targetYear) return true;
+  if (!allowAdjacentYearRecovery) return false;
+  return Math.abs(Number(registryYear) - Number(targetYear)) === 1;
 }
 
 function isBaseParallel(value: unknown) {
@@ -345,6 +398,129 @@ function checklistParallelTokens(value: unknown) {
 function checklistParallelSignature(value: unknown) {
   if (isBaseParallel(value)) return "base";
   return [...new Set(checklistParallelTokens(value))].sort().join(" ");
+}
+
+const GENERIC_PARALLEL_EVIDENCE_TOKENS = new Set([
+  "insert",
+  "exact",
+  "type",
+  "uncertain",
+  "unknown",
+  "design",
+  "standard",
+  "stock",
+]);
+
+function visibleParallelNoteTokens(value: unknown) {
+  const notes = normalizedText(value);
+  if (!notes) return [] as string[];
+  const tokens: string[] = [];
+  const add = (...entries: string[]) => {
+    for (const entry of entries) {
+      if (!tokens.includes(entry)) tokens.push(entry);
+    }
+  };
+  const phraseEvidence: Array<[RegExp, string[]]> = [
+    [/\bblack and white\b/, ["black", "white"]],
+    [/\boutburst silver\b/, ["outburst", "silver"]],
+    [/\boutburst red\b/, ["outburst", "red"]],
+    [/\boutburst gold\b/, ["outburst", "gold"]],
+    [/\bgold glitter bomb\b/, ["gold", "glitter", "bomb"]],
+    [/\bclear cut\b/, ["clear", "cut"]],
+    [/\bblack rainbow\b/, ["black", "rainbow"]],
+    [/\bspeckled rainbow\b/, ["speckled", "rainbow"]],
+    [/\bblue spectrum\b/, ["blue", "spectrum"]],
+    [/\bpink lemonade\b/, ["pink", "lemonade"]],
+    [/\borange slice\b/, ["orange", "slice"]],
+    [/\bpurple diamond\b/, ["purple", "diamond"]],
+    [/\bsilver foil\b/, ["silver", "holo"]],
+    [/\bhigh gloss\b/, ["high", "gloss"]],
+    [/\bgolden treasures\b/, ["golden", "treasures"]],
+  ];
+  for (const [pattern, entries] of phraseEvidence) {
+    if (pattern.test(notes)) add(...entries);
+  }
+  for (const color of [
+    "black",
+    "blue",
+    "gold",
+    "green",
+    "orange",
+    "pink",
+    "purple",
+    "red",
+    "silver",
+    "white",
+  ]) {
+    const negated = new RegExp(`\\b(?:no|without)\\b[^.]{0,40}\\b${color}\\b`).test(notes);
+    const contextual =
+      new RegExp(`\\b${color}\\b(?:\\s+\\w+){0,3}\\s+\\b(?:border|foil|finish|parallel|background|frame)\\b`).test(notes) ||
+      new RegExp(`\\b(?:border|foil|finish|parallel|background|frame)\\b(?:\\s+\\w+){0,3}\\s+\\b${color}\\b`).test(notes);
+    if (!negated && contextual) add(color);
+  }
+  return tokens;
+}
+
+function hasVisibleParallelSurfaceRisk(value: unknown) {
+  const clauses = String(value || "").split(/[.;]/g);
+  const finishCue =
+    /\b(speckle(?:d)?|sparkle|glitter|rainbow|holo(?:graphic)?|foil|acetate|clear[-\s]*stock|transparent|translucent|outburst|refractor|prizm|prism|shimmer|wave|pulsar|mojo|mosaic|laser|black\s+and\s+white)\b/i;
+  const colorContext =
+    /\b(black|blue|gold|green|orange|pink|purple|red|silver|white)\b(?:\s+\w+){0,3}\s+\b(border|background|frame|finish|foil|parallel)\b/i;
+  const negation = /\b(no|not|without|none|absent|neither)\b/i;
+
+  return clauses.some((clause) => {
+    const cue = finishCue.exec(clause) || colorContext.exec(clause);
+    if (!cue) return false;
+    return !negation.test(clause.slice(0, cue.index));
+  });
+}
+
+function canonicalParallelName(signature: string) {
+  if (signature === "black white") return "Black and White";
+  return signature
+    .split(" ")
+    .filter(Boolean)
+    .map((token) => `${token.slice(0, 1).toUpperCase()}${token.slice(1)}`)
+    .join(" ");
+}
+
+function setNameSupportsParallelSignature(
+  setName: unknown,
+  signature: string,
+) {
+  const setTokens = new Set(checklistParallelTokens(setName));
+  const signatureTokens = signature.split(" ").filter(Boolean);
+  return (
+    signatureTokens.length > 0 &&
+    signatureTokens.every((token) => setTokens.has(token))
+  );
+}
+
+function targetParallelProfile(ai: Record<string, any>, setContext: unknown) {
+  const setTokens = new Set(meaningfulTokens(setContext));
+  const explicitBase = isBaseParallel(ai.parallel);
+  const directTokens = explicitBase
+    ? []
+    : checklistParallelTokens(ai.parallel).filter(
+        (token) =>
+          !setTokens.has(token) &&
+          !GENERIC_PARALLEL_EVIDENCE_TOKENS.has(token),
+      );
+  const noteTokens = visibleParallelNoteTokens(ai.notes);
+  const signatureTokens = noteTokens.length ? noteTokens : directTokens;
+  const signature = [...new Set(signatureTokens)].sort().join(" ");
+  const baseLike =
+    explicitBase ||
+    (!signature &&
+      (directTokens.length === 0 ||
+        evidenceTextIsUncertain(ai.parallel)));
+  return {
+    explicitBase,
+    baseLike,
+    signature,
+    surfaceRisk: hasVisibleParallelSurfaceRisk(ai.notes),
+  };
 }
 
 function asNumber(value: unknown) {
@@ -574,13 +750,12 @@ export function buildChecklistRegistryCatalogEvidence(
 export function chooseRegistryMatch(
   ai: Record<string, any>,
   rows: any[],
+  options: { allowAdjacentYearRecovery?: boolean } = {},
 ): RegistryMatch | null {
-  const targetPlayer = normalizedText(ai.player);
+  const targetPlayers = normalizedSubjects(ai.player);
   const targetYear = yearStart(ai.year);
-  const targetBrand = normalizedText(ai.brand);
+  const targetBrandAlternatives = normalizedBrandAlternatives(ai.brand);
   const targetSetTokens = new Set(meaningfulTokens(ai.setName));
-  const targetParallel = normalizedText(ai.parallel);
-  const targetParallelSignature = checklistParallelSignature(ai.parallel);
   const targetVariation = normalizedText(ai.variation);
   const targetTeam = normalizedText(ai.team);
   const targetSport = normalizedText(ai.sport);
@@ -591,7 +766,12 @@ export function chooseRegistryMatch(
   const targetAuto = ai.isAuto === true;
   const targetRelic = ai.isRelic === true;
 
-  if (!targetPlayer || !targetYear || !targetBrand || !targetSetTokens.size) {
+  if (
+    !targetPlayers.length ||
+    !targetYear ||
+    !targetBrandAlternatives.length ||
+    !targetSetTokens.size
+  ) {
     return null;
   }
 
@@ -607,22 +787,31 @@ export function chooseRegistryMatch(
           .map((link: any) => link?.player?.canonical_name)
           .filter(Boolean)
       : [];
-    if (!players.some((player: string) => normalizedText(player) === targetPlayer)) {
-      continue;
-    }
+    const registryPlayers = normalizedSubjects(players.join(" / "));
+    if (!subjectsMatch(targetPlayers, registryPlayers)) continue;
 
     const release = card.release || {};
     const releaseYear = release.release_year || release.season || null;
-    if (yearStart(releaseYear) !== targetYear) continue;
+    const adjacentYearRecovered =
+      yearStart(releaseYear) !== targetYear &&
+      options.allowAdjacentYearRecovery === true;
+    if (
+      !yearMatches(
+        targetYear,
+        releaseYear,
+        options.allowAdjacentYearRecovery === true,
+      )
+    ) {
+      continue;
+    }
 
     const manufacturer = release.manufacturer?.name || null;
     const brand = release.brand?.name || null;
     const product = release.product_name || null;
     const setName = card.set?.name || null;
-    const registryBrandText = normalizedText(
-      [manufacturer, brand, product].filter(Boolean).join(" "),
-    );
-    if (!registryBrandText.includes(targetBrand)) continue;
+    if (!brandEvidenceMatches(ai.brand, [manufacturer, brand, product, setName])) {
+      continue;
+    }
 
     const registrySetTokens = new Set(
       meaningfulTokens([brand, product, setName].filter(Boolean).join(" ")),
@@ -648,33 +837,55 @@ export function chooseRegistryMatch(
     if (targetSport && registrySport !== targetSport) continue;
     if (targetLeague && registryLeague !== targetLeague) continue;
 
-    const identities = Array.isArray(card.identities) ? card.identities : [];
-    for (const identity of identities) {
-      const parallelName = identity.parallel?.name || "Base";
-      const serialRun = asNumber(identity.parallel?.serial_run);
+    const parallelProfile = targetParallelProfile(
+    ai,
+    [ai.setName, brand, product, setName].filter(Boolean).join(" "),
+  );
+  if (
+    parallelProfile.baseLike &&
+    (parallelProfile.surfaceRisk || adjacentYearRecovered)
+  ) {
+    continue;
+  }
 
-      // The printed serial denominator narrows the official checklist
-      // candidates, but it never authorizes a parallel by itself. The visible
-      // parallel/color/finish must also agree with the official checklist row.
-      // For example, a blue /199 card cannot resolve to a red /199 identity.
-      const registryBase = isBaseParallel(parallelName);
-      const targetBase = isBaseParallel(targetParallel);
-      const registryParallelSignature =
-        checklistParallelSignature(parallelName);
-      const visualParallelMatches =
-        targetParallelSignature.length > 0 &&
-        registryParallelSignature === targetParallelSignature;
+  const identities = Array.isArray(card.identities) ? card.identities : [];
+  for (const identity of identities) {
+    const storedParallelName = identity.parallel?.name || "Base";
+    const serialRun = asNumber(identity.parallel?.serial_run);
+    const storedRegistryBase = isBaseParallel(storedParallelName);
+    const setEncodedParallel =
+      storedRegistryBase &&
+      !parallelProfile.baseLike &&
+      Boolean(parallelProfile.signature) &&
+      setNameSupportsParallelSignature(setName, parallelProfile.signature);
+    const parallelName = setEncodedParallel
+      ? canonicalParallelName(parallelProfile.signature)
+      : storedParallelName;
+    const registryBase = isBaseParallel(parallelName);
+    const registryParallelSignature = setEncodedParallel
+      ? parallelProfile.signature
+      : checklistParallelSignature(parallelName);
 
-      if (targetSerialRun) {
-        if (serialRun !== Number(targetSerialRun)) continue;
-        if (registryBase || targetBase || !visualParallelMatches) continue;
-      } else {
-        // Without printed serial evidence, reject numbered checklist identities
-        // and retain the same strict visual parallel compatibility requirement.
-        if (serialRun) continue;
-        if (targetBase !== registryBase) continue;
-        if (!targetBase && !visualParallelMatches) continue;
+    if (targetSerialRun) {
+      if (serialRun !== Number(targetSerialRun)) continue;
+      if (
+        registryBase ||
+        !parallelProfile.signature ||
+        registryParallelSignature !== parallelProfile.signature
+      ) {
+        continue;
       }
+    } else {
+      if (serialRun) continue;
+      if (parallelProfile.baseLike) {
+        if (!registryBase) continue;
+      } else if (
+        registryBase ||
+        registryParallelSignature !== parallelProfile.signature
+      ) {
+        continue;
+      }
+    }
 
       const registryVariation = normalizedText(identity.variation || card.variation);
       if (targetVariation && registryVariation !== targetVariation) continue;
@@ -709,7 +920,9 @@ export function chooseRegistryMatch(
       const evidence = [
         `card number ${card.card_number}`,
         `player ${players.join(" / ")}`,
-        `release ${releaseYear}`,
+        adjacentYearRecovered
+          ? `release ${releaseYear} uniquely corrected visible year ${ai.year}`
+          : `release ${releaseYear}`,
         `manufacturer ${manufacturer || "unknown"}`,
         `product ${product || "unknown"}`,
         `set ${setName || "unknown"}`,
@@ -832,6 +1045,7 @@ function evidenceTextIsUncertain(value: unknown) {
 function checklistSetCoverageMatches(
   ai: Record<string, any>,
   row: Record<string, any>,
+  options: { allowAdjacentYearRecovery?: boolean } = {},
 ) {
   const release = record(row.release);
   const manufacturer = record(release.manufacturer);
@@ -839,22 +1053,29 @@ function checklistSetCoverageMatches(
   const sport = record(release.sport);
   const league = record(release.league);
   const targetYear = yearStart(ai.year);
-  const targetBrand = normalizedText(ai.brand);
   const targetSetTokens = new Set(meaningfulTokens(ai.setName));
 
   const releaseYear = release.release_year || release.season || null;
-  if (yearStart(releaseYear) !== targetYear) return false;
+  if (
+    !yearMatches(
+      targetYear,
+      releaseYear,
+      options.allowAdjacentYearRecovery === true,
+    )
+  ) {
+    return false;
+  }
 
-  const registryBrandText = normalizedText(
-    [
+  if (
+    !brandEvidenceMatches(ai.brand, [
       manufacturer.name,
       brand.name,
       release.product_name,
-    ]
-      .filter(Boolean)
-      .join(" "),
-  );
-  if (!registryBrandText.includes(targetBrand)) return false;
+      row.name,
+    ])
+  ) {
+    return false;
+  }
 
   const registrySetTokens = new Set(
     meaningfulTokens(
@@ -936,18 +1157,30 @@ export async function resolveChecklistRegistry(
     };
   }
 
-  const coveredSets = (setRows || []).filter((row: any) =>
-    checklistSetCoverageMatches(ai, row),
-  );
-  const coveredReleaseIds = Array.from(
-    new Set(coveredSets.map((row: any) => String(row.release_id)).filter(Boolean)),
-  );
-  const coveredVersionIds = Array.from(
-    new Set(coveredSets.map((row: any) => String(row.version_id)).filter(Boolean)),
-  );
-  const coveredSetIds = Array.from(
-    new Set(coveredSets.map((row: any) => String(row.id)).filter(Boolean)),
-  );
+  const exactCoveredSets = (setRows || []).filter((row: any) =>
+  checklistSetCoverageMatches(ai, row),
+);
+const adjacentCoveredSets = exactCoveredSets.length
+  ? []
+  : (setRows || []).filter((row: any) =>
+      checklistSetCoverageMatches(ai, row, {
+        allowAdjacentYearRecovery: true,
+      }),
+    );
+const coveredSets = exactCoveredSets.length
+  ? exactCoveredSets
+  : adjacentCoveredSets;
+const usedAdjacentYearRecovery =
+  exactCoveredSets.length === 0 && adjacentCoveredSets.length > 0;
+const coveredReleaseIds = Array.from(
+  new Set(coveredSets.map((row: any) => String(row.release_id)).filter(Boolean)),
+);
+const coveredVersionIds = Array.from(
+  new Set(coveredSets.map((row: any) => String(row.version_id)).filter(Boolean)),
+);
+const coveredSetIds = Array.from(
+  new Set(coveredSets.map((row: any) => String(row.id)).filter(Boolean)),
+);
 
   if (!coveredSetIds.length) {
     if (options.evidenceTrusted !== true) {
@@ -1051,7 +1284,9 @@ export async function resolveChecklistRegistry(
       total + (Array.isArray(card.identities) ? card.identities.length : 0),
     0,
   );
-  const match = chooseRegistryMatch(ai, cardRows);
+  const match = chooseRegistryMatch(ai, cardRows, {
+  allowAdjacentYearRecovery: usedAdjacentYearRecovery,
+});
 
   if (match) {
     return {

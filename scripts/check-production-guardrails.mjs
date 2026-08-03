@@ -3890,14 +3890,16 @@ assertFileIncludes("instacomp exact identity firewall consensus source", "src/li
   "families: string[]",
   "function readerFamily",
   "presentReaderFamilies",
-  "catalog parallel lacks agreement from two independent scanner families",
+  "catalog Base parallel conflicts with unresolved visible surface/finish evidence",
+  "catalog non-Base parallel lacks agreement from two independent scanner families",
+  "parallelGroupMatchesCatalog",
   "weighted voting is forbidden for exact identity",
   "multi_scanner_${decision.field}_single_reader",
   "family: readerFamily(reader)",
 ]);
 assertFileIncludes("instacomp exact identity firewall checklist source", "src/lib/instacomp-learning-server.ts", [
   "function checklistParallelSignature",
-  "registryParallelSignature === targetParallelSignature",
+  "registryParallelSignature !== parallelProfile.signature",
   "parallel_not_independently_confirmed",
   "parallelEvidenceStrong",
   '"parallel",',
@@ -3942,7 +3944,7 @@ assertFileIncludes("instacomp foil-holo exact identity aliases", "src/lib/instac
 assertFileIncludes("instacomp consensus foil-holo exact identity aliases", "src/lib/instacomp-consensus.ts", [
   '.replace(/\\bfoil\\b/g, "holo")',
   "function comparableParallel",
-  "catalog parallel lacks agreement from two independent scanner families",
+  "parallelGroupMatchesCatalog",
 ]);
 assertFileIncludes("instacomp package runs Shedeur real-card regression", "package.json", [
   '"simulate:instacomp-shedeur-107"',

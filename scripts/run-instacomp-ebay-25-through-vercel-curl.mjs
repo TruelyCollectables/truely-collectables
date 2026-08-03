@@ -3,6 +3,10 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { promisify } from "node:util";
+import {
+  applyBenchmarkCertification,
+  renderCertificationMarkdown,
+} from "./instacomp-benchmark-certification.mjs";
 
 const execFileAsync = promisify(execFile);
 const deploymentUrl = String(process.env.INSTACOMP_PREVIEW_DEPLOYMENT_URL || "")
@@ -71,7 +75,10 @@ const server = http.createServer(async (request, response) => {
     response.setHeader("Content-Type", "application/json; charset=utf-8");
     response.end(output);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Vercel protected-preview proxy failed.";
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Vercel protected-preview proxy failed.";
     const stderr =
       error && typeof error === "object" && "stderr" in error
         ? String(error.stderr || "").trim()
@@ -110,16 +117,35 @@ try {
     process.env.INSTACOMP_BENCHMARK_REPORT_DIR || "reports",
   );
   const jsonPath = path.join(reportDirectory, "instacomp-ebay-25-report.json");
-  const markdownPath = path.join(reportDirectory, "instacomp-ebay-25-report.md");
+  const markdownPath = path.join(
+    reportDirectory,
+    "instacomp-ebay-25-report.md",
+  );
 
+  let certification = null;
   if (fs.existsSync(jsonPath)) {
-    const report = JSON.parse(fs.readFileSync(jsonPath, "utf8"));
+    const report = applyBenchmarkCertification(
+      JSON.parse(fs.readFileSync(jsonPath, "utf8")),
+    );
     report.previewUrl = deploymentUrl;
+    certification = report.certification;
     fs.writeFileSync(jsonPath, `${JSON.stringify(report, null, 2)}\n`);
   }
   if (fs.existsSync(markdownPath)) {
-    const markdown = fs.readFileSync(markdownPath, "utf8").replaceAll(proxyUrl, deploymentUrl);
-    fs.writeFileSync(markdownPath, markdown);
+    const markdown = fs
+      .readFileSync(markdownPath, "utf8")
+      .replaceAll(proxyUrl, deploymentUrl);
+    const certificationSection = certification
+      ? `${renderCertificationMarkdown(certification)}\n`
+      : "";
+    fs.writeFileSync(markdownPath, `${certificationSection}${markdown}`);
+  }
+
+  if (certification?.status === "blocked") {
+    console.error(
+      `[certification blocked] ${certification.code}: ${certification.message}`,
+    );
+    process.exitCode = 2;
   }
 } finally {
   await new Promise((resolve) => server.close(resolve));
