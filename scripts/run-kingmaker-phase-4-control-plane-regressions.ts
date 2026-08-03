@@ -12,7 +12,7 @@ function record(index: number, soldAmount: number, sellerKey = "trusted"): Kingm
     source: "ebay",
     sellerKey,
     predictedProfit: 18,
-    predictedRoiPercent: 60,
+    predictedRoiPercent: 87,
     predictedConfidence: 0.9,
     landedCost: 30,
     soldAmount,
