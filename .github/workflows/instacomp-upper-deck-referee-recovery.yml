@@ -7,6 +7,9 @@ on:
       - "src/lib/instacomp-learning-server.ts"
       - "src/lib/instacomp-consensus.ts"
       - "scripts/check-production-guardrails.mjs"
+      - "scripts/instacomp-benchmark-certification.mjs"
+      - "scripts/run-instacomp-benchmark-certification-regression.mjs"
+      - "scripts/run-instacomp-ebay-25-through-vercel-curl.mjs"
       - "scripts/run-instacomp-registry-semantic-referee-regression.ts"
       - "scripts/run-instacomp-upper-deck-referee-recovery-regression.ts"
       - ".github/workflows/instacomp-upper-deck-referee-recovery.yml"
@@ -37,6 +40,9 @@ jobs:
           node --import tsx scripts/run-instacomp-registry-semantic-referee-regression.ts
           node --import tsx scripts/run-instacomp-upper-deck-referee-recovery-regression.ts
 
+      - name: Prove benchmark provider-block classification
+        run: node scripts/run-instacomp-benchmark-certification-regression.mjs
+
       - name: Preserve existing Registry and identity firewalls
         run: |
           npx tsx scripts/run-instacomp-registry-consensus-bridge-regression.ts
@@ -54,6 +60,9 @@ jobs:
             src/lib/instacomp-learning-server.ts \
             src/lib/instacomp-consensus.ts \
             scripts/check-production-guardrails.mjs \
+            scripts/instacomp-benchmark-certification.mjs \
+            scripts/run-instacomp-benchmark-certification-regression.mjs \
+            scripts/run-instacomp-ebay-25-through-vercel-curl.mjs \
             scripts/run-instacomp-registry-semantic-referee-regression.ts \
             scripts/run-instacomp-upper-deck-referee-recovery-regression.ts
 
