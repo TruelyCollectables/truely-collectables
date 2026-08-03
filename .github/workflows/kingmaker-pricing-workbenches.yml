@@ -6,7 +6,7 @@ on:
       - "src/app/admin/instacomp/pricing/**"
       - "src/app/api/instacomp/pricing/**"
       - "src/lib/kingmaker-pricing-command-center-server.ts"
-      - "scripts/run-kingmaker-pricing-workbench-regressions.ts"
+      - "scripts/run-kingmaker-pricing-workbenches-regressions.ts"
       - ".github/workflows/kingmaker-pricing-workbenches.yml"
 
 permissions:
@@ -32,14 +32,14 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Workbench regressions
-        run: node --import tsx scripts/run-kingmaker-pricing-workbench-regressions.ts
+        run: node --import tsx scripts/run-kingmaker-pricing-workbenches-regressions.ts
       - name: Privacy and advisory contracts
         run: |
           set -euo pipefail
-          ! grep -RIni 'beckett' src/app/admin/instacomp/pricing scripts/run-kingmaker-pricing-workbench-regressions.ts
+          ! grep -RIni 'beckett' src/app/admin/instacomp/pricing scripts/run-kingmaker-pricing-workbenches-regressions.ts
           ! grep -RIniE 'from\(["'"'](products|orders|offers|market_intel_purchases)["'"']\).*(insert|update|upsert|delete)\(' src/app/admin/instacomp/pricing
       - name: Lint
-        run: npx eslint src/app/admin/instacomp/pricing scripts/run-kingmaker-pricing-workbench-regressions.ts
+        run: npx eslint src/app/admin/instacomp/pricing scripts/run-kingmaker-pricing-workbenches-regressions.ts
       - name: TypeScript
         run: npx tsc --noEmit
       - name: Production build
