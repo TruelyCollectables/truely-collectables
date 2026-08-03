@@ -61,6 +61,160 @@ export function assertLearningProvenanceVerification(row) {
 
 export function learningProvenanceVerificationSql() {
   return `
+    with observation_payloads as (
+      select
+        observation.confirmation_status,
+        coalesce(observation.operator_corrections, '{}'::jsonb)
+          as operator_corrections,
+        coalesce(observation.ai_result, '{}'::jsonb) as ai_result,
+        coalesce(
+          (
+            select coalesce(scan.raw_comp_results, '{}'::jsonb)
+            from public.instacomp_scans scan
+            where nullif(
+              btrim(coalesce(observation.source_scan_id::text, '')),
+              ''
+            ) is not null
+              and scan.id::text = observation.source_scan_id::text
+            limit 1
+          ),
+          coalesce(observation.result_payload, '{}'::jsonb)
+        ) as trust_payload
+      from public.tcos_card_knowledge_observations observation
+    ),
+    observation_states as (
+      select
+        confirmation_status,
+        (
+          lower(coalesce(
+            trust_payload #>> '{consensus,trustedForIdentity}',
+            'false'
+          )) = 'true'
+          and lower(coalesce(
+            trust_payload #>> '{compSearchDecision,allowed}',
+            'false'
+          )) = 'true'
+          and lower(coalesce(
+            trust_payload #>> '{checklistRegistry,matched}',
+            'false'
+          )) = 'true'
+          and nullif(btrim(coalesce(
+            trust_payload #>> '{checklistRegistry,identityId}',
+            ''
+          )), '') is not null
+          and lower(coalesce(
+            trust_payload #>> '{catalogEvidence,status}',
+            ''
+          )) = 'catalog_confirmed'
+          and lower(coalesce(
+            trust_payload #>> '{catalogEvidence,catalogConfirmed}',
+            'false'
+          )) = 'true'
+          and nullif(btrim(coalesce(
+            trust_payload #>> '{catalogEvidence,selectedMatch,catalogId}',
+            ''
+          )), '') is not null
+          and btrim(
+            trust_payload #>> '{checklistRegistry,identityId}'
+          ) = btrim(
+            trust_payload #>> '{catalogEvidence,selectedMatch,catalogId}'
+          )
+        ) as exact_identity_trusted,
+        (
+          nullif(btrim(coalesce(operator_corrections->>'player', '')), '')
+            is not null
+          and nullif(btrim(coalesce(operator_corrections->>'year', '')), '')
+            is not null
+          and nullif(btrim(coalesce(operator_corrections->>'brand', '')), '')
+            is not null
+          and nullif(btrim(coalesce(operator_corrections->>'setName', '')), '')
+            is not null
+          and nullif(btrim(coalesce(operator_corrections->>'cardNumber', '')), '')
+            is not null
+          and nullif(btrim(coalesce(operator_corrections->>'parallel', '')), '')
+            is not null
+          and (
+            nullif(btrim(coalesce(ai_result->>'serialNumber', '')), '') is null
+            or nullif(btrim(coalesce(
+              operator_corrections->>'serialNumber',
+              ''
+            )), '') is not null
+          )
+        ) as operator_identity_complete
+      from observation_payloads
+    ),
+    cache_payloads as (
+      select
+        cache.confirmation_status,
+        coalesce(cache.response_payload, '{}'::jsonb) as trust_payload,
+        coalesce(
+          cache.response_payload->'operatorCorrections',
+          '{}'::jsonb
+        ) as operator_corrections,
+        coalesce(cache.response_payload->'ai', '{}'::jsonb) as ai_result
+      from public.instacomp_scan_knowledge_cache cache
+    ),
+    cache_states as (
+      select
+        confirmation_status,
+        (
+          lower(coalesce(
+            trust_payload #>> '{consensus,trustedForIdentity}',
+            'false'
+          )) = 'true'
+          and lower(coalesce(
+            trust_payload #>> '{compSearchDecision,allowed}',
+            'false'
+          )) = 'true'
+          and lower(coalesce(
+            trust_payload #>> '{checklistRegistry,matched}',
+            'false'
+          )) = 'true'
+          and nullif(btrim(coalesce(
+            trust_payload #>> '{checklistRegistry,identityId}',
+            ''
+          )), '') is not null
+          and lower(coalesce(
+            trust_payload #>> '{catalogEvidence,status}',
+            ''
+          )) = 'catalog_confirmed'
+          and lower(coalesce(
+            trust_payload #>> '{catalogEvidence,catalogConfirmed}',
+            'false'
+          )) = 'true'
+          and nullif(btrim(coalesce(
+            trust_payload #>> '{catalogEvidence,selectedMatch,catalogId}',
+            ''
+          )), '') is not null
+          and btrim(
+            trust_payload #>> '{checklistRegistry,identityId}'
+          ) = btrim(
+            trust_payload #>> '{catalogEvidence,selectedMatch,catalogId}'
+          )
+        ) as exact_identity_trusted,
+        (
+          nullif(btrim(coalesce(operator_corrections->>'player', '')), '')
+            is not null
+          and nullif(btrim(coalesce(operator_corrections->>'year', '')), '')
+            is not null
+          and nullif(btrim(coalesce(operator_corrections->>'brand', '')), '')
+            is not null
+          and nullif(btrim(coalesce(operator_corrections->>'setName', '')), '')
+            is not null
+          and nullif(btrim(coalesce(operator_corrections->>'cardNumber', '')), '')
+            is not null
+          and nullif(btrim(coalesce(operator_corrections->>'parallel', '')), '')
+            is not null
+          and (
+            nullif(btrim(coalesce(ai_result->>'serialNumber', '')), '') is null
+            or nullif(btrim(coalesce(
+              operator_corrections->>'serialNumber',
+              ''
+            )), '') is not null
+          )
+        ) as operator_identity_complete
+      from cache_payloads
+    )
     select
       to_regprocedure(
         'public.tcos_instacomp_payload_exact_identity_trusted(jsonb)'
@@ -93,6 +247,16 @@ export function learningProvenanceVerificationSql() {
           'service_role',
           'public.tcos_instacomp_observation_exact_identity_trusted(text,jsonb)',
           'execute'
+        )
+        and has_function_privilege(
+          'service_role',
+          'public.tcos_instacomp_enforce_observation_identity_trust()',
+          'execute'
+        )
+        and has_function_privilege(
+          'service_role',
+          'public.tcos_instacomp_enforce_cache_identity_trust()',
+          'execute'
         ) as service_role_execute,
       not has_function_privilege(
         'anon',
@@ -113,45 +277,67 @@ export function learningProvenanceVerificationSql() {
           'authenticated',
           'public.tcos_instacomp_observation_exact_identity_trusted(text,jsonb)',
           'execute'
+        )
+        and not has_function_privilege(
+          'anon',
+          'public.tcos_instacomp_enforce_observation_identity_trust()',
+          'execute'
+        )
+        and not has_function_privilege(
+          'authenticated',
+          'public.tcos_instacomp_enforce_observation_identity_trust()',
+          'execute'
+        )
+        and not has_function_privilege(
+          'anon',
+          'public.tcos_instacomp_enforce_cache_identity_trust()',
+          'execute'
+        )
+        and not has_function_privilege(
+          'authenticated',
+          'public.tcos_instacomp_enforce_cache_identity_trust()',
+          'execute'
+        )
+        and not exists (
+          select 1
+          from pg_proc procedure
+          cross join lateral aclexplode(
+            coalesce(
+              procedure.proacl,
+              acldefault('f', procedure.proowner)
+            )
+          ) privilege
+          where procedure.oid in (
+            'public.tcos_instacomp_payload_exact_identity_trusted(jsonb)'::regprocedure,
+            'public.tcos_instacomp_observation_exact_identity_trusted(text,jsonb)'::regprocedure,
+            'public.tcos_instacomp_enforce_observation_identity_trust()'::regprocedure,
+            'public.tcos_instacomp_enforce_cache_identity_trust()'::regprocedure
+          )
+            and privilege.grantee = 0
+            and privilege.privilege_type = 'EXECUTE'
         ) as public_roles_revoked,
       not exists (
         select 1
-        from public.tcos_card_knowledge_observations observation
+        from observation_states observation
         where (
           observation.confirmation_status = 'catalog_confirmed'
-          and not public.tcos_instacomp_observation_exact_identity_trusted(
-            observation.source_scan_id::text,
-            coalesce(observation.result_payload, '{}'::jsonb)
-          )
+          and not observation.exact_identity_trusted
         ) or (
           observation.confirmation_status = 'operator_confirmed'
-          and not public.tcos_instacomp_observation_exact_identity_trusted(
-            observation.source_scan_id::text,
-            coalesce(observation.result_payload, '{}'::jsonb)
-          )
-          and not public.tcos_instacomp_operator_identity_complete(
-            coalesce(observation.operator_corrections, '{}'::jsonb),
-            coalesce(observation.ai_result, '{}'::jsonb)
-          )
+          and not observation.exact_identity_trusted
+          and not observation.operator_identity_complete
         )
       ) as observation_backfill_safe,
       not exists (
         select 1
-        from public.instacomp_scan_knowledge_cache cache
+        from cache_states cache
         where (
           cache.confirmation_status = 'catalog_confirmed'
-          and not public.tcos_instacomp_payload_exact_identity_trusted(
-            coalesce(cache.response_payload, '{}'::jsonb)
-          )
+          and not cache.exact_identity_trusted
         ) or (
           cache.confirmation_status = 'operator_confirmed'
-          and not public.tcos_instacomp_payload_exact_identity_trusted(
-            coalesce(cache.response_payload, '{}'::jsonb)
-          )
-          and not public.tcos_instacomp_operator_identity_complete(
-            coalesce(cache.response_payload->'operatorCorrections', '{}'::jsonb),
-            coalesce(cache.response_payload->'ai', '{}'::jsonb)
-          )
+          and not cache.exact_identity_trusted
+          and not cache.operator_identity_complete
         )
       ) as cache_backfill_safe;
   `;
@@ -162,6 +348,7 @@ async function managementQuery({
   accessToken,
   query,
   readOnly,
+  stage,
   fetchImpl,
 }) {
   const response = await fetchImpl(endpoint, {
@@ -175,7 +362,7 @@ async function managementQuery({
   const body = await response.text();
   if (!response.ok) {
     throw new Error(
-      `Supabase Management query failed with HTTP ${response.status}: ${body.slice(0, 1200)}`,
+      `Supabase Management ${stage} failed with HTTP ${response.status}: ${body.slice(0, 1200)}`,
     );
   }
   return body;
@@ -201,6 +388,7 @@ export async function applyAndVerifyLearningProvenance({
     accessToken,
     query: migrationSql,
     readOnly: false,
+    stage: "migration apply",
     fetchImpl,
   });
   const verificationBody = await managementQuery({
@@ -208,6 +396,7 @@ export async function applyAndVerifyLearningProvenance({
     accessToken,
     query: learningProvenanceVerificationSql(),
     readOnly: true,
+    stage: "read-only verification",
     fetchImpl,
   });
   const rows = JSON.parse(verificationBody);
@@ -245,6 +434,15 @@ async function runSelfTest() {
     /public_roles_revoked/,
   );
 
+  const verificationSql = learningProvenanceVerificationSql();
+  assert.match(verificationSql, /observation_states/);
+  assert.match(verificationSql, /cache_states/);
+  assert.match(verificationSql, /aclexplode/);
+  assert.doesNotMatch(
+    verificationSql,
+    /\bnot\s+public\.tcos_instacomp_(?:payload_exact_identity_trusted|observation_exact_identity_trusted|operator_identity_complete)\s*\(/,
+  );
+
   const requests = [];
   const fetchImpl = async (endpoint, init) => {
     requests.push({ endpoint, init });
@@ -271,6 +469,28 @@ async function runSelfTest() {
     requests[1].endpoint,
     /^https:\/\/api\.supabase\.com\/v1\/projects\/abc123\//,
   );
+
+  let stagedRequest = 0;
+  await assert.rejects(
+    applyAndVerifyLearningProvenance({
+      productionEnvContents:
+        "NEXT_PUBLIC_SUPABASE_URL=https://abc123.supabase.co\n",
+      accessToken: "test-token",
+      migrationSql: "select 1;",
+      fetchImpl: async () => {
+        stagedRequest += 1;
+        return stagedRequest === 1
+          ? { ok: true, status: 200, text: async () => "[]" }
+          : {
+              ok: false,
+              status: 400,
+              text: async () => '{"message":"permission denied"}',
+            };
+      },
+    }),
+    /read-only verification failed/,
+  );
+
   console.log(
     "InstaComp Production learning-provenance migration self-test passed.",
   );
