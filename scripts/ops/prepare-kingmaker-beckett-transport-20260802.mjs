@@ -1,8 +1,7 @@
 import { createHash, generateKeyPairSync, randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 
-const BUCKET = "tcos-kingmaker-price-guide-sources";
 const RECEIPT_SCHEMA = "tcos.kingmaker.beckettTransportPublicKey.v1";
 
 function parseEnv(contents) {
@@ -28,28 +27,34 @@ function parseEnv(contents) {
   return parsed;
 }
 
-function objectUrl(baseUrl, objectPath) {
-  const encoded = objectPath.split("/").map(encodeURIComponent).join("/");
-  return `${String(baseUrl).replace(/\/$/, "")}/storage/v1/object/${BUCKET}/${encoded}`;
+function projectRef(productionUrl) {
+  const match = String(productionUrl || "").match(
+    /^https:\/\/([a-z0-9]+)\.supabase\.co\/?$/i,
+  );
+  if (!match) throw new Error("Production Supabase URL was not pulled from Vercel.");
+  return match[1];
 }
 
-async function uploadPrivateKey({ baseUrl, serviceKey, objectPath, privateKey }) {
-  const response = await fetch(objectUrl(baseUrl, objectPath), {
-    method: "POST",
-    headers: {
-      apikey: serviceKey,
-      authorization: `Bearer ${serviceKey}`,
-      "content-type": "application/x-pem-file",
-      "x-upsert": "false",
+async function queryManagement({ project, token, query, parameters, readOnly, stage }) {
+  const response = await fetch(
+    `https://api.supabase.com/v1/projects/${project}/database/query`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({ query, parameters, read_only: readOnly }),
     },
-    body: privateKey,
-  });
+  );
   const text = await response.text();
   if (!response.ok) {
     throw new Error(
-      `Private transport-key upload failed with HTTP ${response.status}: ${text.slice(0, 500)}`,
+      `Supabase Management ${stage} failed with HTTP ${response.status}: ${text.slice(0, 800)}`,
     );
   }
+  return text ? JSON.parse(text) : [];
 }
 
 async function main() {
@@ -57,30 +62,82 @@ async function main() {
     throw new Error("ALLOW_KINGMAKER_BECKETT_TRANSPORT_PREP=YES is required.");
   }
   const envPath = process.env.PRODUCTION_ENV_FILE;
-  if (!envPath) throw new Error("PRODUCTION_ENV_FILE is required.");
-
-  const env = parseEnv(readFileSync(envPath, "utf8"));
-  const baseUrl = env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!baseUrl || !serviceKey) {
-    throw new Error("Production Supabase URL and service-role key are required.");
+  const token = process.env.GH_SUPABASE_ACCESS_TOKEN;
+  if (!envPath || !token) {
+    throw new Error("PRODUCTION_ENV_FILE and GH_SUPABASE_ACCESS_TOKEN are required.");
   }
 
+  const env = parseEnv(readFileSync(envPath, "utf8"));
+  const project = projectRef(env.NEXT_PUBLIC_SUPABASE_URL);
   const transportId = randomBytes(24).toString("hex");
   const { publicKey, privateKey } = generateKeyPairSync("rsa", {
     modulusLength: 4096,
     publicKeyEncoding: { type: "spki", format: "pem" },
     privateKeyEncoding: { type: "pkcs8", format: "pem" },
   });
-  const privateObjectPath =
-    `tcos/kingmaker/beckett/transport/${transportId}/private-key.pem`;
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  const publicKeySha256 = createHash("sha256").update(publicKey).digest("hex");
 
-  await uploadPrivateKey({
-    baseUrl,
-    serviceKey,
-    objectPath: privateObjectPath,
-    privateKey,
+  await queryManagement({
+    project,
+    token,
+    readOnly: false,
+    stage: "private transport-key persistence",
+    parameters: [transportId, privateKey, publicKeySha256, expiresAt.toISOString()],
+    query: `
+      begin;
+      create schema if not exists private;
+      revoke all on schema private from public, anon, authenticated;
+      create table if not exists private.tcos_kingmaker_beckett_transport_keys (
+        transport_id text primary key,
+        private_key_pem text not null,
+        public_key_sha256 text not null,
+        expires_at timestamptz not null,
+        consumed_at timestamptz,
+        created_at timestamptz not null default now()
+      );
+      revoke all on private.tcos_kingmaker_beckett_transport_keys
+        from public, anon, authenticated;
+      insert into private.tcos_kingmaker_beckett_transport_keys (
+        transport_id,
+        private_key_pem,
+        public_key_sha256,
+        expires_at
+      ) values ($1, $2, $3, $4::timestamptz);
+      commit;
+    `,
   });
+
+  const verification = await queryManagement({
+    project,
+    token,
+    readOnly: true,
+    stage: "private transport-key verification",
+    parameters: [transportId, publicKeySha256],
+    query: `
+      select
+        transport_id = $1 as transport_id_match,
+        public_key_sha256 = $2 as public_key_match,
+        expires_at > now() as unexpired,
+        consumed_at is null as unused,
+        length(private_key_pem) > 3000 as private_key_present
+      from private.tcos_kingmaker_beckett_transport_keys
+      where transport_id = $1;
+    `,
+  });
+  const verified = Array.isArray(verification) ? verification[0] : verification;
+  for (const field of [
+    "transport_id_match",
+    "public_key_match",
+    "unexpired",
+    "unused",
+    "private_key_present",
+  ]) {
+    if (verified?.[field] !== true) {
+      throw new Error(`Private transport-key verification failed: ${field}.`);
+    }
+  }
 
   const outputDirectory = resolve(
     process.cwd(),
@@ -88,10 +145,6 @@ async function main() {
       "evidence/kingmaker-beckett-transport-public-key-20260802",
   );
   mkdirSync(outputDirectory, { recursive: true });
-  const publicKeyPath = resolve(outputDirectory, "public-key.pem");
-  const manifestPath = resolve(outputDirectory, "transport.json");
-  const now = new Date();
-  const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
   const manifest = {
     schema: RECEIPT_SCHEMA,
     transportId,
@@ -103,16 +156,20 @@ async function main() {
       payload: "AES-256-GCM",
       rsaBits: 4096,
     },
-    publicKeySha256: createHash("sha256").update(publicKey).digest("hex"),
-    privateObjectPath,
-    privateKeyPersistedOnlyInPrivateStorage: true,
+    publicKeySha256,
+    privateRecord: "private.tcos_kingmaker_beckett_transport_keys",
+    privateKeyPersistedOnlyInPrivateDatabase: true,
     publicKeyOnlyInArtifact: true,
     sourceFilesUploaded: false,
   };
-  writeFileSync(publicKeyPath, publicKey, { mode: 0o644 });
-  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, {
+  writeFileSync(resolve(outputDirectory, "public-key.pem"), publicKey, {
     mode: 0o644,
   });
+  writeFileSync(
+    resolve(outputDirectory, "transport.json"),
+    `${JSON.stringify(manifest, null, 2)}\n`,
+    { mode: 0o644 },
+  );
 
   const safetyText = `${publicKey}\n${JSON.stringify(manifest)}`;
   if (/BEGIN PRIVATE KEY|sb_secret_|SUPABASE_SERVICE_ROLE_KEY/i.test(safetyText)) {
@@ -125,7 +182,7 @@ async function main() {
         transportId: manifest.transportId,
         expiresAt: manifest.expiresAt,
         publicKeySha256: manifest.publicKeySha256,
-        privateKeyPersistedOnlyInPrivateStorage: true,
+        privateKeyPersistedOnlyInPrivateDatabase: true,
       },
       null,
       2,
