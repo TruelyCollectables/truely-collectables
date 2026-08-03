@@ -1,0 +1,46 @@
+name: Automatic Topps Baseball Checklist Discovery
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_products:
+        description: Maximum Topps baseball product pages to inspect
+        required: true
+        default: "40"
+  schedule:
+    - cron: "43 12 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: automatic-topps-baseball-checklist-discovery
+  cancel-in-progress: false
+
+jobs:
+  discover-baseball-checklists:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 45
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TOPPS_BASEBALL_MAX_PRODUCTS: ${{ inputs.max_products || '40' }}
+      TOPPS_BASEBALL_DISCOVERY_OUTPUT: .checklist-discovery/topps-baseball-receipt.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Discover official Topps and Bowman baseball checklists
+        run: npx tsx scripts/discover-topps-baseball-checklists.ts
+      - name: Upload sanitized discovery receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: automatic-topps-baseball-checklist-discovery-receipt
+          path: .checklist-discovery/*.json
+          if-no-files-found: warn
+          retention-days: 90
