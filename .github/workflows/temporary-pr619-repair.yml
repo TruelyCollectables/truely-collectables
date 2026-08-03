@@ -1,0 +1,59 @@
+name: Temporary PR 619 Repair
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder
+      SUPABASE_SERVICE_ROLE_KEY: placeholder
+      ADMIN_SESSION_SECRET: placeholder-placeholder-placeholder-placeholder
+      OPENAI_API_KEY: placeholder
+      STRIPE_SECRET_KEY: sk_test_placeholder
+      RESEND_API_KEY: placeholder
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Repair initial workbench load effect
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = 'src/app/admin/instacomp/pricing/_components/pricing-workbench.tsx';
+          let source = fs.readFileSync(path, 'utf8');
+          const before = `  useEffect(() => {\n    void refresh();\n  }, []);`;
+          const after = `  useEffect(() => {\n    const initialLoad = window.setTimeout(() => {\n      void refresh();\n    }, 0);\n\n    return () => window.clearTimeout(initialLoad);\n  }, []);`;
+          if (source.includes(before)) {
+            source = source.replace(before, after);
+            fs.writeFileSync(path, source);
+          } else if (!source.includes('const initialLoad = window.setTimeout')) {
+            throw new Error('pricing workbench effect anchor not found');
+          }
+          NODE
+      - name: Validate repair
+        run: |
+          node --import tsx scripts/run-kingmaker-pricing-workbenches-regressions.ts
+          npx eslint src/app/admin/instacomp/pricing scripts/run-kingmaker-pricing-workbenches-regressions.ts
+          npx tsc --noEmit
+      - name: Commit repair
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/app/admin/instacomp/pricing/_components/pricing-workbench.tsx
+          git diff --cached --quiet && exit 0
+          git commit -m "fix: defer pricing workbench initial refresh"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
