@@ -49,6 +49,20 @@ if count != 1:
         f"V2 semantic set-match boundary changed; refusing to run ({count} replacements)."
     )
 
+old_parallel_support = '''} else if (supportingParallelFamilies.length < 1) {
+      conflicts.push(
+        "catalog non-Base parallel lacks visible scanner support",
+      );'''
+new_parallel_support = '''} else if (supportingParallelFamilies.length < 2) {
+      conflicts.push(
+        "catalog non-Base parallel lacks agreement from two independent scanner families",
+      );'''
+if script.count(old_parallel_support) != 1:
+    raise SystemExit(
+        f"V2 independent-family boundary changed; refusing to run ({script.count(old_parallel_support)} matches)."
+    )
+script = script.replace(old_parallel_support, new_parallel_support, 1)
+
 guardrail_start = 'guardrails = Path("scripts/check-production-guardrails.mjs")\n'
 if script.count(guardrail_start) != 1:
     raise SystemExit(
@@ -74,7 +88,7 @@ if guardrails_text.count(old_guardrail_marker) != 2:
 guardrails_text = guardrails_text.replace(
     old_guardrail_marker,
     ''' + '"""' + '''  "catalog Base parallel conflicts with unresolved visible surface/finish evidence",
-  "catalog non-Base parallel lacks visible scanner support",
+  "catalog non-Base parallel lacks agreement from two independent scanner families",
   "parallelGroupMatchesCatalog",
 ''' + '"""' + ''',
     1,
