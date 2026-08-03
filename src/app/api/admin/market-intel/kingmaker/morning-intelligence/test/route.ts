@@ -16,6 +16,11 @@ function destination(
   );
 }
 
+function safeReason(value: unknown, fallback: string) {
+  const candidate = String(value ?? "").trim();
+  return /^[a-z0-9_:-]{1,80}$/i.test(candidate) ? candidate : fallback;
+}
+
 export async function POST(request: NextRequest) {
   const handoff = adminHandoffFromUrl(new URL(request.url));
 
@@ -31,7 +36,7 @@ export async function POST(request: NextRequest) {
     if (!result.ok) {
       return destination(
         request,
-        `/admin/market-intel/kingmaker/morning-intelligence?error=${encodeURIComponent(result.reason || "KINGMAKER controlled run failed.")}`,
+        `/admin/market-intel/kingmaker/morning-intelligence?error=${encodeURIComponent(safeReason(result.reason, "controlled_run_failed"))}`,
         handoff,
       );
     }
@@ -47,23 +52,20 @@ export async function POST(request: NextRequest) {
     if (!sendEmail) {
       return destination(
         request,
-        `/admin/market-intel/kingmaker/morning-intelligence?dryRun=1&reason=${encodeURIComponent(result.reason || "dry_run")}`,
+        `/admin/market-intel/kingmaker/morning-intelligence?dryRun=1&reason=${encodeURIComponent(safeReason(result.reason, "dry_run"))}`,
         handoff,
       );
     }
 
     return destination(
       request,
-      `/admin/market-intel/kingmaker/morning-intelligence?skipped=1&reason=${encodeURIComponent(result.reason || "delivery_skipped")}`,
+      `/admin/market-intel/kingmaker/morning-intelligence?skipped=1&reason=${encodeURIComponent(safeReason(result.reason, "delivery_skipped"))}`,
       handoff,
     );
-  } catch (error) {
-    const message = error instanceof Error
-      ? error.message
-      : "Unable to execute the KINGMAKER controlled run.";
+  } catch {
     return destination(
       request,
-      `/admin/market-intel/kingmaker/morning-intelligence?error=${encodeURIComponent(message)}`,
+      "/admin/market-intel/kingmaker/morning-intelligence?error=controlled_run_exception",
       handoff,
     );
   }
