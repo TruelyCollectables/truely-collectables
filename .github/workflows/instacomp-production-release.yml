@@ -6,10 +6,16 @@ on:
     paths:
       - ".github/workflows/instacomp-production-release.yml"
       - "public/instacomp-release.json"
+      - "package.json"
       - "src/app/api/instacomp/scan/route.ts"
       - "src/lib/instacomp-learning-server.ts"
+      - "src/lib/instacomp-consensus.ts"
       - "scripts/run-instacomp-evidence-first-regressions.ts"
       - "scripts/run-instacomp-ai-council-30-regressions.ts"
+      - "scripts/run-instacomp-identity-firewall-regressions.ts"
+      - "scripts/run-instacomp-serial-color-gate-regressions.ts"
+      - "scripts/run-instacomp-live-shedeur-107-regression.ts"
+      - "scripts/run-instacomp-consensus-simulations.ts"
       - "scripts/run-instacomp-release-attestation-regressions.mjs"
       - "scripts/write-instacomp-release-manifest.mjs"
       - "scripts/check-live-instacomp-release.mjs"
@@ -87,11 +93,20 @@ jobs:
             node scripts/run-instacomp-release-attestation-regressions.mjs
             npx tsx scripts/run-instacomp-evidence-first-regressions.ts
             npx tsx scripts/run-instacomp-ai-council-30-regressions.ts
+            npx tsx scripts/run-instacomp-identity-firewall-regressions.ts
+            npx tsx scripts/run-instacomp-serial-color-gate-regressions.ts
+            npx tsx scripts/run-instacomp-live-shedeur-107-regression.ts
+            npm run simulate:instacomp-consensus
             npx eslint \
               src/lib/instacomp-learning-server.ts \
+              src/lib/instacomp-consensus.ts \
               src/app/api/instacomp/scan/route.ts \
               scripts/run-instacomp-evidence-first-regressions.ts \
               scripts/run-instacomp-ai-council-30-regressions.ts \
+              scripts/run-instacomp-identity-firewall-regressions.ts \
+              scripts/run-instacomp-serial-color-gate-regressions.ts \
+              scripts/run-instacomp-live-shedeur-107-regression.ts \
+              scripts/run-instacomp-consensus-simulations.ts \
               scripts/run-instacomp-release-attestation-regressions.mjs \
               scripts/write-instacomp-release-manifest.mjs \
               scripts/check-live-instacomp-release.mjs
