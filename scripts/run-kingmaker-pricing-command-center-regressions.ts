@@ -31,9 +31,9 @@ const customerFacingSurfaces = page + snapshotRoute + viewsRoute;
 assert.doesNotMatch(customerFacingSurfaces, /store_id|seller_account_id/);
 
 const commandCenterCode = server + snapshotRoute + viewsRoute;
-assert.doesNotMatch(commandCenterCode, /from\(["']products["']\).*\.(insert|update|upsert|delete)\(/s);
-assert.doesNotMatch(commandCenterCode, /from\(["']orders["']\).*\.(insert|update|upsert|delete)\(/s);
-assert.doesNotMatch(commandCenterCode, /from\(["']offers["']\).*\.(insert|update|upsert|delete)\(/s);
-assert.doesNotMatch(commandCenterCode, /from\(["']market_intel_purchases["']\).*\.(insert|update|upsert|delete)\(/s);
+const mutationPattern = String.raw`from\(["']TABLE["']\)[\s\S]*?\.(insert|update|upsert|delete)\(`;
+for (const table of ["products", "orders", "offers", "market_intel_purchases"]) {
+  assert.doesNotMatch(commandCenterCode, new RegExp(mutationPattern.replace("TABLE", table)));
+}
 
 console.log("KINGMAKER Pricing Command Center regressions passed.");
