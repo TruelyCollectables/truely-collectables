@@ -13,6 +13,7 @@ import type {
 } from "./source-adapter";
 import { CHECKLIST_SOURCE_BUCKET } from "./storage";
 import { tcgdexJapaneseSetBundleAdapter } from "./tcgdex-japanese";
+import { toppsBaseballTextChecklistAdapter } from "./topps-baseball-text-adapter";
 import { upperDeckOfficialHtmlChecklistAdapter } from "./upper-deck-official-html";
 
 const CHECKLIST_ADAPTERS: ChecklistSourceAdapter[] = [
@@ -23,6 +24,7 @@ const CHECKLIST_ADAPTERS: ChecklistSourceAdapter[] = [
   pokemonJapaneseOfficialReconciledAdapter,
   tcgdexJapaneseSetBundleAdapter,
   pokemonTcgDataSourceIdSafeAdapter,
+  toppsBaseballTextChecklistAdapter,
   upperDeckOfficialHtmlChecklistAdapter,
   paniniStructuredChecklistAdapter,
 ];
@@ -77,39 +79,22 @@ export function assertChecklistPlanComplexity(plan: ChecklistImportPlan) {
   const limits = CHECKLIST_IMPORT_COMPLEXITY_LIMITS;
   const violations: string[] = [];
 
-  if (counts.sets > limits.sets) {
-    violations.push(`sets ${counts.sets}/${limits.sets}`);
-  }
-  if (counts.cards > limits.cards) {
-    violations.push(`cards ${counts.cards}/${limits.cards}`);
-  }
-  if (counts.parallels > limits.parallels) {
-    violations.push(`parallels ${counts.parallels}/${limits.parallels}`);
-  }
-  if (counts.identities > limits.identities) {
-    violations.push(`identities ${counts.identities}/${limits.identities}`);
-  }
+  if (counts.sets > limits.sets) violations.push(`sets ${counts.sets}/${limits.sets}`);
+  if (counts.cards > limits.cards) violations.push(`cards ${counts.cards}/${limits.cards}`);
+  if (counts.parallels > limits.parallels) violations.push(`parallels ${counts.parallels}/${limits.parallels}`);
+  if (counts.identities > limits.identities) violations.push(`identities ${counts.identities}/${limits.identities}`);
   if (counts.validationIssues > limits.validationIssues) {
-    violations.push(
-      `validation issues ${counts.validationIssues}/${limits.validationIssues}`,
-    );
+    violations.push(`validation issues ${counts.validationIssues}/${limits.validationIssues}`);
   }
 
-  const expansionCeiling = Math.max(
-    1_000,
-    counts.cards * limits.maximumIdentitiesPerCard,
-  );
+  const expansionCeiling = Math.max(1_000, counts.cards * limits.maximumIdentitiesPerCard);
   if (counts.identities > expansionCeiling) {
-    violations.push(
-      `identity expansion ${counts.identities}/${expansionCeiling} for ${counts.cards} cards`,
-    );
+    violations.push(`identity expansion ${counts.identities}/${expansionCeiling} for ${counts.cards} cards`);
   }
 
   const serializedBytes = Buffer.byteLength(JSON.stringify(plan), "utf8");
   if (serializedBytes > limits.serializedPlanBytes) {
-    violations.push(
-      `normalized plan ${serializedBytes}/${limits.serializedPlanBytes} bytes`,
-    );
+    violations.push(`normalized plan ${serializedBytes}/${limits.serializedPlanBytes} bytes`);
   }
 
   if (violations.length) {
@@ -118,12 +103,7 @@ export function assertChecklistPlanComplexity(plan: ChecklistImportPlan) {
     );
   }
 
-  return {
-    counts,
-    serializedBytes,
-    expansionCeiling,
-    limits,
-  };
+  return { counts, serializedBytes, expansionCeiling, limits };
 }
 
 export async function importChecklistArtifact(params: {
@@ -134,11 +114,7 @@ export async function importChecklistArtifact(params: {
   const plan = adapter.parse(params.artifact);
   const complexity = assertChecklistPlanComplexity(plan);
 
-  if (
-    params.validateOnly ||
-    plan.validation.status !== "passed" ||
-    planHasErrors(plan)
-  ) {
+  if (params.validateOnly || plan.validation.status !== "passed" || planHasErrors(plan)) {
     return {
       ok: plan.validation.status === "passed",
       validatedOnly: true,
@@ -150,10 +126,11 @@ export async function importChecklistArtifact(params: {
   }
 
   const supabase = serviceClient();
+  const archiveContent = params.artifact.archiveContent ?? params.artifact.content;
   const content =
-    typeof params.artifact.content === "string"
-      ? Buffer.from(params.artifact.content, "utf8")
-      : Buffer.from(params.artifact.content);
+    typeof archiveContent === "string"
+      ? Buffer.from(archiveContent, "utf8")
+      : Buffer.from(archiveContent);
   const storage = plan.source.storage;
   let uploadedByThisRequest = false;
 
@@ -166,13 +143,9 @@ export async function importChecklistArtifact(params: {
     });
 
   if (uploadError) {
-    const duplicate = /already exists|duplicate|409/i.test(
-      uploadError.message || "",
-    );
+    const duplicate = /already exists|duplicate|409/i.test(uploadError.message || "");
     if (!duplicate) {
-      throw new Error(
-        `Could not archive checklist source: ${uploadError.message}`,
-      );
+      throw new Error(`Could not archive checklist source: ${uploadError.message}`);
     }
   } else {
     uploadedByThisRequest = true;
@@ -190,13 +163,9 @@ export async function importChecklistArtifact(params: {
 
   if (error) {
     if (uploadedByThisRequest) {
-      await supabase.storage
-        .from(CHECKLIST_SOURCE_BUCKET)
-        .remove([storage.objectPath]);
+      await supabase.storage.from(CHECKLIST_SOURCE_BUCKET).remove([storage.objectPath]);
     }
-    throw new Error(
-      `Checklist Registry transaction failed: ${error.message}`,
-    );
+    throw new Error(`Checklist Registry transaction failed: ${error.message}`);
   }
 
   return {
