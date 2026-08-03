@@ -1,0 +1,115 @@
+name: Prepare KINGMAKER Beckett Transport 20260802 v2
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/prepare-kingmaker-beckett-transport-20260802-v2.yml"
+      - "scripts/ops/prepare-kingmaker-beckett-transport-20260802-v2.mjs"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prepare-kingmaker-beckett-transport-20260802-v2
+  cancel-in-progress: false
+
+env:
+  EXPECTED_MAIN_SHA: 4846778ab025439512edbf88371e64bafa9f4a78
+  EXPECTED_BRANCH: ops/prepare-kingmaker-beckett-transport-20260802-v2
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  EVIDENCE_DIR: evidence/kingmaker-beckett-transport-public-key-20260802-v2
+
+jobs:
+  prepare-public-key:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on exact operations scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main
+          git merge-base --is-ancestor "$EXPECTED_MAIN_SHA" origin/main
+          git merge-base --is-ancestor "$EXPECTED_MAIN_SHA" HEAD
+          mapfile -t changed < <(git diff --name-only "$EXPECTED_MAIN_SHA"...HEAD)
+          printf '%s\n' "${changed[@]}"
+          test "${#changed[@]}" -eq 2
+          test "${changed[0]}" = '.github/workflows/prepare-kingmaker-beckett-transport-20260802-v2.yml'
+          test "${changed[1]}" = 'scripts/ops/prepare-kingmaker-beckett-transport-20260802-v2.mjs'
+          git diff --check "$EXPECTED_MAIN_SHA"...HEAD
+          cp scripts/ops/prepare-kingmaker-beckett-transport-20260802-v2.mjs "$RUNNER_TEMP/prepare-kingmaker-beckett-transport-20260802-v2.mjs"
+          git checkout --detach "$EXPECTED_MAIN_SHA"
+          mkdir -p scripts/ops "$EVIDENCE_DIR"
+          cp "$RUNNER_TEMP/prepare-kingmaker-beckett-transport-20260802-v2.mjs" scripts/ops/prepare-kingmaker-beckett-transport-20260802-v2.mjs
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Pull protected Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          mkdir -p .vercel "$RUNNER_TEMP/kingmaker-beckett-production"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/kingmaker-beckett-production/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          test -s "$RUNNER_TEMP/kingmaker-beckett-production/production.env"
+          echo "PRODUCTION_ENV_FILE=$RUNNER_TEMP/kingmaker-beckett-production/production.env" >> "$GITHUB_ENV"
+
+      - name: Generate keypair and store private key only in the private database schema
+        shell: bash
+        env:
+          ALLOW_KINGMAKER_BECKETT_TRANSPORT_PREP: "YES"
+          OUTPUT_DIR: evidence/kingmaker-beckett-transport-public-key-20260802-v2
+        run: |
+          set -euo pipefail
+          node scripts/ops/prepare-kingmaker-beckett-transport-20260802-v2.mjs
+
+      - name: Verify public artifact contains no private material
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$EVIDENCE_DIR/public-key.pem"
+          test -s "$EVIDENCE_DIR/transport.json"
+          grep -q 'BEGIN PUBLIC KEY' "$EVIDENCE_DIR/public-key.pem"
+          ! grep -R -E 'BEGIN PRIVATE KEY|sb_secret_|SUPABASE_SERVICE_ROLE_KEY|SUPABASE_ACCESS_TOKEN|postgres(ql)?://' "$EVIDENCE_DIR"
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const crypto = require('node:crypto');
+          const dir = 'evidence/kingmaker-beckett-transport-public-key-20260802-v2';
+          const manifest = JSON.parse(fs.readFileSync(`${dir}/transport.json`, 'utf8'));
+          const publicKey = fs.readFileSync(`${dir}/public-key.pem`);
+          const digest = crypto.createHash('sha256').update(publicKey).digest('hex');
+          if (manifest.schema !== 'tcos.kingmaker.beckettTransportPublicKey.v1') throw new Error('Unexpected manifest schema');
+          if (manifest.publicKeySha256 !== digest) throw new Error('Public key hash mismatch');
+          if (manifest.privateKeyPersistedOnlyInPrivateDatabase !== true) throw new Error('Private-key database assertion failed');
+          if (manifest.publicKeyOnlyInArtifact !== true) throw new Error('Public artifact assertion failed');
+          if (manifest.sourceFilesUploaded !== false) throw new Error('Source upload safety assertion failed');
+          NODE
+
+      - name: Upload public transport artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kingmaker-beckett-transport-public-key-20260802-v2
+          path: evidence/kingmaker-beckett-transport-public-key-20260802-v2
+          if-no-files-found: error
+          retention-days: 2
