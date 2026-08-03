@@ -1,0 +1,565 @@
+name: Apply InstaComp Registry Semantic Referee V2
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/apply-instacomp-registry-semantic-referee-v2.yml"
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  patch-and-verify:
+    if: github.head_ref == 'fix/instacomp-upper-deck-referee-recovery'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/instacomp-upper-deck-referee-recovery
+          fetch-depth: 0
+
+      - name: Fail closed on exact branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_HEAD_REF" = "fix/instacomp-upper-deck-referee-recovery"
+          git diff --check
+
+      - name: Patch fail-closed Registry matching and semantic consensus
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: Path, label: str, old: str, new: str):
+              text = path.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label} anchor changed; refusing to patch ({count} matches).")
+              path.write_text(text.replace(old, new, 1))
+
+          def replace_between(path: Path, label: str, start_marker: str, end_marker: str, replacement: str):
+              text = path.read_text()
+              if text.count(start_marker) != 1 or text.count(end_marker) != 1:
+                  raise SystemExit(
+                      f"{label} markers changed; refusing to patch "
+                      f"(start={text.count(start_marker)}, end={text.count(end_marker)})."
+                  )
+              start = text.index(start_marker)
+              end = text.index(end_marker, start)
+              if end <= start:
+                  raise SystemExit(f"{label} marker order is invalid; refusing to patch.")
+              path.write_text(text[:start] + replacement + text[end:])
+
+          learning = Path("src/lib/instacomp-learning-server.ts")
+          old_profile = '''function targetParallelProfile(ai: Record<string, any>, setContext: unknown) {
+            const setTokens = new Set(meaningfulTokens(setContext));
+            const explicitBase = isBaseParallel(ai.parallel);
+            const directTokens = explicitBase
+              ? []
+              : checklistParallelTokens(ai.parallel).filter(
+                  (token) =>
+                    !setTokens.has(token) &&
+                    !GENERIC_PARALLEL_EVIDENCE_TOKENS.has(token),
+                );
+            const noteTokens = visibleParallelNoteTokens(ai.notes);
+            const signatureTokens = noteTokens.length ? noteTokens : directTokens;
+            const baseLike =
+              explicitBase ||
+              (!signatureTokens.length &&
+                (directTokens.length === 0 ||
+                  evidenceTextIsUncertain(ai.parallel)));
+            return {
+              baseLike,
+              signature: [...new Set(signatureTokens)].sort().join(" "),
+            };
+          }
+          '''
+          new_profile = '''function hasVisibleParallelSurfaceRisk(value: unknown) {
+            const clauses = String(value || "").split(/[.;]/g);
+            const finishCue =
+              /\\b(speckle(?:d)?|sparkle|glitter|rainbow|holo(?:graphic)?|foil|acetate|clear[-\\s]*stock|transparent|translucent|outburst|refractor|prizm|prism|shimmer|wave|pulsar|mojo|mosaic|laser|black\\s+and\\s+white)\\b/i;
+            const colorContext =
+              /\\b(black|blue|gold|green|orange|pink|purple|red|silver|white)\\b(?:\\s+\\w+){0,3}\\s+\\b(border|background|frame|finish|foil|parallel)\\b/i;
+            const negation = /\\b(no|not|without|none|absent|neither)\\b/i;
+
+            return clauses.some((clause) => {
+              const cue = finishCue.exec(clause) || colorContext.exec(clause);
+              if (!cue) return false;
+              return !negation.test(clause.slice(0, cue.index));
+            });
+          }
+
+          function canonicalParallelName(signature: string) {
+            if (signature === "black white") return "Black and White";
+            return signature
+              .split(" ")
+              .filter(Boolean)
+              .map((token) => `${token.slice(0, 1).toUpperCase()}${token.slice(1)}`)
+              .join(" ");
+          }
+
+          function setNameSupportsParallelSignature(
+            setName: unknown,
+            signature: string,
+          ) {
+            const setTokens = new Set(checklistParallelTokens(setName));
+            const signatureTokens = signature.split(" ").filter(Boolean);
+            return (
+              signatureTokens.length > 0 &&
+              signatureTokens.every((token) => setTokens.has(token))
+            );
+          }
+
+          function targetParallelProfile(ai: Record<string, any>, setContext: unknown) {
+            const setTokens = new Set(meaningfulTokens(setContext));
+            const explicitBase = isBaseParallel(ai.parallel);
+            const directTokens = explicitBase
+              ? []
+              : checklistParallelTokens(ai.parallel).filter(
+                  (token) =>
+                    !setTokens.has(token) &&
+                    !GENERIC_PARALLEL_EVIDENCE_TOKENS.has(token),
+                );
+            const noteTokens = visibleParallelNoteTokens(ai.notes);
+            const signatureTokens = noteTokens.length ? noteTokens : directTokens;
+            const signature = [...new Set(signatureTokens)].sort().join(" ");
+            const baseLike =
+              explicitBase ||
+              (!signature &&
+                (directTokens.length === 0 ||
+                  evidenceTextIsUncertain(ai.parallel)));
+            return {
+              explicitBase,
+              baseLike,
+              signature,
+              surfaceRisk: hasVisibleParallelSurfaceRisk(ai.notes),
+            };
+          }
+          '''
+          replace_once(learning, "parallel profile", old_profile, new_profile)
+
+          parallel_start = '''    const parallelProfile = targetParallelProfile(
+              ai,
+              [ai.setName, brand, product, setName].filter(Boolean).join(" "),
+            );
+          '''
+          parallel_end = '''      const registryVariation = normalizedText(identity.variation || card.variation);
+          '''
+          parallel_replacement = '''    const parallelProfile = targetParallelProfile(
+              ai,
+              [ai.setName, brand, product, setName].filter(Boolean).join(" "),
+            );
+            if (
+              parallelProfile.baseLike &&
+              (parallelProfile.surfaceRisk || adjacentYearRecovered)
+            ) {
+              continue;
+            }
+
+            const identities = Array.isArray(card.identities) ? card.identities : [];
+            for (const identity of identities) {
+              const storedParallelName = identity.parallel?.name || "Base";
+              const serialRun = asNumber(identity.parallel?.serial_run);
+              const storedRegistryBase = isBaseParallel(storedParallelName);
+              const setEncodedParallel =
+                storedRegistryBase &&
+                !parallelProfile.baseLike &&
+                Boolean(parallelProfile.signature) &&
+                setNameSupportsParallelSignature(setName, parallelProfile.signature);
+              const parallelName = setEncodedParallel
+                ? canonicalParallelName(parallelProfile.signature)
+                : storedParallelName;
+              const registryBase = isBaseParallel(parallelName);
+              const registryParallelSignature = setEncodedParallel
+                ? parallelProfile.signature
+                : checklistParallelSignature(parallelName);
+
+              if (targetSerialRun) {
+                if (serialRun !== Number(targetSerialRun)) continue;
+                if (
+                  registryBase ||
+                  !parallelProfile.signature ||
+                  registryParallelSignature !== parallelProfile.signature
+                ) {
+                  continue;
+                }
+              } else {
+                if (serialRun) continue;
+                if (parallelProfile.baseLike) {
+                  if (!registryBase) continue;
+                } else if (
+                  registryBase ||
+                  registryParallelSignature !== parallelProfile.signature
+                ) {
+                  continue;
+                }
+              }
+
+          '''
+          replace_between(
+              learning,
+              "Registry physical parallel matching",
+              parallel_start,
+              parallel_end,
+              parallel_replacement,
+          )
+
+          consensus = Path("src/lib/instacomp-consensus.ts")
+          serial_anchor = '''function serialDenominator(value: string | boolean | null | undefined) {
+          '''
+          semantic_helpers = '''function semanticTokens(value: string | boolean | null | undefined) {
+            return comparableText(value)
+              .replace(/\\b(?:19|20)\\d{2}(?:[-\\s]+\\d{2,4})?\\b/g, " ")
+              .replace(/\\bcheck\\s+point\\b/g, "checkpoint")
+              .replace(/\\byoung\\s+gun\\b/g, "young guns")
+              .replace(/[/-]+/g, " ")
+              .split(/\\s+/)
+              .filter(Boolean)
+              .filter(
+                (token) =>
+                  ![
+                    "upper",
+                    "deck",
+                    "series",
+                    "hockey",
+                    "base",
+                    "set",
+                    "parallel",
+                    "card",
+                    "the",
+                  ].includes(token),
+              );
+          }
+
+          function sortedTokenKey(tokens: string[]) {
+            return [...new Set(tokens)].sort().join(" ");
+          }
+
+          function catalogRegistrySetName(
+            identity: Partial<InstaCompCatalogCompIdentity> | null | undefined,
+          ) {
+            return cleanText(
+              (identity as (Partial<InstaCompCatalogCompIdentity> & {
+                registrySetName?: string | null;
+              }) | null | undefined)?.registrySetName,
+            );
+          }
+
+          function logicalRegistrySetTokens(
+            identity: Partial<InstaCompCatalogCompIdentity> | null | undefined,
+          ) {
+            const registryTokens = semanticTokens(catalogRegistrySetName(identity));
+            const parallelTokens = semanticTokens(identity?.parallel);
+            return registryTokens.filter((token) => !parallelTokens.includes(token));
+          }
+
+          function parallelKeyAgainstCatalog(
+            value: string | boolean | null | undefined,
+            identity: Partial<InstaCompCatalogCompIdentity> | null | undefined,
+          ) {
+            const logicalSetTokens = new Set(logicalRegistrySetTokens(identity));
+            const tokens = comparableParallel(value)
+              .split(" ")
+              .filter(Boolean)
+              .filter((token) => !logicalSetTokens.has(token));
+            return tokens.length ? sortedTokenKey(tokens) : "base";
+          }
+
+          function parallelGroupMatchesCatalog(
+            group: ValueGroup,
+            identity: Partial<InstaCompCatalogCompIdentity> | null | undefined,
+          ) {
+            return (
+              parallelKeyAgainstCatalog(group.value, identity) ===
+              parallelKeyAgainstCatalog(identity?.parallel, identity)
+            );
+          }
+
+          function readerEvidenceText(reader: InstaCompConsensusReaderFinding) {
+            return (reader.evidence || []).join(" ");
+          }
+
+          function hasUnresolvedVisibleSurfaceRisk(value: string) {
+            const clauses = String(value || "").split(/[.;]/g);
+            const finishCue =
+              /\\b(speckle(?:d)?|sparkle|glitter|rainbow|holo(?:graphic)?|foil|acetate|clear[-\\s]*stock|transparent|translucent|outburst|refractor|prizm|prism|shimmer|wave|pulsar|mojo|mosaic|laser|black\\s+and\\s+white)\\b/i;
+            const colorContext =
+              /\\b(black|blue|gold|green|orange|pink|purple|red|silver|white)\\b(?:\\s+\\w+){0,3}\\s+\\b(border|background|frame|finish|foil|parallel)\\b/i;
+            const negation = /\\b(no|not|without|none|absent|neither)\\b/i;
+            return clauses.some((clause) => {
+              const cue = finishCue.exec(clause) || colorContext.exec(clause);
+              if (!cue) return false;
+              return !negation.test(clause.slice(0, cue.index));
+            });
+          }
+
+          function evidenceSupportsCatalogParallel(
+            reader: InstaCompConsensusReaderFinding,
+            identity: Partial<InstaCompCatalogCompIdentity> | null | undefined,
+          ) {
+            const catalogParallel = normalizeValue(identity?.parallel);
+            if (!knownValue(catalogParallel) || isGenericBase(catalogParallel)) return false;
+            const evidenceTokens = new Set(semanticTokens(readerEvidenceText(reader)));
+            const requiredTokens = semanticTokens(catalogParallel);
+            return (
+              requiredTokens.length > 0 &&
+              requiredTokens.every((token) => evidenceTokens.has(token))
+            );
+          }
+
+          function catalogTextFieldMatchesReader(
+            field: InstaCompConsensusField,
+            catalogIdentity: Partial<InstaCompCatalogCompIdentity>,
+            readerValue: string | boolean | null,
+          ) {
+            const catalogValue = normalizeValue(fieldValue(catalogIdentity, field));
+            if (field === "year") {
+              const catalogYear = comparableText(catalogValue).match(/\\b((?:19|20)\\d{2})\\b/)?.[1];
+              const readerYear = comparableText(readerValue).match(/\\b((?:19|20)\\d{2})\\b/)?.[1];
+              return Boolean(catalogYear && readerYear && catalogYear === readerYear);
+            }
+            if (field === "setName") {
+              const readerTokens = semanticTokens(readerValue);
+              const catalogTokens = new Set(
+                semanticTokens(
+                  [catalogValue, catalogRegistrySetName(catalogIdentity)]
+                    .filter(Boolean)
+                    .join(" "),
+                ),
+              );
+              const logicalSetTokens = logicalRegistrySetTokens(catalogIdentity);
+              return (
+                readerTokens.length > 0 &&
+                readerTokens.every((token) => catalogTokens.has(token)) &&
+                logicalSetTokens.every((token) => readerTokens.includes(token))
+              );
+            }
+            if (field === "player") {
+              return (
+                sortedTokenKey(semanticTokens(readerValue)) ===
+                sortedTokenKey(semanticTokens(catalogValue))
+              );
+            }
+            if (field === "cardNumber") {
+              return (
+                comparableText(readerValue).replace(/[\\s-]/g, "") ===
+                comparableText(catalogValue).replace(/[\\s-]/g, "")
+              );
+            }
+            return comparableText(readerValue) === comparableText(catalogValue);
+          }
+
+          ''' + serial_anchor
+          replace_once(consensus, "semantic consensus helpers", serial_anchor, semantic_helpers)
+
+          guard_start = "function guardCatalogRefereeAgainstHardEvidence(params: {"
+          guard_end = "\nfunction readerSummary("
+          new_guard = '''function guardCatalogRefereeAgainstHardEvidence(params: {
+            readers: InstaCompConsensusReaderFinding[];
+            catalogReferee?: InstaCompConsensusCatalogReferee | null;
+          }): InstaCompConsensusCatalogReferee | null {
+            const catalogReferee = params.catalogReferee;
+            if (catalogReferee?.status !== "catalog_confirmed" || !catalogReferee.identity) {
+              return catalogReferee || null;
+            }
+
+            const conflicts: string[] = [];
+            const catalogIdentity = catalogReferee.identity;
+            const catalogParallel = normalizeValue(catalogIdentity.parallel);
+            const catalogSerialRun =
+              serialDenominator(catalogIdentity.serialNumber) ||
+              (/^\\d{1,7}$/.test(cleanText(catalogIdentity.serialRun))
+                ? cleanText(catalogIdentity.serialRun)
+                : serialDenominator(catalogIdentity.serialRun));
+
+            if (catalogSerialRun && isGenericBase(catalogParallel)) {
+              conflicts.push(
+                `catalog parallel "${catalogParallel}" cannot be Base with serial run /${catalogSerialRun}`,
+              );
+            }
+
+            const readerParallelGroups = valueGroupsForField(params.readers, "parallel");
+            const matchingParallelGroups = readerParallelGroups.filter((group) =>
+              parallelGroupMatchesCatalog(group, catalogIdentity),
+            );
+            const matchingParallelFamilies = uniqueStrings(
+              matchingParallelGroups.flatMap((group) => group.families),
+            );
+            const evidenceParallelFamilies = uniqueStrings(
+              params.readers
+                .filter((reader) => evidenceSupportsCatalogParallel(reader, catalogIdentity))
+                .map((reader) => readerFamily(reader)),
+            );
+            const supportingParallelFamilies = uniqueStrings([
+              ...matchingParallelFamilies,
+              ...evidenceParallelFamilies,
+            ]);
+            const conflictingSpecificParallelGroups = readerParallelGroups.filter(
+              (group) =>
+                !parallelGroupMatchesCatalog(group, catalogIdentity) &&
+                !group.hasGenericBase &&
+                !group.hasUncertain,
+            );
+            const unresolvedSurfaceRisk = params.readers.some((reader) =>
+              hasUnresolvedVisibleSurfaceRisk(readerEvidenceText(reader)),
+            );
+
+            if (isGenericBase(catalogParallel)) {
+              if (unresolvedSurfaceRisk) {
+                conflicts.push(
+                  "catalog Base parallel conflicts with unresolved visible surface/finish evidence",
+                );
+              }
+            } else if (supportingParallelFamilies.length < 1) {
+              conflicts.push(
+                "catalog non-Base parallel lacks visible scanner support",
+              );
+            }
+            if (conflictingSpecificParallelGroups.length) {
+              conflicts.push(
+                `catalog parallel "${catalogParallel}" conflicts with visible scanner parallel evidence ${conflictingSpecificParallelGroups
+                  .map((group) => `"${group.value}"`)
+                  .join(", ")}`,
+              );
+            }
+
+            const hardTextFields: InstaCompConsensusField[] = [
+              "year",
+              "setName",
+              "cardNumber",
+              "player",
+            ];
+
+            for (const field of hardTextFields) {
+              const catalogValue = normalizeValue(fieldValue(catalogIdentity, field));
+              if (!knownValue(catalogValue)) continue;
+
+              const readerGroups = valueGroupsForField(params.readers, field);
+              if (readerGroups.length !== 1) continue;
+
+              const [readerGroup] = readerGroups;
+              if (catalogTextFieldMatchesReader(field, catalogIdentity, readerGroup.value)) {
+                continue;
+              }
+
+              conflicts.push(
+                `catalog ${displayField(field)} "${catalogValue}" conflicts with unanimous scanner evidence "${readerGroup.value}"`,
+              );
+            }
+
+            const readerSerialRuns = uniqueStrings(
+              params.readers
+                .map((reader) => serialDenominator(reader.identity.serialNumber))
+                .filter((value): value is string => Boolean(value)),
+            );
+
+            if (
+              catalogSerialRun &&
+              readerSerialRuns.length === 1 &&
+              readerSerialRuns[0] !== catalogSerialRun
+            ) {
+              conflicts.push(
+                `catalog serial run /${catalogSerialRun} conflicts with printed scanner evidence /${readerSerialRuns[0]}`,
+              );
+            }
+
+            for (const field of ["isAuto", "isRelic"] as const) {
+              const catalogValue = fieldValue(catalogIdentity, field);
+              const readerGroups = valueGroupsForField(params.readers, field);
+              const positiveEvidence = readerGroups.some((group) =>
+                hasBooleanValue(group, true),
+              );
+
+              if (catalogValue === false && positiveEvidence) {
+                conflicts.push(
+                  `catalog ${displayField(field)} false conflicts with positive printed scanner evidence`,
+                );
+              }
+            }
+
+            if (!conflicts.length) return catalogReferee;
+
+            return {
+              ...catalogReferee,
+              status: "review_required",
+              matchExplanation: [
+                catalogReferee.matchExplanation,
+                `Checklist identity rejected by InstaComp hard-evidence guard: ${conflicts.join("; ")}.`,
+              ]
+                .filter(Boolean)
+                .join(" "),
+            };
+          }
+          '''
+          replace_between(consensus, "catalog hard-evidence guard", guard_start, guard_end, new_guard)
+
+          replace_once(
+              consensus,
+              "reader notes evidence",
+              "    evidence: params.evidence,\n",
+              '''    evidence: uniqueStrings([
+                ...(params.evidence || []),
+                ...(params.ai.notes ? [params.ai.notes] : []),
+              ]),
+          ''',
+          )
+
+          guardrails = Path("scripts/check-production-guardrails.mjs")
+          replace_once(
+              guardrails,
+              "production consensus guardrail",
+              '  "catalog parallel lacks agreement from two independent scanner families",\n',
+              '''  "catalog Base parallel conflicts with unresolved visible surface/finish evidence",
+            "catalog non-Base parallel lacks visible scanner support",
+            "parallelGroupMatchesCatalog",
+          ''',
+          )
+          PY
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Prove semantic recovery and hard rejections
+        run: |
+          node --import tsx scripts/run-instacomp-registry-semantic-referee-regression.ts
+          node --import tsx scripts/run-instacomp-upper-deck-referee-recovery-regression.ts
+          npx tsx scripts/run-instacomp-registry-consensus-bridge-regression.ts
+          npx tsx scripts/run-instacomp-live-shedeur-107-regression.ts
+          npx tsx scripts/run-instacomp-serial-color-gate-regressions.ts
+          npx tsx scripts/run-instacomp-identity-firewall-regressions.ts
+          node scripts/check-production-guardrails.mjs
+
+      - name: Lint patched source and regressions
+        run: |
+          npx eslint \
+            src/lib/instacomp-learning-server.ts \
+            src/lib/instacomp-consensus.ts \
+            scripts/check-production-guardrails.mjs \
+            scripts/run-instacomp-registry-semantic-referee-regression.ts \
+            scripts/run-instacomp-upper-deck-referee-recovery-regression.ts
+          git diff --check
+
+      - name: Commit focused semantic referee repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$(git status --short src/lib/instacomp-learning-server.ts src/lib/instacomp-consensus.ts scripts/check-production-guardrails.mjs)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            src/lib/instacomp-learning-server.ts \
+            src/lib/instacomp-consensus.ts \
+            scripts/check-production-guardrails.mjs
+          git commit -m "Harden Registry semantic referee"
+          git push origin HEAD:fix/instacomp-upper-deck-referee-recovery
