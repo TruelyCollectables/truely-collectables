@@ -54,6 +54,32 @@ jobs:
           git checkout --detach origin/main
           mkdir -p scripts/ops "$EVIDENCE_DIR"
           cp "$RUNNER_TEMP/import.mjs" scripts/ops/import-kingmaker-beckett-corpus-20260803.mjs
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/ops/import-kingmaker-beckett-corpus-20260803.mjs')
+          text = path.read_text()
+          old = """      select
+        pg_get_indexdef(index_row.indexrelid) like '%left(coalesce(release_year%'
+          and pg_get_indexdef(index_row.indexrelid) like '%left(coalesce(player_name%'
+          as bounded_lookup_index
+      from pg_index index_row
+      where index_row.indexrelid =
+        'public.tcos_kingmaker_price_entries_lookup_idx'::regclass;
+"""
+          new = """      select
+        index_row.indexprs is not null
+          and index_row.indnkeyatts = 6
+          and index_row.indnatts = 6
+          and pg_get_expr(index_row.indexprs, index_row.indrelid) is not null
+          as bounded_lookup_index
+      from pg_index index_row
+      where index_row.indexrelid =
+        'public.tcos_kingmaker_price_entries_lookup_idx'::regclass;
+"""
+          if old not in text:
+              raise SystemExit('bounded lookup verification block not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
 
       - uses: actions/setup-node@v4
         with:
