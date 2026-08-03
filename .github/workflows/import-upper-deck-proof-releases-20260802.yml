@@ -1,4 +1,4 @@
-name: Import Upper Deck Proof Releases 20260802
+name: Audit Upper Deck Timeout State 20260802
 
 on:
   pull_request:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: import-upper-deck-proof-releases-20260802
+  group: audit-upper-deck-timeout-state-20260802
   cancel-in-progress: false
 
 env:
@@ -22,12 +22,12 @@ env:
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
   VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
   GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-  EVIDENCE_DIR: evidence/upper-deck-proof-production-20260802
+  EVIDENCE_DIR: evidence/upper-deck-timeout-audit-20260802
 
 jobs:
-  audit-import-verify:
+  audit-timeout-state:
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -60,7 +60,7 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Install dependencies and resolve masked Production credentials
+      - name: Install dependencies and resolve masked Production URL
         shell: bash
         run: |
           set -euo pipefail
@@ -69,7 +69,7 @@ jobs:
           test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
           echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
 
-          mkdir -p .vercel "$RUNNER_TEMP/upper-deck-proof-production"
+          mkdir -p .vercel "$RUNNER_TEMP/upper-deck-timeout-audit"
           if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
             printf '{"orgId":"%s","projectId":"%s"}\n' \
               "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
@@ -79,13 +79,12 @@ jobs:
           fi
 
           npx vercel@56.2.0 env pull \
-            "$RUNNER_TEMP/upper-deck-proof-production/production.env" \
+            "$RUNNER_TEMP/upper-deck-timeout-audit/production.env" \
             --yes --environment production --scope "$VERCEL_SCOPE" \
             --token "$VERCEL_TOKEN" >/dev/null
 
-          PRODUCTION_ENV_PATH="$RUNNER_TEMP/upper-deck-proof-production/production.env" node - <<'NODE'
+          PRODUCTION_ENV_PATH="$RUNNER_TEMP/upper-deck-timeout-audit/production.env" node - <<'NODE'
           const fs = require('node:fs');
-
           function parseEnv(filePath) {
             const parsed = {};
             for (const raw of fs.readFileSync(filePath, 'utf8').split(/\r?\n/)) {
@@ -104,98 +103,67 @@ jobs:
             }
             return parsed;
           }
-
-          (async () => {
-            const parsed = parseEnv(process.env.PRODUCTION_ENV_PATH);
-            const productionUrl = String(parsed.NEXT_PUBLIC_SUPABASE_URL || '');
-            if (!productionUrl) throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL in Production environment');
-            const projectRef = new URL(productionUrl).hostname.split('.')[0];
-            if (!projectRef) throw new Error('Could not resolve Production Supabase project ref');
-
-            let serviceKey = String(
-              parsed.SUPABASE_SERVICE_ROLE_KEY ||
-              parsed.SUPABASE_SECRET_KEY ||
-              Object.entries(parsed).find(([key, value]) => /^SUPABASE_SECRET_.*_KEY$/.test(key) && value)?.[1] ||
-              ''
-            );
-
-            if (!serviceKey) {
-              const response = await fetch(
-                `https://api.supabase.com/v1/projects/${projectRef}/api-keys?reveal=true`,
-                { headers: { Authorization: `Bearer ${process.env.GH_SUPABASE_ACCESS_TOKEN}` } },
-              );
-              const text = await response.text();
-              if (!response.ok) {
-                throw new Error(`Supabase API-key lookup failed with HTTP ${response.status}: ${text.slice(0, 500)}`);
-              }
-              const keys = text ? JSON.parse(text) : [];
-              if (!Array.isArray(keys)) throw new Error('Supabase API-key lookup returned an unexpected payload');
-              const legacy = keys.find((key) => key?.name === 'service_role' && key?.api_key);
-              const roleSecret = keys.find((key) => key?.secret_jwt_template?.role === 'service_role' && key?.api_key);
-              const secret = keys.find((key) => key?.type === 'secret' && key?.api_key);
-              serviceKey = String(legacy?.api_key || roleSecret?.api_key || secret?.api_key || '');
-            }
-
-            if (!serviceKey) throw new Error('No elevated Supabase API key could be resolved');
-            for (const value of [productionUrl, serviceKey]) console.log(`::add-mask::${value}`);
-            fs.appendFileSync(process.env.GITHUB_ENV, `NEXT_PUBLIC_SUPABASE_URL<<SUPABASE_URL_EOF\n${productionUrl}\nSUPABASE_URL_EOF\n`);
-            fs.appendFileSync(process.env.GITHUB_ENV, `SUPABASE_SERVICE_ROLE_KEY<<SUPABASE_KEY_EOF\n${serviceKey}\nSUPABASE_KEY_EOF\n`);
-          })().catch((error) => {
-            console.error(error);
-            process.exit(1);
-          });
+          const parsed = parseEnv(process.env.PRODUCTION_ENV_PATH);
+          const productionUrl = String(parsed.NEXT_PUBLIC_SUPABASE_URL || '');
+          if (!productionUrl) throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL in Production environment');
+          console.log(`::add-mask::${productionUrl}`);
+          fs.appendFileSync(
+            process.env.GITHUB_ENV,
+            `NEXT_PUBLIC_SUPABASE_URL<<SUPABASE_URL_EOF\n${productionUrl}\nSUPABASE_URL_EOF\n`,
+          );
           NODE
 
-      - name: Import Allure canary then Series 1 and verify Production
+      - name: Audit database and private source storage without writes
         shell: bash
-        env:
-          ALLOW_PRODUCTION_UPPER_DECK_IMPORT: "YES"
         run: |
           set -euo pipefail
           npx tsx scripts/ops/import-upper-deck-proof-releases-20260802.ts \
-            --apply \
-            --receipt "$EVIDENCE_DIR/production-import.json"
+            --audit-only \
+            --receipt "$EVIDENCE_DIR/timeout-audit.json"
 
-      - name: Require sanitized passing receipt
+      - name: Require sanitized read-only audit receipt
         shell: bash
         run: |
           set -euo pipefail
           node - <<'NODE'
           const fs = require('node:fs');
-          const receipt = JSON.parse(fs.readFileSync('evidence/upper-deck-proof-production-20260802/production-import.json', 'utf8'));
-          if (receipt.status !== 'passed') throw new Error('Upper Deck Production receipt did not pass.');
-          if (receipt.imports?.length !== 2) throw new Error('Expected exactly two imported releases.');
-          if (receipt.finalTargets?.length !== 2) throw new Error('Expected exactly two verified target releases.');
-          const totals = receipt.imports.reduce((sum, entry) => ({
-            cards: sum.cards + Number(entry.counts?.cards || 0),
-            identities: sum.identities + Number(entry.counts?.identities || 0),
-          }), { cards: 0, identities: 0 });
-          if (totals.cards !== 2454 || totals.identities !== 7318) {
-            throw new Error(`Unexpected totals ${JSON.stringify(totals)}`);
+          const receipt = JSON.parse(
+            fs.readFileSync('evidence/upper-deck-timeout-audit-20260802/timeout-audit.json', 'utf8'),
+          );
+          if (receipt.status !== 'observed') throw new Error('Timeout audit did not complete.');
+          if (!['clean_absent', 'fully_imported', 'partial_or_dirty'].includes(receipt.classification)) {
+            throw new Error(`Unexpected timeout classification ${receipt.classification}`);
           }
           const safety = receipt.safety || {};
-          if (safety.semanticDigestPinned !== true ||
-              safety.rawSourceHashRecorded !== true ||
+          if (safety.productionDatabaseReads !== true ||
+              safety.productionDatabaseWrites !== false ||
+              safety.storageReads !== true ||
+              safety.storageWrites !== false ||
               safety.migrationsApplied !== false ||
-              safety.deploymentPerformed !== false ||
-              safety.rawOfficialHtmlIncluded !== false) {
-            throw new Error('Safety receipt is incomplete.');
+              safety.deploymentPerformed !== false) {
+            throw new Error('Read-only audit safety receipt is incomplete.');
           }
-          console.log(JSON.stringify({ status: receipt.status, totals, finalTargets: receipt.finalTargets }, null, 2));
+          console.log(JSON.stringify({
+            classification: receipt.classification,
+            global: receipt.audit?.global,
+            targets: receipt.audit?.targets,
+            targetStorageObjects: receipt.audit?.targetStorageObjects,
+            recentNonterminalRuns: receipt.audit?.recentNonterminalRuns,
+          }, null, 2));
           NODE
 
-      - name: Upload sanitized Production evidence
+      - name: Upload sanitized timeout evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: upper-deck-proof-production-20260802
+          name: upper-deck-timeout-audit-20260802
           path: ${{ env.EVIDENCE_DIR }}
           if-no-files-found: warn
-          retention-days: 90
+          retention-days: 30
 
       - name: Remove temporary Production files
         if: always()
         shell: bash
         run: |
-          rm -f "$RUNNER_TEMP/upper-deck-proof-production/production.env"
+          rm -f "$RUNNER_TEMP/upper-deck-timeout-audit/production.env"
           rm -f .env.local .env.production.local
