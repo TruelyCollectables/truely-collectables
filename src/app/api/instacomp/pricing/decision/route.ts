@@ -3,6 +3,7 @@ import { requireInstaCompJobActor } from "../../../../../lib/instacomp-job-serve
 import { assertTrustedInstaCompMutationRequest } from "../../../../../lib/instacomp-mutation-security";
 import { getKingmakerPricingByIdentityId } from "../../../../../lib/kingmaker-pricing-server";
 import { buildKingmakerPricingDecision } from "../../../../../lib/kingmaker-pricing-decision";
+import { resolveKingmakerPricingProfile } from "../../../../../lib/kingmaker-pricing-profile-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,7 +40,15 @@ export async function POST(request: NextRequest) {
       };
     });
 
-    const pricing = await getKingmakerPricingByIdentityId(identityId);
+    const [pricing, selectedProfile] = await Promise.all([
+      getKingmakerPricingByIdentityId(identityId),
+      resolveKingmakerPricingProfile({
+        actor,
+        profileId: body.profileId == null ? null : String(body.profileId),
+      }),
+    ]);
+    const profile = selectedProfile.profile;
+
     const decision = buildKingmakerPricingDecision({
       exactIdentity,
       pricing: pricing
@@ -53,17 +62,27 @@ export async function POST(request: NextRequest) {
           }
         : null,
       soldComps,
-      targetMarginPct: optionalNumber(body.targetMarginPct),
-      marketplaceFeePct: optionalNumber(body.marketplaceFeePct),
-      paymentFeePct: optionalNumber(body.paymentFeePct),
-      paymentFixedFee: optionalNumber(body.paymentFixedFee),
-      shippingCost: optionalNumber(body.shippingCost),
+      targetMarginPct: optionalNumber(body.targetMarginPct) ?? profile.targetMarginPct,
+      marketplaceFeePct: optionalNumber(body.marketplaceFeePct) ?? profile.marketplaceFeePct,
+      paymentFeePct: optionalNumber(body.paymentFeePct) ?? profile.paymentFeePct,
+      paymentFixedFee: optionalNumber(body.paymentFixedFee) ?? profile.paymentFixedFee,
+      shippingCost: optionalNumber(body.shippingCost) ?? profile.estimatedShippingCost,
     });
 
     return NextResponse.json({
       ok: true,
       identityId,
       decision,
+      pricingProfile: {
+        id: profile.id,
+        name: profile.name,
+        selection: selectedProfile.selection,
+        marketplaceFeePct: profile.marketplaceFeePct,
+        paymentFeePct: profile.paymentFeePct,
+        paymentFixedFee: profile.paymentFixedFee,
+        estimatedShippingCost: profile.estimatedShippingCost,
+        targetMarginPct: profile.targetMarginPct,
+      },
       pricing: pricing
         ? {
             low: pricing.low,
