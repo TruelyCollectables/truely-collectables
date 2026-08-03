@@ -479,11 +479,13 @@ export function buildChecklistRegistryCatalogEvidence(
   const serialRun = match.serialRun ? `/${match.serialRun}` : null;
   const identity = {
     manufacturer: match.manufacturer,
-    brand: match.brand,
+    brand: match.manufacturer || match.brand,
+    registryBrand: match.brand,
     product: match.product,
     player: match.player,
     year: match.year,
-    setName: match.setName,
+    setName: match.product || match.setName,
+    registrySetName: match.setName,
     cardNumber: match.cardNumber,
     parallel: match.parallel,
     variation: match.variation,
