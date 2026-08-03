@@ -1,0 +1,177 @@
+name: Force InstaComp Independent Reader Route
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/force-instacomp-independent-reader-route.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: force-instacomp-independent-reader-route
+  cancel-in-progress: false
+
+jobs:
+  patch-test-commit:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Patch actual production scan route
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/app/api/instacomp/scan/route.ts')
+          text = path.read_text()
+
+          security_import = '''import {
+            formatUntrustedOcrEvidence,
+            normalizeOpenAiCompatibleBaseUrl,
+            openAiCompatibleProviderFamily,
+            resolveInstaCompCouncilPolicy,
+          } from "../../../../lib/instacomp-ai-council-security";'''
+          runtime_import = '''import {
+            prioritizeIndependentCouncilProviders,
+            shouldContinueCouncilRuntime,
+          } from "../../../../lib/instacomp-ai-council-runtime";'''
+
+          if 'instacomp-ai-council-runtime' not in text:
+              compact = security_import.replace('            ', '')
+              if compact not in text:
+                  raise SystemExit('Security import anchor missing from live route.')
+              text = text.replace(compact, compact + '\n' + runtime_import.replace('            ', ''), 1)
+
+          old_plan = '''  const providerPlan = buildAiCouncilProviderPlan();
+          const configuredPlan = providerPlan.filter((provider) => provider.configured);
+          const configuredFamilies = Array.from(
+            new Set(configuredPlan.map((provider) => provider.family)),
+          );'''.replace('          ', '')
+          new_plan = '''  const providerPlan = buildAiCouncilProviderPlan();
+          const configuredPlan = prioritizeIndependentCouncilProviders(
+            providerPlan.filter((provider) => provider.configured),
+            "openai",
+          );
+          const configuredFamilies = Array.from(
+            new Set(configuredPlan.map((provider) => provider.family)),
+          );'''.replace('          ', '')
+          if new_plan not in text:
+              if old_plan not in text:
+                  raise SystemExit('Provider plan anchor missing from live route.')
+              text = text.replace(old_plan, new_plan, 1)
+
+          old_loop = '''  let cursor = 0;
+          let completedReaders = 0;
+
+          while (
+            completedReaders < desiredReaders &&
+            cursor < configuredPlan.length
+          ) {'''.replace('          ', '')
+          new_loop = '''  let cursor = 0;
+          let completedReaders = 0;
+          let completedFamilies: string[] = [];
+
+          while (
+            shouldContinueCouncilRuntime({
+              completedReaders,
+              desiredReaders,
+              completedFamilies,
+              configuredFamilies,
+              cursor,
+              configuredReaderCount: configuredPlan.length,
+              primaryFamily: "openai",
+            })
+          ) {'''.replace('          ', '')
+          if new_loop not in text:
+              if old_loop not in text:
+                  raise SystemExit('Council loop anchor missing from live route.')
+              text = text.replace(old_loop, new_loop, 1)
+
+          old_update = '''    allAttempts.push(...batchAttempts);
+          completedReaders = allAttempts.filter((attempt) => attempt.reader).length;
+        }'''.replace('          ', '')
+          new_update = '''    allAttempts.push(...batchAttempts);
+          const completed = allAttempts.flatMap((attempt) =>
+            attempt.reader ? [attempt.reader] : [],
+          );
+          completedReaders = completed.length;
+          completedFamilies = Array.from(
+            new Set(completed.map((reader) => reader.family)),
+          );
+        }'''.replace('          ', '')
+          if new_update not in text:
+              if old_update not in text:
+                  raise SystemExit('Council completion anchor missing from live route.')
+              text = text.replace(old_update, new_update, 1)
+
+          path.write_text(text)
+          PY
+
+      - name: Prove exact route wiring exists
+        run: |
+          grep -q 'prioritizeIndependentCouncilProviders' src/app/api/instacomp/scan/route.ts
+          grep -q 'shouldContinueCouncilRuntime' src/app/api/instacomp/scan/route.ts
+          grep -q 'completedFamilies' src/app/api/instacomp/scan/route.ts
+
+      - name: Run complete identity regressions
+        run: |
+          npx tsx scripts/run-instacomp-ai-council-runtime-regressions.ts
+          npx tsx scripts/run-instacomp-registry-consensus-bridge-regression.ts
+          npx tsx scripts/run-instacomp-live-shedeur-107-regression.ts
+          npx tsx scripts/run-instacomp-identity-firewall-regressions.ts
+          npx tsx scripts/run-instacomp-serial-color-gate-regressions.ts
+          npm run simulate:instacomp-consensus
+
+      - name: Lint, typecheck, production build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+          ADMIN_PASSWORD: build-only-placeholder-password
+          ADMIN_SESSION_SECRET: build-only-placeholder-admin-session-secret
+          NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+          STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+          STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+          EBAY_CLIENT_ID: build-only-placeholder-client-id
+          EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+          EBAY_ENVIRONMENT: production
+          TCOS_LIVE_PAYMENTS_ENABLED: "false"
+          TCOS_SHIPPING_PURCHASE_MODE: dry_run
+          TCOS_LIVE_SHIPPING_ENABLED: "false"
+        run: |
+          npx eslint src/app/api/instacomp/scan/route.ts src/lib/instacomp-ai-council-runtime.ts scripts/run-instacomp-ai-council-runtime-regressions.ts
+          npx tsc --noEmit
+          npm run build
+
+      - name: Commit only validated route
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --exit-code -- . ':(exclude)src/app/api/instacomp/scan/route.ts' || {
+            echo 'Unexpected files changed.' >&2
+            exit 1
+          }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/api/instacomp/scan/route.ts
+          git commit -m "Wire independent AI families into live InstaComp route"
+          git push origin HEAD:main
