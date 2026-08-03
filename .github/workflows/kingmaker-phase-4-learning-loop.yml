@@ -3,41 +3,24 @@ name: KINGMAKER Phase 4 Learning Loop
 on:
   pull_request:
     paths:
-      - "src/lib/kingmaker-learning-engine.ts"
-      - "src/lib/kingmaker-performance-profiles.ts"
-      - "src/lib/kingmaker-learning-policy.ts"
-      - "src/lib/kingmaker-capital-allocation.ts"
-      - "src/lib/kingmaker-seller-sweep-ranking.ts"
-      - "src/lib/kingmaker-meaningful-changes.ts"
-      - "src/lib/kingmaker-purchase-ledger-bridge.ts"
-      - "src/lib/kingmaker-command-center.ts"
-      - "src/lib/kingmaker-risk-engine.ts"
-      - "src/lib/kingmaker-opportunity-lifecycle.ts"
-      - "src/lib/kingmaker-portfolio-brain.ts"
-      - "src/lib/kingmaker-offer-engine.ts"
-      - "src/lib/kingmaker-universal-orchestrator.ts"
-      - "src/lib/kingmaker-market-momentum.ts"
-      - "src/lib/kingmaker-adaptive-watchlists.ts"
-      - "src/lib/kingmaker-prediction-engine.ts"
-      - "scripts/run-kingmaker-learning-engine-regressions.ts"
-      - "scripts/run-kingmaker-performance-profiles-regressions.ts"
-      - "scripts/run-kingmaker-learning-policy-regressions.ts"
-      - "scripts/run-kingmaker-capital-allocation-regressions.ts"
-      - "scripts/run-kingmaker-seller-sweep-ranking-regressions.ts"
-      - "scripts/run-kingmaker-phase-4-integration-regressions.ts"
-      - "scripts/run-kingmaker-operating-core-regressions.ts"
-      - "scripts/run-kingmaker-growth-engines-regressions.ts"
+      - "src/lib/kingmaker-*.ts"
+      - "scripts/run-kingmaker-*.ts"
       - "supabase/migrations/20260803040000_kingmaker_learning_loop.sql"
+      - "supabase/migrations/20260803043000_kingmaker_phase_4_control_plane.sql"
       - ".github/workflows/kingmaker-phase-4-learning-loop.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: kingmaker-phase-4-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify-learning-loop:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -61,13 +44,32 @@ jobs:
         run: node --import tsx scripts/run-kingmaker-operating-core-regressions.ts
       - name: Momentum, adaptive watchlist, and calibrated prediction regressions
         run: node --import tsx scripts/run-kingmaker-growth-engines-regressions.ts
+      - name: Full Phase 4 control plane regression
+        run: node --import tsx scripts/run-kingmaker-phase-4-control-plane-regressions.ts
       - name: Migration contracts
+        shell: bash
         run: |
-          grep -q "tcos_kingmaker_learning_outcomes" supabase/migrations/20260803040000_kingmaker_learning_loop.sql
-          grep -q "enable row level security" supabase/migrations/20260803040000_kingmaker_learning_loop.sql
-          grep -q "revoke all" supabase/migrations/20260803040000_kingmaker_learning_loop.sql
-          grep -q "outcome_fingerprint text not null unique" supabase/migrations/20260803040000_kingmaker_learning_loop.sql
-      - name: Lint
+          set -euo pipefail
+          learning=supabase/migrations/20260803040000_kingmaker_learning_loop.sql
+          control=supabase/migrations/20260803043000_kingmaker_phase_4_control_plane.sql
+          grep -q "tcos_kingmaker_learning_outcomes" "$learning"
+          grep -q "outcome_fingerprint text not null unique" "$learning"
+          for table in \
+            tcos_kingmaker_cycle_snapshots \
+            tcos_kingmaker_lifecycle_events \
+            tcos_kingmaker_learning_policies \
+            tcos_kingmaker_adaptive_watchlists \
+            tcos_kingmaker_source_health
+          do
+            grep -q "$table" "$control"
+          done
+          test "$(grep -c 'enable row level security' "$control")" -eq 5
+          test "$(grep -c 'revoke all' "$control")" -eq 5
+          test "$(grep -c 'grant all' "$control")" -eq 5
+          ! grep -Eiq 'grant .* to (anon|authenticated)' "$control"
+      - name: Diff integrity
+        run: git diff --check origin/${{ github.base_ref }}...HEAD
+      - name: Lint all KINGMAKER code
         run: npx eslint src/lib/kingmaker-*.ts scripts/run-kingmaker-*.ts
       - name: TypeScript
         run: npx tsc --noEmit
@@ -76,4 +78,14 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: build-placeholder
           SUPABASE_SERVICE_ROLE_KEY: build-placeholder
+          ADMIN_PASSWORD: build-placeholder
+          ADMIN_SESSION_SECRET: build-placeholder-admin-session
+          STRIPE_SECRET_KEY: sk_test_build_placeholder
+          STRIPE_WEBHOOK_SECRET: whsec_build_placeholder
+          EBAY_CLIENT_ID: build-placeholder
+          EBAY_CLIENT_SECRET: build-placeholder
+          EBAY_ENVIRONMENT: production
+          TCOS_LIVE_PAYMENTS_ENABLED: "false"
+          TCOS_LIVE_SHIPPING_ENABLED: "false"
+          TCOS_SHIPPING_PURCHASE_MODE: dry_run
         run: npm run build
