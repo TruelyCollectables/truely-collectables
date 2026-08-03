@@ -63,10 +63,16 @@ export function rankKingmakerSellerSweep(input: {
       cancellationPenalty * 0.2 -
       issuePenalty * 0.25
     ) * 100;
-    // A tiny sample can look perfect by accident. Discount the rank until the
-    // seller has enough closed history to compete with proven sellers.
     const sampleAdjustedScore = rawScore * (0.35 + sampleFactor * 0.65);
     const score = Number(clamp(sampleAdjustedScore, 0, 100).toFixed(2));
+    const provenPriority =
+      seller.sampleSize >= minimumSampleSize * 2 &&
+      seller.reliabilityScore >= 85 &&
+      (seller.winRate ?? 0) >= 0.7 &&
+      (seller.averageRealizedRoiPercent ?? 0) >= 25 &&
+      cancellationPenalty <= 0.05 &&
+      issuePenalty <= 0.05 &&
+      sellerCandidates.length > 0;
 
     let tier: KingmakerSellerSweepRank["tier"] = "watch";
     let maximumExposureMultiplier = 0.5;
@@ -74,10 +80,10 @@ export function rankKingmakerSellerSweep(input: {
       tier = "developing";
       maximumExposureMultiplier = 0.5;
       reasons.push("seller_sample_below_proven_threshold");
-    } else if (score >= 75 && cancellationPenalty <= 0.05 && issuePenalty <= 0.05) {
+    } else if (provenPriority) {
       tier = "priority";
       maximumExposureMultiplier = 1.25;
-      reasons.push("repeatable_profitability_and_low_operational_risk");
+      reasons.push("proven_repeatable_profitability_and_low_operational_risk");
     } else if (score >= 65) {
       tier = "preferred";
       maximumExposureMultiplier = 1;
@@ -100,6 +106,7 @@ export function rankKingmakerSellerSweep(input: {
       tier,
       maximumExposureMultiplier,
       sampleFactor: Number(sampleFactor.toFixed(4)),
+      provenPriority,
       candidateFingerprints: sellerCandidates.map((candidate) => candidate.signalFingerprint).sort(),
       profile: seller,
     };
