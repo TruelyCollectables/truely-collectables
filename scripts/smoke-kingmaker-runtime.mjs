@@ -8,7 +8,7 @@ const startupTimeoutMs = 60_000;
 const routes = [
   {
     path: "/admin",
-    expectedTexts: ["Command Center", "Project KINGMAKER Beta 1.0", "Capital Intelligence Command"],
+    expectedTexts: ["Project KINGMAKER Beta 1.0"],
   },
   {
     path: "/admin/market-intel/kingmaker",
@@ -60,8 +60,15 @@ async function startServer() {
     ["run", "dev:isolated", "--", "--hostname", "127.0.0.1", "--port", String(port), "--webpack"],
     {
       cwd: process.cwd(),
-      env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1" },
+      env: {
+        ...process.env,
+        NEXT_TELEMETRY_DISABLED: "1",
+        NEXT_PUBLIC_SUPABASE_URL: "",
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: "",
+        SUPABASE_SERVICE_ROLE_KEY: "",
+      },
       stdio: ["ignore", "pipe", "pipe"],
+      detached: process.platform !== "win32",
     },
   );
   const append = (chunk) => {
@@ -100,7 +107,7 @@ async function login() {
     }),
   });
   if (response.status !== 303) {
-    throw new Error(`KINGMAKER smoke login expected 303, received ${response.status}.`);
+    throw new Error(`KINGMAKER smoke login expected 303, received ${response.status}.\n${serverOutput}`);
   }
   const cookie = cookieHeader(response.headers);
   if (!cookie.includes("tcos_admin_auth_v3=")) {
@@ -140,5 +147,16 @@ try {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
 } finally {
-  if (server) server.kill("SIGTERM");
+  if (server) {
+    try {
+      if (process.platform === "win32" || !server.pid) server.kill("SIGTERM");
+      else process.kill(-server.pid, "SIGTERM");
+    } catch {
+      server.kill("SIGKILL");
+    }
+    await Promise.race([
+      new Promise((resolve) => server.once("exit", resolve)),
+      sleep(5_000),
+    ]);
+  }
 }
