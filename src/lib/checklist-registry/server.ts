@@ -14,13 +14,14 @@ import type {
 import { CHECKLIST_SOURCE_BUCKET } from "./storage";
 import { tcgdexJapaneseSetBundleAdapter } from "./tcgdex-japanese";
 import { toppsBaseballTextChecklistAdapter } from "./topps-baseball-text-adapter";
+import { toppsFootballTextChecklistAdapter } from "./topps-football-text-adapter";
 import { upperDeck2025_26NormalizedHtmlChecklistAdapter } from "./upper-deck-2025-26-normalized-html";
 import { upperDeckArtifactsOfficialHtmlChecklistAdapter } from "./upper-deck-artifacts-official-html";
 import { upperDeckBlackDiamondOfficialHtmlChecklistAdapter } from "./upper-deck-black-diamond-official-html";
 import { upperDeckMvpOfficialHtmlChecklistAdapter } from "./upper-deck-mvp-official-html";
+import { upperDeckOfficialHtmlChecklistAdapter } from "./upper-deck-official-html";
 import { upperDeckTeamCanadaOfficialHtmlChecklistAdapter } from "./upper-deck-team-canada-official-html";
 import { upperDeckTimHortonsOfficialHtmlChecklistAdapter } from "./upper-deck-tim-hortons-official-html";
-import { upperDeckOfficialHtmlChecklistAdapter } from "./upper-deck-official-html";
 
 const CHECKLIST_ADAPTERS: ChecklistSourceAdapter[] = [
   pokemonJapaneseMPReconciledAdapter,
@@ -38,6 +39,7 @@ const CHECKLIST_ADAPTERS: ChecklistSourceAdapter[] = [
   upperDeck2025_26NormalizedHtmlChecklistAdapter,
   upperDeckOfficialHtmlChecklistAdapter,
   paniniStructuredChecklistAdapter,
+  toppsFootballTextChecklistAdapter,
   toppsBaseballTextChecklistAdapter,
 ];
 
@@ -91,23 +93,53 @@ export function assertChecklistPlanComplexity(plan: ChecklistImportPlan) {
   const limits = CHECKLIST_IMPORT_COMPLEXITY_LIMITS;
   const violations: string[] = [];
 
-  if (counts.sets > limits.sets) violations.push(`sets ${counts.sets}/${limits.sets}`);
-  if (counts.cards > limits.cards) violations.push(`cards ${counts.cards}/${limits.cards}`);
-  if (counts.parallels > limits.parallels) violations.push(`parallels ${counts.parallels}/${limits.parallels}`);
-  if (counts.identities > limits.identities) violations.push(`identities ${counts.identities}/${limits.identities}`);
-  if (counts.validationIssues > limits.validationIssues) violations.push(`validation issues ${counts.validationIssues}/${limits.validationIssues}`);
-
-  const expansionCeiling = Math.max(1_000, counts.cards * limits.maximumIdentitiesPerCard);
-  if (counts.identities > expansionCeiling) violations.push(`identity expansion ${counts.identities}/${expansionCeiling} for ${counts.cards} cards`);
-
-  const serializedBytes = Buffer.byteLength(JSON.stringify(plan), "utf8");
-  if (serializedBytes > limits.serializedPlanBytes) violations.push(`normalized plan ${serializedBytes}/${limits.serializedPlanBytes} bytes`);
-
-  if (violations.length) {
-    throw new Error(`Checklist import complexity limit exceeded: ${violations.join(", ")}. Split this checklist into smaller validated source files.`);
+  if (counts.sets > limits.sets) {
+    violations.push(`sets ${counts.sets}/${limits.sets}`);
+  }
+  if (counts.cards > limits.cards) {
+    violations.push(`cards ${counts.cards}/${limits.cards}`);
+  }
+  if (counts.parallels > limits.parallels) {
+    violations.push(`parallels ${counts.parallels}/${limits.parallels}`);
+  }
+  if (counts.identities > limits.identities) {
+    violations.push(`identities ${counts.identities}/${limits.identities}`);
+  }
+  if (counts.validationIssues > limits.validationIssues) {
+    violations.push(
+      `validation issues ${counts.validationIssues}/${limits.validationIssues}`,
+    );
   }
 
-  return { counts, serializedBytes, expansionCeiling, limits };
+  const expansionCeiling = Math.max(
+    1_000,
+    counts.cards * limits.maximumIdentitiesPerCard,
+  );
+  if (counts.identities > expansionCeiling) {
+    violations.push(
+      `identity expansion ${counts.identities}/${expansionCeiling} for ${counts.cards} cards`,
+    );
+  }
+
+  const serializedBytes = Buffer.byteLength(JSON.stringify(plan), "utf8");
+  if (serializedBytes > limits.serializedPlanBytes) {
+    violations.push(
+      `normalized plan ${serializedBytes}/${limits.serializedPlanBytes} bytes`,
+    );
+  }
+
+  if (violations.length) {
+    throw new Error(
+      `Checklist import complexity limit exceeded: ${violations.join(", ")}. Split this checklist into smaller validated source files.`,
+    );
+  }
+
+  return {
+    counts,
+    serializedBytes,
+    expansionCeiling,
+    limits,
+  };
 }
 
 export async function importChecklistArtifact(params: {
@@ -118,7 +150,11 @@ export async function importChecklistArtifact(params: {
   const plan = adapter.parse(params.artifact);
   const complexity = assertChecklistPlanComplexity(plan);
 
-  if (params.validateOnly || plan.validation.status !== "passed" || planHasErrors(plan)) {
+  if (
+    params.validateOnly ||
+    plan.validation.status !== "passed" ||
+    planHasErrors(plan)
+  ) {
     return {
       ok: plan.validation.status === "passed",
       validatedOnly: true,
@@ -131,7 +167,10 @@ export async function importChecklistArtifact(params: {
 
   const supabase = serviceClient();
   const archiveContent = params.artifact.archiveContent ?? params.artifact.content;
-  const content = typeof archiveContent === "string" ? Buffer.from(archiveContent, "utf8") : Buffer.from(archiveContent);
+  const content =
+    typeof archiveContent === "string"
+      ? Buffer.from(archiveContent, "utf8")
+      : Buffer.from(archiveContent);
   const storage = plan.source.storage;
   let uploadedByThisRequest = false;
 
@@ -144,8 +183,14 @@ export async function importChecklistArtifact(params: {
     });
 
   if (uploadError) {
-    const duplicate = /already exists|duplicate|409/i.test(uploadError.message || "");
-    if (!duplicate) throw new Error(`Could not archive checklist source: ${uploadError.message}`);
+    const duplicate = /already exists|duplicate|409/i.test(
+      uploadError.message || "",
+    );
+    if (!duplicate) {
+      throw new Error(
+        `Could not archive checklist source: ${uploadError.message}`,
+      );
+    }
   } else {
     uploadedByThisRequest = true;
   }
@@ -161,8 +206,14 @@ export async function importChecklistArtifact(params: {
   });
 
   if (error) {
-    if (uploadedByThisRequest) await supabase.storage.from(CHECKLIST_SOURCE_BUCKET).remove([storage.objectPath]);
-    throw new Error(`Checklist Registry transaction failed: ${error.message}`);
+    if (uploadedByThisRequest) {
+      await supabase.storage
+        .from(CHECKLIST_SOURCE_BUCKET)
+        .remove([storage.objectPath]);
+    }
+    throw new Error(
+      `Checklist Registry transaction failed: ${error.message}`,
+    );
   }
 
   return {
