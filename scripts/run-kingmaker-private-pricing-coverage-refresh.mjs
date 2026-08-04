@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 const RECEIPT_SCHEMA =
-  "tcos.kingmaker.privatePricingCoverageRefreshReceipt.v1";
+  "tcos.kingmaker.privatePricingCoverageRefreshReceipt.v2";
 
 function parseEnv(contents) {
   const parsed = {};
@@ -78,11 +78,21 @@ function jsonObject(value, label) {
   throw new Error(`${label} did not return an object.`);
 }
 
-function refreshSql(force) {
+function baseRefreshSql(force) {
   return `
     set statement_timeout = '110s';
     set role service_role;
     select public.tcos_refresh_kingmaker_private_pricing_coverage_snapshot(
+      ${force ? "true" : "false"}
+    ) as result;
+  `;
+}
+
+function attackRefreshSql(force) {
+  return `
+    set statement_timeout = '30s';
+    set role service_role;
+    select public.tcos_refresh_kingmaker_private_pricing_attack_queue(
       ${force ? "true" : "false"}
     ) as result;
   `;
@@ -122,21 +132,44 @@ async function main() {
     productionEnv.NEXT_PUBLIC_SUPABASE_URL || productionEnv.SUPABASE_URL;
   const project = projectRef(productionUrl);
 
-  const refresh = jsonObject(
+  const baseRefresh = jsonObject(
     firstValue(
       await queryManagement({
         project,
         token,
-        query: refreshSql(force),
+        query: baseRefreshSql(force),
         readOnly: false,
-        stage: "snapshot refresh",
+        stage: "base snapshot refresh",
       }),
     ),
-    "Coverage refresh",
+    "Base coverage refresh",
   );
 
-  if (!["succeeded", "idle", "busy"].includes(refresh.status)) {
-    throw new Error(`Coverage refresh returned ${String(refresh.status || "unknown")}.`);
+  if (!["succeeded", "idle", "busy"].includes(baseRefresh.status)) {
+    throw new Error(
+      `Base coverage refresh returned ${String(baseRefresh.status || "unknown")}.`,
+    );
+  }
+
+  const attackRefresh = jsonObject(
+    firstValue(
+      await queryManagement({
+        project,
+        token,
+        query: attackRefreshSql(
+          force || baseRefresh.status === "succeeded",
+        ),
+        readOnly: false,
+        stage: "quality firewall refresh",
+      }),
+    ),
+    "Quality firewall refresh",
+  );
+
+  if (!["succeeded", "idle", "busy"].includes(attackRefresh.status)) {
+    throw new Error(
+      `Quality firewall refresh returned ${String(attackRefresh.status || "unknown")}.`,
+    );
   }
 
   const report = jsonObject(
@@ -145,8 +178,8 @@ async function main() {
         project,
         token,
         query: reportSql(),
-        readOnly: true,
-        stage: "snapshot verification",
+        readOnly: false,
+        stage: "quality-ranked snapshot verification",
       }),
     ),
     "Coverage report",
@@ -159,16 +192,17 @@ async function main() {
     schema: RECEIPT_SCHEMA,
     status: "passed",
     generatedAt: new Date().toISOString(),
-    refresh,
+    baseRefresh,
+    attackRefresh,
     snapshot: report.snapshot,
     summary: report.summary,
     topRows: report.rows,
     pricesPromotedByThisOperation: 0,
-    recordsMutatedOutsideSnapshot: 0,
+    recordsMutatedOutsideSnapshots: 0,
     secretsPersisted: false,
   };
 
-  const serialized = JSON.stringify(receipt);
+  const serialized = JSON.stringify(receipt).toLowerCase();
   for (const forbidden of [
     "raw_text",
     "original_filename",
@@ -177,7 +211,7 @@ async function main() {
     "value_high",
     "storage_object_path",
   ]) {
-    if (serialized.toLowerCase().includes(forbidden)) {
+    if (serialized.includes(forbidden)) {
       throw new Error(`Coverage receipt contains prohibited field ${forbidden}.`);
     }
   }
@@ -185,7 +219,7 @@ async function main() {
   mkdirSync(dirname(receiptPath), { recursive: true });
   writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
   console.log(
-    `Private pricing coverage ${refresh.status}: ${Number(report.summary?.unresolvedRows || 0)} unresolved rows across ${Number(report.summary?.totalGroups || 0)} groups.`,
+    `Private pricing coverage ${attackRefresh.status}: ${Number(report.summary?.actionableRows || 0)} actionable rows, ${Number(report.summary?.parserReviewRows || 0)} parser-review rows.`,
   );
 }
 
