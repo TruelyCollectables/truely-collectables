@@ -13,14 +13,20 @@ on:
     paths:
       - "scripts/archive-topps-seed-sets.ts"
       - ".github/workflows/topps-seed-set-archive.yml"
+  schedule:
+    - cron: "17 * * * *"
 
 permissions:
   contents: read
 
+concurrency:
+  group: topps-seed-set-archive
+  cancel-in-progress: false
+
 jobs:
   archive:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
         with:
@@ -30,27 +36,41 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Download first official Topps checklist sets
+      - name: Download official Topps checklist sets
         run: node --import tsx scripts/archive-topps-seed-sets.ts
-      - name: Verify seed archive
+      - name: Verify archive manifest dynamically
         run: |
           node --input-type=module <<'NODE'
-          import { readFileSync } from 'node:fs';
+          import { readFileSync, writeFileSync } from 'node:fs';
           const manifest = JSON.parse(readFileSync('.topps-seed-archive/manifest.json', 'utf8'));
           if (manifest.schema !== 'tcos.topps.seedArchiveManifest.v1') throw new Error('Wrong seed archive schema');
-          if (manifest.totals?.archived !== 4) throw new Error(`Expected 4 archived sets, got ${manifest.totals?.archived}`);
+          const requested = Number(manifest.totals?.requested || 0);
+          const archived = Number(manifest.totals?.archived || 0);
+          const failed = Number(manifest.totals?.failed || 0);
+          if (requested < 1) throw new Error('Topps archive queue is empty');
+          if (archived < 1) throw new Error('Topps archive produced zero files');
+          if (archived + failed !== requested) throw new Error(`Archive accounting mismatch: requested=${requested}, archived=${archived}, failed=${failed}`);
+          writeFileSync(process.env.GITHUB_STEP_SUMMARY, [
+            '# Topps Seed Archive', '',
+            `**Requested:** ${requested}`,
+            `**Archived:** ${archived}`,
+            `**Failed/queued for retry:** ${failed}`,
+          ].join('\n') + '\n');
           NODE
-      - name: Package first Topps sets
+      - name: Package Topps sets
+        if: always()
         run: tar -C .topps-seed-archive -czf topps-seed-set-archive.tar.gz .
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: topps-seed-set-archive
+          name: topps-seed-set-archive-${{ github.run_id }}
           path: topps-seed-set-archive.tar.gz
           if-no-files-found: error
           retention-days: 90
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: topps-seed-set-manifest
+          name: topps-seed-set-manifest-${{ github.run_id }}
           path: .topps-seed-archive/manifest.json
           if-no-files-found: error
           retention-days: 90
