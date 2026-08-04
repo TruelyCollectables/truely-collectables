@@ -15,6 +15,7 @@ import { CHECKLIST_SOURCE_BUCKET } from "./storage";
 import { tcgdexJapaneseSetBundleAdapter } from "./tcgdex-japanese";
 import { toppsBaseballTextChecklistAdapter } from "./topps-baseball-text-adapter";
 import { toppsFootballTextChecklistAdapter } from "./topps-football-text-adapter";
+import { toppsHockeyTextChecklistAdapter } from "./topps-hockey-text-adapter";
 import { upperDeckOfficialHtmlChecklistAdapter } from "./upper-deck-official-html";
 
 const CHECKLIST_ADAPTERS: ChecklistSourceAdapter[] = [
@@ -27,6 +28,7 @@ const CHECKLIST_ADAPTERS: ChecklistSourceAdapter[] = [
   pokemonTcgDataSourceIdSafeAdapter,
   upperDeckOfficialHtmlChecklistAdapter,
   paniniStructuredChecklistAdapter,
+  toppsHockeyTextChecklistAdapter,
   toppsFootballTextChecklistAdapter,
   toppsBaseballTextChecklistAdapter,
 ];
