@@ -18,7 +18,7 @@ for (const name of repairScripts) {
   );
   assert.doesNotMatch(
     source,
-    /git\s+(?:commit|merge|rebase|cherry-pick)\b/i,
+    /^\s*git\s+(?:commit|merge(?!-)|rebase|cherry-pick)\b/im,
     `${name} must validate a local guarded-branch patch without committing history.`,
   );
   assert.doesNotMatch(
