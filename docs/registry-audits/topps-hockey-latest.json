@@ -2,12 +2,12 @@
   "schema": "tcos.toppsHockey.productionAudit.v1",
   "manufacturer": "Topps",
   "sport": "Hockey",
-  "status": "not_run",
-  "runId": null,
-  "runAttempt": null,
-  "eventName": null,
-  "commitSha": null,
-  "recordedAt": null,
+  "status": "failure",
+  "runId": "30876577153",
+  "runAttempt": "1",
+  "eventName": "push",
+  "commitSha": "fa693016a98115fb81bed9e9ff37686f82a6c73a",
+  "recordedAt": "2026-08-04T04:05:14.054Z",
   "credentialsResolved": false,
   "receipt": null
 }
