@@ -26,8 +26,32 @@ select public.tcos_create_kingmaker_pricing_profile_atomic(
   '{"fixture":"second"}'::jsonb
 );
 
+-- Reassigning the default must version and audit the old default. A client
+-- holding version 1 must not be allowed to retire the now-changed profile.
+do $$
+declare
+  v_first_id uuid;
+begin
+  select id into v_first_id
+  from public.tcos_kingmaker_pricing_profiles
+  where name = 'First Profile';
+
+  begin
+    perform public.tcos_retire_kingmaker_pricing_profile_atomic(
+      '10000000-0000-4000-8000-000000000001',
+      '20000000-0000-4000-8000-000000000001',
+      v_first_id,
+      1
+    );
+    raise exception 'Stale old-default retirement unexpectedly succeeded.';
+  exception when object_not_in_prerequisite_state then
+    null;
+  end;
+end;
+$$;
+
 -- The function clears the old default before inserting. A duplicate-name
--- failure must roll back that clear in the same transaction.
+-- failure must roll back both the clear and its audit receipt.
 do $$
 begin
   begin
@@ -147,10 +171,12 @@ reset role;
 do $$
 declare
   v_defaults integer;
+  v_first_version integer;
   v_second_version integer;
   v_second_name text;
   v_cross_tenant integer;
   v_audit_count integer;
+  v_default_clear_audits integer;
   v_retired integer;
 begin
   select count(*) into v_defaults
@@ -163,13 +189,20 @@ begin
     raise exception 'Expected zero defaults after retiring the cloned default, found %.', v_defaults;
   end if;
 
+  select version into v_first_version
+  from public.tcos_kingmaker_pricing_profiles
+  where name = 'First Profile';
+  if v_first_version <> 2 then
+    raise exception 'Implicit default clear did not version First Profile.';
+  end if;
+
   select version, name into v_second_version, v_second_name
   from public.tcos_kingmaker_pricing_profiles
   where store_id = '10000000-0000-4000-8000-000000000001'
     and seller_account_id = '20000000-0000-4000-8000-000000000001'
     and name = 'Second Profile';
-  if v_second_version <> 2 or v_second_name <> 'Second Profile' then
-    raise exception 'Stale/cross-tenant update altered the valid row.';
+  if v_second_version <> 3 or v_second_name <> 'Second Profile' then
+    raise exception 'Stale/cross-tenant/default-clear handling altered the valid row incorrectly.';
   end if;
 
   select count(*) into v_cross_tenant
@@ -188,8 +221,16 @@ begin
 
   select count(*) into v_audit_count
   from public.tcos_kingmaker_pricing_profile_audit;
-  if v_audit_count <> 5 then
-    raise exception 'Expected five atomic audit receipts, found %.', v_audit_count;
+  if v_audit_count <> 7 then
+    raise exception 'Expected seven atomic audit receipts, found %.', v_audit_count;
+  end if;
+
+  select count(*) into v_default_clear_audits
+  from public.tcos_kingmaker_pricing_profile_audit
+  where action = 'updated'
+    and snapshot->>'reason' = 'default_reassigned';
+  if v_default_clear_audits <> 2 then
+    raise exception 'Expected two auditable default reassignments, found %.', v_default_clear_audits;
   end if;
 end;
 $$;
