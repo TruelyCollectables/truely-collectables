@@ -12,9 +12,11 @@ export type InstaCompChecklistLookupInput = {
 
 export type InstaCompChecklistCandidate = {
   identityId: string;
+  fingerprintSha256?: string | null;
   year: string | null;
   manufacturer: string | null;
   brand?: string | null;
+  product?: string | null;
   setName?: string | null;
   cardNumber: string | null;
   player: string | null;
@@ -25,6 +27,7 @@ export type InstaCompChecklistCandidate = {
   variation?: string | null;
   team?: string | null;
   sport?: string | null;
+  league?: string | null;
 };
 
 export type InstaCompChecklistFirstDecision = {
