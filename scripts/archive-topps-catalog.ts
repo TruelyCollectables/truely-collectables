@@ -2,13 +2,17 @@ import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, extname, resolve } from "node:path";
 
-const INDEX_URL = "https://www.topps.com/pages/checklists";
+const INDEX_URLS = [
+  "https://www-next.topps.com/pages/checklists",
+  "https://uk.topps.com/pages/checklists",
+  "https://www.topps.com/pages/checklists",
+];
 const OUT = resolve(process.cwd(), process.env.TOPPS_ARCHIVE_ROOT || ".topps-archive");
 const MAX_PRODUCTS = Math.max(1, Math.min(3000, Number(process.env.TOPPS_ARCHIVE_MAX_PRODUCTS || 3000)));
 const CONCURRENCY = Math.max(1, Math.min(10, Number(process.env.TOPPS_ARCHIVE_CONCURRENCY || 6)));
 const MAX_BYTES = 50 * 1024 * 1024;
 
-const trustedHosts = new Set(["topps.com", "www.topps.com", "www-next.topps.com", "cdn.shopify.com"]);
+const trustedHosts = new Set(["topps.com", "www.topps.com", "www-next.topps.com", "uk.topps.com", "cdn.shopify.com"]);
 
 function clean(v: string) { return v.replace(/<[^>]+>/g, " ").replace(/&amp;/gi, "&").replace(/&nbsp;/gi, " ").replace(/&reg;/gi, "®").replace(/&#39;/gi, "'").replace(/&quot;/gi, '"').replace(/\s+/g, " ").trim(); }
 function slug(v: string) { return clean(v).normalize("NFKC").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "unknown"; }
@@ -46,12 +50,35 @@ function mime(url: string, header: string) {
 }
 async function fetchChecked(url: string, accept: string) {
   if (!trusted(url)) throw new Error("untrusted URL");
-  const r = await fetch(url, { headers: { Accept: accept, "Cache-Control": "no-cache", "User-Agent": "TCOS-Topps-Archive/1.0 (+private preservation archive; contact sales@truelycollectables.com)" }, redirect: "follow", signal: AbortSignal.timeout(90000) });
+  const r = await fetch(url, {
+    headers: {
+      Accept: accept,
+      "Accept-Language": "en-US,en;q=0.9",
+      "Cache-Control": "no-cache",
+      Pragma: "no-cache",
+      Referer: "https://www.topps.com/",
+      "Sec-Fetch-Dest": "document",
+      "Sec-Fetch-Mode": "navigate",
+      "Sec-Fetch-Site": "same-origin",
+      "Upgrade-Insecure-Requests": "1",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+    },
+    redirect: "follow",
+    signal: AbortSignal.timeout(90000),
+  });
   if (!trusted(r.url || url)) throw new Error("untrusted redirect");
   if (!r.ok) throw new Error(`HTTP ${r.status} ${r.statusText}`);
   return r;
 }
-async function html(url: string) { const r = await fetchChecked(url, "text/html,*/*"); const text = await r.text(); if (text.length < 1000) throw new Error("incomplete HTML"); return text; }
+async function html(url: string) { const r = await fetchChecked(url, "text/html,application/xhtml+xml,*/*;q=0.8"); const text = await r.text(); if (text.length < 1000) throw new Error("incomplete HTML"); return text; }
+async function firstIndex() {
+  const errors: string[] = [];
+  for (const url of INDEX_URLS) {
+    try { return { url, content: await html(url) }; }
+    catch (e) { errors.push(`${url}: ${e instanceof Error ? e.message : String(e)}`); }
+  }
+  throw new Error(`Every official Topps checklist endpoint failed: ${errors.join(" | ")}`);
+}
 async function download(url: string) { const r = await fetchChecked(url, "application/pdf,text/csv,text/plain,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/zip,*/*"); const bytes = new Uint8Array(await r.arrayBuffer()); if (!bytes.length) throw new Error("empty file"); if (bytes.length > MAX_BYTES) throw new Error(`file exceeds ${MAX_BYTES} bytes`); return { bytes, finalUrl: r.url || url, mimeType: mime(r.url || url, r.headers.get("content-type") || "") }; }
 
 async function pool<T>(items: T[], worker: (item: T, index: number) => Promise<void>) {
@@ -63,9 +90,9 @@ async function pool<T>(items: T[], worker: (item: T, index: number) => Promise<v
 
 async function main() {
   mkdirSync(OUT, { recursive: true });
-  const indexHtml = await html(INDEX_URL);
+  const index = await firstIndex();
   const products = new Map<string, { url: string; title: string }>();
-  for (const a of anchors(indexHtml, INDEX_URL)) {
+  for (const a of anchors(index.content, index.url)) {
     const u = new URL(a.url);
     if (!trusted(a.url) || !/^\/(pages|products)\//i.test(u.pathname)) continue;
     if (!a.text || /checklists?$/i.test(a.text)) continue;
@@ -99,7 +126,7 @@ async function main() {
     } catch (e) { failures.push({ ...item, error: e instanceof Error ? e.message : String(e) }); }
   });
   const bySport = files.reduce<Record<string, number>>((a, x) => { const s = String(x.sport); a[s] = (a[s] || 0) + 1; return a; }, {});
-  const manifest = { schema: "tcos.topps.sourceArchiveManifest.v1", generatedAt: new Date().toISOString(), source: INDEX_URL, catalogBoundary: "Topps states checklists are unavailable before 2018", totals: { products: productList.length, discoveredAssets: unique.length, archived: files.length, failedAssets: failures.length, failedProductPages: productFailures.length }, bySport, files, failures, productFailures };
+  const manifest = { schema: "tcos.topps.sourceArchiveManifest.v1", generatedAt: new Date().toISOString(), source: index.url, catalogBoundary: "Topps states checklists are unavailable before 2018", totals: { products: productList.length, discoveredAssets: unique.length, archived: files.length, failedAssets: failures.length, failedProductPages: productFailures.length }, bySport, files, failures, productFailures };
   writeFileSync(resolve(OUT, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
   writeFileSync(resolve(OUT, "README.txt"), `TCOS Topps source archive\nGenerated: ${manifest.generatedAt}\nArchived: ${files.length}\nFailed assets: ${failures.length}\n\nOriginal files are stored by sport/year/release and named with the first 12 SHA-256 characters.\n`);
   console.log(JSON.stringify(manifest.totals));
