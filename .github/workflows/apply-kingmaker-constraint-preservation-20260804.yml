@@ -1,0 +1,217 @@
+name: Apply KINGMAKER Constraint Preservation 20260804
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/apply-kingmaker-constraint-preservation-20260804.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  apply-verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: Production
+
+    env:
+      EXPECTED_MAIN_SHA: 3d28b6a698f5c7edf3f61762ff596f468b87613e
+      EXPECTED_BRANCH: ops/apply-kingmaker-constraint-preservation-20260804
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      RECEIPT_PATH: evidence/kingmaker-constraint-preservation-production-20260804/receipt.json
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/apply-kingmaker-constraint-preservation-20260804
+          fetch-depth: 0
+
+      - name: Fail closed on exact operations scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main
+          git merge-base --is-ancestor "$EXPECTED_MAIN_SHA" origin/main
+          git merge-base --is-ancestor "$EXPECTED_MAIN_SHA" HEAD
+          mapfile -t changed < <(git diff --name-only "$EXPECTED_MAIN_SHA"...HEAD)
+          printf '%s\n' "${changed[@]}"
+          test "${#changed[@]}" -eq 1
+          test "${changed[0]}" = '.github/workflows/apply-kingmaker-constraint-preservation-20260804.yml'
+          git diff --check "$EXPECTED_MAIN_SHA"...HEAD
+          git checkout --detach "$EXPECTED_MAIN_SHA"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Pull protected Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          mkdir -p .vercel "$RUNNER_TEMP/constraint-preservation-production"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/constraint-preservation-production/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          test -s "$RUNNER_TEMP/constraint-preservation-production/production.env"
+          echo "PRODUCTION_ENV_FILE=$RUNNER_TEMP/constraint-preservation-production/production.env" >> "$GITHUB_ENV"
+
+      - name: Apply constraint repair and verify Production invariants
+        shell: bash
+        run: |
+          node <<'NODE'
+          const { createHash } = require('node:crypto');
+          const { mkdirSync, readFileSync, writeFileSync } = require('node:fs');
+          const { dirname, resolve } = require('node:path');
+
+          const migrationPath = 'supabase/migrations/20260804071500_preserve_private_pricing_work_order_constraints.sql';
+          const receiptPath = resolve(process.env.RECEIPT_PATH);
+          const managementToken = process.env.GH_SUPABASE_ACCESS_TOKEN;
+
+          function parseEnv(contents) {
+            const parsed = {};
+            for (const raw of String(contents || '').split(/\r?\n/)) {
+              const line = raw.trim();
+              if (!line || line.startsWith('#')) continue;
+              const index = line.indexOf('=');
+              if (index < 1) continue;
+              const key = line.slice(0, index).trim().replace(/^export\s+/, '');
+              let value = line.slice(index + 1).trim();
+              if (value.startsWith('"') && value.endsWith('"')) {
+                try { value = JSON.parse(value); } catch { value = value.slice(1, -1); }
+              } else if (value.startsWith("'") && value.endsWith("'")) {
+                value = value.slice(1, -1);
+              }
+              parsed[key] = value;
+            }
+            return parsed;
+          }
+
+          function projectRef(url) {
+            const match = String(url || '').match(/^https:\/\/([a-z0-9]+)\.supabase\.co\/?$/i);
+            if (!match) throw new Error('Production database URL was not resolved.');
+            return match[1];
+          }
+
+          async function query(project, sql, readOnly, stage) {
+            const response = await fetch(`https://api.supabase.com/v1/projects/${project}/database/query`, {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${managementToken}`,
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+              },
+              body: JSON.stringify({ query: sql, parameters: [], read_only: readOnly }),
+              signal: AbortSignal.timeout(119000),
+            });
+            const text = await response.text();
+            if (!response.ok) throw new Error(`Production ${stage} failed with HTTP ${response.status}: ${text.slice(0, 600)}`);
+            return text ? JSON.parse(text) : [];
+          }
+
+          function firstRow(value) {
+            if (Array.isArray(value)) return value[0] || {};
+            if (value && typeof value === 'object') {
+              for (const nested of Object.values(value)) {
+                const row = firstRow(nested);
+                if (row && Object.keys(row).length) return row;
+              }
+            }
+            return {};
+          }
+
+          function number(row, field) {
+            const value = Number(row?.[field]);
+            if (!Number.isFinite(value)) throw new Error(`Invalid numeric field ${field}.`);
+            return value;
+          }
+
+          function statsSql() {
+            return `
+              select
+                (select count(*) from public.tcos_kingmaker_private_pricing_work_orders)::bigint as work_orders,
+                (select count(*) from public.tcos_kingmaker_private_pricing_work_order_audit)::bigint as audit_events,
+                (select count(*) from public.tcos_kingmaker_price_entries)::bigint as price_entries,
+                (select count(*) from public.tcos_kingmaker_observations)::bigint as observations,
+                (select count(*) from public.tcos_kingmaker_price_entries where low_observation_id is not null or high_observation_id is not null)::bigint as linked_prices;
+            `;
+          }
+
+          function verifySql() {
+            return `
+              select
+                position('resolved' in lower(pg_get_constraintdef((select oid from pg_constraint where conrelid = 'public.tcos_kingmaker_private_pricing_work_orders'::regclass and conname = 'tcos_km_work_order_status_check'))) > 0 as work_status_ok,
+                position('auto_resolved' in lower(pg_get_constraintdef((select oid from pg_constraint where conrelid = 'public.tcos_kingmaker_private_pricing_work_order_audit'::regclass and conname = 'tcos_km_work_order_audit_action_check'))) > 0 as auto_resolved_ok,
+                position('review_scheduled' in lower(pg_get_constraintdef((select oid from pg_constraint where conrelid = 'public.tcos_kingmaker_private_pricing_work_order_audit'::regclass and conname = 'tcos_km_work_order_audit_action_check'))) > 0 as review_scheduled_ok,
+                position('review_cleared' in lower(pg_get_constraintdef((select oid from pg_constraint where conrelid = 'public.tcos_kingmaker_private_pricing_work_order_audit'::regclass and conname = 'tcos_km_work_order_audit_action_check'))) > 0 as review_cleared_ok,
+                position('system' in lower(pg_get_constraintdef((select oid from pg_constraint where conrelid = 'public.tcos_kingmaker_private_pricing_work_order_audit'::regclass and conname = 'tcos_km_work_order_audit_actor_check'))) > 0 as actor_ok,
+                (select count(*) from pg_constraint where conrelid in (
+                  'public.tcos_kingmaker_private_pricing_work_orders'::regclass,
+                  'public.tcos_kingmaker_private_pricing_work_order_audit'::regclass
+                ) and contype = 'c')::bigint as check_constraints;
+            `;
+          }
+
+          async function main() {
+            const env = parseEnv(readFileSync(process.env.PRODUCTION_ENV_FILE, 'utf8'));
+            const project = projectRef(env.NEXT_PUBLIC_SUPABASE_URL || env.SUPABASE_URL);
+            const before = firstRow(await query(project, statsSql(), true, 'pre-apply statistics'));
+            const migration = readFileSync(migrationPath, 'utf8');
+            await query(project, migration, false, 'constraint-preservation migration');
+            const verification = firstRow(await query(project, verifySql(), true, 'constraint verification'));
+            for (const field of ['work_status_ok','auto_resolved_ok','review_scheduled_ok','review_cleared_ok','actor_ok']) {
+              if (verification[field] !== true) throw new Error(`Production constraint verification failed: ${field}.`);
+            }
+            if (number(verification, 'check_constraints') < 4) throw new Error('Production check-constraint count is unexpectedly low.');
+            const after = firstRow(await query(project, statsSql(), true, 'post-apply statistics'));
+            for (const field of ['work_orders','audit_events','price_entries','observations','linked_prices']) {
+              if (number(before, field) !== number(after, field)) throw new Error(`Constraint repair changed ${field}.`);
+            }
+            const receipt = {
+              schema: 'tcos.kingmaker.constraintPreservationProductionReceipt.v1',
+              status: 'passed',
+              generatedAt: new Date().toISOString(),
+              deployedCommit: process.env.EXPECTED_MAIN_SHA,
+              migration: {
+                path: migrationPath,
+                sha256: createHash('sha256').update(migration).digest('hex'),
+              },
+              verification,
+              countsUnchanged: true,
+              zeroPricePromotion: true,
+            };
+            const serialized = JSON.stringify(receipt).toLowerCase();
+            for (const forbidden of ['raw_text','original_filename','source_sha256','storage_object_path','attackkey','notes','value_low','value_high','rows']) {
+              if (serialized.includes(forbidden)) throw new Error(`Receipt contains prohibited field ${forbidden}.`);
+            }
+            mkdirSync(dirname(receiptPath), { recursive: true });
+            writeFileSync(receiptPath, JSON.stringify(receipt, null, 2) + '\n');
+          }
+
+          main().catch((error) => { console.error(error); process.exit(1); });
+          NODE
+
+      - name: Require sanitized Production receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$RECEIPT_PATH"
+          node -e 'const r=require("./"+process.env.RECEIPT_PATH); if(r.status!=="passed"||r.deployedCommit!==process.env.EXPECTED_MAIN_SHA||r.countsUnchanged!==true||r.zeroPricePromotion!==true) process.exit(1)'
+
+      - name: Upload sanitized Production receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: kingmaker-constraint-preservation-production-20260804
+          path: ${{ env.RECEIPT_PATH }}
+          if-no-files-found: error
+          retention-days: 30
