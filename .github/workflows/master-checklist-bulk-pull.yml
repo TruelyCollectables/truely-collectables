@@ -6,6 +6,7 @@ on:
       - "data/*-checklist-seeds.json"
       - "scripts/archive-*.ts"
       - "scripts/discover-official-checklists.ts"
+      - "scripts/discover-blocked-checklists-via-reader.ts"
       - "scripts/build-checklist-master-status.ts"
       - ".github/workflows/master-checklist-bulk-pull.yml"
   push:
@@ -13,6 +14,7 @@ on:
       - "data/*-checklist-seeds.json"
       - "scripts/archive-*.ts"
       - "scripts/discover-official-checklists.ts"
+      - "scripts/discover-blocked-checklists-via-reader.ts"
       - "scripts/build-checklist-master-status.ts"
       - ".github/workflows/master-checklist-bulk-pull.yml"
   schedule:
@@ -37,6 +39,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+
+      - name: Discover blocked Topps and Panini catalogs through reader fallback
+        continue-on-error: true
+        run: node --import tsx scripts/discover-blocked-checklists-via-reader.ts
 
       - name: Crawl official manufacturer catalogs and refill queues
         continue-on-error: true
@@ -73,6 +79,7 @@ jobs:
         run: |
           mkdir -p .checklist-master-archive/manifests .checklist-master-archive/discovery
           test ! -f .checklist-discovery/report.json || cp .checklist-discovery/report.json .checklist-master-archive/discovery/report.json
+          test ! -f .checklist-reader-discovery/report.json || cp .checklist-reader-discovery/report.json .checklist-master-archive/discovery/reader-report.json
           test ! -f .topps-seed-archive/manifest.json || cp .topps-seed-archive/manifest.json .checklist-master-archive/manifests/topps.json
           test ! -f .panini-seed-archive/manifest.json || cp .panini-seed-archive/manifest.json .checklist-master-archive/manifests/panini.json
           test ! -f .leaf-checklist-archive/manifest.json || cp .leaf-checklist-archive/manifest.json .checklist-master-archive/manifests/leaf.json
@@ -97,6 +104,7 @@ jobs:
             .checklist-master-archive/STATUS.md
             .checklist-master-archive/status.json
             .checklist-master-archive/discovery/report.json
+            .checklist-master-archive/discovery/reader-report.json
             .checklist-master-archive/manifests/*.json
           if-no-files-found: error
           retention-days: 90
