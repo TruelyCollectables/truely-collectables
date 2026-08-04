@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 
 type Seed = { title: string; sport: string; year: string; url: string };
 
+const MANUFACTURER = "Panini";
 const OUT = resolve(process.cwd(), ".panini-seed-archive");
 const seeds = JSON.parse(
   readFileSync(resolve(process.cwd(), "data/panini-checklist-seeds.json"), "utf8"),
@@ -64,12 +65,12 @@ async function main() {
       const { bytes, attempt, finalUrl } = await downloadWithRetry(seed);
       const sha256 = createHash("sha256").update(bytes).digest("hex");
       const filename = `${slug(seed.title)}-${sha256.slice(0, 12)}.pdf`;
-      const rel = `${seed.sport}/${seed.year}/${filename}`;
+      const rel = `${MANUFACTURER}/${slug(seed.sport)}/${seed.year}/${filename}`;
       const target = resolve(OUT, rel);
       mkdirSync(dirname(target), { recursive: true });
       writeFileSync(target, bytes);
       files.push({
-        manufacturer: "Panini",
+        manufacturer: MANUFACTURER,
         ...seed,
         finalUrl,
         filename,
@@ -81,7 +82,7 @@ async function main() {
       });
     } catch (error) {
       failures.push({
-        manufacturer: "Panini",
+        manufacturer: MANUFACTURER,
         ...seed,
         error: error instanceof Error ? error.message : String(error),
         retryEligible: true,
@@ -90,8 +91,9 @@ async function main() {
   }
 
   const manifest = {
-    schema: "tcos.panini.seedArchiveManifest.v1",
-    manufacturer: "Panini",
+    schema: "tcos.manufacturerChecklistArchiveManifest.v1",
+    layout: "manufacturer/category-or-sport/year/file",
+    manufacturer: MANUFACTURER,
     generatedAt: new Date().toISOString(),
     totals: { requested: seeds.length, archived: files.length, failed: failures.length },
     bySport: files.reduce<Record<string, number>>((totals, file) => {
