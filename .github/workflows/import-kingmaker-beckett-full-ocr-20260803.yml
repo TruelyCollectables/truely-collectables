@@ -6,7 +6,6 @@ on:
     paths:
       - ".github/workflows/import-kingmaker-beckett-full-ocr-20260803.yml"
       - "scripts/ops/import-kingmaker-beckett-compact-production.py"
-      - "ops/kingmaker-beckett-full-ocr-20260803/**"
 
 permissions:
   contents: read
@@ -23,7 +22,9 @@ env:
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
   VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
   GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-  PAYLOAD_DIR: ops/kingmaker-beckett-full-ocr-20260803
+  PAYLOAD_DOWNLOAD_URL: "https://sdmntprwestus3.oaiusercontent.com/files/00000000-00bd-81f7-a164-ead407a21522/raw?se=2026-08-04T00%3A25%3A08Z&sp=r&sv=2026-02-06&sr=b&scid=e76fa463-6c9b-50c8-840f-a65c6de80459&skoid=5e713cdb-766b-475e-a3ca-8adb6cf99aa0&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-08-03T17%3A01%3A59Z&ske=2026-08-04T17%3A01%3A59Z&sks=b&skv=2026-02-06&sig=p9t8QsL2F/tpgTujNLFywQ4vYKL2tKvFto2q/560XE8%3D"
+  PAYLOAD_B64_SHA256: 8db0e1da0ebf76b510726576dad94599a78faf7db95c5f99b0a25300697cadc2
+  PAYLOAD_ZIP_SHA256: f61ec34bf1bbd0f699703a2e026e74e83078e86174f0b685eeaa41d20c79cd44
   RECEIPT_PATH: evidence/kingmaker-beckett-full-ocr-production-20260803/receipt.json
 
 jobs:
@@ -46,15 +47,10 @@ jobs:
           git merge-base --is-ancestor "$EXPECTED_BASE_SHA" origin/main
           git merge-base --is-ancestor "$EXPECTED_BASE_SHA" HEAD
           mapfile -t changed < <(git diff --name-only "$EXPECTED_BASE_SHA"...HEAD)
-          test "${#changed[@]}" -ge 4
-          for path in "${changed[@]}"; do
-            case "$path" in
-              .github/workflows/import-kingmaker-beckett-full-ocr-20260803.yml|scripts/ops/import-kingmaker-beckett-compact-production.py|ops/kingmaker-beckett-full-ocr-20260803/envelope.json|ops/kingmaker-beckett-full-ocr-20260803/chunks/*.b64) ;;
-              *) echo "Unexpected changed path: $path" >&2; exit 1 ;;
-            esac
-          done
-          test -s "$PAYLOAD_DIR/envelope.json"
-          test "$(find "$PAYLOAD_DIR/chunks" -type f -name '*.b64' | wc -l)" -eq 6
+          printf '%s\n' "${changed[@]}"
+          test "${#changed[@]}" -eq 2
+          test "${changed[0]}" = '.github/workflows/import-kingmaker-beckett-full-ocr-20260803.yml'
+          test "${changed[1]}" = 'scripts/ops/import-kingmaker-beckett-compact-production.py'
           git diff --check "$EXPECTED_BASE_SHA"...HEAD
 
       - uses: actions/setup-python@v5
@@ -63,6 +59,27 @@ jobs:
 
       - name: Install exact importer dependencies
         run: python -m pip install --disable-pip-version-check --no-cache-dir requests==2.32.4 msgpack==1.1.1 cryptography==45.0.5
+
+      - name: Download and verify encrypted payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          payload_b64="$RUNNER_TEMP/kingmaker-beckett-payload.b64.txt"
+          payload_zip="$RUNNER_TEMP/kingmaker-beckett-payload.zip"
+          payload_dir="$RUNNER_TEMP/kingmaker-beckett-payload"
+          curl --silent --show-error --fail --location --retry 3 \
+            --output "$payload_b64" \
+            "$PAYLOAD_DOWNLOAD_URL"
+          printf '%s  %s\n' "$PAYLOAD_B64_SHA256" "$payload_b64" | sha256sum --check --strict
+          base64 --decode "$payload_b64" > "$payload_zip"
+          printf '%s  %s\n' "$PAYLOAD_ZIP_SHA256" "$payload_zip" | sha256sum --check --strict
+          mkdir -p "$payload_dir"
+          unzip -q "$payload_zip" -d "$payload_dir"
+          test -s "$payload_dir/envelope.json"
+          test "$(find "$payload_dir/chunks" -type f -name '*.b64' | wc -l)" -eq 6
+          test "$(jq -r '.totalPages' "$payload_dir/envelope.json")" -eq 642
+          test "$(jq -r '.totalEntries' "$payload_dir/envelope.json")" -eq 87679
+          echo "PAYLOAD_DIR=$payload_dir" >> "$GITHUB_ENV"
 
       - name: Pull protected Production environment
         shell: bash
@@ -137,11 +154,10 @@ jobs:
 
       - name: Decrypt, stage, Registry-match, and verify all five guides
         shell: bash
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ env.PRODUCTION_SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ env.RESOLVED_SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           set -euo pipefail
+          export NEXT_PUBLIC_SUPABASE_URL="$PRODUCTION_SUPABASE_URL"
+          export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
           mkdir -p "$(dirname "$RECEIPT_PATH")"
           python scripts/ops/import-kingmaker-beckett-compact-production.py \
             --envelope "$PAYLOAD_DIR/envelope.json" \
@@ -195,7 +211,8 @@ jobs:
         run: |
           rm -rf \
             "$RUNNER_TEMP/kingmaker-beckett-production" \
-            "$PAYLOAD_DIR/chunks" \
-            "$PAYLOAD_DIR/envelope.json" \
+            "$RUNNER_TEMP/kingmaker-beckett-payload" \
+            "$RUNNER_TEMP/kingmaker-beckett-payload.zip" \
+            "$RUNNER_TEMP/kingmaker-beckett-payload.b64.txt" \
             .env.local \
             .env.production.local
