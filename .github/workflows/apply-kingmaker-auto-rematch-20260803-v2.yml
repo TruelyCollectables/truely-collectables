@@ -28,7 +28,7 @@ env:
 jobs:
   apply-and-verify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v4
@@ -76,7 +76,7 @@ jobs:
           test -s "$RUNNER_TEMP/kingmaker-auto-rematch-production-v2/production.env"
           echo "PRODUCTION_ENV_FILE=$RUNNER_TEMP/kingmaker-auto-rematch-production-v2/production.env" >> "$GITHUB_ENV"
 
-      - name: Apply, regress, backfill, and verify Production auto-rematch
+      - name: Apply, regress, chunk backfill, and verify Production auto-rematch
         shell: bash
         env:
           ALLOW_KINGMAKER_AUTO_REMATCH_APPLY: "YES"
@@ -85,9 +85,11 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
+          import re
 
           runner = Path("scripts/ops/apply-kingmaker-auto-rematch-20260803-v2.mjs")
           runner_text = runner.read_text()
+
           old_migrations = '''  "supabase/migrations/20260804011600_fix_kingmaker_auto_rematch_trigger.sql",
           ];'''
           new_migrations = '''  "supabase/migrations/20260804011600_fix_kingmaker_auto_rematch_trigger.sql",
@@ -95,7 +97,118 @@ jobs:
           ];'''
           if old_migrations not in runner_text:
               raise SystemExit("Expected pinned migration list was not found.")
-          runner.write_text(runner_text.replace(old_migrations, new_migrations, 1))
+          runner_text = runner_text.replace(old_migrations, new_migrations, 1)
+
+          replacement = r'''const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+          function backfillTargetsSql() {
+            return `
+              select
+                release.id as release_id,
+                version.id as version_id,
+                count(*) as candidate_entries
+              from public.checklist_releases release
+              join public.checklist_manufacturers manufacturer
+                on manufacturer.id = release.manufacturer_id
+              join public.checklist_sports sport
+                on sport.id = release.sport_id
+              join public.checklist_versions version
+                on version.release_id = release.id
+               and version.is_active
+               and version.status in ('live','revised')
+              join public.tcos_kingmaker_price_guides guide
+                on public.tcos_kingmaker_price_normalize(guide.sport) =
+                   public.tcos_kingmaker_price_normalize(sport.name)
+              join public.tcos_kingmaker_price_entries entry
+                on entry.guide_id = guide.id
+               and entry.entry_kind = 'card'
+               and entry.validation_status <> 'rejected'
+               and entry.low_observation_id is null
+               and entry.high_observation_id is null
+               and entry.identity_match_status in ('unmatched','ambiguous')
+               and public.tcos_kingmaker_price_normalize(entry.release_year) in (
+                 public.tcos_kingmaker_price_normalize(release.release_year),
+                 public.tcos_kingmaker_price_normalize(release.season)
+               )
+               and public.tcos_kingmaker_price_normalize(entry.manufacturer) =
+                   public.tcos_kingmaker_price_normalize(manufacturer.name)
+               and public.tcos_kingmaker_price_normalize(release.product_name) in (
+                 public.tcos_kingmaker_price_normalize(entry.product),
+                 public.tcos_kingmaker_price_normalize(
+                   concat_ws(' ', entry.release_year, entry.product)
+                 )
+               )
+              group by release.id, version.id
+              order by count(*), release.id, version.id;
+            `;
+          }
+
+          function backfillReleaseSql(releaseId, versionId) {
+            if (!UUID_PATTERN.test(String(releaseId)) || !UUID_PATTERN.test(String(versionId))) {
+              throw new Error("Invalid Production backfill target UUID.");
+            }
+            return `
+              set statement_timeout = '110s';
+              select public.tcos_rematch_kingmaker_price_entries_for_release(
+                '${releaseId}'::uuid,
+                '${versionId}'::uuid,
+                'production_activation_backfill'
+              );
+            `;
+          }
+
+          function verificationSql()'''
+          runner_text, replaced = re.subn(
+              r"function backfillSql\(\) \{.*?\n\}\n\nfunction verificationSql\(\)",
+              replacement,
+              runner_text,
+              count=1,
+              flags=re.S,
+          )
+          if replaced != 1:
+              raise SystemExit("Expected monolithic backfill function was not found exactly once.")
+
+          old_call = '''  await queryManagement({
+            project,
+            token,
+            query: backfillSql(),
+            readOnly: false,
+            stage: "current active-checklist backfill",
+          });'''
+          new_call = '''  const backfillTargets = await queryManagement({
+            project,
+            token,
+            query: backfillTargetsSql(),
+            readOnly: true,
+            stage: "current active-checklist backfill targets",
+          });
+
+          for (const [index, target] of backfillTargets.entries()) {
+            await queryManagement({
+              project,
+              token,
+              query: backfillReleaseSql(target.release_id, target.version_id),
+              readOnly: false,
+              stage: `current active-checklist backfill ${index + 1}/${backfillTargets.length}`,
+            });
+          }'''
+          if old_call not in runner_text:
+              raise SystemExit("Expected monolithic backfill call was not found.")
+          runner_text = runner_text.replace(old_call, new_call, 1)
+
+          receipt_anchor = '''    before: {'''
+          receipt_backfill = '''    backfill: {
+              targetedReleases: backfillTargets.length,
+              candidateEntries: backfillTargets.reduce(
+                (total, target) => total + Number(target.candidate_entries || 0),
+                0,
+              ),
+            },
+            before: {'''
+          if receipt_anchor not in runner_text:
+              raise SystemExit("Expected receipt anchor was not found.")
+          runner_text = runner_text.replace(receipt_anchor, receipt_backfill, 1)
+          runner.write_text(runner_text)
 
           regression = Path("scripts/run-kingmaker-checklist-auto-rematch-regressions.sql")
           regression_text = regression.read_text()
@@ -109,6 +222,7 @@ jobs:
               raise SystemExit("Expected legacy regression storage path was not found.")
           regression.write_text(regression_text.replace(old_path, new_path, 1))
           PY
+          node --check scripts/ops/apply-kingmaker-auto-rematch-20260803-v2.mjs
           node scripts/ops/apply-kingmaker-auto-rematch-20260803-v2.mjs
 
       - name: Require sanitized passing receipt
@@ -124,6 +238,8 @@ jobs:
           if (receipt.expectedMainSha !== process.env.EXPECTED_MAIN_SHA) throw new Error('Receipt main SHA mismatch');
           if (receipt.regression?.passed !== true) throw new Error('Synthetic Production regression did not pass');
           if (receipt.migrations?.length !== 3) throw new Error('Expected all three Production migrations');
+          if (!Number.isInteger(receipt.backfill?.targetedReleases) || receipt.backfill.targetedReleases < 0) throw new Error('Missing chunked backfill target count');
+          if (!Number.isInteger(receipt.backfill?.candidateEntries) || receipt.backfill.candidateEntries < 0) throw new Error('Missing chunked backfill candidate count');
           if (receipt.pricesPromotedByThisOperation !== 0) throw new Error('Auto-rematch promoted prices');
           if (receipt.secretsPersisted !== false) throw new Error('Receipt safety assertion failed');
           const required = ['trigger_present','rpc_present','audit_table_present','audit_rls_enabled','public_table_grants_revoked','public_rpc_execute_revoked','service_rpc_execute'];
