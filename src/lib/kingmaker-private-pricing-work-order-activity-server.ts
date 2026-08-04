@@ -55,9 +55,30 @@ export async function getKingmakerPrivatePricingWorkOrderActivity(actorValue: In
   const payload = object(data, "payload");
   if (payload.boundary !== "private_coverage_work_order_activity_only") throw new InstaCompJobServerError("Private pricing work-order activity boundary verification failed.", 500, "KINGMAKER_PRIVATE_PRICING_WORK_ORDER_ACTIVITY_BOUNDARY_INVALID");
   const rows = Array.isArray(payload.rows) ? payload.rows : [];
-  for (const [index, raw] of rows.entries()) {
+  const parsedRows = rows.map((raw, index) => {
     const row = object(raw, `row ${index + 1}`);
-    if (!action(row.action) || !actor(row.actorType) || !text(row.createdAt, 60)) throw new InstaCompJobServerError("Private pricing work-order activity returned an incomplete event.", 500, "KINGMAKER_PRIVATE_PRICING_WORK_ORDER_ACTIVITY_EVENT_INVALID");
-  }
-  return payload;
+    const parsedAction = action(row.action);
+    const parsedActor = actor(row.actorType);
+    const createdAt = text(row.createdAt, 60);
+    if (!parsedAction || !parsedActor || !createdAt) throw new InstaCompJobServerError("Private pricing work-order activity returned an incomplete event.", 500, "KINGMAKER_PRIVATE_PRICING_WORK_ORDER_ACTIVITY_EVENT_INVALID");
+    return {
+      rank: number(row.rank, index + 1),
+      action: parsedAction,
+      status: text(row.status, 40),
+      priority: number(row.priority, 3),
+      version: number(row.version, 1),
+      notesChanged: row.notesChanged === true,
+      actorType: parsedActor,
+      createdAt,
+      targetActive: row.targetActive === true,
+      sport: text(row.sport) || "Unknown",
+      releaseYear: text(row.releaseYear) || "Unknown",
+      manufacturer: text(row.manufacturer) || "Unknown",
+      product: text(row.product) || "Unknown",
+      setName: text(row.setName) || "Base / Unspecified",
+      gapType: text(row.gapType, 40),
+      actionabilityStatus: text(row.actionabilityStatus, 40),
+    };
+  });
+  return { ...payload, rows: parsedRows };
 }
