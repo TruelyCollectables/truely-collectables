@@ -59,6 +59,10 @@ import {
   resolveInstaCompCouncilPolicy,
 } from "../../../../lib/instacomp-ai-council-security";
 import {
+  prioritizeIndependentCouncilProviders,
+  shouldContinueCouncilRuntime,
+} from "../../../../lib/instacomp-ai-council-runtime";
+import {
   buildChecklistRegistryCatalogEvidence,
   buildChecklistRegistryReviewEvidence,
   buildInstaCompEvidenceIdentityDecision,
@@ -1753,7 +1757,10 @@ async function runInstaCompAiCouncil(params: {
   );
   const tier = aiCouncilTier(params.requestedTier);
   const providerPlan = buildAiCouncilProviderPlan();
-  const configuredPlan = providerPlan.filter((provider) => provider.configured);
+  const configuredPlan = prioritizeIndependentCouncilProviders(
+    providerPlan.filter((provider) => provider.configured),
+    "openai",
+  );
   const configuredFamilies = Array.from(
     new Set(configuredPlan.map((provider) => provider.family)),
   );
@@ -1786,10 +1793,18 @@ async function runInstaCompAiCouncil(params: {
   }> = [];
   let cursor = 0;
   let completedReaders = 0;
+  let completedFamilies: string[] = [];
 
   while (
-    completedReaders < desiredReaders &&
-    cursor < configuredPlan.length
+    shouldContinueCouncilRuntime({
+      completedReaders,
+      desiredReaders,
+      completedFamilies,
+      configuredFamilies,
+      cursor,
+      configuredReaderCount: configuredPlan.length,
+      primaryFamily: "openai",
+    })
   ) {
     const needed = desiredReaders - completedReaders;
     const batch = configuredPlan.slice(cursor, cursor + needed);
@@ -1808,7 +1823,13 @@ async function runInstaCompAiCouncil(params: {
       ),
     );
     allAttempts.push(...batchAttempts);
-    completedReaders = allAttempts.filter((attempt) => attempt.reader).length;
+    const completed = allAttempts.flatMap((attempt) =>
+      attempt.reader ? [attempt.reader] : [],
+    );
+    completedReaders = completed.length;
+    completedFamilies = Array.from(
+      new Set(completed.map((reader) => reader.family)),
+    );
   }
 
   const rawReaders = allAttempts.flatMap((attempt) =>
