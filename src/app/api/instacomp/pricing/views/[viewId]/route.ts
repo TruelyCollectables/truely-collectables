@@ -13,11 +13,28 @@ export async function DELETE(request: NextRequest, context: Context) {
     const actor = await requireInstaCompJobActor(request);
     assertTrustedInstaCompMutationRequest({ request, actor });
     const { viewId } = await context.params;
-    const result = await retireKingmakerPricingSavedView(actor, viewId);
+    const body = await request.json().catch(() => null) as Record<string, unknown> | null;
+    if (!body) {
+      return NextResponse.json(
+        { ok: false, error: "A JSON request body with expectedVersion is required." },
+        { status: 400 },
+      );
+    }
+    const result = await retireKingmakerPricingSavedView(
+      actor,
+      viewId,
+      body.expectedVersion,
+    );
     return NextResponse.json({ ok: true, ...result, sourceDisclosure: null });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not retire saved view.";
-    const status = message.includes("not found") ? 404 : 500;
+    const status = message.includes("expectedVersion is required")
+      ? 400
+      : message.includes("changed")
+        ? 409
+        : message.includes("not found")
+          ? 404
+          : 500;
     return NextResponse.json({ ok: false, error: message }, { status });
   }
 }
