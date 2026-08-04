@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 type Seed = { title: string; sport?: string; year: string; sourcePage?: string; url: string };
@@ -11,6 +11,11 @@ type Manufacturer = {
   searches: string[];
   maxPages: number;
 };
+
+const REQUEST_TIMEOUT_MS = 15_000;
+const TOTAL_RUNTIME_MS = 8 * 60_000;
+const CONCURRENCY = 8;
+const startedAt = Date.now();
 
 const manufacturers: Manufacturer[] = [
   {
@@ -25,11 +30,11 @@ const manufacturers: Manufacturer[] = [
       "https://www.topps.com/sitemap_products_1.xml",
     ],
     searches: [
-      "site:topps.com checklist Topps PDF OR XLS OR XLSX",
-      "site:cdn.shopify.com Topps checklist xlsx OR pdf",
+      "site:topps.com checklist Topps PDF XLS XLSX",
+      "site:cdn.shopify.com Topps checklist PDF XLS XLSX",
       "site:topps.com/pages/checklists Topps",
     ],
-    maxPages: 800,
+    maxPages: 250,
   },
   {
     name: "Panini",
@@ -43,11 +48,11 @@ const manufacturers: Manufacturer[] = [
       "https://www.paniniamerica.net/checklist.html",
     ],
     searches: [
-      "site:blog.paniniamerica.net checklist Panini PDF OR XLS OR XLSX",
-      "site:assets.paniniamerica.net checklist PDF OR XLS OR XLSX",
+      "site:blog.paniniamerica.net checklist Panini PDF XLS XLSX",
+      "site:assets.paniniamerica.net checklist PDF XLS XLSX",
       "site:paniniamerica.net checklist Panini",
     ],
-    maxPages: 1800,
+    maxPages: 500,
   },
 ];
 
@@ -60,12 +65,7 @@ function allowed(host: string, hosts: string[]) {
 }
 
 function clean(value: string) {
-  return value
-    .replace(/\\\//g, "/")
-    .replace(/\\u0026/gi, "&")
-    .replace(/&amp;/g, "&")
-    .replace(/[)>\],.;]+$/g, "")
-    .trim();
+  return value.replace(/\\\//g, "/").replace(/\\u0026/gi, "&").replace(/&amp;/g, "&").replace(/[)>\],.;]+$/g, "").trim();
 }
 
 function linksFrom(body: string, base: string) {
@@ -82,9 +82,7 @@ function linksFrom(body: string, base: string) {
         const url = new URL(clean(match[1] || match[0]), base);
         url.hash = "";
         links.add(url.toString());
-      } catch {
-        // Ignore malformed links.
-      }
+      } catch {}
     }
   }
   return [...links];
@@ -97,107 +95,98 @@ function titleFromUrl(url: string) {
 
 function yearFrom(value: string) {
   const season = value.match(/\b(20\d{2})[-_/](\d{2})\b/);
-  if (season) return `${season[1]}-${season[2]}`;
-  return value.match(/\b(19\d{2}|20\d{2})\b/)?.[1] || "Unknown";
+  return season ? `${season[1]}-${season[2]}` : value.match(/\b(19\d{2}|20\d{2})\b/)?.[1] || "Unknown";
 }
 
 function sportFrom(value: string) {
   const text = value.toLowerCase();
   const rows: Array<[string, string[]]> = [
-    ["Baseball", ["baseball", "bowman"]],
-    ["Basketball", ["basketball", "nba", "wnba", "hoops"]],
-    ["Football", ["football", "nfl", "gridiron"]],
-    ["Hockey", ["hockey", "nhl"]],
-    ["Soccer", ["soccer", "fifa", "uefa", "premier league"]],
-    ["Racing", ["nascar", "racing", "formula 1", "f1"]],
-    ["Wrestling", ["wwe", "wrestling"]],
-    ["UFC", ["ufc", "mma"]],
+    ["Baseball", ["baseball", "bowman"]], ["Basketball", ["basketball", "nba", "wnba", "hoops"]],
+    ["Football", ["football", "nfl", "gridiron"]], ["Hockey", ["hockey", "nhl"]],
+    ["Soccer", ["soccer", "fifa", "uefa", "premier league"]], ["Racing", ["nascar", "racing", "formula 1", "f1"]],
+    ["Wrestling", ["wwe", "wrestling"]], ["UFC", ["ufc", "mma"]],
     ["Entertainment", ["marvel", "star wars", "disney", "entertainment"]],
     ["Multi-Sport", ["national", "father's day", "fathers day", "black friday", "multi-sport"]],
   ];
   return rows.find(([, words]) => words.some((word) => text.includes(word)))?.[0] || "Miscellaneous";
 }
 
-async function request(url: string, accept = "text/plain") {
+async function request(url: string) {
   const response = await fetch(url, {
-    headers: {
-      Accept: accept,
-      "User-Agent": "TCOS-Checklist-Archive/1.0 (+https://totallycollectibles.com)",
-      "X-Return-Format": "markdown",
-    },
+    headers: { Accept: "text/plain", "User-Agent": "TCOS-Checklist-Archive/2.0 (+https://totallycollectibles.com)", "X-Return-Format": "markdown" },
     redirect: "follow",
-    signal: AbortSignal.timeout(90_000),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.text();
 }
 
-async function reader(target: string) {
-  return request(`https://r.jina.ai/${target}`);
-}
+const reader = (target: string) => request(`https://r.jina.ai/${target}`);
+const search = (query: string) => request(`https://s.jina.ai/${encodeURIComponent(query)}`);
+const timeRemaining = () => Date.now() - startedAt < TOTAL_RUNTIME_MS;
 
-async function search(query: string) {
-  return request(`https://s.jina.ai/${encodeURIComponent(query)}`);
+function saveSeeds(seedPath: string, seeds: Map<string, Seed>) {
+  const output = [...seeds.values()].sort((a, b) => `${a.year}|${a.title}`.localeCompare(`${b.year}|${b.title}`));
+  writeFileSync(seedPath, JSON.stringify(output, null, 2) + "\n");
+  return output;
 }
-
-const sleep = (ms: number) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
 
 async function runManufacturer(config: Manufacturer) {
   const seedPath = resolve(process.cwd(), config.seedPath);
   const existing = JSON.parse(readFileSync(seedPath, "utf8")) as Seed[];
   const seeds = new Map(existing.map((seed) => [seed.url, seed]));
   const queue = [...config.startUrls];
+  const queued = new Set(queue);
   const seen = new Set<string>();
   const failures: Array<{ url: string; error: string }> = [];
   let newlyDiscovered = 0;
 
-  for (const query of config.searches) {
-    try {
-      const body = await search(query);
-      for (const link of linksFrom(body, "https://s.jina.ai/")) {
-        const parsed = new URL(link);
-        if (allowed(parsed.hostname, config.trustedHosts) && !queue.includes(link)) queue.push(link);
-      }
-    } catch (error) {
-      failures.push({ url: `search:${query}`, error: error instanceof Error ? error.message : String(error) });
+  const searchResults = await Promise.allSettled(config.searches.map(search));
+  searchResults.forEach((result, index) => {
+    if (result.status === "rejected") {
+      failures.push({ url: `search:${config.searches[index]}`, error: String(result.reason) });
+      return;
     }
-    await sleep(3_250);
-  }
+    for (const link of linksFrom(result.value, "https://s.jina.ai/")) {
+      try {
+        const parsed = new URL(link);
+        if (allowed(parsed.hostname, config.trustedHosts) && !queued.has(link)) { queue.push(link); queued.add(link); }
+      } catch {}
+    }
+  });
 
-  while (queue.length && seen.size < config.maxPages) {
-    const page = queue.shift()!;
-    if (seen.has(page)) continue;
-    seen.add(page);
-    try {
-      const parsedPage = new URL(page);
-      if (!allowed(parsedPage.hostname, [...config.trustedHosts, ...config.crawlHosts])) continue;
-      const body = await reader(page);
+  while (queue.length && seen.size < config.maxPages && timeRemaining()) {
+    const batch: string[] = [];
+    while (batch.length < CONCURRENCY && queue.length && seen.size + batch.length < config.maxPages) {
+      const page = queue.shift()!;
+      if (!seen.has(page)) batch.push(page);
+    }
+    const results = await Promise.allSettled(batch.map(async (page) => ({ page, body: await reader(page) })));
+    for (const result of results) {
+      if (result.status === "rejected") {
+        failures.push({ url: batch[results.indexOf(result)], error: String(result.reason) });
+        continue;
+      }
+      const { page, body } = result.value;
+      seen.add(page);
       for (const link of linksFrom(body, page)) {
-        const parsed = new URL(link);
-        const isOfficialFile = allowed(parsed.hostname, config.trustedHosts) && FILE_RE.test(parsed.pathname) && CHECKLIST_RE.test(link);
-        if (isOfficialFile && !seeds.has(link)) {
-          const title = titleFromUrl(link);
-          seeds.set(link, {
-            title,
-            year: yearFrom(`${title} ${link} ${page}`),
-            sport: sportFrom(`${title} ${link} ${page}`),
-            sourcePage: page,
-            url: link,
-          });
-          newlyDiscovered += 1;
-        }
-        if (!allowed(parsed.hostname, config.crawlHosts)) continue;
-        const useful = /checklist|product|collection|category|brand|page\/|sitemap|wp-json|\?s=/.test(`${parsed.pathname}${parsed.search}`);
-        if (useful && !seen.has(link) && !queue.includes(link)) queue.push(link);
+        try {
+          const parsed = new URL(link);
+          const isOfficialFile = allowed(parsed.hostname, config.trustedHosts) && FILE_RE.test(parsed.pathname) && CHECKLIST_RE.test(link);
+          if (isOfficialFile && !seeds.has(link)) {
+            const title = titleFromUrl(link);
+            seeds.set(link, { title, year: yearFrom(`${title} ${link} ${page}`), sport: sportFrom(`${title} ${link} ${page}`), sourcePage: page, url: link });
+            newlyDiscovered += 1;
+          }
+          const useful = /checklist|product|collection|category|brand|page\/|sitemap|wp-json|\?s=/.test(`${parsed.pathname}${parsed.search}`);
+          if (allowed(parsed.hostname, config.crawlHosts) && useful && !seen.has(link) && !queued.has(link)) { queue.push(link); queued.add(link); }
+        } catch {}
       }
-    } catch (error) {
-      failures.push({ url: page, error: error instanceof Error ? error.message : String(error) });
     }
-    await sleep(3_250);
+    saveSeeds(seedPath, seeds);
   }
 
-  const output = [...seeds.values()].sort((a, b) => `${a.year}|${a.title}`.localeCompare(`${b.year}|${b.title}`));
-  writeFileSync(seedPath, JSON.stringify(output, null, 2) + "\n");
+  const output = saveSeeds(seedPath, seeds);
   return {
     manufacturer: config.name,
     knownBefore: existing.length,
@@ -205,6 +194,7 @@ async function runManufacturer(config: Manufacturer) {
     discoveredTotal: output.length,
     pagesProcessed: seen.size,
     pagesRemaining: queue.length,
+    runtimeCapped: !timeRemaining(),
     hitPageLimit: queue.length > 0 && seen.size >= config.maxPages,
     failures,
   };
@@ -212,14 +202,14 @@ async function runManufacturer(config: Manufacturer) {
 
 async function main() {
   const reports = [];
-  for (const config of manufacturers) reports.push(await runManufacturer(config));
+  for (const config of manufacturers) {
+    if (!timeRemaining()) break;
+    reports.push(await runManufacturer(config));
+  }
   const dir = resolve(process.cwd(), ".checklist-reader-discovery");
   mkdirSync(dir, { recursive: true });
-  writeFileSync(resolve(dir, "report.json"), JSON.stringify({ schema: "tcos.readerDiscovery.v1", generatedAt: new Date().toISOString(), manufacturers: reports }, null, 2) + "\n");
-  console.log(JSON.stringify(reports.map(({ manufacturer, newlyDiscovered, discoveredTotal, pagesProcessed, pagesRemaining }) => ({ manufacturer, newlyDiscovered, discoveredTotal, pagesProcessed, pagesRemaining }))));
+  writeFileSync(resolve(dir, "report.json"), JSON.stringify({ schema: "tcos.readerDiscovery.v2", generatedAt: new Date().toISOString(), runtimeMs: Date.now() - startedAt, manufacturers: reports }, null, 2) + "\n");
+  console.log(JSON.stringify(reports.map(({ manufacturer, newlyDiscovered, discoveredTotal, pagesProcessed, pagesRemaining, runtimeCapped }) => ({ manufacturer, newlyDiscovered, discoveredTotal, pagesProcessed, pagesRemaining, runtimeCapped }))));
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+main().catch((error) => { console.error(error); process.exitCode = 1; });
