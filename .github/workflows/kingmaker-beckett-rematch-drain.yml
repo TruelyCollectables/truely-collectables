@@ -1,0 +1,91 @@
+name: KINGMAKER Beckett Rematch Drain
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "supabase/migrations/20260804024500_batch_kingmaker_auto_rematch_drain.sql"
+      - "scripts/run-kingmaker-beckett-rematch-drain.mjs"
+      - ".github/workflows/kingmaker-beckett-rematch-drain.yml"
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kingmaker-beckett-rematch-production-drain
+  cancel-in-progress: false
+
+env:
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  KINGMAKER_REMATCH_BATCH_SIZE: "500"
+  KINGMAKER_REMATCH_MAX_BATCHES: "400"
+  RECEIPT_PATH: evidence/kingmaker-beckett-rematch-drain/receipt.json
+
+jobs:
+  drain-production-rematches:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Pull protected Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          mkdir -p .vercel "$RUNNER_TEMP/kingmaker-beckett-rematch-drain"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/kingmaker-beckett-rematch-drain/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          test -s "$RUNNER_TEMP/kingmaker-beckett-rematch-drain/production.env"
+          echo "PRODUCTION_ENV_FILE=$RUNNER_TEMP/kingmaker-beckett-rematch-drain/production.env" >> "$GITHUB_ENV"
+
+      - name: Apply bounded rematching and drain pending checklist versions
+        run: node scripts/run-kingmaker-beckett-rematch-drain.mjs
+
+      - name: Require sanitized safe receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const path = process.env.RECEIPT_PATH;
+          const receipt = JSON.parse(fs.readFileSync(path, 'utf8'));
+          if (receipt.schema !== 'tcos.kingmaker.beckettAutoRematchDrainReceipt.v1') throw new Error('Unexpected receipt schema');
+          if (receipt.status !== 'passed') throw new Error('Production rematch drain did not reach idle');
+          if (receipt.drain?.idle !== true || receipt.drain?.hasMore !== false) throw new Error('Production rematch drain is not complete');
+          if (receipt.pricesPromotedByThisOperation !== 0) throw new Error('Automatic rematching promoted prices');
+          if (receipt.secretsPersisted !== false) throw new Error('Receipt safety assertion failed');
+          if (receipt.after?.exact < receipt.before?.exact) throw new Error('Exact identity coverage decreased');
+          if (receipt.after?.beckettObservations !== receipt.before?.beckettObservations) throw new Error('Beckett observation count changed');
+          for (const [field, value] of Object.entries(receipt.verification || {})) {
+            if (value !== true) throw new Error(`Production verification failed: ${field}`);
+          }
+          const text = fs.readFileSync(path, 'utf8');
+          if (/eyJ[A-Za-z0-9_-]{20,}\.|sb_secret_|SUPABASE_ACCESS_TOKEN|VERCEL_TOKEN|postgres(?:ql)?:\/\//i.test(text)) throw new Error('Receipt contains secret-like material');
+          NODE
+
+      - name: Upload sanitized rematch receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: kingmaker-beckett-rematch-drain-${{ github.run_id }}
+          path: evidence/kingmaker-beckett-rematch-drain/receipt.json
+          if-no-files-found: error
+          retention-days: 30
