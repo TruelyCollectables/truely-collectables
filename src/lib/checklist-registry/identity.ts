@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { normalizeInscribedSubjects } from "./inscriptions";
 
 export const CHECKLIST_IDENTITY_SCHEMA = "tcos.checklist.identity.v1" as const;
 export const INSTACOMP_COMP_IDENTITY_SCHEMA =
@@ -156,7 +157,13 @@ export function normalizeChecklistIdentity(
   const product = normalizeText(input.product);
   const setName = normalizeText(input.setName);
   const cardNumber = normalizeCardNumber(input.cardNumber);
-  const players = normalizeList(input.players);
+  const rawPlayers = Array.isArray(input.players) ? input.players : [input.players];
+  const inscription = normalizeInscribedSubjects({
+    subjects: rawPlayers,
+    variation: input.variation,
+    context: [input.manufacturer, input.brand, input.product, input.setName, input.subset, input.parallel],
+  });
+  const players = normalizeList(inscription.subjects);
 
   if (!manufacturer) throw new Error("manufacturer is required");
   if (!product) throw new Error("product is required");
@@ -182,7 +189,7 @@ export function normalizeChecklistIdentity(
     players,
     teams: normalizeList(input.teams),
     parallel: normalizeText(input.parallel) || "base",
-    variation: normalizeText(input.variation),
+    variation: normalizeText(inscription.variation),
     serialRun: normalizeSerialRun(input.serialRun),
     autographStatus: normalizeAutographStatus(input.autographStatus),
     memorabiliaStatus: normalizeMemorabiliaStatus(input.memorabiliaStatus),

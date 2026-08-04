@@ -1,3 +1,4 @@
+import { normalizeInscribedSubjects } from "./inscriptions";
 import type {
   ChecklistSourceAdapter,
   ChecklistSourceArtifact,
@@ -6,11 +7,9 @@ import { upperDeck2025_26NormalizedHtmlChecklistAdapter } from "./upper-deck-202
 
 export const UPPER_DECK_2025_26_CHICAGO_ADAPTER_ID =
   "upper-deck-2025-26-chicago-html" as const;
-export const UPPER_DECK_2025_26_CHICAGO_ADAPTER_VERSION = "1.0.0" as const;
+export const UPPER_DECK_2025_26_CHICAGO_ADAPTER_VERSION = "1.1.0" as const;
 
-type Cell = {
-  text: string;
-};
+type Cell = { text: string };
 
 function decode(value: string) {
   return value
@@ -64,14 +63,6 @@ function escapeHtml(value: string) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
-}
-
-function inscriptionParts(value: string) {
-  const match = value.match(/^(.*?)(?:\s*-\s*)?\s*["“]([^"”]+)["”]\s*$/);
-  if (!match) return null;
-  const subject = match[1].trim();
-  const inscription = match[2].trim();
-  return subject && inscription ? { subject, inscription } : null;
 }
 
 function normalizeChicagoChecklist(html: string) {
@@ -132,21 +123,24 @@ function normalizeChicagoChecklist(html: string) {
 
       if (/\bInscriptions Parallel$/i.test(rawSetName)) {
         const description = parsed[rowIndex][descriptionIndex]?.text || "";
-        const parts = inscriptionParts(description);
-        if (parts && shortPrintIndex >= 0) {
-          const existing = parsed[rowIndex][shortPrintIndex]?.text || "";
-          const variation = [existing, `Inscription: ${parts.inscription}`]
-            .filter(Boolean)
-            .join("; ");
+        const normalized = normalizeInscribedSubjects({
+          subjects: [description],
+          variation:
+            shortPrintIndex >= 0
+              ? parsed[rowIndex][shortPrintIndex]?.text || null
+              : null,
+          context: [rawSetName],
+        });
+        if (normalized.changed && normalized.subjects[0] && shortPrintIndex >= 0) {
           normalizedRow = replaceCell(
             normalizedRow,
             descriptionIndex,
-            escapeHtml(parts.subject),
+            escapeHtml(normalized.subjects[0]),
           );
           normalizedRow = replaceCell(
             normalizedRow,
             shortPrintIndex,
-            escapeHtml(variation),
+            escapeHtml(normalized.variation || ""),
           );
         }
       }
