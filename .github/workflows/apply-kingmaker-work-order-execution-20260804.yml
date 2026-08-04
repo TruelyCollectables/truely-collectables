@@ -1,0 +1,188 @@
+name: Apply KINGMAKER Work Order Execution 20260804
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/apply-kingmaker-work-order-execution-20260804.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  apply-verify-deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: Production
+    env:
+      EXPECTED_MAIN_SHA: c35c2ae0ac2a330c40d6359333ca535c2ad1bbe1
+      EXPECTED_BRANCH: ops/apply-kingmaker-work-order-execution-20260804
+      VERCEL_SCOPE: truelycollectables-projects
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      RECEIPT_PATH: evidence/kingmaker-work-order-execution-production-20260804/receipt.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/apply-kingmaker-work-order-execution-20260804
+          fetch-depth: 0
+
+      - name: Fail closed on exact operations scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main
+          git merge-base --is-ancestor "$EXPECTED_MAIN_SHA" origin/main
+          git merge-base --is-ancestor "$EXPECTED_MAIN_SHA" HEAD
+          mapfile -t changed < <(git diff --name-only "$EXPECTED_MAIN_SHA"...HEAD)
+          test "${#changed[@]}" -eq 1
+          test "${changed[0]}" = '.github/workflows/apply-kingmaker-work-order-execution-20260804.yml'
+          git diff --check "$EXPECTED_MAIN_SHA"...HEAD
+          git checkout --detach "$EXPECTED_MAIN_SHA"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Pull protected Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          mkdir -p .vercel "$RUNNER_TEMP/work-order-execution-production"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/work-order-execution-production/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          test -s "$RUNNER_TEMP/work-order-execution-production/production.env"
+          echo "PRODUCTION_ENV_FILE=$RUNNER_TEMP/work-order-execution-production/production.env" >> "$GITHUB_ENV"
+
+      - name: Apply execution controls, verify boundaries, deploy, and receipt
+        shell: bash
+        run: |
+          node <<'NODE'
+          const { spawnSync } = require('node:child_process');
+          const { createHash } = require('node:crypto');
+          const { mkdirSync, readFileSync, writeFileSync } = require('node:fs');
+          const { dirname, resolve } = require('node:path');
+          const migrationPath = 'supabase/migrations/20260804111500_private_pricing_work_order_execution.sql';
+          const receiptPath = resolve(process.env.RECEIPT_PATH);
+          const token = process.env.GH_SUPABASE_ACCESS_TOKEN;
+          function parseEnv(contents) {
+            const out = {};
+            for (const raw of contents.split(/\r?\n/)) {
+              const line = raw.trim(); if (!line || line.startsWith('#')) continue;
+              const i = line.indexOf('='); if (i < 1) continue;
+              let value = line.slice(i + 1).trim();
+              if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) value = value.slice(1,-1);
+              out[line.slice(0,i).trim().replace(/^export\s+/, '')] = value;
+            }
+            return out;
+          }
+          function projectRef(url) {
+            const match = String(url || '').match(/^https:\/\/([a-z0-9]+)\.supabase\.co\/?$/i);
+            if (!match) throw new Error('Production database URL was not resolved.');
+            return match[1];
+          }
+          async function query(project, sql, readOnly, stage) {
+            const response = await fetch(`https://api.supabase.com/v1/projects/${project}/database/query`, {
+              method:'POST', headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json',Accept:'application/json'},
+              body:JSON.stringify({query:sql,parameters:[],read_only:readOnly}), signal:AbortSignal.timeout(119000),
+            });
+            const text = await response.text();
+            if (!response.ok) throw new Error(`${stage} failed with HTTP ${response.status}: ${text.slice(0,600)}`);
+            return text ? JSON.parse(text) : [];
+          }
+          function first(value) { return Array.isArray(value) ? value[0] || {} : value || {}; }
+          function n(row, field) { const value = Number(row?.[field] ?? 0); if (!Number.isFinite(value)) throw new Error(`Invalid ${field}`); return value; }
+          function find(value, predicate) {
+            const seen = new Set();
+            function visit(v) {
+              if (typeof v === 'string') { try { return visit(JSON.parse(v)); } catch { return null; } }
+              if (!v || typeof v !== 'object' || seen.has(v)) return null; seen.add(v);
+              if (!Array.isArray(v) && predicate(v)) return v;
+              for (const child of Array.isArray(v) ? v : Object.values(v)) { const found = visit(child); if (found) return found; }
+              return null;
+            }
+            return visit(value);
+          }
+          const protectedSql = `select count(*)::bigint total_rows,
+            count(*) filter (where low_observation_id is not null or high_observation_id is not null)::bigint linked_rows,
+            (select count(*) from public.tcos_kingmaker_observations)::bigint observation_rows
+            from public.tcos_kingmaker_price_entries;`;
+          const workSql = `select
+            (select count(*) from public.tcos_kingmaker_private_pricing_work_orders)::bigint work_order_rows,
+            (select count(*) from public.tcos_kingmaker_private_pricing_work_order_audit)::bigint audit_rows;`;
+          const verifySql = `select
+            to_regprocedure('public.tcos_update_kingmaker_private_pricing_work_order_execution(text,integer,text,text,integer,timestamp with time zone,text,text)') is not null update_rpc_present,
+            to_regprocedure('public.tcos_kingmaker_private_pricing_work_order_execution_report(integer,integer,text)') is not null report_rpc_present,
+            not has_function_privilege('anon','public.tcos_update_kingmaker_private_pricing_work_order_execution(text,integer,text,text,integer,timestamp with time zone,text,text)','execute') anon_update_revoked,
+            not has_function_privilege('authenticated','public.tcos_update_kingmaker_private_pricing_work_order_execution(text,integer,text,text,integer,timestamp with time zone,text,text)','execute') authenticated_update_revoked,
+            has_function_privilege('service_role','public.tcos_update_kingmaker_private_pricing_work_order_execution(text,integer,text,text,integer,timestamp with time zone,text,text)','execute') service_update_granted,
+            not has_function_privilege('anon','public.tcos_kingmaker_private_pricing_work_order_execution_report(integer,integer,text)','execute') anon_report_revoked,
+            not has_function_privilege('authenticated','public.tcos_kingmaker_private_pricing_work_order_execution_report(integer,integer,text)','execute') authenticated_report_revoked,
+            has_function_privilege('service_role','public.tcos_kingmaker_private_pricing_work_order_execution_report(integer,integer,text)','execute') service_report_granted,
+            exists(select 1 from information_schema.columns where table_schema='public' and table_name='tcos_kingmaker_private_pricing_work_orders' and column_name='assignee_label') assignee_column_present,
+            exists(select 1 from information_schema.columns where table_schema='public' and table_name='tcos_kingmaker_private_pricing_work_orders' and column_name='due_at') due_column_present,
+            exists(select 1 from information_schema.columns where table_schema='public' and table_name='tcos_kingmaker_private_pricing_work_orders' and column_name='blocker_category') blocker_column_present,
+            exists(select 1 from information_schema.columns where table_schema='public' and table_name='tcos_kingmaker_private_pricing_work_orders' and column_name='resolution_category') resolution_column_present;`;
+          function deploy() {
+            const result = spawnSync('npx',['vercel@56.2.0','deploy','--prod','--yes','--force','--scope',process.env.VERCEL_SCOPE,'--token',process.env.VERCEL_TOKEN],{encoding:'utf8',maxBuffer:30*1024*1024});
+            if (result.error || result.status !== 0) throw new Error(`Vercel deployment failed: ${(result.stderr || result.stdout || '').slice(0,1000)}`);
+            return (result.stdout || '').trim().split(/\r?\n/).filter(Boolean).at(-1) || null;
+          }
+          async function main() {
+            if (!token || !process.env.PRODUCTION_ENV_FILE || !process.env.VERCEL_TOKEN) throw new Error('Protected Production credentials are required.');
+            console.log(`::add-mask::${token}`);
+            const env = parseEnv(readFileSync(process.env.PRODUCTION_ENV_FILE,'utf8'));
+            const project = projectRef(env.NEXT_PUBLIC_SUPABASE_URL || env.SUPABASE_URL);
+            const beforeProtected = first(await query(project,protectedSql,true,'pre-apply protected counts'));
+            const beforeWork = first(await query(project,workSql,true,'pre-apply work-order counts'));
+            const migration = readFileSync(migrationPath,'utf8');
+            await query(project,migration,false,'execution-control migration');
+            const verification = first(await query(project,verifySql,true,'execution-control verification'));
+            for (const [field,value] of Object.entries(verification)) if (value !== true) throw new Error(`Verification failed: ${field}`);
+            const reportRaw = await query(project,`set statement_timeout='15s'; set role service_role; select public.tcos_kingmaker_private_pricing_work_order_execution_report(1,0,null) result;`,false,'execution report');
+            const report = find(reportRaw,c => c.boundary === 'private_coverage_work_order_execution_only' && c.summary && c.pagination);
+            if (!report) throw new Error('Execution report contract was not returned.');
+            const afterWork = first(await query(project,workSql,true,'post-report work-order counts'));
+            const afterProtected = first(await query(project,protectedSql,true,'post-report protected counts'));
+            for (const field of ['work_order_rows','audit_rows']) if (n(beforeWork,field) !== n(afterWork,field)) throw new Error(`Read-only report changed ${field}`);
+            for (const field of ['total_rows','linked_rows','observation_rows']) if (n(beforeProtected,field) !== n(afterProtected,field)) throw new Error(`Rollout changed ${field}`);
+            const deployment = deploy();
+            const receipt = {
+              schema:'tcos.kingmaker.workOrderExecutionProductionReceipt.v1', status:'passed', generatedAt:new Date().toISOString(),
+              deployedCommit:process.env.EXPECTED_MAIN_SHA, deployment,
+              migration:{path:migrationPath,sha256:createHash('sha256').update(migration).digest('hex')},
+              verification,
+              executionReport:{boundary:report.boundary,generatedAt:report.generatedAt,summary:report.summary,pagination:{limit:report.pagination.limit,offset:report.pagination.offset,returned:report.pagination.returned,totalTargets:report.pagination.totalTargets,hasMore:report.pagination.hasMore}},
+              counts:{workOrders:n(afterWork,'work_order_rows'),auditEvents:n(afterWork,'audit_rows'),priceEntries:n(afterProtected,'total_rows'),linkedPriceEntries:n(afterProtected,'linked_rows'),observations:n(afterProtected,'observation_rows')},
+              pricesPromoted:0
+            };
+            const serialized = JSON.stringify(receipt).toLowerCase();
+            for (const forbidden of ['"rows":','"attackkey":','"notes":','"raw_text":','"value_low":','"value_high":']) if (serialized.includes(forbidden)) throw new Error(`Receipt contained ${forbidden}`);
+            mkdirSync(dirname(receiptPath),{recursive:true}); writeFileSync(receiptPath,JSON.stringify(receipt,null,2)+'\n');
+          }
+          main().catch(error => { console.error(error instanceof Error ? error.message : error); process.exit(1); });
+          NODE
+
+      - name: Require sanitized Production receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$RECEIPT_PATH"
+          node -e "const r=require('./'+process.env.RECEIPT_PATH);if(r.status!=='passed'||r.deployedCommit!==process.env.EXPECTED_MAIN_SHA||r.pricesPromoted!==0)process.exit(1)"
+
+      - name: Upload sanitized Production receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: kingmaker-work-order-execution-production-20260804
+          path: ${{ env.RECEIPT_PATH }}
+          if-no-files-found: error
+          retention-days: 30
