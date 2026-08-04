@@ -363,8 +363,10 @@ async function buildReconciledBundle(params: {
   if (!params.row.officialProduct) {
     throw new Error(`${setId} has no resolved official product.`);
   }
-  if (params.row.status !== "mismatch") {
-    throw new Error(`${setId} is not classified as a hard mismatch.`);
+  if (!["mismatch", "manual_review"].includes(params.row.status)) {
+    throw new Error(
+      `${setId} is not eligible for guarded official-gap reconciliation.`,
+    );
   }
   if (
     (params.row.reasons || []).includes(

@@ -15,7 +15,13 @@ import { CHECKLIST_SOURCE_BUCKET } from "./storage";
 import { tcgdexJapaneseSetBundleAdapter } from "./tcgdex-japanese";
 import { toppsBaseballTextChecklistAdapter } from "./topps-baseball-text-adapter";
 import { toppsFootballTextChecklistAdapter } from "./topps-football-text-adapter";
+import { upperDeck2025_26NormalizedHtmlChecklistAdapter } from "./upper-deck-2025-26-normalized-html";
+import { upperDeckArtifactsOfficialHtmlChecklistAdapter } from "./upper-deck-artifacts-official-html";
+import { upperDeckBlackDiamondOfficialHtmlChecklistAdapter } from "./upper-deck-black-diamond-official-html";
+import { upperDeckMvpOfficialHtmlChecklistAdapter } from "./upper-deck-mvp-official-html";
 import { upperDeckOfficialHtmlChecklistAdapter } from "./upper-deck-official-html";
+import { upperDeckTeamCanadaOfficialHtmlChecklistAdapter } from "./upper-deck-team-canada-official-html";
+import { upperDeckTimHortonsOfficialHtmlChecklistAdapter } from "./upper-deck-tim-hortons-official-html";
 
 const CHECKLIST_ADAPTERS: ChecklistSourceAdapter[] = [
   pokemonJapaneseMPReconciledAdapter,
@@ -25,6 +31,12 @@ const CHECKLIST_ADAPTERS: ChecklistSourceAdapter[] = [
   pokemonJapaneseOfficialReconciledAdapter,
   tcgdexJapaneseSetBundleAdapter,
   pokemonTcgDataSourceIdSafeAdapter,
+  upperDeckMvpOfficialHtmlChecklistAdapter,
+  upperDeckTeamCanadaOfficialHtmlChecklistAdapter,
+  upperDeckArtifactsOfficialHtmlChecklistAdapter,
+  upperDeckTimHortonsOfficialHtmlChecklistAdapter,
+  upperDeckBlackDiamondOfficialHtmlChecklistAdapter,
+  upperDeck2025_26NormalizedHtmlChecklistAdapter,
   upperDeckOfficialHtmlChecklistAdapter,
   paniniStructuredChecklistAdapter,
   toppsFootballTextChecklistAdapter,
