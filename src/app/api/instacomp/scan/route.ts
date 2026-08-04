@@ -59,6 +59,11 @@ import {
   resolveInstaCompCouncilPolicy,
 } from "../../../../lib/instacomp-ai-council-security";
 import {
+  optionalInstaCompProviderResult,
+  runInstaCompPrimaryAiFailover,
+  sanitizeInstaCompProviderFailure,
+} from "../../../../lib/instacomp-ai-provider-failover";
+import {
   prioritizeIndependentCouncilProviders,
   shouldContinueCouncilRuntime,
 } from "../../../../lib/instacomp-ai-council-runtime";
@@ -1690,7 +1695,7 @@ async function runAiCouncilReader(params: {
         detailMode: providerMeta.detailMode,
         status: "error",
         durationMs: Date.now() - startedAt,
-        message: String(error?.message || error).slice(0, 500),
+        message: sanitizeInstaCompProviderFailure(error),
       },
     };
   }
@@ -1750,16 +1755,24 @@ async function runInstaCompAiCouncil(params: {
   backDataUrl?: string;
   detailImages: InstaCompDetailImage[];
   externalOcr: ExternalOcrResult | null;
+  excludedFamilies?: string[];
 }): Promise<InstaCompAiCouncilRun> {
   const desiredReaders = desiredAiCouncilReaders(
     params.runSecondaryVision,
     params.requestedTier,
   );
   const tier = aiCouncilTier(params.requestedTier);
-  const providerPlan = buildAiCouncilProviderPlan();
+  const excludedFamilies = new Set(
+    (params.excludedFamilies || []).map((family) => family.trim().toLowerCase()),
+  );
+  const primaryFamily =
+    [...excludedFamilies][0] || "openai";
+  const providerPlan = buildAiCouncilProviderPlan().filter(
+    (provider) => !excludedFamilies.has(provider.family.trim().toLowerCase()),
+  );
   const configuredPlan = prioritizeIndependentCouncilProviders(
     providerPlan.filter((provider) => provider.configured),
-    "openai",
+    primaryFamily,
   );
   const configuredFamilies = Array.from(
     new Set(configuredPlan.map((provider) => provider.family)),
@@ -1803,7 +1816,7 @@ async function runInstaCompAiCouncil(params: {
       configuredFamilies,
       cursor,
       configuredReaderCount: configuredPlan.length,
-      primaryFamily: "openai",
+      primaryFamily,
     })
   ) {
     const needed = desiredReaders - completedReaders;
@@ -2114,6 +2127,8 @@ function buildChangedIdentityFinding(
 }
 
 function buildInstaCompConsensusReaders(params: {
+  primaryAiProvider: string;
+  primaryAiFamily: string;
   baseAi: InstaCompAiResult;
   mergedSerialAi: InstaCompAiResult;
   guardedAi: InstaCompAiResult;
@@ -2123,10 +2138,10 @@ function buildInstaCompConsensusReaders(params: {
 }) {
   const readers: InstaCompConsensusReaderFinding[] = [
     buildInstaCompReaderFindingFromAi({
-      readerId: "primary_vision",
-      label: "Primary AI vision",
+      readerId: `primary_vision_${params.primaryAiProvider}`,
+      label: `Primary AI vision (${params.primaryAiProvider})`,
       kind: "primary_vision",
-      family: "openai",
+      family: params.primaryAiFamily,
       ai: params.baseAi,
       evidence: ["front/back image model identity pass"],
       weight: 1,
@@ -3912,6 +3927,59 @@ function authorizedEphemeralBenchmark(req: NextRequest) {
   return timingSafeEqual(Buffer.from(supplied), Buffer.from(expected));
 }
 
+async function identifyCardWithConfiguredProviderFailover(params: {
+  frontDataUrl: string;
+  backDataUrl?: string;
+  detailImages: InstaCompDetailImage[];
+  externalOcr: ExternalOcrResult | null;
+}) {
+  const backupRank: Record<InstaCompAiCouncilProviderKind, number> = {
+    gemini: 0,
+    groq: 1,
+    openai_compatible: 2,
+    ollama: 3,
+    openai: 4,
+  };
+  const backupPlan = buildAiCouncilProviderPlan()
+    .filter((config) => config.configured && config.kind !== "openai")
+    .sort((left, right) => backupRank[left.kind] - backupRank[right.kind]);
+
+  return runInstaCompPrimaryAiFailover<InstaCompAiResult>([
+    {
+      provider: "openai_primary",
+      family: "openai",
+      configured: Boolean(OPENAI_API_KEY),
+      run: () =>
+        identifyCardWithOpenAI(
+          params.frontDataUrl,
+          params.backDataUrl,
+          params.detailImages.slice(0, 8),
+          params.externalOcr,
+        ),
+    },
+    ...backupPlan.map((config) => ({
+      provider: config.provider,
+      family: config.family,
+      configured: config.configured,
+      run: async () => {
+        const outcome = await runAiCouncilReader({
+          config,
+          frontDataUrl: params.frontDataUrl,
+          backDataUrl: params.backDataUrl,
+          detailImages: params.detailImages,
+          externalOcr: params.externalOcr,
+        });
+        if (!outcome.reader) {
+          throw new Error(
+            outcome.attempt.message || `${config.label} did not return a reader result.`,
+          );
+        }
+        return outcome.reader.ai;
+      },
+    })),
+  ]);
+}
+
 export async function POST(req: NextRequest) {
   let persistentContext: PersistentJobScanContext | null = null;
   let requestedAiCouncilTier: string | null = null;
@@ -4095,22 +4163,25 @@ export async function POST(req: NextRequest) {
       externalOcr,
       requestedTier: requestedAiCouncilTier,
     })
-      ? detectSerialNumberWithOpenAI(
-          frontDataUrl,
-          backDataUrl,
-          detailImages.slice(0, 16),
-          externalOcr
+      ? optionalInstaCompProviderResult(
+          detectSerialNumberWithOpenAI(
+            frontDataUrl,
+            backDataUrl,
+            detailImages.slice(0, 16),
+            externalOcr,
+          ),
         )
       : null;
 
+    const primaryAiResult = await identifyCardWithConfiguredProviderFailover({
+      frontDataUrl,
+      backDataUrl,
+      detailImages,
+      externalOcr,
+    });
     const baseAi = mergeGradingDetection(
-      await identifyCardWithOpenAI(
-        frontDataUrl,
-        backDataUrl,
-        detailImages.slice(0, 8),
-        externalOcr
-      ),
-      externalOcr
+      primaryAiResult.value,
+      externalOcr,
     );
     const serialOcr =
       (preflightSerialOcrPromise
@@ -4120,11 +4191,13 @@ export async function POST(req: NextRequest) {
               externalOcr,
               requestedTier: requestedAiCouncilTier,
             })
-          ? await detectSerialNumberWithOpenAI(
-              frontDataUrl,
-              backDataUrl,
-              detailImages.slice(0, 16),
-              externalOcr
+          ? await optionalInstaCompProviderResult(
+              detectSerialNumberWithOpenAI(
+                frontDataUrl,
+                backDataUrl,
+                detailImages.slice(0, 16),
+                externalOcr,
+              ),
             )
           : null);
     const baseAiForConsensus = applyOperatorSerialNumberOverride(
@@ -4165,6 +4238,7 @@ export async function POST(req: NextRequest) {
       backDataUrl,
       detailImages,
       externalOcr,
+      excludedFamilies: [primaryAiResult.family],
     });
     const aiCouncil: InstaCompAiCouncilRun = {
       ...aiCouncilRaw,
@@ -4183,6 +4257,8 @@ export async function POST(req: NextRequest) {
     };
 
     const consensusReaders = buildInstaCompConsensusReaders({
+      primaryAiProvider: primaryAiResult.provider,
+      primaryAiFamily: primaryAiResult.family,
       baseAi: baseAiForConsensus,
       mergedSerialAi,
       guardedAi,
@@ -4414,6 +4490,9 @@ export async function POST(req: NextRequest) {
         councilMode: consensusEscalation.councilMode,
         consensusRiskTier: consensusEscalation.riskTier,
         scannerPlan: consensusEscalation.scannerPlan,
+        primaryAiProvider: primaryAiResult.provider,
+        primaryAiFamily: primaryAiResult.family,
+        primaryAiAttempts: primaryAiResult.attempts,
         secondaryVisionRan: aiCouncil.completedReaders > 0,
         secondaryVisionReasons: consensusEscalation.reasons,
         aiCouncil,
