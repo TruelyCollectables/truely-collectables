@@ -13,6 +13,7 @@ on:
       - "scripts/run-kingmaker-pricing-profile-lifecycle-regressions.ts"
       - "scripts/run-kingmaker-pricing-command-center-regressions.ts"
       - "scripts/run-kingmaker-pricing-operations-regressions.ts"
+      - "scripts/setup-supabase-postgres-test-roles.sql"
       - "scripts/test-instacomp-pricing-profile-atomic.sql"
       - "scripts/test-instacomp-pricing-command-center-atomic.sql"
       - "supabase/migrations/20260804004500_kingmaker_pricing_profile_atomic_lifecycle.sql"
@@ -74,6 +75,9 @@ jobs:
 
       - name: Attack spreadsheet export formulas and receipt operations
         run: npx tsx scripts/run-kingmaker-pricing-operations-regressions.ts
+
+      - name: Create Supabase-compatible PostgreSQL roles
+        run: psql -h localhost -U postgres -d postgres -f scripts/setup-supabase-postgres-test-roles.sql
 
       - name: Run PostgreSQL profile owner, race, rollback, and replay attacks
         run: psql -h localhost -U postgres -d postgres -f scripts/test-instacomp-pricing-profile-atomic.sql
