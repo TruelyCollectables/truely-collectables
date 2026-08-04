@@ -1,0 +1,1 @@
+This implementation intentionally performs rematching in the database activation trigger rather than relying on a specific importer or application route. Any checklist ingestion path that activates a `live` or `revised` Registry version receives the same KINGMAKER behavior.
