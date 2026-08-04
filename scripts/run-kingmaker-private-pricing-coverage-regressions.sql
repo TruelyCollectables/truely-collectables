@@ -580,29 +580,29 @@ begin
     null
   ) into payload;
 
-  if (payload ->> 'boundary') <> 'aggregate_private_reference_only' then
+  if ((payload ->> 'boundary')) <> 'aggregate_private_reference_only' then
     raise exception 'Coverage boundary is missing or incorrect: %', payload;
   end if;
-  if (payload #>> '{summary,totalGroups}')::integer <> 4 then
+  if ((payload #>> '{summary,totalGroups}')::integer) <> 4 then
     raise exception 'Expected four coverage groups: %', payload;
   end if;
-  if (payload #>> '{summary,unresolvedRows}')::integer <> 14 then
+  if ((payload #>> '{summary,unresolvedRows}')::integer) <> 14 then
     raise exception 'Expected fourteen unresolved rows: %', payload;
   end if;
-  if (payload #>> '{summary,missingReleaseRows}')::integer <> 3
-     or (payload #>> '{summary,checklistPendingRows}')::integer <> 2
-     or (payload #>> '{summary,setGapRows}')::integer <> 4
-     or (payload #>> '{summary,identityGapRows}')::integer <> 5 then
+  if ((payload #>> '{summary,missingReleaseRows}')::integer) <> 3
+     or ((payload #>> '{summary,checklistPendingRows}')::integer) <> 2
+     or ((payload #>> '{summary,setGapRows}')::integer) <> 4
+     or ((payload #>> '{summary,identityGapRows}')::integer) <> 5 then
     raise exception 'Coverage classifications are incorrect: %', payload;
   end if;
-  if (payload #>> '{summary,largestUnlock}')::integer <> 5 then
+  if ((payload #>> '{summary,largestUnlock}')::integer) <> 5 then
     raise exception 'Largest unlock is incorrect: %', payload;
   end if;
-  if (payload #>> '{rows,0,gapType}') <> 'identity_gap'
-     or (payload #>> '{rows,0,potentialUnlock}')::integer <> 5 then
+  if ((payload #>> '{rows,0,gapType}')) <> 'identity_gap'
+     or ((payload #>> '{rows,0,potentialUnlock}')::integer) <> 5 then
     raise exception 'Coverage ranking is incorrect: %', payload;
   end if;
-  if (payload::text ilike '%raw_text%'
+  if payload::text ilike '%raw_text%'
      or payload::text ilike '%original_filename%'
      or payload::text ilike '%value_low%'
      or payload::text ilike '%value_high%'
@@ -619,9 +619,9 @@ begin
     null,
     null
   ) into filtered_payload;
-  if (filtered_payload #>> '{summary,totalGroups}')::integer <> 1
-     or (filtered_payload #>> '{summary,unresolvedRows}')::integer <> 3
-     or (filtered_payload #>> '{rows,0,gapType}') <> 'missing_release' then
+  if ((filtered_payload #>> '{summary,totalGroups}')::integer) <> 1
+     or ((filtered_payload #>> '{summary,unresolvedRows}')::integer) <> 3
+     or ((filtered_payload #>> '{rows,0,gapType}')) <> 'missing_release' then
     raise exception 'Gap-type filter failed: %', filtered_payload;
   end if;
 
@@ -632,9 +632,9 @@ begin
     'Hockey',
     'Gamma Product'
   ) into filtered_payload;
-  if (filtered_payload #>> '{summary,totalGroups}')::integer <> 1
-     or (filtered_payload #>> '{rows,0,gapType}') <> 'set_gap'
-     or (filtered_payload #>> '{rows,0,potentialUnlock}')::integer <> 4 then
+  if ((filtered_payload #>> '{summary,totalGroups}')::integer) <> 1
+     or ((filtered_payload #>> '{rows,0,gapType}')) <> 'set_gap'
+     or ((filtered_payload #>> '{rows,0,potentialUnlock}')::integer) <> 4 then
     raise exception 'Sport/search filtering failed: %', filtered_payload;
   end if;
 
@@ -645,8 +645,8 @@ begin
     null,
     null
   ) into filtered_payload;
-  if (filtered_payload #>> '{pagination,returned}')::integer <> 2
-     or not (filtered_payload #>> '{pagination,hasMore}')::boolean then
+  if ((filtered_payload #>> '{pagination,returned}')::integer) <> 2
+     or not ((filtered_payload #>> '{pagination,hasMore}')::boolean) then
     raise exception 'Coverage pagination failed: %', filtered_payload;
   end if;
 
