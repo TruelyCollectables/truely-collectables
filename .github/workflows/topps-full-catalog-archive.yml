@@ -8,6 +8,12 @@ on:
         description: Maximum Topps catalog product pages to scan
         required: true
         default: "3000"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "scripts/archive-topps-catalog.ts"
+      - ".github/workflows/topps-full-catalog-archive.yml"
   push:
     branches:
       - agent/topps-isolated-sport-pipelines
@@ -21,7 +27,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: topps-full-catalog-archive
+  group: topps-full-catalog-archive-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
