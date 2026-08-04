@@ -1,0 +1,107 @@
+name: Drain KINGMAKER Beckett Rematches 20260803 v3
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/drain-kingmaker-beckett-rematches-20260803-v3.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kingmaker-beckett-rematch-production-drain
+  cancel-in-progress: false
+
+env:
+  EXPECTED_MAIN_SHA: fb4b114254790710c463438a44a8761c7fe336fb
+  EXPECTED_BRANCH: ops/drain-kingmaker-beckett-rematches-20260803-v3
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  KINGMAKER_REMATCH_BATCH_SIZE: "100"
+  KINGMAKER_REMATCH_MAX_BATCHES: "1000"
+  RECEIPT_PATH: evidence/kingmaker-beckett-rematch-production-20260803-v3/receipt.json
+
+jobs:
+  drain-and-verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on exact operations scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main
+          git merge-base --is-ancestor "$EXPECTED_MAIN_SHA" origin/main
+          git merge-base --is-ancestor "$EXPECTED_MAIN_SHA" HEAD
+          mapfile -t changed < <(git diff --name-only "$EXPECTED_MAIN_SHA"...HEAD)
+          printf '%s\n' "${changed[@]}"
+          test "${#changed[@]}" -eq 1
+          test "${changed[0]}" = '.github/workflows/drain-kingmaker-beckett-rematches-20260803-v3.yml'
+          git diff --check "$EXPECTED_MAIN_SHA"...HEAD
+          git checkout --detach "$EXPECTED_MAIN_SHA"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Pull protected Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          mkdir -p .vercel "$RUNNER_TEMP/kingmaker-beckett-rematch-production-v3"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/kingmaker-beckett-rematch-production-v3/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          test -s "$RUNNER_TEMP/kingmaker-beckett-rematch-production-v3/production.env"
+          echo "PRODUCTION_ENV_FILE=$RUNNER_TEMP/kingmaker-beckett-rematch-production-v3/production.env" >> "$GITHUB_ENV"
+
+      - name: Install release-version matcher and drain Production backlog
+        run: node scripts/run-kingmaker-beckett-rematch-drain.mjs
+
+      - name: Require complete sanitized receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const path = process.env.RECEIPT_PATH;
+          const receipt = JSON.parse(fs.readFileSync(path, 'utf8'));
+          if (receipt.schema !== 'tcos.kingmaker.beckettAutoRematchDrainReceipt.v1') throw new Error('Unexpected receipt schema');
+          if (receipt.status !== 'passed') throw new Error('Production rematch drain did not reach idle');
+          if (receipt.drain?.idle !== true || receipt.drain?.hasMore !== false) throw new Error('Production rematch drain is incomplete');
+          if (!['already_applied', 'applied_release_version_scope', 'applied_base_and_release_version_scope'].includes(receipt.migration?.setup?.mode)) throw new Error('Missing protected migration setup result');
+          if (receipt.pricesPromotedByThisOperation !== 0) throw new Error('Automatic rematching promoted prices');
+          if (receipt.secretsPersisted !== false) throw new Error('Receipt safety assertion failed');
+          if (receipt.after?.exact < receipt.before?.exact) throw new Error('Exact identity coverage decreased');
+          if (receipt.after?.beckettObservations !== receipt.before?.beckettObservations) throw new Error('Beckett observation count changed');
+          for (const [field, value] of Object.entries(receipt.verification || {})) {
+            if (value !== true) throw new Error(`Production verification failed: ${field}`);
+          }
+          const text = fs.readFileSync(path, 'utf8');
+          if (/eyJ[A-Za-z0-9_-]{20,}\.|sb_secret_|SUPABASE_ACCESS_TOKEN|VERCEL_TOKEN|postgres(?:ql)?:\/\//i.test(text)) throw new Error('Receipt contains secret-like material');
+          NODE
+
+      - name: Upload sanitized Production receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: kingmaker-beckett-rematch-production-20260803-v3
+          path: evidence/kingmaker-beckett-rematch-production-20260803-v3/receipt.json
+          if-no-files-found: error
+          retention-days: 30
