@@ -26,7 +26,7 @@ env:
 jobs:
   match-and-verify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 180
 
     steps:
       - uses: actions/checkout@v4
@@ -72,7 +72,7 @@ jobs:
           test -s "$RUNNER_TEMP/prod/production.env"
           echo "PRODUCTION_ENV_FILE=$RUNNER_TEMP/prod/production.env" >> "$GITHUB_ENV"
 
-      - name: Match staged corpus in bounded batches
+      - name: Resume matching and build bounded review queues
         shell: bash
         env:
           ALLOW_KINGMAKER_BECKETT_MATCH: "YES"
@@ -93,6 +93,7 @@ jobs:
           if (r.status !== 'passed') throw new Error('Matching failed');
           if (r.production?.entries !== 128636) throw new Error('Entry count mismatch');
           if (r.production?.unattempted !== 0) throw new Error('Unattempted rows remain');
+          if (r.production?.queued_review_items < r.production?.review) throw new Error('Review queue incomplete');
           if (r.production?.promoted !== 0 || r.promotedAutomatically !== false) throw new Error('Unexpected promotion');
           NODE
 
@@ -102,4 +103,4 @@ jobs:
           name: kingmaker-beckett-production-match-20260803
           path: evidence/kingmaker-beckett-production-match-20260803/receipt.json
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90
