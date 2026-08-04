@@ -1,0 +1,2 @@
+source_name,source_release_id,source_version,source_receipt,sport,league,year,manufacturer,brand,set_name,subset,player,team,card_number,parallel,variation,serial_run,rookie,autograph,memorabilia,language_code,notes
+EXAMPLE ONLY,replace-me,1,replace-with-source-file-or-url,hockey,NHL,2024-25,Upper Deck,Upper Deck,Series 1,Young Guns,Example Player,Example Team,201,Base,,,true,false,false,en,Delete this example before import
