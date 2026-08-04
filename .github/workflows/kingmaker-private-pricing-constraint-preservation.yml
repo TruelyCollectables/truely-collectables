@@ -7,6 +7,8 @@ on:
     paths:
       - "supabase/migrations/20260804070000_private_pricing_work_order_reconciliation.sql"
       - "supabase/migrations/20260804071500_preserve_private_pricing_work_order_constraints.sql"
+      - "supabase/migrations/20260804074500_private_pricing_work_order_activity.sql"
+      - "supabase/migrations/20260804083000_private_pricing_work_order_reviews.sql"
       - "scripts/run-kingmaker-private-pricing-constraint-preservation-regressions.sql"
       - ".github/workflows/kingmaker-private-pricing-constraint-preservation.yml"
   push:
@@ -15,6 +17,8 @@ on:
     paths:
       - "supabase/migrations/20260804070000_private_pricing_work_order_reconciliation.sql"
       - "supabase/migrations/20260804071500_preserve_private_pricing_work_order_constraints.sql"
+      - "supabase/migrations/20260804074500_private_pricing_work_order_activity.sql"
+      - "supabase/migrations/20260804083000_private_pricing_work_order_reviews.sql"
       - "scripts/run-kingmaker-private-pricing-constraint-preservation-regressions.sql"
       - ".github/workflows/kingmaker-private-pricing-constraint-preservation.yml"
   workflow_dispatch:
@@ -73,7 +77,7 @@ jobs:
           );
           SQL
 
-      - name: Apply KINGMAKER work-order migration chain
+      - name: Apply current KINGMAKER work-order migration chain
         run: |
           set -euo pipefail
           PRIVATE_PRICING_MIGRATION="$(find supabase/migrations -maxdepth 1 -name '20260803043000_kingmaker_*_price_guides.sql' -print -quit)"
@@ -89,6 +93,8 @@ jobs:
           psql -v ON_ERROR_STOP=1 --file supabase/migrations/20260804062000_private_pricing_coverage_work_orders.sql
           psql -v ON_ERROR_STOP=1 --file supabase/migrations/20260804070000_private_pricing_work_order_reconciliation.sql
           psql -v ON_ERROR_STOP=1 --file supabase/migrations/20260804071500_preserve_private_pricing_work_order_constraints.sql
+          psql -v ON_ERROR_STOP=1 --file supabase/migrations/20260804074500_private_pricing_work_order_activity.sql
+          psql -v ON_ERROR_STOP=1 --file supabase/migrations/20260804083000_private_pricing_work_order_reviews.sql
 
       - name: Reapply safe repair with unrelated sentinel constraints present
         run: >-
@@ -104,3 +110,4 @@ jobs:
           grep -Fq 'drop constraint if exists tcos_km_work_order_audit_action_check' "$repair"
           grep -Fq 'drop constraint if exists tcos_km_work_order_audit_status_check' "$repair"
           grep -Fq 'drop constraint if exists tcos_km_work_order_audit_actor_check' "$repair"
+          grep -Fq "'review_scheduled','review_cleared'" "$repair"
