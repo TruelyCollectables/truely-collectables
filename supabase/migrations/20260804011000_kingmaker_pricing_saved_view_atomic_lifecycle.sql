@@ -31,6 +31,7 @@ begin
   if coalesce(p_is_default, false) then
     update public.tcos_kingmaker_pricing_saved_views
     set is_default = false,
+        version = version + 1,
         updated_at = now()
     where store_id = p_store_id
       and seller_account_id is not distinct from p_seller_account_id
