@@ -1,0 +1,62 @@
+name: Bootstrap Clean Pricing Workbenches
+
+on:
+  push:
+    branches:
+      - agent/kingmaker-pricing-workbenches-clean-v2
+
+permissions:
+  contents: write
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder
+      SUPABASE_SERVICE_ROLE_KEY: placeholder
+      ADMIN_SESSION_SECRET: placeholder-placeholder-placeholder-placeholder
+      OPENAI_API_KEY: placeholder
+      STRIPE_SECRET_KEY: sk_test_placeholder
+      RESEND_API_KEY: placeholder
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/kingmaker-pricing-workbenches-clean-v2
+          fetch-depth: 0
+      - name: Copy certified workbench files
+        run: |
+          git fetch origin agent/kingmaker-pricing-workbenches
+          git checkout origin/agent/kingmaker-pricing-workbenches -- \
+            .github/workflows/kingmaker-pricing-workbenches.yml \
+            scripts/run-kingmaker-pricing-workbenches-regressions.ts \
+            src/app/admin/instacomp/pricing/_components/pricing-workbench.tsx \
+            src/app/admin/instacomp/pricing/analytics/page.tsx \
+            src/app/admin/instacomp/pricing/audit/page.tsx \
+            src/app/admin/instacomp/pricing/profiles/page.tsx \
+            src/app/admin/instacomp/pricing/receipts/page.tsx \
+            src/app/admin/instacomp/pricing/review/page.tsx \
+            src/app/admin/instacomp/pricing/views/page.tsx
+          rm .github/workflows/bootstrap-pricing-workbenches-clean.yml
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Validate clean workbench stack
+        run: |
+          node --import tsx scripts/run-kingmaker-pricing-workbenches-regressions.ts
+          ! grep -RIni 'beckett' src/app/admin/instacomp/pricing scripts/run-kingmaker-pricing-workbenches-regressions.ts
+          ! grep -RIniE "from\\([\"'](products|orders|offers|market_intel_purchases)[\"']\\).*(insert|update|upsert|delete)\\(" src/app/admin/instacomp/pricing
+          npx eslint src/app/admin/instacomp/pricing scripts/run-kingmaker-pricing-workbenches-regressions.ts
+          npx tsc --noEmit
+          node scripts/run-dependency-security-audit.mjs
+          npm run build
+      - name: Commit clean workbench stack
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "feat: build KINGMAKER pricing operating workbenches"
+          git push origin HEAD:agent/kingmaker-pricing-workbenches-clean-v2
