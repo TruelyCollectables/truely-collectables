@@ -149,16 +149,36 @@ jobs:
 
           function verifySql() {
             return `
+              with definitions as (
+                select
+                  max(pg_get_constraintdef(oid)) filter (
+                    where conrelid = 'public.tcos_kingmaker_private_pricing_work_orders'::regclass
+                      and conname = 'tcos_km_work_order_status_check'
+                  ) as work_status,
+                  max(pg_get_constraintdef(oid)) filter (
+                    where conrelid = 'public.tcos_kingmaker_private_pricing_work_order_audit'::regclass
+                      and conname = 'tcos_km_work_order_audit_action_check'
+                  ) as audit_action,
+                  max(pg_get_constraintdef(oid)) filter (
+                    where conrelid = 'public.tcos_kingmaker_private_pricing_work_order_audit'::regclass
+                      and conname = 'tcos_km_work_order_audit_actor_check'
+                  ) as audit_actor,
+                  count(*) filter (
+                    where conrelid in (
+                      'public.tcos_kingmaker_private_pricing_work_orders'::regclass,
+                      'public.tcos_kingmaker_private_pricing_work_order_audit'::regclass
+                    ) and contype = 'c'
+                  )::bigint as check_constraints
+                from pg_constraint
+              )
               select
-                position('resolved' in lower(pg_get_constraintdef((select oid from pg_constraint where conrelid = 'public.tcos_kingmaker_private_pricing_work_orders'::regclass and conname = 'tcos_km_work_order_status_check'))) > 0 as work_status_ok,
-                position('auto_resolved' in lower(pg_get_constraintdef((select oid from pg_constraint where conrelid = 'public.tcos_kingmaker_private_pricing_work_order_audit'::regclass and conname = 'tcos_km_work_order_audit_action_check'))) > 0 as auto_resolved_ok,
-                position('review_scheduled' in lower(pg_get_constraintdef((select oid from pg_constraint where conrelid = 'public.tcos_kingmaker_private_pricing_work_order_audit'::regclass and conname = 'tcos_km_work_order_audit_action_check'))) > 0 as review_scheduled_ok,
-                position('review_cleared' in lower(pg_get_constraintdef((select oid from pg_constraint where conrelid = 'public.tcos_kingmaker_private_pricing_work_order_audit'::regclass and conname = 'tcos_km_work_order_audit_action_check'))) > 0 as review_cleared_ok,
-                position('system' in lower(pg_get_constraintdef((select oid from pg_constraint where conrelid = 'public.tcos_kingmaker_private_pricing_work_order_audit'::regclass and conname = 'tcos_km_work_order_audit_actor_check'))) > 0 as actor_ok,
-                (select count(*) from pg_constraint where conrelid in (
-                  'public.tcos_kingmaker_private_pricing_work_orders'::regclass,
-                  'public.tcos_kingmaker_private_pricing_work_order_audit'::regclass
-                ) and contype = 'c')::bigint as check_constraints;
+                position('resolved' in lower(coalesce(work_status, ''))) > 0 as work_status_ok,
+                position('auto_resolved' in lower(coalesce(audit_action, ''))) > 0 as auto_resolved_ok,
+                position('review_scheduled' in lower(coalesce(audit_action, ''))) > 0 as review_scheduled_ok,
+                position('review_cleared' in lower(coalesce(audit_action, ''))) > 0 as review_cleared_ok,
+                position('system' in lower(coalesce(audit_actor, ''))) > 0 as actor_ok,
+                check_constraints
+              from definitions;
             `;
           }
 
