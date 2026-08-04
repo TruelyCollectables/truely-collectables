@@ -1,0 +1,63 @@
+name: Topps Checklist Archive
+
+on:
+  pull_request:
+    paths:
+      - "data/topps-checklist-seeds.json"
+      - "scripts/archive-topps-seed-sets.ts"
+      - ".github/workflows/topps-checklist-archive.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "data/topps-checklist-seeds.json"
+      - "scripts/archive-topps-seed-sets.ts"
+      - ".github/workflows/topps-checklist-archive.yml"
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: topps-checklist-archive
+  cancel-in-progress: false
+
+jobs:
+  archive:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Download official Topps checklist files
+        run: node --import tsx scripts/archive-topps-seed-sets.ts
+      - name: Verify archive manifest
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const manifest = JSON.parse(readFileSync('.topps-seed-archive/manifest.json', 'utf8'));
+          if (manifest.schema !== 'tcos.topps.seedArchiveManifest.v1') throw new Error('Wrong archive schema');
+          if ((manifest.totals?.requested ?? 0) < 1) throw new Error('No Topps seeds requested');
+          if ((manifest.totals?.archived ?? 0) < 1) throw new Error('No Topps files archived');
+          if ((manifest.totals.archived + manifest.totals.failed) !== manifest.totals.requested) throw new Error('Manifest totals do not reconcile');
+          NODE
+      - name: Package archive
+        run: tar -C .topps-seed-archive -czf topps-checklist-archive.tar.gz .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: topps-checklist-archive
+          path: topps-checklist-archive.tar.gz
+          if-no-files-found: error
+          retention-days: 90
+      - uses: actions/upload-artifact@v4
+        with:
+          name: topps-checklist-manifest
+          path: .topps-seed-archive/manifest.json
+          if-no-files-found: error
+          retention-days: 90
