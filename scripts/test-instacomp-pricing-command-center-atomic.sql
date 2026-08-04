@@ -28,11 +28,36 @@ select public.tcos_create_kingmaker_pricing_saved_view_atomic(
   true
 );
 
--- The duplicate insert must roll back the default reset inside the function.
+-- Reassigning the default must advance the old view's version. A stale client
+-- holding version 1 may not retire it after that implicit state change.
+do $$
+declare
+  v_first_id uuid;
+begin
+  select id into v_first_id
+  from public.tcos_kingmaker_pricing_saved_views
+  where name = 'First View';
+
+  begin
+    perform public.tcos_retire_kingmaker_pricing_saved_view_atomic(
+      '30000000-0000-4000-8000-000000000001',
+      '40000000-0000-4000-8000-000000000001',
+      v_first_id,
+      1
+    );
+    raise exception 'Stale old-default saved-view retirement unexpectedly succeeded.';
+  exception when object_not_in_prerequisite_state then
+    null;
+  end;
+end;
+$$;
+
+-- The duplicate insert must roll back the default reset and its version bump.
 do $$
 declare
   v_default_count integer;
   v_default_name text;
+  v_first_version integer;
 begin
   begin
     perform public.tcos_create_kingmaker_pricing_saved_view_atomic(
@@ -56,6 +81,13 @@ begin
     and is_default;
   if v_default_count <> 1 or v_default_name <> 'Second View' then
     raise exception 'Failed create did not preserve the prior default.';
+  end if;
+
+  select version into v_first_version
+  from public.tcos_kingmaker_pricing_saved_views
+  where name = 'First View';
+  if v_first_version <> 2 then
+    raise exception 'Failed duplicate did not roll back the attempted version change.';
   end if;
 end;
 $$;
@@ -152,11 +184,19 @@ declare
   v_old_table regclass;
   v_count integer;
   v_profit numeric;
+  v_first_version integer;
 begin
   v_real_table := to_regclass('public.tcos_kingmaker_pricing_decision_receipts');
   v_old_table := to_regclass('public.tcos_kingmaker_pricing_receipts');
   if v_real_table is null or v_old_table is not null then
     raise exception 'Pricing receipt schema drift fixture is invalid.';
+  end if;
+
+  select version into v_first_version
+  from public.tcos_kingmaker_pricing_saved_views
+  where name = 'First View';
+  if v_first_version <> 2 then
+    raise exception 'Implicit saved-view default change was not versioned.';
   end if;
 
   select count(*), sum(expected_profit)
