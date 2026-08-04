@@ -1,6 +1,6 @@
 import PrivatePricingCoverage from "../_components/private-pricing-coverage";
 
-// Shared PrivatePricingCoverage navigation: "/admin/instacomp/pricing"
+// Shared PrivatePricingCoverage admin navigation: "/admin/instacomp/pricing"
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
