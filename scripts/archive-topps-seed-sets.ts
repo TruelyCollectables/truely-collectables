@@ -30,36 +30,65 @@ function slug(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
+async function downloadWithRetry(seed: (typeof seeds)[number]) {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const parsed = new URL(seed.url);
+      if (parsed.protocol !== "https:" || parsed.hostname !== "cdn.shopify.com") {
+        throw new Error(`Untrusted Topps asset host: ${seed.url}`);
+      }
+      const response = await fetch(seed.url, {
+        headers: { "User-Agent": "TCOS-Topps-Seed-Archive/2.0", Accept: "application/pdf,*/*" },
+        redirect: "follow",
+        signal: AbortSignal.timeout(90_000),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      if (!bytes.length) throw new Error("empty file");
+      if (bytes.length > 50 * 1024 * 1024) throw new Error(`file exceeds 50 MiB (${bytes.length} bytes)`);
+      return { bytes, attempt };
+    } catch (error) {
+      lastError = error;
+      if (attempt < 3) await new Promise((resolveDelay) => setTimeout(resolveDelay, attempt * 2_000));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
 async function main() {
   mkdirSync(OUT, { recursive: true });
   const files: Array<Record<string, unknown>> = [];
+  const failures: Array<Record<string, unknown>> = [];
+
   for (const seed of seeds) {
-    const parsed = new URL(seed.url);
-    if (parsed.protocol !== "https:" || parsed.hostname !== "cdn.shopify.com") {
-      throw new Error(`Untrusted Topps asset host: ${seed.url}`);
+    try {
+      const { bytes, attempt } = await downloadWithRetry(seed);
+      const sha256 = createHash("sha256").update(bytes).digest("hex");
+      const filename = `${slug(seed.title)}-${sha256.slice(0, 12)}.pdf`;
+      const rel = `${seed.sport}/${seed.year}/${filename}`;
+      const target = resolve(OUT, rel);
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, bytes);
+      files.push({ ...seed, filename, archivePath: rel, sha256, sizeBytes: bytes.length, mimeType: "application/pdf", attempts: attempt });
+    } catch (error) {
+      failures.push({ ...seed, error: error instanceof Error ? error.message : String(error), retryEligible: true });
     }
-    const response = await fetch(seed.url, {
-      headers: { "User-Agent": "TCOS-Topps-Seed-Archive/1.0", Accept: "application/pdf" },
-      redirect: "follow",
-      signal: AbortSignal.timeout(90_000),
-    });
-    if (!response.ok) throw new Error(`${seed.title}: HTTP ${response.status}`);
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    if (!bytes.length) throw new Error(`${seed.title}: empty file`);
-    const sha256 = createHash("sha256").update(bytes).digest("hex");
-    const filename = `${slug(seed.title)}-${sha256.slice(0, 12)}.pdf`;
-    const rel = `${seed.sport}/${seed.year}/${filename}`;
-    const target = resolve(OUT, rel);
-    mkdirSync(dirname(target), { recursive: true });
-    writeFileSync(target, bytes);
-    files.push({ ...seed, filename, archivePath: rel, sha256, sizeBytes: bytes.length, mimeType: "application/pdf" });
   }
+
   const manifest = {
     schema: "tcos.topps.seedArchiveManifest.v1",
     generatedAt: new Date().toISOString(),
-    totals: { requested: seeds.length, archived: files.length },
+    totals: { requested: seeds.length, archived: files.length, failed: failures.length },
+    bySport: files.reduce<Record<string, number>>((totals, file) => {
+      const sport = String(file.sport);
+      totals[sport] = (totals[sport] || 0) + 1;
+      return totals;
+    }, {}),
     files,
+    failures,
   };
+
   writeFileSync(resolve(OUT, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
   console.log(JSON.stringify(manifest.totals));
 }
