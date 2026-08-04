@@ -51,6 +51,23 @@ assert(base.status === "exact_match", "base card should match locally");
 assert(base.aiRequired === false, "exact checklist match must not require AI");
 assert(base.match?.identityId === "1989-topps-15-player-base", "wrong base identity");
 
+const reversedPlayer = resolveInstaCompChecklistFirst({
+  input: {
+    year: "1989",
+    manufacturer: "Topps",
+    cardNumber: "15",
+    player: "Player Example",
+    isAuto: false,
+    isRelic: false,
+    parallel: "Base",
+  },
+  candidates,
+});
+assert(
+  reversedPlayer.status === "exact_match",
+  "player-token order should not prevent the same checklist identity",
+);
+
 const autoRelic = resolveInstaCompChecklistFirst({
   input: {
     year: "2024",
@@ -67,6 +84,20 @@ const autoRelic = resolveInstaCompChecklistFirst({
 });
 assert(autoRelic.status === "exact_match", "auto relic should match locally");
 assert(autoRelic.aiRequired === false, "typed checklist match must not require AI");
+
+const wrongManufacturer = resolveInstaCompChecklistFirst({
+  input: {
+    year: "1989",
+    manufacturer: "Unknown Brand",
+    cardNumber: "15",
+    player: "Example Player",
+  },
+  candidates,
+});
+assert(
+  wrongManufacturer.status === "not_found",
+  "blank aliases must never match an unrelated manufacturer",
+);
 
 const missing = resolveInstaCompChecklistFirst({
   input: {
