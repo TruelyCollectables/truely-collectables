@@ -154,8 +154,7 @@ begin
   select entry.id
   into target_entry_id
   from public.tcos_kingmaker_price_entries entry
-  where entry.guide_id = guide_id
-    and entry.source_row_key = 'identity-gap-2'
+  where entry.source_row_key = 'identity-gap-2'
   limit 1;
 
   select public.tcos_refresh_kingmaker_private_pricing_coverage_snapshot(true)
