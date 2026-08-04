@@ -128,10 +128,10 @@ jobs:
             not has_function_privilege('anon','public.tcos_kingmaker_private_pricing_work_order_execution_report(integer,integer,text)','execute') anon_report_revoked,
             not has_function_privilege('authenticated','public.tcos_kingmaker_private_pricing_work_order_execution_report(integer,integer,text)','execute') authenticated_report_revoked,
             has_function_privilege('service_role','public.tcos_kingmaker_private_pricing_work_order_execution_report(integer,integer,text)','execute') service_report_granted,
-            exists(select 1 from information_schema.columns where table_schema='public' and table_name='tcos_kingmaker_private_pricing_work_orders' and column_name='assignee_label') assignee_column_present,
+            exists(select 1 from information_schema.columns where table_schema='public' and table_name='tcos_kingmaker_private_pricing_work_orders' and column_name='assignee') assignee_column_present,
             exists(select 1 from information_schema.columns where table_schema='public' and table_name='tcos_kingmaker_private_pricing_work_orders' and column_name='due_at') due_column_present,
-            exists(select 1 from information_schema.columns where table_schema='public' and table_name='tcos_kingmaker_private_pricing_work_orders' and column_name='blocker_category') blocker_column_present,
-            exists(select 1 from information_schema.columns where table_schema='public' and table_name='tcos_kingmaker_private_pricing_work_orders' and column_name='resolution_category') resolution_column_present;`;
+            exists(select 1 from information_schema.columns where table_schema='public' and table_name='tcos_kingmaker_private_pricing_work_orders' and column_name='blocked_reason') blocker_column_present,
+            exists(select 1 from information_schema.columns where table_schema='public' and table_name='tcos_kingmaker_private_pricing_work_orders' and column_name='resolution_code') resolution_column_present;`;
           function deploy() {
             const result = spawnSync('npx',['vercel@56.2.0','deploy','--prod','--yes','--force','--scope',process.env.VERCEL_SCOPE,'--token',process.env.VERCEL_TOKEN],{encoding:'utf8',maxBuffer:30*1024*1024});
             if (result.error || result.status !== 0) throw new Error(`Vercel deployment failed: ${(result.stderr || result.stdout || '').slice(0,1000)}`);
