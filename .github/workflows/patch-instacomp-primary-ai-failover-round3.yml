@@ -1,0 +1,157 @@
+name: Patch InstaComp Primary Failover Round Three
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/patch-instacomp-primary-ai-failover-round3.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: patch-instacomp-primary-failover-round3
+  cancel-in-progress: false
+
+jobs:
+  patch-and-verify:
+    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'fix/instacomp-primary-ai-failover'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/instacomp-primary-ai-failover
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Apply exact family and diagnostic hardening
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/app/api/instacomp/scan/route.ts')
+          source = path.read_text()
+
+          def replace_once(old: str, new: str, label: str):
+              global source
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected one match, found {count}')
+              source = source.replace(old, new, 1)
+
+          replace_once(
+          '''import {
+            optionalInstaCompProviderResult,
+            runInstaCompPrimaryAiFailover,
+          } from "../../../../lib/instacomp-ai-provider-failover";''',
+          '''import {
+            optionalInstaCompProviderResult,
+            runInstaCompPrimaryAiFailover,
+            sanitizeInstaCompProviderFailure,
+          } from "../../../../lib/instacomp-ai-provider-failover";''',
+          'failover import',
+          )
+
+          replace_once(
+          '''        message: String(error?.message || error).slice(0, 500),''',
+          '''        message: sanitizeInstaCompProviderFailure(error),''',
+          'council diagnostic sanitizer',
+          )
+
+          replace_once(
+          '''  externalOcr: ExternalOcrResult | null;
+          }): Promise<InstaCompAiCouncilRun> {''',
+          '''  externalOcr: ExternalOcrResult | null;
+            excludedFamilies?: string[];
+          }): Promise<InstaCompAiCouncilRun> {''',
+          'council excluded family parameter',
+          )
+
+          replace_once(
+          '''  const tier = aiCouncilTier(params.requestedTier);
+            const providerPlan = buildAiCouncilProviderPlan();
+            const configuredPlan = providerPlan.filter((provider) => provider.configured);''',
+          '''  const tier = aiCouncilTier(params.requestedTier);
+            const excludedFamilies = new Set(
+              (params.excludedFamilies || []).map((family) => family.trim().toLowerCase()),
+            );
+            const providerPlan = buildAiCouncilProviderPlan().filter(
+              (provider) => !excludedFamilies.has(provider.family.trim().toLowerCase()),
+            );
+            const configuredPlan = providerPlan.filter((provider) => provider.configured);''',
+          'council family exclusion',
+          )
+
+          replace_once(
+          '''function buildInstaCompConsensusReaders(params: {
+            baseAi: InstaCompAiResult;''',
+          '''function buildInstaCompConsensusReaders(params: {
+            primaryAiProvider: string;
+            primaryAiFamily: string;
+            baseAi: InstaCompAiResult;''',
+          'consensus primary metadata',
+          )
+
+          replace_once(
+          '''      readerId: "primary_vision",
+                label: "Primary AI vision",
+                kind: "primary_vision",
+                family: "openai",''',
+          '''      readerId: `primary_vision_${params.primaryAiProvider}`,
+                label: `Primary AI vision (${params.primaryAiProvider})`,
+                kind: "primary_vision",
+                family: params.primaryAiFamily,''',
+          'primary family propagation',
+          )
+
+          replace_once(
+          '''      detailImages,
+                externalOcr,
+              });''',
+          '''      detailImages,
+                externalOcr,
+                excludedFamilies: [primaryAiResult.family],
+              });''',
+          'exclude primary family from council',
+          )
+
+          replace_once(
+          '''    const consensusReaders = buildInstaCompConsensusReaders({
+                baseAi: baseAiForConsensus,''',
+          '''    const consensusReaders = buildInstaCompConsensusReaders({
+                primaryAiProvider: primaryAiResult.provider,
+                primaryAiFamily: primaryAiResult.family,
+                baseAi: baseAiForConsensus,''',
+          'pass primary metadata to consensus',
+          )
+
+          path.write_text(source)
+          PY
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Run hostile failover regressions
+        run: npx tsx scripts/run-instacomp-primary-ai-failover-regression.ts
+
+      - name: Lint failover boundary
+        run: npx eslint src/lib/instacomp-ai-provider-failover.ts src/app/api/instacomp/scan/route.ts scripts/run-instacomp-primary-ai-failover-regression.ts
+
+      - name: TypeScript
+        run: npx tsc --noEmit
+
+      - name: Commit permanent route hardening
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/api/instacomp/scan/route.ts
+          git diff --cached --quiet && exit 0
+          git commit -m "Preserve primary provider family independence"
+          git push origin HEAD:fix/instacomp-primary-ai-failover
