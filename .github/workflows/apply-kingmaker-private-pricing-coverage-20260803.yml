@@ -122,13 +122,38 @@ jobs:
             return text ? JSON.parse(text) : [];
           }
 
-          function firstRow(result) {
-            return Array.isArray(result) ? result[0] || {} : result || {};
+          async function callServiceRpc(productionUrl, serviceKey) {
+            const response = await fetch(
+              `${productionUrl.replace(/\/$/, "")}/rest/v1/rpc/tcos_kingmaker_private_pricing_coverage_report`,
+              {
+                method: "POST",
+                headers: {
+                  apikey: serviceKey,
+                  Authorization: `Bearer ${serviceKey}`,
+                  "Content-Type": "application/json",
+                  Accept: "application/json",
+                },
+                body: JSON.stringify({
+                  p_limit: 100,
+                  p_offset: 0,
+                  p_gap_type: null,
+                  p_sport: null,
+                  p_search: null,
+                }),
+                signal: AbortSignal.timeout(119000),
+              },
+            );
+            const text = await response.text();
+            if (!response.ok) {
+              throw new Error(
+                `Production service-role coverage RPC failed with HTTP ${response.status}: ${text.slice(0, 800)}`,
+              );
+            }
+            return text ? JSON.parse(text) : {};
           }
 
-          function firstValue(result) {
-            const row = firstRow(result);
-            return Object.values(row)[0];
+          function firstRow(result) {
+            return Array.isArray(result) ? result[0] || {} : result || {};
           }
 
           function jsonObject(value, label) {
@@ -136,6 +161,9 @@ jobs:
             if (typeof value === "string") {
               const parsed = JSON.parse(value);
               if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+            }
+            if (Array.isArray(value) && value.length === 1) {
+              return jsonObject(value[0], label);
             }
             throw new Error(`${label} did not return an object.`);
           }
@@ -208,9 +236,14 @@ jobs:
             if (!token || !envFile) throw new Error("Protected Production credentials are required.");
             console.log(`::add-mask::${token}`);
             const productionEnv = parseEnv(readFileSync(envFile, "utf8"));
-            const project = projectRef(
-              productionEnv.NEXT_PUBLIC_SUPABASE_URL || productionEnv.SUPABASE_URL,
-            );
+            const productionUrl =
+              productionEnv.NEXT_PUBLIC_SUPABASE_URL || productionEnv.SUPABASE_URL;
+            const serviceKey = productionEnv.SUPABASE_SERVICE_ROLE_KEY;
+            if (!productionUrl || !serviceKey) {
+              throw new Error("Production service-role RPC credentials were not resolved.");
+            }
+            console.log(`::add-mask::${serviceKey}`);
+            const project = projectRef(productionUrl);
             const migrationSql = readFileSync(migrationPath, "utf8");
 
             const before = firstRow(await queryManagement(project, statsSql(), true, "pre-apply statistics"));
@@ -223,13 +256,10 @@ jobs:
               if (value !== true) throw new Error(`Production verification failed: ${field}.`);
             }
 
-            const reportResult = await queryManagement(
-              project,
-              `select public.tcos_kingmaker_private_pricing_coverage_report(100, 0, null, null, null) as report;`,
-              true,
-              "aggregate coverage report",
+            const report = jsonObject(
+              await callServiceRpc(productionUrl, serviceKey),
+              "Coverage report",
             );
-            const report = jsonObject(firstValue(reportResult), "Coverage report");
             if (report.boundary !== "aggregate_private_reference_only") {
               throw new Error("Coverage report boundary verification failed.");
             }
@@ -281,6 +311,7 @@ jobs:
                 topRows: report.rows,
               },
               verification,
+              serviceRoleRpcVerified: true,
               pricesPromotedByThisOperation: 0,
               recordsMutatedByReport: 0,
               secretsPersisted: false,
@@ -304,7 +335,7 @@ jobs:
         run: |
           set -euo pipefail
           test -s "$RECEIPT_PATH"
-          node -e 'const r=require("./"+process.env.RECEIPT_PATH); if(r.status!=="passed"||r.pricesPromotedByThisOperation!==0||r.recordsMutatedByReport!==0||r.secretsPersisted!==false) process.exit(1);'
+          node -e 'const r=require("./"+process.env.RECEIPT_PATH); if(r.status!=="passed"||r.serviceRoleRpcVerified!==true||r.pricesPromotedByThisOperation!==0||r.recordsMutatedByReport!==0||r.secretsPersisted!==false) process.exit(1);'
 
       - name: Upload sanitized Production receipt
         uses: actions/upload-artifact@v4
