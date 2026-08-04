@@ -28,14 +28,7 @@ class BackupError(RuntimeError):
 
 
 class FullBackupManager:
-    """Creates a portable archive of the complete InstaComp AI installation.
-
-    A consistent SQLite snapshot is created first, then the whole service folder is
-    copied into a staging directory. The destination folder is excluded to prevent
-    recursive backups. Temporary caches are excluded because they are not durable
-    project data. Secrets such as .env are included because this is a disaster-
-    recovery archive and must therefore be stored securely offsite.
-    """
+    """Create a portable disaster-recovery archive of the whole service folder."""
 
     def __init__(self, service_root: Path, database_path: Path):
         self.service_root = service_root.resolve()
@@ -64,9 +57,9 @@ class FullBackupManager:
             self._copy_service_tree(staging, destination)
             self._replace_database_with_consistent_snapshot(staging)
             manifest = self._build_manifest(staging, created_at, archive_name)
-            embedded_manifest = staging / "BACKUP-MANIFEST.json"
-            embedded_manifest.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-
+            (staging / "BACKUP-MANIFEST.json").write_text(
+                json.dumps(manifest, indent=2), encoding="utf-8"
+            )
             self._write_zip(staging, partial_archive)
             archive_sha256 = self._sha256_file(partial_archive)
             os.replace(partial_archive, final_archive)
@@ -124,8 +117,9 @@ class FullBackupManager:
         target = sqlite3.connect(staged_database)
         try:
             source.backup(target)
-            target.execute("PRAGMA integrity_check")
-            result = target.fetchone() if hasattr(target, "fetchone") else None
+            integrity = target.execute("PRAGMA integrity_check").fetchone()
+            if not integrity or integrity[0] != "ok":
+                raise BackupError(f"SQLite snapshot failed integrity check: {integrity}")
             target.commit()
         finally:
             target.close()
@@ -140,13 +134,7 @@ class FullBackupManager:
             relative = path.relative_to(staging).as_posix()
             size = path.stat().st_size
             total += size
-            files.append(
-                {
-                    "path": relative,
-                    "size_bytes": size,
-                    "sha256": self._sha256_file(path),
-                }
-            )
+            files.append({"path": relative, "size_bytes": size, "sha256": self._sha256_file(path)})
         return {
             "schema": "tcos.instacomp-ai.full-backup.v1",
             "product": "InstaComp AI™",
@@ -161,9 +149,7 @@ class FullBackupManager:
 
     @staticmethod
     def _write_zip(staging: Path, target: Path) -> None:
-        with zipfile.ZipFile(
-            target, mode="w", compression=zipfile.ZIP_DEFLATED, compresslevel=6
-        ) as archive:
+        with zipfile.ZipFile(target, mode="w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
             for path in sorted(staging.rglob("*")):
                 if path.is_file():
                     archive.write(path, Path(staging.name) / path.relative_to(staging))
