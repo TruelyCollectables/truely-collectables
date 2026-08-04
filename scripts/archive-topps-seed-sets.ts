@@ -41,6 +41,12 @@ const seeds = [
     url: "https://cdn.shopify.com/s/files/1/0662/9749/5709/files/Checklist_25CSFB_VERSION2.pdf?v=1777921828",
   },
   {
+    title: "2025 Topps Chrome Black Football",
+    sport: "Football",
+    year: "2025",
+    url: "https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2025_Topps_Chrome_Black_Football_Checklist.pdf?v=1780925886",
+  },
+  {
     title: "2025-26 Topps NHL Sticker Collection",
     sport: "Hockey",
     year: "2025-26",
@@ -51,6 +57,30 @@ const seeds = [
     sport: "Basketball",
     year: "2025-26",
     url: "https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2025-26_Topps_Basketball_Checklist.pdf?v=1759329649",
+  },
+  {
+    title: "2025-26 Topps Cosmic Chrome Basketball",
+    sport: "Basketball",
+    year: "2025-26",
+    url: "https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2025-26_Topps_Cosmic_Chrome_Basketball_Checklist.pdf?v=1774549583",
+  },
+  {
+    title: "2025-26 Topps Finest Basketball",
+    sport: "Basketball",
+    year: "2025-26",
+    url: "https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2025-2026_Topps_Finest_Basketball_Checklist.pdf?v=1771360733",
+  },
+  {
+    title: "2025-26 Topps Hoops Basketball",
+    sport: "Basketball",
+    year: "2025-26",
+    url: "https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2025-26_Topps_Hoops_Basketball_Checklist.pdf?v=1776110447",
+  },
+  {
+    title: "2025-26 Topps NBL Basketball",
+    sport: "Basketball",
+    year: "2025-26",
+    url: "https://cdn.shopify.com/s/files/1/0662/9749/5709/files/26NBLC_Checklist_Final.pdf?v=1780091079",
   },
   {
     title: "2025-26 Topps Premier League",
