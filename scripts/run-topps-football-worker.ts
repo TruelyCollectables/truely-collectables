@@ -14,6 +14,12 @@ const MAX_PRODUCTS = Math.max(1, Math.min(500, Number(process.env.TOPPS_FOOTBALL
 const MAX_SOURCES = Math.max(1, Math.min(100, Number(process.env.TOPPS_FOOTBALL_MAX_SOURCES || 100)));
 const OUTPUT = resolve(process.cwd(), process.env.TOPPS_FOOTBALL_OUTPUT || ".checklist-discovery/topps-football-worker-receipt.json");
 const TEMP_ROOT = resolve(process.cwd(), ".checklist-discovery/topps-football-tmp");
+const EXTRA_TRUSTED_TOPPS_HOSTS = new Set(
+  String(process.env.TOPPS_FOOTBALL_TRUSTED_ASSET_HOSTS || "")
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean),
+);
 
 function dbClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -26,6 +32,20 @@ function clean(value: string) {
 }
 function sha256(value: Uint8Array) { return createHash("sha256").update(value).digest("hex"); }
 function absolute(value: string, base: string) { const url = new URL(value, base); url.hash = ""; return url.toString(); }
+function isTrustedToppsHost(hostname: string) {
+  const host = hostname.trim().toLowerCase();
+  return host === "topps.com"
+    || host.endsWith(".topps.com")
+    || host === "cdn.shopify.com"
+    || EXTRA_TRUSTED_TOPPS_HOSTS.has(host);
+}
+function assertTrustedToppsUrl(value: string, context: string) {
+  const parsed = new URL(value);
+  if (parsed.protocol !== "https:") throw new Error(`${context} must use HTTPS.`);
+  if (!isTrustedToppsHost(parsed.hostname)) {
+    throw new Error(`${context} resolved to an untrusted host.`);
+  }
+}
 function anchors(html: string, base: string) {
   const values: Array<{ url: string; text: string }> = [];
   for (const match of html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
@@ -38,6 +58,7 @@ function isFootballTitle(value: string) {
   return /\b(football|nfl|bowman university|bowman u|chrome u|collegiate)\b/i.test(title) && !/baseball|mlb|basketball|hockey|soccer|uefa|formula 1|wwe/i.test(title);
 }
 async function fetchResponse(url: string) {
+  assertTrustedToppsUrl(url, "Topps source URL");
   const response = await fetch(url, {
     headers: {
       Accept: "text/html,application/pdf,text/plain,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,*/*",
@@ -47,6 +68,7 @@ async function fetchResponse(url: string) {
     redirect: "follow",
     signal: AbortSignal.timeout(90_000),
   });
+  assertTrustedToppsUrl(response.url || url, "Topps final response URL");
   if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
   return response;
 }
@@ -74,7 +96,12 @@ function checklistAssets(html: string, pageUrl: string) {
   for (const anchor of anchors(html, pageUrl)) {
     if (!/checklist/i.test(anchor.text) && !/\.(pdf|xlsx?|csv|txt)(?:$|\?)/i.test(anchor.url)) continue;
     if (/odds/i.test(anchor.text)) continue;
-    unique.set(anchor.url, { url: anchor.url, label: anchor.text });
+    try {
+      assertTrustedToppsUrl(anchor.url, "Topps checklist asset URL");
+      unique.set(anchor.url, { url: anchor.url, label: anchor.text });
+    } catch {
+      // Discovery fails closed for assets outside the explicit trusted-host set.
+    }
   }
   return [...unique.values()];
 }
@@ -95,7 +122,12 @@ async function download(url: string) {
   const bytes = new Uint8Array(await response.arrayBuffer());
   if (!bytes.byteLength) throw new Error("Downloaded football checklist was empty.");
   if (bytes.byteLength > 50 * 1024 * 1024) throw new Error(`Football checklist exceeds 50 MiB (${bytes.byteLength} bytes).`);
-  return { bytes, mimeType: normalizedMimeType(response.url || url, response.headers.get("content-type") || "") };
+  const finalUrl = response.url || url;
+  return {
+    bytes,
+    finalUrl,
+    mimeType: normalizedMimeType(finalUrl, response.headers.get("content-type") || ""),
+  };
 }
 function filename(sourceUrl: string, fallback: string) {
   try {
@@ -159,9 +191,11 @@ async function discover(db: ReturnType<typeof dbClient>) {
         const downloaded = await download(asset.url);
         const digest = sha256(downloaded.bytes);
         const { data: existing } = await db.from("checklist_source_catalog").select("status,source_sha256").eq("manufacturer", "Topps").eq("sport", "Football").eq("source_url", asset.url).maybeSingle();
-        const unchangedImported = existing?.status === "imported" && existing?.source_sha256 === digest;
-        const status = unchangedImported ? "imported" : "discovered";
-        const { error } = await db.from("checklist_source_catalog").upsert({
+        const sameDigest = existing?.source_sha256 === digest;
+        const unchangedImported = existing?.status === "imported" && sameDigest;
+        const unchangedTerminal = ["quarantined", "failed"].includes(String(existing?.status || "")) && sameDigest;
+        const status = unchangedImported ? "imported" : unchangedTerminal ? existing?.status : "discovered";
+        const record: Record<string, unknown> = {
           manufacturer: "Topps",
           sport: "Football",
           source_url: asset.url,
@@ -170,11 +204,28 @@ async function discover(db: ReturnType<typeof dbClient>) {
           status,
           last_seen_at: checkedAt,
           last_checked_at: checkedAt,
-          issue_summary: unchangedImported ? [] : [{ code: "topps_football_ready_for_worker", severity: "warning", message: "Official Topps football checklist is queued for deterministic validation and import." }],
-          metadata: { productPageUrl: page.url, assetLabel: asset.label, mimeType: downloaded.mimeType, sizeBytes: downloaded.bytes.byteLength, provider: "topps_official_checklist_index", worker: "topps-football-v1" },
-        }, { onConflict: "source_url" });
+          metadata: {
+            productPageUrl: page.url,
+            assetLabel: asset.label,
+            finalUrl: downloaded.finalUrl,
+            mimeType: downloaded.mimeType,
+            sizeBytes: downloaded.bytes.byteLength,
+            provider: "topps_official_checklist_index",
+            worker: "topps-football-v2",
+          },
+        };
+        if (unchangedImported) record.issue_summary = [];
+        if (!unchangedImported && !unchangedTerminal) {
+          record.issue_summary = [{ code: "topps_football_ready_for_worker", severity: "warning", message: "Official Topps football checklist is queued for deterministic validation and import." }];
+        }
+        const { error } = await db.from("checklist_source_catalog").upsert(record, { onConflict: "source_url" });
         if (error) throw new Error(error.message);
-        results.push({ sourceUrl: asset.url, releaseName: page.title, status: unchangedImported ? "unchanged" : "queued", sha256: digest });
+        results.push({
+          sourceUrl: asset.url,
+          releaseName: page.title,
+          status: unchangedImported ? "unchanged" : unchangedTerminal ? "terminal_unchanged" : "queued",
+          sha256: digest,
+        });
       }
     } catch (caught) {
       results.push({ productPage: page.url, releaseName: page.title, status: "failed", message: caught instanceof Error ? caught.message : String(caught) });
@@ -188,9 +239,9 @@ async function main() {
   const startedAt = new Date().toISOString();
   const discovery = await discover(db);
   const { data: rows, error } = await db.from("checklist_source_catalog")
-    .select("source_url,release_name,status,metadata")
+    .select("source_url,release_name,status,source_sha256,metadata")
     .eq("manufacturer", "Topps").eq("sport", "Football")
-    .in("status", ["discovered", "validated", "quarantined", "failed"])
+    .in("status", ["discovered", "validated"])
     .order("last_seen_at", { ascending: false }).limit(MAX_SOURCES);
   if (error) throw new Error(`Could not read Topps football queue: ${error.message}`);
 
@@ -199,10 +250,33 @@ async function main() {
   for (const row of rows || []) {
     const sourceUrl = String(row.source_url);
     const releaseName = String(row.release_name || "Topps Football");
+    const expectedDigest = String(row.source_sha256 || "").toLowerCase();
     const checkedAt = new Date().toISOString();
     try {
       const downloaded = await download(sourceUrl);
-      const sourceFilename = filename(sourceUrl, releaseName);
+      const currentDigest = sha256(downloaded.bytes);
+      if (!/^[a-f0-9]{64}$/.test(expectedDigest)) {
+        totals.quarantined += 1;
+        await updateCatalog(db, sourceUrl, {
+          status: "quarantined",
+          last_checked_at: checkedAt,
+          issue_summary: [{ code: "topps_football_missing_discovery_hash", severity: "error", message: "The worker refused to import a source without a pinned discovery SHA-256." }],
+        });
+        results.push({ sourceUrl, releaseName, status: "quarantined", code: "missing_discovery_hash" });
+        continue;
+      }
+      if (currentDigest !== expectedDigest) {
+        totals.quarantined += 1;
+        await updateCatalog(db, sourceUrl, {
+          status: "quarantined",
+          last_checked_at: checkedAt,
+          issue_summary: [{ code: "topps_football_source_changed_after_discovery", severity: "error", message: "Downloaded bytes no longer match the discovery SHA-256; a new discovery pass is required." }],
+        });
+        results.push({ sourceUrl, releaseName, status: "quarantined", code: "source_changed_after_discovery", expectedDigest, currentDigest });
+        continue;
+      }
+
+      const sourceFilename = filename(downloaded.finalUrl, releaseName);
       const text = extractText({ ...downloaded, filename: sourceFilename });
       if (text.length < 50) throw new Error(`Football checklist extraction produced only ${text.length} characters.`);
       const artifact: ChecklistSourceArtifact = {
@@ -220,7 +294,7 @@ async function main() {
       const imported = await persist(db, artifact);
       const counts = imported.plan.validation.counts;
       const common = {
-        source_sha256: sha256(downloaded.bytes),
+        source_sha256: currentDigest,
         release_slug: imported.plan.release.releaseSlug,
         adapter_id: imported.plan.adapterId,
         adapter_version: imported.plan.adapterVersion,
@@ -236,20 +310,27 @@ async function main() {
         continue;
       }
       totals.imported += 1;
-      totals.sets += counts.sets; totals.cards += counts.cards; totals.parallels += counts.parallels; totals.identities += counts.identities;
+      totals.sets += counts.sets;
+      totals.cards += counts.cards;
+      totals.parallels += counts.parallels;
+      totals.identities += counts.identities;
       await updateCatalog(db, sourceUrl, { ...common, status: "imported", imported_at: checkedAt });
       results.push({ sourceUrl, releaseName, status: "imported", counts, persistence: imported.persistence });
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : String(caught);
       const unsupported = /Unsupported football checklist extraction format/.test(message);
       if (unsupported) totals.quarantined += 1; else totals.failed += 1;
-      await updateCatalog(db, sourceUrl, { status: unsupported ? "quarantined" : "failed", last_checked_at: checkedAt, issue_summary: [{ code: unsupported ? "topps_football_extractor_required" : "topps_football_worker_failure", severity: "error", message: message.slice(0, 500) }] });
+      await updateCatalog(db, sourceUrl, {
+        status: unsupported ? "quarantined" : "failed",
+        last_checked_at: checkedAt,
+        issue_summary: [{ code: unsupported ? "topps_football_extractor_required" : "topps_football_worker_failure", severity: "error", message: message.slice(0, 500) }],
+      });
       results.push({ sourceUrl, releaseName, status: unsupported ? "quarantined" : "failed", message });
     }
   }
 
   const { count: productionSourceCount } = await db.from("checklist_source_catalog").select("source_url", { count: "exact", head: true }).eq("manufacturer", "Topps").eq("sport", "Football");
-  const receipt = { schema: "tcos.checklist.toppsFootballWorkerReceipt.v1", startedAt, completedAt: new Date().toISOString(), manufacturer: "Topps", sport: "Football", maxSources: MAX_SOURCES, discovery, totals, productionSourceCount: productionSourceCount || 0, results };
+  const receipt = { schema: "tcos.checklist.toppsFootballWorkerReceipt.v2", startedAt, completedAt: new Date().toISOString(), manufacturer: "Topps", sport: "Football", maxSources: MAX_SOURCES, discovery, totals, productionSourceCount: productionSourceCount || 0, results };
   mkdirSync(dirname(OUTPUT), { recursive: true });
   writeFileSync(OUTPUT, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
   console.log(JSON.stringify(receipt, null, 2));
