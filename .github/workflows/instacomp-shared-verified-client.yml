@@ -1,0 +1,44 @@
+name: InstaComp Shared Verified Pricing Client
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "src/lib/instacomp-verified-pricing-client.ts"
+      - "src/app/api/account/seller/inventory/instacomp-verified-batch/route.ts"
+      - "scripts/run-instacomp-verified-pricing-client-simulations.ts"
+      - "scripts/run-instacomp-verified-batch-contract.ts"
+      - ".github/workflows/instacomp-shared-verified-client.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "src/lib/instacomp-verified-pricing-client.ts"
+      - "src/app/api/account/seller/inventory/instacomp-verified-batch/route.ts"
+      - "scripts/run-instacomp-verified-pricing-client-simulations.ts"
+      - "scripts/run-instacomp-verified-batch-contract.ts"
+      - ".github/workflows/instacomp-shared-verified-client.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  shared-verified-client:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Run shared verified-pricing simulations
+        run: npx tsx scripts/run-instacomp-verified-pricing-client-simulations.ts
+      - name: Enforce verified batch contract
+        run: npx tsx scripts/run-instacomp-verified-batch-contract.ts
+      - name: Type-check repository
+        run: npx tsc --noEmit
