@@ -28,6 +28,36 @@ const seeds = [
     year: "2026",
     url: "https://cdn.shopify.com/s/files/1/0662/9749/5709/files/CheckList_26TFBB_VERSION3.pdf?v=1783523381",
   },
+  {
+    title: "2025 Topps Finest Football",
+    sport: "Football",
+    year: "2025",
+    url: "https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2025_Topps_Finest_Checklist_042326.pdf?v=1776986521",
+  },
+  {
+    title: "2025 Topps Signature Class Football",
+    sport: "Football",
+    year: "2025",
+    url: "https://cdn.shopify.com/s/files/1/0662/9749/5709/files/Checklist_25CSFB_VERSION2.pdf?v=1777921828",
+  },
+  {
+    title: "2025-26 Topps NHL Sticker Collection",
+    sport: "Hockey",
+    year: "2025-26",
+    url: "https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2025-26_NHL_Sticker_Collection_-_CheckList_25NHLS.pdf?v=1771437045",
+  },
+  {
+    title: "2025-26 Topps Basketball",
+    sport: "Basketball",
+    year: "2025-26",
+    url: "https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2025-26_Topps_Basketball_Checklist.pdf?v=1759329649",
+  },
+  {
+    title: "2025-26 Topps Premier League",
+    sport: "Soccer",
+    year: "2025-26",
+    url: "https://cdn.shopify.com/s/files/1/0739/2015/1805/files/Topps_Premier_League_2026_Hobby_Checklist.pdf?v=1756731624",
+  },
 ] as const;
 
 function slug(value: string) {
