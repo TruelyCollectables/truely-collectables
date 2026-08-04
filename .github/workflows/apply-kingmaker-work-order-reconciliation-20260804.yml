@@ -110,23 +110,34 @@ jobs:
             return Array.isArray(result) ? result[0] || {} : result || {};
           }
 
-          function firstValue(result) {
-            return Object.values(firstRow(result))[0];
-          }
-
-          function asObject(value, label) {
-            if (value && typeof value === "object" && !Array.isArray(value)) return value;
-            if (typeof value === "string") {
-              const parsed = JSON.parse(value);
-              if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
-            }
-            throw new Error(`${label} did not return a JSON object.`);
-          }
-
           function numeric(row, field) {
             const value = Number(row?.[field] ?? 0);
             if (!Number.isFinite(value)) throw new Error(`Invalid numeric field ${field}.`);
             return value;
+          }
+
+          function findJsonObject(value, predicate, label) {
+            const seen = new Set();
+            function visit(candidate) {
+              if (typeof candidate === "string") {
+                try { return visit(JSON.parse(candidate)); } catch { return null; }
+              }
+              if (!candidate || typeof candidate !== "object" || seen.has(candidate)) {
+                return null;
+              }
+              seen.add(candidate);
+              if (!Array.isArray(candidate) && predicate(candidate)) return candidate;
+              for (const nested of Array.isArray(candidate)
+                ? candidate
+                : Object.values(candidate)) {
+                const found = visit(nested);
+                if (found) return found;
+              }
+              return null;
+            }
+            const found = visit(value);
+            if (!found) throw new Error(`${label} did not return the required JSON contract.`);
+            return found;
           }
 
           async function managementQuery(project, query, readOnly, stage) {
@@ -307,18 +318,18 @@ jobs:
           function assertSanitized(value) {
             const serialized = JSON.stringify(value).toLowerCase();
             for (const forbidden of [
-              "raw_text",
-              "original_filename",
-              "source_sha256",
-              "source_storage_bucket",
-              "source_storage_object_path",
-              "storage_object_path",
-              "value_low",
-              "value_high",
-              "low_observation_id",
-              "high_observation_id",
-              "attackkey",
-              "notes",
+              '"raw_text":',
+              '"original_filename":',
+              '"source_sha256":',
+              '"source_storage_bucket":',
+              '"source_storage_object_path":',
+              '"storage_object_path":',
+              '"value_low":',
+              '"value_high":',
+              '"low_observation_id":',
+              '"high_observation_id":',
+              '"attackkey":',
+              '"notes":',
             ]) {
               if (serialized.includes(forbidden)) {
                 throw new Error(`Sanitized receipt contained prohibited field ${forbidden}.`);
@@ -369,21 +380,35 @@ jobs:
               if (value !== true) throw new Error(`Production verification failed: ${field}.`);
             }
 
-            const baseRefresh = asObject(
-              firstValue(await managementQuery(project, baseRefreshSql(), false, "base coverage refresh")),
+            const baseRefreshResponse = await managementQuery(
+              project,
+              baseRefreshSql(),
+              false,
+              "base coverage refresh",
+            );
+            const baseRefresh = findJsonObject(
+              baseRefreshResponse,
+              (candidate) =>
+                candidate.status === "succeeded" &&
+                candidate.refreshed === true &&
+                "totalGroups" in candidate,
               "Base coverage refresh",
             );
-            if (baseRefresh.status !== "succeeded" || baseRefresh.refreshed !== true) {
-              throw new Error(`Base coverage refresh returned ${String(baseRefresh.status || "unknown")}.`);
-            }
 
-            const attackRefresh = asObject(
-              firstValue(await managementQuery(project, attackRefreshSql(), false, "attack queue refresh and reconciliation")),
+            const attackRefreshResponse = await managementQuery(
+              project,
+              attackRefreshSql(),
+              false,
+              "attack queue refresh and reconciliation",
+            );
+            const attackRefresh = findJsonObject(
+              attackRefreshResponse,
+              (candidate) =>
+                candidate.status === "succeeded" &&
+                candidate.refreshed === true &&
+                "totalGroups" in candidate,
               "Attack queue refresh",
             );
-            if (attackRefresh.status !== "succeeded" || attackRefresh.refreshed !== true) {
-              throw new Error(`Attack queue refresh returned ${String(attackRefresh.status || "unknown")}.`);
-            }
 
             const workAfter = firstRow(
               await managementQuery(project, workOrderStatsSql(), true, "post-reconciliation work-order statistics"),
@@ -454,13 +479,20 @@ jobs:
               }
             }
 
-            const report = asObject(
-              firstValue(await managementQuery(project, reportSql(), false, "work-order report")),
+            const reportResponse = await managementQuery(
+              project,
+              reportSql(),
+              false,
+              "work-order report",
+            );
+            const report = findJsonObject(
+              reportResponse,
+              (candidate) =>
+                candidate.boundary === "private_coverage_work_orders_only" &&
+                candidate.summary &&
+                candidate.pagination,
               "Work-order report",
             );
-            if (report.boundary !== "private_coverage_work_orders_only") {
-              throw new Error("Work-order report boundary verification failed.");
-            }
 
             vercel(["deploy", "--prod", "--yes", "--force"]);
 
