@@ -115,10 +115,11 @@ jobs:
             throw new Error(`Unexpected reconciled sets: ${JSON.stringify(builtSets)}`);
           }
           if (
-            build.totals.baseCards !== 155 ||
+            build.totals.baseCards !== 238 ||
             build.totals.officialCards !== 238 ||
-            build.totals.addedCards !== 83 ||
-            build.totals.fetchedDetails !== 238
+            build.totals.addedCards !== 0 ||
+            build.totals.fetchedDetails !== 238 ||
+            build.totals.baseCards + build.totals.addedCards !== build.totals.officialCards
           ) {
             throw new Error(`Unexpected build totals: ${JSON.stringify(build.totals)}`);
           }
@@ -128,9 +129,9 @@ jobs:
           if (
             validation.totals.sets !== 2 ||
             validation.totals.cards !== 238 ||
-            validation.totals.parallels !== 0 ||
+            validation.totals.parallels !== 2 ||
             validation.totals.identities !== 238 ||
-            validation.totals.addedOfficialCards !== 83
+            validation.totals.addedOfficialCards !== 0
           ) {
             throw new Error(`Unexpected validation totals: ${JSON.stringify(validation.totals)}`);
           }
