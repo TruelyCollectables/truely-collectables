@@ -108,7 +108,7 @@ jobs:
               'public.tcos_trigger_kingmaker_beckett_rematch()'::regprocedure
             ) into trigger_definition;
 
-            if position('LIMIT effective_batch_size' in upper(batch_definition)) = 0 then
+            if position('LIMIT EFFECTIVE_BATCH_SIZE' in upper(batch_definition)) = 0 then
               raise exception 'Batch function does not enforce the requested bound.';
             end if;
             if position('lastChecklistRematchVersionId' in batch_definition) = 0 then
