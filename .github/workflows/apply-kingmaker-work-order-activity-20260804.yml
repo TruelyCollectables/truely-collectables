@@ -1,0 +1,436 @@
+name: Apply KINGMAKER Work Order Activity 20260804
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/apply-kingmaker-work-order-activity-20260804.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  apply-verify-deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: Production
+
+    env:
+      EXPECTED_MAIN_SHA: 21f6e625ff76b06d927eb2be465257d67c3e88f7
+      EXPECTED_BRANCH: ops/apply-kingmaker-work-order-activity-20260804
+      VERCEL_SCOPE: truelycollectables-projects
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      RECEIPT_PATH: evidence/kingmaker-work-order-activity-production-20260804/receipt.json
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/apply-kingmaker-work-order-activity-20260804
+          fetch-depth: 0
+
+      - name: Fail closed on exact operations scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main
+          git merge-base --is-ancestor "$EXPECTED_MAIN_SHA" origin/main
+          git merge-base --is-ancestor "$EXPECTED_MAIN_SHA" HEAD
+          mapfile -t changed < <(git diff --name-only "$EXPECTED_MAIN_SHA"...HEAD)
+          printf '%s\n' "${changed[@]}"
+          test "${#changed[@]}" -eq 1
+          test "${changed[0]}" = '.github/workflows/apply-kingmaker-work-order-activity-20260804.yml'
+          git diff --check "$EXPECTED_MAIN_SHA"...HEAD
+          git checkout --detach "$EXPECTED_MAIN_SHA"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Pull protected Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          mkdir -p .vercel "$RUNNER_TEMP/work-order-activity-production"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/work-order-activity-production/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          test -s "$RUNNER_TEMP/work-order-activity-production/production.env"
+          echo "PRODUCTION_ENV_FILE=$RUNNER_TEMP/work-order-activity-production/production.env" >> "$GITHUB_ENV"
+
+      - name: Apply activity report, verify read-only boundary, and deploy Production
+        shell: bash
+        run: |
+          node <<'NODE'
+          const { spawnSync } = require("node:child_process");
+          const { createHash } = require("node:crypto");
+          const { mkdirSync, readFileSync, writeFileSync } = require("node:fs");
+          const { dirname, resolve } = require("node:path");
+
+          const migrationPath =
+            "supabase/migrations/20260804074500_private_pricing_work_order_activity.sql";
+          const receiptPath = resolve(process.env.RECEIPT_PATH);
+          const managementToken = process.env.GH_SUPABASE_ACCESS_TOKEN;
+          const envFile = process.env.PRODUCTION_ENV_FILE;
+
+          function parseEnv(contents) {
+            const parsed = {};
+            for (const raw of String(contents || "").split(/\r?\n/)) {
+              const line = raw.trim();
+              if (!line || line.startsWith("#")) continue;
+              const index = line.indexOf("=");
+              if (index < 1) continue;
+              const key = line.slice(0, index).trim().replace(/^export\s+/, "");
+              let value = line.slice(index + 1).trim();
+              if (value.startsWith('"') && value.endsWith('"')) {
+                try { value = JSON.parse(value); } catch { value = value.slice(1, -1); }
+              } else if (value.startsWith("'") && value.endsWith("'")) {
+                value = value.slice(1, -1);
+              }
+              parsed[key] = value;
+            }
+            return parsed;
+          }
+
+          function projectRef(url) {
+            const match = String(url || "").match(/^https:\/\/([a-z0-9]+)\.supabase\.co\/?$/i);
+            if (!match) throw new Error("Production database URL was not resolved.");
+            return match[1];
+          }
+
+          function firstRow(result) {
+            return Array.isArray(result) ? result[0] || {} : result || {};
+          }
+
+          function numeric(row, field) {
+            const value = Number(row?.[field] ?? 0);
+            if (!Number.isFinite(value)) throw new Error(`Invalid numeric field ${field}.`);
+            return value;
+          }
+
+          function findJsonObject(value, predicate, label) {
+            const seen = new Set();
+            function visit(candidate) {
+              if (typeof candidate === "string") {
+                try { return visit(JSON.parse(candidate)); } catch { return null; }
+              }
+              if (!candidate || typeof candidate !== "object" || seen.has(candidate)) {
+                return null;
+              }
+              seen.add(candidate);
+              if (!Array.isArray(candidate) && predicate(candidate)) return candidate;
+              for (const nested of Array.isArray(candidate)
+                ? candidate
+                : Object.values(candidate)) {
+                const found = visit(nested);
+                if (found) return found;
+              }
+              return null;
+            }
+            const found = visit(value);
+            if (!found) throw new Error(`${label} did not return the required JSON contract.`);
+            return found;
+          }
+
+          async function managementQuery(project, query, readOnly, stage) {
+            const response = await fetch(
+              `https://api.supabase.com/v1/projects/${project}/database/query`,
+              {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${managementToken}`,
+                  "Content-Type": "application/json",
+                  Accept: "application/json",
+                },
+                body: JSON.stringify({ query, parameters: [], read_only: readOnly }),
+                signal: AbortSignal.timeout(119000),
+              },
+            );
+            const text = await response.text();
+            if (!response.ok) {
+              throw new Error(
+                `Production ${stage} failed with HTTP ${response.status}: ${text.slice(0, 800)}`,
+              );
+            }
+            return text ? JSON.parse(text) : [];
+          }
+
+          function vercel(args) {
+            const result = spawnSync(
+              "npx",
+              [
+                "vercel@56.2.0",
+                ...args,
+                "--scope",
+                process.env.VERCEL_SCOPE,
+                "--token",
+                process.env.VERCEL_TOKEN,
+              ],
+              {
+                cwd: process.cwd(),
+                encoding: "utf8",
+                maxBuffer: 30 * 1024 * 1024,
+              },
+            );
+            if (result.error || result.status !== 0) {
+              const diagnostics = `${result.stdout || ""}\n${result.stderr || ""}`
+                .replace(/(?:eyJ|sb_secret_)[A-Za-z0-9._-]{20,}/g, "[masked]")
+                .replace(/[A-Za-z0-9_-]{60,}/g, "[masked]")
+                .slice(0, 1000);
+              throw new Error(`Vercel command failed: ${diagnostics}`);
+            }
+          }
+
+          function protectedStatsSql() {
+            return `
+              select
+                count(*)::bigint as total_rows,
+                count(*) filter (where identity_match_status = 'exact')::bigint as exact_rows,
+                count(*) filter (where identity_match_status = 'ambiguous')::bigint as ambiguous_rows,
+                count(*) filter (where identity_match_status = 'unmatched')::bigint as unmatched_rows,
+                count(*) filter (where identity_match_status = 'not_applicable')::bigint as not_applicable_rows,
+                count(*) filter (
+                  where low_observation_id is not null or high_observation_id is not null
+                )::bigint as linked_observation_rows,
+                (select count(*) from public.tcos_kingmaker_observations)::bigint as observation_rows
+              from public.tcos_kingmaker_price_entries;
+            `;
+          }
+
+          function workOrderStatsSql() {
+            return `
+              select
+                (select count(*) from public.tcos_kingmaker_private_pricing_work_orders)::bigint as work_order_rows,
+                (select count(*) from public.tcos_kingmaker_private_pricing_work_order_audit)::bigint as audit_rows,
+                (select count(*) from public.tcos_kingmaker_private_pricing_work_order_audit
+                  where actor_type = 'admin')::bigint as admin_events,
+                (select count(*) from public.tcos_kingmaker_private_pricing_work_order_audit
+                  where actor_type = 'system')::bigint as system_events;
+            `;
+          }
+
+          function verificationSql() {
+            return `
+              select
+                to_regprocedure('public.tcos_kingmaker_private_pricing_work_order_activity_report(integer,integer,text,text)') is not null as activity_rpc_present,
+                not has_function_privilege('anon','public.tcos_kingmaker_private_pricing_work_order_activity_report(integer,integer,text,text)','execute') as anon_activity_revoked,
+                not has_function_privilege('authenticated','public.tcos_kingmaker_private_pricing_work_order_activity_report(integer,integer,text,text)','execute') as authenticated_activity_revoked,
+                has_function_privilege('service_role','public.tcos_kingmaker_private_pricing_work_order_activity_report(integer,integer,text,text)','execute') as service_activity_granted;
+            `;
+          }
+
+          function reportSql() {
+            return `
+              set statement_timeout = '15s';
+              set role service_role;
+              select public.tcos_kingmaker_private_pricing_work_order_activity_report(
+                1,
+                0,
+                null,
+                null
+              ) as result;
+            `;
+          }
+
+          function assertSanitized(value) {
+            const serialized = JSON.stringify(value).toLowerCase();
+            for (const forbidden of [
+              '"raw_text":',
+              '"original_filename":',
+              '"source_sha256":',
+              '"source_storage_bucket":',
+              '"source_storage_object_path":',
+              '"storage_object_path":',
+              '"value_low":',
+              '"value_high":',
+              '"low_observation_id":',
+              '"high_observation_id":',
+              '"attackkey":',
+              '"notes":',
+              '"notesdigest":',
+              '"rows":',
+            ]) {
+              if (serialized.includes(forbidden)) {
+                throw new Error(`Sanitized receipt contained prohibited field ${forbidden}.`);
+              }
+            }
+          }
+
+          async function main() {
+            if (!managementToken || !envFile || !process.env.VERCEL_TOKEN) {
+              throw new Error("Protected Production credentials are required.");
+            }
+            console.log(`::add-mask::${managementToken}`);
+
+            const productionEnv = parseEnv(readFileSync(envFile, "utf8"));
+            const productionUrl =
+              productionEnv.NEXT_PUBLIC_SUPABASE_URL || productionEnv.SUPABASE_URL;
+            const project = projectRef(productionUrl);
+
+            const protectedBefore = firstRow(
+              await managementQuery(project, protectedStatsSql(), true, "pre-apply protected statistics"),
+            );
+            const workBefore = firstRow(
+              await managementQuery(project, workOrderStatsSql(), true, "pre-apply work-order statistics"),
+            );
+
+            const migrationSql = readFileSync(migrationPath, "utf8");
+            await managementQuery(project, migrationSql, false, "activity migration");
+
+            const verification = firstRow(
+              await managementQuery(project, verificationSql(), true, "activity verification"),
+            );
+            for (const [field, value] of Object.entries(verification)) {
+              if (value !== true) throw new Error(`Production verification failed: ${field}.`);
+            }
+
+            const reportResponse = await managementQuery(
+              project,
+              reportSql(),
+              false,
+              "activity report",
+            );
+            const report = findJsonObject(
+              reportResponse,
+              (candidate) =>
+                candidate.boundary === "private_coverage_work_order_activity_only" &&
+                candidate.summary &&
+                candidate.pagination,
+              "Activity report",
+            );
+
+            const workAfter = firstRow(
+              await managementQuery(project, workOrderStatsSql(), true, "post-report work-order statistics"),
+            );
+            const protectedAfter = firstRow(
+              await managementQuery(project, protectedStatsSql(), true, "post-report protected statistics"),
+            );
+
+            for (const field of ["work_order_rows", "audit_rows", "admin_events", "system_events"]) {
+              if (numeric(workAfter, field) !== numeric(workBefore, field)) {
+                throw new Error(`Read-only activity report changed ${field}.`);
+              }
+            }
+
+            for (const field of [
+              "total_rows",
+              "exact_rows",
+              "ambiguous_rows",
+              "unmatched_rows",
+              "not_applicable_rows",
+              "linked_observation_rows",
+              "observation_rows",
+            ]) {
+              if (numeric(protectedAfter, field) !== numeric(protectedBefore, field)) {
+                throw new Error(`Activity rollout changed protected field ${field}.`);
+              }
+            }
+
+            vercel(["deploy", "--prod", "--yes", "--force"]);
+
+            const receipt = {
+              schema: "tcos.kingmaker.workOrderActivityProductionReceipt.v1",
+              status: "passed",
+              generatedAt: new Date().toISOString(),
+              deployedCommit: process.env.EXPECTED_MAIN_SHA,
+              migration: {
+                path: migrationPath,
+                sha256: createHash("sha256").update(migrationSql).digest("hex"),
+              },
+              verification,
+              activityReport: {
+                boundary: report.boundary,
+                generatedAt: report.generatedAt,
+                summary: report.summary,
+                pagination: {
+                  limit: report.pagination?.limit,
+                  offset: report.pagination?.offset,
+                  returned: report.pagination?.returned,
+                  totalEvents: report.pagination?.totalEvents,
+                  hasMore: report.pagination?.hasMore,
+                },
+              },
+              workOrdersBefore: {
+                workOrderRows: numeric(workBefore, "work_order_rows"),
+                auditRows: numeric(workBefore, "audit_rows"),
+                adminEvents: numeric(workBefore, "admin_events"),
+                systemEvents: numeric(workBefore, "system_events"),
+              },
+              workOrdersAfter: {
+                workOrderRows: numeric(workAfter, "work_order_rows"),
+                auditRows: numeric(workAfter, "audit_rows"),
+                adminEvents: numeric(workAfter, "admin_events"),
+                systemEvents: numeric(workAfter, "system_events"),
+              },
+              protectedBefore: {
+                totalRows: numeric(protectedBefore, "total_rows"),
+                exact: numeric(protectedBefore, "exact_rows"),
+                ambiguous: numeric(protectedBefore, "ambiguous_rows"),
+                unmatched: numeric(protectedBefore, "unmatched_rows"),
+                notApplicable: numeric(protectedBefore, "not_applicable_rows"),
+                linkedObservationRows: numeric(protectedBefore, "linked_observation_rows"),
+                observationRows: numeric(protectedBefore, "observation_rows"),
+              },
+              protectedAfter: {
+                totalRows: numeric(protectedAfter, "total_rows"),
+                exact: numeric(protectedAfter, "exact_rows"),
+                ambiguous: numeric(protectedAfter, "ambiguous_rows"),
+                unmatched: numeric(protectedAfter, "unmatched_rows"),
+                notApplicable: numeric(protectedAfter, "not_applicable_rows"),
+                linkedObservationRows: numeric(protectedAfter, "linked_observation_rows"),
+                observationRows: numeric(protectedAfter, "observation_rows"),
+              },
+              activityRowsReturnedInReceipt: 0,
+              productionDeploymentCompleted: true,
+              pricesPromotedByThisOperation: 0,
+              secretsPersisted: false,
+            };
+
+            assertSanitized(receipt);
+            mkdirSync(dirname(receiptPath), { recursive: true });
+            writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
+            console.log(
+              `Work-order activity passed with ${Number(report.summary?.totalEvents || 0)} aggregate events and zero pricing mutation.`,
+            );
+          }
+
+          main().catch((error) => {
+            console.error(error instanceof Error ? error.message : String(error));
+            process.exitCode = 1;
+          });
+          NODE
+
+      - name: Require sanitized Production receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$RECEIPT_PATH"
+          node - <<'NODE'
+          const receipt = require(`./${process.env.RECEIPT_PATH}`);
+          if (
+            receipt.status !== "passed" ||
+            receipt.activityReport?.boundary !== "private_coverage_work_order_activity_only" ||
+            receipt.activityRowsReturnedInReceipt !== 0 ||
+            receipt.productionDeploymentCompleted !== true ||
+            receipt.pricesPromotedByThisOperation !== 0 ||
+            receipt.secretsPersisted !== false
+          ) {
+            process.exit(1);
+          }
+          NODE
+
+      - name: Upload sanitized Production receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: kingmaker-work-order-activity-production-20260804
+          path: ${{ env.RECEIPT_PATH }}
+          if-no-files-found: error
+          retention-days: 30
