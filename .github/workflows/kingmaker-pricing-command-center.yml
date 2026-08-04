@@ -8,7 +8,10 @@ on:
       - "src/app/api/instacomp/pricing/views/**"
       - "src/lib/kingmaker-pricing-command-center-server.ts"
       - "scripts/run-kingmaker-pricing-command-center-regressions.ts"
+      - "scripts/test-instacomp-pricing-command-center-atomic.sql"
+      - "supabase/migrations/20260803200000_kingmaker_pricing_decision_receipts.sql"
       - "supabase/migrations/20260803233000_kingmaker_pricing_command_center.sql"
+      - "supabase/migrations/20260804011000_kingmaker_pricing_saved_view_atomic_lifecycle.sql"
       - ".github/workflows/kingmaker-pricing-command-center.yml"
 
 permissions:
@@ -18,6 +21,20 @@ jobs:
   verify-pricing-command-center:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      PGPASSWORD: postgres
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -27,15 +44,23 @@ jobs:
       - run: npm ci
       - name: Command Center regressions
         run: node --import tsx scripts/run-kingmaker-pricing-command-center-regressions.ts
+      - name: PostgreSQL receipt-schema, owner, rollback, and replay attacks
+        run: psql -h localhost -U postgres -d postgres -f scripts/test-instacomp-pricing-command-center-atomic.sql
       - name: Privacy, ownership, and advisory contracts
         run: |
           set -euo pipefail
-          grep -q 'kingmakerPricingProfileOwner' src/lib/kingmaker-pricing-command-center-server.ts
-          grep -q 'advisory_only' src/lib/kingmaker-pricing-command-center-server.ts
-          grep -q 'sourceDisclosure: null' src/app/api/instacomp/pricing/command-center/route.ts
-          grep -q 'assertTrustedInstaCompMutationRequest' src/app/api/instacomp/pricing/views/route.ts
-          grep -q 'enable row level security' supabase/migrations/20260803233000_kingmaker_pricing_command_center.sql
-          ! grep -RIni 'beckett' src/app/admin/instacomp/pricing src/app/api/instacomp/pricing/command-center src/app/api/instacomp/pricing/views src/lib/kingmaker-pricing-command-center-server.ts scripts/run-kingmaker-pricing-command-center-regressions.ts
+          grep -Fq 'kingmakerPricingProfileOwner' src/lib/kingmaker-pricing-command-center-server.ts
+          grep -Fq 'advisory_only' src/lib/kingmaker-pricing-command-center-server.ts
+          grep -Fq 'tcos_kingmaker_pricing_decision_receipts' src/lib/kingmaker-pricing-command-center-server.ts
+          grep -Fq 'decision_status,confidence,sold_comp_count,expected_profit,created_at' src/lib/kingmaker-pricing-command-center-server.ts
+          ! grep -Fq 'tcos_kingmaker_pricing_receipts' src/lib/kingmaker-pricing-command-center-server.ts
+          grep -Fq 'tcos_create_kingmaker_pricing_saved_view_atomic' src/lib/kingmaker-pricing-command-center-server.ts
+          grep -Fq 'expectedVersion' 'src/app/api/instacomp/pricing/views/[viewId]/route.ts'
+          grep -Fq 'sourceDisclosure: null' src/app/api/instacomp/pricing/command-center/route.ts
+          grep -Fq 'assertTrustedInstaCompMutationRequest' src/app/api/instacomp/pricing/views/route.ts
+          grep -Fq 'enable row level security' supabase/migrations/20260803233000_kingmaker_pricing_command_center.sql
+          grep -q 'revoke all.*anon, authenticated' supabase/migrations/20260804011000_kingmaker_pricing_saved_view_atomic_lifecycle.sql
+          ! grep -RIni 'beckett' src/app/admin/instacomp/pricing src/app/api/instacomp/pricing/command-center src/app/api/instacomp/pricing/views src/lib/kingmaker-pricing-command-center-server.ts scripts/run-kingmaker-pricing-command-center-regressions.ts scripts/test-instacomp-pricing-command-center-atomic.sql
       - name: Lint
         run: npx eslint src/app/admin/instacomp/pricing src/app/api/instacomp/pricing/command-center src/app/api/instacomp/pricing/views src/lib/kingmaker-pricing-command-center-server.ts scripts/run-kingmaker-pricing-command-center-regressions.ts
       - name: TypeScript
@@ -48,7 +73,7 @@ jobs:
           ADMIN_PASSWORD: build-placeholder
           ADMIN_SESSION_SECRET: build-placeholder-admin-session
           STRIPE_SECRET_KEY: sk_test_build_placeholder
-          STRIPE_WEBHOOK_SECRET: whsec_build-placeholder
+          STRIPE_WEBHOOK_SECRET: whsec-build-placeholder
           EBAY_CLIENT_ID: build-placeholder
           EBAY_CLIENT_SECRET: build-placeholder
           EBAY_ENVIRONMENT: production
