@@ -4,13 +4,26 @@ set -euo pipefail
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
 
+CURRENT_BRANCH="$(git branch --show-current)"
+if [[ -z "$CURRENT_BRANCH" ]]; then
+  echo "Detached HEAD is not allowed for an InstaComp repair. Create a guarded branch first."
+  exit 1
+fi
+if [[ "$CURRENT_BRANCH" == "main" ]]; then
+  echo "Direct scanner repair on main is prohibited. Create a guarded fix branch and open a pull request."
+  exit 1
+fi
 if [[ -n "$(git status --porcelain)" ]]; then
   echo "Working tree is not clean. Commit or stash local changes first."
   git status --short
   exit 1
 fi
 
-git pull --ff-only origin main
+git fetch --quiet origin main
+if ! git merge-base --is-ancestor origin/main HEAD; then
+  echo "Repair branch is not based on current origin/main. Rebase or fast-forward it before patching."
+  exit 1
+fi
 
 python3 - <<'PY'
 from pathlib import Path
@@ -105,7 +118,7 @@ if missing:
 
 if text != original:
     path.write_text(text)
-    print('Patched live InstaComp route.')
+    print('Patched live InstaComp route on the guarded local branch.')
 else:
     print('Live InstaComp route already contains the full patch.')
 PY
@@ -127,13 +140,10 @@ npx eslint src/app/api/instacomp/scan/route.ts src/lib/instacomp-ai-council-runt
 npx tsc --noEmit
 
 if git diff --quiet -- src/app/api/instacomp/scan/route.ts; then
-  echo "Route was already patched; no route commit needed."
+  echo "SUCCESS: route was already patched and all checks passed."
   exit 0
 fi
 
-git diff --exit-code -- . ':(exclude)src/app/api/instacomp/scan/route.ts'
-git add src/app/api/instacomp/scan/route.ts
-git commit -m "Wire independent AI families into live InstaComp route"
-git push origin HEAD:main
-
-echo "SUCCESS: live InstaComp route patched, validated, committed, and pushed."
+echo "SUCCESS: guarded branch patch validated. Review the diff, commit it to $CURRENT_BRANCH, push that branch, and open a pull request."
+echo "This command intentionally never commits or pushes changes."
+git diff --stat -- src/app/api/instacomp/scan/route.ts
