@@ -1,0 +1,31 @@
+{
+  "schema": "tcos.kingmaker.beckettEncryptedCompactTransport.v1",
+  "transportId": "317a1ac862e5b35bf4a6e4dff1856ff2dfd9a6791595633b",
+  "createdAt": "2026-08-04T00:03:53Z",
+  "expiresAt": "2026-08-04T05:08:06.235Z",
+  "contentSchema": "tcos.kingmaker.beckettCompactRows.v1",
+  "algorithms": {
+    "keyWrap": "RSA-OAEP-SHA256",
+    "payload": "AES-256-GCM",
+    "rsaBits": 4096
+  },
+  "aadBase64": "MzE3YTFhYzg2MmU1YjM1YmY0YTZlNGRmZjE4NTZmZjJkZmQ5YTY3OTE1OTU2MzNi",
+  "wrappedKeyBase64": "RgwEJdklj8pDRbQTXr1IHiK0EDFeXHyCqj6rXKKDmKQa8v1T2kAtt4zvfE+KSmhjCHIghZqba6+0ysQl3V5MPNGjHpslMjaK9PvIzYLnEu8vBPlQS6yruFqFGUmYnklOPRsn1pDdtZU+PL6k0O/qZpte8JUbSLQ7U52CoyrdGKfnbmXMX98aifDqbFgmYRtgv1uOPHTFCK6tYcON8ENX8Dj7kdsJCd1AjiRTpVKiex3E+x19qqtdDgyYwbrBVIKm8JXQV9/kpuwJ3PS28UY1SnjNaEt+Ymgw84oTMmOqMxy6+ZxQzxp7DXeThlUIM/zytAwLV9W5aZLu2VOg6qHNXfyEwWtfOpHgQLifAACci65OvLVfZGc5t/H9KLlA9d4jBm78dynOPvi9BZXp2F+CTQddvnAGL9+kdSYgM8eATsXs3zVV1+jkYxAtfkdrYMmDq4JrobushD2IGHfOPnK1Wp0RbUOHvhWtG54kddu8EMPeGrqRNsSfdyeKZ2mBYhCg+Ktsqz/6ZZWpPJnFbii+pjEHEUrY1EJLlidp8Xauc5hPARul4Kva6NNzOPjViIO7J8tavjaIT1fQFFld8KDtC0uT7jR2Vijk7mmeYvg5My5JNJt9R4TeTMFwg6V+5q+29EJDvxbIThYdsulmII9qDxTeE63TpAa8hdHFRB6lcJ8=",
+  "nonceBase64": "15N456kN+Mj0xHqh",
+  "authTagBase64": "ALEHO0i0hKxwVK+EfDYQrQ==",
+  "plaintextSha256": "4a040410af51b5a3b31a2d12bdd13045a8ce6b19cf48cf5b92180200f6db7aea",
+  "ciphertextSha256": "74fea326dacf9c87acffd9fc9d64cbbdee5bb49d0d2439411e131c148682dc42",
+  "ciphertextBytes": 1710648,
+  "chunks": [
+    "0000.b64",
+    "0001.b64",
+    "0002.b64",
+    "0003.b64",
+    "0004.b64",
+    "0005.b64"
+  ],
+  "chunkChars": 400000,
+  "fullBundleValidationSha256": "559aa4687e0c1a26e7ad9bd421dc9d441ca14aa9a58e9918b6632283ea60e75f",
+  "totalPages": 642,
+  "totalEntries": 87679
+}
