@@ -1,1 +1,0 @@
-The regression activates a synthetic checklist version after inserting an unmatched synthetic Beckett OCR row. Passing requires an automatic exact identity match, a resolved stale unmatched review item, a new value-verification review item, a successful rematch audit receipt, and zero promoted observations.
