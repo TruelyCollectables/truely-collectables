@@ -1,0 +1,29 @@
+name: KINGMAKER Rematch Production Setup
+
+on:
+  pull_request:
+    paths:
+      - "scripts/run-kingmaker-beckett-rematch-drain.mjs"
+      - ".github/workflows/kingmaker-rematch-production-setup.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-production-setup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate runner syntax
+        run: node --check scripts/run-kingmaker-beckett-rematch-drain.mjs
+
+      - name: Verify protected Production migration setup
+        run: node scripts/run-kingmaker-beckett-rematch-drain.mjs --self-test
