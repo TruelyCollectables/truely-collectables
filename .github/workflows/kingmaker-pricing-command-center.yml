@@ -43,27 +43,12 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Command Center regressions
+      - name: Command Center privacy, ownership, schema, and advisory regressions
         run: node --import tsx scripts/run-kingmaker-pricing-command-center-regressions.ts
       - name: Create Supabase-compatible PostgreSQL roles
         run: psql -h localhost -U postgres -d postgres -f scripts/setup-supabase-postgres-test-roles.sql
       - name: PostgreSQL receipt-schema, owner, rollback, and replay attacks
         run: psql -h localhost -U postgres -d postgres -f scripts/test-instacomp-pricing-command-center-atomic.sql
-      - name: Privacy, ownership, and advisory contracts
-        run: |
-          set -euo pipefail
-          grep -Fq 'kingmakerPricingProfileOwner' src/lib/kingmaker-pricing-command-center-server.ts
-          grep -Fq 'advisory_only' src/lib/kingmaker-pricing-command-center-server.ts
-          grep -Fq 'tcos_kingmaker_pricing_decision_receipts' src/lib/kingmaker-pricing-command-center-server.ts
-          grep -Fq 'decision_status,confidence,sold_comp_count,expected_profit,created_at' src/lib/kingmaker-pricing-command-center-server.ts
-          ! grep -Fq 'tcos_kingmaker_pricing_receipts' src/lib/kingmaker-pricing-command-center-server.ts
-          grep -Fq 'tcos_create_kingmaker_pricing_saved_view_atomic' src/lib/kingmaker-pricing-command-center-server.ts
-          grep -Fq 'expectedVersion' 'src/app/api/instacomp/pricing/views/[viewId]/route.ts'
-          grep -Fq 'sourceDisclosure: null' src/app/api/instacomp/pricing/command-center/route.ts
-          grep -Fq 'assertTrustedInstaCompMutationRequest' src/app/api/instacomp/pricing/views/route.ts
-          grep -Fq 'enable row level security' supabase/migrations/20260803233000_kingmaker_pricing_command_center.sql
-          grep -q 'revoke all.*anon, authenticated' supabase/migrations/20260804011000_kingmaker_pricing_saved_view_atomic_lifecycle.sql
-          ! grep -RIni 'beckett' src/app/admin/instacomp/pricing src/app/api/instacomp/pricing/command-center src/app/api/instacomp/pricing/views src/lib/kingmaker-pricing-command-center-server.ts scripts/run-kingmaker-pricing-command-center-regressions.ts scripts/test-instacomp-pricing-command-center-atomic.sql
       - name: Lint
         run: npx eslint src/app/admin/instacomp/pricing src/app/api/instacomp/pricing/command-center src/app/api/instacomp/pricing/views src/lib/kingmaker-pricing-command-center-server.ts scripts/run-kingmaker-pricing-command-center-regressions.ts
       - name: TypeScript
