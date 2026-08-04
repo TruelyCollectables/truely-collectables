@@ -1,0 +1,39 @@
+name: Topps Hockey Certification
+
+on:
+  pull_request:
+    paths:
+      - "src/lib/checklist-registry/topps-hockey-text.ts"
+      - "src/lib/checklist-registry/topps-hockey-text-adapter.ts"
+      - "src/lib/checklist-registry/server.ts"
+      - "scripts/run-topps-hockey-regressions.ts"
+      - ".github/workflows/topps-hockey-certification.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "src/lib/checklist-registry/topps-hockey-text.ts"
+      - "src/lib/checklist-registry/topps-hockey-text-adapter.ts"
+      - "src/lib/checklist-registry/server.ts"
+      - "scripts/run-topps-hockey-regressions.ts"
+      - ".github/workflows/topps-hockey-certification.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Run Topps Hockey regressions
+        run: node --import tsx scripts/run-topps-hockey-regressions.ts
+      - name: Typecheck Topps Hockey files
+        run: npx tsc --noEmit --pretty false
