@@ -1,0 +1,191 @@
+name: Repair InstaComp Live Route V2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/repair-instacomp-live-route-v2.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: repair-instacomp-live-route-v2
+  cancel-in-progress: false
+
+jobs:
+  patch-test-commit:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Patch actual live scan route
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('src/app/api/instacomp/scan/route.ts')
+          text = path.read_text()
+          original = text
+
+          if 'instacomp-ai-council-runtime' not in text:
+              security = re.compile(
+                  r'(import\s*\{\s*formatUntrustedOcrEvidence,\s*normalizeOpenAiCompatibleBaseUrl,\s*openAiCompatibleProviderFamily,\s*resolveInstaCompCouncilPolicy,?\s*\}\s*from\s*"\.\./\.\./\.\./\.\./lib/instacomp-ai-council-security";)'
+              )
+              replacement = r'''\1
+import {
+  prioritizeIndependentCouncilProviders,
+  shouldContinueCouncilRuntime,
+} from "../../../../lib/instacomp-ai-council-runtime";'''
+              text, count = security.subn(replacement, text, count=1)
+              if count != 1:
+                  raise SystemExit('Could not insert live council runtime import exactly once.')
+
+          if 'const configuredPlan = prioritizeIndependentCouncilProviders(' not in text:
+              plan = re.compile(
+                  r'const providerPlan = buildAiCouncilProviderPlan\(\);\s*'
+                  r'const configuredPlan = providerPlan\.filter\(\(provider\) => provider\.configured\);\s*'
+                  r'const configuredFamilies = Array\.from\(\s*new Set\(configuredPlan\.map\(\(provider\) => provider\.family\)\),?\s*\);'
+              )
+              replacement = '''const providerPlan = buildAiCouncilProviderPlan();
+  const configuredPlan = prioritizeIndependentCouncilProviders(
+    providerPlan.filter((provider) => provider.configured),
+    "openai",
+  );
+  const configuredFamilies = Array.from(
+    new Set(configuredPlan.map((provider) => provider.family)),
+  );'''
+              text, count = plan.subn(replacement, text, count=1)
+              if count != 1:
+                  raise SystemExit('Could not replace configured provider plan exactly once.')
+
+          if 'let completedFamilies: string[] = [];' not in text:
+              loop = re.compile(
+                  r'let cursor = 0;\s*let completedReaders = 0;\s*'
+                  r'while\s*\(\s*completedReaders < desiredReaders\s*&&\s*cursor < configuredPlan\.length\s*\)\s*\{'
+              )
+              replacement = '''let cursor = 0;
+  let completedReaders = 0;
+  let completedFamilies: string[] = [];
+
+  while (
+    shouldContinueCouncilRuntime({
+      completedReaders,
+      desiredReaders,
+      completedFamilies,
+      configuredFamilies,
+      cursor,
+      configuredReaderCount: configuredPlan.length,
+      primaryFamily: "openai",
+    })
+  ) {'''
+              text, count = loop.subn(replacement, text, count=1)
+              if count != 1:
+                  raise SystemExit('Could not replace live council loop exactly once.')
+
+          if 'completedFamilies = Array.from(' not in text:
+              update = re.compile(
+                  r'allAttempts\.push\(\.\.\.batchAttempts\);\s*'
+                  r'completedReaders = allAttempts\.filter\(\(attempt\) => attempt\.reader\)\.length;'
+              )
+              replacement = '''allAttempts.push(...batchAttempts);
+    const completed = allAttempts.flatMap((attempt) =>
+      attempt.reader ? [attempt.reader] : [],
+    );
+    completedReaders = completed.length;
+    completedFamilies = Array.from(
+      new Set(completed.map((reader) => reader.family)),
+    );'''
+              text, count = update.subn(replacement, text, count=1)
+              if count != 1:
+                  raise SystemExit('Could not replace council completion accounting exactly once.')
+
+          required = [
+              'instacomp-ai-council-runtime',
+              'prioritizeIndependentCouncilProviders(',
+              'shouldContinueCouncilRuntime({',
+              'let completedFamilies: string[] = [];',
+              'completedFamilies = Array.from(',
+          ]
+          missing = [needle for needle in required if needle not in text]
+          if missing:
+              raise SystemExit(f'Live route proof missing: {missing}')
+
+          if text == original:
+              print('Live route already contains the complete independent-family patch.')
+          else:
+              path.write_text(text)
+          PY
+
+      - name: Prove exact route wiring
+        run: |
+          grep -q 'instacomp-ai-council-runtime' src/app/api/instacomp/scan/route.ts
+          grep -q 'prioritizeIndependentCouncilProviders' src/app/api/instacomp/scan/route.ts
+          grep -q 'shouldContinueCouncilRuntime' src/app/api/instacomp/scan/route.ts
+          grep -q 'completedFamilies' src/app/api/instacomp/scan/route.ts
+
+      - name: Run exact InstaComp hardening regressions
+        run: |
+          npx tsx scripts/run-instacomp-ai-council-runtime-regressions.ts
+          npx tsx scripts/run-instacomp-registry-consensus-bridge-regression.ts
+          npx tsx scripts/run-instacomp-live-shedeur-107-regression.ts
+          npx tsx scripts/run-instacomp-identity-firewall-regressions.ts
+          npx tsx scripts/run-instacomp-serial-color-gate-regressions.ts
+          npm run simulate:instacomp-consensus
+          npm run simulate:instacomp-scan-review
+          npm run simulate:instacomp-identity-guard
+
+      - name: Lint, typecheck, production build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+          ADMIN_PASSWORD: build-only-placeholder-password
+          ADMIN_SESSION_SECRET: build-only-placeholder-admin-session-secret
+          NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+          STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+          STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+          EBAY_CLIENT_ID: build-only-placeholder-client-id
+          EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+          EBAY_ENVIRONMENT: production
+          TCOS_LIVE_PAYMENTS_ENABLED: "false"
+          TCOS_SHIPPING_PURCHASE_MODE: dry_run
+          TCOS_LIVE_SHIPPING_ENABLED: "false"
+        run: |
+          npx eslint src/app/api/instacomp/scan/route.ts src/lib/instacomp-ai-council-runtime.ts scripts/run-instacomp-ai-council-runtime-regressions.ts
+          npx tsc --noEmit
+          npm run build
+
+      - name: Commit only validated route
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- src/app/api/instacomp/scan/route.ts; then
+            echo 'Route already patched and validated.'
+            exit 0
+          fi
+          git diff --exit-code -- . ':(exclude)src/app/api/instacomp/scan/route.ts'
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/api/instacomp/scan/route.ts
+          git commit -m "Wire independent AI families into live InstaComp route"
+          git push origin HEAD:main
