@@ -3,6 +3,7 @@ import {
   getAuthenticatedAccountFromRequest,
 } from "../../../../../../lib/account-auth";
 import { getInventoryActivationBlockers } from "../../../../../../lib/inventory-activation";
+import { assertChecklistRegistryReceipt } from "../../../../../../lib/instacomp-registry-receipt";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 import { inventoryEngine } from "../../../../../../modules/inventory";
@@ -125,6 +126,7 @@ export async function POST(request: Request) {
           throw new Error("This draft is not an InstaComp pending listing.");
         }
 
+        const registryReceipt = assertChecklistRegistryReceipt(metadata);
         const product = productMap.get(row.legacy_product_id);
         if (!product) throw new Error("The linked product record was not found.");
 
@@ -161,6 +163,9 @@ export async function POST(request: Request) {
             confirmed_account_id: account.id,
             confirmation_scope:
               "images_identity_condition_variation_serial_grade_cert_quantity_price",
+            checklist_registry_identity_id: registryReceipt.registryIdentityId,
+            checklist_registry_fingerprint_sha256:
+              registryReceipt.registryFingerprintSha256,
           },
         };
 
@@ -181,12 +186,16 @@ export async function POST(request: Request) {
           legacyProductId: row.legacy_product_id,
           success: true,
           status: "active",
+          registryIdentityId: registryReceipt.registryIdentityId,
+          registryFingerprintSha256: registryReceipt.registryFingerprintSha256,
           item: updatedItem,
         });
       } catch (error: any) {
         results.push({
           inventoryItemId: row.id,
           success: false,
+          code: error?.code || "PUBLISH_BLOCKED",
+          blockers: Array.isArray(error?.blockers) ? error.blockers : [],
           error: error?.message || "Could not publish this listing.",
         });
       }
