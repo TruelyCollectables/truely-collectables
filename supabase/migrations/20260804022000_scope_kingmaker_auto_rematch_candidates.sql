@@ -236,7 +236,7 @@ begin
     patched_definition := regexp_replace(
       patched_definition,
       'select[[:space:]]+public\.tcos_match_kingmaker_price_entries\(current_guide_id\)[[:space:]]+into[[:space:]]+matcher_result;',
-      'select public.tcos_match_kingmaker_price_entry_ids(current_guide_id, candidate_entry_ids)\n      into matcher_result;',
+      'select public.tcos_match_kingmaker_price_entry_ids(current_guide_id, candidate_entry_ids) into matcher_result;',
       'g'
     );
   end if;
