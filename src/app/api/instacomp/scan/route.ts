@@ -61,6 +61,7 @@ import {
 import {
   optionalInstaCompProviderResult,
   runInstaCompPrimaryAiFailover,
+  sanitizeInstaCompProviderFailure,
 } from "../../../../lib/instacomp-ai-provider-failover";
 import {
   buildChecklistRegistryCatalogEvidence,
@@ -1690,7 +1691,7 @@ async function runAiCouncilReader(params: {
         detailMode: providerMeta.detailMode,
         status: "error",
         durationMs: Date.now() - startedAt,
-        message: String(error?.message || error).slice(0, 500),
+        message: sanitizeInstaCompProviderFailure(error),
       },
     };
   }
@@ -1750,13 +1751,19 @@ async function runInstaCompAiCouncil(params: {
   backDataUrl?: string;
   detailImages: InstaCompDetailImage[];
   externalOcr: ExternalOcrResult | null;
+  excludedFamilies?: string[];
 }): Promise<InstaCompAiCouncilRun> {
   const desiredReaders = desiredAiCouncilReaders(
     params.runSecondaryVision,
     params.requestedTier,
   );
   const tier = aiCouncilTier(params.requestedTier);
-  const providerPlan = buildAiCouncilProviderPlan();
+  const excludedFamilies = new Set(
+    (params.excludedFamilies || []).map((family) => family.trim().toLowerCase()),
+  );
+  const providerPlan = buildAiCouncilProviderPlan().filter(
+    (provider) => !excludedFamilies.has(provider.family.trim().toLowerCase()),
+  );
   const configuredPlan = providerPlan.filter((provider) => provider.configured);
   const configuredFamilies = Array.from(
     new Set(configuredPlan.map((provider) => provider.family)),
@@ -2097,6 +2104,8 @@ function buildChangedIdentityFinding(
 }
 
 function buildInstaCompConsensusReaders(params: {
+  primaryAiProvider: string;
+  primaryAiFamily: string;
   baseAi: InstaCompAiResult;
   mergedSerialAi: InstaCompAiResult;
   guardedAi: InstaCompAiResult;
@@ -2106,10 +2115,10 @@ function buildInstaCompConsensusReaders(params: {
 }) {
   const readers: InstaCompConsensusReaderFinding[] = [
     buildInstaCompReaderFindingFromAi({
-      readerId: "primary_vision",
-      label: "Primary AI vision",
+      readerId: `primary_vision_${params.primaryAiProvider}`,
+      label: `Primary AI vision (${params.primaryAiProvider})`,
       kind: "primary_vision",
-      family: "openai",
+      family: params.primaryAiFamily,
       ai: params.baseAi,
       evidence: ["front/back image model identity pass"],
       weight: 1,
@@ -4206,6 +4215,7 @@ export async function POST(req: NextRequest) {
       backDataUrl,
       detailImages,
       externalOcr,
+      excludedFamilies: [primaryAiResult.family],
     });
     const aiCouncil: InstaCompAiCouncilRun = {
       ...aiCouncilRaw,
@@ -4224,6 +4234,8 @@ export async function POST(req: NextRequest) {
     };
 
     const consensusReaders = buildInstaCompConsensusReaders({
+      primaryAiProvider: primaryAiResult.provider,
+      primaryAiFamily: primaryAiResult.family,
       baseAi: baseAiForConsensus,
       mergedSerialAi,
       guardedAi,
