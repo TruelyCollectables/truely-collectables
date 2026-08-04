@@ -151,11 +151,11 @@ begin
   from coverage_groups groups
   cross join lateral generate_series(1, groups.row_count) series;
 
-  select id
+  select entry.id
   into target_entry_id
-  from public.tcos_kingmaker_price_entries
-  where guide_id = guide_id
-    and source_row_key = 'identity-gap-2'
+  from public.tcos_kingmaker_price_entries entry
+  where entry.guide_id = guide_id
+    and entry.source_row_key = 'identity-gap-2'
   limit 1;
 
   select public.tcos_refresh_kingmaker_private_pricing_coverage_snapshot(true)
