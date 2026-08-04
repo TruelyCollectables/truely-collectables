@@ -28,13 +28,17 @@ const configs: Config[] = [
     name: "Panini",
     seedPath: "data/panini-checklist-seeds.json",
     startUrls: [
+      "https://blog.paniniamerica.net/wp-sitemap.xml",
+      "https://blog.paniniamerica.net/sitemap_index.xml",
+      "https://blog.paniniamerica.net/wp-json/wp/v2/search?search=checklist&per_page=100&page=1",
+      "https://blog.paniniamerica.net/wp-json/wp/v2/posts?search=checklist&per_page=100&page=1&_fields=link,date,title,content",
+      "https://blog.paniniamerica.net/?s=checklist",
       "https://www.paniniamerica.net/checklist.html",
-      "https://www.paniniamerica.net/resources/checklist.html",
-      "https://blog.paniniamerica.net/",
     ],
     trustedHosts: ["paniniamerica.net", "www.paniniamerica.net", "blog.paniniamerica.net", "assets.paniniamerica.net"],
     crawlHosts: ["paniniamerica.net", "www.paniniamerica.net", "blog.paniniamerica.net"],
-    maxPages: 1000,
+    maxPages: 5000,
+    checklistPagePattern: /^\/(?!wp-admin|wp-login)(?:[^?#]*checklist[^?#]*|wp-json\/wp\/v2\/(?:posts|search))(?:\/)?$/i,
   },
   {
     name: "Leaf",
@@ -64,7 +68,7 @@ const configs: Config[] = [
 ];
 
 const FILE_RE = /\.(pdf|xlsx?|csv|tsv|json|xml|html?|zip)(?:$|[?#])/i;
-const CHECKLIST_RE = /(checklist|check-list|check_list|cl(?:[_-]|\b))/i;
+const CHECKLIST_RE = /(checklist|check-list|check_list|public[_-]?cl|\bcl(?:[_-]|\b))/i;
 
 function hostAllowed(host: string, allowed: string[]) {
   const value = host.toLowerCase();
@@ -73,6 +77,8 @@ function hostAllowed(host: string, allowed: string[]) {
 
 function decodeHtml(value: string) {
   return value
+    .replace(/\\\//g, "/")
+    .replace(/\\u0026/gi, "&")
     .replace(/&amp;/g, "&")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
@@ -80,12 +86,18 @@ function decodeHtml(value: string) {
     .replace(/&gt;/g, ">");
 }
 
-function extractLinks(html: string, base: string) {
+function extractLinks(body: string, base: string) {
   const links = new Set<string>();
-  const patterns = [/(?:href|src)\s*=\s*["']([^"']+)["']/gi, /https:\/\/[^\s"'<>]+/gi, /<loc>([^<]+)<\/loc>/gi];
+  const normalized = decodeHtml(body);
+  const patterns = [
+    /(?:href|src)\s*=\s*["']([^"']+)["']/gi,
+    /https:\/\/[^\s"'<>\\]+/gi,
+    /<loc>\s*([^<]+?)\s*<\/loc>/gi,
+    /"(?:link|url|guid|rendered)"\s*:\s*"(https?:[^"\\]*(?:\\.[^"\\]*)*)"/gi,
+  ];
   for (const pattern of patterns) {
-    for (const match of html.matchAll(pattern)) {
-      const raw = decodeHtml(match[1] || match[0]).replace(/\\u0026/g, "&");
+    for (const match of normalized.matchAll(pattern)) {
+      const raw = decodeHtml(match[1] || match[0]);
       try {
         const url = new URL(raw, base);
         url.hash = "";
@@ -107,16 +119,16 @@ function guessYear(value: string) {
 function guessCategory(value: string) {
   const text = value.toLowerCase();
   const categories: Array<[string, string[]]> = [
-    ["Baseball", ["baseball", "bowman"]], ["Basketball", ["basketball", "nba", "wnba", "nbl"]],
-    ["Football", ["football", "nfl", "ufl"]], ["Hockey", ["hockey", "nhl", "pwhl", "ahl", "chl", "o-pee-chee", "parkhurst"]],
-    ["Soccer", ["soccer", "uefa", "premier league", "mls"]], ["Wrestling", ["wwe", "wrestling", "aew"]],
+    ["Baseball", ["baseball", "bowman"]], ["Basketball", ["basketball", "nba", "wnba", "nbl", "hoops"]],
+    ["Football", ["football", "nfl", "ufl", "gridiron"]], ["Hockey", ["hockey", "nhl", "pwhl", "ahl", "chl", "o-pee-chee", "parkhurst"]],
+    ["Soccer", ["soccer", "uefa", "premier league", "mls", "fifa"]], ["Wrestling", ["wwe", "wrestling", "aew"]],
     ["Racing", ["formula 1", "formula-1", "f1", "racing", "nascar"]], ["UFC", ["ufc", "mma", "fight"]],
     ["Golf", ["golf"]], ["Celebrity", ["pop century", "celebrity"]],
     ["Entertainment", ["star wars", "marvel", "disney", "pixar", "spongebob", "stranger things", "dune", "garbage pail", "wacky packages", "dc", "entertainment"]],
-    ["Multi-Sport", ["multi-sport", "multisport", "national silver", "sports heroes", "game used", "goodwin champions"]],
+    ["Multi-Sport", ["multi-sport", "multisport", "national silver", "national vip", "father's day", "fathers day", "black friday", "sports heroes", "game used", "goodwin champions"]],
   ];
   for (const [category, needles] of categories) if (needles.some((needle) => text.includes(needle))) return category;
-  return "Non-Sport";
+  return "Miscellaneous";
 }
 
 function titleFromUrl(url: string) {
@@ -128,8 +140,8 @@ function titleFromUrl(url: string) {
 async function fetchText(url: string) {
   const response = await fetch(url, {
     headers: {
-      "User-Agent": "Mozilla/5.0 (compatible; TCOS-Checklist-Discovery/2.0; +https://totallycollectibles.com)",
-      Accept: "text/html,application/xhtml+xml,application/xml,application/json,*/*",
+      "User-Agent": "Mozilla/5.0 (compatible; TCOS-Checklist-Discovery/3.0; +https://totallycollectibles.com)",
+      Accept: "text/html,application/xhtml+xml,application/xml,text/xml,application/json,*/*",
       "Accept-Language": "en-US,en;q=0.9",
       Referer: new URL(url).origin + "/",
     },
@@ -140,6 +152,19 @@ async function fetchText(url: string) {
   const contentType = response.headers.get("content-type") || "";
   if (!contentType.includes("text") && !contentType.includes("html") && !contentType.includes("json") && !contentType.includes("xml")) return "";
   return response.text();
+}
+
+function enqueueWordPressPagination(config: Config, page: string, body: string, queue: string[], seenPages: Set<string>) {
+  if (config.name !== "Panini") return;
+  const parsed = new URL(page);
+  if (!parsed.pathname.startsWith("/wp-json/wp/v2/")) return;
+  const current = Number(parsed.searchParams.get("page") || "1");
+  if (!Number.isFinite(current) || current >= 100) return;
+  const items = body.trim().startsWith("[") ? (body.match(/"(?:id|link)"\s*:/g)?.length ?? 0) : 0;
+  if (items < 1) return;
+  const next = new URL(parsed);
+  next.searchParams.set("page", String(current + 1));
+  if (!seenPages.has(next.toString()) && !queue.includes(next.toString())) queue.push(next.toString());
 }
 
 async function discover(config: Config) {
@@ -156,8 +181,9 @@ async function discover(config: Config) {
     if (seenPages.has(page)) continue;
     seenPages.add(page);
     try {
-      const html = await fetchText(page);
-      for (const link of extractLinks(html, page)) {
+      const body = await fetchText(page);
+      enqueueWordPressPagination(config, page, body, queue, seenPages);
+      for (const link of extractLinks(body, page)) {
         const parsed = new URL(link);
         const isFile = FILE_RE.test(parsed.pathname) && CHECKLIST_RE.test(link);
         const isChecklistPage = Boolean(config.checklistPagePattern?.test(parsed.pathname));
@@ -167,31 +193,34 @@ async function discover(config: Config) {
             const category = guessCategory(`${title} ${page}`);
             byUrl.set(link, {
               title,
-              year: guessYear(`${title} ${link}`),
+              year: guessYear(`${title} ${link} ${page}`),
               url: link,
               sourcePage: page,
               ...(config.name === "Leaf" ? { category } : { sport: category }),
             });
             newFiles += 1;
           }
-          if (isChecklistPage && !seenPages.has(link) && !queue.includes(link)) queue.push(link);
+          if (isChecklistPage && !FILE_RE.test(parsed.pathname) && !seenPages.has(link) && !queue.includes(link)) queue.push(link);
           continue;
         }
         if (!hostAllowed(parsed.hostname, config.crawlHosts)) continue;
         const path = parsed.pathname.toLowerCase();
-        const useful = /checklist|product|products|collection|collections|category|brand|license|page\/|sitemap/.test(path) || parsed.searchParams.has("page");
+        const useful = /checklist|product|products|collection|collections|category|brand|license|page\/|sitemap|wp-json\/wp\/v2|\?s=/.test(`${path}${parsed.search}`) || parsed.searchParams.has("page") || parsed.searchParams.has("s");
         if (useful && !seenPages.has(link) && !queue.includes(link)) queue.push(link);
       }
     } catch (error) {
-      pageFailures.push({ url: page, error: error instanceof Error ? error.message : String(error), startPage: config.startUrls.includes(page) });
+      const message = error instanceof Error ? error.message : String(error);
+      const apiEnd = config.name === "Panini" && /wp-json\/wp\/v2/.test(page) && /HTTP 400/.test(message) && Number(new URL(page).searchParams.get("page") || "1") > 1;
+      if (!apiEnd) pageFailures.push({ url: page, error: message, startPage: config.startUrls.includes(page) });
     }
   }
 
   const seeds = [...byUrl.values()].sort((a, b) => `${a.year}|${a.title}`.localeCompare(`${b.year}|${b.title}`));
   writeFileSync(seedFile, JSON.stringify(seeds, null, 2) + "\n");
   const hitPageLimit = seenPages.size >= config.maxPages && queue.length > 0;
+  const successfulStartPages = config.startUrls.length - pageFailures.filter((failure) => failure.startPage).length;
   const catalogScanComplete = queue.length === 0 && !hitPageLimit && pageFailures.length === 0 && seenPages.size > 0;
-  const discoveryStatus = catalogScanComplete ? "catalog-scan-complete" : pageFailures.length ? "discovery-blocked" : "still-discovering";
+  const discoveryStatus = catalogScanComplete ? "catalog-scan-complete" : successfulStartPages > 0 ? "still-discovering" : "discovery-blocked";
   return {
     manufacturer: config.name,
     seedPath: config.seedPath,
@@ -200,6 +229,7 @@ async function discover(config: Config) {
     pagesRemaining: queue.length,
     pageLimit: config.maxPages,
     hitPageLimit,
+    successfulStartPages,
     catalogScanComplete,
     discoveryStatus,
     knownBefore: existing.length,
@@ -212,7 +242,7 @@ async function discover(config: Config) {
 async function main() {
   const reports = [];
   for (const config of configs) reports.push(await discover(config));
-  const output = { schema: "tcos.checklistDiscoveryReport.v2", generatedAt: new Date().toISOString(), manufacturers: reports };
+  const output = { schema: "tcos.checklistDiscoveryReport.v3", generatedAt: new Date().toISOString(), manufacturers: reports };
   const dir = resolve(process.cwd(), ".checklist-discovery");
   mkdirSync(dir, { recursive: true });
   writeFileSync(resolve(dir, "report.json"), JSON.stringify(output, null, 2) + "\n");
