@@ -1,0 +1,172 @@
+name: Topps Football Registry Worker
+run-name: Topps Football Registry Worker — ${{ github.event_name }}
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 * * * *"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/topps-football-registry-worker.yml"
+      - "scripts/run-topps-football-worker.ts"
+      - "scripts/run-topps-football-regressions.ts"
+      - "src/lib/checklist-registry/server.ts"
+      - "src/lib/checklist-registry/topps-sport-pipelines.ts"
+      - "src/lib/checklist-registry/topps-football-text.ts"
+      - "src/lib/checklist-registry/topps-football-text-adapter.ts"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: topps-football-registry-worker-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate-football-worker:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Certify parser, sport isolation, source trust, and retry boundaries
+        run: npx tsx scripts/run-topps-football-regressions.ts
+      - name: Prove pull-request validation cannot execute the Production worker
+        run: |
+          set -euo pipefail
+          test -z "${NEXT_PUBLIC_SUPABASE_URL:-}"
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}"
+      - name: Lint Football worker boundary
+        run: >-
+          npx eslint
+          scripts/run-topps-football-worker.ts
+          scripts/run-topps-football-regressions.ts
+          src/lib/checklist-registry/topps-sport-pipelines.ts
+          src/lib/checklist-registry/topps-football-text.ts
+          src/lib/checklist-registry/topps-football-text-adapter.ts
+          src/lib/checklist-registry/server.ts
+      - name: TypeScript
+        run: npx tsc --noEmit
+
+  football-only-production:
+    if: >-
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 55
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || secrets.SUPABASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL || vars.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || secrets.SUPABASE_SERVICE_KEY || secrets.SUPABASE_SERVICE_ROLE || vars.SUPABASE_SERVICE_ROLE_KEY }}
+      TOPPS_FOOTBALL_MAX_PRODUCTS: "500"
+      TOPPS_FOOTBALL_MAX_SOURCES: "100"
+      TOPPS_FOOTBALL_OUTPUT: .checklist-discovery/topps-football-worker-receipt.json
+      TOPPS_FOOTBALL_AUDIT: .checklist-discovery/topps-football-production-audit.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Resolve protected Production credentials
+        run: |
+          set -euo pipefail
+          if [ -z "$NEXT_PUBLIC_SUPABASE_URL" ]; then
+            echo "No Supabase URL resolved from protected Production secrets or variables."
+            exit 1
+          fi
+          if [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "No Supabase service key resolved from protected Production secrets or variables."
+            exit 1
+          fi
+          echo "Production Supabase credentials resolved."
+      - name: Install deterministic PDF text extractor
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends poppler-utils
+          pdftotext -v
+      - run: npm ci
+      - name: Re-run Football certification before Production access
+        run: npx tsx scripts/run-topps-football-regressions.ts
+      - name: Run isolated Topps Football discovery and Registry import
+        run: node --import tsx scripts/run-topps-football-worker.ts
+      - name: Verify Football-only receipt
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, existsSync, writeFileSync } from 'node:fs';
+          const path = process.env.TOPPS_FOOTBALL_OUTPUT;
+          if (!path || !existsSync(path)) throw new Error(`Missing Topps Football receipt: ${path || '(unset)'}`);
+          const receipt = JSON.parse(readFileSync(path, 'utf8'));
+          if (receipt.manufacturer !== 'Topps' || receipt.sport !== 'Football') {
+            throw new Error('Topps Football worker crossed its boundary.');
+          }
+          if ((receipt.totals?.selected ?? 0) > 100) {
+            throw new Error('Topps Football worker exceeded the 100-source limit.');
+          }
+          const totals = receipt.totals || {};
+          const lines = [
+            '# Topps Football Registry Worker',
+            '',
+            `**Production Football sources:** ${receipt.productionSourceCount ?? 0}`,
+            `**Selected:** ${totals.selected ?? 0}`,
+            `**Imported:** ${totals.imported ?? 0}`,
+            `**Quarantined:** ${totals.quarantined ?? 0}`,
+            `**Failed:** ${totals.failed ?? 0}`,
+            `**Sets:** ${totals.sets ?? 0}`,
+            `**Cards:** ${totals.cards ?? 0}`,
+            `**Identities:** ${totals.identities ?? 0}`,
+          ];
+          writeFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join('\n')}\n`, { flag: 'a' });
+          NODE
+      - name: Create sanitized Production audit artifact
+        if: always()
+        env:
+          FOOTBALL_JOB_STATUS: ${{ job.status }}
+          FOOTBALL_RUN_ID: ${{ github.run_id }}
+          FOOTBALL_RUN_ATTEMPT: ${{ github.run_attempt }}
+          FOOTBALL_EVENT_NAME: ${{ github.event_name }}
+          FOOTBALL_COMMIT_SHA: ${{ github.sha }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+          import { dirname } from 'node:path';
+          const receiptPath = process.env.TOPPS_FOOTBALL_OUTPUT;
+          const auditPath = process.env.TOPPS_FOOTBALL_AUDIT;
+          let receipt = null;
+          if (receiptPath && existsSync(receiptPath)) {
+            receipt = JSON.parse(readFileSync(receiptPath, 'utf8'));
+          }
+          const audit = {
+            schema: 'tcos.toppsFootball.productionAudit.v1',
+            manufacturer: 'Topps',
+            sport: 'Football',
+            status: process.env.FOOTBALL_JOB_STATUS || 'unknown',
+            runId: process.env.FOOTBALL_RUN_ID || null,
+            runAttempt: process.env.FOOTBALL_RUN_ATTEMPT || null,
+            eventName: process.env.FOOTBALL_EVENT_NAME || null,
+            commitSha: process.env.FOOTBALL_COMMIT_SHA || null,
+            recordedAt: new Date().toISOString(),
+            receipt,
+          };
+          mkdirSync(dirname(auditPath), { recursive: true });
+          writeFileSync(auditPath, `${JSON.stringify(audit, null, 2)}\n`);
+          NODE
+      - name: Upload sanitized Football evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: topps-football-registry-worker-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .checklist-discovery/topps-football-worker-receipt.json
+            .checklist-discovery/topps-football-production-audit.json
+          if-no-files-found: warn
+          retention-days: 90
