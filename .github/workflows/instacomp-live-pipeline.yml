@@ -20,7 +20,7 @@ permissions:
 
 jobs:
   live-pipeline-regression:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
       NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
@@ -50,7 +50,7 @@ jobs:
       - name: Run provider-safety regressions
         run: node --import tsx scripts/run-instacomp-provider-safety-regressions.ts
 
-      - name: Run primary AI failover regression
+      - name: Attack failover family spoofing, retry amplification, and diagnostic leakage
         run: node --import tsx scripts/run-instacomp-primary-ai-failover-regression.ts
 
       - name: Run multi-card drag-drop regressions
