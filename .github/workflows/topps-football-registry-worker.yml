@@ -5,6 +5,17 @@ on:
   workflow_dispatch: {}
   schedule:
     - cron: "0 * * * *"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/topps-football-registry-worker.yml"
+      - "scripts/run-topps-football-worker.ts"
+      - "scripts/run-topps-football-regressions.ts"
+      - "src/lib/checklist-registry/server.ts"
+      - "src/lib/checklist-registry/topps-sport-pipelines.ts"
+      - "src/lib/checklist-registry/topps-football-text.ts"
+      - "src/lib/checklist-registry/topps-football-text-adapter.ts"
   push:
     branches:
       - agent/topps-isolated-sport-pipelines
@@ -26,6 +37,7 @@ concurrency:
 
 jobs:
   football-only:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     environment: Production
     timeout-minutes: 55
