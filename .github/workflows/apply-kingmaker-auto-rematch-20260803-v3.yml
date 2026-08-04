@@ -1,0 +1,259 @@
+name: Apply KINGMAKER Auto Rematch 20260803 v3
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/apply-kingmaker-auto-rematch-20260803-v3.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apply-kingmaker-auto-rematch-20260803-v3
+  cancel-in-progress: false
+
+env:
+  EXPECTED_MAIN_SHA: 17908c6a6ddbc5c38cbab0c99f01715616425721
+  EXPECTED_BRANCH: ops/apply-kingmaker-auto-rematch-20260803-v3
+  PINNED_OPS_COMMIT: 5c7021406939cea4c4c1aea4e5fa5d9ed1614081
+  PINNED_OPS_BLOB: 7ffee5dedbf355bb00acbd2be2320c786f08e074
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  EVIDENCE_DIR: evidence/kingmaker-auto-rematch-production-20260803-v3
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on exact operations scope and pinned runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main
+          git merge-base --is-ancestor "$EXPECTED_MAIN_SHA" origin/main
+          git merge-base --is-ancestor "$EXPECTED_MAIN_SHA" HEAD
+          mapfile -t changed < <(git diff --name-only "$EXPECTED_MAIN_SHA"...HEAD)
+          printf '%s\n' "${changed[@]}"
+          test "${#changed[@]}" -eq 1
+          test "${changed[0]}" = '.github/workflows/apply-kingmaker-auto-rematch-20260803-v3.yml'
+          git diff --check "$EXPECTED_MAIN_SHA"...HEAD
+          test "$(git rev-parse "$PINNED_OPS_COMMIT:scripts/ops/apply-kingmaker-auto-rematch-20260803.mjs")" = "$PINNED_OPS_BLOB"
+          git show "$PINNED_OPS_COMMIT:scripts/ops/apply-kingmaker-auto-rematch-20260803.mjs" > "$RUNNER_TEMP/apply-kingmaker-auto-rematch-20260803-v3.mjs"
+          git checkout --detach "$EXPECTED_MAIN_SHA"
+          mkdir -p scripts/ops "$EVIDENCE_DIR"
+          cp "$RUNNER_TEMP/apply-kingmaker-auto-rematch-20260803-v3.mjs" scripts/ops/apply-kingmaker-auto-rematch-20260803-v3.mjs
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Pull protected Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          mkdir -p .vercel "$RUNNER_TEMP/kingmaker-auto-rematch-production-v3"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/kingmaker-auto-rematch-production-v3/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          test -s "$RUNNER_TEMP/kingmaker-auto-rematch-production-v3/production.env"
+          echo "PRODUCTION_ENV_FILE=$RUNNER_TEMP/kingmaker-auto-rematch-production-v3/production.env" >> "$GITHUB_ENV"
+
+      - name: Apply, regress, chunk backfill, and verify Production auto-rematch
+        shell: bash
+        env:
+          ALLOW_KINGMAKER_AUTO_REMATCH_APPLY: "YES"
+          RECEIPT_PATH: evidence/kingmaker-auto-rematch-production-20260803-v3/receipt.json
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          runner = Path("scripts/ops/apply-kingmaker-auto-rematch-20260803-v3.mjs")
+          runner_text = runner.read_text()
+
+          old_migrations = '''  "supabase/migrations/20260804011600_fix_kingmaker_auto_rematch_trigger.sql",
+          ];'''
+          new_migrations = '''  "supabase/migrations/20260804011600_fix_kingmaker_auto_rematch_trigger.sql",
+            "supabase/migrations/20260804014500_fix_kingmaker_auto_rematch_matcher_results.sql",
+            "supabase/migrations/20260804022000_scope_kingmaker_auto_rematch_candidates.sql",
+          ];'''
+          if old_migrations not in runner_text:
+              raise SystemExit("Expected pinned migration list was not found.")
+          runner_text = runner_text.replace(old_migrations, new_migrations, 1)
+
+          replacement = r'''const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+          function backfillTargetsSql() {
+            return `
+              select
+                release.id as release_id,
+                version.id as version_id,
+                count(*) as candidate_entries
+              from public.checklist_releases release
+              join public.checklist_manufacturers manufacturer
+                on manufacturer.id = release.manufacturer_id
+              join public.checklist_sports sport
+                on sport.id = release.sport_id
+              join public.checklist_versions version
+                on version.release_id = release.id
+               and version.is_active
+               and version.status in ('live','revised')
+              join public.tcos_kingmaker_price_guides guide
+                on public.tcos_kingmaker_price_normalize(guide.sport) =
+                   public.tcos_kingmaker_price_normalize(sport.name)
+              join public.tcos_kingmaker_price_entries entry
+                on entry.guide_id = guide.id
+               and entry.entry_kind = 'card'
+               and entry.validation_status <> 'rejected'
+               and entry.low_observation_id is null
+               and entry.high_observation_id is null
+               and entry.identity_match_status in ('unmatched','ambiguous')
+               and public.tcos_kingmaker_price_normalize(entry.release_year) in (
+                 public.tcos_kingmaker_price_normalize(release.release_year),
+                 public.tcos_kingmaker_price_normalize(release.season)
+               )
+               and public.tcos_kingmaker_price_normalize(entry.manufacturer) =
+                   public.tcos_kingmaker_price_normalize(manufacturer.name)
+               and public.tcos_kingmaker_price_normalize(release.product_name) in (
+                 public.tcos_kingmaker_price_normalize(entry.product),
+                 public.tcos_kingmaker_price_normalize(
+                   concat_ws(' ', entry.release_year, entry.product)
+                 )
+               )
+              group by release.id, version.id
+              order by count(*), release.id, version.id;
+            `;
+          }
+
+          function backfillReleaseSql(releaseId, versionId) {
+            if (!UUID_PATTERN.test(String(releaseId)) || !UUID_PATTERN.test(String(versionId))) {
+              throw new Error("Invalid Production backfill target UUID.");
+            }
+            return `
+              set statement_timeout = '110s';
+              select public.tcos_rematch_kingmaker_price_entries_for_release(
+                '${releaseId}'::uuid,
+                '${versionId}'::uuid,
+                'production_activation_backfill'
+              );
+            `;
+          }
+
+          function verificationSql()'''
+          runner_text, replaced = re.subn(
+              r"function backfillSql\(\) \{.*?\n\}\n\nfunction verificationSql\(\)",
+              replacement,
+              runner_text,
+              count=1,
+              flags=re.S,
+          )
+          if replaced != 1:
+              raise SystemExit("Expected monolithic backfill function was not found exactly once.")
+
+          new_call = r'''  const backfillTargets = await queryManagement({
+            project,
+            token,
+            query: backfillTargetsSql(),
+            readOnly: true,
+            stage: "current active-checklist backfill targets",
+          });
+
+          for (const [index, target] of backfillTargets.entries()) {
+            await queryManagement({
+              project,
+              token,
+              query: backfillReleaseSql(target.release_id, target.version_id),
+              readOnly: false,
+              stage: `current active-checklist backfill ${index + 1}/${backfillTargets.length}`,
+            });
+          }'''
+          runner_text, call_replaced = re.subn(
+              r"\n\s*await queryManagement\(\{\s*project,\s*token,\s*query: backfillSql\(\),\s*readOnly: false,\s*stage: \"current active-checklist backfill\",\s*\}\);",
+              "\n" + new_call,
+              runner_text,
+              count=1,
+              flags=re.S,
+          )
+          if call_replaced != 1:
+              raise SystemExit("Expected monolithic backfill call was not found exactly once.")
+
+          receipt_anchor = '''    before: {'''
+          receipt_backfill = '''    backfill: {
+              targetedReleases: backfillTargets.length,
+              candidateEntries: backfillTargets.reduce(
+                (total, target) => total + Number(target.candidate_entries || 0),
+                0,
+              ),
+            },
+            before: {'''
+          if receipt_anchor not in runner_text:
+              raise SystemExit("Expected receipt anchor was not found.")
+          runner_text = runner_text.replace(receipt_anchor, receipt_backfill, 1)
+          runner.write_text(runner_text)
+
+          regression = Path("scripts/run-kingmaker-checklist-auto-rematch-regressions.sql")
+          regression_text = regression.read_text()
+          old_path = "'regression/' || source_file_id || '.csv'"
+          new_path = (
+              "'tcos/checklist/sourcePath/v1/topps/topps-chrome-regression-' || "
+              "replace(release_id::text, '-', '') || "
+              "'/11/' || repeat('1', 64) || '-topps-chrome-regression.csv'"
+          )
+          if old_path not in regression_text:
+              raise SystemExit("Expected legacy regression storage path was not found.")
+          regression.write_text(regression_text.replace(old_path, new_path, 1))
+          PY
+          node --check scripts/ops/apply-kingmaker-auto-rematch-20260803-v3.mjs
+          node scripts/ops/apply-kingmaker-auto-rematch-20260803-v3.mjs
+
+      - name: Require sanitized passing receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const path = 'evidence/kingmaker-auto-rematch-production-20260803-v3/receipt.json';
+          const receipt = JSON.parse(fs.readFileSync(path, 'utf8'));
+          if (receipt.schema !== 'tcos.kingmaker.beckettAutoRematchProductionReceipt.v1') throw new Error('Unexpected receipt schema');
+          if (receipt.status !== 'passed') throw new Error('Production auto-rematch receipt did not pass');
+          if (receipt.expectedMainSha !== process.env.EXPECTED_MAIN_SHA) throw new Error('Receipt main SHA mismatch');
+          if (receipt.regression?.passed !== true) throw new Error('Synthetic Production regression did not pass');
+          if (receipt.migrations?.length !== 4) throw new Error('Expected all four Production migrations');
+          if (!Number.isInteger(receipt.backfill?.targetedReleases) || receipt.backfill.targetedReleases < 0) throw new Error('Missing chunked backfill target count');
+          if (!Number.isInteger(receipt.backfill?.candidateEntries) || receipt.backfill.candidateEntries < 0) throw new Error('Missing chunked backfill candidate count');
+          if (receipt.pricesPromotedByThisOperation !== 0) throw new Error('Auto-rematch promoted prices');
+          if (receipt.secretsPersisted !== false) throw new Error('Receipt safety assertion failed');
+          const required = ['trigger_present','rpc_present','audit_table_present','audit_rls_enabled','public_table_grants_revoked','public_rpc_execute_revoked','service_rpc_execute'];
+          for (const field of required) if (receipt.verification?.[field] !== true) throw new Error(`Missing verification ${field}`);
+          if (receipt.after.exact < receipt.before.exact) throw new Error('Exact coverage decreased');
+          if (receipt.after.beckettObservations !== receipt.before.beckettObservations) throw new Error('Beckett observation count changed');
+          const text = fs.readFileSync(path, 'utf8');
+          if (/eyJ[A-Za-z0-9_-]{20,}\.|sb_secret_|SUPABASE_ACCESS_TOKEN|VERCEL_TOKEN|postgres(?:ql)?:\/\//i.test(text)) throw new Error('Receipt contains secret-like material');
+          NODE
+
+      - name: Upload sanitized Production receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: kingmaker-auto-rematch-production-20260803-v3
+          path: evidence/kingmaker-auto-rematch-production-20260803-v3/receipt.json
+          if-no-files-found: error
+          retention-days: 30
