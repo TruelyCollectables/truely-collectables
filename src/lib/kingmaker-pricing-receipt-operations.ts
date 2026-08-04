@@ -42,8 +42,15 @@ export function summarizePricingReceipts(receipts: PricingReceiptSummaryInput[])
   };
 }
 
-function csvCell(value: unknown) {
+const SPREADSHEET_FORMULA_PREFIX = /^[=+\-@\t\r]/;
+
+export function neutralizeSpreadsheetFormula(value: unknown) {
   const text = value == null ? "" : String(value);
+  return SPREADSHEET_FORMULA_PREFIX.test(text) ? `'${text}` : text;
+}
+
+function csvCell(value: unknown) {
+  const text = neutralizeSpreadsheetFormula(value);
   return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }
 

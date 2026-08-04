@@ -7,7 +7,11 @@ on:
       - "src/lib/kingmaker-pricing-profile-lifecycle-server.ts"
       - "src/app/api/instacomp/pricing/profiles/**"
       - "scripts/run-kingmaker-pricing-profile-lifecycle-regressions.ts"
+      - "scripts/setup-supabase-postgres-test-roles.sql"
+      - "scripts/test-instacomp-pricing-profile-atomic.sql"
+      - "supabase/migrations/20260803190000_kingmaker_pricing_profiles.sql"
       - "supabase/migrations/20260803220000_kingmaker_pricing_profile_lifecycle.sql"
+      - "supabase/migrations/20260804004500_kingmaker_pricing_profile_atomic_lifecycle.sql"
       - ".github/workflows/kingmaker-pricing-profile-lifecycle.yml"
 
 permissions:
@@ -17,6 +21,20 @@ jobs:
   verify-profile-lifecycle:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      PGPASSWORD: postgres
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -24,17 +42,12 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Lifecycle regressions
+      - name: Lifecycle security, ownership, version, and audit regressions
         run: node --import tsx scripts/run-kingmaker-pricing-profile-lifecycle-regressions.ts
-      - name: Security and audit contracts
-        run: |
-          set -euo pipefail
-          grep -q 'archived_at' supabase/migrations/20260803220000_kingmaker_pricing_profile_lifecycle.sql
-          grep -q 'revoke all.*anon, authenticated' supabase/migrations/20260803220000_kingmaker_pricing_profile_lifecycle.sql
-          grep -q 'expectedVersion' src/lib/kingmaker-pricing-profile-lifecycle.ts
-          grep -q 'assertTrustedInstaCompMutationRequest' src/app/api/instacomp/pricing/profiles/presets/route.ts
-          grep -q 'assertTrustedInstaCompMutationRequest' 'src/app/api/instacomp/pricing/profiles/[profileId]/route.ts'
-          ! grep -RIni 'beckett' src/lib/kingmaker-pricing-profile-lifecycle* src/app/api/instacomp/pricing/profiles scripts/run-kingmaker-pricing-profile-lifecycle-regressions.ts supabase/migrations/20260803220000_kingmaker_pricing_profile_lifecycle.sql
+      - name: Create Supabase-compatible PostgreSQL roles
+        run: psql -h localhost -U postgres -d postgres -f scripts/setup-supabase-postgres-test-roles.sql
+      - name: PostgreSQL race, rollback, owner, and replay attacks
+        run: psql -h localhost -U postgres -d postgres -f scripts/test-instacomp-pricing-profile-atomic.sql
       - name: Lint
         run: npx eslint src/lib/kingmaker-pricing-profile-lifecycle.ts src/lib/kingmaker-pricing-profile-lifecycle-server.ts src/app/api/instacomp/pricing/profiles scripts/run-kingmaker-pricing-profile-lifecycle-regressions.ts
       - name: TypeScript

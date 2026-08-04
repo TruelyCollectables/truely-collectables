@@ -9,6 +9,12 @@ import {
 
 type Actor = Awaited<ReturnType<typeof requireInstaCompJobActor>>;
 
+type AtomicProfileResult = {
+  id: string;
+  version: number;
+  retired?: boolean;
+};
+
 function client() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -24,27 +30,26 @@ function scope(query: any, actor: Actor) {
     : query.is("seller_account_id", null);
 }
 
-async function audit(actor: Actor, profileId: string | null, action: string, profileName: string, snapshot: unknown) {
-  const { storeId, sellerAccountId } = kingmakerPricingProfileOwner(actor);
-  const { error } = await client().from("tcos_kingmaker_pricing_profile_audit").insert({
-    store_id: storeId,
-    seller_account_id: sellerAccountId,
-    profile_id: profileId,
-    action,
-    profile_name: profileName,
-    snapshot,
-  });
-  if (error) throw error;
+function rpcError(error: { code?: string | null; message?: string | null } | null) {
+  const code = String(error?.code || "unknown");
+  const message = String(error?.message || "Pricing profile atomic operation failed.");
+  throw new Error(`KINGMAKER_PRICING_PROFILE_RPC_FAILED:${code}:${message}`);
 }
 
-async function resetDefaults(actor: Actor, exceptId?: string) {
-  let query = scope(
-    client().from("tcos_kingmaker_pricing_profiles").update({ is_default: false }),
-    actor,
-  ).is("archived_at", null);
-  if (exceptId) query = query.neq("id", exceptId);
-  const { error } = await query;
-  if (error) throw error;
+function atomicResult(data: unknown): AtomicProfileResult {
+  const row = data && typeof data === "object" && !Array.isArray(data)
+    ? data as Record<string, unknown>
+    : null;
+  const id = String(row?.id || "").trim();
+  const version = Number(row?.version);
+  if (!id || !Number.isInteger(version) || version < 1) {
+    throw new Error("KINGMAKER_PRICING_PROFILE_RPC_RESULT_INVALID");
+  }
+  return {
+    id,
+    version,
+    retired: row?.retired === true,
+  };
 }
 
 export async function createKingmakerPricingProfileFromPreset(params: {
@@ -60,22 +65,25 @@ export async function createKingmakerPricingProfileFromPreset(params: {
     name: params.name || preset.name,
     isDefault: params.isDefault === true,
   });
-  if (profile.isDefault) await resetDefaults(params.actor);
   const { storeId, sellerAccountId } = kingmakerPricingProfileOwner(params.actor);
-  const { data, error } = await client().from("tcos_kingmaker_pricing_profiles").insert({
-    store_id: storeId,
-    seller_account_id: sellerAccountId,
-    name: profile.name,
-    marketplace_fee_pct: profile.marketplaceFeePct,
-    payment_fee_pct: profile.paymentFeePct,
-    payment_fixed_fee: profile.paymentFixedFee,
-    estimated_shipping_cost: profile.estimatedShippingCost,
-    target_margin_pct: profile.targetMarginPct,
-    is_default: profile.isDefault,
-  }).select("id,version").single();
-  if (error) throw error;
-  await audit(params.actor, data.id, "created", profile.name, { ...profile, presetId: preset.id });
-  return { id: String(data.id), version: Number(data.version), profile };
+  const { data, error } = await client().rpc(
+    "tcos_create_kingmaker_pricing_profile_atomic",
+    {
+      p_store_id: storeId,
+      p_seller_account_id: sellerAccountId,
+      p_name: profile.name,
+      p_marketplace_fee_pct: profile.marketplaceFeePct,
+      p_payment_fee_pct: profile.paymentFeePct,
+      p_payment_fixed_fee: profile.paymentFixedFee,
+      p_estimated_shipping_cost: profile.estimatedShippingCost,
+      p_target_margin_pct: profile.targetMarginPct,
+      p_is_default: profile.isDefault,
+      p_audit_snapshot: { ...profile, presetId: preset.id },
+    },
+  );
+  if (error) rpcError(error);
+  const result = atomicResult(data);
+  return { id: result.id, version: result.version, profile };
 }
 
 export async function updateKingmakerPricingProfile(params: {
@@ -84,27 +92,30 @@ export async function updateKingmakerPricingProfile(params: {
   body: Record<string, unknown>;
 }) {
   const profile = normalizeKingmakerPricingProfileMutation(params.body);
-  if (profile.isDefault) await resetDefaults(params.actor, params.profileId);
-  let query = scope(
-    client().from("tcos_kingmaker_pricing_profiles").update({
-      name: profile.name,
-      marketplace_fee_pct: profile.marketplaceFeePct,
-      payment_fee_pct: profile.paymentFeePct,
-      payment_fixed_fee: profile.paymentFixedFee,
-      estimated_shipping_cost: profile.estimatedShippingCost,
-      target_margin_pct: profile.targetMarginPct,
-      is_default: profile.isDefault,
-      version: profile.expectedVersion ? profile.expectedVersion + 1 : undefined,
-      updated_at: new Date().toISOString(),
-    }).eq("id", params.profileId).is("archived_at", null),
-    params.actor,
+  if (!profile.expectedVersion) {
+    throw new Error("Pricing profile expectedVersion is required.");
+  }
+  const { storeId, sellerAccountId } = kingmakerPricingProfileOwner(params.actor);
+  const { data, error } = await client().rpc(
+    "tcos_update_kingmaker_pricing_profile_atomic",
+    {
+      p_store_id: storeId,
+      p_seller_account_id: sellerAccountId,
+      p_profile_id: params.profileId,
+      p_expected_version: profile.expectedVersion,
+      p_name: profile.name,
+      p_marketplace_fee_pct: profile.marketplaceFeePct,
+      p_payment_fee_pct: profile.paymentFeePct,
+      p_payment_fixed_fee: profile.paymentFixedFee,
+      p_estimated_shipping_cost: profile.estimatedShippingCost,
+      p_target_margin_pct: profile.targetMarginPct,
+      p_is_default: profile.isDefault,
+      p_audit_snapshot: profile,
+    },
   );
-  if (profile.expectedVersion) query = query.eq("version", profile.expectedVersion);
-  const { data, error } = await query.select("id,version").maybeSingle();
-  if (error) throw error;
-  if (!data) throw new Error("Pricing profile changed or was not found.");
-  await audit(params.actor, params.profileId, profile.isDefault ? "defaulted" : "updated", profile.name, profile);
-  return { id: String(data.id), version: Number(data.version), profile };
+  if (error) rpcError(error);
+  const result = atomicResult(data);
+  return { id: result.id, version: result.version, profile };
 }
 
 export async function cloneKingmakerPricingProfile(params: {
@@ -113,43 +124,54 @@ export async function cloneKingmakerPricingProfile(params: {
   name?: unknown;
   isDefault?: boolean;
 }) {
-  const { data: source, error } = await scope(
-    client().from("tcos_kingmaker_pricing_profiles")
-      .select("name,marketplace_fee_pct,payment_fee_pct,payment_fixed_fee,estimated_shipping_cost,target_margin_pct")
-      .eq("id", params.profileId).is("archived_at", null),
+  const { data: source, error: sourceError } = await scope(
+    client()
+      .from("tcos_kingmaker_pricing_profiles")
+      .select("name")
+      .eq("id", params.profileId)
+      .is("archived_at", null),
     params.actor,
   ).maybeSingle();
-  if (error) throw error;
+  if (sourceError) throw new Error(`KINGMAKER_PRICING_PROFILE_SOURCE_FAILED:${sourceError.code || "unknown"}`);
   if (!source) throw new Error("Pricing profile not found.");
-  if (params.isDefault) await resetDefaults(params.actor);
+
   const { storeId, sellerAccountId } = kingmakerPricingProfileOwner(params.actor);
-  const name = normalizeCloneName(params.name, source.name);
-  const { data, error: insertError } = await client().from("tcos_kingmaker_pricing_profiles").insert({
-    store_id: storeId,
-    seller_account_id: sellerAccountId,
-    name,
-    marketplace_fee_pct: source.marketplace_fee_pct,
-    payment_fee_pct: source.payment_fee_pct,
-    payment_fixed_fee: source.payment_fixed_fee,
-    estimated_shipping_cost: source.estimated_shipping_cost,
-    target_margin_pct: source.target_margin_pct,
-    is_default: params.isDefault === true,
-  }).select("id,version").single();
-  if (insertError) throw insertError;
-  await audit(params.actor, data.id, "cloned", name, { sourceProfileId: params.profileId });
-  return { id: String(data.id), version: Number(data.version), name };
+  const name = normalizeCloneName(params.name, String(source.name));
+  const { data, error } = await client().rpc(
+    "tcos_clone_kingmaker_pricing_profile_atomic",
+    {
+      p_store_id: storeId,
+      p_seller_account_id: sellerAccountId,
+      p_source_profile_id: params.profileId,
+      p_name: name,
+      p_is_default: params.isDefault === true,
+    },
+  );
+  if (error) rpcError(error);
+  const result = atomicResult(data);
+  return { id: result.id, version: result.version, name };
 }
 
-export async function retireKingmakerPricingProfile(params: { actor: Actor; profileId: string }) {
-  const { data, error } = await scope(
-    client().from("tcos_kingmaker_pricing_profiles")
-      .update({ archived_at: new Date().toISOString(), is_default: false })
-      .eq("id", params.profileId).is("archived_at", null)
-      .select("id,name,is_default").maybeSingle(),
-    params.actor,
+export async function retireKingmakerPricingProfile(params: {
+  actor: Actor;
+  profileId: string;
+  expectedVersion: unknown;
+}) {
+  const expectedVersion = Number(params.expectedVersion);
+  if (!Number.isInteger(expectedVersion) || expectedVersion < 1) {
+    throw new Error("Pricing profile expectedVersion is required.");
+  }
+  const { storeId, sellerAccountId } = kingmakerPricingProfileOwner(params.actor);
+  const { data, error } = await client().rpc(
+    "tcos_retire_kingmaker_pricing_profile_atomic",
+    {
+      p_store_id: storeId,
+      p_seller_account_id: sellerAccountId,
+      p_profile_id: params.profileId,
+      p_expected_version: expectedVersion,
+    },
   );
-  if (error) throw error;
-  if (!data) throw new Error("Pricing profile not found.");
-  await audit(params.actor, params.profileId, "retired", data.name, {});
-  return { id: String(data.id), retired: true };
+  if (error) rpcError(error);
+  const result = atomicResult(data);
+  return { id: result.id, version: result.version, retired: result.retired === true };
 }

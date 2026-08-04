@@ -5,18 +5,13 @@ import { getKingmakerPricingByIdentityId } from "../../../../../lib/kingmaker-pr
 import { buildKingmakerPricingDecision } from "../../../../../lib/kingmaker-pricing-decision";
 import { resolveKingmakerPricingProfile } from "../../../../../lib/kingmaker-pricing-profile-server";
 import { writeKingmakerPricingDecisionReceipt } from "../../../../../lib/kingmaker-pricing-decision-receipt-server";
+import { suppliedInstaCompServerOwnedPricingFields } from "../../../../../lib/instacomp-pricing-request-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function badRequest(message: string) {
   return NextResponse.json({ ok: false, error: message }, { status: 400 });
-}
-
-function optionalNumber(value: unknown) {
-  if (value == null || value === "") return undefined;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 export async function POST(request: NextRequest) {
@@ -27,19 +22,15 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => null) as Record<string, unknown> | null;
     if (!body) return badRequest("A JSON request body is required.");
 
+    const serverOwnedFields = suppliedInstaCompServerOwnedPricingFields(body);
+    if (serverOwnedFields.length) {
+      return badRequest(
+        `Pricing evidence and economics are server-owned. Remove: ${serverOwnedFields.join(", ")}.`,
+      );
+    }
+
     const identityId = String(body.identityId || "").trim();
     if (!identityId) return badRequest("identityId is required.");
-
-    const exactIdentity = body.exactIdentity === true;
-    const rawSoldComps = Array.isArray(body.soldComps) ? body.soldComps : [];
-    const soldComps = rawSoldComps.slice(0, 100).map((value) => {
-      const row = value && typeof value === "object" ? value as Record<string, unknown> : {};
-      return {
-        price: Number(row.price),
-        shipping: row.shipping == null ? null : Number(row.shipping),
-        soldAt: row.soldAt == null ? null : String(row.soldAt),
-      };
-    });
 
     const [pricing, selectedProfile] = await Promise.all([
       getKingmakerPricingByIdentityId(identityId),
@@ -50,8 +41,13 @@ export async function POST(request: NextRequest) {
     ]);
     const profile = selectedProfile.profile;
 
+    // Round Three evidence boundary: a browser may select an identity and an
+    // actor-owned pricing profile, but it may not manufacture exact identity,
+    // completed sales, fees, shipping, or margin evidence. Until a dedicated
+    // authoritative completed-sale loader is wired to this route, an otherwise
+    // verified price-index reference remains insufficient for a ready decision.
     const decision = buildKingmakerPricingDecision({
-      exactIdentity,
+      exactIdentity: pricing?.status === "verified",
       pricing: pricing
         ? {
             low: pricing.low,
@@ -62,12 +58,12 @@ export async function POST(request: NextRequest) {
             trendPct: pricing.trendPct,
           }
         : null,
-      soldComps,
-      targetMarginPct: optionalNumber(body.targetMarginPct) ?? profile.targetMarginPct,
-      marketplaceFeePct: optionalNumber(body.marketplaceFeePct) ?? profile.marketplaceFeePct,
-      paymentFeePct: optionalNumber(body.paymentFeePct) ?? profile.paymentFeePct,
-      paymentFixedFee: optionalNumber(body.paymentFixedFee) ?? profile.paymentFixedFee,
-      shippingCost: optionalNumber(body.shippingCost) ?? profile.estimatedShippingCost,
+      soldComps: [],
+      targetMarginPct: profile.targetMarginPct,
+      marketplaceFeePct: profile.marketplaceFeePct,
+      paymentFeePct: profile.paymentFeePct,
+      paymentFixedFee: profile.paymentFixedFee,
+      shippingCost: profile.estimatedShippingCost,
     });
 
     const receiptId = await writeKingmakerPricingDecisionReceipt({
@@ -103,7 +99,11 @@ export async function POST(request: NextRequest) {
             trendPct: pricing.trendPct,
           }
         : null,
-      sourceDisclosure: null,
+      sourceDisclosure: {
+        pricingReference: pricing ? "server_owned_price_index" : "missing",
+        completedSales: "authoritative_loader_required",
+        boundary: "advisory_only",
+      },
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Pricing decision failed.";

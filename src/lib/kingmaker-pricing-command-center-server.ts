@@ -8,14 +8,15 @@ type SavedViewRow = {
   name: string;
   filters: Record<string, unknown> | null;
   is_default: boolean | null;
+  version: number | string | null;
   created_at: string | null;
   updated_at: string | null;
 };
 type ReceiptRow = {
-  status: string | null;
+  decision_status: string | null;
   confidence: number | string | null;
   sold_comp_count: number | string | null;
-  estimated_profit_at_ceiling: number | string | null;
+  expected_profit: number | string | null;
   created_at: string | null;
 };
 type ProfileRow = { id: string | number; is_default: boolean | null; archived_at: string | null };
@@ -34,6 +35,12 @@ type SavedViewInput = {
   isDefault?: unknown;
 };
 
+type AtomicSavedViewResult = {
+  id: string;
+  version: number;
+  retired?: boolean;
+};
+
 function client() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -47,17 +54,61 @@ function scope(query: any, actor: Actor) {
   return sellerAccountId ? query.eq("seller_account_id", sellerAccountId) : query.is("seller_account_id", null);
 }
 
+function boundedNumber(value: unknown, minimum: number, maximum: number) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.max(minimum, Math.min(maximum, number)) : null;
+}
+
+function boundedText(value: unknown, maximum: number) {
+  return typeof value === "string" ? value.trim().slice(0, maximum) : "";
+}
+
 function normalizeFilters(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const input = value as Record<string, unknown>;
-  const allowed = ["status", "identityId", "profileId", "minConfidence", "minProfit", "from", "to"];
-  return Object.fromEntries(allowed.filter((key) => input[key] !== undefined).map((key) => [key, input[key]]));
+  const filters: Record<string, unknown> = {};
+  const status = boundedText(input.status, 40);
+  if (["ready", "review_required", "insufficient_evidence"].includes(status)) {
+    filters.status = status;
+  }
+  const identityId = boundedText(input.identityId, 200);
+  if (identityId) filters.identityId = identityId;
+  const profileId = boundedText(input.profileId, 100);
+  if (profileId) filters.profileId = profileId;
+  const minConfidence = boundedNumber(input.minConfidence, 0, 1);
+  if (minConfidence !== null) filters.minConfidence = minConfidence;
+  const minProfit = boundedNumber(input.minProfit, -1_000_000, 1_000_000);
+  if (minProfit !== null) filters.minProfit = minProfit;
+  for (const key of ["from", "to"] as const) {
+    const text = boundedText(input[key], 40);
+    const parsed = Date.parse(text);
+    if (text && Number.isFinite(parsed)) filters[key] = new Date(parsed).toISOString();
+  }
+  return filters;
+}
+
+function rpcError(error: { code?: string | null; message?: string | null } | null) {
+  const code = String(error?.code || "unknown");
+  const message = String(error?.message || "Saved view atomic operation failed.");
+  throw new Error(`KINGMAKER_PRICING_SAVED_VIEW_RPC_FAILED:${code}:${message}`);
+}
+
+function atomicSavedViewResult(data: unknown): AtomicSavedViewResult {
+  const row = data && typeof data === "object" && !Array.isArray(data)
+    ? data as Record<string, unknown>
+    : null;
+  const id = String(row?.id || "").trim();
+  const version = Number(row?.version);
+  if (!id || !Number.isInteger(version) || version < 1) {
+    throw new Error("KINGMAKER_PRICING_SAVED_VIEW_RPC_RESULT_INVALID");
+  }
+  return { id, version, retired: row?.retired === true };
 }
 
 export async function listKingmakerPricingSavedViews(actor: Actor) {
   const { data, error } = await scope(
     client().from("tcos_kingmaker_pricing_saved_views")
-      .select("id,name,filters,is_default,created_at,updated_at")
+      .select("id,name,filters,is_default,version,created_at,updated_at")
       .is("archived_at", null)
       .order("is_default", { ascending: false })
       .order("updated_at", { ascending: false }),
@@ -69,6 +120,7 @@ export async function listKingmakerPricingSavedViews(actor: Actor) {
     name: String(row.name),
     filters: row.filters || {},
     isDefault: row.is_default === true,
+    version: Number(row.version || 1),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));
@@ -78,54 +130,60 @@ export async function createKingmakerPricingSavedView(actor: Actor, input: Saved
   const name = String(input.name || "").trim().slice(0, 80);
   if (!name) throw new Error("Saved view name is required.");
   const isDefault = input.isDefault === true;
-  const db = client();
+  const filters = normalizeFilters(input.filters);
   const { storeId, sellerAccountId } = kingmakerPricingProfileOwner(actor);
-  if (isDefault) {
-    const { error } = await scope(
-      db.from("tcos_kingmaker_pricing_saved_views").update({ is_default: false }),
-      actor,
-    ).is("archived_at", null);
-    if (error) throw error;
-  }
-  const { data, error } = await db.from("tcos_kingmaker_pricing_saved_views").insert({
-    store_id: storeId,
-    seller_account_id: sellerAccountId,
-    name,
-    filters: normalizeFilters(input.filters),
-    is_default: isDefault,
-  }).select("id,name,filters,is_default,created_at,updated_at").single();
-  if (error) throw error;
-  const row = data as SavedViewRow;
+  const { data, error } = await client().rpc(
+    "tcos_create_kingmaker_pricing_saved_view_atomic",
+    {
+      p_store_id: storeId,
+      p_seller_account_id: sellerAccountId,
+      p_name: name,
+      p_filters: filters,
+      p_is_default: isDefault,
+    },
+  );
+  if (error) rpcError(error);
+  const result = atomicSavedViewResult(data);
   return {
-    id: String(row.id),
-    name: String(row.name),
-    filters: row.filters || {},
-    isDefault: row.is_default === true,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    id: result.id,
+    name,
+    filters,
+    isDefault,
+    version: result.version,
+    createdAt: null,
+    updatedAt: null,
   };
 }
 
-export async function retireKingmakerPricingSavedView(actor: Actor, viewId: string) {
-  const { data, error } = await scope(
-    client().from("tcos_kingmaker_pricing_saved_views")
-      .update({ archived_at: new Date().toISOString(), is_default: false, updated_at: new Date().toISOString() })
-      .eq("id", viewId)
-      .is("archived_at", null)
-      .select("id")
-      .maybeSingle(),
-    actor,
+export async function retireKingmakerPricingSavedView(
+  actor: Actor,
+  viewId: string,
+  expectedVersion: unknown,
+) {
+  const version = Number(expectedVersion);
+  if (!Number.isInteger(version) || version < 1) {
+    throw new Error("Saved view expectedVersion is required.");
+  }
+  const { storeId, sellerAccountId } = kingmakerPricingProfileOwner(actor);
+  const { data, error } = await client().rpc(
+    "tcos_retire_kingmaker_pricing_saved_view_atomic",
+    {
+      p_store_id: storeId,
+      p_seller_account_id: sellerAccountId,
+      p_view_id: viewId,
+      p_expected_version: version,
+    },
   );
-  if (error) throw error;
-  if (!data) throw new Error("Saved view not found.");
-  return { id: String(data.id), retired: true };
+  if (error) rpcError(error);
+  const result = atomicSavedViewResult(data);
+  return { id: result.id, version: result.version, retired: result.retired === true };
 }
 
 export async function getKingmakerPricingCommandCenterSnapshot(actor: Actor) {
   const db = client();
   const receiptQuery = scope(
-    db.from("tcos_kingmaker_pricing_receipts")
-      .select("status,confidence,sold_comp_count,estimated_profit_at_ceiling,created_at")
+    db.from("tcos_kingmaker_pricing_decision_receipts")
+      .select("decision_status,confidence,sold_comp_count,expected_profit,created_at")
       .order("created_at", { ascending: false })
       .limit(250),
     actor,
@@ -164,9 +222,9 @@ export async function getKingmakerPricingCommandCenterSnapshot(actor: Actor) {
   const profiles = (profilesResult.data || []) as ProfileRow[];
   const auditRows = (auditResult.data || []) as AuditRow[];
   const savedViews = (viewsResult.data || []) as SavedViewSummaryRow[];
-  const ready = receipts.filter((row: ReceiptRow) => row.status === "ready");
-  const review = receipts.filter((row: ReceiptRow) => row.status === "review_required");
-  const insufficient = receipts.filter((row: ReceiptRow) => row.status === "insufficient_evidence");
+  const ready = receipts.filter((row: ReceiptRow) => row.decision_status === "ready");
+  const review = receipts.filter((row: ReceiptRow) => row.decision_status === "review_required");
+  const insufficient = receipts.filter((row: ReceiptRow) => row.decision_status === "insufficient_evidence");
   const average = (values: number[]) => values.length ? values.reduce((sum: number, value: number) => sum + value, 0) / values.length : null;
 
   return {
@@ -179,7 +237,7 @@ export async function getKingmakerPricingCommandCenterSnapshot(actor: Actor) {
       readyRate: receipts.length ? ready.length / receipts.length : null,
       averageConfidence: average(receipts.map((row: ReceiptRow) => Number(row.confidence)).filter(Number.isFinite)),
       averageSoldCompCount: average(receipts.map((row: ReceiptRow) => Number(row.sold_comp_count)).filter(Number.isFinite)),
-      estimatedProfitAtCeiling: receipts.reduce((sum: number, row: ReceiptRow) => sum + Number(row.estimated_profit_at_ceiling || 0), 0),
+      estimatedProfitAtCeiling: receipts.reduce((sum: number, row: ReceiptRow) => sum + Number(row.expected_profit || 0), 0),
     },
     profiles: {
       active: profiles.length,

@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "src/lib/kingmaker-pricing-profile-server.ts"
+      - "src/lib/instacomp-pricing-request-security.ts"
       - "src/app/api/instacomp/pricing/decision/route.ts"
       - "scripts/run-kingmaker-pricing-profile-hookup-regressions.ts"
       - ".github/workflows/kingmaker-pricing-profile-hookup.yml"
@@ -29,14 +30,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -q 'sellerAccountId: actor.type === "seller"' src/lib/kingmaker-pricing-profile-server.ts
-          grep -q 'selection: "fallback"' src/lib/kingmaker-pricing-profile-server.ts
-          grep -q 'profileId: body.profileId' src/app/api/instacomp/pricing/decision/route.ts
-          grep -q '?? profile.targetMarginPct' src/app/api/instacomp/pricing/decision/route.ts
-          grep -q 'sourceDisclosure: null' src/app/api/instacomp/pricing/decision/route.ts
-          ! grep -RIni 'beckett' src/lib/kingmaker-pricing-profile-server.ts src/app/api/instacomp/pricing/decision/route.ts scripts/run-kingmaker-pricing-profile-hookup-regressions.ts
+          grep -Fq 'sellerAccountId: actor.type === "seller"' src/lib/kingmaker-pricing-profile-server.ts
+          grep -Fq 'selection: "fallback"' src/lib/kingmaker-pricing-profile-server.ts
+          grep -Fq 'profileId: body.profileId == null ? null : String(body.profileId)' src/app/api/instacomp/pricing/decision/route.ts
+          grep -Fq 'targetMarginPct: profile.targetMarginPct' src/app/api/instacomp/pricing/decision/route.ts
+          grep -Fq 'suppliedInstaCompServerOwnedPricingFields' src/app/api/instacomp/pricing/decision/route.ts
+          grep -Fq 'completedSales: "authoritative_loader_required"' src/app/api/instacomp/pricing/decision/route.ts
+          ! grep -Fq 'body.targetMarginPct' src/app/api/instacomp/pricing/decision/route.ts
+          ! grep -Fq 'body.soldComps' src/app/api/instacomp/pricing/decision/route.ts
+          ! grep -RIni 'beckett' src/lib/kingmaker-pricing-profile-server.ts src/lib/instacomp-pricing-request-security.ts src/app/api/instacomp/pricing/decision/route.ts scripts/run-kingmaker-pricing-profile-hookup-regressions.ts
       - name: Lint
-        run: npx eslint src/lib/kingmaker-pricing-profile-server.ts src/app/api/instacomp/pricing/decision/route.ts scripts/run-kingmaker-pricing-profile-hookup-regressions.ts
+        run: npx eslint src/lib/kingmaker-pricing-profile-server.ts src/lib/instacomp-pricing-request-security.ts src/app/api/instacomp/pricing/decision/route.ts scripts/run-kingmaker-pricing-profile-hookup-regressions.ts
       - name: TypeScript
         run: npx tsc --noEmit
       - name: Production build
