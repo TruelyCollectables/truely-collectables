@@ -29,7 +29,7 @@ on:
       - "src/lib/checklist-registry/topps-football-text-adapter.ts"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: topps-football-registry-worker-${{ github.event_name }}-${{ github.ref }}
@@ -76,10 +76,12 @@ jobs:
       TOPPS_FOOTBALL_MAX_PRODUCTS: "500"
       TOPPS_FOOTBALL_MAX_SOURCES: "100"
       TOPPS_FOOTBALL_OUTPUT: .checklist-discovery/topps-football-worker-receipt.json
+      TOPPS_FOOTBALL_AUDIT: docs/registry-audits/topps-football-latest.json
     steps:
       - uses: actions/checkout@v4
         with:
           ref: agent/topps-isolated-sport-pipelines
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -88,11 +90,11 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "$NEXT_PUBLIC_SUPABASE_URL" ]; then
-            echo "No Supabase URL resolved from NEXT_PUBLIC_SUPABASE_URL, SUPABASE_URL, or matching Production variables."
+            echo "No Supabase URL resolved from protected Production secrets or variables."
             exit 1
           fi
           if [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
-            echo "No Supabase service key resolved from SUPABASE_SERVICE_ROLE_KEY, SUPABASE_SERVICE_KEY, SUPABASE_SERVICE_ROLE, or matching Production variables."
+            echo "No Supabase service key resolved from protected Production secrets or variables."
             exit 1
           fi
           echo "Production Supabase credentials resolved."
@@ -129,11 +131,56 @@ jobs:
           ];
           writeFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join('\n')}\n`, { flag: 'a' });
           NODE
+      - name: Persist sanitized Production status
+        if: always()
+        env:
+          FOOTBALL_JOB_STATUS: ${{ job.status }}
+          FOOTBALL_RUN_ID: ${{ github.run_id }}
+          FOOTBALL_RUN_ATTEMPT: ${{ github.run_attempt }}
+          FOOTBALL_EVENT_NAME: ${{ github.event_name }}
+          FOOTBALL_COMMIT_SHA: ${{ github.sha }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+          import { dirname } from 'node:path';
+          const receiptPath = process.env.TOPPS_FOOTBALL_OUTPUT;
+          const auditPath = process.env.TOPPS_FOOTBALL_AUDIT;
+          let receipt = null;
+          if (receiptPath && existsSync(receiptPath)) {
+            receipt = JSON.parse(readFileSync(receiptPath, 'utf8'));
+          }
+          const audit = {
+            schema: 'tcos.toppsFootball.productionAudit.v1',
+            manufacturer: 'Topps',
+            sport: 'Football',
+            status: process.env.FOOTBALL_JOB_STATUS || 'unknown',
+            runId: process.env.FOOTBALL_RUN_ID || null,
+            runAttempt: process.env.FOOTBALL_RUN_ATTEMPT || null,
+            eventName: process.env.FOOTBALL_EVENT_NAME || null,
+            commitSha: process.env.FOOTBALL_COMMIT_SHA || null,
+            recordedAt: new Date().toISOString(),
+            credentialsResolved: Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY),
+            receipt,
+          };
+          mkdirSync(dirname(auditPath), { recursive: true });
+          writeFileSync(auditPath, `${JSON.stringify(audit, null, 2)}\n`);
+          NODE
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add "$TOPPS_FOOTBALL_AUDIT"
+          if git diff --cached --quiet; then
+            echo "Football Production status is unchanged."
+          else
+            git commit -m "audit: record Topps Football Production worker status"
+            git push origin HEAD:agent/topps-isolated-sport-pipelines
+          fi
       - name: Upload sanitized Football receipt
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: topps-football-registry-worker-receipt
-          path: .checklist-discovery/topps-football-worker-receipt.json
+          path: |
+            .checklist-discovery/topps-football-worker-receipt.json
+            docs/registry-audits/topps-football-latest.json
           if-no-files-found: warn
           retention-days: 90
