@@ -18,6 +18,14 @@ jobs:
   certify:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-service-role-key
+      ADMIN_PASSWORD: build-only-admin-password
+      ADMIN_SESSION_SECRET: build-only-admin-session-secret-with-sufficient-length
+      STRIPE_SECRET_KEY: sk_test_build_only
+      NEXT_PUBLIC_SITE_URL: https://truely-collectables.vercel.app
     steps:
       - uses: actions/checkout@v4
         with:
