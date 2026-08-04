@@ -1,0 +1,82 @@
+name: Topps Full Catalog Archive
+run-name: Topps Full Catalog Archive — ${{ github.event_name }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_products:
+        description: Maximum Topps catalog product pages to scan
+        required: true
+        default: "3000"
+  push:
+    branches:
+      - agent/topps-isolated-sport-pipelines
+    paths:
+      - "scripts/archive-topps-catalog.ts"
+      - ".github/workflows/topps-full-catalog-archive.yml"
+  schedule:
+    - cron: "37 8 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: topps-full-catalog-archive
+  cancel-in-progress: false
+
+jobs:
+  archive:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      TOPPS_ARCHIVE_ROOT: .topps-archive
+      TOPPS_ARCHIVE_MAX_PRODUCTS: ${{ inputs.max_products || '3000' }}
+      TOPPS_ARCHIVE_CONCURRENCY: "6"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/topps-isolated-sport-pipelines
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Download and hash complete official Topps catalog
+        run: node --import tsx scripts/archive-topps-catalog.ts
+      - name: Verify archive manifest
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, existsSync, writeFileSync } from 'node:fs';
+          const path = '.topps-archive/manifest.json';
+          if (!existsSync(path)) throw new Error('Missing Topps archive manifest');
+          const m = JSON.parse(readFileSync(path, 'utf8'));
+          if (m.schema !== 'tcos.topps.sourceArchiveManifest.v1') throw new Error('Wrong archive schema');
+          if ((m.totals?.archived ?? 0) < 1) throw new Error('Topps archive contained zero files');
+          const lines = [
+            '# Topps Full Catalog Archive', '',
+            `**Products scanned:** ${m.totals.products}`,
+            `**Assets discovered:** ${m.totals.discoveredAssets}`,
+            `**Original files archived:** ${m.totals.archived}`,
+            `**Asset failures:** ${m.totals.failedAssets}`,
+            `**Product-page failures:** ${m.totals.failedProductPages}`,
+            '', '## By sport',
+            ...Object.entries(m.bySport || {}).sort().map(([sport, count]) => `- ${sport}: ${count}`),
+          ];
+          writeFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join('\n') + '\n');
+          NODE
+      - name: Package Topps archive
+        run: tar -C .topps-archive -czf topps-full-catalog-archive.tar.gz .
+      - name: Upload full archive bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: topps-full-catalog-archive
+          path: topps-full-catalog-archive.tar.gz
+          if-no-files-found: error
+          retention-days: 90
+      - name: Upload manifest separately
+        uses: actions/upload-artifact@v4
+        with:
+          name: topps-full-catalog-manifest
+          path: .topps-archive/manifest.json
+          if-no-files-found: error
+          retention-days: 90
