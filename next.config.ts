@@ -73,7 +73,7 @@ const nextConfig: NextConfig = {
       beforeFiles: [
         {
           source: "/api/account/seller/inventory/instacomp",
-          destination: "/api/account/seller/inventory/instacomp-universal",
+          destination: "/api/account/seller/inventory/instacomp-verified",
         },
       ],
       afterFiles: [],

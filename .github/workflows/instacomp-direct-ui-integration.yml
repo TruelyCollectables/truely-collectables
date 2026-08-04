@@ -1,0 +1,54 @@
+name: InstaComp Direct Registry UI Integration
+
+on:
+  pull_request:
+    paths:
+      - "next.config.ts"
+      - "src/app/api/account/seller/inventory/instacomp-verified/route.ts"
+      - "src/app/api/account/seller/inventory/instacomp-universal/route.ts"
+      - "src/app/api/account/seller/instacomp-pending/**"
+      - "src/app/seller/instacomp-pending/**"
+      - "src/lib/instacomp-verified-pricing-client.ts"
+      - "src/lib/instacomp-registry-receipt.ts"
+      - "scripts/certify-instacomp-direct-ui-integration.mjs"
+      - ".github/workflows/instacomp-direct-ui-integration.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "next.config.ts"
+      - "src/app/api/account/seller/inventory/instacomp-verified/route.ts"
+      - "src/app/api/account/seller/inventory/instacomp-universal/route.ts"
+      - "src/app/api/account/seller/instacomp-pending/**"
+      - "src/app/seller/instacomp-pending/**"
+      - "src/lib/instacomp-verified-pricing-client.ts"
+      - "src/lib/instacomp-registry-receipt.ts"
+      - "scripts/certify-instacomp-direct-ui-integration.mjs"
+      - ".github/workflows/instacomp-direct-ui-integration.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  certify-direct-registry-ui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Certify server routing, receipt UI, and publish firewall
+        run: node scripts/certify-instacomp-direct-ui-integration.mjs
+      - name: Require browser interceptor removal
+        run: test ! -e src/app/seller/instacomp-pending/ChecklistIdentityGuard.tsx
+      - name: Lint direct integration slice
+        run: |
+          npx eslint \
+            src/app/api/account/seller/inventory/instacomp-verified/route.ts \
+            src/app/seller/instacomp-pending/ChecklistReadinessDashboard.tsx \
+            src/app/seller/instacomp-pending/layout.tsx
+      - name: Typecheck repository
+        run: npx tsc --noEmit --pretty false
