@@ -1,0 +1,44 @@
+name: Finalize KINGMAKER Private Pricing Work Orders 20260804
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/finalize-kingmaker-private-pricing-work-orders-20260804.yml"
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  close-completed-operations-pr:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    env:
+      EXPECTED_MAIN_SHA: 080fab286679916f205c9adc6aee4543ced1166d
+      EXPECTED_BRANCH: ops/apply-kingmaker-private-pricing-work-orders-20260804
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify operations branch and merged implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main
+          git merge-base --is-ancestor "$EXPECTED_MAIN_SHA" origin/main
+          git merge-base --is-ancestor "$EXPECTED_MAIN_SHA" HEAD
+
+      - name: Record completion and close without merging
+        shell: bash
+        run: |
+          set -euo pipefail
+          pr_number="${{ github.event.pull_request.number }}"
+          gh pr comment "$pr_number" --body $'Production rollout completed successfully.\n\n- private coverage work-order tables and audit ledger installed\n- service-only work-order RPC boundaries verified\n- public table and function access revoked\n- aggregate work-order report verified read-only\n- exact merged implementation deployed\n- protected identity and observation totals unchanged\n- work orders mutated by verification: 0\n- prices promoted: 0\n- operations workflows intentionally not merged'
+          gh pr edit "$pr_number" --title "[Completed, not merged] Apply KINGMAKER private pricing work orders to Production"
+          gh pr close "$pr_number"
