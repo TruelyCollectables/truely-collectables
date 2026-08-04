@@ -10,6 +10,9 @@ on:
       - "scripts/run-instacomp-pricing-evidence-boundary-regressions.ts"
       - "scripts/run-instacomp-market-evidence-replay-regressions.ts"
       - "scripts/run-kingmaker-pricing-decision-regressions.ts"
+      - "scripts/run-kingmaker-pricing-profile-lifecycle-regressions.ts"
+      - "scripts/test-instacomp-pricing-profile-atomic.sql"
+      - "supabase/migrations/20260804004500_kingmaker_pricing_profile_atomic_lifecycle.sql"
       - ".github/workflows/instacomp-audit-round3.yml"
   workflow_dispatch:
 
@@ -24,6 +27,20 @@ jobs:
   adversarial-audit-round-three:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      PGPASSWORD: postgres
 
     steps:
       - uses: actions/checkout@v4
@@ -45,12 +62,21 @@ jobs:
       - name: Re-run sold-evidence replay attacks
         run: npx tsx scripts/run-instacomp-market-evidence-replay-regressions.ts
 
+      - name: Re-run pricing profile lifecycle attacks
+        run: npx tsx scripts/run-kingmaker-pricing-profile-lifecycle-regressions.ts
+
+      - name: Run PostgreSQL owner, race, rollback, and replay attacks
+        run: psql -h localhost -U postgres -d postgres -f scripts/test-instacomp-pricing-profile-atomic.sql
+
       - name: Lint Round Three boundary
         run: >-
           npx eslint
           src/app/api/instacomp/pricing/decision/route.ts
+          src/app/api/instacomp/pricing/profiles
           src/lib/instacomp-pricing-request-security.ts
+          src/lib/kingmaker-pricing-profile-lifecycle-server.ts
           scripts/run-instacomp-pricing-evidence-boundary-regressions.ts
+          scripts/run-kingmaker-pricing-profile-lifecycle-regressions.ts
 
       - name: TypeScript
         run: npx tsc --noEmit
