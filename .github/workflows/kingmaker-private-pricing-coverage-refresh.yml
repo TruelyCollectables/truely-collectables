@@ -1,0 +1,87 @@
+name: KINGMAKER Private Pricing Coverage Refresh
+
+on:
+  schedule:
+    - cron: "37 * * * *"
+  workflow_dispatch:
+    inputs:
+      force_refresh:
+        description: Rebuild the snapshot even when it is clean
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kingmaker-private-pricing-coverage-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh-production-snapshot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: Production
+
+    env:
+      VERCEL_SCOPE: truelycollectables-projects
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      KINGMAKER_COVERAGE_FORCE_REFRESH: ${{ github.event_name == 'workflow_dispatch' && inputs.force_refresh || false }}
+      RECEIPT_PATH: evidence/kingmaker-private-pricing-coverage-refresh/receipt.json
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Pull protected Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          mkdir -p .vercel "$RUNNER_TEMP/kingmaker-private-pricing-coverage-refresh"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/kingmaker-private-pricing-coverage-refresh/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          test -s "$RUNNER_TEMP/kingmaker-private-pricing-coverage-refresh/production.env"
+          echo "PRODUCTION_ENV_FILE=$RUNNER_TEMP/kingmaker-private-pricing-coverage-refresh/production.env" >> "$GITHUB_ENV"
+
+      - name: Refresh or verify private pricing coverage snapshot
+        run: node scripts/run-kingmaker-private-pricing-coverage-refresh.mjs
+
+      - name: Require sanitized receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$RECEIPT_PATH"
+          node - <<'NODE'
+          const receipt = require(`./${process.env.RECEIPT_PATH}`);
+          if (
+            receipt.status !== "passed" ||
+            receipt.pricesPromotedByThisOperation !== 0 ||
+            receipt.recordsMutatedOutsideSnapshot !== 0 ||
+            receipt.secretsPersisted !== false
+          ) {
+            process.exit(1);
+          }
+          NODE
+
+      - name: Upload manual refresh receipt
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: kingmaker-private-pricing-coverage-refresh
+          path: ${{ env.RECEIPT_PATH }}
+          if-no-files-found: error
+          retention-days: 14
