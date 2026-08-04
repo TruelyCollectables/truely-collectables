@@ -94,6 +94,16 @@ const smokeRoutes = [
     expectedText: "Market Intel",
   },
   {
+    path: "/admin/market-intel/kingmaker",
+    auth: true,
+    expectedText: "Capital Intelligence Command",
+  },
+  {
+    path: "/admin/market-intel/kingmaker/capital-ledger",
+    auth: true,
+    expectedText: "Purchase Ledger Command",
+  },
+  {
     path: "/admin/market-intel/kingmaker/morning-intelligence",
     auth: true,
     expectedText: "Controlled Delivery Console",
