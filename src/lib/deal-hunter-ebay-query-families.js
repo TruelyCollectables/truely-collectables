@@ -16,6 +16,9 @@ export const DEFAULT_BASEBALL_PROSPECTS = Object.freeze([
   "Franklin Arias",
 ]);
 
+export const RAW_PROSPECT_BALL_WATCH_NAME = "Raw Prospect Ball Watch";
+export const RAW_PROSPECT_BALL_WATCH_SCOPE = "signed_baseballs";
+
 const COLLEGE_OR_PRE_WNBA =
   /\b(college|ncaa|bowman university|bowman u|draft picks?|uconn|connecticut huskies|usc trojans|notre dame|south carolina gamecocks|tcu horned frogs|iowa hawkeyes|maryland terrapins)\b/i;
 const PROHIBITED_LISTING =
@@ -174,10 +177,12 @@ function prospectFamilies(players) {
 function signedBaseballFamilies(players) {
   return players.map((player) => ({
     familyId: `signed-baseball.${slug(player)}`,
-    scope: "signed_baseballs",
-    lane: "signed_prospect_baseball",
+    scope: RAW_PROSPECT_BALL_WATCH_SCOPE,
+    watchName: RAW_PROSPECT_BALL_WATCH_NAME,
+    lane: "raw_prospect_ball_watch",
     watchedPerson: player,
-    itemType: "signed_prospect_baseball",
+    itemType: "raw_or_authenticated_signed_prospect_baseball",
+    authenticationMode: "raw_or_authenticated",
     query: `${player} signed baseball autograph`,
     required: true,
   }));
@@ -201,7 +206,7 @@ export function buildDealHunterEbayQueryFamilies({
   if (normalizedScope === "baseball_prospects") {
     return prospectFamilies(prospectPlayers);
   }
-  if (normalizedScope === "signed_baseballs") {
+  if (normalizedScope === RAW_PROSPECT_BALL_WATCH_SCOPE) {
     return signedBaseballFamilies(prospectPlayers);
   }
   if (normalizedScope === "all") {
@@ -262,11 +267,14 @@ export function screenDealHunterEbayTitle({ title, family }) {
     reviewReasons.push("true_first_bowman_not_proven_from_title");
   }
 
-  if (
-    family?.scope === "signed_baseballs" &&
-    !/\b(signed|autograph|auto)\b/i.test(value)
-  ) {
-    rejectionReasons.push("signature_not_claimed");
+  if (family?.scope === RAW_PROSPECT_BALL_WATCH_SCOPE) {
+    if (!/\b(signed|autograph|autographed|auto)\b/i.test(value)) {
+      rejectionReasons.push("signature_not_claimed");
+    } else {
+      reviewReasons.push(
+        "raw_prospect_ball_authentication_condition_inscription_and_ball_type_review_required",
+      );
+    }
   }
 
   return {
@@ -288,3 +296,5 @@ export function extractEbayItemId(value) {
 
 export const DEAL_HUNTER_WNBA_QUERY_FAMILY_COUNT = 15;
 export const DEAL_HUNTER_MICHKOV_QUERY_FAMILY_COUNT = 8;
+export const DEAL_HUNTER_RAW_PROSPECT_BALL_QUERY_FAMILY_COUNT =
+  DEFAULT_BASEBALL_PROSPECTS.length;

@@ -14,7 +14,7 @@ import { runMarketIntelHotWatch } from "./market-intel-hot-watch";
 import { createSupabaseServerClient } from "./supabase-server";
 
 const MOUNTAIN_TIME_ZONE = "America/Denver";
-const PROFIT_HUNTER_HOURS = Object.freeze([7, 9, 11, 13, 15, 17, 19, 21]);
+const PROFIT_HUNTER_HOURS = Object.freeze([7, 11, 15, 18, 21]);
 const EXPECTED_WNBA_FAMILIES = 15;
 const EXPECTED_MICHKOV_YOUNG_GUNS_FAMILIES = 8;
 const EXPECTED_MICHKOV_OPC_FAMILIES = 10;

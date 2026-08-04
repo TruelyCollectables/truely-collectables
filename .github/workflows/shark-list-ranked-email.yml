@@ -1,0 +1,40 @@
+name: Shark List Ranked Email
+
+on:
+  pull_request:
+    paths:
+      - "src/lib/deal-hunter-ebay-query-families.js"
+      - "src/lib/profit-hunter-ranked-email.js"
+      - "src/lib/profit-hunter-ranked-email-state.js"
+      - "src/app/api/cron/profit-hunter/route.js"
+      - "scripts/run-profit-hunter-server-cron-contracts.mjs"
+      - ".github/workflows/shark-list-ranked-email.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-ranked-email:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check JavaScript syntax
+        run: |
+          set -euo pipefail
+          node --check src/lib/deal-hunter-ebay-query-families.js
+          node --check src/lib/profit-hunter-ranked-email.js
+          node --check src/lib/profit-hunter-ranked-email-state.js
+          node --check src/app/api/cron/profit-hunter/route.js
+          node --check scripts/run-profit-hunter-server-cron-contracts.mjs
+
+      - name: Verify Shark List and Raw Prospect Ball Watch contracts
+        run: node scripts/run-profit-hunter-server-cron-contracts.mjs

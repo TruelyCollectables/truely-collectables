@@ -1,6 +1,15 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
+import {
+  RAW_PROSPECT_BALL_WATCH_NAME,
+  RAW_PROSPECT_BALL_WATCH_SCOPE,
+} from "../../../../lib/deal-hunter-ebay-query-families.js";
 import { isAuthorizedMarketIntelIngest } from "../../../../lib/market-intel-ingestion";
+import { sendRankedProfitHunterEmail } from "../../../../lib/profit-hunter-ranked-email.js";
+import {
+  readPriorRankedProfitHunterEmailState,
+  restoreRankedProfitHunterEmailState,
+} from "../../../../lib/profit-hunter-ranked-email-state.js";
 import {
   getProfitHunterScheduleState,
   PROFIT_HUNTER_SERVER_CONTRACT,
@@ -19,6 +28,19 @@ function deploymentInfo() {
       String(process.env.VERCEL_GIT_COMMIT_SHA || "").slice(0, 12) || null,
     branch: process.env.VERCEL_GIT_COMMIT_REF || null,
     region: process.env.VERCEL_REGION || null,
+  };
+}
+
+function rawProspectBallWatchSchedule(schedule) {
+  return {
+    name: RAW_PROSPECT_BALL_WATCH_NAME,
+    enabled: true,
+    scope: RAW_PROSPECT_BALL_WATCH_SCOPE,
+    executionPath: "included_in_profit_hunter_server_cycle",
+    timeZone: schedule.timeZone,
+    scheduledHours: [...schedule.scheduledHours],
+    manualReviewRequired: true,
+    delivery: "ranked_shark_list_email",
   };
 }
 
@@ -67,8 +89,27 @@ function isAuthorizedProfitHunterCron(request) {
   return configuredSecrets.some((secret) => secureEqual(secret, supplied));
 }
 
+function restoreEnvironment(name, previousValue) {
+  if (previousValue === undefined) {
+    delete process.env[name];
+    return;
+  }
+  process.env[name] = previousValue;
+}
+
+async function runCycleWithoutLegacyEmail(perQuery) {
+  const previousEmailEnabled = process.env.MARKET_INTEL_EMAIL_ENABLED;
+  process.env.MARKET_INTEL_EMAIL_ENABLED = "false";
+  try {
+    return await runProfitHunterServerCycle({ perQuery });
+  } finally {
+    restoreEnvironment("MARKET_INTEL_EMAIL_ENABLED", previousEmailEnabled);
+  }
+}
+
 async function run(request) {
   const schedule = getProfitHunterScheduleState();
+  const rawProspectBallWatch = rawProspectBallWatchSchedule(schedule);
   const statusOnly = request.nextUrl.searchParams.get("statusOnly") === "1";
   if (statusOnly) {
     return json({
@@ -78,6 +119,13 @@ async function run(request) {
       schedule,
       contract: PROFIT_HUNTER_SERVER_CONTRACT,
       executionPath: "vercel_server_cron",
+      rawProspectBallWatch,
+      rankedEmail: {
+        enabled: true,
+        format: "ranked_clickable_shark_list_v1",
+        legacyPlainReportEmailSuppressed: true,
+        unchangedContentSuppressed: true,
+      },
     });
   }
 
@@ -101,20 +149,78 @@ async function run(request) {
       code: "OUTSIDE_PROFIT_HUNTER_MOUNTAIN_SCHEDULE",
       deployment: deploymentInfo(),
       schedule,
+      rawProspectBallWatch,
     });
   }
 
   try {
-    const result = await runProfitHunterServerCycle({
-      perQuery: Number(request.nextUrl.searchParams.get("perQuery") || 20),
-    });
+    const priorRankedEmailState =
+      await readPriorRankedProfitHunterEmailState();
+    const result = await runCycleWithoutLegacyEmail(
+      Number(request.nextUrl.searchParams.get("perQuery") || 20),
+    );
+    const rankedEmailState = await restoreRankedProfitHunterEmailState(
+      result.reportId,
+      priorRankedEmailState,
+    );
+    const hasPriorFingerprint = Boolean(
+      priorRankedEmailState.ranked_shark_email_fingerprint,
+    );
+    const allowForcedEmail =
+      request.nextUrl.searchParams.get("sendEmail") === "1";
+    let rankedEmail;
+    if (force && !allowForcedEmail) {
+      rankedEmail = {
+        attempted: false,
+        delivered: false,
+        skipped: true,
+        reason:
+          "Forced verification run completed without email. Add sendEmail=1 to deliberately deliver it.",
+      };
+    } else if (hasPriorFingerprint && !rankedEmailState.restored) {
+      rankedEmail = {
+        attempted: false,
+        delivered: false,
+        skipped: true,
+        reason:
+          "Prior ranked-email fingerprint could not be restored after the hourly report refresh; delivery was suppressed to avoid a duplicate email.",
+      };
+    } else {
+      try {
+        rankedEmail = await sendRankedProfitHunterEmail({
+          reportId: result.reportId,
+          force: force && allowForcedEmail,
+        });
+      } catch (error) {
+        rankedEmail = {
+          attempted: true,
+          delivered: false,
+          skipped: false,
+          reason:
+            error instanceof Error
+              ? error.message
+              : "Unable to send the ranked Shark List email.",
+        };
+      }
+    }
+
+    const emailFailed =
+      rankedEmail.attempted === true &&
+      rankedEmail.delivered !== true &&
+      rankedEmail.skipped !== true;
+    const ok = result.ok && !emailFailed;
+
     return json(
       {
         ...result,
+        ok,
+        rawProspectBallWatch,
+        rankedEmail,
+        rankedEmailState,
         deployment: deploymentInfo(),
         forced: force,
       },
-      result.ok ? 200 : 500,
+      ok ? 200 : 500,
     );
   } catch (error) {
     return json(
@@ -127,6 +233,7 @@ async function run(request) {
             : "Unable to run Profit Hunter inside Vercel.",
         deployment: deploymentInfo(),
         schedule,
+        rawProspectBallWatch,
         forced: force,
       },
       500,
