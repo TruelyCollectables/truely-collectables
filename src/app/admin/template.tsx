@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
@@ -44,7 +45,37 @@ export default function AdminTemplate({ children }: { children: ReactNode }) {
   return (
     <>
       {children}
+      {isProtectedAdminPage ? <KingmakerCommandButton pathname={pathname} /> : null}
       {refundPanelAvailable ? <RefundOrderPanel pathname={pathname} /> : null}
+    </>
+  );
+}
+
+function KingmakerCommandButton({ pathname }: { pathname: string }) {
+  if (pathname.startsWith("/admin/market-intel/kingmaker")) return null;
+
+  return (
+    <>
+      <Link
+        href="/admin/market-intel/kingmaker"
+        aria-label="Open Project KINGMAKER Beta 1.0"
+        className="group fixed bottom-5 right-5 z-[70] hidden min-w-[260px] overflow-hidden rounded-2xl border border-amber-300/30 bg-[#05070a]/95 p-4 text-white shadow-[0_24px_80px_rgba(0,0,0,.7)] backdrop-blur-xl transition hover:-translate-y-1 hover:border-emerald-300/50 sm:block"
+      >
+        <span className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(245,158,11,.18),transparent_46%),radial-gradient(circle_at_bottom_left,rgba(16,185,129,.16),transparent_45%)]" />
+        <span className="relative block text-[10px] font-black uppercase tracking-[.24em] text-amber-300">Project KINGMAKER Beta 1.0</span>
+        <span className="relative mt-1 block text-lg font-black tracking-tight">Capital Intelligence Command</span>
+        <span className="relative mt-2 flex items-center justify-between text-xs font-bold text-neutral-400">
+          <span>Truth · Capital · Decisions</span>
+          <span className="text-emerald-300 transition group-hover:translate-x-1">ENTER →</span>
+        </span>
+      </Link>
+      <Link
+        href="/admin/market-intel/kingmaker"
+        aria-label="Open Project KINGMAKER Beta 1.0"
+        className="fixed bottom-4 right-4 z-[70] rounded-full border border-amber-300/30 bg-[#05070a]/95 px-4 py-3 text-xs font-black uppercase tracking-[.12em] text-amber-300 shadow-2xl backdrop-blur-xl sm:hidden"
+      >
+        KINGMAKER →
+      </Link>
     </>
   );
 }

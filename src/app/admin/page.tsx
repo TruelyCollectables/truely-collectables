@@ -170,6 +170,10 @@ export default LegacyAdminDashboard;
   "/admin/instacomp/pricing/review"
   "/admin/instacomp/pricing/views"
   "/admin/instacomp/pricing/audit"
+  "/admin/market-intel/kingmaker"
+  "/admin/market-intel/kingmaker/capital-ledger"
+  Project KINGMAKER Beta 1.0
+  Capital Intelligence Command
   "/admin/inventory"
   "/admin/inventory/category-review"
   "/admin/launch-gate-drill"

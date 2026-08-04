@@ -1,0 +1,50 @@
+name: KINGMAKER Command Surfaces
+
+on:
+  pull_request:
+    paths:
+      - "src/app/admin/template.tsx"
+      - "src/app/admin/market-intel/kingmaker/**"
+      - "scripts/smoke-kingmaker-runtime.mjs"
+      - ".github/workflows/kingmaker-command-surfaces.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-command-surfaces:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Lint KINGMAKER surfaces
+        run: npx eslint src/app/admin/template.tsx src/app/admin/market-intel/kingmaker/page.tsx src/app/admin/market-intel/kingmaker/capital-ledger/page.tsx scripts/smoke-kingmaker-runtime.mjs
+
+      - name: TypeScript compile
+        run: npx tsc --noEmit
+
+      - name: Production build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-placeholder
+          SUPABASE_SERVICE_ROLE_KEY: build-placeholder
+        run: npm run build
+
+      - name: Runtime smoke KINGMAKER
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-placeholder
+          SUPABASE_SERVICE_ROLE_KEY: build-placeholder
+        run: node scripts/smoke-kingmaker-runtime.mjs
