@@ -1,23 +1,19 @@
 name: Master Checklist Bulk Pull
-# Download-first Topps and Panini pass 2026-08-04T21:16Z
+# Vacuum mode: repeat discovery and download every manufacturer
 
 on:
   pull_request:
     paths:
       - "data/*-checklist-seeds.json"
       - "scripts/archive-*.ts"
-      - "scripts/discover-official-checklists.ts"
-      - "scripts/discover-blocked-checklists-via-reader.ts"
-      - "scripts/discover-panini-checklists-via-public-indexes.ts"
+      - "scripts/discover-*.ts"
       - "scripts/build-checklist-master-status.ts"
       - ".github/workflows/master-checklist-bulk-pull.yml"
   push:
     paths:
       - "data/*-checklist-seeds.json"
       - "scripts/archive-*.ts"
-      - "scripts/discover-official-checklists.ts"
-      - "scripts/discover-blocked-checklists-via-reader.ts"
-      - "scripts/discover-panini-checklists-via-public-indexes.ts"
+      - "scripts/discover-*.ts"
       - "scripts/build-checklist-master-status.ts"
       - ".github/workflows/master-checklist-bulk-pull.yml"
   schedule:
@@ -43,42 +39,57 @@ jobs:
           cache: npm
       - run: npm ci
 
-      - name: Discover Panini official pages and files through public indexes
+      - name: Panini public-index vacuum
         continue-on-error: true
         timeout-minutes: 11
         run: node --import tsx scripts/discover-panini-checklists-via-public-indexes.ts
 
-      - name: Discover blocked Topps and Panini catalogs through reader fallback
+      - name: Reader fallback vacuum
         continue-on-error: true
         timeout-minutes: 10
         run: node --import tsx scripts/discover-blocked-checklists-via-reader.ts
 
-      - name: Download and repair Topps immediately
+      - name: Official catalog vacuum pass 1
         continue-on-error: true
-        timeout-minutes: 150
-        run: node --import tsx scripts/archive-topps-seed-sets.ts
-
-      - name: Download Panini immediately
-        continue-on-error: true
-        timeout-minutes: 90
-        run: node --import tsx scripts/archive-panini-seed-sets.ts
-
-      - name: Crawl official manufacturer catalogs and refill queues
-        continue-on-error: true
-        timeout-minutes: 45
+        timeout-minutes: 70
         run: node --import tsx scripts/discover-official-checklists.ts
 
-      - name: Download Topps newly found in broad crawl
+      - name: Download Topps pass 1
         continue-on-error: true
         timeout-minutes: 150
         run: node --import tsx scripts/archive-topps-seed-sets.ts
 
-      - name: Download Panini newly found in broad crawl
+      - name: Download Panini pass 1
         continue-on-error: true
         timeout-minutes: 90
         run: node --import tsx scripts/archive-panini-seed-sets.ts
 
-      - name: Download Leaf discovered checklist catalog
+      - name: Download Upper Deck pass 1
+        continue-on-error: true
+        timeout-minutes: 120
+        run: node --import tsx scripts/archive-upper-deck-seed-sets.ts
+
+      - name: Official catalog vacuum pass 2
+        continue-on-error: true
+        timeout-minutes: 70
+        run: node --import tsx scripts/discover-official-checklists.ts
+
+      - name: Download Topps pass 2
+        continue-on-error: true
+        timeout-minutes: 150
+        run: node --import tsx scripts/archive-topps-seed-sets.ts
+
+      - name: Download Panini pass 2
+        continue-on-error: true
+        timeout-minutes: 90
+        run: node --import tsx scripts/archive-panini-seed-sets.ts
+
+      - name: Download Upper Deck pass 2
+        continue-on-error: true
+        timeout-minutes: 120
+        run: node --import tsx scripts/archive-upper-deck-seed-sets.ts
+
+      - name: Download Leaf
         continue-on-error: true
         timeout-minutes: 90
         run: node --import tsx scripts/archive-leaf-checklist-sets.ts
@@ -87,7 +98,7 @@ jobs:
         if: always()
         run: |
           mkdir -p .checklist-master-archive
-          for source in .topps-seed-archive .panini-seed-archive .leaf-checklist-archive; do
+          for source in .topps-seed-archive .panini-seed-archive .leaf-checklist-archive .upper-deck-seed-archive; do
             if [ -d "$source" ]; then
               find "$source" -mindepth 1 -maxdepth 1 -type d -exec cp -a {} .checklist-master-archive/ \;
             fi
@@ -107,6 +118,7 @@ jobs:
           test ! -f .topps-seed-archive/manifest.json || cp .topps-seed-archive/manifest.json .checklist-master-archive/manifests/topps.json
           test ! -f .panini-seed-archive/manifest.json || cp .panini-seed-archive/manifest.json .checklist-master-archive/manifests/panini.json
           test ! -f .leaf-checklist-archive/manifest.json || cp .leaf-checklist-archive/manifest.json .checklist-master-archive/manifests/leaf.json
+          test ! -f .upper-deck-seed-archive/manifest.json || cp .upper-deck-seed-archive/manifest.json .checklist-master-archive/manifests/upper-deck.json
 
       - name: Package master archive
         if: always()
@@ -132,7 +144,7 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-      - name: Require at least one archived file per active manufacturer
+      - name: Require at least one archived file per discovered manufacturer
         if: always()
         run: |
           node --input-type=module <<'NODE'
