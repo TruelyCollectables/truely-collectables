@@ -5,6 +5,8 @@ import { dirname, resolve } from "node:path";
 const RECEIPT_SCHEMA = "tcos.kingmaker.beckettAutoRematchDrainReceipt.v1";
 const MIGRATION =
   "supabase/migrations/20260804024500_batch_kingmaker_auto_rematch_drain.sql";
+const OPTIONAL_INDEX_NAME =
+  "tcos_kingmaker_price_entries_rematch_version_idx";
 
 function parseEnv(contents) {
   const parsed = {};
@@ -47,20 +49,31 @@ function boundedInteger(value, fallback, minimum, maximum, label) {
   return parsed;
 }
 
+function sleep(milliseconds) {
+  return new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds));
+}
+
 async function queryManagement({ project, token, query, readOnly, stage }) {
-  const response = await fetch(
-    `https://api.supabase.com/v1/projects/${project}/database/query`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-        Accept: "application/json",
+  let response;
+  try {
+    response = await fetch(
+      `https://api.supabase.com/v1/projects/${project}/database/query`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({ query, parameters: [], read_only: readOnly }),
+        signal: AbortSignal.timeout(119_000),
       },
-      body: JSON.stringify({ query, parameters: [], read_only: readOnly }),
-      signal: AbortSignal.timeout(119_000),
-    },
-  );
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Supabase Management ${stage} request failed: ${message}`);
+  }
+
   const text = await response.text();
   if (!response.ok) {
     throw new Error(
@@ -107,6 +120,42 @@ function statsSql() {
         where source = 'beckett'
       ) as beckett_observations
     from public.tcos_kingmaker_price_entries;
+  `;
+}
+
+function migrationStatusSql() {
+  return `
+    select
+      to_regprocedure(
+        'public.tcos_rematch_kingmaker_price_entries_for_release_batch(uuid,uuid,integer,text)'
+      ) is not null as batch_rpc_present,
+      to_regprocedure(
+        'public.tcos_drain_kingmaker_price_rematch_batch(integer,text)'
+      ) is not null as drain_rpc_present,
+      to_regclass(
+        'public.${OPTIONAL_INDEX_NAME}'
+      ) is not null as optional_index_present;
+  `;
+}
+
+function rematchActivitySql() {
+  return `
+    with rematch_activity as (
+      select extract(epoch from now() - coalesce(query_start, xact_start, backend_start)) as age_seconds
+      from pg_stat_activity
+      where pid <> pg_backend_pid()
+        and state <> 'idle'
+        and (
+          query ilike '%tcos_rematch_kingmaker_price_entries_for_release%'
+          or query ilike '%tcos_match_kingmaker_price_entry_ids%'
+          or query ilike '%tcos_drain_kingmaker_price_rematch_batch%'
+          or query ilike '%${OPTIONAL_INDEX_NAME}%'
+        )
+    )
+    select
+      count(*)::integer as active_rematch_queries,
+      coalesce(max(age_seconds), 0)::numeric as oldest_rematch_seconds
+    from rematch_activity;
   `;
 }
 
@@ -178,6 +227,143 @@ function numeric(row, field) {
   return value;
 }
 
+function productionSafeMigration(migrationSql) {
+  const startMarker =
+    `create index if not exists ${OPTIONAL_INDEX_NAME}`;
+  const endMarker = "    and high_observation_id is null;";
+  const start = migrationSql.toLowerCase().indexOf(startMarker.toLowerCase());
+  if (start < 0) {
+    throw new Error("Optional KINGMAKER rematch index block was not found.");
+  }
+  const endStart = migrationSql.indexOf(endMarker, start);
+  if (endStart < 0) {
+    throw new Error("Optional KINGMAKER rematch index block end was not found.");
+  }
+  const end = endStart + endMarker.length;
+  const stripped = `${migrationSql.slice(0, start)}-- Optional rematch lookup index intentionally skipped by the protected Production runner.\n${migrationSql.slice(end)}`;
+
+  if (stripped.includes(OPTIONAL_INDEX_NAME)) {
+    throw new Error("Optional KINGMAKER rematch index remained in Production-safe DDL.");
+  }
+  for (const required of [
+    "tcos_rematch_kingmaker_price_entries_for_release_batch",
+    "tcos_drain_kingmaker_price_rematch_batch",
+    "tcos_trigger_kingmaker_beckett_rematch",
+  ]) {
+    if (!stripped.includes(required)) {
+      throw new Error(`Production-safe migration lost required function ${required}.`);
+    }
+  }
+  return stripped;
+}
+
+async function waitForRematchActivity({
+  project,
+  token,
+  maxAttempts = 24,
+  delayMilliseconds = 15_000,
+}) {
+  let latest = { active_rematch_queries: 0, oldest_rematch_seconds: 0 };
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    latest = firstRow(
+      await queryManagement({
+        project,
+        token,
+        query: rematchActivitySql(),
+        readOnly: true,
+        stage: `rematch activity check ${attempt}/${maxAttempts}`,
+      }),
+    );
+    const active = numeric(latest, "active_rematch_queries");
+    const oldest = Math.round(numeric(latest, "oldest_rematch_seconds"));
+    if (active === 0) {
+      return { attempts: attempt, activeAtCompletion: 0, oldestSeconds: oldest };
+    }
+    console.log(
+      `Waiting for ${active} older KINGMAKER rematch transaction(s); oldest ${oldest}s.`,
+    );
+    if (attempt < maxAttempts) await sleep(delayMilliseconds);
+  }
+  throw new Error(
+    `Older KINGMAKER rematch transactions did not clear after ${maxAttempts} checks; active ${numeric(latest, "active_rematch_queries")}.`,
+  );
+}
+
+async function ensureBatchedMigration({ project, token, migrationSql }) {
+  let status = firstRow(
+    await queryManagement({
+      project,
+      token,
+      query: migrationStatusSql(),
+      readOnly: true,
+      stage: "batched rematch migration status",
+    }),
+  );
+
+  if (status.batch_rpc_present === true && status.drain_rpc_present === true) {
+    console.log("KINGMAKER batched rematch functions are already installed.");
+    return {
+      mode: "already_applied",
+      optionalIndexPresent: status.optional_index_present === true,
+      wait: { attempts: 0, activeAtCompletion: 0, oldestSeconds: 0 },
+      productionSafeSha256: null,
+    };
+  }
+
+  const wait = await waitForRematchActivity({ project, token });
+  const safeMigration = productionSafeMigration(migrationSql);
+  await queryManagement({
+    project,
+    token,
+    query: safeMigration,
+    readOnly: false,
+    stage: "Production-safe batched rematch migration",
+  });
+
+  status = firstRow(
+    await queryManagement({
+      project,
+      token,
+      query: migrationStatusSql(),
+      readOnly: true,
+      stage: "post-migration batched rematch status",
+    }),
+  );
+  if (status.batch_rpc_present !== true || status.drain_rpc_present !== true) {
+    throw new Error("Production-safe batched rematch migration did not install both RPCs.");
+  }
+
+  return {
+    mode: "applied_without_optional_index",
+    optionalIndexPresent: status.optional_index_present === true,
+    wait,
+    productionSafeSha256: createHash("sha256")
+      .update(safeMigration)
+      .digest("hex"),
+  };
+}
+
+function selfTest() {
+  const migrationSql = readFileSync(MIGRATION, "utf8");
+  const safeMigration = productionSafeMigration(migrationSql);
+  if (safeMigration.includes(OPTIONAL_INDEX_NAME)) {
+    throw new Error("Self-test found the optional index in Production-safe DDL.");
+  }
+  if (!migrationStatusSql().includes("batch_rpc_present")) {
+    throw new Error("Self-test found an incomplete migration status query.");
+  }
+  if (!rematchActivitySql().includes("pid <> pg_backend_pid()")) {
+    throw new Error("Self-test found an unsafe activity query.");
+  }
+  if (
+    createHash("sha256").update(safeMigration).digest("hex") ===
+    createHash("sha256").update(migrationSql).digest("hex")
+  ) {
+    throw new Error("Self-test expected Production-safe DDL to differ from source DDL.");
+  }
+  console.log("KINGMAKER Production migration setup self-test passed.");
+}
+
 async function main() {
   const envFile = process.env.PRODUCTION_ENV_FILE;
   const token =
@@ -210,13 +396,10 @@ async function main() {
     productionEnv.NEXT_PUBLIC_SUPABASE_URL || productionEnv.SUPABASE_URL;
   const project = projectRef(productionUrl);
   const migrationSql = readFileSync(MIGRATION, "utf8");
-
-  await queryManagement({
+  const migrationSetup = await ensureBatchedMigration({
     project,
     token,
-    query: migrationSql,
-    readOnly: false,
-    stage: "batched rematch migration",
+    migrationSql,
   });
 
   const verification = firstRow(
@@ -310,6 +493,7 @@ async function main() {
     migration: {
       path: MIGRATION,
       sha256: createHash("sha256").update(migrationSql).digest("hex"),
+      setup: migrationSetup,
     },
     configuration: { batchSize, maxBatches },
     drain: {
@@ -347,7 +531,16 @@ async function main() {
   );
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+if (process.argv.includes("--self-test")) {
+  try {
+    selfTest();
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }
+} else {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}
