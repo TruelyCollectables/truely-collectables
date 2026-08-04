@@ -1,0 +1,312 @@
+name: Recover External Back Images 20260730
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/recover-external-back-images-20260730.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: recover-external-back-images-20260730
+  cancel-in-progress: false
+
+jobs:
+  recover-measure-deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'ops/recover-external-back-images-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+
+    steps:
+      - name: Check out recovery branch
+        uses: actions/checkout@v4
+        with:
+          ref: ops/recover-external-back-images-20260730
+          fetch-depth: 0
+
+      - name: Validate merged back-image recovery code
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f src/lib/companion-back-image-sync.ts
+          grep -Fq 'verifyRemoteImage' src/lib/companion-back-image-sync.ts
+          grep -Fq 'companionBackListingImageUrl' src/lib/companion-back-image-sync.ts
+          grep -Fq 'selectFrontBackListingImages' src/lib/listing-image-utils.ts
+          git diff --check
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Link Vercel and create one-time recovery token
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          work="$RUNNER_TEMP/external-back-recovery"
+          mkdir -p .vercel "$work"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          token="$(openssl rand -hex 32)"
+          echo "::add-mask::$token"
+          printf '%s' "$token" > "$work/recovery-token"
+          printf '%s\n' "$token" | npx vercel@56.2.0 env add EXTERNAL_BACK_IMAGE_RECOVERY_TOKEN production \
+            --force --sensitive --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Add protected recovery route
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p src/app/api/internal/external-back-image-recovery
+          cat > src/app/api/internal/external-back-image-recovery/route.ts <<'TS'
+          import { timingSafeEqual } from "node:crypto";
+          import { syncVerifiedCompanionBackImages } from "../../../../lib/companion-back-image-sync";
+          import { selectFrontBackListingImages } from "../../../../lib/listing-image-utils";
+          import { getActiveStoreId } from "../../../../lib/stores";
+          import { createSupabaseServerClient } from "../../../../lib/supabase-server";
+
+          export const dynamic = "force-dynamic";
+          export const maxDuration = 300;
+
+          function authorized(request: Request, secret: string) {
+            const supplied = Buffer.from(request.headers.get("x-tcos-recovery-token") || "");
+            const expected = Buffer.from(secret);
+            return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+          }
+
+          function chunks<T>(values: T[], size: number) {
+            const result: T[][] = [];
+            for (let index = 0; index < values.length; index += size) {
+              result.push(values.slice(index, index + size));
+            }
+            return result;
+          }
+
+          export async function POST(request: Request) {
+            const secret = process.env.EXTERNAL_BACK_IMAGE_RECOVERY_TOKEN || "";
+            if (secret.length < 32 || !authorized(request, secret)) {
+              return Response.json({ success: false, error: "Unauthorized" }, { status: 401 });
+            }
+
+            const startedAt = new Date().toISOString();
+            const supabase = createSupabaseServerClient({ admin: true });
+            const storeId = getActiveStoreId();
+
+            try {
+              const recovery = await syncVerifiedCompanionBackImages({
+                supabase,
+                storeId,
+              });
+
+              const { data: products, error: productError } = await supabase
+                .from("products")
+                .select("id,image_url,ebay_item_id")
+                .eq("store_id", storeId)
+                .gt("quantity", 0)
+                .not("ebay_item_id", "is", null)
+                .order("id", { ascending: true })
+                .limit(3000);
+              if (productError) throw productError;
+
+              const productIds = (products || []).map((row: any) => Number(row.id));
+              const inventory: Array<{ id: string; legacy_product_id: number }> = [];
+              for (const productChunk of chunks(productIds, 100)) {
+                const { data, error } = await supabase
+                  .from("inventory_items")
+                  .select("id,legacy_product_id")
+                  .eq("store_id", storeId)
+                  .in("legacy_product_id", productChunk)
+                  .limit(1000);
+                if (error) throw error;
+                inventory.push(...((data || []) as Array<{ id: string; legacy_product_id: number }>));
+              }
+
+              const images: Array<{ inventory_item_id: string; image_url: string }> = [];
+              for (const inventoryChunk of chunks(inventory.map((row) => row.id), 20)) {
+                const { data, error } = await supabase
+                  .from("inventory_images")
+                  .select("inventory_item_id,image_url")
+                  .in("inventory_item_id", inventoryChunk)
+                  .order("inventory_item_id", { ascending: true })
+                  .order("sort_order", { ascending: true })
+                  .limit(1000);
+                if (error) throw error;
+                images.push(...((data || []) as Array<{ inventory_item_id: string; image_url: string }>));
+              }
+
+              const inventoryByProduct = new Map(
+                inventory.map((row) => [Number(row.legacy_product_id), row.id]),
+              );
+              const imagesByInventory = new Map<string, string[]>();
+              for (const image of images) {
+                const list = imagesByInventory.get(image.inventory_item_id) || [];
+                list.push(image.image_url);
+                imagesByInventory.set(image.inventory_item_id, list);
+              }
+
+              const withBack: Array<{ productId: number; images: string[] }> = [];
+              const withoutBack: Array<{ productId: number; images: string[] }> = [];
+              for (const product of products || []) {
+                const inventoryId = inventoryByProduct.get(Number(product.id));
+                const selected = selectFrontBackListingImages([
+                  product.image_url,
+                  ...(inventoryId ? imagesByInventory.get(inventoryId) || [] : []),
+                ]);
+                const record = {
+                  productId: Number(product.id),
+                  images: selected,
+                };
+                if (selected.length >= 2) withBack.push(record);
+                else withoutBack.push(record);
+              }
+
+              const coveragePercent = productIds.length
+                ? Math.round((withBack.length / productIds.length) * 10000) / 100
+                : 0;
+
+              return Response.json({
+                success: recovery.errors.length === 0,
+                event: "external_back_image_recovery_completed",
+                startedAt,
+                completedAt: new Date().toISOString(),
+                storeId,
+                recovery,
+                coverage: {
+                  activeEbayProducts: productIds.length,
+                  productsWithDisplayableFrontBack: withBack.length,
+                  productsWithoutDisplayableBack: withoutBack.length,
+                  displayableFrontBackCoveragePercent: coveragePercent,
+                  sampleProductId: withBack[0]?.productId || null,
+                  missingBackSamples: withoutBack.slice(0, 50).map((row) => ({
+                    productId: row.productId,
+                    currentImages: row.images,
+                  })),
+                },
+              });
+            } catch (error) {
+              return Response.json(
+                {
+                  success: false,
+                  event: "external_back_image_recovery_failed",
+                  startedAt,
+                  completedAt: new Date().toISOString(),
+                  storeId,
+                  error: error instanceof Error ? error.message.slice(0, 1500) : "Unknown recovery error",
+                },
+                { status: 500 },
+              );
+            }
+          }
+          TS
+          git diff --check
+
+      - name: Deploy protected recovery runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/external-back-recovery"
+          npx vercel@56.2.0 deploy --prod --yes --force --archive=tgz \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee "$work/deploy.log"
+          deployment_url="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$work/deploy.log" | tail -n 1)"
+          test -n "$deployment_url"
+          printf '%s' "$deployment_url" > "$work/deployment-url"
+
+      - name: Recover verified backs and measure live inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/external-back-recovery"
+          token="$(cat "$work/recovery-token")"
+          deployment_url="$(cat "$work/deployment-url")"
+          response="$work/response.json"
+          status="$(curl -sS --max-time 330 \
+            -H "x-tcos-recovery-token: $token" \
+            -X POST -o "$response" -w '%{http_code}' \
+            "$deployment_url/api/internal/external-back-image-recovery?run=${GITHUB_RUN_ID}" || true)"
+          echo "recovery_status=$status"
+          cat "$response" || true
+          echo
+          test "$status" = "200"
+          node - "$response" <<'NODE'
+          const fs = require('node:fs');
+          const receipt = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          if (!receipt.success) throw new Error(JSON.stringify(receipt).slice(0, 12000));
+          console.log(JSON.stringify({
+            recovery: receipt.recovery,
+            coverage: receipt.coverage,
+          }, null, 2));
+          NODE
+
+      - name: Remove recovery route and deploy latest main cleanly
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 env rm EXTERNAL_BACK_IMAGE_RECOVERY_TOKEN production --yes \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null || true
+          git fetch origin main
+          git reset --hard origin/main
+          git clean -fd
+          test -z "$(git status --porcelain --untracked-files=all)"
+          npx vercel@56.2.0 deploy --prod --yes --force --archive=tgz \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+
+      - name: Verify live sample with front and back
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/external-back-recovery"
+          response="$work/response.json"
+          sample_id="$(node -e 'const r=require(process.argv[1]); process.stdout.write(String(r.coverage?.sampleProductId || ""))' "$response")"
+          test -n "$sample_id"
+          for attempt in $(seq 1 18); do
+            api_file="$work/images.json"
+            product_file="$work/product.html"
+            api_status="$(curl -sS -L --max-time 60 -o "$api_file" -w '%{http_code}' "https://truelycollectables.com/api/storefront/product-images/${sample_id}?back_recovery=${GITHUB_RUN_ID}&attempt=${attempt}" || true)"
+            product_status="$(curl -sS -L --max-time 60 -o "$product_file" -w '%{http_code}' "https://truelycollectables.com/product/${sample_id}?back_recovery=${GITHUB_RUN_ID}&attempt=${attempt}" || true)"
+            api_ok="$(node - "$api_file" <<'NODE'
+          const fs = require('node:fs');
+          try {
+            const value = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+            process.stdout.write(value.hasBack === true && value.images?.length >= 2 ? 'true' : 'false');
+          } catch { process.stdout.write('false'); }
+          NODE
+          )"
+            if [ "$api_status" = "200" ] \
+              && [ "$api_ok" = "true" ] \
+              && [ "$product_status" = "200" ] \
+              && grep -Fq 'Front photo' "$product_file" \
+              && grep -Fq 'Back photo' "$product_file"; then
+              echo "Live front/back display verified with product ${sample_id}."
+              cat "$api_file"
+              echo
+              cat "$response"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Live front/back display verification failed for product ${sample_id}." >&2
+          exit 1
+
+      - name: Cleanup
+        if: always()
+        shell: bash
+        run: |
+          npx vercel@56.2.0 env rm EXTERNAL_BACK_IMAGE_RECOVERY_TOKEN production --yes \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null || true
+          rm -rf "$RUNNER_TEMP/external-back-recovery"
