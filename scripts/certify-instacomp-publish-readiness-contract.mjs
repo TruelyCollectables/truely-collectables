@@ -9,6 +9,10 @@ const readinessRoute = fs.readFileSync(
   "src/app/api/account/seller/instacomp-pending/readiness/route.ts",
   "utf8",
 );
+const registryReceipt = fs.readFileSync(
+  "src/lib/instacomp-registry-receipt.ts",
+  "utf8",
+);
 const dashboard = fs.readFileSync(
   "src/app/seller/instacomp-pending/ChecklistReadinessDashboard.tsx",
   "utf8",
@@ -23,8 +27,9 @@ assert(
   "Publishing must assert a persisted Checklist Registry receipt.",
 );
 assert(
-  publishRoute.includes("CHECKLIST_IDENTITY_REQUIRED"),
-  "Publish failures must preserve the Checklist identity error code.",
+  registryReceipt.includes('error.code = "CHECKLIST_IDENTITY_REQUIRED"') &&
+    publishRoute.includes('code: error?.code || "PUBLISH_BLOCKED"'),
+  "Publish failures must preserve the Checklist identity error code from the shared receipt helper.",
 );
 assert(
   publishRoute.indexOf("assertChecklistRegistryReceipt(metadata)") <
