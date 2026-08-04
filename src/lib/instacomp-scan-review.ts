@@ -1,15 +1,16 @@
 import type { InstaCompAiResult, InstaCompComp, InstaCompStats } from "./instacomp";
 import {
-  buildInstaCompListingIdentity,
-  type InstaCompListingIdentity,
-} from "./instacomp-copy-identity";
+  buildInstaCompListingOutput,
+  type InstaCompAiInscriptionFields,
+  type InstaCompListingOutput,
+} from "./instacomp-listing-output";
 import {
   independentVerifiedInstaCompSaleCount,
   verifiedInstaCompCompletedSales,
 } from "./instacomp-market-evidence";
 
 export type InstaCompScanReviewInput = {
-  ai: InstaCompAiResult;
+  ai: InstaCompAiResult & InstaCompAiInscriptionFields;
   stats: InstaCompStats;
   marketValueComps: InstaCompComp[];
   hasBackImage: boolean;
@@ -27,7 +28,7 @@ export type InstaCompScanReview = {
   reviewReasons: string[];
   identityReviewReasons: string[];
   pricingReviewReasons: string[];
-  listingIdentity: InstaCompListingIdentity;
+  listingIdentity: InstaCompListingOutput;
 };
 
 const TRUSTED_IDENTITY_CONFIDENCE = 0.92;
@@ -76,7 +77,10 @@ export function buildInstaCompScanReview(
   const pricingReviewReasons: string[] = [];
   const ocrText = compactText(input.externalOcrText);
   const printedVariantDetected = hasPrintedVariantSignal(ocrText);
-  const listingIdentity = buildInstaCompListingIdentity(ai);
+  const listingIdentity = buildInstaCompListingOutput({
+    ai,
+    externalOcrText: input.externalOcrText,
+  });
 
   if ((ai.confidence || 0) < TRUSTED_IDENTITY_CONFIDENCE) {
     identityReviewReasons.push("low_identification_confidence");
@@ -108,7 +112,7 @@ export function buildInstaCompScanReview(
       ...input.consensus.reviewReasons,
     );
   }
-  identityReviewReasons.push(...listingIdentity.inscription.reviewReasons);
+  identityReviewReasons.push(...listingIdentity.publicationReviewReasons);
 
   const verifiedSales = verifiedInstaCompCompletedSales(input.marketValueComps);
   const independentVerifiedSaleCount = independentVerifiedInstaCompSaleCount(
