@@ -7,20 +7,26 @@ on:
     paths:
       - ".github/workflows/instacomp-copy-number-inscription.yml"
       - "src/lib/instacomp-copy-identity.ts"
+      - "src/lib/instacomp-inscription-evidence.ts"
+      - "src/lib/instacomp-listing-output.ts"
       - "src/lib/instacomp-scan-review.ts"
       - "src/lib/instacomp-serial.ts"
       - "src/lib/instacomp.ts"
       - "scripts/run-instacomp-copy-number-inscription-regressions.ts"
+      - "scripts/run-instacomp-universal-inscription-listing-regressions.ts"
   push:
     branches:
       - main
     paths:
       - ".github/workflows/instacomp-copy-number-inscription.yml"
       - "src/lib/instacomp-copy-identity.ts"
+      - "src/lib/instacomp-inscription-evidence.ts"
+      - "src/lib/instacomp-listing-output.ts"
       - "src/lib/instacomp-scan-review.ts"
       - "src/lib/instacomp-serial.ts"
       - "src/lib/instacomp.ts"
       - "scripts/run-instacomp-copy-number-inscription-regressions.ts"
+      - "scripts/run-instacomp-universal-inscription-listing-regressions.ts"
 
 permissions:
   contents: read
@@ -43,12 +49,18 @@ jobs:
       - name: Run copy-number and inscription regressions
         run: npx tsx scripts/run-instacomp-copy-number-inscription-regressions.ts
 
-      - name: Lint copy identity slice
+      - name: Run universal inscription listing regressions
+        run: npx tsx scripts/run-instacomp-universal-inscription-listing-regressions.ts
+
+      - name: Lint inscription and listing slice
         run: |
           npx eslint \
             src/lib/instacomp-copy-identity.ts \
+            src/lib/instacomp-inscription-evidence.ts \
+            src/lib/instacomp-listing-output.ts \
             src/lib/instacomp-scan-review.ts \
-            scripts/run-instacomp-copy-number-inscription-regressions.ts
+            scripts/run-instacomp-copy-number-inscription-regressions.ts \
+            scripts/run-instacomp-universal-inscription-listing-regressions.ts
 
       - name: Typecheck repository
         run: npx tsc --noEmit
