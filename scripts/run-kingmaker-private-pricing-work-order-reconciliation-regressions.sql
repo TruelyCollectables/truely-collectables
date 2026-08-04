@@ -354,7 +354,7 @@ begin
     'public.tcos_reconcile_kingmaker_private_pricing_work_orders()'::regprocedure
   ) into reconciliation_definition;
   select pg_get_functiondef(
-    'public.tcos_reconcile_kingmaker_private_pricing_work_orders_after_refresh()'::regprocedure
+    'public.tcos_reconcile_private_pricing_work_orders_after_refresh()'::regprocedure
   ) into trigger_definition;
 
   if lower(reconciliation_definition || trigger_definition) like '%raw_text%'
