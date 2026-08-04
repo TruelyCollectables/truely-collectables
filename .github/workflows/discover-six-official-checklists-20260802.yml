@@ -1,0 +1,81 @@
+name: Discover Six Official Checklists 20260802
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/discover-six-official-checklists-20260802.yml"
+      - "scripts/ops/discover-six-official-checklists-20260802.mjs"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: discover-six-official-checklists-20260802
+  cancel-in-progress: false
+
+env:
+  EXPECTED_BRANCH: feature/checklist-six-release-proof-batch-v1
+  EXPECTED_MAIN_SHA: 820a8f109bc54c507ffab0f700b4075a072abe5e
+
+jobs:
+  discover:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fail closed on exact discovery scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main "$EXPECTED_BRANCH"
+          git merge-base --is-ancestor "$EXPECTED_MAIN_SHA" origin/main
+          git merge-base --is-ancestor "$EXPECTED_MAIN_SHA" "origin/$EXPECTED_BRANCH"
+          mapfile -t changed < <(git diff --name-only "$EXPECTED_MAIN_SHA"..."origin/$EXPECTED_BRANCH")
+          printf '%s\n' "${changed[@]}"
+          test "${#changed[@]}" -eq 2
+          test "${changed[0]}" = '.github/workflows/discover-six-official-checklists-20260802.yml'
+          test "${changed[1]}" = 'scripts/ops/discover-six-official-checklists-20260802.mjs'
+          git diff --check "$EXPECTED_MAIN_SHA"..."origin/$EXPECTED_BRANCH"
+          git checkout --detach "origin/$EXPECTED_BRANCH"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Acquire and hash all six complete row sources without writes
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/ops/discover-six-official-checklists-20260802.mjs
+
+      - name: Require six complete sources and explicit provenance
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const file = '.checklist-work/six-release-discovery/discovery.json';
+          if (!fs.existsSync(file)) throw new Error('Discovery receipt missing');
+          const receipt = JSON.parse(fs.readFileSync(file, 'utf8'));
+          if (receipt.status !== 'passed') throw new Error(`Source acquisition failed: ${JSON.stringify(receipt.failures)}`);
+          if (receipt.releaseCount !== 6 || receipt.results?.length !== 6) throw new Error('Discovery did not inspect six releases');
+          if (receipt.officialRowSourceCount !== 1 || receipt.thirdPartyVerifiedRowSourceCount !== 5) throw new Error('Source authority accounting is wrong');
+          if (receipt.results.some((entry) => !entry.ok || !entry.sha256 || entry.sizeBytes < 10000)) throw new Error('One or more row sources are incomplete');
+          if (receipt.safety?.productionDatabaseWrites !== false || receipt.safety?.migrationsApplied !== false || receipt.safety?.deploymentPerformed !== false || receipt.safety?.thirdPartyRowsNeverMisrepresentedAsOfficial !== true) throw new Error('Discovery safety receipt is invalid');
+          console.log(JSON.stringify({ status: receipt.status, results: receipt.results.map((entry) => ({ id: entry.id, authority: entry.rowSourceAuthority, sizeBytes: entry.sizeBytes, sha256: entry.sha256 })) }, null, 2));
+          NODE
+
+      - name: Upload private checklist source artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: six-official-checklist-discovery-20260802
+          path: .checklist-work/six-release-discovery
+          if-no-files-found: error
+          retention-days: 30
