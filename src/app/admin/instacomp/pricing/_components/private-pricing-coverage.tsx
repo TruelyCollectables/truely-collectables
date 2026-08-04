@@ -9,9 +9,13 @@ type GapType =
   | "set_gap"
   | "identity_gap";
 
+type ActionabilityStatus = "actionable" | "parser_review";
+
 type CoverageRow = {
   rank: number;
   gapType: GapType;
+  actionabilityStatus: ActionabilityStatus;
+  actionabilityReasons: string[];
   sport: string;
   releaseYear: string;
   manufacturer: string;
@@ -22,6 +26,7 @@ type CoverageRow = {
   ambiguousRows: number;
   distinctCardNumbers: number;
   guideCount: number;
+  setGroupCount: number;
   averageParseConfidence: number | null;
   latestReferenceDate: string | null;
   registryReleaseCount: number;
@@ -34,9 +39,21 @@ type CoverageRow = {
 type Coverage = {
   generatedAt: string;
   boundary: "aggregate_private_reference_only";
+  snapshot: {
+    dirty: boolean;
+    status: string;
+    lastRefreshedAt: string | null;
+    lastRefreshDurationMs: number | null;
+    sourceSnapshotRefreshedAt: string | null;
+    ageSeconds: number | null;
+  };
   summary: {
     totalGroups: number;
     unresolvedRows: number;
+    actionableGroups: number;
+    actionableRows: number;
+    parserReviewGroups: number;
+    parserReviewRows: number;
     unmatchedRows: number;
     ambiguousRows: number;
     missingReleaseRows: number;
@@ -80,11 +97,17 @@ const gapLabels: Record<GapType, string> = {
   identity_gap: "Identity gap",
 };
 
-const gapDetails: Record<GapType, string> = {
-  missing_release: "No matching Registry release exists yet.",
-  checklist_pending: "The release exists, but no active checklist version is available.",
-  set_gap: "An active release exists, but this set is missing or mismatched.",
-  identity_gap: "The set exists, but card-level identity details still do not resolve.",
+const reasonLabels: Record<string, string> = {
+  missing_sport: "Missing sport",
+  missing_release_period: "Missing release period",
+  invalid_release_period: "Invalid release period",
+  missing_manufacturer: "Missing manufacturer",
+  missing_product: "Missing product",
+  product_contains_price_text: "Product label contains price text",
+  product_label_too_long: "Product label is too long",
+  set_label_looks_like_pricing_instruction: "Set label looks like an instruction",
+  set_label_too_long: "Set label is too long",
+  very_low_parse_confidence: "Very low parse confidence",
 };
 
 export default function PrivatePricingCoverage() {
@@ -117,7 +140,9 @@ export default function PrivatePricingCoverage() {
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || payload?.ok !== true) {
-        throw new Error(payload?.error || "Private pricing coverage could not be loaded.");
+        throw new Error(
+          payload?.error || "Private pricing coverage could not be loaded.",
+        );
       }
       setCoverage(payload.coverage as Coverage);
     } catch (cause) {
@@ -138,17 +163,18 @@ export default function PrivatePricingCoverage() {
     return () => window.clearTimeout(timer);
   }, [loadCoverage]);
 
+  const activeFilterCount = useMemo(
+    () =>
+      [filters.gapType, filters.sport.trim(), filters.search.trim()].filter(Boolean)
+        .length,
+    [filters],
+  );
   const firstVisible = coverage && coverage.pagination.returned
     ? coverage.pagination.offset + 1
     : 0;
   const lastVisible = coverage
     ? coverage.pagination.offset + coverage.pagination.returned
     : 0;
-
-  const activeFilterCount = useMemo(
-    () => [filters.gapType, filters.sport.trim(), filters.search.trim()].filter(Boolean).length,
-    [filters],
-  );
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -169,7 +195,7 @@ export default function PrivatePricingCoverage() {
 
   return (
     <main className="min-h-screen bg-neutral-100 px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-[1600px] space-y-5">
+      <div className="mx-auto max-w-[1640px] space-y-5">
         <header className="overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 text-white shadow-xl">
           <div className="bg-[radial-gradient(circle_at_top_right,_rgba(34,211,238,0.2),_transparent_36%),radial-gradient(circle_at_bottom_left,_rgba(245,158,11,0.18),_transparent_34%)] p-6 lg:p-8">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -187,22 +213,25 @@ export default function PrivatePricingCoverage() {
                 disabled={loading}
                 className="rounded-full bg-amber-300 px-4 py-2 text-sm font-black text-black disabled:opacity-50"
               >
-                {loading ? "Refreshing…" : "Refresh Coverage"}
+                {loading ? "Refreshing…" : "Reload Queue"}
               </button>
             </div>
 
             <p className="mt-6 text-xs font-black uppercase tracking-[0.2em] text-cyan-300">
               KINGMAKER Private Pricing
             </p>
-            <h1 className="mt-2 text-4xl font-black md:text-5xl">Coverage Attack Queue</h1>
+            <h1 className="mt-2 text-4xl font-black md:text-5xl">
+              Coverage Attack Queue
+            </h1>
             <p className="mt-3 max-w-5xl font-semibold text-neutral-300">
-              Rank unresolved private reference rows by the Registry work that unlocks the most pricing coverage first.
+              Actionable Registry work ranks first. Incomplete or malformed release labels are quarantined for parser review instead of polluting checklist priorities.
             </p>
             <div className="mt-5 flex flex-wrap gap-2 text-xs font-black uppercase tracking-[0.14em]">
-              <span className="rounded-full border border-cyan-300/30 bg-cyan-300/10 px-3 py-2 text-cyan-200">Aggregate metadata only</span>
-              <span className="rounded-full border border-emerald-300/30 bg-emerald-300/10 px-3 py-2 text-emerald-200">Admin only</span>
-              <span className="rounded-full border border-white/15 bg-white/10 px-3 py-2 text-neutral-200">No price promotion</span>
-              <span className="rounded-full border border-white/15 bg-white/10 px-3 py-2 text-neutral-200">No source disclosure</span>
+              <HeaderChip text="Release-aware ranking" tone="cyan" />
+              <HeaderChip text="Parser-noise quarantine" tone="amber" />
+              <HeaderChip text="Admin only" tone="emerald" />
+              <HeaderChip text="No price promotion" tone="neutral" />
+              <HeaderChip text="No source disclosure" tone="neutral" />
             </div>
           </div>
         </header>
@@ -226,43 +255,49 @@ export default function PrivatePricingCoverage() {
         {error ? (
           <section className="rounded-3xl border border-red-200 bg-red-50 p-6 text-red-950 shadow-sm">
             <p className="text-xs font-black uppercase tracking-wider">Coverage unavailable</p>
-            <h2 className="mt-1 text-2xl font-black">The private coverage queue could not load</h2>
+            <h2 className="mt-1 text-2xl font-black">The attack queue could not load</h2>
             <p className="mt-2 font-semibold">{error}</p>
+          </section>
+        ) : null}
+
+        {coverage?.snapshot.dirty ? (
+          <section className="rounded-3xl border border-amber-200 bg-amber-50 p-5 text-amber-950 shadow-sm">
+            <p className="font-black">Coverage refresh pending</p>
+            <p className="mt-1 text-sm font-semibold">
+              Registry or private-reference data changed after this cached ranking was built. The scheduled refresh will rebuild it automatically.
+            </p>
           </section>
         ) : null}
 
         <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
           <MetricCard
-            label="Unresolved Rows"
+            label="Actionable Rows"
+            value={formatInteger(coverage?.summary.actionableRows)}
+            detail={`${formatInteger(coverage?.summary.actionableGroups)} clean work targets`}
+            loading={loading}
+          />
+          <MetricCard
+            label="Parser Review"
+            value={formatInteger(coverage?.summary.parserReviewRows)}
+            detail={`${formatInteger(coverage?.summary.parserReviewGroups)} quarantined groups`}
+            loading={loading}
+          />
+          <MetricCard
+            label="Total Unresolved"
             value={formatInteger(coverage?.summary.unresolvedRows)}
-            detail={`${formatInteger(coverage?.summary.totalGroups)} grouped work items`}
+            detail={`${formatInteger(coverage?.summary.totalGroups)} ranked groups`}
             loading={loading}
           />
           <MetricCard
-            label="Missing Releases"
+            label="Missing Release Rows"
             value={formatInteger(coverage?.summary.missingReleaseRows)}
-            detail="Create and import the release"
+            detail="Release-level groups combine every set"
             loading={loading}
           />
           <MetricCard
-            label="Pending Checklists"
-            value={formatInteger(coverage?.summary.checklistPendingRows)}
-            detail="Validate and activate a version"
-            loading={loading}
-          />
-          <MetricCard
-            label="Set + Identity Gaps"
-            value={formatInteger(
-              (coverage?.summary.setGapRows || 0) +
-                (coverage?.summary.identityGapRows || 0),
-            )}
-            detail="Repair active Registry coverage"
-            loading={loading}
-          />
-          <MetricCard
-            label="Largest Unlock"
+            label="Largest Clean Unlock"
             value={formatInteger(coverage?.summary.largestUnlock)}
-            detail="Rows unlocked by one work item"
+            detail="Rows unlocked by one actionable target"
             loading={loading}
           />
         </section>
@@ -273,10 +308,12 @@ export default function PrivatePricingCoverage() {
               <span className="text-xs font-black uppercase tracking-wider text-neutral-500">Gap type</span>
               <select
                 value={draft.gapType}
-                onChange={(event) => setDraft((current) => ({
-                  ...current,
-                  gapType: event.target.value as ActiveFilters["gapType"],
-                }))}
+                onChange={(event) =>
+                  setDraft((current) => ({
+                    ...current,
+                    gapType: event.target.value as ActiveFilters["gapType"],
+                  }))
+                }
                 className="mt-2 w-full rounded-xl border border-neutral-300 bg-white px-3 py-3 font-bold outline-none focus:border-black"
               >
                 <option value="">All gap types</option>
@@ -291,7 +328,9 @@ export default function PrivatePricingCoverage() {
               <span className="text-xs font-black uppercase tracking-wider text-neutral-500">Sport</span>
               <input
                 value={draft.sport}
-                onChange={(event) => setDraft((current) => ({ ...current, sport: event.target.value }))}
+                onChange={(event) =>
+                  setDraft((current) => ({ ...current, sport: event.target.value }))
+                }
                 placeholder="Baseball, Hockey…"
                 className="mt-2 w-full rounded-xl border border-neutral-300 px-3 py-3 font-bold outline-none focus:border-black"
               />
@@ -301,7 +340,9 @@ export default function PrivatePricingCoverage() {
               <span className="text-xs font-black uppercase tracking-wider text-neutral-500">Search release</span>
               <input
                 value={draft.search}
-                onChange={(event) => setDraft((current) => ({ ...current, search: event.target.value }))}
+                onChange={(event) =>
+                  setDraft((current) => ({ ...current, search: event.target.value }))
+                }
                 placeholder="Year, manufacturer, product, or set"
                 className="mt-2 w-full rounded-xl border border-neutral-300 px-3 py-3 font-bold outline-none focus:border-black"
               />
@@ -321,8 +362,8 @@ export default function PrivatePricingCoverage() {
           </div>
           <p className="mt-3 text-sm font-semibold text-neutral-500">
             {activeFilterCount
-              ? `${activeFilterCount} active filter${activeFilterCount === 1 ? "" : "s"}. Rankings recalculate inside the filtered queue.`
-              : "Ranked by potential rows unlocked, then Registry gap stage."}
+              ? `${activeFilterCount} active filter${activeFilterCount === 1 ? "" : "s"}. Actionable groups still rank before parser review.`
+              : "Actionable releases rank first by potential unlock. Parser-review groups remain visible after the clean queue."}
           </p>
         </form>
 
@@ -330,24 +371,30 @@ export default function PrivatePricingCoverage() {
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-200 p-5">
             <div>
               <p className="text-xs font-black uppercase tracking-wider text-neutral-500">Ranked Work Queue</p>
-              <h2 className="mt-1 text-2xl font-black">Highest-impact Registry work first</h2>
+              <h2 className="mt-1 text-2xl font-black">Clean Registry targets before parser cleanup</h2>
             </div>
-            <p className="text-sm font-bold text-neutral-500">
-              {coverage
-                ? `${formatInteger(firstVisible)}–${formatInteger(lastVisible)} of ${formatInteger(coverage.pagination.totalGroups)}`
-                : "Loading…"}
-            </p>
+            <div className="text-right text-sm font-bold text-neutral-500">
+              <p>
+                {coverage
+                  ? `${formatInteger(firstVisible)}–${formatInteger(lastVisible)} of ${formatInteger(coverage.pagination.totalGroups)}`
+                  : "Loading…"}
+              </p>
+              <p className="mt-1 text-xs">
+                Snapshot {coverage?.snapshot.status || "pending"} · {formatAge(coverage?.snapshot.ageSeconds)}
+              </p>
+            </div>
           </div>
 
           <div className="overflow-x-auto">
-            <table className="min-w-[1180px] w-full border-collapse text-left">
+            <table className="min-w-[1320px] w-full border-collapse text-left">
               <thead className="bg-neutral-50 text-xs font-black uppercase tracking-wider text-neutral-500">
                 <tr>
                   <th className="px-4 py-3">Rank</th>
+                  <th className="px-4 py-3">Quality</th>
                   <th className="px-4 py-3">Gap</th>
                   <th className="px-4 py-3">Release / Set</th>
                   <th className="px-4 py-3 text-right">Potential Unlock</th>
-                  <th className="px-4 py-3 text-right">Distinct Cards</th>
+                  <th className="px-4 py-3 text-right">Card Numbers</th>
                   <th className="px-4 py-3">Registry State</th>
                   <th className="px-4 py-3">Next Action</th>
                 </tr>
@@ -356,12 +403,19 @@ export default function PrivatePricingCoverage() {
                 {loading
                   ? Array.from({ length: 8 }, (_, index) => <LoadingRow key={index} />)
                   : coverage?.rows.length
-                    ? coverage.rows.map((row) => <CoverageTableRow key={`${row.rank}-${row.sport}-${row.releaseYear}-${row.manufacturer}-${row.product}-${row.setName}`} row={row} />)
+                    ? coverage.rows.map((row) => (
+                        <CoverageTableRow
+                          key={`${row.rank}-${row.sport}-${row.releaseYear}-${row.manufacturer}-${row.product}-${row.setName}`}
+                          row={row}
+                        />
+                      ))
                     : (
                       <tr>
-                        <td colSpan={7} className="px-6 py-14 text-center">
+                        <td colSpan={8} className="px-6 py-14 text-center">
                           <p className="text-xl font-black">No coverage gaps match these filters</p>
-                          <p className="mt-2 font-semibold text-neutral-500">Clear or broaden the filters to restore the ranked queue.</p>
+                          <p className="mt-2 font-semibold text-neutral-500">
+                            Clear or broaden the filters to restore the queue.
+                          </p>
                         </td>
                       </tr>
                     )}
@@ -391,16 +445,6 @@ export default function PrivatePricingCoverage() {
             </button>
           </div>
         </section>
-
-        <section className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
-          {(Object.keys(gapLabels) as GapType[]).map((type) => (
-            <article key={type} className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
-              <GapBadge type={type} />
-              <h3 className="mt-3 text-xl font-black">{gapLabels[type]}</h3>
-              <p className="mt-2 text-sm font-semibold leading-6 text-neutral-600">{gapDetails[type]}</p>
-            </article>
-          ))}
-        </section>
       </div>
     </main>
   );
@@ -410,12 +454,22 @@ function CoverageTableRow({ row }: { row: CoverageRow }) {
   return (
     <tr className="align-top hover:bg-neutral-50/70">
       <td className="px-4 py-4 text-lg font-black">#{formatInteger(row.rank)}</td>
+      <td className="px-4 py-4">
+        <QualityBadge status={row.actionabilityStatus} />
+        {row.actionabilityReasons.length ? (
+          <div className="mt-2 max-w-[210px] space-y-1 text-xs font-semibold text-neutral-600">
+            {row.actionabilityReasons.slice(0, 4).map((reason) => (
+              <p key={reason}>• {reasonLabels[reason] || humanize(reason)}</p>
+            ))}
+          </div>
+        ) : null}
+      </td>
       <td className="px-4 py-4"><GapBadge type={row.gapType} /></td>
       <td className="px-4 py-4">
         <p className="font-black">{row.releaseYear} {row.manufacturer} {row.product}</p>
         <p className="mt-1 text-sm font-bold text-neutral-600">{row.sport} · {row.setName}</p>
         <p className="mt-1 text-xs font-semibold text-neutral-500">
-          Latest reference {formatDate(row.latestReferenceDate)} · {formatInteger(row.guideCount)} edition{row.guideCount === 1 ? "" : "s"}
+          {formatInteger(row.setGroupCount)} set group{row.setGroupCount === 1 ? "" : "s"} · latest reference {formatDate(row.latestReferenceDate)}
         </p>
       </td>
       <td className="px-4 py-4 text-right">
@@ -437,9 +491,36 @@ function CoverageTableRow({ row }: { row: CoverageRow }) {
         <p>{formatInteger(row.activeIdentityCount)} active identities</p>
       </td>
       <td className="max-w-[330px] px-4 py-4">
-        <p className="font-bold leading-6 text-neutral-700">{row.recommendedAction}</p>
+        <p className="font-bold leading-6 text-neutral-700">
+          {row.actionabilityStatus === "actionable"
+            ? row.recommendedAction
+            : "Correct or confirm the parsed release labels before creating Registry work."}
+        </p>
       </td>
     </tr>
+  );
+}
+
+function HeaderChip({ text, tone }: { text: string; tone: "cyan" | "amber" | "emerald" | "neutral" }) {
+  const toneClass = tone === "cyan"
+    ? "border-cyan-300/30 bg-cyan-300/10 text-cyan-200"
+    : tone === "amber"
+      ? "border-amber-300/30 bg-amber-300/10 text-amber-200"
+      : tone === "emerald"
+        ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-200"
+        : "border-white/15 bg-white/10 text-neutral-200";
+  return <span className={`rounded-full border px-3 py-2 ${toneClass}`}>{text}</span>;
+}
+
+function QualityBadge({ status }: { status: ActionabilityStatus }) {
+  return (
+    <span className={`inline-flex rounded-full border px-3 py-1.5 text-xs font-black uppercase tracking-wider ${
+      status === "actionable"
+        ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+        : "border-amber-200 bg-amber-50 text-amber-900"
+    }`}>
+      {status === "actionable" ? "Actionable" : "Parser review"}
+    </span>
   );
 }
 
@@ -458,12 +539,7 @@ function GapBadge({ type }: { type: GapType }) {
   );
 }
 
-function MetricCard({
-  label,
-  value,
-  detail,
-  loading,
-}: {
+function MetricCard({ label, value, detail, loading }: {
   label: string;
   value: string;
   detail: string;
@@ -483,7 +559,7 @@ function MetricCard({
 function LoadingRow() {
   return (
     <tr>
-      {Array.from({ length: 7 }, (_, index) => (
+      {Array.from({ length: 8 }, (_, index) => (
         <td key={index} className="px-4 py-5">
           <div className="h-5 animate-pulse rounded bg-neutral-200" />
         </td>
@@ -506,4 +582,15 @@ function formatDate(value: string | null) {
   return Number.isNaN(parsed.getTime())
     ? value
     : parsed.toLocaleDateString("en-US", { year: "numeric", month: "short" });
+}
+
+function formatAge(value: number | null | undefined) {
+  if (value === null || value === undefined) return "not refreshed";
+  if (value < 60) return `${Math.round(value)}s old`;
+  if (value < 3600) return `${Math.round(value / 60)}m old`;
+  return `${Math.round(value / 3600)}h old`;
+}
+
+function humanize(value: string) {
+  return value.replaceAll("_", " ");
 }
