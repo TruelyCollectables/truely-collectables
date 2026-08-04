@@ -31,13 +31,29 @@ jobs:
             src/lib/checklist-registry/upper-deck-mvp-official-html.ts \
             src/lib/checklist-registry/upper-deck-team-canada-official-html.ts \
             src/lib/checklist-registry/upper-deck-tim-hortons-official-html.ts
-      - name: Preserve legitimate O-Pee-Chee reused printed numbers
+      - name: Preserve official header variants and legitimate reused printed numbers
         run: |
           node <<'NODE'
           const fs = require('node:fs');
 
           const parserPath = 'src/lib/checklist-registry/upper-deck-html.ts';
           let parser = fs.readFileSync(parserPath, 'utf8');
+
+          parser = parser.replace(
+            'return normalized.includes("setname") && normalized.includes("card");',
+            'return normalized.includes("setname") && (normalized.includes("card") || normalized.includes("cardnumber"));',
+          );
+          parser = parser.replace(
+            'card: findHeaderIndex(table.headers, ["Card"]),',
+            'card: findHeaderIndex(table.headers, ["Card", "Card Number"]),',
+          );
+          parser = parser.replace(
+            'description: findHeaderIndex(table.headers, ["Description", "Player Name"]),',
+            'description: findHeaderIndex(table.headers, ["Description", "Player Name", "Player"]),',
+          );
+          if (!parser.includes('normalized.includes("cardnumber")')) throw new Error('Card Number header repair missing');
+          if (!parser.includes('["Description", "Player Name", "Player"]')) throw new Error('Player header repair missing');
+
           const before = `    const players = splitSubjects(row.description);\n    const teams = teamsFrom(row.teamCity, row.teamName);\n    const variation = buildVariation(row);`;
           const after = `    const players = splitSubjects(row.description);\n    const teams = teamsFrom(row.teamCity, row.teamName);\n    const baseVariation = buildVariation(row);\n    const requiresSubjectVariation =\n      /o-pee-chee/i.test(product) &&\n      (/^playing cards$/i.test(setName) || /^p-\\d+$/i.test(row.cardNumber));\n    const subjectVariation = requiresSubjectVariation\n      ? \`Subject: \${players\n          .slice()\n          .sort((left, right) => comparable(left).localeCompare(comparable(right)))\n          .join(" / ")}\`\n      : null;\n    const variation = [baseVariation, subjectVariation].filter(Boolean).join("; ") || null;`;
           if (parser.includes(before)) parser = parser.replace(before, after);
@@ -46,13 +62,19 @@ jobs:
 
           const regressionPath = 'scripts/run-checklist-registry-upper-deck-simulations.ts';
           let regression = fs.readFileSync(regressionPath, 'utf8');
+          if (!regression.includes('official_card_number_and_player_headers_are_supported')) {
+            const marker = `scenario(\n  "all_identity_fingerprints_are_unique",`;
+            const headerBlock = `const alternateHeaderPlan = parseUpperDeckOfficialHtmlChecklist({\n  sourceUrl: "https://upperdeck.com/checklist/chicago-blackhawks-100th-anniversary-set-checklist-hobby/",\n  originalFilename: "chicago-blackhawks-100th-anniversary-set-checklist-hobby.html",\n  mimeType: "text/html",\n  retrievedAt: "2026-08-03T17:00:00.000Z",\n  authority: "official_manufacturer",\n  redistributionAllowed: false,\n  content: \`<!doctype html><html><body><h1>2025-26 Chicago Blackhawks 100th Anniversary Set Checklist - HOBBY</h1><table><tbody>\n    <tr><th>Set Name</th><th>Card Number</th><th>Player</th><th>Auto</th><th>Mem/Tech</th><th>#'d</th><th>SP's</th><th>Odds</th><th>Pts.</th></tr>\n    <tr><td>Base Set</td><td>2</td><td>Connor Bedard</td><td></td><td></td><td></td><td></td><td>5:1 h, 5:1 e</td><td>20</td></tr>\n  </tbody></table></body></html>\`,\n});\nscenario(\n  "official_card_number_and_player_headers_are_supported",\n  "Official Upper Deck tables using Card Number and Player headers parse without a product-specific exception.",\n  alternateHeaderPlan.validation.status === "passed" &&\n    alternateHeaderPlan.validation.counts.cards === 1 &&\n    alternateHeaderPlan.cards[0]?.cardNumber === "2" &&\n    alternateHeaderPlan.cards[0]?.players[0] === "Connor Bedard",\n  { counts: alternateHeaderPlan.validation.counts, issues: alternateHeaderPlan.validation.issues },\n);\n\n`;
+            if (!regression.includes(marker)) throw new Error('Upper Deck regression marker missing');
+            regression = regression.replace(marker, headerBlock + marker);
+          }
           if (!regression.includes('opc_reused_numbers_are_subject_disambiguated')) {
             const marker = `scenario(\n  "all_identity_fingerprints_are_unique",`;
             const block = `const opcReusedNumberPlan = parseUpperDeckOfficialHtmlChecklist({\n  sourceUrl: "https://upperdeck.com/checklist/2025-26-o-pee-chee-checklist/",\n  originalFilename: "2025-26-o-pee-chee-checklist.html",\n  mimeType: "text/html",\n  retrievedAt: "2026-08-03T16:45:00.000Z",\n  authority: "official_manufacturer",\n  redistributionAllowed: false,\n  content: \`<!doctype html><html><body><h1>2025-26 O-Pee-Chee Checklist</h1><table><tbody>\n    <tr><th>Set Name</th><th>Card</th><th>Description</th></tr>\n    <tr><td>Playing Cards</td><td>9-CLUBS</td><td>Connor McDavid</td></tr>\n    <tr><td>Playing Cards</td><td>9-CLUBS</td><td>Nathan MacKinnon</td></tr>\n    <tr><td>Base Set</td><td>P-1</td><td>Connor McDavid Puzzle</td></tr>\n    <tr><td>Base Set</td><td>P-1</td><td>Sidney Crosby Puzzle</td></tr>\n  </tbody></table></body></html>\`,\n});\nscenario(\n  "opc_reused_numbers_are_subject_disambiguated",\n  "O-Pee-Chee playing cards and puzzle cards preserve legitimate reused printed numbers as distinct subject variations.",\n  opcReusedNumberPlan.validation.status === "passed" &&\n    opcReusedNumberPlan.validation.issues.every((entry) => entry.severity !== "error") &&\n    opcReusedNumberPlan.validation.counts.cards === 4 &&\n    opcReusedNumberPlan.validation.counts.identities === 4 &&\n    allUnique(opcReusedNumberPlan) &&\n    opcReusedNumberPlan.cards.every((card) => card.variation?.startsWith("Subject: ")),\n  {\n    counts: opcReusedNumberPlan.validation.counts,\n    issues: opcReusedNumberPlan.validation.issues,\n    variations: opcReusedNumberPlan.cards.map((card) => card.variation),\n  },\n);\n\n`;
             if (!regression.includes(marker)) throw new Error('Upper Deck regression marker missing');
             regression = regression.replace(marker, block + marker);
-            fs.writeFileSync(regressionPath, regression);
           }
+          fs.writeFileSync(regressionPath, regression);
 
           fs.rmSync('.github/workflows/bootstrap-upper-deck-2025-26-hockey-clean.yml');
           NODE
