@@ -25,7 +25,10 @@ alter table public.tcos_kingmaker_private_pricing_work_orders
 
 alter table public.tcos_kingmaker_private_pricing_work_order_audit
   add constraint tcos_km_work_order_audit_action_check
-  check (action in ('created','updated','auto_resolved','auto_reopened')),
+  check (action in (
+    'created','updated','auto_resolved','auto_reopened',
+    'review_scheduled','review_cleared'
+  )),
   add constraint tcos_km_work_order_audit_status_check
   check (status in (
     'queued','in_progress','blocked','resolved','completed','dismissed'
@@ -38,7 +41,7 @@ comment on constraint tcos_km_work_order_status_check
   is 'Pinned KINGMAKER work-order lifecycle values. Replace by exact name only.';
 comment on constraint tcos_km_work_order_audit_action_check
   on public.tcos_kingmaker_private_pricing_work_order_audit
-  is 'Pinned KINGMAKER work-order audit actions. Replace by exact name only.';
+  is 'Pinned KINGMAKER work-order audit actions, including private review scheduling. Replace by exact name only.';
 comment on constraint tcos_km_work_order_audit_status_check
   on public.tcos_kingmaker_private_pricing_work_order_audit
   is 'Pinned KINGMAKER work-order audit lifecycle values. Replace by exact name only.';
