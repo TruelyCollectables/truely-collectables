@@ -5,6 +5,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 type Lane = "unassigned" | "assigned" | "overdue" | "blocked" | "due_for_review" | "recently_resolved";
 type Operation = "claim" | "release" | "update" | "resolve";
 type Sort = "unlock_desc" | "priority_asc" | "due_asc" | "target_asc";
+type Preset = "p1_today" | "p2_tomorrow" | "missing_checklist" | "coverage_fixed";
 type Row = {
   rank: number;
   attackKey: string;
@@ -104,6 +105,12 @@ function localInput(value: string | null) {
   const shifted = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
   return shifted.toISOString().slice(0, 16);
 }
+function localDueDate(daysFromNow: number) {
+  const date = new Date();
+  date.setDate(date.getDate() + daysFromNow);
+  date.setHours(17, 0, 0, 0);
+  return localInput(date.toISOString());
+}
 function targetLabel(row: Row) {
   return `${row.releaseYear} ${row.manufacturer} ${row.product} ${row.sport} ${row.setName} ${row.gapType} ${row.assignee || ""}`.toLowerCase();
 }
@@ -198,6 +205,7 @@ export default function PrivatePricingWorkOrderExecution() {
   const selectedRows = useMemo(() => rows.filter((row) => selected.has(row.attackKey)), [rows, selected]);
   const allSelected = rows.length > 0 && selectedRows.length === rows.length;
   const visibleUnlock = rows.reduce((sum, row) => sum + row.potentialUnlock, 0);
+  const selectedUnlock = selectedRows.reduce((sum, row) => sum + row.potentialUnlock, 0);
   const pagination = report?.pagination;
   const page = Math.floor(offset / pageSize) + 1;
   const totalPages = Math.max(1, Math.ceil((pagination?.totalTargets || 0) / pageSize));
@@ -222,6 +230,12 @@ export default function PrivatePricingWorkOrderExecution() {
       return next;
     });
   }
+  function jumpToPage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const requested = Math.max(1, Math.min(totalPages, Number(data.get("page")) || 1));
+    setOffset((requested - 1) * pageSize);
+  }
   async function mutate(row: Row, operation: Operation, draft: Draft) {
     setSaving(row.attackKey);
     setError(null);
@@ -236,9 +250,9 @@ export default function PrivatePricingWorkOrderExecution() {
       setSaving(null);
     }
   }
-  async function mutateBulk(operation: Operation) {
+  async function mutateBulk(operation: Operation, draft: Draft = bulkDraft) {
     if (!selectedRows.length) return;
-    if (operation === "resolve" && !bulkDraft.resolutionCode) {
+    if (operation === "resolve" && !draft.resolutionCode) {
       setError("Choose a resolution before recording bulk resolutions.");
       return;
     }
@@ -246,7 +260,7 @@ export default function PrivatePricingWorkOrderExecution() {
     setError(null);
     setNotice(null);
     try {
-      const payload = await saveExecutionBatch(selectedRows, operation, bulkDraft);
+      const payload = await saveExecutionBatch(selectedRows, operation, draft);
       const batch = payload.batch;
       if (!batch) throw new Error(payload.error || "Bulk execution controls could not be saved.");
       if (batch.failed) {
@@ -265,16 +279,43 @@ export default function PrivatePricingWorkOrderExecution() {
       setBulkSaving(false);
     }
   }
+  async function runPreset(preset: Preset) {
+    if (!selectedRows.length || bulkSaving) return;
+    const base = defaultDraft();
+    if (preset === "p1_today") {
+      const draft = { ...base, priority: 1, dueAt: localDueDate(0) };
+      setBulkDraft(draft);
+      await mutateBulk("claim", draft);
+      return;
+    }
+    if (preset === "p2_tomorrow") {
+      const draft = { ...base, priority: 2, dueAt: localDueDate(1) };
+      setBulkDraft(draft);
+      await mutateBulk("claim", draft);
+      return;
+    }
+    if (preset === "missing_checklist") {
+      const draft = { ...base, priority: 1, dueAt: localDueDate(0), blockedReason: "missing_checklist" };
+      setBulkDraft(draft);
+      await mutateBulk("update", draft);
+      return;
+    }
+    if (!window.confirm(`Resolve ${selectedRows.length} selected work orders as coverage fixed?`)) return;
+    const draft = { ...base, resolutionCode: "coverage_fixed" };
+    setBulkDraft(draft);
+    await mutateBulk("resolve", draft);
+  }
 
   return <section className="bg-neutral-100 px-4 pb-6 text-neutral-950 sm:px-6 lg:px-8"><div className="mx-auto max-w-[1680px] space-y-4 rounded-[2rem] border border-neutral-900 bg-neutral-950 p-5 text-white shadow-xl lg:p-7">
-    <div className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-[0.2em] text-amber-300">Tonight&apos;s Listing Operations</p><h2 className="mt-1 text-3xl font-black">Execution Queue</h2><p className="mt-2 max-w-4xl font-semibold text-neutral-300">Work the full queue page by page, jump straight to urgent lanes, and update as many as 250 selected work orders in one protected batch.</p></div><button type="button" onClick={() => void load()} disabled={loading || bulkSaving} className="rounded-xl bg-amber-300 px-4 py-2.5 font-black text-black disabled:opacity-50">{loading ? "Loading…" : "Reload"}</button></div>
+    <div className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-[0.2em] text-amber-300">Tonight&apos;s Listing Operations</p><h2 className="mt-1 text-3xl font-black">Execution Queue</h2><p className="mt-2 max-w-4xl font-semibold text-neutral-300">Work the full queue page by page, jump directly to any page, and update as many as 250 selected work orders in one protected batch.</p></div><button type="button" onClick={() => void load()} disabled={loading || bulkSaving} className="rounded-xl bg-amber-300 px-4 py-2.5 font-black text-black disabled:opacity-50">{loading ? "Loading…" : "Reload"}</button></div>
     {error ? <div className="rounded-2xl border border-red-400/40 bg-red-950/60 p-4 font-bold text-red-100">{error}</div> : null}{notice ? <div className="rounded-2xl border border-emerald-400/40 bg-emerald-950/60 p-4 font-bold text-emerald-100">{notice}</div> : null}
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6"><Metric label="Unassigned" value={report?.summary.unassignedTargets}/><Metric label="Assigned" value={report?.summary.assignedTargets}/><Metric label="Overdue" value={report?.summary.overdueTargets}/><Metric label="Blocked" value={report?.summary.blockedTargets}/><Metric label="Due Review" value={report?.summary.dueForReviewTargets}/><Metric label="Resolved 14d" value={report?.summary.recentlyResolvedTargets}/></div>
     <div className="flex flex-wrap gap-2">{quickViews.map((view) => <button key={view.value || "all"} type="button" onClick={() => chooseLane(view.value)} className={`rounded-full px-4 py-2 text-sm font-black ${lane === view.value ? "bg-amber-300 text-black" : "border border-white/20 bg-white/5 text-white"}`}>{view.label}</button>)}</div>
     <div className="grid gap-2 rounded-2xl border border-white/10 bg-white/5 p-4 xl:grid-cols-[minmax(280px,1fr)_220px_180px_180px_auto]"><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search this page by year, manufacturer, product, sport, set, gap, or assignee" className="rounded-xl border border-white/20 bg-neutral-900 px-4 py-3 font-bold text-white placeholder:text-neutral-500"/><select value={lane} onChange={(event) => chooseLane(event.target.value as Lane | "")} className="rounded-xl border border-white/20 bg-neutral-900 px-3 py-3 font-bold text-white"><option value="">All execution lanes</option>{Object.entries(laneLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><select value={sort} onChange={(event) => setSort(event.target.value as Sort)} className="rounded-xl border border-white/20 bg-neutral-900 px-3 py-3 font-bold text-white"><option value="unlock_desc">Highest unlock</option><option value="priority_asc">P1 first</option><option value="due_asc">Due soonest</option><option value="target_asc">Target A–Z</option></select><select value={pageSize} onChange={(event) => changePageSize(Number(event.target.value))} className="rounded-xl border border-white/20 bg-neutral-900 px-3 py-3 font-bold text-white"><option value={25}>25 per page</option><option value={50}>50 per page</option><option value={100}>100 per page</option><option value={250}>250 per page</option></select><div className="rounded-xl border border-amber-300/30 bg-amber-300/10 px-4 py-3"><p className="text-xs font-black uppercase text-amber-200">Visible page</p><p className="font-black">{rows.length} targets · {visibleUnlock.toLocaleString()} unlock</p></div></div>
+    <div className="rounded-2xl border border-sky-300/30 bg-sky-300/10 p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-black text-sky-100">One-click speed presets</p><p className="text-sm font-bold text-neutral-300">Apply a complete claim, blocker, or resolution package to {selectedRows.length} selected · {selectedUnlock.toLocaleString()} potential unlock</p></div><div className="flex flex-wrap gap-2"><PresetButton label="Claim P1 today" disabled={!selectedRows.length || bulkSaving} onClick={() => void runPreset("p1_today")}/><PresetButton label="Claim P2 tomorrow" disabled={!selectedRows.length || bulkSaving} onClick={() => void runPreset("p2_tomorrow")}/><PresetButton label="Block: missing checklist" disabled={!selectedRows.length || bulkSaving} onClick={() => void runPreset("missing_checklist")}/><PresetButton label="Resolve: coverage fixed" disabled={!selectedRows.length || bulkSaving} onClick={() => void runPreset("coverage_fixed")}/></div></div></div>
     <div className="rounded-2xl border border-amber-300/30 bg-amber-300/10 p-4"><div className="mb-3 flex flex-wrap items-center justify-between gap-3"><div><p className="font-black text-amber-200">Bulk controls</p><p className="text-sm font-bold text-neutral-300">{selectedRows.length} selected from {rows.length} visible · one request per action</p></div><button type="button" onClick={toggleAll} disabled={!rows.length || bulkSaving} className="rounded-lg border border-white/20 px-3 py-2 text-sm font-black disabled:opacity-40">{allSelected ? "Clear visible" : "Select visible"}</button></div><div className="grid gap-2 md:grid-cols-2 xl:grid-cols-5"><input value={bulkDraft.assignee} onChange={(event) => setBulkDraft((draft) => ({ ...draft, assignee: event.target.value }))} placeholder="Assignee" className="rounded-lg border border-white/20 bg-neutral-900 px-3 py-2.5 font-bold text-white"/><select value={bulkDraft.priority} onChange={(event) => setBulkDraft((draft) => ({ ...draft, priority: Number(event.target.value) }))} className="rounded-lg border border-white/20 bg-neutral-900 px-3 py-2.5 font-bold text-white">{[1, 2, 3, 4, 5].map((value) => <option key={value} value={value}>P{value}</option>)}</select><input type="datetime-local" value={bulkDraft.dueAt} onChange={(event) => setBulkDraft((draft) => ({ ...draft, dueAt: event.target.value }))} className="rounded-lg border border-white/20 bg-neutral-900 px-3 py-2.5 font-bold text-white"/><select value={bulkDraft.blockedReason} onChange={(event) => setBulkDraft((draft) => ({ ...draft, blockedReason: event.target.value }))} className="rounded-lg border border-white/20 bg-neutral-900 px-3 py-2.5 font-bold text-white"><option value="">No blocker</option>{Object.entries(blockedLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><select value={bulkDraft.resolutionCode} onChange={(event) => setBulkDraft((draft) => ({ ...draft, resolutionCode: event.target.value }))} className="rounded-lg border border-white/20 bg-neutral-900 px-3 py-2.5 font-bold text-white"><option value="">No resolution yet</option>{Object.entries(resolutionLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div><div className="mt-3 flex flex-wrap gap-2"><BulkButton label="Claim selected" disabled={!selectedRows.length || bulkSaving} onClick={() => void mutateBulk("claim")}/><BulkButton label="Release selected" disabled={!selectedRows.length || bulkSaving} onClick={() => void mutateBulk("release")}/><BulkButton label="Save controls" disabled={!selectedRows.length || bulkSaving} onClick={() => void mutateBulk("update")}/><BulkButton label="Resolve selected" disabled={!selectedRows.length || bulkSaving || !bulkDraft.resolutionCode} onClick={() => void mutateBulk("resolve")}/></div></div>
     <div className="overflow-x-auto rounded-2xl border border-white/10 bg-white text-neutral-950"><table className="min-w-[1540px] w-full text-left"><thead className="bg-neutral-100 text-xs font-black uppercase tracking-wider text-neutral-500"><tr><th className="px-4 py-3">Select</th><th className="px-4 py-3">Lane</th><th className="px-4 py-3">Target</th><th className="px-4 py-3">Unlock</th><th className="px-4 py-3">Execution Controls</th></tr></thead><tbody className="divide-y divide-neutral-200">{loading ? <tr><td colSpan={5} className="p-8 text-center font-black">Loading execution queue…</td></tr> : rows.length ? rows.map((row) => <ExecutionRow key={`${row.attackKey}-${row.version}`} row={row} selected={selected.has(row.attackKey)} saving={saving === row.attackKey || bulkSaving} onToggle={toggleOne} onMutate={mutate}/>) : <tr><td colSpan={5} className="p-8 text-center font-black">No work orders match the current filters.</td></tr>}</tbody></table></div>
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 p-4"><p className="font-bold text-neutral-300">Page {page} of {totalPages} · showing {pagination?.returned || 0} of {(pagination?.totalTargets || 0).toLocaleString()} work orders</p><div className="flex gap-2"><button type="button" disabled={loading || offset === 0} onClick={() => setOffset(Math.max(0, offset - pageSize))} className="rounded-lg border border-white/20 px-4 py-2 font-black disabled:opacity-40">Previous</button><button type="button" disabled={loading || !pagination?.hasMore} onClick={() => setOffset(offset + pageSize)} className="rounded-lg bg-amber-300 px-4 py-2 font-black text-black disabled:opacity-40">Next</button></div></div>
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 p-4"><p className="font-bold text-neutral-300">Page {page} of {totalPages} · showing {pagination?.returned || 0} of {(pagination?.totalTargets || 0).toLocaleString()} work orders</p><div className="flex flex-wrap gap-2"><button type="button" disabled={loading || offset === 0} onClick={() => setOffset(Math.max(0, offset - pageSize))} className="rounded-lg border border-white/20 px-4 py-2 font-black disabled:opacity-40">Previous</button><form onSubmit={jumpToPage} className="flex gap-2"><input key={page} name="page" type="number" min={1} max={totalPages} defaultValue={page} aria-label="Page number" className="w-24 rounded-lg border border-white/20 bg-neutral-900 px-3 py-2 font-black text-white"/><button type="submit" disabled={loading} className="rounded-lg border border-white/20 px-4 py-2 font-black disabled:opacity-40">Go</button></form><button type="button" disabled={loading || !pagination?.hasMore} onClick={() => setOffset(offset + pageSize)} className="rounded-lg bg-amber-300 px-4 py-2 font-black text-black disabled:opacity-40">Next</button></div></div>
   </div></section>;
 }
 function Metric({ label, value }: { label: string; value?: number }) {
@@ -282,6 +323,9 @@ function Metric({ label, value }: { label: string; value?: number }) {
 }
 function BulkButton({ label, disabled, onClick }: { label: string; disabled: boolean; onClick: () => void }) {
   return <button type="button" disabled={disabled} onClick={onClick} className="rounded-lg bg-amber-300 px-3 py-2 text-sm font-black text-black disabled:opacity-40">{label}</button>;
+}
+function PresetButton({ label, disabled, onClick }: { label: string; disabled: boolean; onClick: () => void }) {
+  return <button type="button" disabled={disabled} onClick={onClick} className="rounded-lg bg-sky-200 px-3 py-2 text-sm font-black text-sky-950 disabled:opacity-40">{label}</button>;
 }
 function ExecutionRow({ row, selected, saving, onToggle, onMutate }: { row: Row; selected: boolean; saving: boolean; onToggle: (key: string) => void; onMutate: (row: Row, operation: Operation, draft: Draft) => Promise<void> }) {
   const [draft, setDraft] = useState<Draft>({ assignee: row.assignee || "Truely Collectables Admin", priority: row.priority, dueAt: localInput(row.dueAt), blockedReason: row.blockedReason || "", resolutionCode: row.resolutionCode || "" });
