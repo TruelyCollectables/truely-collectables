@@ -11,8 +11,15 @@ export const KINGMAKER_PRIVATE_PRICING_GAP_TYPES = [
   "identity_gap",
 ] as const;
 
+export const KINGMAKER_PRIVATE_PRICING_ACTIONABILITY = [
+  "actionable",
+  "parser_review",
+] as const;
+
 export type KingmakerPrivatePricingGapType =
   (typeof KINGMAKER_PRIVATE_PRICING_GAP_TYPES)[number];
+export type KingmakerPrivatePricingActionability =
+  (typeof KINGMAKER_PRIVATE_PRICING_ACTIONABILITY)[number];
 
 export type KingmakerPrivatePricingCoverageInput = {
   limit?: unknown;
@@ -25,6 +32,8 @@ export type KingmakerPrivatePricingCoverageInput = {
 export type KingmakerPrivatePricingCoverageRow = {
   rank: number;
   gapType: KingmakerPrivatePricingGapType;
+  actionabilityStatus: KingmakerPrivatePricingActionability;
+  actionabilityReasons: string[];
   sport: string;
   releaseYear: string;
   manufacturer: string;
@@ -35,6 +44,7 @@ export type KingmakerPrivatePricingCoverageRow = {
   ambiguousRows: number;
   distinctCardNumbers: number;
   guideCount: number;
+  setGroupCount: number;
   averageParseConfidence: number | null;
   latestReferenceDate: string | null;
   registryReleaseCount: number;
@@ -47,6 +57,14 @@ export type KingmakerPrivatePricingCoverageRow = {
 export type KingmakerPrivatePricingCoverage = {
   generatedAt: string;
   boundary: "aggregate_private_reference_only";
+  snapshot: {
+    dirty: boolean;
+    status: string;
+    lastRefreshedAt: string | null;
+    lastRefreshDurationMs: number | null;
+    sourceSnapshotRefreshedAt: string | null;
+    ageSeconds: number | null;
+  };
   filters: {
     gapType: KingmakerPrivatePricingGapType | null;
     sport: string | null;
@@ -55,6 +73,10 @@ export type KingmakerPrivatePricingCoverage = {
   summary: {
     totalGroups: number;
     unresolvedRows: number;
+    actionableGroups: number;
+    actionableRows: number;
+    parserReviewGroups: number;
+    parserReviewRows: number;
     unmatchedRows: number;
     ambiguousRows: number;
     missingReleaseRows: number;
@@ -122,6 +144,15 @@ function gapType(value: unknown): KingmakerPrivatePricingGapType | null {
     : null;
 }
 
+function actionability(value: unknown): KingmakerPrivatePricingActionability | null {
+  const normalized = text(value, 40)?.toLowerCase().replaceAll("-", "_") || null;
+  return KINGMAKER_PRIVATE_PRICING_ACTIONABILITY.includes(
+    normalized as KingmakerPrivatePricingActionability,
+  )
+    ? (normalized as KingmakerPrivatePricingActionability)
+    : null;
+}
+
 function object(value: unknown, label: string): JsonObject {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new InstaCompJobServerError(
@@ -148,8 +179,19 @@ function string(value: unknown, fallback = "") {
   return typeof value === "string" ? value : fallback;
 }
 
+function stringArray(value: unknown) {
+  return Array.isArray(value)
+    ? value
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .slice(0, 20)
+    : [];
+}
+
 function parseCoverage(value: unknown): KingmakerPrivatePricingCoverage {
   const payload = object(value, "payload");
+  const snapshot = object(payload.snapshot, "snapshot");
   const filters = object(payload.filters, "filters");
   const summary = object(payload.summary, "summary");
   const pagination = object(payload.pagination, "pagination");
@@ -166,6 +208,14 @@ function parseCoverage(value: unknown): KingmakerPrivatePricingCoverage {
   return {
     generatedAt: string(payload.generatedAt, new Date().toISOString()),
     boundary,
+    snapshot: {
+      dirty: snapshot.dirty === true,
+      status: string(snapshot.status, "pending"),
+      lastRefreshedAt: text(snapshot.lastRefreshedAt, 50),
+      lastRefreshDurationMs: nullableNumber(snapshot.lastRefreshDurationMs),
+      sourceSnapshotRefreshedAt: text(snapshot.sourceSnapshotRefreshedAt, 50),
+      ageSeconds: nullableNumber(snapshot.ageSeconds),
+    },
     filters: {
       gapType: gapType(filters.gapType),
       sport: text(filters.sport, 80),
@@ -174,6 +224,10 @@ function parseCoverage(value: unknown): KingmakerPrivatePricingCoverage {
     summary: {
       totalGroups: finiteNumber(summary.totalGroups),
       unresolvedRows: finiteNumber(summary.unresolvedRows),
+      actionableGroups: finiteNumber(summary.actionableGroups),
+      actionableRows: finiteNumber(summary.actionableRows),
+      parserReviewGroups: finiteNumber(summary.parserReviewGroups),
+      parserReviewRows: finiteNumber(summary.parserReviewRows),
       unmatchedRows: finiteNumber(summary.unmatchedRows),
       ambiguousRows: finiteNumber(summary.ambiguousRows),
       missingReleaseRows: finiteNumber(summary.missingReleaseRows),
@@ -192,16 +246,19 @@ function parseCoverage(value: unknown): KingmakerPrivatePricingCoverage {
     rows: rows.map((value, index) => {
       const row = object(value, `row ${index + 1}`);
       const parsedGapType = gapType(row.gapType);
-      if (!parsedGapType) {
+      const parsedActionability = actionability(row.actionabilityStatus);
+      if (!parsedGapType || !parsedActionability) {
         throw new InstaCompJobServerError(
-          "Private pricing coverage returned an unsupported gap type.",
+          "Private pricing coverage returned an unsupported queue classification.",
           500,
-          "KINGMAKER_PRIVATE_PRICING_COVERAGE_GAP_INVALID",
+          "KINGMAKER_PRIVATE_PRICING_COVERAGE_CLASSIFICATION_INVALID",
         );
       }
       return {
         rank: finiteNumber(row.rank, index + 1),
         gapType: parsedGapType,
+        actionabilityStatus: parsedActionability,
+        actionabilityReasons: stringArray(row.actionabilityReasons),
         sport: string(row.sport, "Unknown"),
         releaseYear: string(row.releaseYear, "Unknown"),
         manufacturer: string(row.manufacturer, "Unknown"),
@@ -212,6 +269,7 @@ function parseCoverage(value: unknown): KingmakerPrivatePricingCoverage {
         ambiguousRows: finiteNumber(row.ambiguousRows),
         distinctCardNumbers: finiteNumber(row.distinctCardNumbers),
         guideCount: finiteNumber(row.guideCount),
+        setGroupCount: finiteNumber(row.setGroupCount, 1),
         averageParseConfidence: nullableNumber(row.averageParseConfidence),
         latestReferenceDate: text(row.latestReferenceDate, 40),
         registryReleaseCount: finiteNumber(row.registryReleaseCount),

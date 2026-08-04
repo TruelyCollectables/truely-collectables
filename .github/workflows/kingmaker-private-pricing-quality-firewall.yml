@@ -1,0 +1,135 @@
+name: KINGMAKER Private Pricing Quality Firewall
+
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/20260804050000_private_pricing_coverage_quality_firewall.sql"
+      - "supabase/migrations/20260804050100_fix_private_pricing_quality_periods.sql"
+      - "scripts/run-kingmaker-private-pricing-quality-firewall-regressions.sql"
+      - "scripts/run-kingmaker-private-pricing-quality-firewall-regressions.ts"
+      - "scripts/run-kingmaker-private-pricing-coverage-refresh.mjs"
+      - "src/lib/kingmaker-private-pricing-coverage-server.ts"
+      - "src/app/admin/instacomp/pricing/_components/private-pricing-coverage.tsx"
+      - ".github/workflows/kingmaker-private-pricing-quality-firewall.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-private-pricing-quality-firewall:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: kingmaker_private_pricing_quality_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d kingmaker_private_pricing_quality_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: kingmaker_private_pricing_quality_test
+      CHECKLIST_MIGRATION: supabase/migrations/20260725200000_tcos_checklist_registry_core.sql
+      KINGMAKER_MIGRATION: supabase/migrations/20260803030000_kingmaker_intelligence_fusion.sql
+      PRIVATE_PRICING_MIGRATION: supabase/migrations/20260803043000_kingmaker_beckett_price_guides.sql
+      COVERAGE_MIGRATION: supabase/migrations/20260804034500_kingmaker_private_pricing_coverage.sql
+      SNAPSHOT_MIGRATION: supabase/migrations/20260804043000_cache_kingmaker_private_pricing_coverage.sql
+      SNAPSHOT_TEMP_FIX: supabase/migrations/20260804043100_fix_private_pricing_coverage_refresh_temp_table.sql
+      QUALITY_FIREWALL: supabase/migrations/20260804050000_private_pricing_coverage_quality_firewall.sql
+      QUALITY_PERIOD_FIX: supabase/migrations/20260804050100_fix_private_pricing_quality_periods.sql
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+
+      - name: Create Supabase-compatible roles and storage contract
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          do $$ begin create role anon nologin; exception when duplicate_object then null; end $$;
+          do $$ begin create role authenticated nologin; exception when duplicate_object then null; end $$;
+          do $$ begin create role service_role nologin bypassrls; exception when duplicate_object then null; end $$;
+          create schema if not exists storage;
+          create table if not exists storage.buckets (
+            id text primary key,
+            name text not null unique,
+            public boolean not null default false,
+            file_size_limit bigint,
+            allowed_mime_types text[]
+          );
+          SQL
+
+      - name: Apply Registry, KINGMAKER, snapshot, and quality migrations
+        run: |
+          psql -v ON_ERROR_STOP=1 --file "$CHECKLIST_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$KINGMAKER_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$PRIVATE_PRICING_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$COVERAGE_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$SNAPSHOT_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$SNAPSHOT_TEMP_FIX"
+          psql -v ON_ERROR_STOP=1 --file "$QUALITY_FIREWALL"
+          psql -v ON_ERROR_STOP=1 --file "$QUALITY_PERIOD_FIX"
+
+      - name: Reapply quality chain to prove idempotence
+        run: |
+          psql -v ON_ERROR_STOP=1 --file "$QUALITY_FIREWALL"
+          psql -v ON_ERROR_STOP=1 --file "$QUALITY_PERIOD_FIX"
+
+      - name: Verify explicit valid period formats
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          do $$
+          begin
+            if not public.tcos_kingmaker_private_pricing_valid_period('2025')
+               or not public.tcos_kingmaker_private_pricing_valid_period('2025-26')
+               or not public.tcos_kingmaker_private_pricing_valid_period('2025-2026')
+               or not public.tcos_kingmaker_private_pricing_valid_period('2025/26')
+               or not public.tcos_kingmaker_private_pricing_valid_period('2025 26')
+               or public.tcos_kingmaker_private_pricing_valid_period('2025-2')
+               or public.tcos_kingmaker_private_pricing_valid_period('unknown') then
+              raise exception 'Private pricing release-period validator failed.';
+            end if;
+          end;
+          $$;
+          SQL
+
+      - name: Run ranking, quarantine, aggregation, privacy, and zero-promotion regression
+        run: psql -v ON_ERROR_STOP=1 --file scripts/run-kingmaker-private-pricing-quality-firewall-regressions.sql
+
+      - name: Install application dependencies
+        run: npm ci
+
+      - name: Run application quality-boundary regression
+        run: node --import tsx scripts/run-kingmaker-private-pricing-quality-firewall-regressions.ts
+
+      - name: Lint quality firewall files
+        run: >-
+          npx eslint
+          scripts/run-kingmaker-private-pricing-coverage-refresh.mjs
+          scripts/run-kingmaker-private-pricing-quality-firewall-regressions.ts
+          src/lib/kingmaker-private-pricing-coverage-server.ts
+          src/app/admin/instacomp/pricing/_components/private-pricing-coverage.tsx
+
+      - name: Type-check application
+        run: npx tsc --noEmit
