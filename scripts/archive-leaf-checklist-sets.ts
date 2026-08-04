@@ -10,6 +10,7 @@ type Seed = {
   url: string;
 };
 
+const MANUFACTURER = "Leaf";
 const OUT = resolve(process.cwd(), ".leaf-checklist-archive");
 const seeds = JSON.parse(
   readFileSync(resolve(process.cwd(), "data/leaf-checklist-seeds.json"), "utf8"),
@@ -91,12 +92,12 @@ async function main() {
       const result = await download(seed);
       const sha256 = createHash("sha256").update(result.bytes).digest("hex");
       const filename = `${slug(seed.title)}-${sha256.slice(0, 12)}${result.extension}`;
-      const relativePath = `${slug(seed.category)}/${seed.year}/${filename}`;
+      const relativePath = `${MANUFACTURER}/${slug(seed.category)}/${seed.year}/${filename}`;
       const target = resolve(OUT, relativePath);
       mkdirSync(dirname(target), { recursive: true });
       writeFileSync(target, result.bytes);
       files.push({
-        manufacturer: "Leaf",
+        manufacturer: MANUFACTURER,
         ...seed,
         finalUrl: result.finalUrl,
         archivePath: relativePath,
@@ -108,7 +109,7 @@ async function main() {
       });
     } catch (error) {
       failures.push({
-        manufacturer: "Leaf",
+        manufacturer: MANUFACTURER,
         ...seed,
         error: error instanceof Error ? error.message : String(error),
         retryEligible: true,
@@ -118,7 +119,8 @@ async function main() {
 
   const manifest = {
     schema: "tcos.manufacturerChecklistArchiveManifest.v1",
-    manufacturer: "Leaf",
+    layout: "manufacturer/category-or-sport/year/file",
+    manufacturer: MANUFACTURER,
     generatedAt: new Date().toISOString(),
     totals: { requested: seeds.length, archived: files.length, failed: failures.length },
     byCategory: files.reduce<Record<string, number>>((totals, file) => {
