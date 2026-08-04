@@ -1,0 +1,54 @@
+name: InstaComp Copy Number and Inscription
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/instacomp-copy-number-inscription.yml"
+      - "src/lib/instacomp-copy-identity.ts"
+      - "src/lib/instacomp-scan-review.ts"
+      - "src/lib/instacomp-serial.ts"
+      - "src/lib/instacomp.ts"
+      - "scripts/run-instacomp-copy-number-inscription-regressions.ts"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/instacomp-copy-number-inscription.yml"
+      - "src/lib/instacomp-copy-identity.ts"
+      - "src/lib/instacomp-scan-review.ts"
+      - "src/lib/instacomp-serial.ts"
+      - "src/lib/instacomp.ts"
+      - "scripts/run-instacomp-copy-number-inscription-regressions.ts"
+
+permissions:
+  contents: read
+
+jobs:
+  certify-copy-identity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run copy-number and inscription regressions
+        run: npx tsx scripts/run-instacomp-copy-number-inscription-regressions.ts
+
+      - name: Lint copy identity slice
+        run: |
+          npx eslint \
+            src/lib/instacomp-copy-identity.ts \
+            src/lib/instacomp-scan-review.ts \
+            scripts/run-instacomp-copy-number-inscription-regressions.ts
+
+      - name: Typecheck repository
+        run: npx tsc --noEmit
