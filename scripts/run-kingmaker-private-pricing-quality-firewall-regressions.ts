@@ -103,9 +103,20 @@ for (const forbidden of [
   );
 }
 
+const rankingStart = files.migration.indexOf(
+  "row_number() over (",
+  files.migration.indexOf("create or replace function public.tcos_kingmaker_private_pricing_coverage_report"),
+);
+const rankingEnd = files.migration.indexOf(
+  ")::integer as priority_rank",
+  rankingStart,
+);
+assert.ok(rankingStart >= 0 && rankingEnd > rankingStart, "Coverage ranking block is missing");
+const rankingBlock = files.migration.slice(rankingStart, rankingEnd);
+const actionableRank = rankingBlock.indexOf("when 'actionable' then 1");
+const unlockRank = rankingBlock.indexOf("unresolved_rows desc");
 assert.ok(
-  files.migration.indexOf("when 'actionable' then 1") <
-    files.migration.indexOf("unresolved_rows desc"),
+  actionableRank >= 0 && unlockRank >= 0 && actionableRank < unlockRank,
   "Actionable work does not rank before parser review",
 );
 assert.ok(
