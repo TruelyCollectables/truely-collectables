@@ -1,0 +1,55 @@
+name: Temporary PR 620 Admin Repair
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Repair admin fetch and button contracts
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = 'src/app/admin/instacomp/pricing/_components/pricing-workbench.tsx';
+          let source = fs.readFileSync(path, 'utf8');
+          source = source.replace(
+            '      const payload = await response.json();',
+            '      const payload = await response.json().catch(() => ({}));'
+          );
+          source = source.replace(
+            '<button onClick={() => void refresh()} disabled={loading}',
+            '<button type="button" onClick={() => void refresh()} disabled={loading}'
+          );
+          if (!source.includes('response.json().catch(() => ({}))')) throw new Error('JSON fallback repair missing');
+          if (!source.includes('<button type="button" onClick={() => void refresh()}')) throw new Error('button type repair missing');
+          fs.writeFileSync(path, source);
+          NODE
+      - name: Validate repaired admin contracts
+        run: |
+          npm run verify:admin-dashboard
+          node --import tsx scripts/run-kingmaker-pricing-workbenches-regressions.ts
+          npx eslint src/app/admin/instacomp/pricing scripts/run-kingmaker-pricing-workbenches-regressions.ts
+          npx tsc --noEmit
+      - name: Commit repair
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/app/admin/instacomp/pricing/_components/pricing-workbench.tsx
+          git diff --cached --quiet && exit 0
+          git commit -m "fix: satisfy pricing workbench admin contracts"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
