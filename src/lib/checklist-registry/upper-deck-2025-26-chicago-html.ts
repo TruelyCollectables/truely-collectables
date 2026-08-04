@@ -6,7 +6,7 @@ import { upperDeck2025_26NormalizedHtmlChecklistAdapter } from "./upper-deck-202
 
 export const UPPER_DECK_2025_26_CHICAGO_ADAPTER_ID =
   "upper-deck-2025-26-chicago-html" as const;
-export const UPPER_DECK_2025_26_CHICAGO_ADAPTER_VERSION = "1.0.0" as const;
+export const UPPER_DECK_2025_26_CHICAGO_ADAPTER_VERSION = "1.0.1" as const;
 
 type Cell = {
   text: string;
@@ -67,10 +67,19 @@ function escapeHtml(value: string) {
 }
 
 function inscriptionParts(value: string) {
-  const match = value.match(/^(.*?)(?:\s*-\s*)?\s*["“]([^"”]+)["”]\s*$/);
-  if (!match) return null;
-  const subject = match[1].trim();
-  const inscription = match[2].trim();
+  const quoted = value.match(/^(.*?)(?:\s*-\s*)?\s*["“]([^"”]+)["”]\s*$/);
+  if (quoted) {
+    const subject = quoted[1].trim();
+    const inscription = quoted[2].trim();
+    return subject && inscription ? { subject, inscription } : null;
+  }
+
+  const malformedOfficial = value.match(
+    /^(.*?)\s+-\s+["“]?(.+?)["”]\s*$/,
+  );
+  if (!malformedOfficial) return null;
+  const subject = malformedOfficial[1].trim();
+  const inscription = malformedOfficial[2].trim();
   return subject && inscription ? { subject, inscription } : null;
 }
 
