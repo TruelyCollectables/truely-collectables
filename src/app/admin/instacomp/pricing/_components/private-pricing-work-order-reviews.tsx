@@ -61,7 +61,7 @@ export default function PrivatePricingWorkOrderReviews() {
     }
   }
 
-  return <section className="mx-auto mt-8 max-w-7xl rounded-2xl border border-slate-700 bg-slate-950 p-6 text-slate-100">
+  return <section className="mt-8 w-full rounded-2xl border border-slate-700 bg-slate-950 p-6 text-slate-100">
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div><p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-300">Private operating layer</p><h2 className="mt-1 text-2xl font-bold">Coverage Review Planner</h2><p className="mt-2 max-w-3xl text-sm text-slate-300">Schedule follow-up dates for open coverage work. Overdue and due-soon work rises first; private notes and pricing values are never returned here.</p></div>
       <label className="text-sm text-slate-300">Attention state <select className="ml-2 rounded border border-slate-600 bg-slate-900 px-3 py-2" value={filter} onChange={(event) => setFilter(event.target.value as ReviewState | "")}><option value="">All open work</option>{Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
