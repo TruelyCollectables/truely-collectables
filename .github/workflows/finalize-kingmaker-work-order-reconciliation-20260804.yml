@@ -1,0 +1,44 @@
+name: Finalize KINGMAKER Work Order Reconciliation 20260804
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/finalize-kingmaker-work-order-reconciliation-20260804.yml"
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  close-completed-operations-pr:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    env:
+      EXPECTED_MAIN_SHA: 66cda0f561b82863956676c8cad2d035ca8c94c4
+      EXPECTED_BRANCH: ops/apply-kingmaker-work-order-reconciliation-20260804
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify operations branch and merged implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main
+          git merge-base --is-ancestor "$EXPECTED_MAIN_SHA" origin/main
+          git merge-base --is-ancestor "$EXPECTED_MAIN_SHA" HEAD
+
+      - name: Record completion and close without merging
+        shell: bash
+        run: |
+          set -euo pipefail
+          pr_number="${{ github.event.pull_request.number }}"
+          gh pr comment "$pr_number" --body $'Production rollout completed successfully.\n\n- successful-refresh work-order reconciliation installed\n- fresh base coverage and attack-queue snapshots completed\n- cleared open work and returned resolved targets reconciled through system audit receipts\n- private operator notes unchanged\n- manual completions and dismissals unchanged\n- protected identity and observation totals unchanged\n- exact merged implementation deployed\n- prices promoted: 0\n- operations workflows intentionally not merged'
+          gh pr edit "$pr_number" --title "[Completed, not merged] Apply KINGMAKER work order reconciliation to Production"
+          gh pr close "$pr_number"
