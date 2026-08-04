@@ -102,6 +102,7 @@ jobs:
           ]);
           const allowedManualReviewReasons = new Set([
             'official_detail_fetch_incomplete',
+            'official_ordered_name_mismatch',
           ]);
           const mismatches = [];
           const manualReviews = [];
@@ -117,6 +118,7 @@ jobs:
             );
             const officialCount = Number(row.officialComparableCount);
             const registryCount = Number(row.registryCardCount);
+            const orderedDrift = Number(row.orderedNameMismatchCount || 0) > 0;
             const detailMismatch = (row.detailEvidence || []).some(
               (detail) => detail.nameMatches === false ||
                 detail.numberMatches === false || detail.setCodeMatches === false,
@@ -124,11 +126,10 @@ jobs:
             const detailErrors = (row.detailEvidence || []).some(
               (detail) => Boolean(detail.error),
             );
-            const exactPopulation =
+            const exactInventory =
               row.countMatches === true &&
               row.setCodeMatches === true &&
               row.nameMultisetMatches === true &&
-              Number(row.orderedNameMismatchCount || 0) === 0 &&
               extras === 0 &&
               missing === 0 &&
               !detailMismatch &&
@@ -137,19 +138,19 @@ jobs:
               officialCount === registryCount;
 
             if (row.status === 'verified' || row.status === 'manual_review') {
-              if (!exactPopulation) {
+              if (!exactInventory) {
                 throw new Error(`No-write row is not exact and source-backed: ${JSON.stringify(row)}`);
               }
               if (row.status === 'verified') {
-                if (detailErrors || (row.reasons || []).length !== 0) {
+                if (orderedDrift || detailErrors || (row.reasons || []).length !== 0) {
                   throw new Error(`Verified row contains unresolved evidence: ${JSON.stringify(row)}`);
                 }
               } else {
                 const unsafeReasons = (row.reasons || []).filter(
                   (reason) => !allowedManualReviewReasons.has(reason),
                 );
-                if (!detailErrors || unsafeReasons.length > 0) {
-                  throw new Error(`Manual-review row is not limited to detail-fetch incompleteness: ${JSON.stringify(row)}`);
+                if ((!detailErrors && !orderedDrift) || unsafeReasons.length > 0) {
+                  throw new Error(`Manual-review row is not limited to safe order/detail uncertainty: ${JSON.stringify(row)}`);
                 }
                 manualReviews.push(row.setId);
               }
