@@ -14,7 +14,9 @@ export const KINGMAKER_PRIVATE_PRICING_WORK_ORDER_STATUSES = [
 
 export const KINGMAKER_PRIVATE_PRICING_WORK_ORDER_FILTERS = [
   "untracked",
-  ...KINGMAKER_PRIVATE_PRICING_WORK_ORDER_STATUSES,
+  ...KINGMAKER_PRIVATE_PRICING_WORK_ORDER_STATUSES.slice(0, 3),
+  "resolved",
+  ...KINGMAKER_PRIVATE_PRICING_WORK_ORDER_STATUSES.slice(3),
 ] as const;
 
 export type KingmakerPrivatePricingWorkOrderStatus =
@@ -45,6 +47,9 @@ export type KingmakerPrivatePricingWorkOrder = {
   updatedAt: string | null;
   startedAt: string | null;
   blockedAt: string | null;
+  resolvedAt: string | null;
+  reopenedAt: string | null;
+  resolutionCycle: number;
   completedAt: string | null;
   dismissedAt: string | null;
 };
@@ -82,6 +87,7 @@ export type KingmakerPrivatePricingWorkOrdersReport = {
     queuedTargets: number;
     inProgressTargets: number;
     blockedTargets: number;
+    resolvedTargets: number;
     completedTargets: number;
     dismissedTargets: number;
     inactiveTargets: number;
@@ -239,6 +245,9 @@ function parseWorkOrder(value: unknown): KingmakerPrivatePricingWorkOrder {
     updatedAt: timestamp(workOrder.updatedAt),
     startedAt: timestamp(workOrder.startedAt),
     blockedAt: timestamp(workOrder.blockedAt),
+    resolvedAt: timestamp(workOrder.resolvedAt),
+    reopenedAt: timestamp(workOrder.reopenedAt),
+    resolutionCycle: integer(workOrder.resolutionCycle, 0, 0, 1_000_000_000),
     completedAt: timestamp(workOrder.completedAt),
     dismissedAt: timestamp(workOrder.dismissedAt),
   };
@@ -273,6 +282,7 @@ function parseReport(value: unknown): KingmakerPrivatePricingWorkOrdersReport {
       queuedTargets: finiteNumber(summary.queuedTargets),
       inProgressTargets: finiteNumber(summary.inProgressTargets),
       blockedTargets: finiteNumber(summary.blockedTargets),
+      resolvedTargets: finiteNumber(summary.resolvedTargets),
       completedTargets: finiteNumber(summary.completedTargets),
       dismissedTargets: finiteNumber(summary.dismissedTargets),
       inactiveTargets: finiteNumber(summary.inactiveTargets),

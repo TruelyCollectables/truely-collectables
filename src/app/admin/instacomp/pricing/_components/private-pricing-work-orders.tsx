@@ -8,10 +8,11 @@ type WorkStatus =
   | "queued"
   | "in_progress"
   | "blocked"
+  | "resolved"
   | "completed"
   | "dismissed";
 
-type SaveStatus = Exclude<WorkStatus, "untracked">;
+type SaveStatus = "queued" | "in_progress" | "blocked" | "completed" | "dismissed";
 
 type WorkOrder = {
   status: WorkStatus;
@@ -21,6 +22,9 @@ type WorkOrder = {
   updatedAt: string | null;
   startedAt: string | null;
   blockedAt: string | null;
+  resolvedAt: string | null;
+  reopenedAt: string | null;
+  resolutionCycle: number;
   completedAt: string | null;
   dismissedAt: string | null;
 };
@@ -54,6 +58,7 @@ type WorkOrdersReport = {
     queuedTargets: number;
     inProgressTargets: number;
     blockedTargets: number;
+    resolvedTargets: number;
     completedTargets: number;
     dismissedTargets: number;
     inactiveTargets: number;
@@ -87,6 +92,7 @@ const statusLabels: Record<WorkStatus, string> = {
   queued: "Queued",
   in_progress: "In progress",
   blocked: "Blocked",
+  resolved: "Auto-resolved",
   completed: "Completed",
   dismissed: "Dismissed",
 };
@@ -97,6 +103,15 @@ const gapLabels: Record<WorkOrderRow["gapType"], string> = {
   set_gap: "Set gap",
   identity_gap: "Identity gap",
 };
+
+function editableStatus(status: WorkStatus): SaveStatus {
+  return status === "in_progress" ||
+    status === "blocked" ||
+    status === "completed" ||
+    status === "dismissed"
+    ? status
+    : "queued";
+}
 
 export default function PrivatePricingWorkOrders() {
   const [report, setReport] = useState<WorkOrdersReport | null>(null);
@@ -239,9 +254,10 @@ export default function PrivatePricingWorkOrders() {
             </p>
             <h1 className="mt-2 text-4xl font-black md:text-5xl">Coverage Work Orders</h1>
             <p className="mt-3 max-w-5xl font-semibold text-neutral-300">
-              Claim ranked Registry targets, preserve operator notes, track blockers, and retain completed work after the live gap clears.
+              Claim ranked Registry targets, preserve operator notes, track blockers, and let successful coverage refreshes resolve or reopen work automatically.
             </p>
             <div className="mt-5 flex flex-wrap gap-2 text-xs font-black uppercase tracking-[0.14em]">
+              <HeaderChip text="Automatic reconciliation" tone="emerald" />
               <HeaderChip text="Versioned updates" tone="emerald" />
               <HeaderChip text="Immutable audit" tone="cyan" />
               <HeaderChip text="Admin only" tone="emerald" />
@@ -264,11 +280,12 @@ export default function PrivatePricingWorkOrders() {
           </section>
         ) : null}
 
-        <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
+        <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-7">
           <MetricCard label="In Progress" value={report?.summary.inProgressTargets} loading={loading} />
           <MetricCard label="Blocked" value={report?.summary.blockedTargets} loading={loading} />
           <MetricCard label="Queued" value={report?.summary.queuedTargets} loading={loading} />
           <MetricCard label="Untracked" value={report?.summary.untrackedTargets} loading={loading} />
+          <MetricCard label="Auto-Resolved" value={report?.summary.resolvedTargets} loading={loading} />
           <MetricCard label="Completed" value={report?.summary.completedTargets} loading={loading} />
           <MetricCard label="Active Unlock" value={report?.summary.activePotentialUnlock} loading={loading} />
         </section>
@@ -399,12 +416,11 @@ function WorkOrderTableRow({
   saving: boolean;
   onSave: (row: WorkOrderRow, draft: SaveDraft) => Promise<void>;
 }) {
-  const [status, setStatus] = useState<SaveStatus>(
-    row.workOrder.status === "untracked" ? "queued" : row.workOrder.status,
-  );
+  const currentEditableStatus = editableStatus(row.workOrder.status);
+  const [status, setStatus] = useState<SaveStatus>(currentEditableStatus);
   const [priority, setPriority] = useState(row.workOrder.priority || 3);
   const [notes, setNotes] = useState(row.workOrder.notes);
-  const dirty = status !== (row.workOrder.status === "untracked" ? "queued" : row.workOrder.status)
+  const dirty = status !== currentEditableStatus
     || priority !== row.workOrder.priority
     || notes.trim() !== row.workOrder.notes;
 
@@ -416,7 +432,17 @@ function WorkOrderTableRow({
         <p className="mt-2 text-xs font-bold text-neutral-500">
           {row.targetActive ? "Active gap" : "Gap cleared or replaced"}
         </p>
-        {row.workOrder.updatedAt ? (
+        {row.workOrder.resolvedAt ? (
+          <p className="mt-1 text-xs font-semibold text-emerald-700">
+            Auto-resolved {formatTimestamp(row.workOrder.resolvedAt)}
+          </p>
+        ) : null}
+        {row.workOrder.reopenedAt ? (
+          <p className="mt-1 text-xs font-semibold text-amber-700">
+            Reopened {formatTimestamp(row.workOrder.reopenedAt)} · cycle {formatInteger(row.workOrder.resolutionCycle)}
+          </p>
+        ) : null}
+        {!row.workOrder.resolvedAt && row.workOrder.updatedAt ? (
           <p className="mt-1 text-xs font-semibold text-neutral-500">Saved {formatTimestamp(row.workOrder.updatedAt)}</p>
         ) : null}
       </td>
@@ -497,7 +523,9 @@ function WorkOrderTableRow({
           </button>
         </div>
         {!row.targetActive ? (
-          <p className="mt-2 text-xs font-semibold text-neutral-500">Retained for history. Inactive targets cannot be changed from this workbench.</p>
+          <p className="mt-2 text-xs font-semibold text-neutral-500">
+            Retained for history. Cleared targets are reconciled automatically and remain read-only.
+          </p>
         ) : null}
       </td>
     </tr>
@@ -518,13 +546,15 @@ function StatusBadge({ status }: { status: WorkStatus }) {
     ? "border-cyan-200 bg-cyan-50 text-cyan-900"
     : status === "blocked"
       ? "border-red-200 bg-red-50 text-red-900"
-      : status === "completed"
+      : status === "resolved"
         ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-        : status === "dismissed"
-          ? "border-neutral-300 bg-neutral-100 text-neutral-700"
-          : status === "queued"
-            ? "border-amber-200 bg-amber-50 text-amber-900"
-            : "border-neutral-200 bg-white text-neutral-700";
+        : status === "completed"
+          ? "border-green-200 bg-green-50 text-green-900"
+          : status === "dismissed"
+            ? "border-neutral-300 bg-neutral-100 text-neutral-700"
+            : status === "queued"
+              ? "border-amber-200 bg-amber-50 text-amber-900"
+              : "border-neutral-200 bg-white text-neutral-700";
   return (
     <span className={`inline-flex rounded-full border px-3 py-1.5 text-xs font-black uppercase tracking-wider ${tone}`}>
       {statusLabels[status]}
