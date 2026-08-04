@@ -5,32 +5,98 @@
 
 begin;
 
+do $constraints$
+declare
+  constraint_record record;
+begin
+  for constraint_record in
+    select constraint_row.conname
+    from pg_constraint constraint_row
+    join pg_attribute attribute_row
+      on attribute_row.attrelid = constraint_row.conrelid
+     and attribute_row.attname = 'status'
+     and attribute_row.attnum = any(constraint_row.conkey)
+    where constraint_row.conrelid =
+      'public.tcos_kingmaker_private_pricing_work_orders'::regclass
+      and constraint_row.contype = 'c'
+  loop
+    execute format(
+      'alter table public.tcos_kingmaker_private_pricing_work_orders drop constraint %I',
+      constraint_record.conname
+    );
+  end loop;
+
+  for constraint_record in
+    select constraint_row.conname
+    from pg_constraint constraint_row
+    join pg_attribute attribute_row
+      on attribute_row.attrelid = constraint_row.conrelid
+     and attribute_row.attname = 'action'
+     and attribute_row.attnum = any(constraint_row.conkey)
+    where constraint_row.conrelid =
+      'public.tcos_kingmaker_private_pricing_work_order_audit'::regclass
+      and constraint_row.contype = 'c'
+  loop
+    execute format(
+      'alter table public.tcos_kingmaker_private_pricing_work_order_audit drop constraint %I',
+      constraint_record.conname
+    );
+  end loop;
+
+  for constraint_record in
+    select constraint_row.conname
+    from pg_constraint constraint_row
+    join pg_attribute attribute_row
+      on attribute_row.attrelid = constraint_row.conrelid
+     and attribute_row.attname = 'status'
+     and attribute_row.attnum = any(constraint_row.conkey)
+    where constraint_row.conrelid =
+      'public.tcos_kingmaker_private_pricing_work_order_audit'::regclass
+      and constraint_row.contype = 'c'
+  loop
+    execute format(
+      'alter table public.tcos_kingmaker_private_pricing_work_order_audit drop constraint %I',
+      constraint_record.conname
+    );
+  end loop;
+
+  for constraint_record in
+    select constraint_row.conname
+    from pg_constraint constraint_row
+    join pg_attribute attribute_row
+      on attribute_row.attrelid = constraint_row.conrelid
+     and attribute_row.attname = 'actor_type'
+     and attribute_row.attnum = any(constraint_row.conkey)
+    where constraint_row.conrelid =
+      'public.tcos_kingmaker_private_pricing_work_order_audit'::regclass
+      and constraint_row.contype = 'c'
+  loop
+    execute format(
+      'alter table public.tcos_kingmaker_private_pricing_work_order_audit drop constraint %I',
+      constraint_record.conname
+    );
+  end loop;
+end;
+$constraints$;
+
 alter table public.tcos_kingmaker_private_pricing_work_orders
-  drop constraint if exists tcos_kingmaker_private_pricing_work_orders_status_check;
-alter table public.tcos_kingmaker_private_pricing_work_orders
-  add constraint tcos_kingmaker_private_pricing_work_orders_status_check
+  add constraint tcos_km_work_order_status_check
   check (status in (
     'queued','in_progress','blocked','resolved','completed','dismissed'
   ));
 
 alter table public.tcos_kingmaker_private_pricing_work_order_audit
-  drop constraint if exists tcos_kingmaker_private_pricing_work_order_audit_action_check;
-alter table public.tcos_kingmaker_private_pricing_work_order_audit
-  add constraint tcos_kingmaker_private_pricing_work_order_audit_action_check
+  add constraint tcos_km_work_order_audit_action_check
   check (action in ('created','updated','auto_resolved','auto_reopened'));
 
 alter table public.tcos_kingmaker_private_pricing_work_order_audit
-  drop constraint if exists tcos_kingmaker_private_pricing_work_order_audit_status_check;
-alter table public.tcos_kingmaker_private_pricing_work_order_audit
-  add constraint tcos_kingmaker_private_pricing_work_order_audit_status_check
+  add constraint tcos_km_work_order_audit_status_check
   check (status in (
     'queued','in_progress','blocked','resolved','completed','dismissed'
   ));
 
 alter table public.tcos_kingmaker_private_pricing_work_order_audit
-  drop constraint if exists tcos_kingmaker_private_pricing_work_order_audit_actor_type_check;
-alter table public.tcos_kingmaker_private_pricing_work_order_audit
-  add constraint tcos_kingmaker_private_pricing_work_order_audit_actor_type_check
+  add constraint tcos_km_work_order_audit_actor_check
   check (actor_type in ('admin','system'));
 
 alter table public.tcos_kingmaker_private_pricing_work_orders
@@ -180,7 +246,7 @@ begin
 end;
 $$;
 
-create or replace function public.tcos_reconcile_kingmaker_private_pricing_work_orders_after_refresh()
+create or replace function public.tcos_reconcile_private_pricing_work_orders_after_refresh()
 returns trigger
 language plpgsql
 security definer
@@ -197,7 +263,7 @@ revoke all on function public.tcos_reconcile_kingmaker_private_pricing_work_orde
 grant execute on function public.tcos_reconcile_kingmaker_private_pricing_work_orders()
   to service_role;
 
-revoke all on function public.tcos_reconcile_kingmaker_private_pricing_work_orders_after_refresh()
+revoke all on function public.tcos_reconcile_private_pricing_work_orders_after_refresh()
   from public, anon, authenticated;
 
 drop trigger if exists tcos_private_pricing_work_orders_reconcile_after_refresh
@@ -211,7 +277,7 @@ create trigger tcos_private_pricing_work_orders_reconcile_after_refresh
     and new.dirty = false
     and new.last_refreshed_at is distinct from old.last_refreshed_at
   )
-  execute function public.tcos_reconcile_kingmaker_private_pricing_work_orders_after_refresh();
+  execute function public.tcos_reconcile_private_pricing_work_orders_after_refresh();
 
 create or replace function public.tcos_kingmaker_private_pricing_work_orders_report(
   p_limit integer default 100,
