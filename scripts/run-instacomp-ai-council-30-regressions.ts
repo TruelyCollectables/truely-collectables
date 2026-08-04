@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { shouldContinueCouncilRuntime } from "../src/lib/instacomp-ai-council-runtime";
+
 const route = readFileSync(
   resolve(process.cwd(), "src/app/api/instacomp/scan/route.ts"),
   "utf8",
@@ -45,10 +47,11 @@ const checks: Array<[string, boolean]> = [
       route.includes('detailMode: "context"'),
   ],
   [
-    "failed readers are replaced from reserve capacity",
+    "route delegates failed-reader replacement to the bounded runtime helper",
     route.includes("while (") &&
-      route.includes("completedReaders < desiredReaders") &&
-      route.includes("cursor < configuredPlan.length"),
+      route.includes("shouldContinueCouncilRuntime({") &&
+      route.includes("completedReaders,") &&
+      route.includes("configuredReaderCount: configuredPlan.length"),
   ],
   [
     "only one reader per AI family is eligible to vote",
@@ -67,4 +70,46 @@ for (const [label, passed] of checks) {
   assert.equal(passed, true, label);
 }
 
-console.log(`InstaComp 8-30 AI council regressions passed (${checks.length} assertions).`);
+assert.equal(
+  shouldContinueCouncilRuntime({
+    completedReaders: 6,
+    desiredReaders: 8,
+    completedFamilies: ["google", "groq"],
+    configuredFamilies: ["google", "groq", "ollama"],
+    cursor: 8,
+    configuredReaderCount: 12,
+    primaryFamily: "openai",
+  }),
+  true,
+  "failed readers are replaced from reserve capacity",
+);
+
+assert.equal(
+  shouldContinueCouncilRuntime({
+    completedReaders: 8,
+    desiredReaders: 8,
+    completedFamilies: ["google"],
+    configuredFamilies: ["google", "groq"],
+    cursor: 8,
+    configuredReaderCount: 12,
+    primaryFamily: "google",
+  }),
+  true,
+  "the council continues when reader capacity is met but no family independent of the winning primary has completed",
+);
+
+assert.equal(
+  shouldContinueCouncilRuntime({
+    completedReaders: 8,
+    desiredReaders: 8,
+    completedFamilies: ["google", "groq"],
+    configuredFamilies: ["google", "groq", "ollama"],
+    cursor: 8,
+    configuredReaderCount: 12,
+    primaryFamily: "google",
+  }),
+  false,
+  "the council stops only after capacity and independent-family requirements are both satisfied",
+);
+
+console.log(`InstaComp 8-30 AI council regressions passed (${checks.length + 3} assertions).`);
