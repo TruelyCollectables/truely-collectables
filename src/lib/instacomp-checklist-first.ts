@@ -23,6 +23,8 @@ export type InstaCompChecklistCandidate = {
   isRelic: boolean;
   parallel?: string | null;
   variation?: string | null;
+  team?: string | null;
+  sport?: string | null;
 };
 
 export type InstaCompChecklistFirstDecision = {
@@ -73,9 +75,14 @@ function manufacturerMatches(
 ) {
   const target = normalizedText(input.manufacturer);
   if (!target) return false;
+
   return [candidate.manufacturer, candidate.brand, candidate.setName]
     .map(normalizedText)
-    .some((value) => value === target || value.includes(target) || target.includes(value));
+    .filter(Boolean)
+    .some(
+      (value) =>
+        value === target || value.includes(target) || target.includes(value),
+    );
 }
 
 function optionalTextMatches(input: unknown, candidate: unknown) {
@@ -93,7 +100,9 @@ export function resolveInstaCompChecklistFirst(params: {
     ["manufacturer", normalizedText(input.manufacturer)],
     ["card_number", normalizedCardNumber(input.cardNumber)],
     ["player", normalizedPlayer(input.player)],
-  ].filter(([, value]) => !value).map(([field]) => field);
+  ]
+    .filter(([, value]) => !value)
+    .map(([field]) => field);
 
   if (missing.length) {
     return {
@@ -105,11 +114,13 @@ export function resolveInstaCompChecklistFirst(params: {
     };
   }
 
-  const baseMatches = params.candidates.filter((candidate) =>
-    yearStart(candidate.year) === yearStart(input.year) &&
-    manufacturerMatches(input, candidate) &&
-    normalizedCardNumber(candidate.cardNumber) === normalizedCardNumber(input.cardNumber) &&
-    normalizedPlayer(candidate.player) === normalizedPlayer(input.player)
+  const baseMatches = params.candidates.filter(
+    (candidate) =>
+      yearStart(candidate.year) === yearStart(input.year) &&
+      manufacturerMatches(input, candidate) &&
+      normalizedCardNumber(candidate.cardNumber) ===
+        normalizedCardNumber(input.cardNumber) &&
+      normalizedPlayer(candidate.player) === normalizedPlayer(input.player),
   );
 
   if (!baseMatches.length) {
@@ -123,12 +134,13 @@ export function resolveInstaCompChecklistFirst(params: {
   }
 
   const requestedRun = serialRun(input.serialNumber);
-  const typedMatches = baseMatches.filter((candidate) =>
-    (input.isAuto == null || candidate.isAuto === input.isAuto) &&
-    (input.isRelic == null || candidate.isRelic === input.isRelic) &&
-    (requestedRun == null || candidate.serialRun === requestedRun) &&
-    optionalTextMatches(input.parallel, candidate.parallel) &&
-    optionalTextMatches(input.variation, candidate.variation)
+  const typedMatches = baseMatches.filter(
+    (candidate) =>
+      (input.isAuto == null || candidate.isAuto === input.isAuto) &&
+      (input.isRelic == null || candidate.isRelic === input.isRelic) &&
+      (requestedRun == null || candidate.serialRun === requestedRun) &&
+      optionalTextMatches(input.parallel, candidate.parallel) &&
+      optionalTextMatches(input.variation, candidate.variation),
   );
 
   if (typedMatches.length === 1) {
