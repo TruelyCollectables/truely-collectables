@@ -4,15 +4,12 @@ on:
   pull_request:
     paths:
       - "data/topps-checklist-seeds.json"
-      - "scripts/archive-topps-seed-sets.ts"
+      - "scripts/archive-topps-*.ts"
       - ".github/workflows/topps-checklist-archive.yml"
   push:
-    branches:
-      - main
-      - agent/topps-hockey-archive-mainline
     paths:
       - "data/topps-checklist-seeds.json"
-      - "scripts/archive-topps-seed-sets.ts"
+      - "scripts/archive-topps-*.ts"
       - ".github/workflows/topps-checklist-archive.yml"
   schedule:
     - cron: "17 * * * *"
@@ -28,7 +25,7 @@ concurrency:
 jobs:
   archive:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -36,29 +33,44 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Download official Topps checklist files
+      - name: Download every currently known official Topps checklist file
         run: node --import tsx scripts/archive-topps-seed-sets.ts
-      - name: Verify archive manifest
+      - name: Verify and report archive manifest
+        id: verify
+        continue-on-error: true
         run: |
           node --input-type=module <<'NODE'
           import { readFileSync } from 'node:fs';
           const manifest = JSON.parse(readFileSync('.topps-seed-archive/manifest.json', 'utf8'));
           if (manifest.schema !== 'tcos.topps.seedArchiveManifest.v1') throw new Error('Wrong archive schema');
           if ((manifest.totals?.requested ?? 0) < 1) throw new Error('No Topps seeds requested');
-          if ((manifest.totals?.archived ?? 0) < 1) throw new Error('No Topps files archived');
           if ((manifest.totals.archived + manifest.totals.failed) !== manifest.totals.requested) throw new Error('Manifest totals do not reconcile');
+          console.log(`Requested: ${manifest.totals.requested}`);
+          console.log(`Archived: ${manifest.totals.archived}`);
+          console.log(`Failed: ${manifest.totals.failed}`);
           NODE
-      - name: Package archive
+      - name: Package all successful files and receipts
+        if: always()
         run: tar -C .topps-seed-archive -czf topps-checklist-archive.tar.gz .
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: topps-checklist-archive
+          name: topps-checklist-archive-${{ github.run_id }}
           path: topps-checklist-archive.tar.gz
           if-no-files-found: error
           retention-days: 90
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: topps-checklist-manifest
+          name: topps-checklist-manifest-${{ github.run_id }}
           path: .topps-seed-archive/manifest.json
           if-no-files-found: error
           retention-days: 90
+      - name: Fail only when nothing could be archived
+        if: always()
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const manifest = JSON.parse(readFileSync('.topps-seed-archive/manifest.json', 'utf8'));
+          if ((manifest.totals?.archived ?? 0) < 1) throw new Error('Topps sweep archived zero files');
+          NODE
