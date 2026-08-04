@@ -12,6 +12,7 @@ on:
       - "scripts/run-kingmaker-pricing-decision-regressions.ts"
       - "scripts/run-kingmaker-pricing-profile-lifecycle-regressions.ts"
       - "scripts/run-kingmaker-pricing-command-center-regressions.ts"
+      - "scripts/run-kingmaker-pricing-operations-regressions.ts"
       - "scripts/test-instacomp-pricing-profile-atomic.sql"
       - "scripts/test-instacomp-pricing-command-center-atomic.sql"
       - "supabase/migrations/20260804004500_kingmaker_pricing_profile_atomic_lifecycle.sql"
@@ -71,6 +72,9 @@ jobs:
       - name: Re-run Command Center ledger attacks
         run: npx tsx scripts/run-kingmaker-pricing-command-center-regressions.ts
 
+      - name: Attack spreadsheet export formulas and receipt operations
+        run: npx tsx scripts/run-kingmaker-pricing-operations-regressions.ts
+
       - name: Run PostgreSQL profile owner, race, rollback, and replay attacks
         run: psql -h localhost -U postgres -d postgres -f scripts/test-instacomp-pricing-profile-atomic.sql
 
@@ -87,9 +91,11 @@ jobs:
           src/lib/instacomp-pricing-request-security.ts
           src/lib/kingmaker-pricing-profile-lifecycle-server.ts
           src/lib/kingmaker-pricing-command-center-server.ts
+          src/lib/kingmaker-pricing-receipt-operations.ts
           scripts/run-instacomp-pricing-evidence-boundary-regressions.ts
           scripts/run-kingmaker-pricing-profile-lifecycle-regressions.ts
           scripts/run-kingmaker-pricing-command-center-regressions.ts
+          scripts/run-kingmaker-pricing-operations-regressions.ts
 
       - name: TypeScript
         run: npx tsc --noEmit
