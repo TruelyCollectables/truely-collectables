@@ -107,6 +107,8 @@ export default async function ProductDetailLayout({
 
         <section className="mt-6 grid gap-8 lg:grid-cols-[minmax(0,1fr)_420px]">
           <ProductImageGallery
+            legacyProductId={product.legacyProductId}
+            sku={product.sku}
             inventoryItemId={product.inventoryItemId}
             primaryImageUrl={product.imageUrl}
             title={product.title}

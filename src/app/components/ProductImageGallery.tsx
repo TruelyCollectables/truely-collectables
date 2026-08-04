@@ -3,8 +3,9 @@ import SoldOverlay from "../../components/SoldOverlay";
 import {
   listingImageAltText,
   listingImageLabel,
-  selectFrontBackListingImages,
 } from "../../lib/listing-image-utils";
+import { listStorefrontProductImages } from "../../lib/storefront-product-images";
+import { getActiveStoreId } from "../../lib/stores";
 import { createSupabaseServerClient } from "../../lib/supabase-server";
 
 function displayLabel(index: number) {
@@ -13,43 +14,43 @@ function displayLabel(index: number) {
 }
 
 async function loadFrontBackImages(params: {
+  legacyProductId: number;
+  sku: string | null;
   inventoryItemId: string | null;
   primaryImageUrl: string | null;
 }) {
-  const fallback = selectFrontBackListingImages([params.primaryImageUrl]);
-  if (!params.inventoryItemId) return fallback;
-
   try {
-    const supabase = createSupabaseServerClient({ admin: true });
-    const { data, error } = await supabase
-      .from("inventory_images")
-      .select("image_url,sort_order,is_primary")
-      .eq("inventory_item_id", params.inventoryItemId)
-      .order("sort_order", { ascending: true });
-
-    if (error) return fallback;
-
-    return selectFrontBackListingImages([
-      params.primaryImageUrl,
-      ...(data || []).map((row: any) => row.image_url),
-    ]);
+    return await listStorefrontProductImages({
+      supabase: createSupabaseServerClient({ admin: true }),
+      storeId: getActiveStoreId(),
+      legacyProductId: params.legacyProductId,
+      sku: params.sku,
+      preferredInventoryItemId: params.inventoryItemId,
+      primaryImageUrl: params.primaryImageUrl,
+    });
   } catch {
-    return fallback;
+    return params.primaryImageUrl ? [params.primaryImageUrl] : [];
   }
 }
 
 export default async function ProductImageGallery({
+  legacyProductId,
+  sku,
   inventoryItemId,
   primaryImageUrl,
   title,
   sold = false,
 }: {
+  legacyProductId: number;
+  sku: string | null;
   inventoryItemId: string | null;
   primaryImageUrl: string | null;
   title: string;
   sold?: boolean;
 }) {
   const images = await loadFrontBackImages({
+    legacyProductId,
+    sku,
     inventoryItemId,
     primaryImageUrl,
   });
