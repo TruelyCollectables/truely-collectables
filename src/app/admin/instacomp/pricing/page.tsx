@@ -35,6 +35,14 @@ const workspaces: Workspace[] = [
     tone: "cyan",
   },
   {
+    eyebrow: "Coverage Intelligence",
+    title: "Coverage Attack Queue",
+    detail: "Rank missing releases, pending checklists, set gaps, and identity gaps by the number of private reference rows each fix can unlock.",
+    href: "/admin/instacomp/pricing/coverage",
+    action: "Open Coverage Queue",
+    tone: "cyan",
+  },
+  {
     eyebrow: "Economics Control",
     title: "Pricing Profiles",
     detail: "Create from presets, clone, edit, switch defaults, retire safely, and review profile audit history.",
@@ -111,8 +119,9 @@ export default async function PricingCommandCenterPage({ searchParams }: PagePro
           </p>
           <h1 className="mt-2 text-4xl font-black md:text-5xl">Pricing Command Center</h1>
           <p className="mt-3 max-w-4xl font-semibold text-neutral-300">
-            One private workspace for advisory pricing history, analytics, profile economics,
-            scenario comparison, bulk capital planning, review queues, exports, and audit visibility.
+            One private workspace for advisory pricing history, coverage intelligence, analytics,
+            profile economics, scenario comparison, bulk capital planning, review queues, exports,
+            and audit visibility.
           </p>
           <div className="mt-5 flex flex-wrap gap-2 text-xs font-black uppercase tracking-[0.14em]">
             <span className="rounded-full border border-emerald-300/30 bg-emerald-300/10 px-3 py-2 text-emerald-200">Advisory only</span>
@@ -152,12 +161,12 @@ export default async function PricingCommandCenterPage({ searchParams }: PagePro
 
         <section className="rounded-3xl border border-neutral-200 bg-white/95 p-6 shadow-sm ring-1 ring-black/[0.02]">
           <p className="text-xs font-black uppercase tracking-[0.18em] text-neutral-500">Recommended Operating Order</p>
-          <h2 className="mt-1 text-3xl font-black">Review evidence before acting on economics</h2>
+          <h2 className="mt-1 text-3xl font-black">Fix identity coverage before trusting economics</h2>
           <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <Step number="1" title="Clear review cases" detail="Resolve identity, evidence, and confidence problems first." />
-            <Step number="2" title="Confirm profile economics" detail="Use the correct fees, shipping cost, and target margin." />
-            <Step number="3" title="Compare and plan" detail="Run scenarios and rank bulk opportunities against capital." />
-            <Step number="4" title="Export or act separately" detail="Use the advisory output without creating hidden mutations." />
+            <Step number="1" title="Attack coverage gaps" detail="Prioritize Registry work that unlocks the most private reference rows." />
+            <Step number="2" title="Clear review cases" detail="Resolve identity, evidence, and confidence problems next." />
+            <Step number="3" title="Confirm profile economics" detail="Use the correct fees, shipping cost, and target margin." />
+            <Step number="4" title="Plan and act separately" detail="Rank opportunities, export advice, and keep mutations explicit." />
           </div>
         </section>
       </div>
