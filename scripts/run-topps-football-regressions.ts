@@ -31,20 +31,33 @@ assert.equal(parsed.cards[2].setName, "ROOKIE AUTOGRAPHS");
 assert.equal(parsed.cards[2].rookie, true);
 assert.equal(parsed.issues.some((issue) => issue.severity === "error"), false);
 
-const plan = parseToppsFootballTextChecklist({
-  sourceUrl: "https://www.topps.com/pages/2026-topps-chrome-football-checklist",
-  originalFilename: "2026-Topps-Chrome-Football-Checklist.txt",
-  mimeType: "text/plain",
-  content: `BASE SET
+function officialArtifact(params: { sourceUrl: string; filename: string; content: string }) {
+  return {
+    sourceUrl: params.sourceUrl,
+    originalFilename: params.filename.replace(/\.[^.]+$/, ".txt"),
+    mimeType: "text/plain",
+    content: params.content,
+    archiveContent: `<html><body><pre>${params.content}</pre></body></html>`,
+    archiveFilename: params.filename.replace(/\.[^.]+$/, ".html"),
+    archiveMimeType: "text/html",
+    retrievedAt: "2026-08-04T00:00:00.000Z",
+    authority: "official_manufacturer" as const,
+    redistributionAllowed: false,
+  };
+}
+
+const plan = parseToppsFootballTextChecklist(
+  officialArtifact({
+    sourceUrl: "https://www.topps.com/pages/2026-topps-chrome-football-checklist",
+    filename: "2026-Topps-Chrome-Football-Checklist.html",
+    content: `BASE SET
 1 Bo Nix Denver Broncos RC
 2 Patrick Mahomes II Kansas City Chiefs
 ROOKIE AUTOGRAPHS
 RA-BN Bo Nix Denver Broncos Rookie
 `,
-  retrievedAt: "2026-08-04T00:00:00.000Z",
-  authority: "official_manufacturer",
-  redistributionAllowed: false,
-});
+  }),
+);
 
 assert.equal(plan.release.manufacturer, "Topps");
 assert.equal(plan.release.sport, "Football");
@@ -54,18 +67,17 @@ assert.equal(plan.validation.counts.cards, 3);
 assert.equal(plan.validation.counts.identities, 3);
 assert.equal(plan.cards[0].rookieDesignation, true);
 assert.equal(plan.cards[2].autographStatus, "autograph");
+assert.equal(plan.source.storage.mimeType, "text/html");
 
-const collegePlan = parseToppsFootballTextChecklist({
-  sourceUrl: "https://cdn.shopify.com/s/files/1/0000/files/2026-bowman-u-football.txt",
-  originalFilename: "2026-Bowman-U-Football.txt",
-  mimeType: "text/plain",
-  content: `BASE SET
+const collegePlan = parseToppsFootballTextChecklist(
+  officialArtifact({
+    sourceUrl: "https://cdn.shopify.com/s/files/1/0000/files/2026-bowman-u-football.html",
+    filename: "2026-Bowman-U-Football.html",
+    content: `BASE SET
 1 College Player Alabama Crimson Tide RC
 `,
-  retrievedAt: "2026-08-04T00:00:00.000Z",
-  authority: "official_manufacturer",
-  redistributionAllowed: false,
-});
+  }),
+);
 assert.equal(collegePlan.release.league, "NCAA");
 assert.equal(collegePlan.release.sport, "Football");
 
@@ -84,17 +96,15 @@ const empty = parseToppsFootballChecklistText({
 });
 assert.ok(empty.issues.some((issue) => issue.code === "topps_football_checklist_no_cards" && issue.severity === "error"));
 
-const wrongDomain = parseToppsFootballTextChecklist({
-  sourceUrl: "https://example.com/2026-topps-football.txt",
-  originalFilename: "2026-Topps-Football.txt",
-  mimeType: "text/plain",
-  content: `BASE SET
+const wrongDomain = parseToppsFootballTextChecklist(
+  officialArtifact({
+    sourceUrl: "https://example.com/2026-topps-football.html",
+    filename: "2026-Topps-Football.html",
+    content: `BASE SET
 1 Bo Nix Denver Broncos RC
 `,
-  retrievedAt: "2026-08-04T00:00:00.000Z",
-  authority: "official_manufacturer",
-  redistributionAllowed: false,
-});
+  }),
+);
 assert.equal(wrongDomain.validation.status, "validation_required");
 assert.ok(wrongDomain.validation.issues.some((issue) => issue.code === "official_source_domain_mismatch"));
 
