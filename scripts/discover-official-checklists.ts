@@ -3,44 +3,63 @@ import { resolve } from "node:path";
 
 type Seed = { title: string; sport?: string; category?: string; year: string; sourcePage?: string; url: string };
 type Config = {
-  name: "Topps" | "Panini" | "Leaf";
+  name: "Topps" | "Panini" | "Leaf" | "Upper Deck";
   seedPath: string;
   startUrls: string[];
   trustedHosts: string[];
   crawlHosts: string[];
   maxPages: number;
+  checklistPagePattern?: RegExp;
 };
 
 const configs: Config[] = [
   {
     name: "Topps",
     seedPath: "data/topps-checklist-seeds.json",
-    startUrls: ["https://www.topps.com/pages/checklists"],
+    startUrls: [
+      "https://www.topps.com/pages/checklists",
+      "https://www.topps.com/pages/checklists/",
+    ],
     trustedHosts: ["topps.com", "www.topps.com", "cdn.shopify.com"],
     crawlHosts: ["topps.com", "www.topps.com"],
-    maxPages: 250,
+    maxPages: 1000,
   },
   {
     name: "Panini",
     seedPath: "data/panini-checklist-seeds.json",
     startUrls: [
       "https://www.paniniamerica.net/checklist.html",
+      "https://www.paniniamerica.net/resources/checklist.html",
       "https://blog.paniniamerica.net/",
     ],
     trustedHosts: ["paniniamerica.net", "www.paniniamerica.net", "blog.paniniamerica.net", "assets.paniniamerica.net"],
     crawlHosts: ["paniniamerica.net", "www.paniniamerica.net", "blog.paniniamerica.net"],
-    maxPages: 500,
+    maxPages: 1000,
   },
   {
     name: "Leaf",
     seedPath: "data/leaf-checklist-seeds.json",
     startUrls: [
-      "https://www.leaftradingcards.com/collections/all",
-      "https://www.leaftradingcards.com/products",
+      "https://www.leaftradingcards.com/",
+      "https://www.leaftradingcards.com/sitemap.xml",
     ],
     trustedHosts: ["leaftradingcards.com", "www.leaftradingcards.com", "cdn.prod.website-files.com", "docs.google.com", "drive.google.com"],
     crawlHosts: ["leaftradingcards.com", "www.leaftradingcards.com"],
-    maxPages: 500,
+    maxPages: 1000,
+  },
+  {
+    name: "Upper Deck",
+    seedPath: "data/upper-deck-checklist-seeds.json",
+    startUrls: [
+      "https://upperdeck.com/checklists/",
+      "https://upperdeck.com/checklist-category/hockey/",
+      "https://upperdeck.com/category/checklist/",
+      "https://upperdeck.com/wp-sitemap.xml",
+    ],
+    trustedHosts: ["upperdeck.com", "www.upperdeck.com"],
+    crawlHosts: ["upperdeck.com", "www.upperdeck.com"],
+    maxPages: 1500,
+    checklistPagePattern: /^\/checklist\/[^/]+\/?$/i,
   },
 ];
 
@@ -63,10 +82,7 @@ function decodeHtml(value: string) {
 
 function extractLinks(html: string, base: string) {
   const links = new Set<string>();
-  const patterns = [
-    /(?:href|src)\s*=\s*["']([^"']+)["']/gi,
-    /https:\/\/[^\s"'<>]+/gi,
-  ];
+  const patterns = [/(?:href|src)\s*=\s*["']([^"']+)["']/gi, /https:\/\/[^\s"'<>]+/gi, /<loc>([^<]+)<\/loc>/gi];
   for (const pattern of patterns) {
     for (const match of html.matchAll(pattern)) {
       const raw = decodeHtml(match[1] || match[0]).replace(/\\u0026/g, "&");
@@ -91,21 +107,15 @@ function guessYear(value: string) {
 function guessCategory(value: string) {
   const text = value.toLowerCase();
   const categories: Array<[string, string[]]> = [
-    ["Baseball", ["baseball", "bowman"]],
-    ["Basketball", ["basketball", "nba", "wnba", "nbl"]],
-    ["Football", ["football", "nfl"]],
-    ["Hockey", ["hockey", "nhl"]],
-    ["Soccer", ["soccer", "uefa", "premier league", "mls"]],
-    ["Wrestling", ["wwe", "wrestling"]],
-    ["Racing", ["formula 1", "formula-1", "f1", "racing", "nascar"]],
-    ["UFC", ["ufc", "mma", "fight"]],
-    ["Celebrity", ["pop century", "celebrity"]],
-    ["Entertainment", ["star wars", "marvel", "disney", "pixar", "spongebob", "stranger things", "dune", "garbage pail", "wacky packages", "entertainment"]],
-    ["Multi-Sport", ["multi-sport", "multisport", "national silver", "sports heroes", "game used"]],
+    ["Baseball", ["baseball", "bowman"]], ["Basketball", ["basketball", "nba", "wnba", "nbl"]],
+    ["Football", ["football", "nfl", "ufl"]], ["Hockey", ["hockey", "nhl", "pwhl", "ahl", "chl", "o-pee-chee", "parkhurst"]],
+    ["Soccer", ["soccer", "uefa", "premier league", "mls"]], ["Wrestling", ["wwe", "wrestling", "aew"]],
+    ["Racing", ["formula 1", "formula-1", "f1", "racing", "nascar"]], ["UFC", ["ufc", "mma", "fight"]],
+    ["Golf", ["golf"]], ["Celebrity", ["pop century", "celebrity"]],
+    ["Entertainment", ["star wars", "marvel", "disney", "pixar", "spongebob", "stranger things", "dune", "garbage pail", "wacky packages", "dc", "entertainment"]],
+    ["Multi-Sport", ["multi-sport", "multisport", "national silver", "sports heroes", "game used", "goodwin champions"]],
   ];
-  for (const [category, needles] of categories) {
-    if (needles.some((needle) => text.includes(needle))) return category;
-  }
+  for (const [category, needles] of categories) if (needles.some((needle) => text.includes(needle))) return category;
   return "Non-Sport";
 }
 
@@ -117,13 +127,18 @@ function titleFromUrl(url: string) {
 
 async function fetchText(url: string) {
   const response = await fetch(url, {
-    headers: { "User-Agent": "TCOS-Checklist-Discovery/1.0", Accept: "text/html,application/xhtml+xml,*/*" },
+    headers: {
+      "User-Agent": "Mozilla/5.0 (compatible; TCOS-Checklist-Discovery/2.0; +https://totallycollectibles.com)",
+      Accept: "text/html,application/xhtml+xml,application/xml,application/json,*/*",
+      "Accept-Language": "en-US,en;q=0.9",
+      Referer: new URL(url).origin + "/",
+    },
     redirect: "follow",
-    signal: AbortSignal.timeout(45_000),
+    signal: AbortSignal.timeout(60_000),
   });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   const contentType = response.headers.get("content-type") || "";
-  if (!contentType.includes("text") && !contentType.includes("html") && !contentType.includes("json")) return "";
+  if (!contentType.includes("text") && !contentType.includes("html") && !contentType.includes("json") && !contentType.includes("xml")) return "";
   return response.text();
 }
 
@@ -133,7 +148,7 @@ async function discover(config: Config) {
   const byUrl = new Map(existing.map((seed) => [seed.url, seed]));
   const queue = [...config.startUrls];
   const seenPages = new Set<string>();
-  const pageFailures: Array<{ url: string; error: string }> = [];
+  const pageFailures: Array<{ url: string; error: string; startPage: boolean }> = [];
   let newFiles = 0;
 
   while (queue.length && seenPages.size < config.maxPages) {
@@ -144,34 +159,39 @@ async function discover(config: Config) {
       const html = await fetchText(page);
       for (const link of extractLinks(html, page)) {
         const parsed = new URL(link);
-        if (FILE_RE.test(parsed.pathname) && CHECKLIST_RE.test(link) && hostAllowed(parsed.hostname, config.trustedHosts)) {
+        const isFile = FILE_RE.test(parsed.pathname) && CHECKLIST_RE.test(link);
+        const isChecklistPage = Boolean(config.checklistPagePattern?.test(parsed.pathname));
+        if ((isFile || isChecklistPage) && hostAllowed(parsed.hostname, config.trustedHosts)) {
           if (!byUrl.has(link)) {
             const title = titleFromUrl(link);
             const category = guessCategory(`${title} ${page}`);
-            const seed: Seed = {
+            byUrl.set(link, {
               title,
               year: guessYear(`${title} ${link}`),
               url: link,
               sourcePage: page,
               ...(config.name === "Leaf" ? { category } : { sport: category }),
-            };
-            byUrl.set(link, seed);
+            });
             newFiles += 1;
           }
+          if (isChecklistPage && !seenPages.has(link) && !queue.includes(link)) queue.push(link);
           continue;
         }
         if (!hostAllowed(parsed.hostname, config.crawlHosts)) continue;
         const path = parsed.pathname.toLowerCase();
-        const useful = /checklist|product|products|collection|collections|category|page\//.test(path) || parsed.searchParams.has("page");
+        const useful = /checklist|product|products|collection|collections|category|brand|license|page\/|sitemap/.test(path) || parsed.searchParams.has("page");
         if (useful && !seenPages.has(link) && !queue.includes(link)) queue.push(link);
       }
     } catch (error) {
-      pageFailures.push({ url: page, error: error instanceof Error ? error.message : String(error) });
+      pageFailures.push({ url: page, error: error instanceof Error ? error.message : String(error), startPage: config.startUrls.includes(page) });
     }
   }
 
   const seeds = [...byUrl.values()].sort((a, b) => `${a.year}|${a.title}`.localeCompare(`${b.year}|${b.title}`));
   writeFileSync(seedFile, JSON.stringify(seeds, null, 2) + "\n");
+  const hitPageLimit = seenPages.size >= config.maxPages && queue.length > 0;
+  const catalogScanComplete = queue.length === 0 && !hitPageLimit && pageFailures.length === 0 && seenPages.size > 0;
+  const discoveryStatus = catalogScanComplete ? "catalog-scan-complete" : pageFailures.length ? "discovery-blocked" : "still-discovering";
   return {
     manufacturer: config.name,
     seedPath: config.seedPath,
@@ -179,7 +199,9 @@ async function discover(config: Config) {
     pagesScanned: seenPages.size,
     pagesRemaining: queue.length,
     pageLimit: config.maxPages,
-    catalogScanComplete: queue.length === 0 && seenPages.size < config.maxPages,
+    hitPageLimit,
+    catalogScanComplete,
+    discoveryStatus,
     knownBefore: existing.length,
     newlyDiscovered: newFiles,
     discoveredTotal: seeds.length,
@@ -190,18 +212,11 @@ async function discover(config: Config) {
 async function main() {
   const reports = [];
   for (const config of configs) reports.push(await discover(config));
-  const output = {
-    schema: "tcos.checklistDiscoveryReport.v1",
-    generatedAt: new Date().toISOString(),
-    manufacturers: reports,
-  };
+  const output = { schema: "tcos.checklistDiscoveryReport.v2", generatedAt: new Date().toISOString(), manufacturers: reports };
   const dir = resolve(process.cwd(), ".checklist-discovery");
   mkdirSync(dir, { recursive: true });
   writeFileSync(resolve(dir, "report.json"), JSON.stringify(output, null, 2) + "\n");
-  console.log(JSON.stringify(reports.map((row) => ({ manufacturer: row.manufacturer, pagesScanned: row.pagesScanned, newlyDiscovered: row.newlyDiscovered, discoveredTotal: row.discoveredTotal, catalogScanComplete: row.catalogScanComplete }))));
+  console.log(JSON.stringify(reports.map((row) => ({ manufacturer: row.manufacturer, pagesScanned: row.pagesScanned, pageFailures: row.pageFailures.length, newlyDiscovered: row.newlyDiscovered, discoveredTotal: row.discoveredTotal, catalogScanComplete: row.catalogScanComplete, discoveryStatus: row.discoveryStatus }))));
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+main().catch((error) => { console.error(error); process.exitCode = 1; });
