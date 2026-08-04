@@ -1,0 +1,74 @@
+import { createHash } from "node:crypto";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+
+const OUT = resolve(process.cwd(), ".topps-seed-archive");
+const seeds = [
+  {
+    title: "2026 Topps Series 1 Baseball",
+    sport: "Baseball",
+    year: "2026",
+    url: "https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2026_Topps_Series_1_Baseball_Checklist_2-23.pdf?v=1772557808",
+  },
+  {
+    title: "2026 Topps Series 2 Baseball",
+    sport: "Baseball",
+    year: "2026",
+    url: "https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2026_Topps_Series_2_Baseball_Checklist_5-11.pdf?v=1778521905",
+  },
+  {
+    title: "2026 Topps Chrome Baseball",
+    sport: "Baseball",
+    year: "2026",
+    url: "https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2026_Topps_Chrome_Baseball_Checklist_Final_7.22.pdf?v=1785169183",
+  },
+  {
+    title: "2026 Topps Finest Baseball",
+    sport: "Baseball",
+    year: "2026",
+    url: "https://cdn.shopify.com/s/files/1/0662/9749/5709/files/CheckList_26TFBB_VERSION3.pdf?v=1783523381",
+  },
+] as const;
+
+function slug(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+async function main() {
+  mkdirSync(OUT, { recursive: true });
+  const files: Array<Record<string, unknown>> = [];
+  for (const seed of seeds) {
+    const parsed = new URL(seed.url);
+    if (parsed.protocol !== "https:" || parsed.hostname !== "cdn.shopify.com") {
+      throw new Error(`Untrusted Topps asset host: ${seed.url}`);
+    }
+    const response = await fetch(seed.url, {
+      headers: { "User-Agent": "TCOS-Topps-Seed-Archive/1.0", Accept: "application/pdf" },
+      redirect: "follow",
+      signal: AbortSignal.timeout(90_000),
+    });
+    if (!response.ok) throw new Error(`${seed.title}: HTTP ${response.status}`);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (!bytes.length) throw new Error(`${seed.title}: empty file`);
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    const filename = `${slug(seed.title)}-${sha256.slice(0, 12)}.pdf`;
+    const rel = `${seed.sport}/${seed.year}/${filename}`;
+    const target = resolve(OUT, rel);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, bytes);
+    files.push({ ...seed, filename, archivePath: rel, sha256, sizeBytes: bytes.length, mimeType: "application/pdf" });
+  }
+  const manifest = {
+    schema: "tcos.topps.seedArchiveManifest.v1",
+    generatedAt: new Date().toISOString(),
+    totals: { requested: seeds.length, archived: files.length },
+    files,
+  };
+  writeFileSync(resolve(OUT, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
+  console.log(JSON.stringify(manifest.totals));
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
