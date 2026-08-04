@@ -5,16 +5,18 @@ on:
     paths:
       - "data/*-checklist-seeds.json"
       - "scripts/archive-*.ts"
+      - "scripts/discover-official-checklists.ts"
       - "scripts/build-checklist-master-status.ts"
       - ".github/workflows/master-checklist-bulk-pull.yml"
   push:
     paths:
       - "data/*-checklist-seeds.json"
       - "scripts/archive-*.ts"
+      - "scripts/discover-official-checklists.ts"
       - "scripts/build-checklist-master-status.ts"
       - ".github/workflows/master-checklist-bulk-pull.yml"
   schedule:
-    - cron: "7 */6 * * *"
+    - cron: "7 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -27,7 +29,7 @@ concurrency:
 jobs:
   bulk-pull:
     runs-on: ubuntu-24.04
-    timeout-minutes: 240
+    timeout-minutes: 330
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -36,15 +38,19 @@ jobs:
           cache: npm
       - run: npm ci
 
-      - name: Download Topps official checklist catalog
+      - name: Crawl official manufacturer catalogs and refill queues
+        continue-on-error: true
+        run: node --import tsx scripts/discover-official-checklists.ts
+
+      - name: Download Topps discovered checklist catalog
         continue-on-error: true
         run: node --import tsx scripts/archive-topps-seed-sets.ts
 
-      - name: Download Panini official checklist catalog
+      - name: Download Panini discovered checklist catalog
         continue-on-error: true
         run: node --import tsx scripts/archive-panini-seed-sets.ts
 
-      - name: Download Leaf official checklist catalog
+      - name: Download Leaf discovered checklist catalog
         continue-on-error: true
         run: node --import tsx scripts/archive-leaf-checklist-sets.ts
 
@@ -58,14 +64,15 @@ jobs:
             fi
           done
 
-      - name: Build manufacturer status bars
+      - name: Build discovery and download status bars
         if: always()
         run: node --import tsx scripts/build-checklist-master-status.ts
 
-      - name: Add manifests to master archive
+      - name: Add discovery report and manifests to master archive
         if: always()
         run: |
-          mkdir -p .checklist-master-archive/manifests
+          mkdir -p .checklist-master-archive/manifests .checklist-master-archive/discovery
+          test ! -f .checklist-discovery/report.json || cp .checklist-discovery/report.json .checklist-master-archive/discovery/report.json
           test ! -f .topps-seed-archive/manifest.json || cp .topps-seed-archive/manifest.json .checklist-master-archive/manifests/topps.json
           test ! -f .panini-seed-archive/manifest.json || cp .panini-seed-archive/manifest.json .checklist-master-archive/manifests/panini.json
           test ! -f .leaf-checklist-archive/manifest.json || cp .leaf-checklist-archive/manifest.json .checklist-master-archive/manifests/leaf.json
@@ -89,6 +96,7 @@ jobs:
           path: |
             .checklist-master-archive/STATUS.md
             .checklist-master-archive/status.json
+            .checklist-master-archive/discovery/report.json
             .checklist-master-archive/manifests/*.json
           if-no-files-found: error
           retention-days: 90
