@@ -38,6 +38,11 @@ jobs:
           node <<'NODE'
           const fs = require('node:fs');
 
+          const releasePath = 'public/instacomp-release.json';
+          const release = JSON.parse(fs.readFileSync(releasePath, 'utf8'));
+          release.sourceCommit = 'BUILD_INJECTED_AT_BUILD';
+          fs.writeFileSync(releasePath, `${JSON.stringify(release, null, 2)}\n`);
+
           const templatePath = 'src/app/admin/template.tsx';
           let template = fs.readFileSync(templatePath, 'utf8');
           if (!template.includes('import Link from "next/link";')) {
