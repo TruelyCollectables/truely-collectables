@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { POST as verifyPendingIdentity } from "../../instacomp-pending-identity/route";
-import { POST as runInventoryInstaComp } from "../instacomp/route";
+import { POST as runUniversalInstaComp } from "../instacomp-universal/route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,24 +37,24 @@ export async function POST(request: NextRequest) {
     },
   );
   const verification = await verifyPendingIdentity(verificationRequest);
+  const verificationPayload = await verification.json().catch(() => ({}));
 
-  if (!verification.ok) {
-    const payload = await verification.json().catch(() => ({}));
+  if (!verification.ok || verificationPayload?.success !== true) {
     return NextResponse.json(
       {
         success: false,
         error:
-          payload?.error ||
+          verificationPayload?.error ||
           "Checklist Registry identity must be resolved before marketplace comps can run.",
         code: "CHECKLIST_IDENTITY_REQUIRED",
-        identity: payload?.identity || null,
+        identity: verificationPayload?.identity || null,
       },
       { status: verification.status || 409 },
     );
   }
 
   const pricingRequest = new NextRequest(
-    new URL("/api/account/seller/inventory/instacomp", request.url),
+    new URL("/api/account/seller/inventory/instacomp-universal", request.url),
     {
       method: "POST",
       headers,
@@ -62,12 +62,29 @@ export async function POST(request: NextRequest) {
     },
   );
 
-  const response = await runInventoryInstaComp(pricingRequest);
+  const response = await runUniversalInstaComp(pricingRequest);
+  const pricingPayload = await response.json().catch(() => ({}));
   const responseHeaders = new Headers(response.headers);
   responseHeaders.set("x-instacomp-checklist-verified", "true");
-  return new NextResponse(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers: responseHeaders,
-  });
+  responseHeaders.set(
+    "x-instacomp-registry-identity-id",
+    String(verificationPayload?.identity?.registryIdentityId || ""),
+  );
+
+  return NextResponse.json(
+    {
+      ...pricingPayload,
+      identity: verificationPayload?.identity || null,
+      verification: {
+        source: "checklist_registry",
+        verified: true,
+        checkedAt:
+          verificationPayload?.identity?.checkedAt || new Date().toISOString(),
+      },
+    },
+    {
+      status: response.status,
+      headers: responseHeaders,
+    },
+  );
 }
