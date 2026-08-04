@@ -1,5 +1,5 @@
 name: Master Checklist Bulk Pull
-# Topps repair and Panini public-index discovery 2026-08-04T21:08Z
+# Download-first Topps and Panini pass 2026-08-04T21:16Z
 
 on:
   pull_request:
@@ -53,17 +53,27 @@ jobs:
         timeout-minutes: 10
         run: node --import tsx scripts/discover-blocked-checklists-via-reader.ts
 
-      - name: Crawl official manufacturer catalogs and refill queues
-        continue-on-error: true
-        timeout-minutes: 90
-        run: node --import tsx scripts/discover-official-checklists.ts
-
-      - name: Download and repair Topps discovered checklist catalog
+      - name: Download and repair Topps immediately
         continue-on-error: true
         timeout-minutes: 150
         run: node --import tsx scripts/archive-topps-seed-sets.ts
 
-      - name: Download Panini discovered checklist catalog
+      - name: Download Panini immediately
+        continue-on-error: true
+        timeout-minutes: 90
+        run: node --import tsx scripts/archive-panini-seed-sets.ts
+
+      - name: Crawl official manufacturer catalogs and refill queues
+        continue-on-error: true
+        timeout-minutes: 45
+        run: node --import tsx scripts/discover-official-checklists.ts
+
+      - name: Download Topps newly found in broad crawl
+        continue-on-error: true
+        timeout-minutes: 150
+        run: node --import tsx scripts/archive-topps-seed-sets.ts
+
+      - name: Download Panini newly found in broad crawl
         continue-on-error: true
         timeout-minutes: 90
         run: node --import tsx scripts/archive-panini-seed-sets.ts
