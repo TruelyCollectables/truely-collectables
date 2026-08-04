@@ -1,0 +1,81 @@
+name: Status KINGMAKER Beckett Match 20260803
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/status-kingmaker-beckett-match-20260803.yml"
+      - "scripts/ops/status-kingmaker-beckett-match-20260803.mjs"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: status-kingmaker-beckett-match-20260803
+  cancel-in-progress: true
+
+env:
+  EXPECTED_BRANCH: ops/status-kingmaker-beckett-match-20260803
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  RECEIPT_PATH: evidence/kingmaker-beckett-match-status-20260803/status.json
+
+jobs:
+  read-status:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on read-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main
+          mapfile -t changed < <(git diff --name-only origin/main...HEAD)
+          test "${#changed[@]}" -eq 2
+          test "${changed[0]}" = '.github/workflows/status-kingmaker-beckett-match-20260803.yml'
+          test "${changed[1]}" = 'scripts/ops/status-kingmaker-beckett-match-20260803.mjs'
+          git diff --check origin/main...HEAD
+          cp scripts/ops/status-kingmaker-beckett-match-20260803.mjs "$RUNNER_TEMP/status.mjs"
+          git checkout --detach origin/main
+          mkdir -p scripts/ops "$(dirname "$RECEIPT_PATH")"
+          cp "$RUNNER_TEMP/status.mjs" scripts/ops/status-kingmaker-beckett-match-20260803.mjs
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Pull protected Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          mkdir -p .vercel "$RUNNER_TEMP/prod"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/prod/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          test -s "$RUNNER_TEMP/prod/production.env"
+          echo "PRODUCTION_ENV_FILE=$RUNNER_TEMP/prod/production.env" >> "$GITHUB_ENV"
+
+      - name: Read current Production matching status
+        run: node scripts/ops/status-kingmaker-beckett-match-20260803.mjs
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kingmaker-beckett-match-status-20260803
+          path: ${{ env.RECEIPT_PATH }}
+          if-no-files-found: error
+          retention-days: 2
