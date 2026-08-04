@@ -5,6 +5,8 @@ import { dirname, resolve } from "node:path";
 const RECEIPT_SCHEMA = "tcos.kingmaker.beckettAutoRematchDrainReceipt.v1";
 const MIGRATION =
   "supabase/migrations/20260804024500_batch_kingmaker_auto_rematch_drain.sql";
+const RELEASE_VERSION_MIGRATION =
+  "supabase/migrations/20260804030000_scope_kingmaker_matcher_to_release_version.sql";
 const OPTIONAL_INDEX_NAME =
   "tcos_kingmaker_price_entries_rematch_version_idx";
 
@@ -132,6 +134,9 @@ function migrationStatusSql() {
       to_regprocedure(
         'public.tcos_drain_kingmaker_price_rematch_batch(integer,text)'
       ) is not null as drain_rpc_present,
+      to_regprocedure(
+        'public.tcos_match_kingmaker_price_entry_ids_for_release(uuid,uuid[],uuid,uuid)'
+      ) is not null as release_version_matcher_present,
       to_regclass(
         'public.${OPTIONAL_INDEX_NAME}'
       ) is not null as optional_index_present;
@@ -178,6 +183,9 @@ function verificationSql() {
       to_regprocedure(
         'public.tcos_drain_kingmaker_price_rematch_batch(integer,text)'
       ) is not null as drain_rpc_present,
+      to_regprocedure(
+        'public.tcos_match_kingmaker_price_entry_ids_for_release(uuid,uuid[],uuid,uuid)'
+      ) is not null as release_version_matcher_present,
       not has_function_privilege(
         'anon',
         'public.tcos_rematch_kingmaker_price_entries_for_release_batch(uuid,uuid,integer,text)',
@@ -198,6 +206,16 @@ function verificationSql() {
         'public.tcos_drain_kingmaker_price_rematch_batch(integer,text)',
         'execute'
       ) as authenticated_drain_execute_revoked,
+      not has_function_privilege(
+        'anon',
+        'public.tcos_match_kingmaker_price_entry_ids_for_release(uuid,uuid[],uuid,uuid)',
+        'execute'
+      ) as anon_release_version_matcher_execute_revoked,
+      not has_function_privilege(
+        'authenticated',
+        'public.tcos_match_kingmaker_price_entry_ids_for_release(uuid,uuid[],uuid,uuid)',
+        'execute'
+      ) as authenticated_release_version_matcher_execute_revoked,
       has_function_privilege(
         'service_role',
         'public.tcos_rematch_kingmaker_price_entries_for_release_batch(uuid,uuid,integer,text)',
@@ -207,7 +225,12 @@ function verificationSql() {
         'service_role',
         'public.tcos_drain_kingmaker_price_rematch_batch(integer,text)',
         'execute'
-      ) as service_drain_execute;
+      ) as service_drain_execute,
+      has_function_privilege(
+        'service_role',
+        'public.tcos_match_kingmaker_price_entry_ids_for_release(uuid,uuid[],uuid,uuid)',
+        'execute'
+      ) as service_release_version_matcher_execute;
   `;
 }
 
@@ -289,7 +312,12 @@ async function waitForRematchActivity({
   );
 }
 
-async function ensureBatchedMigration({ project, token, migrationSql }) {
+async function ensureBatchedMigration({
+  project,
+  token,
+  migrationSql,
+  releaseVersionMigrationSql,
+}) {
   let status = firstRow(
     await queryManagement({
       project,
@@ -300,24 +328,49 @@ async function ensureBatchedMigration({ project, token, migrationSql }) {
     }),
   );
 
-  if (status.batch_rpc_present === true && status.drain_rpc_present === true) {
-    console.log("KINGMAKER batched rematch functions are already installed.");
+  const baseInstalled =
+    status.batch_rpc_present === true && status.drain_rpc_present === true;
+  const releaseVersionInstalled =
+    status.release_version_matcher_present === true;
+
+  if (baseInstalled && releaseVersionInstalled) {
+    console.log("KINGMAKER release/version-scoped rematch functions are already installed.");
     return {
       mode: "already_applied",
       optionalIndexPresent: status.optional_index_present === true,
       wait: { attempts: 0, activeAtCompletion: 0, oldestSeconds: 0 },
       productionSafeSha256: null,
+      releaseVersionMigrationSha256: createHash("sha256")
+        .update(releaseVersionMigrationSql)
+        .digest("hex"),
     };
   }
 
   const wait = await waitForRematchActivity({ project, token });
-  const safeMigration = productionSafeMigration(migrationSql);
+  let productionSafeSha256 = null;
+  let mode = "applied_release_version_scope";
+
+  if (!baseInstalled) {
+    const safeMigration = productionSafeMigration(migrationSql);
+    await queryManagement({
+      project,
+      token,
+      query: safeMigration,
+      readOnly: false,
+      stage: "Production-safe batched rematch migration",
+    });
+    productionSafeSha256 = createHash("sha256")
+      .update(safeMigration)
+      .digest("hex");
+    mode = "applied_base_and_release_version_scope";
+  }
+
   await queryManagement({
     project,
     token,
-    query: safeMigration,
+    query: releaseVersionMigrationSql,
     readOnly: false,
-    stage: "Production-safe batched rematch migration",
+    stage: "release/version-scoped matcher migration",
   });
 
   status = firstRow(
@@ -326,34 +379,51 @@ async function ensureBatchedMigration({ project, token, migrationSql }) {
       token,
       query: migrationStatusSql(),
       readOnly: true,
-      stage: "post-migration batched rematch status",
+      stage: "post-migration rematch status",
     }),
   );
-  if (status.batch_rpc_present !== true || status.drain_rpc_present !== true) {
-    throw new Error("Production-safe batched rematch migration did not install both RPCs.");
+  if (
+    status.batch_rpc_present !== true ||
+    status.drain_rpc_present !== true ||
+    status.release_version_matcher_present !== true
+  ) {
+    throw new Error("Production rematch migrations did not install every required RPC.");
   }
 
   return {
-    mode: "applied_without_optional_index",
+    mode,
     optionalIndexPresent: status.optional_index_present === true,
     wait,
-    productionSafeSha256: createHash("sha256")
-      .update(safeMigration)
+    productionSafeSha256,
+    releaseVersionMigrationSha256: createHash("sha256")
+      .update(releaseVersionMigrationSql)
       .digest("hex"),
   };
 }
 
 function selfTest() {
   const migrationSql = readFileSync(MIGRATION, "utf8");
+  const releaseVersionMigrationSql = readFileSync(
+    RELEASE_VERSION_MIGRATION,
+    "utf8",
+  );
   const safeMigration = productionSafeMigration(migrationSql);
   if (safeMigration.includes(OPTIONAL_INDEX_NAME)) {
     throw new Error("Self-test found the optional index in Production-safe DDL.");
   }
-  if (!migrationStatusSql().includes("batch_rpc_present")) {
+  if (!migrationStatusSql().includes("release_version_matcher_present")) {
     throw new Error("Self-test found an incomplete migration status query.");
   }
   if (!rematchActivitySql().includes("pid <> pg_backend_pid()")) {
     throw new Error("Self-test found an unsafe activity query.");
+  }
+  if (
+    !releaseVersionMigrationSql.includes(
+      "tcos_match_kingmaker_price_entry_ids_for_release",
+    ) ||
+    !releaseVersionMigrationSql.includes("release_row.active_version_id")
+  ) {
+    throw new Error("Self-test found an incomplete release/version migration.");
   }
   if (
     createHash("sha256").update(safeMigration).digest("hex") ===
@@ -361,7 +431,7 @@ function selfTest() {
   ) {
     throw new Error("Self-test expected Production-safe DDL to differ from source DDL.");
   }
-  console.log("KINGMAKER Production migration setup self-test passed.");
+  console.log("KINGMAKER release/version Production setup self-test passed.");
 }
 
 async function main() {
@@ -396,10 +466,15 @@ async function main() {
     productionEnv.NEXT_PUBLIC_SUPABASE_URL || productionEnv.SUPABASE_URL;
   const project = projectRef(productionUrl);
   const migrationSql = readFileSync(MIGRATION, "utf8");
+  const releaseVersionMigrationSql = readFileSync(
+    RELEASE_VERSION_MIGRATION,
+    "utf8",
+  );
   const migrationSetup = await ensureBatchedMigration({
     project,
     token,
     migrationSql,
+    releaseVersionMigrationSql,
   });
 
   const verification = firstRow(
@@ -491,8 +566,12 @@ async function main() {
     status: idle ? "passed" : "partial",
     generatedAt: new Date().toISOString(),
     migration: {
-      path: MIGRATION,
-      sha256: createHash("sha256").update(migrationSql).digest("hex"),
+      basePath: MIGRATION,
+      baseSha256: createHash("sha256").update(migrationSql).digest("hex"),
+      releaseVersionPath: RELEASE_VERSION_MIGRATION,
+      releaseVersionSha256: createHash("sha256")
+        .update(releaseVersionMigrationSql)
+        .digest("hex"),
       setup: migrationSetup,
     },
     configuration: { batchSize, maxBatches },
