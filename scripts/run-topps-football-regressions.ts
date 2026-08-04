@@ -114,10 +114,20 @@ for (const marker of [
   "Math.min(100",
   'sport: "Football"',
   'manufacturer: "Topps"',
+  "assertTrustedToppsUrl(response.url || url",
+  'select("source_url,release_name,status,source_sha256,metadata")',
+  'currentDigest !== expectedDigest',
+  'unchangedTerminal',
+  '.in("status", ["discovered", "validated"])',
+  'topps_football_source_changed_after_discovery',
 ]) {
-  assert.ok(worker.includes(marker), `Missing Football isolation marker: ${marker}`);
+  assert.ok(worker.includes(marker), `Missing Football hardening marker: ${marker}`);
 }
 assert.equal(worker.includes('.eq("sport", "Baseball")'), false);
 assert.equal(worker.includes('.eq("sport", "Hockey")'), false);
+assert.equal(worker.includes('.in("status", ["discovered", "validated", "quarantined", "failed"])'), false);
+assert.match(worker, /parsed\.protocol !== "https:"/);
+assert.match(worker, /host\.endsWith\("\.topps\.com"\)/);
+assert.match(worker, /host === "cdn\.shopify\.com"/);
 
-console.log("Topps Football parser, adapter, and isolation regressions passed.");
+console.log("Topps Football parser, adapter, isolation, source-trust, and retry regressions passed.");
