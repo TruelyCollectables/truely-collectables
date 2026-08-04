@@ -1,0 +1,83 @@
+name: Topps Football Registry Worker
+run-name: Topps Football Registry Worker — ${{ github.event_name }}
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "0 * * * *"
+  push:
+    branches:
+      - agent/topps-isolated-sport-pipelines
+    paths:
+      - ".github/workflows/topps-football-registry-worker.yml"
+      - "scripts/run-topps-football-worker.ts"
+      - "src/lib/checklist-registry/topps-football-text.ts"
+      - "src/lib/checklist-registry/topps-football-text-adapter.ts"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: topps-football-registry-worker
+  cancel-in-progress: false
+
+jobs:
+  football-only:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 55
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TOPPS_FOOTBALL_MAX_PRODUCTS: "500"
+      TOPPS_FOOTBALL_MAX_SOURCES: "100"
+      TOPPS_FOOTBALL_OUTPUT: .checklist-discovery/topps-football-worker-receipt.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install deterministic PDF text extractor
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends poppler-utils
+          pdftotext -v
+      - run: npm ci
+      - name: Run isolated Topps Football discovery and Registry import
+        run: node --import tsx scripts/run-topps-football-worker.ts
+      - name: Verify Football-only receipt
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, existsSync } from 'node:fs';
+          const path = process.env.TOPPS_FOOTBALL_OUTPUT;
+          if (!path || !existsSync(path)) throw new Error(`Missing Topps Football receipt: ${path || '(unset)'}`);
+          const receipt = JSON.parse(readFileSync(path, 'utf8'));
+          if (receipt.manufacturer !== 'Topps' || receipt.sport !== 'Football') {
+            throw new Error('Topps Football worker crossed its manufacturer or sport boundary.');
+          }
+          if ((receipt.totals?.selected ?? 0) > 100) throw new Error('Topps Football worker exceeded the 100-source hourly limit.');
+          const t = receipt.totals || {};
+          const lines = [
+            '# Topps Football Registry Worker',
+            '',
+            `**Production Football sources:** ${receipt.productionSourceCount ?? 0}`,
+            `**Selected this hour:** ${t.selected ?? 0}`,
+            `**Imported:** ${t.imported ?? 0}`,
+            `**Quarantined:** ${t.quarantined ?? 0}`,
+            `**Failed:** ${t.failed ?? 0}`,
+            `**Sets:** ${t.sets ?? 0}`,
+            `**Cards:** ${t.cards ?? 0}`,
+            `**Parallels:** ${t.parallels ?? 0}`,
+            `**Identities:** ${t.identities ?? 0}`,
+          ];
+          await import('node:fs').then(({ writeFileSync }) => writeFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join('\n')}\n`, { flag: 'a' }));
+          NODE
+      - name: Upload Football receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: topps-football-registry-worker-receipt
+          path: .checklist-discovery/topps-football-worker-receipt.json
+          if-no-files-found: error
+          retention-days: 90
