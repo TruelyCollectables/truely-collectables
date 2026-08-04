@@ -1,0 +1,104 @@
+name: Master Checklist Bulk Pull
+
+on:
+  pull_request:
+    paths:
+      - "data/*-checklist-seeds.json"
+      - "scripts/archive-*.ts"
+      - "scripts/build-checklist-master-status.ts"
+      - ".github/workflows/master-checklist-bulk-pull.yml"
+  push:
+    paths:
+      - "data/*-checklist-seeds.json"
+      - "scripts/archive-*.ts"
+      - "scripts/build-checklist-master-status.ts"
+      - ".github/workflows/master-checklist-bulk-pull.yml"
+  schedule:
+    - cron: "7 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: master-checklist-bulk-pull-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  bulk-pull:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Download Topps official checklist catalog
+        continue-on-error: true
+        run: node --import tsx scripts/archive-topps-seed-sets.ts
+
+      - name: Download Panini official checklist catalog
+        continue-on-error: true
+        run: node --import tsx scripts/archive-panini-seed-sets.ts
+
+      - name: Download Leaf official checklist catalog
+        continue-on-error: true
+        run: node --import tsx scripts/archive-leaf-checklist-sets.ts
+
+      - name: Assemble manufacturer archive hierarchy
+        if: always()
+        run: |
+          mkdir -p .checklist-master-archive
+          for source in .topps-seed-archive .panini-seed-archive .leaf-checklist-archive; do
+            if [ -d "$source" ]; then
+              find "$source" -mindepth 1 -maxdepth 1 -type d -exec cp -a {} .checklist-master-archive/ \;
+            fi
+          done
+
+      - name: Build manufacturer status bars
+        if: always()
+        run: node --import tsx scripts/build-checklist-master-status.ts
+
+      - name: Add manifests to master archive
+        if: always()
+        run: |
+          mkdir -p .checklist-master-archive/manifests
+          test ! -f .topps-seed-archive/manifest.json || cp .topps-seed-archive/manifest.json .checklist-master-archive/manifests/topps.json
+          test ! -f .panini-seed-archive/manifest.json || cp .panini-seed-archive/manifest.json .checklist-master-archive/manifests/panini.json
+          test ! -f .leaf-checklist-archive/manifest.json || cp .leaf-checklist-archive/manifest.json .checklist-master-archive/manifests/leaf.json
+
+      - name: Package master archive
+        if: always()
+        run: tar -czf master-checklist-archive.tar.gz .checklist-master-archive
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: master-checklist-archive-${{ github.run_id }}
+          path: master-checklist-archive.tar.gz
+          if-no-files-found: error
+          retention-days: 90
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: master-checklist-status-${{ github.run_id }}
+          path: |
+            .checklist-master-archive/STATUS.md
+            .checklist-master-archive/status.json
+            .checklist-master-archive/manifests/*.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Require at least one archived file per active manufacturer
+        if: always()
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const status = JSON.parse(readFileSync('.checklist-master-archive/status.json', 'utf8'));
+          const empty = status.manufacturers.filter((row) => row.discovered > 0 && row.archived < 1);
+          if (empty.length) throw new Error(`Manufacturers with zero archived files: ${empty.map((row) => row.manufacturer).join(', ')}`);
+          NODE
