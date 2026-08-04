@@ -90,6 +90,10 @@ jobs:
           const smokePath = 'scripts/smoke-kingmaker-runtime.mjs';
           let smoke = fs.readFileSync(smokePath, 'utf8');
           smoke = smoke.replace(
+            'expectedText: "Command Center"',
+            'expectedText: "Project KINGMAKER Beta 1.0"',
+          );
+          smoke = smoke.replace(
             '      env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1" },',
             '      env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1", SUPABASE_SERVICE_ROLE_KEY: "" },',
           );
@@ -102,6 +106,7 @@ jobs:
             `  if (server) {\n    try {\n      if (process.platform === "win32" || !server.pid) server.kill("SIGTERM");\n      else process.kill(-server.pid, "SIGTERM");\n    } catch {\n      server.kill("SIGKILL");\n    }\n    await Promise.race([\n      new Promise((resolve) => server.once("exit", resolve)),\n      sleep(5_000),\n    ]);\n  }`,
           );
           for (const required of [
+            'expectedText: "Project KINGMAKER Beta 1.0"',
             'SUPABASE_SERVICE_ROLE_KEY: ""',
             'detached: process.platform !== "win32"',
             'process.kill(-server.pid, "SIGTERM")',
