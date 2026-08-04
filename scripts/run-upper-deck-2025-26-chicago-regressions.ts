@@ -6,6 +6,8 @@ const html = `<!doctype html><html><body>
 <table><tr><th>Set Name</th><th>Card</th><th>Description</th><th>Team City</th><th>Team Name</th><th>Rookie</th><th>Auto</th><th>Mem/Tech</th><th>#'d</th><th>SPs</th><th>Stated Odds</th></tr>
 <tr><td>Centennial Choice Signatures</td><td>CS-AA</td><td>Player Alpha</td><td>Chicago</td><td>Blackhawks</td><td></td><td>Auto</td><td></td><td></td><td></td><td>Hobby</td></tr>
 <tr><td>Centennial Choice Signatures Inscriptions Parallel</td><td>CS-AA</td><td>Player Alpha - &quot;Alpha One&quot;</td><td>Chicago</td><td>Blackhawks</td><td></td><td>Auto</td><td></td><td>35</td><td></td><td>Hobby</td></tr>
+<tr><td>Centennial Choice Signatures</td><td>CS-DW</td><td>Doug Wilson</td><td>Chicago</td><td>Blackhawks</td><td></td><td>Auto</td><td></td><td></td><td></td><td>Hobby</td></tr>
+<tr><td>Centennial Choice Signatures Inscriptions Parallel</td><td>CS-DW</td><td>Doug Wilson - HOF 2020&quot;</td><td>Chicago</td><td>Blackhawks</td><td></td><td>Auto</td><td></td><td>35</td><td></td><td>Hobby</td></tr>
 <tr><td>Chicago Stadium Seat Relics</td><td>CS-AA</td><td>Player Alpha</td><td>Chicago</td><td>Blackhawks</td><td></td><td></td><td>Seat Relic</td><td>49</td><td></td><td>Hobby</td></tr>
 <tr><td>Chicago Stadium Seat Relics Autos Parallel</td><td>CS-AA</td><td>Player Alpha</td><td>Chicago</td><td>Blackhawks</td><td></td><td>Auto</td><td>Seat Relic</td><td>10</td><td></td><td>Hobby</td></tr>
 <tr><td>Centennial Choice Signatures</td><td>CS-BB</td><td>Player Beta</td><td>Chicago</td><td>Blackhawks</td><td></td><td>Auto</td><td></td><td></td><td></td><td>Hobby</td></tr>
@@ -36,16 +38,21 @@ if (!sets.has("centennial-choice-signatures") || !sets.has("chicago-stadium-seat
   throw new Error(`Set lineage collapsed: ${JSON.stringify([...sets])}`);
 }
 
-const alpha = plan.identities.filter(
-  (identity) => identity.fingerprint.normalized.cardNumber === "cs-aa",
-);
-if (alpha.length !== 4) {
-  throw new Error(`Expected four Alpha printings: ${JSON.stringify(alpha)}`);
-}
+const alpha = plan.identities.filter((identity) => identity.fingerprint.normalized.cardNumber === "cs-aa");
 const normalized = alpha.map((identity) => identity.fingerprint.normalized);
+if (alpha.length !== 4) throw new Error(`Expected four Alpha printings: ${JSON.stringify(alpha)}`);
 if (!normalized.some((item) => item.setName === "centennial choice signatures" && item.parallel === "inscriptions" && item.serialRun === "/35" && item.variation === "inscription: alpha one" && item.players.join("|") === "player alpha")) {
   throw new Error(`Inscription evidence failed: ${JSON.stringify(normalized)}`);
 }
+
+const malformed = plan.identities.find((identity) => {
+  const item = identity.fingerprint.normalized;
+  return item.cardNumber === "cs-dw" && item.setName === "centennial choice signatures" && item.parallel === "inscriptions" && item.serialRun === "/35" && item.variation === "inscription: hof 2020" && item.players.join("|") === "doug wilson";
+});
+if (!malformed) {
+  throw new Error(`Malformed official inscription was not normalized: ${JSON.stringify(plan.identities.filter((identity) => identity.fingerprint.normalized.cardNumber === "cs-dw").map((identity) => identity.fingerprint.normalized))}`);
+}
+
 if (!normalized.some((item) => item.setName === "chicago stadium seat relics" && item.parallel === "base" && item.serialRun === "/49" && item.autographStatus === "non-auto" && item.memorabiliaStatus === "memorabilia")) {
   throw new Error(`Seat relic base failed: ${JSON.stringify(normalized)}`);
 }
@@ -58,7 +65,5 @@ if (reused.length !== 2 || new Set(reused.map((card) => card.setSourceKey)).size
   throw new Error(`Cross-set reuse collapsed: ${JSON.stringify(reused)}`);
 }
 const fingerprints = plan.identities.map((identity) => identity.fingerprint.fingerprintSha256);
-if (new Set(fingerprints).size !== fingerprints.length) {
-  throw new Error("Chicago fingerprints are not unique");
-}
-console.log(JSON.stringify({ status: plan.validation.status, counts: plan.validation.counts, sets: [...sets].sort(), alpha: normalized }, null, 2));
+if (new Set(fingerprints).size !== fingerprints.length) throw new Error("Chicago fingerprints are not unique");
+console.log(JSON.stringify({ status: plan.validation.status, counts: plan.validation.counts, sets: [...sets].sort(), alpha: normalized, malformed: malformed.fingerprint.normalized }, null, 2));
