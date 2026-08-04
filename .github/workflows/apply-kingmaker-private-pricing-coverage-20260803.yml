@@ -70,6 +70,7 @@ jobs:
         shell: bash
         run: |
           node <<'NODE'
+          const { spawnSync } = require("node:child_process");
           const { createHash } = require("node:crypto");
           const { mkdirSync, readFileSync, writeFileSync } = require("node:fs");
           const { dirname, resolve } = require("node:path");
@@ -120,6 +121,76 @@ jobs:
               throw new Error(`Production ${stage} failed with HTTP ${response.status}: ${text.slice(0, 800)}`);
             }
             return text ? JSON.parse(text) : [];
+          }
+
+          async function fetchProjectServiceKey(project) {
+            const response = await fetch(
+              `https://api.supabase.com/v1/projects/${project}/api-keys?reveal=true`,
+              {
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  Accept: "application/json",
+                },
+                signal: AbortSignal.timeout(60000),
+              },
+            );
+            const text = await response.text();
+            if (!response.ok) {
+              throw new Error(
+                `Production API-key resolution failed with HTTP ${response.status}: ${text.slice(0, 400)}`,
+              );
+            }
+            const keys = text ? JSON.parse(text) : [];
+            if (!Array.isArray(keys)) {
+              throw new Error("Production API-key resolution returned an invalid payload.");
+            }
+            const exact = keys.find((key) =>
+              String(key?.name || "").toLowerCase() === "service_role" &&
+              typeof key?.api_key === "string" &&
+              key.api_key.length > 20,
+            );
+            const secret = keys.find((key) =>
+              String(key?.type || "").toLowerCase() === "secret" &&
+              typeof key?.api_key === "string" &&
+              key.api_key.length > 20,
+            );
+            const selected = exact || secret;
+            if (!selected) {
+              throw new Error("No protected server API key was available for Production.");
+            }
+            return selected.api_key;
+          }
+
+          function runVercel(args, options = {}) {
+            const result = spawnSync(
+              "npx",
+              ["vercel@56.2.0", ...args, "--scope", process.env.VERCEL_SCOPE, "--token", process.env.VERCEL_TOKEN],
+              {
+                cwd: process.cwd(),
+                encoding: "utf8",
+                maxBuffer: 20 * 1024 * 1024,
+                ...options,
+              },
+            );
+            if (result.error || result.status !== 0) {
+              throw new Error(`Vercel command failed with exit status ${result.status ?? "unknown"}.`);
+            }
+            return String(result.stdout || "").trim();
+          }
+
+          function configureVercelServiceKey(serviceKey) {
+            runVercel(
+              ["env", "add", "SUPABASE_SERVICE_ROLE_KEY", "production"],
+              { input: `${serviceKey}\n` },
+            );
+          }
+
+          function deployProduction() {
+            const output = runVercel(["deploy", "--prod", "--yes", "--force"]);
+            if (!/^https:\/\//i.test(output.split(/\r?\n/).at(-1) || "")) {
+              throw new Error("Production deployment did not return a deployment URL.");
+            }
+            return true;
           }
 
           async function callServiceRpc(productionUrl, serviceKey) {
@@ -233,19 +304,29 @@ jobs:
           }
 
           async function main() {
-            if (!token || !envFile) throw new Error("Protected Production credentials are required.");
+            if (!token || !envFile || !process.env.VERCEL_TOKEN || !process.env.VERCEL_SCOPE) {
+              throw new Error("Protected Production credentials are required.");
+            }
             console.log(`::add-mask::${token}`);
             const productionEnv = parseEnv(readFileSync(envFile, "utf8"));
             const productionUrl =
               productionEnv.NEXT_PUBLIC_SUPABASE_URL || productionEnv.SUPABASE_URL;
-            const serviceKey = productionEnv.SUPABASE_SERVICE_ROLE_KEY;
-            if (!productionUrl || !serviceKey) {
-              throw new Error("Production service-role RPC credentials were not resolved.");
+            if (!productionUrl) {
+              throw new Error("Production database URL was not resolved.");
             }
-            console.log(`::add-mask::${serviceKey}`);
             const project = projectRef(productionUrl);
-            const migrationSql = readFileSync(migrationPath, "utf8");
+            let serviceKey = productionEnv.SUPABASE_SERVICE_ROLE_KEY;
+            let serviceKeyConfigured = false;
+            if (!serviceKey) {
+              serviceKey = await fetchProjectServiceKey(project);
+              console.log(`::add-mask::${serviceKey}`);
+              configureVercelServiceKey(serviceKey);
+              serviceKeyConfigured = true;
+            } else {
+              console.log(`::add-mask::${serviceKey}`);
+            }
 
+            const migrationSql = readFileSync(migrationPath, "utf8");
             const before = firstRow(await queryManagement(project, statsSql(), true, "pre-apply statistics"));
             await queryManagement(project, migrationSql, false, "coverage migration");
 
@@ -279,10 +360,12 @@ jobs:
               }
             }
 
+            const productionDeploymentCompleted = deployProduction();
             const receipt = {
               schema: "tcos.kingmaker.privatePricingCoverageProductionReceipt.v1",
               status: "passed",
               generatedAt: new Date().toISOString(),
+              deployedCommit: process.env.EXPECTED_MAIN_SHA,
               migration: {
                 path: migrationPath,
                 sha256: createHash("sha256").update(migrationSql).digest("hex"),
@@ -312,9 +395,11 @@ jobs:
               },
               verification,
               serviceRoleRpcVerified: true,
+              vercelProductionServiceKeyConfigured: serviceKeyConfigured || Boolean(productionEnv.SUPABASE_SERVICE_ROLE_KEY),
+              productionDeploymentCompleted,
               pricesPromotedByThisOperation: 0,
               recordsMutatedByReport: 0,
-              secretsPersisted: false,
+              secretsPersistedInReceipt: false,
             };
             assertNoPrivateFields(receipt);
             mkdirSync(dirname(receiptPath), { recursive: true });
@@ -335,7 +420,7 @@ jobs:
         run: |
           set -euo pipefail
           test -s "$RECEIPT_PATH"
-          node -e 'const r=require("./"+process.env.RECEIPT_PATH); if(r.status!=="passed"||r.serviceRoleRpcVerified!==true||r.pricesPromotedByThisOperation!==0||r.recordsMutatedByReport!==0||r.secretsPersisted!==false) process.exit(1);'
+          node -e 'const r=require("./"+process.env.RECEIPT_PATH); if(r.status!=="passed"||r.serviceRoleRpcVerified!==true||r.vercelProductionServiceKeyConfigured!==true||r.productionDeploymentCompleted!==true||r.pricesPromotedByThisOperation!==0||r.recordsMutatedByReport!==0||r.secretsPersistedInReceipt!==false) process.exit(1);'
 
       - name: Upload sanitized Production receipt
         uses: actions/upload-artifact@v4
