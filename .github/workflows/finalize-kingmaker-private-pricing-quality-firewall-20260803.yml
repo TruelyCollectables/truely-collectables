@@ -1,0 +1,44 @@
+name: Finalize KINGMAKER Private Pricing Quality Firewall 20260803
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/finalize-kingmaker-private-pricing-quality-firewall-20260803.yml"
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  close-completed-operations-pr:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    env:
+      EXPECTED_MAIN_SHA: d3034e2fa7a20191d123bbb355795eb4346a8f4d
+      EXPECTED_BRANCH: ops/apply-kingmaker-private-pricing-quality-firewall-20260803
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify operations branch and merged implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main
+          git merge-base --is-ancestor "$EXPECTED_MAIN_SHA" origin/main
+          git merge-base --is-ancestor "$EXPECTED_MAIN_SHA" HEAD
+
+      - name: Record completion and close without merging
+        shell: bash
+        run: |
+          set -euo pipefail
+          pr_number="${{ github.event.pull_request.number }}"
+          gh pr comment "$pr_number" --body $'Production rollout completed successfully.\n\n- release-aware actionable queue deployed\n- parser-noise quarantine deployed\n- cached coverage and quality queues refreshed\n- exact merged implementation deployed\n- protected identity and observation totals unchanged\n- prices promoted: 0\n- operations workflow intentionally not merged'
+          gh pr edit "$pr_number" --title "[Completed, not merged] Apply KINGMAKER private pricing quality firewall to Production"
+          gh pr close "$pr_number"
