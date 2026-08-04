@@ -6,6 +6,7 @@ from uuid import uuid4
 import httpx
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
 
+from .backup_routes import build_backup_router
 from .checklist import checklist_gateway
 from .config import settings
 from .images import pair_hash, persist_image, validate_and_normalize_image
@@ -38,6 +39,9 @@ app = FastAPI(
 def require_api_key(x_instacomp_ai_key: str | None = Header(default=None)) -> None:
     if settings.api_key and x_instacomp_ai_key != settings.api_key:
         raise HTTPException(status_code=401, detail="Invalid InstaComp AI key")
+
+
+app.include_router(build_backup_router(require_api_key))
 
 
 @app.get("/health", response_model=HealthResponse)
