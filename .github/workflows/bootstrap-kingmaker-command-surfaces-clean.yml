@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - agent/kingmaker-command-surfaces-clean-v2
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: write
