@@ -1,5 +1,5 @@
 name: Master Checklist Bulk Pull
-# Fast bounded restart 2026-08-04T20:27Z
+# Topps repair and Panini public-index discovery 2026-08-04T21:08Z
 
 on:
   pull_request:
@@ -8,6 +8,7 @@ on:
       - "scripts/archive-*.ts"
       - "scripts/discover-official-checklists.ts"
       - "scripts/discover-blocked-checklists-via-reader.ts"
+      - "scripts/discover-panini-checklists-via-public-indexes.ts"
       - "scripts/build-checklist-master-status.ts"
       - ".github/workflows/master-checklist-bulk-pull.yml"
   push:
@@ -16,6 +17,7 @@ on:
       - "scripts/archive-*.ts"
       - "scripts/discover-official-checklists.ts"
       - "scripts/discover-blocked-checklists-via-reader.ts"
+      - "scripts/discover-panini-checklists-via-public-indexes.ts"
       - "scripts/build-checklist-master-status.ts"
       - ".github/workflows/master-checklist-bulk-pull.yml"
   schedule:
@@ -41,6 +43,11 @@ jobs:
           cache: npm
       - run: npm ci
 
+      - name: Discover Panini official pages and files through public indexes
+        continue-on-error: true
+        timeout-minutes: 11
+        run: node --import tsx scripts/discover-panini-checklists-via-public-indexes.ts
+
       - name: Discover blocked Topps and Panini catalogs through reader fallback
         continue-on-error: true
         timeout-minutes: 10
@@ -51,16 +58,19 @@ jobs:
         timeout-minutes: 90
         run: node --import tsx scripts/discover-official-checklists.ts
 
-      - name: Download Topps discovered checklist catalog
+      - name: Download and repair Topps discovered checklist catalog
         continue-on-error: true
+        timeout-minutes: 150
         run: node --import tsx scripts/archive-topps-seed-sets.ts
 
       - name: Download Panini discovered checklist catalog
         continue-on-error: true
+        timeout-minutes: 90
         run: node --import tsx scripts/archive-panini-seed-sets.ts
 
       - name: Download Leaf discovered checklist catalog
         continue-on-error: true
+        timeout-minutes: 90
         run: node --import tsx scripts/archive-leaf-checklist-sets.ts
 
       - name: Assemble manufacturer archive hierarchy
@@ -83,6 +93,7 @@ jobs:
           mkdir -p .checklist-master-archive/manifests .checklist-master-archive/discovery
           test ! -f .checklist-discovery/report.json || cp .checklist-discovery/report.json .checklist-master-archive/discovery/report.json
           test ! -f .checklist-reader-discovery/report.json || cp .checklist-reader-discovery/report.json .checklist-master-archive/discovery/reader-report.json
+          test ! -f .panini-index-discovery/report.json || cp .panini-index-discovery/report.json .checklist-master-archive/discovery/panini-index-report.json
           test ! -f .topps-seed-archive/manifest.json || cp .topps-seed-archive/manifest.json .checklist-master-archive/manifests/topps.json
           test ! -f .panini-seed-archive/manifest.json || cp .panini-seed-archive/manifest.json .checklist-master-archive/manifests/panini.json
           test ! -f .leaf-checklist-archive/manifest.json || cp .leaf-checklist-archive/manifest.json .checklist-master-archive/manifests/leaf.json
@@ -106,8 +117,7 @@ jobs:
           path: |
             .checklist-master-archive/STATUS.md
             .checklist-master-archive/status.json
-            .checklist-master-archive/discovery/report.json
-            .checklist-master-archive/discovery/reader-report.json
+            .checklist-master-archive/discovery/*.json
             .checklist-master-archive/manifests/*.json
           if-no-files-found: error
           retention-days: 90
