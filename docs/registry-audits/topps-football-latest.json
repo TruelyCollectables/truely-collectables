@@ -1,0 +1,13 @@
+{
+  "schema": "tcos.toppsFootball.productionAudit.v1",
+  "manufacturer": "Topps",
+  "sport": "Football",
+  "status": "failure",
+  "runId": "30875128733",
+  "runAttempt": "1",
+  "eventName": "push",
+  "commitSha": "bca340dc4e962458cfad6110f473bbd6ebb9aff5",
+  "recordedAt": "2026-08-04T03:34:33.784Z",
+  "credentialsResolved": false,
+  "receipt": null
+}
