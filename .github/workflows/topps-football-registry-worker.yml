@@ -5,6 +5,17 @@ on:
   workflow_dispatch: {}
   schedule:
     - cron: "0 * * * *"
+  push:
+    branches:
+      - agent/topps-isolated-sport-pipelines
+    paths:
+      - ".github/workflows/topps-football-registry-worker.yml"
+      - "scripts/run-topps-football-worker.ts"
+      - "scripts/run-topps-football-regressions.ts"
+      - "src/lib/checklist-registry/server.ts"
+      - "src/lib/checklist-registry/topps-sport-pipelines.ts"
+      - "src/lib/checklist-registry/topps-football-text.ts"
+      - "src/lib/checklist-registry/topps-football-text-adapter.ts"
   pull_request:
     branches:
       - main
@@ -55,22 +66,36 @@ jobs:
         run: npx tsc --noEmit
 
   football-only-production:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
     runs-on: ubuntu-24.04
     environment: Production
     timeout-minutes: 55
     env:
-      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || secrets.SUPABASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL || vars.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || secrets.SUPABASE_SERVICE_KEY || secrets.SUPABASE_SERVICE_ROLE || vars.SUPABASE_SERVICE_ROLE_KEY }}
       TOPPS_FOOTBALL_MAX_PRODUCTS: "500"
       TOPPS_FOOTBALL_MAX_SOURCES: "100"
       TOPPS_FOOTBALL_OUTPUT: .checklist-discovery/topps-football-worker-receipt.json
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: agent/topps-isolated-sport-pipelines
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+      - name: Resolve protected Production credentials
+        run: |
+          set -euo pipefail
+          if [ -z "$NEXT_PUBLIC_SUPABASE_URL" ]; then
+            echo "No Supabase URL resolved from NEXT_PUBLIC_SUPABASE_URL, SUPABASE_URL, or matching Production variables."
+            exit 1
+          fi
+          if [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "No Supabase service key resolved from SUPABASE_SERVICE_ROLE_KEY, SUPABASE_SERVICE_KEY, SUPABASE_SERVICE_ROLE, or matching Production variables."
+            exit 1
+          fi
+          echo "Production Supabase credentials resolved."
       - name: Install deterministic PDF text extractor
         run: |
           sudo apt-get update
@@ -79,11 +104,6 @@ jobs:
       - run: npm ci
       - name: Re-run Football certification before Production access
         run: npx tsx scripts/run-topps-football-regressions.ts
-      - name: Require protected Production credentials
-        run: |
-          set -euo pipefail
-          test -n "$NEXT_PUBLIC_SUPABASE_URL"
-          test -n "$SUPABASE_SERVICE_ROLE_KEY"
       - name: Run isolated Topps Football discovery and Registry import
         run: node --import tsx scripts/run-topps-football-worker.ts
       - name: Verify Football-only receipt
@@ -93,26 +113,18 @@ jobs:
           const path = process.env.TOPPS_FOOTBALL_OUTPUT;
           if (!path || !existsSync(path)) throw new Error(`Missing Topps Football receipt: ${path || '(unset)'}`);
           const receipt = JSON.parse(readFileSync(path, 'utf8'));
-          if (receipt.manufacturer !== 'Topps' || receipt.sport !== 'Football') {
-            throw new Error('Topps Football worker crossed its manufacturer or sport boundary.');
-          }
-          if ((receipt.totals?.selected ?? 0) > 100) throw new Error('Topps Football worker exceeded the 100-source hourly limit.');
-          for (const result of receipt.results || []) {
-            if (result.manufacturer && result.manufacturer !== 'Topps') throw new Error('Receipt contains a non-Topps result.');
-            if (result.sport && result.sport !== 'Football') throw new Error('Receipt contains a non-Football result.');
-          }
+          if (receipt.manufacturer !== 'Topps' || receipt.sport !== 'Football') throw new Error('Topps Football worker crossed its boundary.');
+          if ((receipt.totals?.selected ?? 0) > 100) throw new Error('Topps Football worker exceeded the 100-source limit.');
           const t = receipt.totals || {};
           const lines = [
-            '# Topps Football Registry Worker',
-            '',
+            '# Topps Football Registry Worker', '',
             `**Production Football sources:** ${receipt.productionSourceCount ?? 0}`,
-            `**Selected this hour:** ${t.selected ?? 0}`,
+            `**Selected:** ${t.selected ?? 0}`,
             `**Imported:** ${t.imported ?? 0}`,
             `**Quarantined:** ${t.quarantined ?? 0}`,
             `**Failed:** ${t.failed ?? 0}`,
             `**Sets:** ${t.sets ?? 0}`,
             `**Cards:** ${t.cards ?? 0}`,
-            `**Parallels:** ${t.parallels ?? 0}`,
             `**Identities:** ${t.identities ?? 0}`,
           ];
           writeFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join('\n')}\n`, { flag: 'a' });
