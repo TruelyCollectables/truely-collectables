@@ -29,10 +29,10 @@ def validate_and_normalize_image(content: bytes, max_bytes: int) -> ValidatedIma
         with Image.open(io.BytesIO(content)) as source:
             source.verify()
         with Image.open(io.BytesIO(content)) as source:
-            source = ImageOps.exif_transpose(source)
             image_format = (source.format or "").upper()
             if image_format not in ALLOWED_FORMATS:
                 raise ValueError("Only JPEG, PNG, and WebP images are accepted")
+            source = ImageOps.exif_transpose(source)
             if source.width < 200 or source.height < 200:
                 raise ValueError("Image is too small for reliable card identification")
             if source.width * source.height > 60_000_000:
