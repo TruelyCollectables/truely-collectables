@@ -74,7 +74,9 @@ BEGIN
 
   IF audit_action_definition IS NULL
      OR position('auto_resolved' in lower(audit_action_definition)) = 0
-     OR position('auto_reopened' in lower(audit_action_definition)) = 0 THEN
+     OR position('auto_reopened' in lower(audit_action_definition)) = 0
+     OR position('review_scheduled' in lower(audit_action_definition)) = 0
+     OR position('review_cleared' in lower(audit_action_definition)) = 0 THEN
     RAISE EXCEPTION 'Pinned audit action constraint is incomplete.';
   END IF;
 
