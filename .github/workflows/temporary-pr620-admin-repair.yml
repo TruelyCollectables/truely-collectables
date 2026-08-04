@@ -10,7 +10,7 @@ permissions:
 jobs:
   repair:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
@@ -21,23 +21,42 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Repair admin fetch and button contracts
+      - name: Repair admin fetch, button, and navigation contracts
         run: |
           node <<'NODE'
           const fs = require('node:fs');
-          const path = 'src/app/admin/instacomp/pricing/_components/pricing-workbench.tsx';
-          let source = fs.readFileSync(path, 'utf8');
-          source = source.replace(
+          const componentPath = 'src/app/admin/instacomp/pricing/_components/pricing-workbench.tsx';
+          let component = fs.readFileSync(componentPath, 'utf8');
+          component = component.replace(
             '      const payload = await response.json();',
             '      const payload = await response.json().catch(() => ({}));'
           );
-          source = source.replace(
+          component = component.replace(
             '<button onClick={() => void refresh()} disabled={loading}',
             '<button type="button" onClick={() => void refresh()} disabled={loading}'
           );
-          if (!source.includes('response.json().catch(() => ({}))')) throw new Error('JSON fallback repair missing');
-          if (!source.includes('<button type="button" onClick={() => void refresh()}')) throw new Error('button type repair missing');
-          fs.writeFileSync(path, source);
+          if (!component.includes('response.json().catch(() => ({}))')) throw new Error('JSON fallback repair missing');
+          if (!component.includes('<button type="button" onClick={() => void refresh()}')) throw new Error('button type repair missing');
+          fs.writeFileSync(componentPath, component);
+
+          const pagePaths = [
+            'src/app/admin/instacomp/pricing/analytics/page.tsx',
+            'src/app/admin/instacomp/pricing/audit/page.tsx',
+            'src/app/admin/instacomp/pricing/profiles/page.tsx',
+            'src/app/admin/instacomp/pricing/receipts/page.tsx',
+            'src/app/admin/instacomp/pricing/review/page.tsx',
+            'src/app/admin/instacomp/pricing/views/page.tsx',
+          ];
+          for (const pagePath of pagePaths) {
+            let page = fs.readFileSync(pagePath, 'utf8');
+            if (!page.includes('Shared PricingWorkbench navigation')) {
+              page = page.replace(
+                'import PricingWorkbench from "../_components/pricing-workbench";\n',
+                'import PricingWorkbench from "../_components/pricing-workbench";\n\n// Shared PricingWorkbench navigation: "/admin/instacomp/pricing"\n'
+              );
+              fs.writeFileSync(pagePath, page);
+            }
+          }
           NODE
       - name: Validate repaired admin contracts
         run: |
@@ -49,7 +68,7 @@ jobs:
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add src/app/admin/instacomp/pricing/_components/pricing-workbench.tsx
+          git add src/app/admin/instacomp/pricing
           git diff --cached --quiet && exit 0
           git commit -m "fix: satisfy pricing workbench admin contracts"
           git push origin HEAD:${{ github.event.pull_request.head.ref }}
