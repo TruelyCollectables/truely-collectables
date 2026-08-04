@@ -1,0 +1,106 @@
+name: KINGMAKER Private Pricing Constraint Preservation
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "supabase/migrations/20260804070000_private_pricing_work_order_reconciliation.sql"
+      - "supabase/migrations/20260804071500_preserve_private_pricing_work_order_constraints.sql"
+      - "scripts/run-kingmaker-private-pricing-constraint-preservation-regressions.sql"
+      - ".github/workflows/kingmaker-private-pricing-constraint-preservation.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "supabase/migrations/20260804070000_private_pricing_work_order_reconciliation.sql"
+      - "supabase/migrations/20260804071500_preserve_private_pricing_work_order_constraints.sql"
+      - "scripts/run-kingmaker-private-pricing-constraint-preservation-regressions.sql"
+      - ".github/workflows/kingmaker-private-pricing-constraint-preservation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preserve-unrelated-constraints:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: kingmaker_constraint_preservation_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d kingmaker_constraint_preservation_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: kingmaker_constraint_preservation_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+
+      - name: Create Supabase-compatible roles and storage contract
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          do $$ begin create role anon nologin; exception when duplicate_object then null; end $$;
+          do $$ begin create role authenticated nologin; exception when duplicate_object then null; end $$;
+          do $$ begin create role service_role nologin bypassrls; exception when duplicate_object then null; end $$;
+          create schema if not exists storage;
+          create table if not exists storage.buckets (
+            id text primary key,
+            name text not null unique,
+            public boolean not null default false,
+            file_size_limit bigint,
+            allowed_mime_types text[]
+          );
+          SQL
+
+      - name: Apply KINGMAKER work-order migration chain
+        run: |
+          set -euo pipefail
+          PRIVATE_PRICING_MIGRATION="$(find supabase/migrations -maxdepth 1 -name '20260803043000_kingmaker_*_price_guides.sql' -print -quit)"
+          test -n "$PRIVATE_PRICING_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file supabase/migrations/20260725200000_tcos_checklist_registry_core.sql
+          psql -v ON_ERROR_STOP=1 --file supabase/migrations/20260803030000_kingmaker_intelligence_fusion.sql
+          psql -v ON_ERROR_STOP=1 --file "$PRIVATE_PRICING_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file supabase/migrations/20260804034500_kingmaker_private_pricing_coverage.sql
+          psql -v ON_ERROR_STOP=1 --file supabase/migrations/20260804043000_cache_kingmaker_private_pricing_coverage.sql
+          psql -v ON_ERROR_STOP=1 --file supabase/migrations/20260804043100_fix_private_pricing_coverage_refresh_temp_table.sql
+          psql -v ON_ERROR_STOP=1 --file supabase/migrations/20260804050000_private_pricing_coverage_quality_firewall.sql
+          psql -v ON_ERROR_STOP=1 --file supabase/migrations/20260804050100_fix_private_pricing_quality_periods.sql
+          psql -v ON_ERROR_STOP=1 --file supabase/migrations/20260804062000_private_pricing_coverage_work_orders.sql
+          psql -v ON_ERROR_STOP=1 --file supabase/migrations/20260804070000_private_pricing_work_order_reconciliation.sql
+          psql -v ON_ERROR_STOP=1 --file supabase/migrations/20260804071500_preserve_private_pricing_work_order_constraints.sql
+
+      - name: Reapply safe repair with unrelated sentinel constraints present
+        run: >-
+          psql -v ON_ERROR_STOP=1
+          --file scripts/run-kingmaker-private-pricing-constraint-preservation-regressions.sql
+
+      - name: Reject broad catalog-driven constraint deletion in the repair
+        run: |
+          set -euo pipefail
+          repair=supabase/migrations/20260804071500_preserve_private_pricing_work_order_constraints.sql
+          ! grep -Eq 'pg_constraint|pg_attribute|constraint_record|execute format' "$repair"
+          grep -Fq 'drop constraint if exists tcos_km_work_order_status_check' "$repair"
+          grep -Fq 'drop constraint if exists tcos_km_work_order_audit_action_check' "$repair"
+          grep -Fq 'drop constraint if exists tcos_km_work_order_audit_status_check' "$repair"
+          grep -Fq 'drop constraint if exists tcos_km_work_order_audit_actor_check' "$repair"
