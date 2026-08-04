@@ -11,6 +11,9 @@ on:
     paths:
       - ".github/workflows/topps-football-registry-worker.yml"
       - "scripts/run-topps-football-worker.ts"
+      - "scripts/run-topps-football-regressions.ts"
+      - "src/lib/checklist-registry/server.ts"
+      - "src/lib/checklist-registry/topps-sport-pipelines.ts"
       - "src/lib/checklist-registry/topps-football-text.ts"
       - "src/lib/checklist-registry/topps-football-text-adapter.ts"
 
