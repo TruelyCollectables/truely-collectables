@@ -1,1 +1,0 @@
-Production rollout requires applying the two idempotent migrations and verifying the trigger, service-role RPC access, RLS, and a synthetic unmatched-to-exact transition. No Beckett values are promoted during rollout.
