@@ -1,0 +1,56 @@
+name: KINGMAKER Work Order Execution Controls
+
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/20260804111500_private_pricing_work_order_execution.sql"
+      - "src/lib/kingmaker-private-pricing-work-order-execution-server.ts"
+      - "src/app/api/instacomp/pricing/coverage/work-orders/execution/route.ts"
+      - "src/app/admin/instacomp/pricing/_components/private-pricing-work-order-execution.tsx"
+      - "src/app/admin/instacomp/pricing/coverage/work-orders/page.tsx"
+      - ".github/workflows/kingmaker-private-pricing-work-order-execution.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Verify feature boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          migration='supabase/migrations/20260804111500_private_pricing_work_order_execution.sql'
+          test -s "$migration"
+          grep -F "private_coverage_work_order_execution_only" "$migration"
+          grep -F "tcos_update_kingmaker_private_pricing_work_order_execution" "$migration"
+          grep -F "tcos_kingmaker_private_pricing_work_order_execution_report" "$migration"
+          grep -F "grant execute" "$migration"
+          grep -F "to service_role" "$migration"
+          ! grep -Eiq "insert[[:space:]]+into[[:space:]]+public\.tcos_kingmaker_(price_entries|observations)" "$migration"
+          ! grep -Eiq "update[[:space:]]+public\.tcos_kingmaker_(price_entries|observations)" "$migration"
+          ! grep -Eiq "delete[[:space:]]+from[[:space:]]+public\.tcos_kingmaker_(price_entries|observations)" "$migration"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Selected-file lint
+        run: npx eslint src/lib/kingmaker-private-pricing-work-order-execution-server.ts src/app/api/instacomp/pricing/coverage/work-orders/execution/route.ts src/app/admin/instacomp/pricing/_components/private-pricing-work-order-execution.tsx src/app/admin/instacomp/pricing/coverage/work-orders/page.tsx
+
+      - name: TypeScript compile
+        run: npx tsc --noEmit
+
+      - name: Production build
+        run: npm run build
