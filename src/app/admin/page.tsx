@@ -165,6 +165,7 @@ export default LegacyAdminDashboard;
   "/admin/instacomp/pricing/receipts"
   "/admin/instacomp/pricing/analytics"
   "/admin/instacomp/pricing/coverage"
+  "/admin/instacomp/pricing/coverage/work-orders"
   "/admin/instacomp/pricing/profiles"
   "/admin/instacomp/pricing/bulk-plan"
   "/admin/instacomp/pricing/scenarios"
