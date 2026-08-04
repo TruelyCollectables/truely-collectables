@@ -1,0 +1,41 @@
+name: InstaComp Publish Readiness
+
+on:
+  pull_request:
+    paths:
+      - "src/lib/instacomp-registry-receipt.ts"
+      - "src/app/api/account/seller/instacomp-pending/**"
+      - "src/app/seller/instacomp-pending/**"
+      - "src/lib/instacomp-verified-pricing-client.ts"
+      - "scripts/run-instacomp-publish-readiness-simulations.ts"
+      - "scripts/certify-instacomp-publish-readiness-contract.mjs"
+      - ".github/workflows/instacomp-publish-readiness.yml"
+  push:
+    branches: [main]
+    paths:
+      - "src/lib/instacomp-registry-receipt.ts"
+      - "src/app/api/account/seller/instacomp-pending/**"
+      - "src/app/seller/instacomp-pending/**"
+      - "src/lib/instacomp-verified-pricing-client.ts"
+      - "scripts/run-instacomp-publish-readiness-simulations.ts"
+      - "scripts/certify-instacomp-publish-readiness-contract.mjs"
+      - ".github/workflows/instacomp-publish-readiness.yml"
+
+jobs:
+  publish-readiness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Type check
+        run: npx tsc --noEmit
+      - name: Run receipt simulations
+        run: npx tsx scripts/run-instacomp-publish-readiness-simulations.ts
+      - name: Certify publish contract
+        run: node scripts/certify-instacomp-publish-readiness-contract.mjs
