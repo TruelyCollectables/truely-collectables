@@ -1,0 +1,56 @@
+name: InstaComp Adversarial Audit Round Three
+
+on:
+  pull_request:
+    paths:
+      - "src/app/api/instacomp/**"
+      - "src/lib/instacomp-**"
+      - "src/lib/kingmaker-pricing-**"
+      - "src/lib/checklist-registry/**"
+      - "scripts/run-instacomp-pricing-evidence-boundary-regressions.ts"
+      - "scripts/run-instacomp-market-evidence-replay-regressions.ts"
+      - "scripts/run-kingmaker-pricing-decision-regressions.ts"
+      - ".github/workflows/instacomp-audit-round3.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instacomp-audit-round3-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  adversarial-audit-round-three:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Reject client-authored pricing authority
+        run: npx tsx scripts/run-instacomp-pricing-evidence-boundary-regressions.ts
+
+      - name: Re-run pricing decision economics
+        run: npx tsx scripts/run-kingmaker-pricing-decision-regressions.ts
+
+      - name: Re-run sold-evidence replay attacks
+        run: npx tsx scripts/run-instacomp-market-evidence-replay-regressions.ts
+
+      - name: Lint Round Three boundary
+        run: >-
+          npx eslint
+          src/app/api/instacomp/pricing/decision/route.ts
+          src/lib/instacomp-pricing-request-security.ts
+          scripts/run-instacomp-pricing-evidence-boundary-regressions.ts
+
+      - name: TypeScript
+        run: npx tsc --noEmit
