@@ -56,19 +56,25 @@ jobs:
           );
 
           const serialBefore = `  if (/\\b1\\s*(?:of|-|\\/)\\s*1\\b/i.test(normalized)) return 1;\n  if (/^\\/?\\d{1,7}$/.test(normalized)) {`;
-          const serialAfter = `  if (/\\b1\\s*(?:of|-|\\/)\\s*1\\b/i.test(normalized)) return 1;\n  const numberedCopy = normalized.match(/^\\d{1,7}\\s+of\\s+(\\d{1,7})$/i);\n  if (numberedCopy) {\n    const result = Number.parseInt(numberedCopy[1], 10);\n    return result > 0 ? result : null;\n  }\n  if (/^\\/?\\d{1,7}$/.test(normalized)) {`;
+          const serialAfter = `  if (/\\b1\\s*(?:of|-|\\/)\\s*1\\b/i.test(normalized)) return 1;\n  const numberedCopy = normalized.match(/^\\d{1,7}\\s+of\\s+(\\d{1,7})$/i);\n  if (numberedCopy) {\n    const result = Number.parseInt(numberedCopy[1], 10);\n    return result > 0 ? result : null;\n  }\n  const perCardRun = normalized.match(/^(\\d{1,7})\\s+per$/i);\n  if (perCardRun) {\n    const result = Number.parseInt(perCardRun[1], 10);\n    return result > 0 ? result : null;\n  }\n  if (/^\\/?\\d{1,7}$/.test(normalized)) {`;
           if (parser.includes(serialBefore)) parser = parser.replace(serialBefore, serialAfter);
 
           const variationBefore = `    const players = splitSubjects(row.description);\n    const teams = teamsFrom(row.teamCity, row.teamName);\n    const variation = buildVariation(row);`;
           const variationAfter = `    const players = splitSubjects(row.description);\n    const teams = teamsFrom(row.teamCity, row.teamName);\n    const baseVariation = buildVariation(row);\n    const requiresSubjectVariation =\n      (/o-pee-chee/i.test(product) &&\n        (/^playing cards$/i.test(setName) || /^p-\\d+$/i.test(row.cardNumber))) ||\n      (/chicago blackhawks 100th anniversary/i.test(product) &&\n        /^cs-[a-z0-9]+$/i.test(row.cardNumber));\n    const subjectVariation = requiresSubjectVariation\n      ? \`Subject: \${players\n          .slice()\n          .sort((left, right) => comparable(left).localeCompare(comparable(right)))\n          .join(" / ")}\`\n      : null;\n    const variation = [baseVariation, subjectVariation].filter(Boolean).join("; ") || null;`;
           if (parser.includes(variationBefore)) parser = parser.replace(variationBefore, variationAfter);
 
+          const duplicateBefore = `    if (fingerprints.has(fingerprint.fingerprintSha256)) {\n      issue(issues, "duplicate_identity", "error", \`Duplicate Upper Deck identity for \${row.rawSetName} #\${row.cardNumber}\`, rowReference);\n      continue;\n    }`;
+          const duplicateAfter = `    if (fingerprints.has(fingerprint.fingerprintSha256)) {\n      if (existingCard) {\n        issue(\n          issues,\n          "duplicate_physical_row_collapsed",\n          "warning",\n          \`Collapsed repeated Upper Deck evidence row for \${row.rawSetName} #\${row.cardNumber}\`,\n          rowReference,\n        );\n        continue;\n      }\n      issue(issues, "duplicate_identity", "error", \`Duplicate Upper Deck identity for \${row.rawSetName} #\${row.cardNumber}\`, rowReference);\n      continue;\n    }`;
+          if (parser.includes(duplicateBefore)) parser = parser.replace(duplicateBefore, duplicateAfter);
+
           for (const required of [
             'normalized.includes("cardnumber")',
             '["Description", "Player Name", "Player"]',
             'const releaseEvidence =',
             'const numberedCopy =',
+            'const perCardRun =',
             'chicago blackhawks 100th anniversary',
+            'duplicate_physical_row_collapsed',
           ]) {
             if (!parser.includes(required)) throw new Error(`parser repair missing: ${required}`);
           }
@@ -81,6 +87,16 @@ jobs:
 
           if (!regression.includes('official_card_number_and_player_headers_are_supported')) {
             const block = `const alternateHeaderPlan = parseUpperDeckOfficialHtmlChecklist({\n  sourceUrl: "https://upperdeck.com/checklist/chicago-blackhawks-100th-anniversary-set-checklist-hobby/",\n  originalFilename: "2025-26-chicago-blackhawks-100th-hobby.html",\n  mimeType: "text/html",\n  retrievedAt: "2026-08-03T17:00:00.000Z",\n  authority: "official_manufacturer",\n  redistributionAllowed: false,\n  content: \`<!doctype html><html><body><h1>Chicago Blackhawks 100th Anniversary Set Checklist - HOBBY</h1><table><tbody>\n    <tr><th>Set Name</th><th>Card Number</th><th>Player</th><th>Auto</th><th>Mem/Tech</th><th>#'d</th><th>SP's</th><th>Odds</th><th>Pts.</th></tr>\n    <tr><td>Base Set</td><td>2</td><td>Connor Bedard</td><td></td><td></td><td>1 of 1926</td><td></td><td>5:1 h, 5:1 e</td><td>20</td></tr>\n  </tbody></table></body></html>\`,\n});\nscenario(\n  "official_card_number_and_player_headers_are_supported",\n  "Official Upper Deck header variants, source-pinned season metadata, and numbered-copy serial language parse deterministically.",\n  alternateHeaderPlan.validation.status === "passed" &&\n    alternateHeaderPlan.release.season === "2025-26" &&\n    alternateHeaderPlan.validation.counts.cards === 1 &&\n    alternateHeaderPlan.identities[0]?.fingerprint.normalized.serialRun === "/1926" &&\n    alternateHeaderPlan.cards[0]?.cardNumber === "2" &&\n    alternateHeaderPlan.cards[0]?.players[0] === "Connor Bedard",\n  { release: alternateHeaderPlan.release, counts: alternateHeaderPlan.validation.counts, issues: alternateHeaderPlan.validation.issues },\n);\n\n`;
+            regression = regression.replace(marker, block + marker);
+          }
+
+          if (!regression.includes('per_card_serial_language_is_supported')) {
+            const block = `const perCardSerialPlan = parseUpperDeckOfficialHtmlChecklist({\n  sourceUrl: "https://upperdeck.com/checklist/2025-2026-detroit-red-wings-centennial-set-checklist-hobby/",\n  originalFilename: "2025-26-detroit-red-wings-centennial-hobby.html",\n  mimeType: "text/html",\n  retrievedAt: "2026-08-03T17:10:00.000Z",\n  authority: "official_manufacturer",\n  redistributionAllowed: false,\n  content: \`<!doctype html><html><body><h1>2025-2026 Detroit Red Wings Centennial Set Checklist Hobby</h1><table><tbody>\n    <tr><th>Set Name</th><th>Card</th><th>Description</th><th>#'d</th></tr>\n    <tr><td>Cougars Parallel</td><td>61</td><td>Paul Coffey</td><td>1926 per</td></tr>\n  </tbody></table></body></html>\`,\n});\nscenario(\n  "per_card_serial_language_is_supported",\n  "Upper Deck per-card print-run language maps to the exact serial denominator.",\n  perCardSerialPlan.validation.status === "passed" &&\n    perCardSerialPlan.identities[0]?.fingerprint.normalized.serialRun === "/1926",\n  { counts: perCardSerialPlan.validation.counts, issues: perCardSerialPlan.validation.issues },\n);\n\n`;
+            regression = regression.replace(marker, block + marker);
+          }
+
+          if (!regression.includes('exact_duplicate_rows_merge_evidence')) {
+            const block = `const duplicateOddsPlan = parseUpperDeckOfficialHtmlChecklist({\n  sourceUrl: "https://upperdeck.com/checklist/2025-2026-detroit-red-wings-centennial-set-checklist-hobby/",\n  originalFilename: "2025-26-detroit-red-wings-centennial-hobby.html",\n  mimeType: "text/html",\n  retrievedAt: "2026-08-03T17:15:00.000Z",\n  authority: "official_manufacturer",\n  redistributionAllowed: false,\n  content: \`<!doctype html><html><body><h1>2025-2026 Detroit Red Wings Centennial Set Checklist Hobby</h1><table><tbody>\n    <tr><th>Set Name</th><th>Card</th><th>Description</th><th>Stated Odds</th></tr>\n    <tr><td>Everybody from the 313</td><td>313-1</td><td>Steve Yzerman</td><td>1:5 h, 1:5 e</td></tr>\n    <tr><td>Everybody from the 313</td><td>313-1</td><td>Steve Yzerman</td><td>1:38 h, 1:38 e</td></tr>\n  </tbody></table></body></html>\`,\n});\nconst duplicateOddsEvidence = JSON.parse(duplicateOddsPlan.cards[0]?.sourceNotes || "{}");\nscenario(\n  "exact_duplicate_rows_merge_evidence",\n  "Repeated official rows for the same physical card collapse to one identity while preserving both odds observations.",\n  duplicateOddsPlan.validation.status === "passed" &&\n    duplicateOddsPlan.validation.counts.cards === 1 &&\n    duplicateOddsPlan.validation.counts.identities === 1 &&\n    duplicateOddsPlan.validation.issues.some((entry) => entry.code === "duplicate_physical_row_collapsed" && entry.severity === "warning") &&\n    Array.isArray(duplicateOddsEvidence.rows) &&\n    duplicateOddsEvidence.rows.length === 2,\n  { counts: duplicateOddsPlan.validation.counts, issues: duplicateOddsPlan.validation.issues, evidence: duplicateOddsEvidence },\n);\n\n`;
             regression = regression.replace(marker, block + marker);
           }
 
