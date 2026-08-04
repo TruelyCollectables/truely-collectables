@@ -1,5 +1,9 @@
 import type { InstaCompAiResult, InstaCompComp, InstaCompStats } from "./instacomp";
 import {
+  buildInstaCompListingIdentity,
+  type InstaCompListingIdentity,
+} from "./instacomp-copy-identity";
+import {
   independentVerifiedInstaCompSaleCount,
   verifiedInstaCompCompletedSales,
 } from "./instacomp-market-evidence";
@@ -23,6 +27,7 @@ export type InstaCompScanReview = {
   reviewReasons: string[];
   identityReviewReasons: string[];
   pricingReviewReasons: string[];
+  listingIdentity: InstaCompListingIdentity;
 };
 
 const TRUSTED_IDENTITY_CONFIDENCE = 0.92;
@@ -71,6 +76,7 @@ export function buildInstaCompScanReview(
   const pricingReviewReasons: string[] = [];
   const ocrText = compactText(input.externalOcrText);
   const printedVariantDetected = hasPrintedVariantSignal(ocrText);
+  const listingIdentity = buildInstaCompListingIdentity(ai);
 
   if ((ai.confidence || 0) < TRUSTED_IDENTITY_CONFIDENCE) {
     identityReviewReasons.push("low_identification_confidence");
@@ -102,6 +108,7 @@ export function buildInstaCompScanReview(
       ...input.consensus.reviewReasons,
     );
   }
+  identityReviewReasons.push(...listingIdentity.inscription.reviewReasons);
 
   const verifiedSales = verifiedInstaCompCompletedSales(input.marketValueComps);
   const independentVerifiedSaleCount = independentVerifiedInstaCompSaleCount(
@@ -126,5 +133,6 @@ export function buildInstaCompScanReview(
     reviewReasons,
     identityReviewReasons: Array.from(new Set(identityReviewReasons)),
     pricingReviewReasons: Array.from(new Set(pricingReviewReasons)),
+    listingIdentity,
   };
 }
