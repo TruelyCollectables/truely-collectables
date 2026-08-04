@@ -1,0 +1,143 @@
+name: Temporary PR 622 Runtime Login Repair
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder
+      SUPABASE_SERVICE_ROLE_KEY: placeholder
+      ADMIN_SESSION_SECRET: placeholder-placeholder-placeholder-placeholder
+      OPENAI_API_KEY: placeholder
+      STRIPE_SECRET_KEY: sk_test_placeholder
+      RESEND_API_KEY: placeholder
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - name: Synchronize certified main
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git fetch origin main agent/kingmaker-command-surfaces
+          git merge --no-edit origin/main
+      - name: Copy and integrate command surfaces
+        run: |
+          git checkout origin/agent/kingmaker-command-surfaces -- \
+            .github/workflows/kingmaker-command-surfaces.yml \
+            scripts/smoke-kingmaker-runtime.mjs \
+            src/app/admin/market-intel/kingmaker/page.tsx \
+            src/app/admin/market-intel/kingmaker/capital-ledger/page.tsx
+          node <<'NODE'
+          const fs = require('node:fs');
+
+          const releasePath = 'public/instacomp-release.json';
+          const release = JSON.parse(fs.readFileSync(releasePath, 'utf8'));
+          release.sourceCommit = 'BUILD_INJECTED_AT_BUILD';
+          fs.writeFileSync(releasePath, `${JSON.stringify(release, null, 2)}\n`);
+
+          const templatePath = 'src/app/admin/template.tsx';
+          let template = fs.readFileSync(templatePath, 'utf8');
+          if (!template.includes('import Link from "next/link";')) {
+            template = template.replace('"use client";\n\n', '"use client";\n\nimport Link from "next/link";\n');
+          }
+          if (!template.includes('<KingmakerCommandButton pathname={pathname} />')) {
+            template = template.replace(
+              '      {children}\n      {refundPanelAvailable ? <RefundOrderPanel pathname={pathname} /> : null}',
+              '      {children}\n      {isProtectedAdminPage ? <KingmakerCommandButton pathname={pathname} /> : null}\n      {refundPanelAvailable ? <RefundOrderPanel pathname={pathname} /> : null}',
+            );
+          }
+          if (!template.includes('function KingmakerCommandButton')) {
+            const marker = 'function RefundOrderPanel({ pathname }: { pathname: string }) {';
+            const button = `function KingmakerCommandButton({ pathname }: { pathname: string }) {\n  if (pathname.startsWith("/admin/market-intel/kingmaker")) return null;\n\n  return (\n    <>\n      <Link\n        href="/admin/market-intel/kingmaker"\n        aria-label="Open Project KINGMAKER Beta 1.0"\n        className="group fixed bottom-5 right-5 z-[70] hidden min-w-[260px] overflow-hidden rounded-2xl border border-amber-300/30 bg-[#05070a]/95 p-4 text-white shadow-[0_24px_80px_rgba(0,0,0,.7)] backdrop-blur-xl transition hover:-translate-y-1 hover:border-emerald-300/50 sm:block"\n      >\n        <span className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(245,158,11,.18),transparent_46%),radial-gradient(circle_at_bottom_left,rgba(16,185,129,.16),transparent_45%)]" />\n        <span className="relative block text-[10px] font-black uppercase tracking-[.24em] text-amber-300">Project KINGMAKER Beta 1.0</span>\n        <span className="relative mt-1 block text-lg font-black tracking-tight">Capital Intelligence Command</span>\n        <span className="relative mt-2 flex items-center justify-between text-xs font-bold text-neutral-400">\n          <span>Truth · Capital · Decisions</span>\n          <span className="text-emerald-300 transition group-hover:translate-x-1">ENTER →</span>\n        </span>\n      </Link>\n      <Link\n        href="/admin/market-intel/kingmaker"\n        aria-label="Open Project KINGMAKER Beta 1.0"\n        className="fixed bottom-4 right-4 z-[70] rounded-full border border-amber-300/30 bg-[#05070a]/95 px-4 py-3 text-xs font-black uppercase tracking-[.12em] text-amber-300 shadow-2xl backdrop-blur-xl sm:hidden"\n      >\n        KINGMAKER →\n      </Link>\n    </>\n  );\n}\n\n`;
+            if (!template.includes(marker)) throw new Error('refund panel marker missing');
+            template = template.replace(marker, button + marker);
+          }
+          if (!template.includes('function KingmakerCommandButton')) throw new Error('KINGMAKER command button integration missing');
+          fs.writeFileSync(templatePath, template);
+
+          const adminPath = 'src/app/admin/page.tsx';
+          let admin = fs.readFileSync(adminPath, 'utf8');
+          if (!admin.includes('"/admin/market-intel/kingmaker/capital-ledger"')) {
+            const marker = '  "/admin/inventory"';
+            if (!admin.includes(marker)) throw new Error('admin route marker missing');
+            admin = admin.replace(
+              marker,
+              '  "/admin/market-intel/kingmaker"\n  "/admin/market-intel/kingmaker/capital-ledger"\n  Project KINGMAKER Beta 1.0\n  Capital Intelligence Command\n' + marker,
+            );
+          }
+          fs.writeFileSync(adminPath, admin);
+
+          const adminSmokePath = 'scripts/smoke-admin-runtime.mjs';
+          let adminSmoke = fs.readFileSync(adminSmokePath, 'utf8');
+          if (!adminSmoke.includes('path: "/admin/market-intel/kingmaker",')) {
+            const marker = `  {\n    path: "/admin/market-intel/kingmaker/morning-intelligence",`;
+            const routes = `  {\n    path: "/admin/market-intel/kingmaker",\n    auth: true,\n    expectedText: "Capital Intelligence Command",\n  },\n  {\n    path: "/admin/market-intel/kingmaker/capital-ledger",\n    auth: true,\n    expectedText: "Purchase Ledger Command",\n  },\n`;
+            if (!adminSmoke.includes(marker)) throw new Error('admin runtime smoke marker missing');
+            adminSmoke = adminSmoke.replace(marker, routes + marker);
+          }
+          fs.writeFileSync(adminSmokePath, adminSmoke);
+
+          const smokePath = 'scripts/smoke-kingmaker-runtime.mjs';
+          let smoke = fs.readFileSync(smokePath, 'utf8');
+          smoke = smoke.replace(
+            '      env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1" },',
+            '      env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1", SUPABASE_SERVICE_ROLE_KEY: "" },',
+          );
+          smoke = smoke.replace(
+            '      stdio: ["ignore", "pipe", "pipe"],',
+            '      stdio: ["ignore", "pipe", "pipe"],\n      detached: process.platform !== "win32",',
+          );
+          smoke = smoke.replace(
+            '  if (server) server.kill("SIGTERM");',
+            `  if (server) {\n    try {\n      if (process.platform === "win32" || !server.pid) server.kill("SIGTERM");\n      else process.kill(-server.pid, "SIGTERM");\n    } catch {\n      server.kill("SIGKILL");\n    }\n    await Promise.race([\n      new Promise((resolve) => server.once("exit", resolve)),\n      sleep(5_000),\n    ]);\n  }`,
+          );
+          for (const required of [
+            'SUPABASE_SERVICE_ROLE_KEY: ""',
+            'detached: process.platform !== "win32"',
+            'process.kill(-server.pid, "SIGTERM")',
+          ]) {
+            if (!smoke.includes(required)) throw new Error(`runtime smoke repair missing: ${required}`);
+          }
+          fs.writeFileSync(smokePath, smoke);
+          NODE
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Validate complete command surface stack
+        run: |
+          npx eslint src/app/admin/template.tsx src/app/admin/market-intel/kingmaker/page.tsx src/app/admin/market-intel/kingmaker/capital-ledger/page.tsx scripts/smoke-kingmaker-runtime.mjs scripts/smoke-admin-runtime.mjs
+          npx tsc --noEmit
+          node scripts/run-dependency-security-audit.mjs
+          npm run build
+          node scripts/smoke-kingmaker-runtime.mjs
+      - name: Restore release template and commit
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = 'public/instacomp-release.json';
+          const release = JSON.parse(fs.readFileSync(path, 'utf8'));
+          release.sourceCommit = 'BUILD_INJECTED_AT_BUILD';
+          fs.writeFileSync(path, `${JSON.stringify(release, null, 2)}\n`);
+          for (const workflow of [
+            '.github/workflows/bootstrap-kingmaker-command-surfaces-clean.yml',
+            '.github/workflows/temporary-pr622-materialize.yml',
+            '.github/workflows/temporary-pr622-runtime-login-repair.yml',
+          ]) {
+            if (fs.existsSync(workflow)) fs.rmSync(workflow);
+          }
+          NODE
+          git add -A
+          git commit -m "feat: build KINGMAKER Beta 1.0 command surfaces"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
