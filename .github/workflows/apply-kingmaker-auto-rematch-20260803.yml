@@ -82,6 +82,21 @@ jobs:
           RECEIPT_PATH: evidence/kingmaker-auto-rematch-production-20260803/receipt.json
         run: |
           set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("scripts/run-kingmaker-checklist-auto-rematch-regressions.sql")
+          text = path.read_text()
+          old = "'regression/' || source_file_id || '.csv'"
+          new = (
+              "'tcos/checklist/sourcePath/v1/topps/topps-chrome-regression-' || "
+              "replace(release_id::text, '-', '') || "
+              "'/11/' || repeat('1', 64) || '-topps-chrome-regression.csv'"
+          )
+          if old not in text:
+              raise SystemExit("Expected legacy regression storage path was not found.")
+          path.write_text(text.replace(old, new, 1))
+          PY
           node scripts/ops/apply-kingmaker-auto-rematch-20260803.mjs
 
       - name: Require sanitized passing receipt
