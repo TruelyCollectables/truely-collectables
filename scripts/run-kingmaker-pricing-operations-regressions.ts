@@ -4,6 +4,7 @@ import {
   filterAndPaginatePricingReceipts,
 } from "../src/lib/kingmaker-pricing-operations-query";
 import {
+  neutralizeSpreadsheetFormula,
   pricingReceiptsToCsv,
   summarizePricingReceipts,
 } from "../src/lib/kingmaker-pricing-receipt-operations";
@@ -59,5 +60,29 @@ const csv = pricingReceiptsToCsv(receipts);
 assert.match(csv, /^receipt_id,identity_id,status/);
 assert.doesNotMatch(csv, /store_id|seller_account_id|provider|source/i);
 assert.match(csv, /r1,card-a,ready/);
+
+for (const hostile of [
+  "=HYPERLINK(\"https://evil.example\",\"click\")",
+  "+SUM(1,1)",
+  "-2+3",
+  "@IMPORTXML(\"https://evil.example\",\"//x\")",
+  "\t=CMD()",
+  "\r=CMD()",
+]) {
+  assert.equal(neutralizeSpreadsheetFormula(hostile), `'${hostile}`);
+}
+assert.equal(neutralizeSpreadsheetFormula("safe-identity"), "safe-identity");
+
+const hostileCsv = pricingReceiptsToCsv([
+  {
+    ...receipts[0],
+    id: "=1+1",
+    identityId: "@HYPERLINK(\"https://evil.example\")",
+  },
+]);
+assert.match(hostileCsv, /'=1\+1/);
+assert.match(hostileCsv, /'@HYPERLINK/);
+assert.doesNotMatch(hostileCsv, /\n=1\+1,/);
+assert.doesNotMatch(hostileCsv, /,@HYPERLINK/);
 
 console.log("KINGMAKER Pricing operations bundle regressions passed.");
