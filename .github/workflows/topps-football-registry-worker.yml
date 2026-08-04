@@ -16,28 +16,46 @@ on:
       - "src/lib/checklist-registry/topps-sport-pipelines.ts"
       - "src/lib/checklist-registry/topps-football-text.ts"
       - "src/lib/checklist-registry/topps-football-text-adapter.ts"
-  push:
-    branches:
-      - agent/topps-isolated-sport-pipelines
-    paths:
-      - ".github/workflows/topps-football-registry-worker.yml"
-      - "scripts/run-topps-football-worker.ts"
-      - "scripts/run-topps-football-regressions.ts"
-      - "src/lib/checklist-registry/server.ts"
-      - "src/lib/checklist-registry/topps-sport-pipelines.ts"
-      - "src/lib/checklist-registry/topps-football-text.ts"
-      - "src/lib/checklist-registry/topps-football-text-adapter.ts"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: topps-football-registry-worker
+  group: topps-football-registry-worker-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  football-only:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+  validate-football-worker:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Certify parser, sport isolation, source trust, and retry boundaries
+        run: npx tsx scripts/run-topps-football-regressions.ts
+      - name: Prove pull-request validation cannot execute the Production worker
+        run: |
+          set -euo pipefail
+          test -z "${NEXT_PUBLIC_SUPABASE_URL:-}"
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}"
+      - name: Lint Football worker boundary
+        run: >-
+          npx eslint
+          scripts/run-topps-football-worker.ts
+          scripts/run-topps-football-regressions.ts
+          src/lib/checklist-registry/topps-sport-pipelines.ts
+          src/lib/checklist-registry/topps-football-text.ts
+          src/lib/checklist-registry/topps-football-text-adapter.ts
+      - name: TypeScript
+        run: npx tsc --noEmit
+
+  football-only-production:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     environment: Production
     timeout-minutes: 55
@@ -47,12 +65,8 @@ jobs:
       TOPPS_FOOTBALL_MAX_PRODUCTS: "500"
       TOPPS_FOOTBALL_MAX_SOURCES: "100"
       TOPPS_FOOTBALL_OUTPUT: .checklist-discovery/topps-football-worker-receipt.json
-      TOPPS_FOOTBALL_AUDIT: docs/registry-audits/topps-football-latest.json
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: agent/topps-isolated-sport-pipelines
-          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -65,17 +79,19 @@ jobs:
       - run: npm ci
       - name: Re-run Football certification before Production access
         run: npx tsx scripts/run-topps-football-regressions.ts
+      - name: Require protected Production credentials
+        run: |
+          set -euo pipefail
+          test -n "$NEXT_PUBLIC_SUPABASE_URL"
+          test -n "$SUPABASE_SERVICE_ROLE_KEY"
       - name: Run isolated Topps Football discovery and Registry import
         run: node --import tsx scripts/run-topps-football-worker.ts
       - name: Verify Football-only receipt
         run: |
           node --input-type=module <<'NODE'
-          import { copyFileSync, mkdirSync, readFileSync, existsSync, writeFileSync } from 'node:fs';
-          import { dirname } from 'node:path';
+          import { readFileSync, existsSync, writeFileSync } from 'node:fs';
           const path = process.env.TOPPS_FOOTBALL_OUTPUT;
-          const audit = process.env.TOPPS_FOOTBALL_AUDIT;
           if (!path || !existsSync(path)) throw new Error(`Missing Topps Football receipt: ${path || '(unset)'}`);
-          if (!audit) throw new Error('TOPPS_FOOTBALL_AUDIT is required.');
           const receipt = JSON.parse(readFileSync(path, 'utf8'));
           if (receipt.manufacturer !== 'Topps' || receipt.sport !== 'Football') {
             throw new Error('Topps Football worker crossed its manufacturer or sport boundary.');
@@ -85,8 +101,6 @@ jobs:
             if (result.manufacturer && result.manufacturer !== 'Topps') throw new Error('Receipt contains a non-Topps result.');
             if (result.sport && result.sport !== 'Football') throw new Error('Receipt contains a non-Football result.');
           }
-          mkdirSync(dirname(audit), { recursive: true });
-          copyFileSync(path, audit);
           const t = receipt.totals || {};
           const lines = [
             '# Topps Football Registry Worker',
@@ -103,29 +117,11 @@ jobs:
           ];
           writeFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join('\n')}\n`, { flag: 'a' });
           NODE
-      - name: Persist sanitized Football audit
-        if: always()
-        run: |
-          if [ ! -f "$TOPPS_FOOTBALL_AUDIT" ]; then
-            echo "No verified Football audit was produced."
-            exit 1
-          fi
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add "$TOPPS_FOOTBALL_AUDIT"
-          if git diff --cached --quiet; then
-            echo "Football audit is unchanged."
-          else
-            git commit -m "audit: update Topps Football registry receipt"
-            git push origin HEAD:agent/topps-isolated-sport-pipelines
-          fi
-      - name: Upload Football receipt
+      - name: Upload sanitized Football receipt
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: topps-football-registry-worker-receipt
-          path: |
-            .checklist-discovery/topps-football-worker-receipt.json
-            docs/registry-audits/topps-football-latest.json
-          if-no-files-found: error
+          path: .checklist-discovery/topps-football-worker-receipt.json
+          if-no-files-found: warn
           retention-days: 90
