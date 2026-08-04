@@ -168,14 +168,7 @@ jobs:
           if replaced != 1:
               raise SystemExit("Expected monolithic backfill function was not found exactly once.")
 
-          old_call = '''  await queryManagement({
-            project,
-            token,
-            query: backfillSql(),
-            readOnly: false,
-            stage: "current active-checklist backfill",
-          });'''
-          new_call = '''  const backfillTargets = await queryManagement({
+          new_call = r'''  const backfillTargets = await queryManagement({
             project,
             token,
             query: backfillTargetsSql(),
@@ -192,9 +185,15 @@ jobs:
               stage: `current active-checklist backfill ${index + 1}/${backfillTargets.length}`,
             });
           }'''
-          if old_call not in runner_text:
-              raise SystemExit("Expected monolithic backfill call was not found.")
-          runner_text = runner_text.replace(old_call, new_call, 1)
+          runner_text, call_replaced = re.subn(
+              r"\n\s*await queryManagement\(\{\s*project,\s*token,\s*query: backfillSql\(\),\s*readOnly: false,\s*stage: \"current active-checklist backfill\",\s*\}\);",
+              "\n" + new_call,
+              runner_text,
+              count=1,
+              flags=re.S,
+          )
+          if call_replaced != 1:
+              raise SystemExit("Expected monolithic backfill call was not found exactly once.")
 
           receipt_anchor = '''    before: {'''
           receipt_backfill = '''    backfill: {
