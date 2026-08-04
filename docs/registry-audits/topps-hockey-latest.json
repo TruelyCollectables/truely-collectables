@@ -1,0 +1,13 @@
+{
+  "schema": "tcos.toppsHockey.productionAudit.v1",
+  "manufacturer": "Topps",
+  "sport": "Hockey",
+  "status": "not_run",
+  "runId": null,
+  "runAttempt": null,
+  "eventName": null,
+  "commitSha": null,
+  "recordedAt": null,
+  "credentialsResolved": false,
+  "receipt": null
+}
