@@ -209,6 +209,11 @@ const smokeRoutes = [
     expectedText: "Coverage Attack Queue",
   },
   {
+    path: "/admin/instacomp/pricing/coverage/work-orders",
+    auth: true,
+    expectedText: "Coverage Work Orders",
+  },
+  {
     path: "/admin/instacomp/pricing/profiles",
     auth: true,
     expectedText: "Pricing Profiles",
