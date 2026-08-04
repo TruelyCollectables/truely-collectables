@@ -48,13 +48,35 @@ function isBaseParallel(value: string | null | undefined) {
   return !value || baseParallelPattern.test(value);
 }
 
+const NEGATED_SIGNAL_PATTERN =
+  /\b(?:no|not|without|absent|none|neither|cannot|can't|did\s+not|does\s+not|is\s+not|was\s+not|were\s+not|lacks?|lacking)\b/i;
+
+function evidenceClauses(text: string) {
+  return cleanSignalText(text)
+    .split(/(?:[.!?;]+|\n+)/g)
+    .map((clause) => clause.trim())
+    .filter(Boolean);
+}
+
+function matchHasNearbyNegation(clause: string, matchIndex: number) {
+  const prefix = clause.slice(Math.max(0, matchIndex - 56), matchIndex);
+  return NEGATED_SIGNAL_PATTERN.test(prefix);
+}
+
 function firstMatch(text: string, patterns: RegExp[]) {
-  for (const pattern of patterns) {
-    const match = text.match(pattern);
-    if (match) return match;
+  for (const clause of evidenceClauses(text)) {
+    for (const pattern of patterns) {
+      const safePattern = new RegExp(pattern.source, pattern.flags.replace("g", ""));
+      const match = safePattern.exec(clause);
+      if (match && !matchHasNearbyNegation(clause, match.index)) return match;
+    }
   }
 
   return null;
+}
+
+function hasPositiveSignal(text: string, pattern: RegExp) {
+  return Boolean(firstMatch(text, [pattern]));
 }
 
 function detectPrintedVariantSignal(text: string): VariantSignal | null {
@@ -95,7 +117,7 @@ function detectPrintedVariantSignal(text: string): VariantSignal | null {
     };
   }
 
-  if (/\bupper\s+deck\s+clear\s+cut\b/i.test(text) || /\bclear\s+cut\b/i.test(text)) {
+  if (hasPositiveSignal(text, /\b(?:upper\s+deck\s+)?clear\s+cut\b/i)) {
     return {
       label: "Clear Cut",
       setName: "Clear Cut",
@@ -105,9 +127,15 @@ function detectPrintedVariantSignal(text: string): VariantSignal | null {
   }
 
   if (
-    /\bupper\s+deck\b/i.test(text) &&
-    /\b(?:transparent|translucent|acetate|clear[-\s]*stock|clear\s*\/\s*ghosted)\b/i.test(text) &&
-    /\b(?:centered\s+(?:team\s+)?logo|ghosted\s+back\s+logo|back\s+logo|team\s+logo|player[-\s]*name\s+treatment|clear\s+back)\b/i.test(text)
+    hasPositiveSignal(text, /\bupper\s+deck\b/i) &&
+    hasPositiveSignal(
+      text,
+      /\b(?:transparent|translucent|acetate|clear[-\s]*stock|clear\s*\/\s*ghosted)\b/i,
+    ) &&
+    hasPositiveSignal(
+      text,
+      /\b(?:centered\s+(?:team\s+)?logo|ghosted\s+back\s+logo|back\s+logo|team\s+logo|player[-\s]*name\s+treatment|clear\s+back)\b/i,
+    )
   ) {
     return {
       label: "Clear Cut",
@@ -117,7 +145,7 @@ function detectPrintedVariantSignal(text: string): VariantSignal | null {
     };
   }
 
-  if (/\bacetate\b/i.test(text)) {
+  if (hasPositiveSignal(text, /\bacetate\b/i)) {
     return {
       label: "Acetate / clear parallel - exact type uncertain",
       reason: "printed text or OCR indicates acetate/clear stock",
@@ -156,10 +184,10 @@ function detectPrintedVariantSignal(text: string): VariantSignal | null {
   }
 
   if (
-    /\binsert\s+(?:card|cards|set|subset)\b/i.test(text) ||
-    /\bspecial\s+insert\b/i.test(text) ||
-    /\bfrom\s+this\s+subset\b/i.test(text) ||
-    /\bsubset\s+(?:card|cards|set)\b/i.test(text)
+    hasPositiveSignal(
+      text,
+      /\b(?:insert\s+(?:card|cards|set|subset)|special\s+insert|from\s+this\s+subset|subset\s+(?:card|cards|set))\b/i,
+    )
   ) {
     return {
       label: "Insert - exact type uncertain",

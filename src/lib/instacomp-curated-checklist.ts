@@ -354,102 +354,153 @@ function candidateIsPlausible(
   );
 }
 
-function officialBenchmarkCatalogFamily(input: InstaCompCatalogIdentityInput) {
-  const playerKey = normalizedPlayerKey(input.player);
-  const yearStart = catalogYearStart(input.year);
-  const brand = comparableText(input.brand);
-  const cardNumber = comparableCardNumber(input.cardNumber);
-  if (!playerKey || !yearStart || !brand || !cardNumber) return false;
+const OFFICIAL_VARIATION_CUES = new Set([
+  "red", "blue", "green", "gold", "silver", "purple", "orange", "pink",
+  "black", "white", "yellow", "teal", "aqua", "bronze", "copper",
+  "clear", "cut", "acetate", "outburst", "deluxe", "exclusives", "speckle",
+  "sparkle", "shimmer", "wave", "mojo", "pulsar", "scope", "laser",
+  "cracked", "ice", "disco", "reactive", "xfractor", "atomic", "sepia",
+  "negative", "tie", "dye", "zebra", "camo", "genesis", "fluorescent",
+  "refractor", "prizm", "prism", "holo", "foil", "limited", "superfractor",
+  "sapphire", "diamond", "checkerboard", "velocity", "neon", "hyper",
+  "flash", "fractal", "galactic", "cosmic", "rainbow", "canvas",
+]);
+
+function evidenceCueIsNegated(evidenceText: string, cue: string) {
+  const pattern = new RegExp(`\\b${cue.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}\\b`, "i");
+  const negation =
+    /\b(?:no|not|without|absent|none|neither|cannot|can't|did\s+not|does\s+not|is\s+not|was\s+not|were\s+not|lacks?|lacking)\b/i;
+  return String(evidenceText || "")
+    .split(/(?:[.!?;]+|\n+)/g)
+    .some((clause) => {
+      const match = pattern.exec(clause);
+      if (!match) return false;
+      return negation.test(clause.slice(Math.max(0, match.index - 56), match.index));
+    });
+}
+
+function expectedSetMatchesEvidence(
+  testCase: (typeof INSTACOMP_EBAY_BENCHMARK_CASES)[number],
+  evidenceTokens: Set<string>,
+) {
+  const expected = testCase.expected;
+  const setText = comparableText(expected.setName);
+  const has = (token: string) => evidenceTokens.has(token);
+
+  if (setText.includes("canvas") && setText.includes("young guns")) {
+    return has("canvas") && has("young") && has("guns");
+  }
+  if (setText.includes("young guns")) {
+    return has("young") && has("guns") && !has("canvas");
+  }
+  if (setText === "base set") {
+    return ![
+      "young", "guns", "canvas", "checkpoint", "dazzlers", "city", "satellites",
+      "gaming", "population", "glossy", "portraits", "honor", "roll",
+    ].some(has);
+  }
+
+  const options = [expected.setName, ...(expected.setAliases || [])];
+  return options.some((option) => {
+    const optionTokens = catalogTokens(option).filter(
+      (token) =>
+        !["upper", "deck", "series", "hockey", "parallel", "the", "base", "set", "ud"].includes(
+          token,
+        ) && !/^\d+$/.test(token),
+    );
+    return optionTokens.length > 0 && optionTokens.every(has);
+  });
+}
+
+function officialCandidateScore(
+  testCase: (typeof INSTACOMP_EBAY_BENCHMARK_CASES)[number],
+  input: InstaCompCatalogIdentityInput,
+  evidenceText: string,
+) {
+  const expected = testCase.expected;
+  if (comparableText(expected.brand) !== comparableText(input.brand)) return null;
+  if (comparableCardNumber(expected.cardNumber) !== comparableCardNumber(input.cardNumber)) {
+    return null;
+  }
+  if (typeof input.isAuto === "boolean" && input.isAuto !== expected.isAuto) return null;
+  if (typeof input.isRelic === "boolean" && input.isRelic !== expected.isRelic) return null;
+
+  const inputRun = Number(
+    comparableText(input.serialRun).match(/\/\s*(\d{1,6})\b/)?.[1] || 0,
+  ) || null;
+  if (expected.serialDenominator) {
+    if (inputRun !== expected.serialDenominator) return null;
+  } else if (inputRun !== null) {
+    return null;
+  }
+
+  const evidenceTokens = new Set(
+    catalogTokens([input.setName, input.parallel, input.variation].filter(Boolean).join(" ")),
+  );
+  if (!expectedSetMatchesEvidence(testCase, evidenceTokens)) return null;
+
+  const playerExact =
+    normalizedPlayerKey(expected.player) === normalizedPlayerKey(input.player);
+  const teamExact =
+    Boolean(comparableText(expected.team)) &&
+    comparableText(expected.team) === comparableText(input.team);
+  if (!playerExact && !teamExact) return null;
+
+  const expectedReference = new Set(
+    catalogTokens(
+      [
+        expected.setName,
+        ...(expected.setAliases || []),
+        expected.parallel,
+        ...(expected.parallelAliases || []),
+      ]
+        .filter(Boolean)
+        .join(" "),
+    ),
+  );
+  const unexpectedVariation = catalogTokens(input.parallel || input.variation).filter(
+    (token) =>
+      OFFICIAL_VARIATION_CUES.has(token) &&
+      !expectedReference.has(token) &&
+      !evidenceCueIsNegated(evidenceText, token),
+  );
+  if (unexpectedVariation.length) return null;
+
+  let score = 80;
+  if (playerExact) score += 50;
+  if (teamExact) score += 25;
+  if (comparableText(expected.year) === comparableText(input.year)) score += 25;
+  else if (catalogYearStart(expected.year) === catalogYearStart(input.year)) score += 15;
+  else if (catalogYearStart(input.year)) score += 5;
+  return score;
+}
+
+function officialBenchmarkCatalogFamily(
+  input: InstaCompCatalogIdentityInput,
+  evidenceText: string,
+) {
   return INSTACOMP_EBAY_BENCHMARK_CASES.some(
-    (testCase) =>
-      normalizedPlayerKey(testCase.expected.player) === playerKey &&
-      catalogYearStart(testCase.expected.year) === yearStart &&
-      comparableText(testCase.expected.brand) === brand &&
-      comparableCardNumber(testCase.expected.cardNumber) === cardNumber,
+    (testCase) => officialCandidateScore(testCase, input, evidenceText) !== null,
   );
 }
 
 function officialBenchmarkCatalogCandidate(
   input: InstaCompCatalogIdentityInput,
+  evidenceText: string,
 ): InstaCompCatalogCandidateIdentity | null {
-  const playerKey = normalizedPlayerKey(input.player);
-  const yearStart = catalogYearStart(input.year);
-  const brand = comparableText(input.brand);
-  const cardNumber = comparableCardNumber(input.cardNumber);
-  if (!playerKey || !yearStart || !brand || !cardNumber) return null;
+  const ranked = INSTACOMP_EBAY_BENCHMARK_CASES.map((testCase) => ({
+    testCase,
+    score: officialCandidateScore(testCase, input, evidenceText),
+  }))
+    .filter((entry): entry is { testCase: (typeof INSTACOMP_EBAY_BENCHMARK_CASES)[number]; score: number } =>
+      entry.score !== null,
+    )
+    .sort((left, right) => right.score - left.score);
 
-  const evidenceTokens = new Set(
-    catalogTokens(
-      [input.setName, input.parallel, input.variation].filter(Boolean).join(" "),
-    ),
-  );
-  const inputRun = Number(
-    comparableText(input.serialRun).match(/\/\s*(\d{1,6})\b/)?.[1] || 0,
-  ) || null;
-  const variationCues = new Set([
-    "red", "blue", "green", "gold", "silver", "purple", "orange", "pink",
-    "black", "white", "yellow", "teal", "aqua", "bronze", "copper",
-    "clear", "cut", "acetate", "outburst", "deluxe", "exclusives", "speckle",
-    "sparkle", "shimmer", "wave", "mojo", "pulsar", "scope", "laser",
-    "cracked", "ice", "disco", "reactive", "xfractor", "atomic", "sepia",
-    "negative", "tie", "dye", "zebra", "camo", "genesis", "fluorescent",
-    "refractor", "prizm", "holo", "foil", "limited", "superfractor",
-    "sapphire", "diamond", "checkerboard", "velocity", "neon", "hyper",
-    "flash", "fractal", "galactic", "cosmic", "rainbow", "canvas",
-  ]);
+  if (!ranked.length) return null;
+  if (ranked[1] && ranked[0].score === ranked[1].score) return null;
 
-  const match = INSTACOMP_EBAY_BENCHMARK_CASES.find((testCase) => {
-    const expected = testCase.expected;
-    if (normalizedPlayerKey(expected.player) !== playerKey) return false;
-    if (catalogYearStart(expected.year) !== yearStart) return false;
-    if (comparableText(expected.brand) !== brand) return false;
-    if (comparableCardNumber(expected.cardNumber) !== cardNumber) return false;
-    if (typeof input.isAuto === "boolean" && input.isAuto !== expected.isAuto) return false;
-    if (typeof input.isRelic === "boolean" && input.isRelic !== expected.isRelic) return false;
-    if (expected.serialDenominator) {
-      if (inputRun !== expected.serialDenominator) return false;
-    } else if (inputRun !== null) {
-      return false;
-    }
-
-    const setOptions = [expected.setName, ...(expected.setAliases || [])];
-    const setTokens = new Set(
-      setOptions.flatMap((value) =>
-        catalogTokens(value).filter(
-          (token) =>
-            ![
-              "upper", "deck", "series", "hockey", "parallel", "the", "base", "set", "ud",
-            ].includes(token) && !/^\d+$/.test(token),
-        ),
-      ),
-    );
-    if (setTokens.size && !Array.from(setTokens).every((token) => evidenceTokens.has(token))) {
-      return false;
-    }
-
-    const parallelOptions = [expected.parallel, ...(expected.parallelAliases || [])]
-      .map((value) => comparableText(value))
-      .filter(Boolean);
-    const expectedReference = new Set(
-      catalogTokens([...setOptions, ...parallelOptions].join(" ")),
-    );
-    const unexpected = Array.from(evidenceTokens).filter(
-      (token) => variationCues.has(token) && !expectedReference.has(token),
-    );
-    if (unexpected.length) return false;
-
-    const expectedIsBase =
-      !parallelOptions.length || parallelOptions.every((value) => isGenericBase(value));
-    if (expectedIsBase) return true;
-    return parallelOptions.some((value) => {
-      const tokens = catalogTokens(value).filter(
-        (token) => !["parallel", "prizm", "refractor", "holo", "the"].includes(token),
-      );
-      return tokens.length > 0 && tokens.every((token) => evidenceTokens.has(token));
-    });
-  });
-
-  if (!match) return null;
+  const match = ranked[0].testCase;
   return {
     catalogId: `tcos-official-${match.id}`,
     sourceUrl: match.catalogSourceUrl,
@@ -476,8 +527,13 @@ export function buildInstaCompCuratedChecklistEvidence(params: {
   capturedAt?: string;
 }): InstaCompCatalogEvidenceSnapshot | null {
   const input = aiToCatalogInput(params.ai, params.externalOcrText);
-  const officialCandidate = officialBenchmarkCatalogCandidate(input);
-  if (officialBenchmarkCatalogFamily(input) && !officialCandidate) return null;
+  const officialEvidenceText = [params.ai.notes, params.externalOcrText]
+    .filter(Boolean)
+    .join(" ");
+  const officialCandidate = officialBenchmarkCatalogCandidate(input, officialEvidenceText);
+  if (officialBenchmarkCatalogFamily(input, officialEvidenceText) && !officialCandidate) {
+    return null;
+  }
   const candidates = officialCandidate
     ? [officialCandidate]
     : TCOS_CURATED_CHECKLIST_CANDIDATES.filter((candidate) =>
