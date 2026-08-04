@@ -1,0 +1,53 @@
+name: Topps Hockey Certification
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/topps-hockey-certification.yml"
+      - "scripts/run-topps-hockey-regressions.ts"
+      - "src/lib/checklist-registry/server.ts"
+      - "src/lib/checklist-registry/topps-sport-pipelines.ts"
+      - "src/lib/checklist-registry/topps-hockey-text.ts"
+      - "src/lib/checklist-registry/topps-hockey-text-adapter.ts"
+  push:
+    branches:
+      - agent/topps-isolated-sport-pipelines
+    paths:
+      - ".github/workflows/topps-hockey-certification.yml"
+      - "scripts/run-topps-hockey-regressions.ts"
+      - "src/lib/checklist-registry/server.ts"
+      - "src/lib/checklist-registry/topps-sport-pipelines.ts"
+      - "src/lib/checklist-registry/topps-hockey-text.ts"
+      - "src/lib/checklist-registry/topps-hockey-text-adapter.ts"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: topps-hockey-certification-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  certify-hockey:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Hockey parser, source trust, and isolation regressions
+        run: npx tsx scripts/run-topps-hockey-regressions.ts
+      - name: Lint Hockey boundary
+        run: >-
+          npx eslint
+          scripts/run-topps-hockey-regressions.ts
+          src/lib/checklist-registry/topps-hockey-text.ts
+          src/lib/checklist-registry/topps-hockey-text-adapter.ts
+      - name: TypeScript contracts
+        run: npx tsc --noEmit
