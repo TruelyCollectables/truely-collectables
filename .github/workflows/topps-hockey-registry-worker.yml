@@ -1,0 +1,135 @@
+name: Topps Hockey Registry Worker
+run-name: Topps Hockey Registry Worker — ${{ github.event_name }}
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "10 * * * *"
+  push:
+    branches:
+      - agent/topps-isolated-sport-pipelines
+    paths:
+      - ".github/workflows/topps-hockey-registry-worker.yml"
+      - "scripts/discover-topps-hockey-checklists.ts"
+      - "scripts/run-topps-hockey-worker.ts"
+      - "scripts/run-topps-hockey-regressions.ts"
+      - "src/lib/checklist-registry/server.ts"
+      - "src/lib/checklist-registry/topps-sport-pipelines.ts"
+      - "src/lib/checklist-registry/topps-hockey-text.ts"
+      - "src/lib/checklist-registry/topps-hockey-text-adapter.ts"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: topps-hockey-registry-worker-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  hockey-only-production:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 55
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TOPPS_HOCKEY_MAX_PRODUCTS: "500"
+      TOPPS_HOCKEY_MAX_SOURCES: "100"
+      TOPPS_HOCKEY_DISCOVERY_OUTPUT: .checklist-discovery/topps-hockey-discovery.json
+      TOPPS_HOCKEY_OUTPUT: .checklist-discovery/topps-hockey-worker-receipt.json
+      TOPPS_HOCKEY_AUDIT: docs/registry-audits/topps-hockey-latest.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/topps-isolated-sport-pipelines
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Resolve protected Production credentials
+        id: credentials
+        run: |
+          set -euo pipefail
+          if [ -z "${NEXT_PUBLIC_SUPABASE_URL:-}" ] || [ -z "${SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
+            echo "resolved=false" >> "$GITHUB_OUTPUT"
+            echo "Production Supabase credentials are unavailable."
+            exit 1
+          fi
+          echo "resolved=true" >> "$GITHUB_OUTPUT"
+      - name: Install deterministic PDF text extractor
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends poppler-utils
+          pdftotext -v
+      - run: npm ci
+      - name: Re-run Hockey certification before Production access
+        run: npx tsx scripts/run-topps-hockey-regressions.ts
+      - name: Discover official Topps Hockey checklists
+        run: node --import tsx scripts/discover-topps-hockey-checklists.ts
+      - name: Run isolated Topps Hockey Registry import
+        run: node --import tsx scripts/run-topps-hockey-worker.ts
+      - name: Verify Hockey-only receipt
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, existsSync, writeFileSync } from 'node:fs';
+          const path = process.env.TOPPS_HOCKEY_OUTPUT;
+          if (!path || !existsSync(path)) throw new Error(`Missing Topps Hockey receipt: ${path || '(unset)'}`);
+          const receipt = JSON.parse(readFileSync(path, 'utf8'));
+          if (receipt.manufacturer !== 'Topps' || receipt.sport !== 'Hockey') throw new Error('Topps Hockey worker crossed its boundary.');
+          if ((receipt.totals?.selected ?? 0) > 100) throw new Error('Topps Hockey worker exceeded the 100-source limit.');
+          const t = receipt.totals || {};
+          writeFileSync(process.env.GITHUB_STEP_SUMMARY, [
+            '# Topps Hockey Registry Worker', '',
+            `**Production Hockey sources:** ${receipt.productionSourceCount ?? 0}`,
+            `**Selected:** ${t.selected ?? 0}`,
+            `**Imported:** ${t.imported ?? 0}`,
+            `**Quarantined:** ${t.quarantined ?? 0}`,
+            `**Failed:** ${t.failed ?? 0}`,
+            `**Sets:** ${t.sets ?? 0}`,
+            `**Cards:** ${t.cards ?? 0}`,
+            `**Identities:** ${t.identities ?? 0}`,
+          ].join('\n') + '\n', { flag: 'a' });
+          NODE
+      - name: Persist sanitized Hockey audit
+        if: always()
+        run: |
+          mkdir -p "$(dirname "$TOPPS_HOCKEY_AUDIT")"
+          node --input-type=module <<'NODE'
+          import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+          const receiptPath = process.env.TOPPS_HOCKEY_OUTPUT;
+          const receipt = receiptPath && existsSync(receiptPath) ? JSON.parse(readFileSync(receiptPath, 'utf8')) : null;
+          const audit = {
+            schema: 'tcos.toppsHockey.productionAudit.v1',
+            manufacturer: 'Topps',
+            sport: 'Hockey',
+            status: receipt ? 'completed' : 'failure',
+            runId: process.env.GITHUB_RUN_ID,
+            runAttempt: process.env.GITHUB_RUN_ATTEMPT,
+            eventName: process.env.GITHUB_EVENT_NAME,
+            commitSha: process.env.GITHUB_SHA,
+            recordedAt: new Date().toISOString(),
+            credentialsResolved: Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY),
+            receipt,
+          };
+          writeFileSync(process.env.TOPPS_HOCKEY_AUDIT, JSON.stringify(audit, null, 2) + '\n');
+          NODE
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add "$TOPPS_HOCKEY_AUDIT"
+          if ! git diff --cached --quiet; then
+            git commit -m "audit: update Topps Hockey registry receipt"
+            git push origin HEAD:agent/topps-isolated-sport-pipelines
+          fi
+      - name: Upload Hockey receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: topps-hockey-registry-worker-receipts
+          path: |
+            .checklist-discovery/topps-hockey-discovery.json
+            .checklist-discovery/topps-hockey-worker-receipt.json
+            docs/registry-audits/topps-hockey-latest.json
+          if-no-files-found: warn
+          retention-days: 90
