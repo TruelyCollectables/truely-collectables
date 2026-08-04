@@ -68,7 +68,7 @@ if (
 const violet = plan.identities.find(
   (identity) =>
     identity.fingerprint.normalized.cardNumber === "p-2" &&
-    identity.fingerprint.normalized.parallel === "violet-pixels" &&
+    identity.fingerprint.normalized.parallel === "violet pixels" &&
     identity.fingerprint.normalized.serialRun === "/99",
 );
 if (!violet) {
