@@ -1,5 +1,5 @@
 name: Master Checklist Bulk Pull
-# Manual restart requested 2026-08-04T19:37Z
+# Fast bounded restart 2026-08-04T20:27Z
 
 on:
   pull_request:
@@ -27,7 +27,7 @@ permissions:
 
 concurrency:
   group: master-checklist-bulk-pull-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   bulk-pull:
@@ -43,10 +43,12 @@ jobs:
 
       - name: Discover blocked Topps and Panini catalogs through reader fallback
         continue-on-error: true
+        timeout-minutes: 10
         run: node --import tsx scripts/discover-blocked-checklists-via-reader.ts
 
       - name: Crawl official manufacturer catalogs and refill queues
         continue-on-error: true
+        timeout-minutes: 90
         run: node --import tsx scripts/discover-official-checklists.ts
 
       - name: Download Topps discovered checklist catalog
