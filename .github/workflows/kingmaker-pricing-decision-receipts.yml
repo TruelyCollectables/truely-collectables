@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "src/lib/kingmaker-pricing-decision-receipt-server.ts"
+      - "src/lib/instacomp-pricing-request-security.ts"
       - "src/app/api/instacomp/pricing/decision/route.ts"
       - "scripts/run-kingmaker-pricing-decision-receipt-regressions.ts"
       - "supabase/migrations/20260803200000_kingmaker_pricing_decision_receipts.sql"
@@ -29,15 +30,18 @@ jobs:
       - name: Immutability and privacy contracts
         run: |
           set -euo pipefail
-          grep -q 'advisory_only' supabase/migrations/20260803200000_kingmaker_pricing_decision_receipts.sql
+          grep -Fq 'advisory_only' supabase/migrations/20260803200000_kingmaker_pricing_decision_receipts.sql
           grep -q 'revoke all.*anon, authenticated' supabase/migrations/20260803200000_kingmaker_pricing_decision_receipts.sql
-          ! grep -q 'for update' supabase/migrations/20260803200000_kingmaker_pricing_decision_receipts.sql
-          ! grep -q 'for delete' supabase/migrations/20260803200000_kingmaker_pricing_decision_receipts.sql
-          grep -q 'receiptId' src/app/api/instacomp/pricing/decision/route.ts
-          grep -q 'sourceDisclosure: null' src/app/api/instacomp/pricing/decision/route.ts
-          ! grep -RIni 'beckett' src/lib/kingmaker-pricing-decision-receipt-server.ts src/app/api/instacomp/pricing/decision/route.ts scripts/run-kingmaker-pricing-decision-receipt-regressions.ts supabase/migrations/20260803200000_kingmaker_pricing_decision_receipts.sql
+          ! grep -Fq 'for update' supabase/migrations/20260803200000_kingmaker_pricing_decision_receipts.sql
+          ! grep -Fq 'for delete' supabase/migrations/20260803200000_kingmaker_pricing_decision_receipts.sql
+          grep -Fq 'receiptId' src/app/api/instacomp/pricing/decision/route.ts
+          grep -Fq 'suppliedInstaCompServerOwnedPricingFields' src/app/api/instacomp/pricing/decision/route.ts
+          grep -Fq 'soldComps: []' src/app/api/instacomp/pricing/decision/route.ts
+          grep -Fq 'completedSales: "authoritative_loader_required"' src/app/api/instacomp/pricing/decision/route.ts
+          ! grep -Fq 'body.soldComps' src/app/api/instacomp/pricing/decision/route.ts
+          ! grep -RIni 'beckett' src/lib/kingmaker-pricing-decision-receipt-server.ts src/lib/instacomp-pricing-request-security.ts src/app/api/instacomp/pricing/decision/route.ts scripts/run-kingmaker-pricing-decision-receipt-regressions.ts supabase/migrations/20260803200000_kingmaker_pricing_decision_receipts.sql
       - name: Lint
-        run: npx eslint src/lib/kingmaker-pricing-decision-receipt-server.ts src/app/api/instacomp/pricing/decision/route.ts scripts/run-kingmaker-pricing-decision-receipt-regressions.ts
+        run: npx eslint src/lib/kingmaker-pricing-decision-receipt-server.ts src/lib/instacomp-pricing-request-security.ts src/app/api/instacomp/pricing/decision/route.ts scripts/run-kingmaker-pricing-decision-receipt-regressions.ts
       - name: TypeScript
         run: npx tsc --noEmit
       - name: Production build
