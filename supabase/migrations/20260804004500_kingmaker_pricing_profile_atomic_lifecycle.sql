@@ -31,13 +31,37 @@ begin
   );
 
   if coalesce(p_is_default, false) then
-    update public.tcos_kingmaker_pricing_profiles
-    set is_default = false,
-        updated_at = now()
-    where store_id = p_store_id
-      and seller_account_id is not distinct from p_seller_account_id
-      and archived_at is null
-      and is_default = true;
+    with cleared as (
+      update public.tcos_kingmaker_pricing_profiles
+      set is_default = false,
+          version = version + 1,
+          updated_at = now()
+      where store_id = p_store_id
+        and seller_account_id is not distinct from p_seller_account_id
+        and archived_at is null
+        and is_default = true
+      returning id, name, version
+    )
+    insert into public.tcos_kingmaker_pricing_profile_audit (
+      store_id,
+      seller_account_id,
+      profile_id,
+      action,
+      profile_name,
+      snapshot
+    )
+    select
+      p_store_id,
+      p_seller_account_id,
+      id,
+      'updated',
+      name,
+      jsonb_build_object(
+        'isDefault', false,
+        'reason', 'default_reassigned',
+        'version', version
+      )
+    from cleared;
   end if;
 
   insert into public.tcos_kingmaker_pricing_profiles (
@@ -135,14 +159,38 @@ begin
   end if;
 
   if coalesce(p_is_default, false) then
-    update public.tcos_kingmaker_pricing_profiles
-    set is_default = false,
-        updated_at = now()
-    where store_id = p_store_id
-      and seller_account_id is not distinct from p_seller_account_id
-      and id <> p_profile_id
-      and archived_at is null
-      and is_default = true;
+    with cleared as (
+      update public.tcos_kingmaker_pricing_profiles
+      set is_default = false,
+          version = version + 1,
+          updated_at = now()
+      where store_id = p_store_id
+        and seller_account_id is not distinct from p_seller_account_id
+        and id <> p_profile_id
+        and archived_at is null
+        and is_default = true
+      returning id, name, version
+    )
+    insert into public.tcos_kingmaker_pricing_profile_audit (
+      store_id,
+      seller_account_id,
+      profile_id,
+      action,
+      profile_name,
+      snapshot
+    )
+    select
+      p_store_id,
+      p_seller_account_id,
+      id,
+      'updated',
+      name,
+      jsonb_build_object(
+        'isDefault', false,
+        'reason', 'default_reassigned',
+        'version', version
+      )
+    from cleared;
   end if;
 
   update public.tcos_kingmaker_pricing_profiles
@@ -218,13 +266,37 @@ begin
   end if;
 
   if coalesce(p_is_default, false) then
-    update public.tcos_kingmaker_pricing_profiles
-    set is_default = false,
-        updated_at = now()
-    where store_id = p_store_id
-      and seller_account_id is not distinct from p_seller_account_id
-      and archived_at is null
-      and is_default = true;
+    with cleared as (
+      update public.tcos_kingmaker_pricing_profiles
+      set is_default = false,
+          version = version + 1,
+          updated_at = now()
+      where store_id = p_store_id
+        and seller_account_id is not distinct from p_seller_account_id
+        and archived_at is null
+        and is_default = true
+      returning id, name, version
+    )
+    insert into public.tcos_kingmaker_pricing_profile_audit (
+      store_id,
+      seller_account_id,
+      profile_id,
+      action,
+      profile_name,
+      snapshot
+    )
+    select
+      p_store_id,
+      p_seller_account_id,
+      id,
+      'updated',
+      name,
+      jsonb_build_object(
+        'isDefault', false,
+        'reason', 'default_reassigned',
+        'version', version
+      )
+    from cleared;
   end if;
 
   insert into public.tcos_kingmaker_pricing_profiles (
