@@ -58,7 +58,7 @@ export default function PricingWorkbench({ mode, title, eyebrow, description }: 
         cache: "no-store",
         credentials: "same-origin",
       });
-      const payload = await response.json();
+      const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload?.ok) throw new Error(payload?.error || "Could not load pricing operations.");
       setSnapshot(payload.snapshot as Snapshot);
     } catch (cause) {
@@ -92,7 +92,7 @@ export default function PricingWorkbench({ mode, title, eyebrow, description }: 
                   Main Admin
                 </Link>
               </div>
-              <button onClick={() => void refresh()} disabled={loading} className="rounded-full bg-amber-300 px-4 py-2 text-sm font-black text-black disabled:opacity-50">
+              <button type="button" onClick={() => void refresh()} disabled={loading} className="rounded-full bg-amber-300 px-4 py-2 text-sm font-black text-black disabled:opacity-50">
                 {loading ? "Refreshing…" : "Refresh Data"}
               </button>
             </div>

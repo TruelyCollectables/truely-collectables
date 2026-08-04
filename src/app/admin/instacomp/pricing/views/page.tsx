@@ -1,5 +1,7 @@
 import PricingWorkbench from "../_components/pricing-workbench";
 
+// Shared PricingWorkbench navigation: "/admin/instacomp/pricing"
+
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
