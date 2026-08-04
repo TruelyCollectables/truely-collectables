@@ -11,6 +11,9 @@ on:
     paths:
       - ".github/workflows/topps-football-registry-worker.yml"
       - "scripts/run-topps-football-worker.ts"
+      - "scripts/run-topps-football-regressions.ts"
+      - "src/lib/checklist-registry/server.ts"
+      - "src/lib/checklist-registry/storage.ts"
       - "src/lib/checklist-registry/topps-football-text.ts"
       - "src/lib/checklist-registry/topps-football-text-adapter.ts"
 
@@ -38,12 +41,14 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - run: npm ci
+      - name: Certify Football parser and isolation boundary
+        run: npx tsx scripts/run-topps-football-regressions.ts
       - name: Install deterministic PDF text extractor
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends poppler-utils
           pdftotext -v
-      - run: npm ci
       - name: Run isolated Topps Football discovery and Registry import
         run: node --import tsx scripts/run-topps-football-worker.ts
       - name: Verify Football-only receipt
