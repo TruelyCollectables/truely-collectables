@@ -100,7 +100,12 @@ jobs:
             'official_card_count_mismatch',
             'official_name_population_mismatch',
           ]);
+          const allowedManualReviewReasons = new Set([
+            'official_detail_fetch_incomplete',
+          ]);
           const mismatches = [];
+          const manualReviews = [];
+
           for (const row of rows) {
             const extras = (row.extraRegistryNames || []).reduce(
               (sum, entry) => sum + Number(entry.count || 0),
@@ -112,23 +117,41 @@ jobs:
             );
             const officialCount = Number(row.officialComparableCount);
             const registryCount = Number(row.registryCardCount);
-            const unsafeDetail = (row.detailEvidence || []).some(
-              (detail) => detail.error || detail.nameMatches === false ||
+            const detailMismatch = (row.detailEvidence || []).some(
+              (detail) => detail.nameMatches === false ||
                 detail.numberMatches === false || detail.setCodeMatches === false,
             );
+            const detailErrors = (row.detailEvidence || []).some(
+              (detail) => Boolean(detail.error),
+            );
+            const exactPopulation =
+              row.countMatches === true &&
+              row.setCodeMatches === true &&
+              row.nameMultisetMatches === true &&
+              Number(row.orderedNameMismatchCount || 0) === 0 &&
+              extras === 0 &&
+              missing === 0 &&
+              !detailMismatch &&
+              Number.isInteger(officialCount) &&
+              Number.isInteger(registryCount) &&
+              officialCount === registryCount;
 
-            if (row.status === 'verified') {
-              if (
-                row.countMatches !== true ||
-                row.setCodeMatches !== true ||
-                row.nameMultisetMatches !== true ||
-                Number(row.orderedNameMismatchCount || 0) !== 0 ||
-                extras !== 0 ||
-                missing !== 0 ||
-                unsafeDetail ||
-                officialCount !== registryCount
-              ) {
-                throw new Error(`Verified row is not exact and source-backed: ${JSON.stringify(row)}`);
+            if (row.status === 'verified' || row.status === 'manual_review') {
+              if (!exactPopulation) {
+                throw new Error(`No-write row is not exact and source-backed: ${JSON.stringify(row)}`);
+              }
+              if (row.status === 'verified') {
+                if (detailErrors || (row.reasons || []).length !== 0) {
+                  throw new Error(`Verified row contains unresolved evidence: ${JSON.stringify(row)}`);
+                }
+              } else {
+                const unsafeReasons = (row.reasons || []).filter(
+                  (reason) => !allowedManualReviewReasons.has(reason),
+                );
+                if (!detailErrors || unsafeReasons.length > 0) {
+                  throw new Error(`Manual-review row is not limited to detail-fetch incompleteness: ${JSON.stringify(row)}`);
+                }
+                manualReviews.push(row.setId);
               }
               continue;
             }
@@ -136,7 +159,7 @@ jobs:
             if (row.status !== 'mismatch') {
               throw new Error(`Unsafe official audit status for ${row.setId}: ${row.status}`);
             }
-            if (!row.officialProduct || row.setCodeMatches !== true || unsafeDetail) {
+            if (!row.officialProduct || row.setCodeMatches !== true || detailMismatch || detailErrors) {
               throw new Error(`Mismatch row lacks a safe official source boundary: ${JSON.stringify(row)}`);
             }
             if (
@@ -159,11 +182,12 @@ jobs:
 
           fs.appendFileSync(
             process.env.GITHUB_OUTPUT,
-            `needs_reconciliation=${mismatches.length > 0}\nsets=${mismatches.join(' ')}\n`,
+            `needs_reconciliation=${mismatches.length > 0}\nsets=${mismatches.join(' ')}\nmanual_reviews=${manualReviews.join(' ')}\n`,
           );
           console.log(JSON.stringify({
             expectedSets,
             verifiedSets: rows.filter((row) => row.status === 'verified').map((row) => row.setId),
+            manualReviewSets: manualReviews,
             mismatchSets: mismatches,
           }, null, 2));
           NODE
@@ -195,9 +219,10 @@ jobs:
           --continue-on-error
           --receipt .codex-run/pokemon-ja-official-gap-validation-receipt.json
 
-      - name: Verify exact source-backed totals or safe no-op
+      - name: Verify exact source-backed totals or safe no-write outcome
         env:
           RECONCILIATION_SETS: ${{ steps.reconciliation.outputs.sets }}
+          MANUAL_REVIEW_SETS: ${{ steps.reconciliation.outputs.manual_reviews }}
         run: |
           node - <<'NODE'
           const fs = require('node:fs');
@@ -206,6 +231,10 @@ jobs:
           const rows = expectedSets.map((setId) => audit.rows.find((row) => row.setId === setId));
           if (rows.some((row) => !row)) throw new Error('Official audit is missing a target set.');
           const mismatchSets = String(process.env.RECONCILIATION_SETS || '')
+            .split(/\s+/)
+            .filter(Boolean)
+            .sort();
+          const manualReviewSets = String(process.env.MANUAL_REVIEW_SETS || '')
             .split(/\s+/)
             .filter(Boolean)
             .sort();
@@ -222,23 +251,25 @@ jobs:
           }
 
           if (mismatchSets.length === 0) {
-            if (rows.some((row) => row.status !== 'verified')) {
-              throw new Error(`No-op requires every target to be verified: ${JSON.stringify(rows)}`);
+            if (rows.some((row) => !['verified', 'manual_review'].includes(row.status))) {
+              throw new Error(`No-write outcome contains an unsafe status: ${JSON.stringify(rows)}`);
             }
             if (registryTotal !== officialTotal) {
-              throw new Error(`Verified no-op count mismatch: ${registryTotal}/${officialTotal}`);
+              throw new Error(`No-write count mismatch: ${registryTotal}/${officialTotal}`);
             }
             if (
               fs.existsSync('./.codex-run/pokemon-ja-official-gap-build-receipt.json') ||
               fs.existsSync('./.codex-run/pokemon-ja-official-gap-validation-receipt.json')
             ) {
-              throw new Error('Verified no-op unexpectedly created reconciliation receipts.');
+              throw new Error('No-write outcome unexpectedly created reconciliation receipts.');
             }
             console.log(JSON.stringify({
-              mode: 'verified_noop',
-              verifiedSets: expectedSets,
+              mode: manualReviewSets.length > 0 ? 'safe_noop_manual_review' : 'verified_noop',
+              verifiedSets: rows.filter((row) => row.status === 'verified').map((row) => row.setId),
+              manualReviewSets,
               officialCards: officialTotal,
               registryCards: registryTotal,
+              reconciliationWrites: 0,
             }, null, 2));
             process.exit(0);
           }
