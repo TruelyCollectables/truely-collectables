@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, HTMLResponse
 
 from .config import settings
+from .system_doctor import SystemDoctor
 
 _STARTED_MONOTONIC = time.monotonic()
 _STARTED_AT = datetime.now(timezone.utc)
@@ -32,6 +33,7 @@ def build_cockpit_router(require_api_key) -> APIRouter:
     service_root = settings.service_root
     cockpit_root = service_root / "cockpit"
     logs_root = service_root / "data" / "logs"
+    doctor = SystemDoctor(settings)
 
     @router.get("/control", response_class=HTMLResponse)
     async def cockpit() -> str:
@@ -115,6 +117,13 @@ def build_cockpit_router(require_api_key) -> APIRouter:
             },
             "latest_backup": _file_summary(latest_backup),
         }
+
+    @router.get(
+        "/v1/system/doctor",
+        dependencies=[Depends(require_api_key)],
+    )
+    async def system_doctor():
+        return doctor.run()
 
     @router.get(
         "/v1/system/logs/{log_name}",
