@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { chromium } from "playwright";
 
@@ -57,13 +57,11 @@ async function advance(page, currentPage) {
   const before = clean(await page.locator("#searchcurrpage").textContent().catch(() => String(currentPage)));
   const next = page.locator("#searchnextarr");
   if (!(await next.count())) return false;
-
   await next.evaluate((element) => {
     const onclick = element.getAttribute("onclick");
     if (onclick) Function(onclick).call(element);
     else element.click();
   });
-
   const changed = await page.waitForFunction(
     (previous) => document.querySelector("#searchcurrpage")?.textContent?.trim() !== previous,
     before,
@@ -90,10 +88,8 @@ try {
       await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45_000 });
       await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => {});
       await page.waitForTimeout(2_500);
-
       const declaredPages = Math.max(1, Number(clean(await page.locator("#searchtotpage").textContent().catch(() => "1"))) || 1);
       const maxPages = Math.min(declaredPages, 50);
-
       for (let pageNumber = 1; pageNumber <= maxPages; pageNumber++) {
         await dismissBlockingUi(page);
         await page.waitForSelector(".resultcontainerone, #search3grid", { timeout: 15_000 }).catch(() => {});
@@ -105,7 +101,6 @@ try {
         })));
         allRows.push(...pageRows.map((row) => ({ ...row, sourcePage: pageNumber })));
         pagesRead = pageNumber;
-
         if (pageNumber < maxPages) {
           const moved = await advance(page, pageNumber);
           if (!moved) {
@@ -148,11 +143,7 @@ try {
       slug, url, error, valid, resultCount, declaredPages, pagesRead,
       listingRows: allRows.length, uniqueCardRows: uniqueRows.length,
     }, null, 2));
-
-    report.targets.push({
-      slug, url, error, valid, resultCount, declaredPages, pagesRead,
-      listingRows: allRows.length, uniqueCardRows: uniqueRows.length,
-    });
+    report.targets.push({ slug, url, error, valid, resultCount, declaredPages, pagesRead, listingRows: allRows.length, uniqueCardRows: uniqueRows.length });
     console.log(JSON.stringify(report.targets.at(-1)));
     await context.close();
   }
@@ -173,8 +164,10 @@ report.totals = {
 writeFileSync(resolve(OUT, "report.json"), JSON.stringify(report, null, 2));
 writeFileSync(resolve(OUT, "all-unique-card-rows.json"), JSON.stringify(report.targets.flatMap((target) => {
   try {
-    return JSON.parse(require("node:fs").readFileSync(resolve(OUT, target.slug, "unique-card-rows.json"), "utf8")).map((row) => ({ ...row, sourceUrl: target.url, sourceSlug: target.slug }));
-  } catch { return []; }
+    return JSON.parse(readFileSync(resolve(OUT, target.slug, "unique-card-rows.json"), "utf8")).map((row) => ({ ...row, sourceUrl: target.url, sourceSlug: target.slug }));
+  } catch {
+    return [];
+  }
 }), null, 2));
 writeFileSync(resolve(OUT, "report.md"), [
   "# Sportlots 25-Set Card-Row Probe",
