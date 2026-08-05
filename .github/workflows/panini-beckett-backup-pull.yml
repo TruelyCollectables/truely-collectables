@@ -4,12 +4,14 @@ on:
   pull_request:
     paths:
       - "scripts/pull-panini-checklists-from-beckett.ts"
+      - "scripts/organize-panini-checklist-archive.ts"
       - ".github/workflows/panini-beckett-backup-pull.yml"
   push:
     branches:
-      - "agent/topps-panini-download-now-20260804"
+      - "agent/panini-archive-sorting-20260805"
     paths:
       - "scripts/pull-panini-checklists-from-beckett.ts"
+      - "scripts/organize-panini-checklist-archive.ts"
       - ".github/workflows/panini-beckett-backup-pull.yml"
   workflow_dispatch:
 
@@ -22,7 +24,7 @@ concurrency:
 
 jobs:
   pull-panini:
-    name: Pull Panini Sets From Beckett
+    name: Pull and Sort Panini Sets From Beckett
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps:
@@ -37,9 +39,14 @@ jobs:
           BECKETT_MAX_PAGES: 60
           BECKETT_MAX_ARTICLES: 2500
         run: node --import tsx scripts/pull-panini-checklists-from-beckett.ts
-      - name: Package Panini backup set archive
+      - name: Sort by sport, season, product, and source
+        env:
+          PANINI_ARCHIVE_INPUTS: ".panini-beckett-archive/articles=beckett,.panini-beckett-archive/files=beckett"
+          PANINI_ORGANIZED_OUTPUT: ".panini-beckett-organized"
+        run: node --import tsx scripts/organize-panini-checklist-archive.ts
+      - name: Package raw and organized Panini backup archives
         if: always()
-        run: tar -czf panini-beckett-checklists.tar.gz .panini-beckett-archive
+        run: tar -czf panini-beckett-checklists.tar.gz .panini-beckett-archive .panini-beckett-organized
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -51,6 +58,9 @@ jobs:
         if: always()
         with:
           name: panini-beckett-status-${{ github.run_id }}
-          path: .panini-beckett-archive/manifest.json
+          path: |
+            .panini-beckett-archive/manifest.json
+            .panini-beckett-organized/catalog.json
+            .panini-beckett-organized/catalog.csv
           if-no-files-found: error
           retention-days: 90
