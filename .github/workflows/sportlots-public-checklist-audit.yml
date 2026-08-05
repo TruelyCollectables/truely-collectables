@@ -1,5 +1,6 @@
 name: Sportlots Public Checklist Audit
 
+# force-run: 2026-08-05T11:13:00-06:00
 on:
   workflow_dispatch:
   push:
