@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>__APP_NAME__ Command Cockpit</title>
+  <link rel="stylesheet" href="/control/assets/cockpit.css">
+  <script defer src="/control/assets/cockpit.js"></script>
+</head>
+<body data-version="__VERSION__" data-model="__MODEL__" data-default-backup="__DEFAULT_BACKUP__">
+  <div class="stars stars-a"></div>
+  <div class="stars stars-b"></div>
+
+  <div class="cockpit-shell">
+    <aside class="nav-rail" aria-label="Cockpit navigation">
+      <a class="brand-mark" href="#command" aria-label="InstaComp AI command center">
+        <span class="brand-ring"><span>IC</span></span>
+      </a>
+      <nav>
+        <a href="#command" class="nav-link active"><span>01</span>Command</a>
+        <a href="#scan-bay" class="nav-link"><span>02</span>Scan Bay</a>
+        <a href="#checklists" class="nav-link"><span>03</span>Registry</a>
+        <a href="#learning" class="nav-link"><span>04</span>Learning</a>
+        <a href="#backup" class="nav-link"><span>05</span>Backup</a>
+        <a href="#diagnostics" class="nav-link"><span>06</span>Diagnostics</a>
+      </nav>
+      <div class="rail-footer">
+        <span class="local-lock">LOCAL</span>
+        <small>127.0.0.1</small>
+      </div>
+    </aside>
+
+    <main>
+      <header class="top-deck" id="command">
+        <div>
+          <p class="eyebrow">PRIVATE CARD INTELLIGENCE SYSTEM</p>
+          <h1>InstaComp AI<span>™</span></h1>
+          <p class="codename">__CODENAME__ · <strong>__VERSION__</strong></p>
+        </div>
+        <div class="top-actions">
+          <label class="key-field">
+            <span>CONTROL KEY</span>
+            <input id="api-key" type="password" autocomplete="off" placeholder="Only needed when configured">
+          </label>
+          <button class="button ghost" id="refresh-all" type="button">REFRESH ALL</button>
+        </div>
+      </header>
+
+      <section class="status-array" aria-label="Live system status">
+        <article class="status-module">
+          <div class="status-orb unknown" id="database-orb"></div>
+          <div><span>DATABASE</span><strong id="database-status">CHECKING</strong></div>
+        </article>
+        <article class="status-module">
+          <div class="status-orb unknown" id="ollama-orb"></div>
+          <div><span>OLLAMA / AI CORE</span><strong id="ollama-status">CHECKING</strong></div>
+        </article>
+        <article class="status-module">
+          <div class="status-orb unknown" id="registry-orb"></div>
+          <div><span>CHECKLIST REGISTRY</span><strong id="registry-status">CHECKING</strong></div>
+        </article>
+        <article class="status-module">
+          <div class="status-orb unknown" id="backup-orb"></div>
+          <div><span>BACKUP VAULT</span><strong id="backup-status">CHECKING</strong></div>
+        </article>
+      </section>
+
+      <section class="hero-grid">
+        <article class="panel mission-panel">
+          <div class="panel-heading">
+            <div><p class="panel-code">MISSION CONTROL</p><h2>System Overview</h2></div>
+            <span class="live-chip"><i></i>LIVE</span>
+          </div>
+          <div class="radar-wrap" aria-hidden="true">
+            <div class="radar">
+              <div class="radar-sweep"></div>
+              <span class="blip blip-a"></span><span class="blip blip-b"></span><span class="blip blip-c"></span>
+              <div class="radar-core">IC</div>
+            </div>
+          </div>
+          <div class="metric-grid">
+            <div><span>UPTIME</span><strong id="uptime">—</strong></div>
+            <div><span>AI MODEL</span><strong id="model-name">__MODEL__</strong></div>
+            <div><span>IMAGE FILES</span><strong id="image-count">—</strong></div>
+            <div><span>FREE STORAGE</span><strong id="disk-free">—</strong></div>
+          </div>
+        </article>
+
+        <article class="panel alert-panel">
+          <div class="panel-heading">
+            <div><p class="panel-code">OPERATIONS FEED</p><h2>Current Mission</h2></div>
+          </div>
+          <div class="mission-message" id="mission-message">
+            Establishing secure local telemetry…
+          </div>
+          <div class="flight-lines">
+            <div><span>Service Root</span><code id="service-root">Loading…</code></div>
+            <div><span>Checklist Source</span><code id="checklist-source">Loading…</code></div>
+            <div><span>Latest Backup</span><code id="latest-backup">Loading…</code></div>
+          </div>
+        </article>
+      </section>
+
+      <section class="panel scan-panel" id="scan-bay">
+        <div class="panel-heading wide">
+          <div><p class="panel-code">MODULE 02 · VISUAL ACQUISITION</p><h2>Scan Bay</h2></div>
+          <span class="module-state" id="scan-state">AWAITING CARD</span>
+        </div>
+        <div class="scan-layout">
+          <form id="scan-form" class="scan-inputs">
+            <label class="drop-zone" id="front-zone">
+              <input id="front-image" name="front" type="file" accept="image/jpeg,image/png,image/webp" required>
+              <span class="scan-brackets"></span>
+              <strong>FRONT IMAGE</strong>
+              <small id="front-name">Drop or choose the card front</small>
+            </label>
+            <label class="drop-zone" id="back-zone">
+              <input id="back-image" name="back" type="file" accept="image/jpeg,image/png,image/webp">
+              <span class="scan-brackets"></span>
+              <strong>BACK IMAGE</strong>
+              <small id="back-name">Optional, but strongly recommended</small>
+            </label>
+            <button class="button primary launch-button" type="submit">
+              <span>INITIATE AI SCAN</span><i></i>
+            </button>
+          </form>
+
+          <div class="scan-results">
+            <div class="identity-header">
+              <div>
+                <span>IDENTIFICATION RESULT</span>
+                <strong id="identity-title">No card scanned</strong>
+              </div>
+              <span class="confidence-ring" id="confidence-ring">—</span>
+            </div>
+            <div class="identity-grid">
+              <div><span>Player</span><strong id="identity-player">—</strong></div>
+              <div><span>Year</span><strong id="identity-year">—</strong></div>
+              <div><span>Set</span><strong id="identity-set">—</strong></div>
+              <div><span>Card #</span><strong id="identity-number">—</strong></div>
+              <div><span>Parallel</span><strong id="identity-parallel">—</strong></div>
+              <div><span>Serial Run</span><strong id="identity-serial">—</strong></div>
+            </div>
+            <div class="result-strip">
+              <span>CHECKLIST</span><strong id="scan-checklist">NOT RUN</strong>
+              <span>PRICING</span><strong id="scan-pricing">LOCKED</strong>
+              <span>LEARNING</span><strong id="scan-learning">LOCKED</strong>
+            </div>
+            <details class="data-console">
+              <summary>Open complete scan telemetry</summary>
+              <pre id="scan-output">No scan data yet.</pre>
+            </details>
+          </div>
+        </div>
+      </section>
+
+      <section class="two-column" id="checklists">
+        <article class="panel registry-panel">
+          <div class="panel-heading">
+            <div><p class="panel-code">MODULE 03 · CHECKLIST RADAR</p><h2>Registry Control</h2></div>
+            <span class="module-state" id="sync-state">STANDBY</span>
+          </div>
+          <div class="registry-dials">
+            <div><strong id="registry-rows">0</strong><span>ACTIVE ROWS</span></div>
+            <div><strong id="registry-files">0</strong><span>FILES SEEN</span></div>
+            <div><strong id="registry-quarantine">0</strong><span>QUARANTINED</span></div>
+          </div>
+          <div class="timeline-row">
+            <span>LAST SYNC</span><strong id="last-sync">Never</strong>
+          </div>
+          <div class="button-row">
+            <button class="button primary" id="sync-now" type="button">SYNC + REBUILD NOW</button>
+            <button class="button ghost" id="registry-refresh" type="button">REFRESH RADAR</button>
+          </div>
+          <details class="data-console">
+            <summary>Open checklist telemetry</summary>
+            <pre id="checklist-output">Checklist telemetry has not loaded.</pre>
+          </details>
+        </article>
+
+        <article class="panel learning-panel" id="learning">
+          <div class="panel-heading">
+            <div><p class="panel-code">MODULE 04 · VERIFIED MEMORY</p><h2>Learning Core</h2></div>
+          </div>
+          <form id="memory-form" class="memory-form">
+            <label><span>PLAYER</span><input id="memory-player" placeholder="Connor McDavid"></label>
+            <label><span>YEAR</span><input id="memory-year" placeholder="2025-26"></label>
+            <label><span>SET</span><input id="memory-set" placeholder="Upper Deck Series 1"></label>
+            <label><span>CARD #</span><input id="memory-number" placeholder="201"></label>
+            <button class="button primary" type="submit">SEARCH TRUSTED MEMORY</button>
+          </form>
+          <div class="memory-readout" id="memory-readout">Enter at least one identity field.</div>
+          <details class="data-console">
+            <summary>Open memory telemetry</summary>
+            <pre id="memory-output">No memory search yet.</pre>
+          </details>
+        </article>
+      </section>
+
+      <section class="panel vault-panel" id="backup">
+        <div class="panel-heading wide">
+          <div><p class="panel-code">MODULE 05 · DISASTER RECOVERY</p><h2>Full Backup Vault</h2></div>
+          <span class="shield-badge">SECURE ARCHIVE</span>
+        </div>
+        <div class="vault-layout">
+          <div class="vault-door" aria-hidden="true">
+            <div class="vault-wheel"><span></span><span></span><span></span><span></span></div>
+            <strong>FULL<br>RECOVERY</strong>
+          </div>
+          <form id="backup-form" class="vault-form">
+            <p>Creates one verified ZIP containing the complete InstaComp AI folder: database, learning memory, card images, checklist Registry, receipts, logs, code, settings, and recovery manifest.</p>
+            <label><span>DESTINATION</span><input id="backup-destination" value="__DEFAULT_BACKUP__"></label>
+            <label><span>OPTIONAL LABEL</span><input id="backup-label" placeholder="Before major checklist import"></label>
+            <button class="button danger" type="submit">BACK UP EVERYTHING NOW</button>
+          </form>
+          <div class="vault-result">
+            <span>VAULT STATUS</span>
+            <strong id="vault-status">READY</strong>
+            <pre id="backup-output">No backup has been created during this session.</pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel diagnostics-panel" id="diagnostics">
+        <div class="panel-heading wide">
+          <div><p class="panel-code">MODULE 06 · FLIGHT RECORDER</p><h2>Logs & Diagnostics</h2></div>
+          <button class="button ghost" id="refresh-log" type="button">REFRESH LOG</button>
+        </div>
+        <div class="diagnostic-layout">
+          <div class="log-tabs" role="tablist">
+            <button class="log-tab active" data-log="service-out" type="button">SERVICE</button>
+            <button class="log-tab" data-log="service-error" type="button">SERVICE ERRORS</button>
+            <button class="log-tab" data-log="checklist-out" type="button">CHECKLIST</button>
+            <button class="log-tab" data-log="checklist-error" type="button">SYNC ERRORS</button>
+          </div>
+          <pre class="flight-recorder" id="log-output">Select a log channel.</pre>
+          <div class="storage-bars">
+            <div><span>DATABASE</span><strong id="database-size">—</strong></div>
+            <div><span>REGISTRY</span><strong id="registry-size">—</strong></div>
+            <div><span>IMAGES</span><strong id="images-size">—</strong></div>
+            <div><span>RECEIPTS</span><strong id="receipt-count">—</strong></div>
+          </div>
+        </div>
+      </section>
+
+      <footer>
+        <span>INstaComp AI™ · PRIVATE LOCAL COMMAND SYSTEM</span>
+        <span id="footer-clock">—</span>
+      </footer>
+    </main>
+  </div>
+
+  <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
+</body>
+</html>
