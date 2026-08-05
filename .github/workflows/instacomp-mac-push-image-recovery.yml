@@ -5,25 +5,44 @@ on:
     paths:
       - "services/instacomp-ai/scripts/repair-pending-images-from-mac.py"
       - "services/instacomp-ai/tests/test_mac_pending_image_push.py"
+      - "src/app/api/instacomp/pending-image-repair-push/route.ts"
       - ".github/workflows/instacomp-mac-push-image-recovery.yml"
   push:
     paths:
       - "services/instacomp-ai/scripts/repair-pending-images-from-mac.py"
       - "services/instacomp-ai/tests/test_mac_pending_image_push.py"
+      - "src/app/api/instacomp/pending-image-repair-push/route.ts"
       - ".github/workflows/instacomp-mac-push-image-recovery.yml"
 
 jobs:
   certify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
       - name: Compile recovery script
         run: python -m py_compile services/instacomp-ai/scripts/repair-pending-images-from-mac.py
       - name: Install pytest
         run: python -m pip install pytest==8.4.1
       - name: Run Mac push recovery tests
         run: python -m pytest services/instacomp-ai/tests/test_mac_pending_image_push.py -q
+      - name: Lint authenticated repair endpoint
+        run: npx eslint src/app/api/instacomp/pending-image-repair-push/route.ts
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Production build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key
+          NEXT_PUBLIC_SITE_URL: https://example.com
+          INSTACOMP_SERVICE_TOKEN: placeholder-service-token
+        run: npm run build
