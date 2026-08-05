@@ -62,7 +62,7 @@ export default function InstaCompScanPage() {
   const [busy, setBusy] = useState(false);
   const [savingPrice, setSavingPrice] = useState(false);
   const [error, setError] = useState("");
-  const [stage, setStage] = useState("Ready for front and back photos");
+  const [stage, setStage] = useState("Ready for required front and back photos");
   const suggestedPrice = findSuggestedPrice(result);
   const pricingChoices = useMemo(() => suggestedPrice ? [
     { label: "InstaComp", value: suggestedPrice, source: "instacomp" },
@@ -75,6 +75,10 @@ export default function InstaCompScanPage() {
       setError("Take or select the front photo first.");
       return;
     }
+    if (!back) {
+      setError("Take or select the back photo before creating a listing.");
+      return;
+    }
     setBusy(true);
     setError("");
     setResult(null);
@@ -84,8 +88,8 @@ export default function InstaCompScanPage() {
       if (!session?.access_token) throw new Error("Log in before scanning cards.");
       const body = new FormData();
       body.append("front", front);
-      if (back) body.append("back", back);
-      setStage("Mac mini reading visible card evidence");
+      body.append("back", back);
+      setStage("Mac mini reading front and back card evidence");
       const response = await fetch("/api/account/seller/instacomp-scan/intake", {
         method: "POST",
         headers: { Authorization: `Bearer ${session.access_token}` },
@@ -131,7 +135,7 @@ export default function InstaCompScanPage() {
     setBack(null);
     setResult(null);
     setError("");
-    setStage("Ready for front and back photos");
+    setStage("Ready for required front and back photos");
   }
 
   return (
@@ -139,25 +143,26 @@ export default function InstaCompScanPage() {
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-emerald-300">InstaComp Scanner</p>
-          <h1 className="text-3xl font-black">Scan → Registry → Comps → Pending Listing</h1>
-          <p className="mt-2 text-sm text-slate-300">Local AI reads evidence. The Checklist Registry owns identity. Pricing stays blocked until the Registry locks the exact card.</p>
+          <h1 className="text-3xl font-black">Scan Front + Back → Registry → Comps → Pending Listing</h1>
+          <p className="mt-2 text-sm text-slate-300">Every listing requires a front photo and a back photo. Local AI reads both sides, the Checklist Registry owns identity, and pricing stays blocked until the Registry locks the exact card.</p>
         </div>
         <Link href="/seller/instacomp-pending" className="rounded-xl border border-slate-600 px-4 py-2 font-bold hover:bg-slate-800">Open Pending Listings</Link>
       </div>
 
       <section className="grid gap-6 lg:grid-cols-2">
         <div className="rounded-2xl border border-slate-700 bg-slate-950 p-5">
-          <h2 className="text-xl font-bold">1. Capture the card</h2>
+          <h2 className="text-xl font-bold">1. Capture both sides of the card</h2>
+          <p className="mt-2 text-sm font-semibold text-amber-200">This listing workflow will not run with only one photo. A separate one-off InstaComp request may still use one image.</p>
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <label className="rounded-xl border border-dashed border-slate-600 p-4">
               <span className="font-bold">Front photo *</span>
               <input className="mt-3 block w-full text-sm" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={(event) => setFront(event.target.files?.[0] || null)} />
-              <span className="mt-2 block text-xs text-slate-400">{front?.name || "Camera or file upload"}</span>
+              <span className="mt-2 block text-xs text-slate-400">{front?.name || "Required — camera or file upload"}</span>
             </label>
             <label className="rounded-xl border border-dashed border-slate-600 p-4">
-              <span className="font-bold">Back photo</span>
+              <span className="font-bold">Back photo *</span>
               <input className="mt-3 block w-full text-sm" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={(event) => setBack(event.target.files?.[0] || null)} />
-              <span className="mt-2 block text-xs text-slate-400">{back?.name || "Strongly recommended"}</span>
+              <span className="mt-2 block text-xs text-slate-400">{back?.name || "Required for every listing"}</span>
             </label>
           </div>
           <div className="mt-5 rounded-xl bg-slate-900 p-4">
@@ -168,7 +173,7 @@ export default function InstaCompScanPage() {
           </div>
           {error ? <div className="mt-4 rounded-xl border border-red-700 bg-red-950/60 p-4 text-red-200">{error}</div> : null}
           <div className="mt-5 flex flex-wrap gap-3">
-            <button disabled={busy || !front} onClick={() => void scan()} className="rounded-xl bg-emerald-400 px-5 py-3 font-black text-black disabled:opacity-40">{busy ? "Scanning…" : "Identify + price card"}</button>
+            <button disabled={busy || !front || !back} onClick={() => void scan()} className="rounded-xl bg-emerald-400 px-5 py-3 font-black text-black disabled:opacity-40">{busy ? "Scanning…" : "Identify + price card"}</button>
             <button disabled={busy} onClick={reset} className="rounded-xl border border-slate-600 px-5 py-3 font-bold">Clear</button>
           </div>
         </div>
