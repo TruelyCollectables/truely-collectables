@@ -1,6 +1,6 @@
 name: Sportlots Card-Row Probe
 
-# Manual restart marker: 2026-08-05T14:50-06:00
+# Manual restart marker: 2026-08-05T15:12-06:00
 on:
   workflow_dispatch:
   push:
@@ -46,5 +46,6 @@ jobs:
         with:
           name: sportlots-cardrow-probe-${{ github.run_id }}
           path: .sportlots-cardrow-probe
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 30
