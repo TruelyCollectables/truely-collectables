@@ -1,0 +1,59 @@
+name: Sportlots Public Checklist Audit
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "scripts/pull-sportlots-public-checklists.ts"
+      - ".github/workflows/sportlots-public-checklist-audit.yml"
+  push:
+    branches:
+      - "agent/topps-panini-download-now-20260804"
+    paths:
+      - "scripts/pull-sportlots-public-checklists.ts"
+      - ".github/workflows/sportlots-public-checklist-audit.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sportlots-public-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sportlots-public:
+    name: Crawl Sportlots Public Set Universe 2026-2001
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Crawl public Sportlots set and checklist pages
+        env:
+          SPORTLOTS_START_YEAR: 2026
+          SPORTLOTS_END_YEAR: 2001
+          SPORTLOTS_MAX_INDEX_PAGES: 120
+          SPORTLOTS_MAX_SET_PAGES: 25000
+          SPORTLOTS_DELAY_MS: 1200
+        run: node --import tsx scripts/pull-sportlots-public-checklists.ts
+      - name: Package Sportlots public archive
+        if: always()
+        run: tar -czf sportlots-public-checklists.tar.gz .sportlots-public-checklists
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sportlots-public-checklists-${{ github.run_id }}
+          path: sportlots-public-checklists.tar.gz
+          if-no-files-found: error
+          retention-days: 90
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sportlots-public-checklists-status-${{ github.run_id }}
+          path: .sportlots-public-checklists/manifest.json
+          if-no-files-found: error
+          retention-days: 90
