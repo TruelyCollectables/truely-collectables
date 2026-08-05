@@ -1,3 +1,10 @@
+// Production safety fallback: this module is imported before the scan route
+// resolves its model constants. Keep the operator-selected primary model, but
+// always give the identity reader a broadly available vision-capable fallback.
+// This prevents an inaccessible primary/fallback model pair from killing every
+// front-and-back card scan.
+process.env.INSTACOMP_OPENAI_FALLBACK_MODEL = "gpt-4o-mini";
+
 export type InstaCompAiProviderCandidate<T> = {
   provider: string;
   family: string;
@@ -25,6 +32,9 @@ export function sanitizeInstaCompProviderFailure(error: unknown) {
   }
   if (/unauthori[sz]ed|forbidden|invalid api key|\b401\b|\b403\b/.test(text)) {
     return "authentication_failed";
+  }
+  if (/model.*not found|does not exist|not.*access|unsupported model/.test(text)) {
+    return "model_unavailable";
   }
   if (/unavailable|overloaded|gateway|\b50[0234]\b/.test(text)) {
     return "provider_unavailable";
@@ -110,8 +120,14 @@ export async function runInstaCompPrimaryAiFailover<T>(
     }
   }
 
+  const failureSummary = attempts
+    .filter((attempt) => attempt.status === "error")
+    .map((attempt) => `${attempt.provider}:${attempt.message || "provider_error"}`)
+    .join(", ");
   const error = new Error(
-    "No configured InstaComp AI identity reader completed successfully.",
+    failureSummary
+      ? `No configured InstaComp AI identity reader completed successfully. Reader failures: ${failureSummary}.`
+      : "No configured InstaComp AI identity reader completed successfully.",
   ) as Error & { code?: string; attempts?: InstaCompAiProviderAttempt[] };
   error.code = "INSTACOMP_AI_READERS_UNAVAILABLE";
   error.attempts = attempts;
