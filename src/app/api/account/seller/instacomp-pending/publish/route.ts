@@ -3,6 +3,7 @@ import {
   getAuthenticatedAccountFromRequest,
 } from "../../../../../../lib/account-auth";
 import { getInventoryActivationBlockers } from "../../../../../../lib/inventory-activation";
+import { instaCompPendingDraftParityBlockers } from "../../../../../../lib/instacomp-pending-edit";
 import { assertChecklistRegistryReceipt } from "../../../../../../lib/instacomp-registry-receipt";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
@@ -23,7 +24,11 @@ function requestedIds(body: any) {
       ? [body.inventoryItemId]
       : [];
   return Array.from(
-    new Set(values.map((value: unknown) => String(value || "").trim()).filter(Boolean)),
+    new Set(
+      values
+        .map((value: unknown) => String(value || "").trim())
+        .filter(Boolean),
+    ),
   ).slice(0, 500);
 }
 
@@ -67,12 +72,14 @@ export async function POST(request: Request) {
     let inventoryQuery = supabase
       .from("inventory_items")
       .select(
-        "id,legacy_product_id,seller_account_id,sku,title,category,status,quantity,price,metadata",
+        "id,legacy_product_id,seller_account_id,sku,title,description,category,condition,status,quantity,price,metadata",
       )
       .eq("store_id", storeId)
       .in("id", itemIds);
     inventoryQuery = isStoreOwnerAccount
-      ? inventoryQuery.or(`seller_account_id.eq.${account.id},seller_account_id.is.null`)
+      ? inventoryQuery.or(
+          `seller_account_id.eq.${account.id},seller_account_id.is.null`,
+        )
       : inventoryQuery.eq("seller_account_id", account.id);
 
     const { data: rows, error: rowsError } = await inventoryQuery;
@@ -90,7 +97,9 @@ export async function POST(request: Request) {
             .eq("store_id", storeId)
             .in("id", productIds);
     if (productError) throw productError;
-    const productMap = new Map((products || []).map((row: any) => [row.id, row]));
+    const productMap = new Map(
+      (products || []).map((row: any) => [row.id, row]),
+    );
 
     const { data: payoutAccount, error: payoutError } = await supabase
       .from("seller_payout_accounts")
@@ -108,7 +117,11 @@ export async function POST(request: Request) {
     const results: Array<Record<string, unknown>> = [];
     const returnedIds = new Set((rows || []).map((row: any) => row.id));
     for (const missingId of itemIds.filter((id) => !returnedIds.has(id))) {
-      results.push({ inventoryItemId: missingId, success: false, error: "Not found or not owned by this seller." });
+      results.push({
+        inventoryItemId: missingId,
+        success: false,
+        error: "Not found or not owned by this seller.",
+      });
     }
 
     for (const row of rows || []) {
@@ -127,6 +140,24 @@ export async function POST(request: Request) {
         }
 
         const registryReceipt = assertChecklistRegistryReceipt(metadata);
+        const parityBlockers = instaCompPendingDraftParityBlockers({
+          metadata,
+          content: {
+            title: String(row.title || ""),
+            description: row.description || null,
+            condition: row.condition || null,
+            quantity: Number(row.quantity || 0),
+          },
+        });
+        if (parityBlockers.length) {
+          const error = new Error(
+            `Seller draft content is not synchronized across website and eBay: ${parityBlockers.join(", ")}. Save the draft again before publishing.`,
+          ) as Error & { code?: string; blockers?: string[] };
+          error.code = "INSTACOMP_DRAFT_PARITY_REQUIRED";
+          error.blockers = parityBlockers;
+          throw error;
+        }
+
         const product = productMap.get(row.legacy_product_id);
         if (!product) throw new Error("The linked product record was not found.");
 
@@ -150,7 +181,9 @@ export async function POST(request: Request) {
           );
         }
         if (storeOwned && !isStoreOwnerAccount) {
-          throw new Error("Only the store owner account can publish store-owned inventory.");
+          throw new Error(
+            "Only the store owner account can publish store-owned inventory.",
+          );
         }
 
         const now = new Date().toISOString();
@@ -187,7 +220,9 @@ export async function POST(request: Request) {
           success: true,
           status: "active",
           registryIdentityId: registryReceipt.registryIdentityId,
-          registryFingerprintSha256: registryReceipt.registryFingerprintSha256,
+          registryFingerprintSha256:
+            registryReceipt.registryFingerprintSha256,
+          channelDraftParityVerified: true,
           item: updatedItem,
         });
       } catch (error: any) {
