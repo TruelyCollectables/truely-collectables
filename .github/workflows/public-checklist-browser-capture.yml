@@ -18,6 +18,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: public-checklist-browser-capture-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   capture:
     runs-on: ubuntu-latest
