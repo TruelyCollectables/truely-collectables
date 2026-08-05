@@ -42,7 +42,7 @@ class Settings(BaseSettings):
 
     def resolved_checklist_source(self) -> Path | None:
         return (
-            self.checklist_source_path.expanduser().resolve()
+            self.resolve_local_path(self.checklist_source_path)
             if self.checklist_source_path
             else None
         )
