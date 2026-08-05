@@ -1,0 +1,32 @@
+name: Kingmaker Front Back Contract
+
+on:
+  pull_request:
+    paths:
+      - "src/app/kingmaker/pending/page.tsx"
+      - "src/app/api/account/seller/inventory/instacomp-front-back/route.ts"
+      - ".github/workflows/kingmaker-front-back-contract.yml"
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Lint changed files
+        run: npx eslint src/app/kingmaker/pending/page.tsx src/app/api/account/seller/inventory/instacomp-front-back/route.ts
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Production build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key
+          NEXT_PUBLIC_SITE_URL: https://example.com
+          INSTACOMP_SERVICE_TOKEN: placeholder-service-token
+        run: npm run build
