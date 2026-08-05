@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import os
+import shutil
 import sqlite3
 import tempfile
 from datetime import datetime, timezone
@@ -31,6 +33,14 @@ def _normalize(value: object) -> str:
 
 def _card_number(value: object) -> str:
     return _normalize(value).replace(" ", "").lstrip("#")
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _row_from_mapping(mapping: dict[str, object]) -> ChecklistRow:
@@ -85,6 +95,8 @@ class RegistryBuilder:
         imported_rows = 0
         rejected_files: list[dict[str, object]] = []
         duplicate_rows = 0
+        previous_registry_existed = self.registry_path.exists()
+        activated = False
 
         with tempfile.TemporaryDirectory(prefix="instacomp-registry-") as temporary:
             candidate = Path(temporary) / "registry.sqlite3"
@@ -92,7 +104,12 @@ class RegistryBuilder:
             try:
                 self._create_schema(connection)
                 for source in sorted(self.mirror_root.rglob("*")):
-                    if not source.is_file() or source.suffix.lower() not in {".csv", ".json", ".xlsx", ".xlsm"}:
+                    if not source.is_file() or source.suffix.lower() not in {
+                        ".csv",
+                        ".json",
+                        ".xlsx",
+                        ".xlsm",
+                    }:
                         continue
                     try:
                         rows = list(read_rows(source))
@@ -106,8 +123,23 @@ class RegistryBuilder:
                                 except sqlite3.IntegrityError:
                                     duplicate_rows += 1
                         imported_files += 1
-                    except (OSError, ValueError, ValidationError, json.JSONDecodeError) as exc:
-                        rejected_files.append({"file": str(source), "error": str(exc)})
+                    except (
+                        OSError,
+                        ValueError,
+                        ValidationError,
+                        json.JSONDecodeError,
+                        StopIteration,
+                        TypeError,
+                    ) as exc:
+                        quarantine = self._quarantine(source, exc)
+                        rejected_files.append(
+                            {
+                                "file": str(source),
+                                "error": str(exc),
+                                "quarantine_file": str(quarantine["file"]),
+                                "quarantine_receipt": str(quarantine["receipt"]),
+                            }
+                        )
                 connection.execute("PRAGMA optimize")
                 integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
                 if integrity != "ok":
@@ -115,28 +147,80 @@ class RegistryBuilder:
                 connection.commit()
             finally:
                 connection.close()
-            os.replace(candidate, self.registry_path)
 
+            candidate_clean = imported_rows > 0 and not rejected_files
+            if candidate_clean:
+                os.replace(candidate, self.registry_path)
+                activated = True
+
+        active_rows = self._active_row_count()
         receipt = {
-            "schema": "tcos.instacomp-ai.registry-build.v1",
+            "schema": "tcos.instacomp-ai.registry-build.v2",
             "created_at": datetime.now(timezone.utc).isoformat(),
             "registry_path": str(self.registry_path),
-            "imported_files": imported_files,
-            "imported_rows": imported_rows,
+            "candidate_imported_files": imported_files,
+            "candidate_imported_rows": imported_rows,
             "duplicate_rows": duplicate_rows,
             "rejected_files": rejected_files,
-            "ready": imported_rows > 0,
+            "activated": activated,
+            "previous_registry_retained": bool(
+                previous_registry_existed and not activated
+            ),
+            "active_rows": active_rows,
+            "ready": active_rows > 0,
         }
-        (self.registry_path.parent / "latest-build.json").write_text(
-            json.dumps(receipt, indent=2), encoding="utf-8"
-        )
+        self._atomic_json(self.registry_path.parent / "latest-build.json", receipt)
         return receipt
+
+    def _quarantine(self, source: Path, error: Exception) -> dict[str, Path]:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+        try:
+            relative = source.relative_to(self.mirror_root)
+        except ValueError:
+            relative = Path(source.name)
+        destination = self.quarantine_root / stamp / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+        receipt = destination.with_suffix(destination.suffix + ".error.json")
+        self._atomic_json(
+            receipt,
+            {
+                "schema": "tcos.instacomp-ai.checklist-quarantine.v1",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "source": str(source),
+                "quarantine_file": str(destination),
+                "source_sha256": _sha256(source),
+                "error_type": type(error).__name__,
+                "error": str(error),
+            },
+        )
+        return {"file": destination, "receipt": receipt}
+
+    def _active_row_count(self) -> int:
+        if not self.registry_path.exists():
+            return 0
+        try:
+            with sqlite3.connect(
+                f"file:{self.registry_path}?mode=ro", uri=True
+            ) as connection:
+                return int(
+                    connection.execute("SELECT COUNT(*) FROM checklist_cards").fetchone()[0]
+                )
+        except sqlite3.Error:
+            return 0
+
+    @staticmethod
+    def _atomic_json(path: Path, payload: dict[str, object]) -> None:
+        temporary = path.with_suffix(path.suffix + ".partial")
+        temporary.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        os.replace(temporary, path)
 
     @staticmethod
     def _create_schema(connection: sqlite3.Connection) -> None:
         connection.executescript(
             """
-            PRAGMA journal_mode=WAL;
+            PRAGMA journal_mode=DELETE;
+            PRAGMA synchronous=FULL;
             CREATE TABLE checklist_cards (
               identity_id TEXT PRIMARY KEY,
               source_file TEXT NOT NULL,
@@ -259,12 +343,22 @@ class SQLiteChecklistRegistry:
 
         row = exact[0]
         card = CardIdentity(
-            sport=row["sport"], league=row["league"], year=row["year"],
-            manufacturer=row["manufacturer"], brand=row["brand"], set_name=row["set_name"],
-            subset=row["subset"], player=row["player"], team=row["team"],
-            card_number=row["card_number"], parallel=row["parallel"], variation=row["variation"],
-            serial_run=row["serial_run"], rookie=bool(row["rookie"]),
-            autograph=bool(row["autograph"]), memorabilia=bool(row["memorabilia"]),
+            sport=row["sport"],
+            league=row["league"],
+            year=row["year"],
+            manufacturer=row["manufacturer"],
+            brand=row["brand"],
+            set_name=row["set_name"],
+            subset=row["subset"],
+            player=row["player"],
+            team=row["team"],
+            card_number=row["card_number"],
+            parallel=row["parallel"],
+            variation=row["variation"],
+            serial_run=row["serial_run"],
+            rookie=bool(row["rookie"]),
+            autograph=bool(row["autograph"]),
+            memorabilia=bool(row["memorabilia"]),
         )
         return ChecklistResult(
             outcome=ChecklistOutcome.EXACT_MATCH,
