@@ -1,0 +1,36 @@
+name: InstaComp Provider Fallback
+
+on:
+  pull_request:
+    paths:
+      - "src/lib/instacomp-ai-provider-failover.ts"
+      - "src/app/api/instacomp/scan/route.ts"
+      - "scripts/check-instacomp-provider-fallback.mjs"
+      - ".github/workflows/instacomp-provider-fallback.yml"
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Provider fallback contract
+        run: node scripts/check-instacomp-provider-fallback.mjs
+      - name: Lint
+        run: npx eslint src/lib/instacomp-ai-provider-failover.ts src/app/api/instacomp/scan/route.ts
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Production build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key
+          NEXT_PUBLIC_SITE_URL: https://example.com
+          INSTACOMP_SERVICE_TOKEN: placeholder-service-token
+          OPENAI_API_KEY: placeholder-openai-key
+        run: npm run build
