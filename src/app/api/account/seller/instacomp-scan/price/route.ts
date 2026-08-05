@@ -1,9 +1,9 @@
 import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
-} from "../../../../../../../lib/account-auth";
-import { getActiveStoreId } from "../../../../../../../lib/stores";
-import { createSupabaseServerClient } from "../../../../../../../lib/supabase-server";
+} from "../../../../../../lib/account-auth";
+import { getActiveStoreId } from "../../../../../../lib/stores";
+import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 
 export const dynamic = "force-dynamic";
 
