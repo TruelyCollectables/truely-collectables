@@ -1,0 +1,50 @@
+name: Patch InstaComp Rate Limit
+
+on:
+  push:
+    branches:
+      - fix/remove-instacomp-daily-lockout
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, '[rate-limit-patched]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/remove-instacomp-daily-lockout
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Remove public daily limiter from trusted InstaComp scan
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('src/app/api/instacomp/scan/route.ts')
+          text = path.read_text()
+          import_block = '''import {\n  checkPublicEndpointRateLimit,\n  publicEndpointRateLimitResponse,\n} from "../../../../lib/public-endpoint-rate-limit";\n'''
+          rate_block = '''    const rateLimit = await checkPublicEndpointRateLimit({\n      request: req,\n      endpointKey: "instacomp_scan",\n      subjectKey:\n        actor.type === "seller"\n          ? `seller:${actor.sellerAccountId}`\n          : `admin:${actor.storeId}`,\n      maxAttempts: 250,\n      windowSeconds: 24 * 60 * 60,\n    });\n\n    if (!rateLimit.allowed) {\n      const blocked = publicEndpointRateLimitResponse(rateLimit);\n      return NextResponse.json(blocked.body, { status: blocked.status });\n    }\n'''
+          if import_block not in text:
+              raise SystemExit('rate-limit import block not found')
+          if rate_block not in text:
+              raise SystemExit('rate-limit execution block not found')
+          text = text.replace(import_block, '', 1)
+          text = text.replace(rate_block, '    // Authenticated seller/admin scans are trusted mutations and are not subject to the public daily lockout.\n', 1)
+          path.write_text(text)
+          PY
+          rm .github/workflows/patch-instacomp-rate-limit.yml
+      - name: Verify targeted route
+        run: |
+          npx eslint src/app/api/instacomp/scan/route.ts
+          npx tsc --noEmit
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/api/instacomp/scan/route.ts .github/workflows/patch-instacomp-rate-limit.yml
+          git commit -m "[rate-limit-patched] Remove InstaComp daily lockout"
+          git push origin HEAD:fix/remove-instacomp-daily-lockout
