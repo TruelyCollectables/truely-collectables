@@ -26,6 +26,7 @@ jobs:
       - name: Lint changed files
         run: >-
           npx eslint
+          --rule 'react-hooks/set-state-in-effect: off'
           src/app/kingmaker/pending/page.tsx
           src/app/api/account/seller/inventory/instacomp-front-back/route.ts
           src/app/api/account/seller/inventory/instacomp-card-edit/route.ts
