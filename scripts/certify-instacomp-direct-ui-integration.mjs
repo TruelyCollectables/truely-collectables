@@ -20,6 +20,7 @@ const config = read("next.config.ts");
 const verified = read(
   "src/app/api/account/seller/inventory/instacomp-verified/route.ts",
 );
+const contract = read("src/lib/instacomp-api-contract.ts");
 const universal = read(
   "src/app/api/account/seller/inventory/instacomp-universal/route.ts",
 );
@@ -62,12 +63,22 @@ requireOrder(
 );
 requireText(
   verified,
-  'responseHeaders.set("x-instacomp-checklist-verified", "true")',
-  "Successful pricing must issue the Registry verification response header.",
+  "instaCompResponseHeaders({",
+  "Verified pricing must use the standard response receipt helper.",
 );
 requireText(
   verified,
-  "identity: verificationPayload?.identity || null",
+  "checklistVerified: true",
+  "Successful pricing must issue the Registry verification response header.",
+);
+requireText(
+  contract,
+  'headers.set(\n      "x-instacomp-checklist-verified"',
+  "The shared response contract must emit the Registry verification header.",
+);
+requireText(
+  verified,
+  "identity,",
   "Successful pricing must return the typed Registry identity receipt.",
 );
 requireText(
@@ -119,6 +130,7 @@ console.log(
       marketplaceEngine: "universal",
       browserFetchInterceptor: false,
       perCardRegistryQueue: true,
+      versionedReceiptHeaders: true,
       publishFirewall: true,
     },
     null,
