@@ -15,6 +15,7 @@ function requireOrder(source, first, second, message) {
   if (firstIndex < 0 || secondIndex < 0 || firstIndex >= secondIndex) throw new Error(message);
 }
 
+const pricingInvocation = "const pricingResponse = await runVerifiedPricing";
 requireText(intake, "analyzeWithInstaCompAiLocal", "Scanner must call the Mac mini evidence service.");
 requireText(intake, "registryFingerprint", "Scanner must require a Registry fingerprint.");
 requireText(intake, "DUPLICATE_SCAN", "Scanner must block duplicate image-pair scans.");
@@ -24,10 +25,10 @@ requireText(intake, "registryIdentityId", "Scanner receipt must persist Registry
 requireText(intake, "registryFingerprintSha256", "Scanner receipt must persist Registry fingerprint.");
 requireText(intake, "lockedFields: fields", "Scanner receipt must persist canonical locked fields.");
 requireText(intake, "status: \"draft\"", "Scanner must create Pending Listings drafts, never publish directly.");
-requireText(intake, "runVerifiedPricing", "Scanner must use the verified pricing route.");
-requireOrder(intake, "analyzeWithInstaCompAiLocal", ".from(\"inventory_items\")", "Registry analysis must happen before inventory creation.");
-requireOrder(intake, "registryFingerprint", "runVerifiedPricing", "Registry fingerprint must be required before comps run.");
-requireOrder(intake, ".insert({", "runVerifiedPricing", "Pending item must exist before verified pricing is invoked.");
+requireText(intake, pricingInvocation, "Scanner must invoke the verified pricing route.");
+requireOrder(intake, "const scan = await analyzeWithInstaCompAiLocal", ".from(\"inventory_items\")", "Registry analysis must happen before inventory creation.");
+requireOrder(intake, "const registryFingerprint", pricingInvocation, "Registry fingerprint must be required before comps run.");
+requireOrder(intake, ".insert({", pricingInvocation, "Pending item must exist before verified pricing is invoked.");
 
 for (const field of ["year", "manufacturer", "cardNumber", "player"]) {
   requireText(intake, `fields.${field}`, `Scanner must require canonical ${field}.`);
