@@ -58,6 +58,11 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+
       - name: Create Supabase-compatible roles and storage contract
         run: |
           psql -v ON_ERROR_STOP=1 <<'SQL'
