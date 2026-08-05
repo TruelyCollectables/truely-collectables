@@ -14,12 +14,20 @@ import {
   fetchText,
   fileLinks,
   finishSource,
+  hrefs,
   saveItem,
   titleFromHtml,
   xmlLocs,
 } from "./shared.mjs";
 
 const ORIGIN = "https://www.sportscardradio.com";
+const PUBLIC_INDEXES = [
+  `${ORIGIN}/sports-card-checklists/`,
+  `${ORIGIN}/baseball-card-checklists/`,
+  `${ORIGIN}/basketball-card-checklists/`,
+  `${ORIGIN}/football-card-checklists/`,
+  `${ORIGIN}/hockey-card-checklists/`,
+];
 const SEARCH_TERMS = [
   "checklist",
   "baseball checklist",
@@ -31,10 +39,59 @@ const SEARCH_TERMS = [
   "racing checklist",
 ];
 
+function sameSite(url) {
+  try {
+    const host = new URL(url).hostname;
+    return host === "sportscardradio.com" || host.endsWith(".sportscardradio.com");
+  } catch {
+    return false;
+  }
+}
+
+function checklistCandidate(url, label = "") {
+  if (!sameSite(url)) return false;
+  const text = `${url} ${label}`;
+  return /checklist|card-checklists|sports-card-checklists/i.test(text)
+    && !/wp-json|wp-admin|wp-login|feed\/|comments\/feed|\.(?:jpg|jpeg|png|gif|webp|svg)(?:\?|$)/i.test(url);
+}
+
 function sportFromPage(title, html, url) {
   const categories = [...String(html).matchAll(/rel=["']category tag["'][^>]*>([\s\S]*?)<\/a>/gi)]
     .map((match) => decodeHtml(match[1]));
   return extractSport(`${title}\n${url}`, categories, null);
+}
+
+async function discoverFromPublicIndexes(urls, discoveryFailures) {
+  const queue = [...PUBLIC_INDEXES];
+  const seen = new Set();
+
+  while (queue.length && seen.size < Math.min(MAX_DISCOVERY_PAGES, 250) && urls.size < MAX_ITEMS) {
+    const indexUrl = queue.shift();
+    if (!indexUrl || seen.has(indexUrl)) continue;
+    seen.add(indexUrl);
+    try {
+      const { text: html, finalUrl } = await fetchText(indexUrl);
+      for (const match of String(html).matchAll(/<a[^>]+href=["']([^"'#]+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+        let linked;
+        try {
+          linked = new URL(match[1].replace(/&amp;/gi, "&"), finalUrl).toString();
+        } catch {
+          continue;
+        }
+        const label = decodeHtml(match[2]);
+        if (!checklistCandidate(linked, label)) continue;
+        urls.add(linked);
+        if (/card-checklists|sports-card-checklists|\/category\/.*checklist/i.test(linked) && !seen.has(linked)) queue.push(linked);
+        if (urls.size >= MAX_ITEMS) break;
+      }
+
+      for (const linked of hrefs(html, finalUrl)) {
+        if (checklistCandidate(linked)) urls.add(linked);
+      }
+    } catch (error) {
+      discoveryFailures.push({ stage: "public-index-html", url: indexUrl, error: String(error) });
+    }
+  }
 }
 
 async function discover() {
@@ -54,7 +111,7 @@ async function discover() {
       const { text } = await fetchText(sitemap, "application/xml,text/xml,*/*");
       for (const loc of xmlLocs(text)) {
         if (/\.xml(?:\.gz)?(?:\?|$)/i.test(loc)) sitemapQueue.add(loc);
-        else if (/checklist|card-checklists|sports-card-checklists/i.test(loc)) urls.add(loc);
+        else if (checklistCandidate(loc)) urls.add(loc);
       }
     } catch (error) {
       discoveryFailures.push({ stage: "sitemap", url: sitemap, error: String(error) });
@@ -68,7 +125,7 @@ async function discover() {
         const rows = await fetchJson(endpoint);
         if (!Array.isArray(rows) || !rows.length) break;
         for (const row of rows) {
-          if (/checklist/i.test(`${decodeHtml(row.title || "")} ${row.url || ""}`)) urls.add(row.url);
+          if (checklistCandidate(row.url || "", decodeHtml(row.title || ""))) urls.add(row.url);
         }
         if (rows.length < 100) break;
       } catch (error) {
@@ -78,6 +135,7 @@ async function discover() {
     }
   }
 
+  if (urls.size === 0) await discoverFromPublicIndexes(urls, discoveryFailures);
   return { urls, discoveryFailures };
 }
 
@@ -91,9 +149,10 @@ async function main() {
     try {
       const { text: html, finalUrl } = await fetchText(url);
       const title = titleFromHtml(html, finalUrl);
-      if (!/checklist/i.test(`${title}\n${finalUrl}`)) continue;
-
       const checklist = extractChecklistFromHtml(html);
+      const looksLikeChecklist = /checklist/i.test(`${title}\n${finalUrl}`) || Boolean(checklist);
+      if (!looksLikeChecklist) continue;
+
       const sport = sportFromPage(title, html, finalUrl);
       const season = extractSeason(title);
       const manufacturer = extractMaker(title, [], finalUrl);
