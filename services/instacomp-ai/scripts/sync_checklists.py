@@ -8,7 +8,9 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-SUPPORTED_SUFFIXES = {".csv", ".xlsx", ".xls", ".json", ".pdf", ".txt"}
+from app.registry import RegistryBuilder
+
+SUPPORTED_SUFFIXES = {".csv", ".xlsx", ".xlsm", ".json", ".pdf", ".txt"}
 
 
 def sha256(path: Path) -> str:
@@ -33,8 +35,11 @@ def main() -> int:
 
     mirror_root = service_root / "data" / "checklists" / "mirror"
     receipts_root = service_root / "data" / "receipts" / "checklist-sync"
+    quarantine_root = service_root / "data" / "quarantine" / "checklists"
+    registry_path = service_root / "data" / "registry" / "checklist-registry.sqlite3"
     mirror_root.mkdir(parents=True, exist_ok=True)
     receipts_root.mkdir(parents=True, exist_ok=True)
+    quarantine_root.mkdir(parents=True, exist_ok=True)
 
     previous_inventory_path = receipts_root / "latest-inventory.json"
     previous_inventory = {}
@@ -81,9 +86,15 @@ def main() -> int:
         target = mirror_root / key
         target.unlink(missing_ok=True)
 
+    registry_receipt = RegistryBuilder(
+        mirror_root=mirror_root,
+        registry_path=registry_path,
+        quarantine_root=quarantine_root,
+    ).build()
+
     now = datetime.now(timezone.utc)
     receipt = {
-        "schema": "tcos.instacomp-ai.checklist-folder-sync.v1",
+        "schema": "tcos.instacomp-ai.checklist-folder-sync.v2",
         "created_at": now.isoformat(),
         "source": str(source),
         "mirror": str(mirror_root),
@@ -92,6 +103,7 @@ def main() -> int:
         "files_unchanged": unchanged,
         "files_removed": len(removed),
         "unsupported_files_skipped": skipped,
+        "registry": registry_receipt,
         "files": inventory,
     }
     timestamp = now.strftime("%Y%m%dT%H%M%SZ")
@@ -99,7 +111,7 @@ def main() -> int:
     receipt_path.write_text(json.dumps(receipt, indent=2), encoding="utf-8")
     previous_inventory_path.write_text(json.dumps(receipt, indent=2), encoding="utf-8")
     print(json.dumps({key: value for key, value in receipt.items() if key != "files"}, indent=2))
-    return 0
+    return 0 if registry_receipt["ready"] else 3
 
 
 if __name__ == "__main__":
