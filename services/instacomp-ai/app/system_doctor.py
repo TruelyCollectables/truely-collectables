@@ -49,16 +49,33 @@ class SystemDoctor:
         checks.extend(
             [
                 self._directory_check("service-root", self.service_root, create=False),
-                self._directory_check("database-folder", self.settings.database_path.parent),
-                self._directory_check("image-store", self.settings.image_store_path),
                 self._directory_check(
-                    "default-backup-folder", self.settings.backup_default_destination
+                    "database-folder",
+                    self.settings.resolve_local_path(self.settings.database_path).parent,
+                ),
+                self._directory_check(
+                    "image-store",
+                    self.settings.resolve_local_path(self.settings.image_store_path),
+                ),
+                self._directory_check(
+                    "checklist-mirror",
+                    self.settings.resolve_local_path(self.settings.checklist_mirror_path),
+                ),
+                self._directory_check(
+                    "registry-folder",
+                    self.settings.resolve_local_path(self.settings.registry_path).parent,
+                ),
+                self._directory_check(
+                    "default-backup-folder",
+                    self.settings.resolve_local_path(
+                        self.settings.backup_default_destination
+                    ),
                 ),
             ]
         )
 
-        checklist_value = os.environ.get("INSTACOMP_AI_CHECKLIST_SOURCE_PATH", "").strip()
-        if not checklist_value:
+        checklist_path = self.settings.resolved_checklist_source()
+        if checklist_path is None:
             checks.append(
                 {
                     "id": "checklist-source",
@@ -68,7 +85,6 @@ class SystemDoctor:
                 }
             )
         else:
-            checklist_path = Path(checklist_value).expanduser()
             checks.append(
                 self._check(
                     "checklist-source",
