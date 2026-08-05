@@ -288,21 +288,29 @@ export async function POST(request: NextRequest) {
     const form = await request.formData();
     const front = form.get("front");
     const back = form.get("back");
-    if (!(front instanceof Blob)) {
+    if (!(front instanceof Blob) || front.size <= 0) {
       return NextResponse.json(
         {
           success: false,
           code: "FRONT_IMAGE_REQUIRED",
-          error: "Front image is required.",
+          error: "Front image is required for every listing.",
+        },
+        { status: 400 },
+      );
+    }
+    if (!(back instanceof Blob) || back.size <= 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          code: "BACK_IMAGE_REQUIRED",
+          error:
+            "Back image is required for every listing. One-photo InstaComp is allowed only outside the listing intake workflow.",
         },
         { status: 400 },
       );
     }
 
-    const scan = await analyzeWithInstaCompAiLocal({
-      front,
-      back: back instanceof Blob && back.size > 0 ? back : null,
-    });
+    const scan = await analyzeWithInstaCompAiLocal({ front, back });
     const identity = lockedIdentity(scan);
     const registryIdentityId =
       scan.checklist?.identity_id || receiptValue(scan, "registry_identity:");
@@ -347,12 +355,26 @@ export async function POST(request: NextRequest) {
 
     const imagePairSha256 = text(scan.image_pair_sha256, 128);
     const frontSha256 = text(scan.front_sha256, 128);
-    if (!imagePairSha256 || !frontSha256) {
+    const backSha256 = text(scan.back_sha256, 128);
+    if (!imagePairSha256 || !frontSha256 || !backSha256) {
       return NextResponse.json(
         {
           success: false,
           code: "INCOMPLETE_SCAN_RECEIPT",
-          error: "The Mac scan receipt is missing required image hashes.",
+          error:
+            "The Mac scan receipt must contain front, back, and paired image hashes before a listing can be created.",
+          scan,
+        },
+        { status: 409 },
+      );
+    }
+    if (frontSha256 === backSha256) {
+      return NextResponse.json(
+        {
+          success: false,
+          code: "FRONT_BACK_IMAGES_DUPLICATE",
+          error:
+            "Front and back photos must be different images. Retake the missing side before creating the listing.",
           scan,
         },
         { status: 409 },
@@ -418,8 +440,9 @@ export async function POST(request: NextRequest) {
         scanId: scan.scan_id,
         imagePairSha256,
         frontSha256,
-        backSha256: text(scan.back_sha256, 128),
-        hasBackImage: Boolean(scan.back_sha256),
+        backSha256,
+        hasBackImage: true,
+        imageRequirement: "front_and_back_required_for_listing",
         humanVerified: false,
         pricingStatus: "not_run",
         publicationStatus: listingOutput.publicationStatus,
