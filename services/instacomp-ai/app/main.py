@@ -5,12 +5,18 @@ from uuid import uuid4
 
 import httpx
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
 
 from .backup_routes import build_backup_router
 from .checklist import checklist_gateway
 from .cockpit_routes import build_cockpit_router
 from .config import settings
-from .images import pair_hash, persist_image, validate_and_normalize_image
+from .images import (
+    pair_hash,
+    persist_image,
+    persisted_image_path,
+    validate_and_normalize_image,
+)
 from .models import (
     AnalyzeResponse,
     CardIdentity,
@@ -73,6 +79,79 @@ async def health() -> HealthResponse:
         ollama="ready" if ollama_ready else "unavailable",
         ollama_model=settings.ollama_model,
         checklist="ready" if checklist_ready else "not_configured",
+    )
+
+
+@app.get(
+    "/v1/scans/{scan_id}/archive",
+    dependencies=[Depends(require_api_key)],
+)
+async def archived_scan(scan_id: str):
+    normalized_scan_id = scan_id.strip()
+    if not normalized_scan_id or len(normalized_scan_id) > 100:
+        raise HTTPException(status_code=400, detail="Invalid scan_id")
+    scan = store.get_scan(normalized_scan_id)
+    if scan is None:
+        raise HTTPException(status_code=404, detail="Archived scan was not found")
+    return {
+        "schema_version": "tcos.instacomp-ai.scan-archive.v1",
+        **scan,
+        "has_front_image": persisted_image_path(
+            image_store_path,
+            scan["front_sha256"],
+            "front",
+        ).is_file(),
+        "has_back_image": bool(
+            scan["back_sha256"]
+            and persisted_image_path(
+                image_store_path,
+                scan["back_sha256"],
+                "back",
+            ).is_file()
+        ),
+    }
+
+
+@app.get(
+    "/v1/scans/{scan_id}/images/{side}",
+    dependencies=[Depends(require_api_key)],
+)
+async def archived_scan_image(scan_id: str, side: str):
+    normalized_scan_id = scan_id.strip()
+    normalized_side = side.strip().lower()
+    if not normalized_scan_id or len(normalized_scan_id) > 100:
+        raise HTTPException(status_code=400, detail="Invalid scan_id")
+    if normalized_side not in {"front", "back"}:
+        raise HTTPException(status_code=400, detail="Image side must be front or back")
+
+    scan = store.get_scan(normalized_scan_id)
+    if scan is None:
+        raise HTTPException(status_code=404, detail="Archived scan was not found")
+    image_sha256 = scan[f"{normalized_side}_sha256"]
+    if not image_sha256:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Archived scan has no {normalized_side} image",
+        )
+
+    image_path = persisted_image_path(
+        image_store_path,
+        image_sha256,
+        normalized_side,
+    )
+    if not image_path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Archived {normalized_side} image file was not found",
+        )
+    return FileResponse(
+        image_path,
+        media_type="image/jpeg",
+        filename=f"{normalized_scan_id}-{normalized_side}.jpg",
+        headers={
+            "Cache-Control": "private, no-store",
+            "X-InstaComp-Image-SHA256": image_sha256,
+        },
     )
 
 
