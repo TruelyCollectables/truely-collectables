@@ -16,13 +16,16 @@ class BackupRequest(BaseModel):
 
 def build_backup_router(require_api_key) -> APIRouter:
     router = APIRouter()
-    manager = FullBackupManager(settings.service_root, settings.database_path)
+    manager = FullBackupManager(
+        settings.service_root,
+        settings.resolve_local_path(settings.database_path),
+    )
 
     def resolve_destination(requested: str | None) -> Path:
         destination = (
-            Path(requested).expanduser().resolve()
+            settings.resolve_local_path(Path(requested))
             if requested
-            else settings.backup_default_destination.expanduser().resolve()
+            else settings.resolve_local_path(settings.backup_default_destination)
         )
         allowed_roots = settings.resolved_allowed_backup_roots()
         if not any(_inside(destination, root) or destination == root for root in allowed_roots):
@@ -41,7 +44,7 @@ def build_backup_router(require_api_key) -> APIRouter:
             "schema": "tcos.instacomp-ai.backup-status.v1",
             "service_root": str(settings.service_root),
             "default_destination": str(
-                settings.backup_default_destination.expanduser().resolve()
+                settings.resolve_local_path(settings.backup_default_destination)
             ),
             "allowed_roots": [str(root) for root in settings.resolved_allowed_backup_roots()],
             "includes_secrets": True,
