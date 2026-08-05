@@ -1,0 +1,49 @@
+name: Sportlots Card-Row Probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "scripts/probe-sportlots-card-rows.mjs"
+      - ".github/workflows/sportlots-cardrow-probe.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sportlots-cardrow-probe
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    name: Probe five Sportlots sets for real card rows
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install Playwright for diagnostic only
+        run: |
+          npm install --no-save --no-package-lock playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Run five-set Sportlots browser probe
+        continue-on-error: true
+        run: node scripts/probe-sportlots-card-rows.mjs
+      - name: Print validation report
+        if: always()
+        run: |
+          test -f .sportlots-cardrow-probe/report.md && cat .sportlots-cardrow-probe/report.md || true
+      - name: Upload full diagnostic artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sportlots-cardrow-probe-${{ github.run_id }}
+          path: .sportlots-cardrow-probe
+          if-no-files-found: error
+          retention-days: 30
