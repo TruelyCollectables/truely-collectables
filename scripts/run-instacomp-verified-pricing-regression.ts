@@ -5,8 +5,9 @@ const verifiedRoute = readFileSync(
   "src/app/api/account/seller/inventory/instacomp-verified/route.ts",
   "utf8",
 );
-const pendingPage = readFileSync(
-  "src/app/seller/instacomp-pending/page.tsx",
+const nextConfig = readFileSync("next.config.ts", "utf8");
+const sharedClient = readFileSync(
+  "src/lib/instacomp-verified-pricing-client.ts",
   "utf8",
 );
 
@@ -14,20 +15,25 @@ const verifyImport = verifiedRoute.indexOf(
   'import { POST as verifyPendingIdentity } from "../../instacomp-pending-identity/route";',
 );
 const pricingImport = verifiedRoute.indexOf(
-  'import { POST as runInventoryInstaComp } from "../instacomp/route";',
+  'import { POST as runUniversalInstaComp } from "../instacomp-universal/route";',
 );
 const verifyCall = verifiedRoute.indexOf(
   "const verification = await verifyPendingIdentity(verificationRequest);",
 );
-const verificationGate = verifiedRoute.indexOf("if (!verification.ok)");
+const verificationGate = verifiedRoute.indexOf(
+  "if (!verification.ok || verificationPayload?.success !== true)",
+);
 const pricingCall = verifiedRoute.indexOf(
-  "const response = await runInventoryInstaComp(pricingRequest);",
+  "const response = await runUniversalInstaComp(pricingRequest);",
 );
 
 assert.ok(verifyImport >= 0, "verified pricing route must import Registry verification");
-assert.ok(pricingImport >= 0, "verified pricing route must import marketplace pricing");
+assert.ok(pricingImport >= 0, "verified pricing route must import universal marketplace pricing");
 assert.ok(verifyCall >= 0, "verified pricing route must execute Registry verification");
-assert.ok(verificationGate > verifyCall, "verification failure must be handled after verification");
+assert.ok(
+  verificationGate > verifyCall,
+  "verification failure must be handled after verification",
+);
 assert.ok(
   pricingCall > verificationGate,
   "marketplace pricing must execute only after the Registry verification gate",
@@ -39,18 +45,28 @@ assert.match(
 );
 assert.match(
   verifiedRoute,
-  /x-instacomp-checklist-verified/,
+  /instaCompResponseHeaders\(\{[\s\S]*checklistVerified:\s*true/,
   "successful verified pricing must expose a verification receipt header",
 );
 assert.match(
-  pendingPage,
+  nextConfig,
+  /source:\s*"\/api\/account\/seller\/inventory\/instacomp"[\s\S]*destination:\s*"\/api\/account\/seller\/inventory\/instacomp-verified"/,
+  "the public seller pricing URL must route through verified pricing",
+);
+assert.match(
+  sharedClient,
   /\/api\/account\/seller\/inventory\/instacomp-verified/,
-  "Pending Listings must call the verified pricing endpoint",
+  "the shared client must use verified single-card pricing",
+);
+assert.match(
+  sharedClient,
+  /\/api\/account\/seller\/inventory\/instacomp-verified-batch/,
+  "the shared client must use verified server batch pricing",
 );
 assert.doesNotMatch(
-  pendingPage,
-  /fetch\(\s*["']\/api\/account\/seller\/inventory\/instacomp["']/,
-  "Pending Listings must never call the unverified pricing endpoint directly",
+  verifiedRoute,
+  /runLegacySellerInstaComp|runInventoryInstaComp/,
+  "verified pricing must not call the legacy pricing route directly",
 );
 
 console.log("InstaComp verified pricing regression passed.");
