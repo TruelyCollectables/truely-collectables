@@ -34,9 +34,9 @@ pip install -r requirements.txt
 
 if [[ ! -f .env ]]; then
   cp .env.example .env
-  chmod 600 .env
   echo "Created $SERVICE_ROOT/.env. Configure the Google Drive source and backup paths before the first live mission."
 fi
+chmod 600 .env
 
 chmod +x \
   scripts/run-local.sh \
@@ -98,12 +98,15 @@ for _ in $(/usr/bin/seq 1 60); do
   /bin/sleep 0.5
 done
 
+python scripts/run_system_doctor.py > "$LOG_DIR/system-doctor.install.log" 2>&1 || true
+
 echo
 echo "InstaComp AI Mac installation completed."
 echo "Protected system folder: $SERVICE_ROOT"
 echo "Desktop launcher: $HOME/Desktop/InstaComp AI.app"
 echo "Command cockpit: http://127.0.0.1:8787/control"
 echo "Logs: $LOG_DIR"
+echo "System Doctor receipt: $SERVICE_ROOT/data/receipts/system-doctor/latest.json"
 if [[ "$service_ready" == true ]]; then
   echo "Local service status: READY"
 else
