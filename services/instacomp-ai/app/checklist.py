@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Protocol
-from .models import CardIdentity, ChecklistOutcome, ChecklistResult
+
+from .models import CardIdentity, ChecklistResult
+from .registry import SQLiteChecklistRegistry
 
 
 class ChecklistGateway(Protocol):
@@ -10,34 +13,7 @@ class ChecklistGateway(Protocol):
     async def health(self) -> bool: ...
 
 
-class UnconfiguredChecklistGateway:
-    """Deliberate stop point before real checklist ingestion."""
+SERVICE_ROOT = Path(__file__).resolve().parents[1]
+REGISTRY_PATH = SERVICE_ROOT / "data" / "registry" / "checklist-registry.sqlite3"
 
-    async def match(self, identity: CardIdentity) -> ChecklistResult:
-        missing = [
-            name
-            for name, value in {
-                "year": identity.year,
-                "set_name": identity.set_name,
-                "player": identity.player,
-                "card_number": identity.card_number,
-            }.items()
-            if not value
-        ]
-        if missing:
-            return ChecklistResult(
-                outcome=ChecklistOutcome.INPUT_INCOMPLETE,
-                reasons=[f"Missing identity fields: {', '.join(missing)}"],
-            )
-        return ChecklistResult(
-            outcome=ChecklistOutcome.NOT_CONFIGURED,
-            reasons=[
-                "The scanner foundation is complete, but no checklist registry has been wired yet."
-            ],
-        )
-
-    async def health(self) -> bool:
-        return False
-
-
-checklist_gateway: ChecklistGateway = UnconfiguredChecklistGateway()
+checklist_gateway: ChecklistGateway = SQLiteChecklistRegistry(REGISTRY_PATH)
