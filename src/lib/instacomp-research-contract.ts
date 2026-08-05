@@ -104,10 +104,16 @@ export function assertInstaCompResearchJob(
   if (job.status === "blocked" && job.blockers.length === 0) {
     throw new Error("Blocked research jobs require at least one blocker.");
   }
-  if (job.recommendation?.sellerApprovalRequired !== true) {
+  if (
+    job.recommendation &&
+    job.recommendation.sellerApprovalRequired !== true
+  ) {
     throw new Error("InstaComp recommendations always require seller approval.");
   }
-  if (job.recommendation?.executableByInstaComp !== false) {
+  if (
+    job.recommendation &&
+    job.recommendation.executableByInstaComp !== false
+  ) {
     throw new Error("InstaComp recommendations are never directly executable.");
   }
   return job;
