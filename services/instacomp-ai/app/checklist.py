@@ -31,7 +31,10 @@ def _registry_headers() -> dict[str, str]:
     }
     token = os.getenv("INSTACOMP_AI_REGISTRY_TOKEN", "").strip()
     if token:
+        # Keep bearer support for seller-session compatibility while also sending
+        # the dedicated internal-service header expected by the website route.
         headers["authorization"] = f"Bearer {token}"
+        headers["x-tcos-instacomp-service-token"] = token
     return headers
 
 
