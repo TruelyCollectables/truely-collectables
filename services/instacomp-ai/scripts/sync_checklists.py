@@ -8,6 +8,10 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+SERVICE_ROOT = Path(__file__).resolve().parents[1]
+if str(SERVICE_ROOT) not in sys.path:
+    sys.path.insert(0, str(SERVICE_ROOT))
+
 from app.registry import RegistryBuilder
 
 SUPPORTED_SUFFIXES = {".csv", ".xlsx", ".xlsm", ".json", ".pdf", ".txt"}
@@ -22,7 +26,7 @@ def sha256(path: Path) -> str:
 
 
 def main() -> int:
-    service_root = Path(__file__).resolve().parents[1]
+    service_root = SERVICE_ROOT
     source_value = os.environ.get("INSTACOMP_AI_CHECKLIST_SOURCE_PATH", "").strip()
     if not source_value:
         print("INSTACOMP_AI_CHECKLIST_SOURCE_PATH is not configured", file=sys.stderr)
