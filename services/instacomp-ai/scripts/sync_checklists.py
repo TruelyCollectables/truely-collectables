@@ -169,7 +169,7 @@ def _run_locked_sync(
             indent=2,
         )
     )
-    return 0 if registry_receipt["ready"] else 3
+    return 0 if registry_receipt["activated"] else 3
 
 
 def _remove_empty_parents(path: Path, stop: Path) -> None:
