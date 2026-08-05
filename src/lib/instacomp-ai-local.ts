@@ -1,10 +1,40 @@
+export type InstaCompAiLocalVisualEvidence = {
+  visible_text?: string[];
+  logos?: string[];
+  colors?: string[];
+  foil_or_pattern?: string[];
+  front_notes?: string[];
+  back_notes?: string[];
+  uncertainty?: string[];
+  [key: string]: unknown;
+};
+
+export type InstaCompAiLocalSuggestion = {
+  provider: string;
+  model: string;
+  identity: Record<string, unknown>;
+  evidence: InstaCompAiLocalVisualEvidence;
+  confidence: number;
+  explanation: string;
+  raw: Record<string, unknown>;
+};
+
 export type InstaCompAiLocalScan = {
   schema_version: "tcos.instacomp-ai.scan.v1";
   scan_id: string;
-  status: "trusted_memory_match" | "needs_checklist" | "needs_review" | "model_unavailable";
+  created_at?: string;
+  status:
+    | "trusted_memory_match"
+    | "needs_checklist"
+    | "needs_review"
+    | "model_unavailable";
+  front_sha256?: string;
+  back_sha256?: string | null;
+  image_pair_sha256?: string;
   pricing_allowed: boolean;
   learning_allowed: boolean;
   trusted_identity?: Record<string, unknown> | null;
+  local_suggestion?: InstaCompAiLocalSuggestion | null;
   checklist: {
     outcome: string;
     identity_id?: string | null;
@@ -16,7 +46,10 @@ export type InstaCompAiLocalScan = {
 };
 
 function baseUrl() {
-  return (process.env.INSTACOMP_AI_LOCAL_URL || "http://127.0.0.1:8787").replace(/\/+$/, "");
+  return (process.env.INSTACOMP_AI_LOCAL_URL || "http://127.0.0.1:8787").replace(
+    /\/+$/,
+    "",
+  );
 }
 
 function requestHeaders(): Headers {
@@ -41,14 +74,29 @@ export async function analyzeWithInstaCompAiLocal(params: {
     cache: "no-store",
     signal: AbortSignal.timeout(params.timeoutMs ?? 150_000),
   });
-  const payload = (await response.json().catch(() => null)) as InstaCompAiLocalScan | { detail?: unknown } | null;
+  const payload = (await response.json().catch(() => null)) as
+    | InstaCompAiLocalScan
+    | { detail?: unknown }
+    | null;
   if (!response.ok) {
     const detail = payload && "detail" in payload ? payload.detail : null;
-    throw new Error(`InstaComp AI scan failed with HTTP ${response.status}${detail ? `: ${String(detail)}` : ""}`);
+    throw new Error(
+      `InstaComp AI scan failed with HTTP ${response.status}${
+        detail ? `: ${String(detail)}` : ""
+      }`,
+    );
   }
   const scan = payload as InstaCompAiLocalScan;
-  if (scan.pricing_allowed && (!scan.checklist?.identity_id || !scan.checklist?.source_receipts?.some((value) => value.startsWith("registry_fingerprint:")))) {
-    throw new Error("Mac service returned pricing_allowed without a complete Registry receipt.");
+  if (
+    scan.pricing_allowed &&
+    (!scan.checklist?.identity_id ||
+      !scan.checklist?.source_receipts?.some((value) =>
+        value.startsWith("registry_fingerprint:"),
+      ))
+  ) {
+    throw new Error(
+      "Mac service returned pricing_allowed without a complete Registry receipt.",
+    );
   }
   return scan;
 }
