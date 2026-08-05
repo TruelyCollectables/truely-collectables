@@ -8,6 +8,7 @@ from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Upload
 
 from .backup_routes import build_backup_router
 from .checklist import checklist_gateway
+from .checklist_routes import build_checklist_router
 from .config import settings
 from .images import pair_hash, persist_image, validate_and_normalize_image
 from .models import (
@@ -42,6 +43,7 @@ def require_api_key(x_instacomp_ai_key: str | None = Header(default=None)) -> No
 
 
 app.include_router(build_backup_router(require_api_key))
+app.include_router(build_checklist_router(require_api_key))
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -128,7 +130,7 @@ async def analyze_scan(
         next_action = "Start Ollama or correct its model configuration, then retry."
     elif checklist_result.outcome.value == "not_configured":
         status = "needs_checklist"
-        next_action = "Wire and import the approved checklist registry."
+        next_action = "Sync an approved checklist file and rebuild the local registry."
     else:
         status = "needs_review"
         next_action = "Review the visual evidence and provide a verified correction or clearer images."
