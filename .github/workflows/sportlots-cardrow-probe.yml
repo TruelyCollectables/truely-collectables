@@ -1,6 +1,5 @@
 name: Sportlots Card-Row Probe
 
-# Manual restart marker: 2026-08-05T15:12-06:00
 on:
   workflow_dispatch:
   push:
@@ -19,9 +18,9 @@ concurrency:
 
 jobs:
   probe:
-    name: Probe five Sportlots sets for real card rows
+    name: Extract real card rows from 25 Sportlots sets
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -29,18 +28,22 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Install Playwright for diagnostic only
+      - name: Install Playwright for extraction run
         run: |
           npm install --no-save --no-package-lock playwright@1.55.0
           npx playwright install --with-deps chromium
-      - name: Run five-set Sportlots browser probe
+      - name: Apply ES-module compatibility correction
+        run: |
+          sed -i 's/import { mkdirSync, writeFileSync }/import { mkdirSync, writeFileSync, readFileSync }/' scripts/probe-sportlots-card-rows.mjs
+          sed -i 's/require("node:fs").readFileSync/readFileSync/' scripts/probe-sportlots-card-rows.mjs
+      - name: Run expanded Sportlots browser extraction
         continue-on-error: true
         run: node scripts/probe-sportlots-card-rows.mjs
       - name: Print validation report
         if: always()
         run: |
           test -f .sportlots-cardrow-probe/report.md && cat .sportlots-cardrow-probe/report.md || true
-      - name: Upload full diagnostic artifact
+      - name: Upload full extraction artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
