@@ -2,6 +2,7 @@ import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
 } from "../../../../../../lib/account-auth";
+import { synchronizeInstaCompPendingDraftMetadata } from "../../../../../../lib/instacomp-pending-edit";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 
@@ -15,7 +16,7 @@ function recordValue(value: unknown): Record<string, unknown> {
 
 function textValue(value: unknown, maxLength: number) {
   if (value === undefined) return undefined;
-  const text = String(value || "").trim();
+  const text = String(value || "").normalize("NFKC").trim();
   return text ? text.slice(0, maxLength) : null;
 }
 
@@ -33,7 +34,11 @@ function requestedIds(body: any) {
       ? [body.inventoryItemId]
       : [];
   return Array.from(
-    new Set(values.map((value: unknown) => String(value || "").trim()).filter(Boolean)),
+    new Set(
+      values
+        .map((value: unknown) => String(value || "").trim())
+        .filter(Boolean),
+    ),
   ).slice(0, 500);
 }
 
@@ -61,10 +66,9 @@ export async function POST(request: Request) {
 
     const title = textValue(body?.title, 240);
     const description = textValue(body?.description, 5000);
-    const quantity =
-      Object.prototype.hasOwnProperty.call(body, "quantity")
-        ? quantityValue(body.quantity)
-        : undefined;
+    const quantity = Object.prototype.hasOwnProperty.call(body, "quantity")
+      ? quantityValue(body.quantity)
+      : undefined;
 
     if (
       Object.prototype.hasOwnProperty.call(body, "quantity") &&
@@ -76,7 +80,11 @@ export async function POST(request: Request) {
       );
     }
 
-    if (title === undefined && description === undefined && quantity === undefined) {
+    if (
+      title === undefined &&
+      description === undefined &&
+      quantity === undefined
+    ) {
       return Response.json(
         { error: "Provide a title, description, or quantity to update." },
         { status: 400 },
@@ -85,7 +93,10 @@ export async function POST(request: Request) {
 
     if (itemIds.length > 1 && (title !== undefined || description !== undefined)) {
       return Response.json(
-        { error: "Bulk edits may change quantity only. Edit title or description one card at a time." },
+        {
+          error:
+            "Bulk edits may change quantity only. Edit title or description one card at a time.",
+        },
         { status: 400 },
       );
     }
@@ -99,12 +110,14 @@ export async function POST(request: Request) {
     let query = supabase
       .from("inventory_items")
       .select(
-        "id,legacy_product_id,seller_account_id,title,description,status,quantity,metadata",
+        "id,legacy_product_id,seller_account_id,title,description,condition,status,quantity,metadata",
       )
       .eq("store_id", storeId)
       .in("id", itemIds);
     query = isStoreOwnerAccount
-      ? query.or(`seller_account_id.eq.${account.id},seller_account_id.is.null`)
+      ? query.or(
+          `seller_account_id.eq.${account.id},seller_account_id.is.null`,
+        )
       : query.eq("seller_account_id", account.id);
 
     const { data: rows, error: rowsError } = await query;
@@ -114,7 +127,11 @@ export async function POST(request: Request) {
     const returnedIds = new Set((rows || []).map((row: any) => row.id));
 
     for (const missingId of itemIds.filter((id) => !returnedIds.has(id))) {
-      results.push({ inventoryItemId: missingId, success: false, error: "Not found or not owned by this seller." });
+      results.push({
+        inventoryItemId: missingId,
+        success: false,
+        error: "Not found or not owned by this seller.",
+      });
     }
 
     for (const row of rows || []) {
@@ -140,7 +157,9 @@ export async function POST(request: Request) {
             ai.certificationNumber ||
             "",
         ).trim();
-        const uniquePhysicalCopy = Boolean(exactSerialNumber || gradingCertNumber);
+        const uniquePhysicalCopy = Boolean(
+          exactSerialNumber || gradingCertNumber,
+        );
 
         if (quantity !== undefined && uniquePhysicalCopy && quantity !== 1) {
           throw new Error(
@@ -151,27 +170,28 @@ export async function POST(request: Request) {
         const nextTitle = title === undefined ? row.title : title;
         const nextDescription =
           description === undefined ? row.description : description;
-        const nextQuantity = quantity === undefined ? Number(row.quantity || 1) : quantity;
+        const nextQuantity =
+          quantity === undefined ? Number(row.quantity || 1) : quantity;
         if (!nextTitle) throw new Error("Title is required.");
 
         const now = new Date().toISOString();
-        const sellerEdits = Array.isArray(metadata.seller_edits)
-          ? metadata.seller_edits.slice(-24)
-          : [];
-        const nextMetadata = {
-          ...metadata,
-          seller_edits: [
-            ...sellerEdits,
-            {
-              edited_at: now,
-              edited_by: account.email,
-              title_changed: title !== undefined,
-              description_changed: description !== undefined,
-              quantity_changed: quantity !== undefined,
-              quantity: nextQuantity,
-            },
-          ],
-        };
+        const nextMetadata = synchronizeInstaCompPendingDraftMetadata({
+          metadata,
+          previous: {
+            title: String(row.title || ""),
+            description: row.description || null,
+            condition: row.condition || null,
+            quantity: Number(row.quantity || 1),
+          },
+          next: {
+            title: nextTitle,
+            description: nextDescription,
+            condition: row.condition || null,
+            quantity: nextQuantity,
+          },
+          editedAt: now,
+          editedBy: account.email,
+        });
 
         const updates = await Promise.all([
           supabase
@@ -202,12 +222,40 @@ export async function POST(request: Request) {
         if (updates[0].error) throw updates[0].error;
         if (updates[1].error) throw updates[1].error;
 
+        const { data: saved, error: savedError } = await supabase
+          .from("inventory_items")
+          .select("id,title,description,quantity,metadata,updated_at")
+          .eq("id", row.id)
+          .eq("store_id", storeId)
+          .maybeSingle();
+        if (savedError) throw savedError;
+        if (!saved) throw new Error("Draft update could not be verified after save.");
+
+        const savedMetadata = recordValue(saved.metadata);
+        const savedInstaComp = recordValue(savedMetadata.instacomp);
+        const savedChannelDraft = recordValue(savedInstaComp.channelDraft);
+        const savedCanonical = recordValue(savedChannelDraft.canonical);
+        const channelDraftSynchronized =
+          savedCanonical.title === saved.title &&
+          String(savedCanonical.description || "") ===
+            String(saved.description || "") &&
+          Number(savedCanonical.quantity || 0) === Number(saved.quantity || 0);
+        if (Object.keys(savedChannelDraft).length && !channelDraftSynchronized) {
+          throw new Error(
+            "Draft content saved, but website/eBay channel content did not synchronize.",
+          );
+        }
+
         results.push({
           inventoryItemId: row.id,
           success: true,
-          title: nextTitle,
-          quantity: nextQuantity,
+          title: saved.title,
+          description: saved.description,
+          quantity: Number(saved.quantity || 0),
+          updatedAt: saved.updated_at,
           uniquePhysicalCopy,
+          channelDraftSynchronized,
+          sellerReviewReset: true,
         });
       } catch (error: any) {
         results.push({
