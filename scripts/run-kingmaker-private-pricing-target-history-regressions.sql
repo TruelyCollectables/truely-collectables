@@ -158,6 +158,7 @@ begin
      or report#>>'{target,manufacturer}' <> 'Maker History'
      or report#>>'{target,product}' <> 'Product History'
      or report#>>'{target,targetActive}' <> 'true'
+     or report#>>'{target,status}' <> 'in_progress'
      or (report#>>'{target,version}')::integer <> 5 then
     raise exception 'Target history identity summary failed: %', report#>'{target}';
   end if;
@@ -177,7 +178,7 @@ begin
   if first_row->>'action' <> 'resolution_recorded'
      or first_row->>'actorType' <> 'admin'
      or (first_row->>'version')::integer <> 5
-     or first_row->>'status' <> 'resolved' then
+     or first_row->>'status' <> 'in_progress' then
     raise exception 'Target history newest event failed: %', first_row;
   end if;
 
