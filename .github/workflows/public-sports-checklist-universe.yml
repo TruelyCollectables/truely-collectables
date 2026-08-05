@@ -1,0 +1,142 @@
+name: Public Sports Checklist Universe
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "scripts/checklist-sources/**"
+      - "scripts/organize-universal-checklist-archive.mjs"
+      - ".github/workflows/public-sports-checklist-universe.yml"
+  push:
+    branches:
+      - "feature/universal-sports-checklist-universe-20260805"
+    paths:
+      - "scripts/checklist-sources/**"
+      - "scripts/organize-universal-checklist-archive.mjs"
+      - ".github/workflows/public-sports-checklist-universe.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-sports-checklist-universe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  collect:
+    name: Collect ${{ matrix.source }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - source: baseballcardpedia
+            script: scripts/checklist-sources/baseballcardpedia.mjs
+            max_items: 10000
+          - source: keyman
+            script: scripts/checklist-sources/keyman.mjs
+            max_items: 15000
+          - source: sportscardradio
+            script: scripts/checklist-sources/sportscardradio.mjs
+            max_items: 10000
+          - source: cardboardconnection
+            script: scripts/checklist-sources/cardboardconnection.mjs
+            max_items: 10000
+          - source: beckett
+            script: scripts/checklist-sources/beckett.mjs
+            max_items: 5000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate collector and organizer syntax
+        run: |
+          node --check scripts/checklist-sources/shared.mjs
+          node --check "${{ matrix.script }}"
+          node --check scripts/organize-universal-checklist-archive.mjs
+      - name: Collect public checklist and set records
+        env:
+          CHECKLIST_SOURCE: ${{ matrix.source }}
+          CHECKLIST_MAX_ITEMS: ${{ matrix.max_items }}
+          CHECKLIST_MAX_DISCOVERY_PAGES: 500
+          CHECKLIST_MAX_DOWNLOAD_BYTES: 50000000
+          BECKETT_MAX_PAGES: 100
+        run: node "${{ matrix.script }}"
+      - name: Sort source by exact sport, season, manufacturer, product, and source
+        env:
+          CHECKLIST_ARCHIVE_INPUTS: ".public-checklist-source-archive/${{ matrix.source }}=${{ matrix.source }}"
+          CHECKLIST_ORGANIZED_OUTPUT: ".public-checklist-organized/${{ matrix.source }}"
+        run: node scripts/organize-universal-checklist-archive.mjs
+      - name: Package raw and organized source archive
+        run: |
+          tar -czf "checklist-source-${{ matrix.source }}.tar.gz" \
+            ".public-checklist-source-archive/${{ matrix.source }}" \
+            ".public-checklist-organized/${{ matrix.source }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: public-checklist-source-${{ matrix.source }}-${{ github.run_id }}
+          path: checklist-source-${{ matrix.source }}.tar.gz
+          if-no-files-found: error
+          retention-days: 90
+      - uses: actions/upload-artifact@v4
+        with:
+          name: public-checklist-status-${{ matrix.source }}-${{ github.run_id }}
+          path: |
+            .public-checklist-source-archive/${{ matrix.source }}/manifest.json
+            .public-checklist-organized/${{ matrix.source }}/manifest.json
+            .public-checklist-organized/${{ matrix.source }}/master-sets.csv
+            .public-checklist-organized/${{ matrix.source }}/source-items.csv
+          if-no-files-found: error
+          retention-days: 90
+
+  merge-universe:
+    name: Merge Exact-Key Sports Checklist Universe
+    needs: collect
+    if: ${{ needs.collect.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: public-checklist-source-*-${{ github.run_id }}
+          path: downloaded-source-archives
+          merge-multiple: true
+      - name: Extract and verify all five source archives
+        run: |
+          find downloaded-source-archives -type f -name '*.tar.gz' -print -exec tar -xzf {} \;
+          for source in baseballcardpedia keyman sportscardradio cardboardconnection beckett; do
+            test -f ".public-checklist-source-archive/${source}/manifest.json"
+          done
+      - name: Build one exact-key master set catalog
+        env:
+          CHECKLIST_ARCHIVE_INPUTS: ".public-checklist-source-archive/baseballcardpedia=baseballcardpedia,.public-checklist-source-archive/keyman=keyman,.public-checklist-source-archive/sportscardradio=sportscardradio,.public-checklist-source-archive/cardboardconnection=cardboardconnection,.public-checklist-source-archive/beckett=beckett"
+          CHECKLIST_ORGANIZED_OUTPUT: ".sports-checklist-master-archive"
+        run: node scripts/organize-universal-checklist-archive.mjs
+      - name: Package master universe and source evidence
+        run: |
+          tar -czf sports-checklist-master-archive.tar.gz \
+            .sports-checklist-master-archive \
+            .public-checklist-source-archive
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sports-checklist-master-archive-${{ github.run_id }}
+          path: sports-checklist-master-archive.tar.gz
+          if-no-files-found: error
+          retention-days: 90
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sports-checklist-master-catalog-${{ github.run_id }}
+          path: |
+            .sports-checklist-master-archive/manifest.json
+            .sports-checklist-master-archive/master-sets.json
+            .sports-checklist-master-archive/master-sets.csv
+            .sports-checklist-master-archive/source-items.json
+            .sports-checklist-master-archive/source-items.csv
+          if-no-files-found: error
+          retention-days: 90
