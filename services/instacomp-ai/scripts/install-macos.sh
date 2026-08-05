@@ -34,8 +34,9 @@ if [[ ! -f "$service_root/.env" ]]; then
 fi
 
 python3 -m venv "$service_root/.venv"
-"$service_root/.venv/bin/python" -m pip install --upgrade pip
-"$service_root/.venv/bin/python" -m pip install -r "$service_root/requirements.txt"
+python_bin="$service_root/.venv/bin/python"
+"$python_bin" -m pip install --upgrade pip
+"$python_bin" -m pip install -r "$service_root/requirements.txt"
 
 cat > "$plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -78,11 +79,17 @@ launchctl kickstart -k "${domain}/${label}"
 
 bash "$service_root/scripts/install-desktop-app.sh"
 
-health_url="http://127.0.0.1:${INSTACOMP_AI_PORT:-8787}/health"
+port="$(cd "$service_root" && "$python_bin" - <<'PY'
+from app.config import settings
+print(settings.port)
+PY
+)"
+health_url="http://127.0.0.1:${port}/health"
+control_url="http://127.0.0.1:${port}/control"
 for _ in $(seq 1 60); do
   if curl --silent --fail --max-time 2 "$health_url" >/dev/null 2>&1; then
     echo "InstaComp AI local service is ready: $health_url"
-    echo "Open the Desktop app and finish setup at http://127.0.0.1:${INSTACOMP_AI_PORT:-8787}/control"
+    echo "Open the Desktop app and finish setup at $control_url"
     exit 0
   fi
   sleep 1
