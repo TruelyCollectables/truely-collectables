@@ -105,8 +105,7 @@ assert(base.output.publicationStatus === "ready", "normal base card must be read
 assert(base.channelDraft.contentParity === true, "base channel parity failed");
 assert(
   base.channelDraft.website.title === base.channelDraft.ebay.title &&
-    base.channelDraft.website.description ===
-      base.channelDraft.ebay.description,
+    base.channelDraft.website.description === base.channelDraft.ebay.description,
   "website and eBay content diverged",
 );
 assert(
@@ -197,8 +196,7 @@ const unreadableInscription = draft({
     inscriptionText: null,
     inscriptionConfidence: 0.3,
   }),
-  baseTitle:
-    "2024-25 Upper Deck Unreadable Inscription Player #1 Base",
+  baseTitle: "2024-25 Upper Deck Unreadable Inscription Player #1 Base",
 });
 assert(
   unreadableInscription.output.publicationStatus === "review_required",
@@ -254,8 +252,7 @@ const multiSubject = draft({
     setName: "Dual Signatures",
     cardNumber: "DS1",
   }),
-  baseTitle:
-    "2024-25 Upper Deck Dual Signatures Player One / Player Two #DS1",
+  baseTitle: "2024-25 Upper Deck Dual Signatures Player One / Player Two #DS1",
 });
 assert(
   multiSubject.channelDraft.website.title.includes("Player One / Player Two"),
@@ -350,6 +347,14 @@ const kingmakerPending = readFileSync(
   "src/app/kingmaker/pending/page.tsx",
   "utf8",
 );
+const kingmakerFrontBackRoute = readFileSync(
+  "src/app/api/account/seller/inventory/instacomp-front-back/route.ts",
+  "utf8",
+);
+const kingmakerEditRoute = readFileSync(
+  "src/app/api/account/seller/inventory/instacomp-card-edit/route.ts",
+  "utf8",
+);
 
 for (const required of [
   "buildInstaCompListingOutput",
@@ -413,16 +418,53 @@ requireText(
   'export { default } from "../../seller/instacomp-scan/page";',
   "KINGMAKER scanner no longer wraps the canonical seller scanner",
 );
-requireText(
-  kingmakerPending.trim(),
-  'export { default } from "../../seller/instacomp-pending/page";',
-  "KINGMAKER Pending Listings no longer wraps the canonical seller page",
+for (const required of [
+  "rotatedImageFile",
+  'formData.set("frontImage", frontImage)',
+  'formData.set("backImage", backImage)',
+  "Retry This Card",
+  "Replace Manual Identity with AI",
+  "job?.error",
+]) {
+  requireText(
+    kingmakerPending,
+    required,
+    `KINGMAKER audited Pending Listings is missing ${required}`,
+  );
+}
+assert(
+  !kingmakerPending.includes("failed: 100"),
+  "KINGMAKER Pending Listings restored fake Failed 100 percent progress",
 );
+for (const required of [
+  "DUPLICATE_IMAGE_BYTES",
+  "manualIdentityLocked",
+  "backEvidenceText",
+  "identity_complete_pricing_pending",
+  "setNamePreserved: true",
+]) {
+  requireText(
+    kingmakerFrontBackRoute,
+    required,
+    `front/back identity route is missing ${required}`,
+  );
+}
+for (const required of [
+  "manualIdentityLocked: true",
+  "identityRefreshRequired: false",
+  "manual_identity_saved_pricing_pending",
+]) {
+  requireText(
+    kingmakerEditRoute,
+    required,
+    `seller identity edit route is missing ${required}`,
+  );
+}
 
 console.log(
   JSON.stringify(
     {
-      schema: "tcos.instacomp.scan-to-list-release-gate.v1",
+      schema: "tcos.instacomp.scan-to-list-release-gate.v2",
       status: "passed",
       representativeCases: [
         "base",
@@ -445,6 +487,8 @@ console.log(
       verifiedPricingAfterDraft: true,
       sellerReviewRequired: true,
       publishFirewall: true,
+      kingmakerFrontBackJobCertified: true,
+      manualIdentityLockCertified: true,
       livePhysicalAcceptancePassed: false,
       betaOnePassed: false,
     },

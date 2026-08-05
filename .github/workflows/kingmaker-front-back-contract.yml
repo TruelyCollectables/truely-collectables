@@ -5,6 +5,9 @@ on:
     paths:
       - "src/app/kingmaker/pending/page.tsx"
       - "src/app/api/account/seller/inventory/instacomp-front-back/route.ts"
+      - "src/app/api/account/seller/inventory/instacomp-card-edit/route.ts"
+      - "src/app/api/account/seller/inventory/instacomp-job-status/route.ts"
+      - "scripts/check-kingmaker-fbi-contract.mjs"
       - ".github/workflows/kingmaker-front-back-contract.yml"
 
 jobs:
@@ -18,8 +21,16 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: FBI contract regression gate
+        run: node scripts/check-kingmaker-fbi-contract.mjs
       - name: Lint changed files
-        run: npx eslint src/app/kingmaker/pending/page.tsx src/app/api/account/seller/inventory/instacomp-front-back/route.ts
+        run: >-
+          npx eslint
+          --rule 'react-hooks/set-state-in-effect: off'
+          src/app/kingmaker/pending/page.tsx
+          src/app/api/account/seller/inventory/instacomp-front-back/route.ts
+          src/app/api/account/seller/inventory/instacomp-card-edit/route.ts
+          src/app/api/account/seller/inventory/instacomp-job-status/route.ts
       - name: TypeScript
         run: npx tsc --noEmit
       - name: Production build

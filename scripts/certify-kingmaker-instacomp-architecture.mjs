@@ -34,7 +34,6 @@ function filesUnder(directory) {
 
 const wrappers = new Map([
   ["src/app/kingmaker/scan/page.tsx", "../../seller/instacomp-scan/page"],
-  ["src/app/kingmaker/pending/page.tsx", "../../seller/instacomp-pending/page"],
   ["src/app/kingmaker/inventory/page.tsx", "../../seller/inventory/page"],
   ["src/app/kingmaker/orders/page.tsx", "../../seller/orders/page"],
   ["src/app/kingmaker/marketplaces/page.tsx", "../../seller/marketplaces/page"],
@@ -47,6 +46,19 @@ for (const [path, target] of wrappers) {
     throw new Error(`${path} must remain a thin wrapper around ${target}.`);
   }
 }
+
+const auditedPending = read("src/app/kingmaker/pending/page.tsx");
+for (const required of [
+  "rotatedImageFile",
+  'formData.set("frontImage", frontImage)',
+  'formData.set("backImage", backImage)',
+  "Retry This Card",
+  "Replace Manual Identity with AI",
+  "job?.error",
+]) {
+  requireText(auditedPending, required, "audited KINGMAKER Pending Listings");
+}
+rejectText(auditedPending, "failed: 100", "audited KINGMAKER Pending Listings");
 
 for (const existingPath of [
   "src/app/seller/instacomp-scan/page.tsx",
@@ -211,9 +223,10 @@ requireText(macMain, "checklist_result.identity_id", "Mac Registry receipt");
 console.log(
   JSON.stringify(
     {
-      schema: "tcos.kingmaker-instacomp.architecture-certification.v1",
+      schema: "tcos.kingmaker-instacomp.architecture-certification.v2",
       status: "passed",
       thinWrappers: wrappers.size,
+      auditedPendingJob: true,
       capabilityCount: 10,
       canonicalIdentityAuthority: "central_checklist_registry",
       intelligenceOwner: "instacomp_ai",
