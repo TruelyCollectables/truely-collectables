@@ -1,0 +1,131 @@
+name: Force Restart Checklist Downloads
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/force-restart-checklist-downloads.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/force-restart-checklist-downloads.yml
+
+permissions:
+  contents: read
+
+# This exact concurrency key matches the stuck Sportlots feature-branch run.
+# Starting this workflow forces GitHub to cancel that older run.
+concurrency:
+  group: sportlots-public-refs/heads/agent/topps-panini-download-now-20260804
+  cancel-in-progress: true
+
+jobs:
+  sportlots:
+    name: Sportlots corrected resumable crawl
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Restore newest Sportlots checkpoint
+        uses: actions/cache/restore@v4
+        with:
+          path: .sportlots-public-checklists
+          key: sportlots-checkpoint-${{ github.run_id }}
+          restore-keys: |
+            sportlots-checkpoint-
+      - name: Crawl Sportlots with timeouts and checkpoints
+        env:
+          SPORTLOTS_START_YEAR: 2026
+          SPORTLOTS_END_YEAR: 2001
+          SPORTLOTS_MAX_INDEX_PAGES: 120
+          SPORTLOTS_MAX_SET_PAGES: 25000
+          SPORTLOTS_DELAY_MS: 1200
+          SPORTLOTS_REQUEST_TIMEOUT_MS: 25000
+          SPORTLOTS_RETRIES: 2
+          SPORTLOTS_CHECKPOINT_EVERY: 25
+        run: node --import tsx scripts/pull-sportlots-public-checklists.ts
+      - name: Save resumable Sportlots checkpoint
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .sportlots-public-checklists
+          key: sportlots-checkpoint-${{ github.run_id }}
+      - name: Package Sportlots archive
+        if: always()
+        run: tar -czf sportlots-public-checklists.tar.gz .sportlots-public-checklists
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sportlots-public-checklists-${{ github.run_id }}
+          path: sportlots-public-checklists.tar.gz
+          if-no-files-found: error
+          retention-days: 90
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sportlots-public-checklists-status-${{ github.run_id }}
+          path: |
+            .sportlots-public-checklists/manifest.json
+            .sportlots-public-checklists/checkpoint.json
+          if-no-files-found: warn
+          retention-days: 90
+
+  browser-capture:
+    name: Browser checklist capture
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install browser runtime
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+      - name: Build public URL queue
+        shell: bash
+        run: |
+          mkdir -p data
+          touch data/checklist-capture-urls.txt
+          grep -RhoE 'https://[^"[:space:]<>]+' scripts data 2>/dev/null \
+            | sed 's/[),.;]*$//' \
+            | grep -Ei '(topps\.com|paniniamerica\.(net|com)|upperdeck\.com|sportlots\.com|checklistinsider\.com|cardboardconnection\.com|beckett\.com)' \
+            | sort -u >> data/checklist-capture-urls.txt || true
+          sort -u -o data/checklist-capture-urls.txt data/checklist-capture-urls.txt
+          echo "Queued $(wc -l < data/checklist-capture-urls.txt) public URLs"
+      - name: Capture PDFs screenshots and structured rows
+        env:
+          CHECKLIST_CAPTURE_INPUT: data/checklist-capture-urls.txt
+          CHECKLIST_CAPTURE_OUT: .checklist-browser-capture
+          CHECKLIST_CAPTURE_MAX: '5000'
+          CHECKLIST_CAPTURE_DELAY_MS: '2500'
+        run: node scripts/capture-public-checklists-browser.mjs
+      - name: Package browser archive
+        if: always()
+        run: tar -czf public-checklist-browser-capture.tar.gz .checklist-browser-capture
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: public-checklist-browser-capture-${{ github.run_id }}
+          path: public-checklist-browser-capture.tar.gz
+          retention-days: 90
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: public-checklist-browser-capture-status-${{ github.run_id }}
+          path: |
+            .checklist-browser-capture/manifest.json
+            .checklist-browser-capture/database-import.csv
+            .checklist-browser-capture/database-import.json
+          if-no-files-found: warn
+          retention-days: 90
