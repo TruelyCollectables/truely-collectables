@@ -1,3 +1,4 @@
+// Triggered diagnostic run: 2026-08-05
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { chromium } from "playwright";
