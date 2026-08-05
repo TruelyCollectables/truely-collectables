@@ -13,7 +13,7 @@ import {
   normalizeUrl,
   saveItem,
   titleFromHtml,
-} from "./shared.mjs";
+} from "./shared-safe.mjs";
 
 const ORIGIN = "https://www.keymancollectibles.com";
 const SEEDS = [
