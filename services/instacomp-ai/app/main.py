@@ -24,7 +24,9 @@ from .ollama import OllamaReader
 from .storage import MemoryStore
 
 settings.ensure_directories()
-store = MemoryStore(settings.database_path)
+database_path = settings.resolve_local_path(settings.database_path)
+image_store_path = settings.resolve_local_path(settings.image_store_path)
+store = MemoryStore(database_path)
 store.initialize()
 reader = OllamaReader(settings)
 
@@ -90,9 +92,9 @@ async def analyze_scan(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    persist_image(front_image, settings.image_store_path, "front")
+    persist_image(front_image, image_store_path, "front")
     if back_image:
-        persist_image(back_image, settings.image_store_path, "back")
+        persist_image(back_image, image_store_path, "back")
 
     scan_id = str(uuid4())
     created_at = datetime.now(timezone.utc)
