@@ -1,0 +1,101 @@
+name: Patch Identity Reader Provider
+
+on:
+  push:
+    branches:
+      - fix/identity-reader-provider-fallback
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/identity-reader-provider-fallback
+          fetch-depth: 0
+      - name: Patch provider fallback and diagnostics
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          route = Path('src/app/api/instacomp/scan/route.ts')
+          text = route.read_text()
+
+          old = '''const INSTACOMP_OPENAI_FALLBACK_MODEL =
+            process.env.INSTACOMP_OPENAI_FALLBACK_MODEL ||
+            process.env.OPENAI_MODEL ||
+            "gpt-4.1-mini";'''
+          new = '''const INSTACOMP_OPENAI_FALLBACK_MODEL =
+            process.env.INSTACOMP_OPENAI_FALLBACK_MODEL ||
+            process.env.OPENAI_MODEL ||
+            "gpt-4o-mini";'''
+          if old not in text:
+              raise SystemExit('fallback model block not found')
+          text = text.replace(old, new, 1)
+
+          old = ''': [INSTACOMP_OPENAI_MODEL, INSTACOMP_OPENAI_FALLBACK_MODEL]
+                ).filter(Boolean),'''
+          new = ''': [
+                    INSTACOMP_OPENAI_MODEL,
+                    INSTACOMP_OPENAI_FALLBACK_MODEL,
+                    "gpt-4o-mini",
+                    "gpt-4o",
+                  ]
+                ).filter(Boolean),'''
+          if old not in text:
+              raise SystemExit('primary model sequence not found')
+          text = text.replace(old, new, 1)
+
+          old = '''      [
+                INSTACOMP_SERIAL_OPENAI_MODEL,
+                INSTACOMP_OPENAI_FALLBACK_MODEL,
+                INSTACOMP_OPENAI_MODEL,
+              ].filter(Boolean)'''
+          new = '''      [
+                INSTACOMP_SERIAL_OPENAI_MODEL,
+                INSTACOMP_OPENAI_FALLBACK_MODEL,
+                INSTACOMP_OPENAI_MODEL,
+                "gpt-4o-mini",
+              ].filter(Boolean)'''
+          if old not in text:
+              raise SystemExit('serial model sequence not found')
+          text = text.replace(old, new, 1)
+
+          old = '''    throw new Error(`OpenAI scan failed: ${errorText}`);'''
+          new = '''    throw new Error(
+              `OpenAI identity models failed (${scanModels.join(", ")}): ${errorText}`,
+            );'''
+          if old not in text:
+              raise SystemExit('OpenAI error block not found')
+          text = text.replace(old, new, 1)
+          route.write_text(text)
+
+          failover = Path('src/lib/instacomp-ai-provider-failover.ts')
+          text = failover.read_text()
+          old = '''  const error = new Error(
+                "No configured InstaComp AI identity reader completed successfully.",
+              ) as Error & { code?: string; attempts?: InstaCompAiProviderAttempt[] };'''
+          new = '''  const attemptReceipt = attempts
+                .map((attempt) => `${attempt.provider}:${attempt.status}:${attempt.message || "ok"}`)
+                .join(", ");
+              const error = new Error(
+                `No configured InstaComp AI identity reader completed successfully.${attemptReceipt ? ` Attempts: ${attemptReceipt}` : ""}`,
+              ) as Error & { code?: string; attempts?: InstaCompAiProviderAttempt[] };'''
+          if old not in text:
+              raise SystemExit('failover error block not found')
+          text = text.replace(old, new, 1)
+          failover.write_text(text)
+          PY
+      - name: Remove one-shot workflow
+        run: rm .github/workflows/patch-identity-reader-provider.yml
+      - name: Commit repaired provider path
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/app/api/instacomp/scan/route.ts src/lib/instacomp-ai-provider-failover.ts .github/workflows/patch-identity-reader-provider.yml
+          git commit -m "Add resilient identity reader model fallback"
+          git push origin HEAD:fix/identity-reader-provider-fallback
