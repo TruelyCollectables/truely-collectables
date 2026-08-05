@@ -38,7 +38,6 @@ type JsonObject = Record<string, unknown>;
 type DatabaseError = { code?: string | null };
 type ExecutionLane = (typeof KINGMAKER_EXECUTION_LANES)[number];
 type ExecutionSort = (typeof KINGMAKER_EXECUTION_SORTS)[number];
-type SupabaseClient = ReturnType<typeof createClient>;
 
 type ExecutionRow = {
   rank: number;
@@ -166,12 +165,8 @@ function normalizeRow(value: unknown, index: number): ExecutionRow {
   };
 }
 
-async function fetchExecutionPage(
-  database: SupabaseClient,
-  offset: number,
-  lane: ExecutionLane | null,
-) {
-  const { data, error } = await database.rpc(
+async function fetchExecutionPage(offset: number, lane: ExecutionLane | null) {
+  const { data, error } = await client().rpc(
     "tcos_kingmaker_private_pricing_work_order_execution_report",
     { p_limit: DATABASE_PAGE_SIZE, p_offset: offset, p_lane: lane },
   );
@@ -280,8 +275,7 @@ export async function getKingmakerWorkOrderExecution(
   const lane = allowed(input.lane, KINGMAKER_EXECUTION_LANES);
   const search = text(input.search, 160)?.toLowerCase() || "";
   const sort = allowed(input.sort, KINGMAKER_EXECUTION_SORTS) || "unlock_desc";
-  const database = client();
-  const firstPage = await fetchExecutionPage(database, 0, lane);
+  const firstPage = await fetchExecutionPage(0, lane);
 
   if (firstPage.totalTargets > MAX_GLOBAL_QUEUE_ROWS) {
     throw new InstaCompJobServerError(
@@ -304,7 +298,7 @@ export async function getKingmakerWorkOrderExecution(
   for (let index = 0; index < remainingOffsets.length; index += PAGE_FETCH_CONCURRENCY) {
     const offsets = remainingOffsets.slice(index, index + PAGE_FETCH_CONCURRENCY);
     const pages = await Promise.all(
-      offsets.map((pageOffset) => fetchExecutionPage(database, pageOffset, lane)),
+      offsets.map((pageOffset) => fetchExecutionPage(pageOffset, lane)),
     );
     for (const page of pages) collected.push(...page.rows);
   }
