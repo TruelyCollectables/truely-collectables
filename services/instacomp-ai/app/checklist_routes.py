@@ -74,9 +74,11 @@ def build_checklist_router(require_api_key) -> APIRouter:
                         "stderr": stderr_text[-8000:],
                     },
                 )
+            activated = process.returncode == 0
             return {
-                "ok": process.returncode == 0,
-                "registry_activated": process.returncode == 0,
+                "ok": activated,
+                "registry_activated": activated,
+                "registry_ready": activated,
                 "exit_code": process.returncode,
                 "stdout": stdout.decode("utf-8", errors="replace")[-12000:],
                 "stderr": stderr_text[-4000:],
