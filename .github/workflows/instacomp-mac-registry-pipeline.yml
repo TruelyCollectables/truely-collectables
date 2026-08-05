@@ -1,0 +1,38 @@
+name: InstaComp Mac Registry Pipeline
+
+on:
+  pull_request:
+    paths:
+      - "services/instacomp-ai/**"
+      - "src/lib/instacomp-ai-local.ts"
+      - ".github/workflows/instacomp-mac-registry-pipeline.yml"
+  push:
+    paths:
+      - "services/instacomp-ai/**"
+      - "src/lib/instacomp-ai-local.ts"
+      - ".github/workflows/instacomp-mac-registry-pipeline.yml"
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/instacomp-ai/requirements.txt
+      - run: pip install -r services/instacomp-ai/requirements.txt
+      - name: Compile service
+        working-directory: services/instacomp-ai
+        run: python -m compileall app tests
+      - name: Run Registry pipeline tests
+        working-directory: services/instacomp-ai
+        run: pytest -q
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Typecheck Next.js bridge
+        run: npx tsc --noEmit
