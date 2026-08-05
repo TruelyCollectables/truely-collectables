@@ -1,0 +1,101 @@
+name: Topps 818 Download Now
+
+on:
+  push:
+    branches:
+      - "agent/topps-panini-download-now-20260804"
+    paths:
+      - ".github/workflows/topps-818-download-now.yml"
+  pull_request:
+    paths:
+      - ".github/workflows/topps-818-download-now.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: topps-818-download-now-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  download-topps-818:
+    name: Download 818 Verified Topps Checklists
+    runs-on: ubuntu-24.04
+    timeout-minutes: 210
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Restore all 818 verified Topps URLs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          rm -rf /tmp/topps-restore && mkdir -p /tmp/topps-restore
+          gh api repos/${{ github.repository }}/actions/artifacts/8908907441/zip > /tmp/topps-restore.zip
+          unzip -q /tmp/topps-restore.zip -d /tmp/topps-restore
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs';
+          import { join } from 'node:path';
+          function walk(dir) {
+            for (const name of readdirSync(dir)) {
+              const path = join(dir, name);
+              if (statSync(path).isDirectory()) { const found = walk(path); if (found) return found; }
+              else if (name === 'topps.json') return path;
+            }
+          }
+          const manifestPath = walk('/tmp/topps-restore');
+          if (!manifestPath) throw new Error('Verified Topps manifest not found');
+          const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+          const current = JSON.parse(readFileSync('data/topps-checklist-seeds.json', 'utf8'));
+          const byUrl = new Map(current.map(row => [row.url, row]));
+          for (const row of [...(manifest.files || []), ...(manifest.failures || [])]) {
+            if (!row.url) continue;
+            byUrl.set(row.url, {
+              title: row.title || row.filename || 'Official Topps Checklist',
+              sport: row.sport || row.category || 'Miscellaneous',
+              year: row.year || 'Unknown',
+              ...(row.sourcePage ? { sourcePage: row.sourcePage } : {}),
+              url: row.url,
+            });
+          }
+          const seeds = [...byUrl.values()].sort((a,b) => `${a.year}|${a.title}|${a.url}`.localeCompare(`${b.year}|${b.title}|${b.url}`));
+          writeFileSync('data/topps-checklist-seeds.json', JSON.stringify(seeds, null, 2) + '\n');
+          console.log(JSON.stringify({ restoredToppsSeeds: seeds.length }));
+          if (seeds.length < 818) throw new Error(`Expected at least 818 Topps seeds, found ${seeds.length}`);
+          NODE
+
+      - name: Download all verified Topps checklist files now
+        timeout-minutes: 180
+        run: node --import tsx scripts/archive-topps-seed-sets.ts
+
+      - name: Package Topps archive
+        if: always()
+        run: |
+          mkdir -p topps-818-download
+          test ! -d .topps-seed-archive || cp -a .topps-seed-archive/. topps-818-download/
+          cp data/topps-checklist-seeds.json topps-818-download/topps-checklist-seeds.json
+          tar -czf topps-818-download.tar.gz topps-818-download
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: topps-818-download-${{ github.run_id }}
+          path: topps-818-download.tar.gz
+          if-no-files-found: error
+          retention-days: 90
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: topps-818-status-${{ github.run_id }}
+          path: |
+            .topps-seed-archive/manifest.json
+            data/topps-checklist-seeds.json
+          if-no-files-found: error
+          retention-days: 90
