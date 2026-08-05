@@ -1,0 +1,66 @@
+name: Backup Checklist Bulk Pull
+
+on:
+  pull_request:
+    paths:
+      - "scripts/discover-and-download-backup-checklists.ts"
+      - ".github/workflows/backup-checklist-bulk-pull.yml"
+  push:
+    branches:
+      - "agent/topps-panini-download-now-20260804"
+    paths:
+      - "scripts/discover-and-download-backup-checklists.ts"
+      - ".github/workflows/backup-checklist-bulk-pull.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup-checklist-bulk-pull-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backup-pull:
+    name: Pull ${{ matrix.brand }} Backup Checklists
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        brand:
+          - panini
+          - topps
+          - upper-deck
+          - leaf
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Crawl public backup checklist pages and download files
+        env:
+          BACKUP_BRAND: ${{ matrix.brand }}
+          BACKUP_ARTICLE_LIMIT: 1600
+        run: node --import tsx scripts/discover-and-download-backup-checklists.ts
+      - name: Package backup checklist archive
+        if: always()
+        run: tar -czf backup-checklists-${{ matrix.brand }}.tar.gz .backup-checklist-archive
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backup-checklists-${{ matrix.brand }}-${{ github.run_id }}
+          path: backup-checklists-${{ matrix.brand }}.tar.gz
+          if-no-files-found: error
+          retention-days: 90
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backup-checklists-${{ matrix.brand }}-status-${{ github.run_id }}
+          path: |
+            .backup-checklist-archive/manifest.json
+            .backup-checklist-archive/articles.json
+          if-no-files-found: error
+          retention-days: 90

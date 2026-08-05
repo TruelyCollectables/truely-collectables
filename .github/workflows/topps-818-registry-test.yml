@@ -1,0 +1,57 @@
+name: Topps 818 Registry Test
+
+on:
+  pull_request:
+    paths:
+      - "scripts/validate-topps-818-registry.ts"
+      - ".github/workflows/topps-818-registry-test.yml"
+  push:
+    branches:
+      - "agent/topps-panini-download-now-20260804"
+    paths:
+      - "scripts/validate-topps-818-registry.ts"
+      - ".github/workflows/topps-818-registry-test.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: topps-818-registry-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate 769 Archived Topps Checklists
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install PDF extractor
+        run: sudo apt-get update -qq && sudo apt-get install -y poppler-utils
+      - run: npm ci
+      - name: Restore the 769-file Topps archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          rm -rf /tmp/topps818 .topps-seed-archive
+          mkdir -p /tmp/topps818 .topps-seed-archive
+          gh api repos/${{ github.repository }}/actions/artifacts/8918027591/zip > /tmp/topps818/artifact.zip
+          unzip -q /tmp/topps818/artifact.zip -d /tmp/topps818
+          tar -xzf /tmp/topps818/topps-818-download.tar.gz -C /tmp/topps818
+          cp /tmp/topps818/topps-818-download/manifest.json .topps-seed-archive/manifest.json
+          cp -a /tmp/topps818/topps-818-download/Topps .topps-seed-archive/Topps
+      - name: Run validation-only Registry test
+        run: node --import tsx scripts/validate-topps-818-registry.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: topps-818-registry-test-${{ github.run_id }}
+          path: .topps-818-validation/receipt.json
+          if-no-files-found: error
+          retention-days: 90

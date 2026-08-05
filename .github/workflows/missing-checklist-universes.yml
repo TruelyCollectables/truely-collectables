@@ -1,0 +1,61 @@
+name: Missing Checklist Universes
+
+on:
+  pull_request:
+    paths:
+      - "scripts/pull-missing-checklist-universes.ts"
+      - ".github/workflows/missing-checklist-universes.yml"
+  push:
+    branches:
+      - "agent/topps-panini-download-now-20260804"
+    paths:
+      - "scripts/pull-missing-checklist-universes.ts"
+      - ".github/workflows/missing-checklist-universes.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pull-gaps:
+    name: Pull ${{ matrix.group }} Checklist Universe
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        group:
+          - upper-deck
+          - leaf
+          - independent-sports
+          - nonsport-gaming
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Crawl public checklist sources
+        env:
+          CHECKLIST_GAP_GROUP: ${{ matrix.group }}
+          CHECKLIST_GAP_MAX_PAGES: 80
+          CHECKLIST_GAP_MAX_ARTICLES: 5000
+        run: node --import tsx scripts/pull-missing-checklist-universes.ts
+      - name: Package checklist universe
+        if: always()
+        run: tar -czf missing-checklists-${{ matrix.group }}.tar.gz .missing-checklists-${{ matrix.group }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: missing-checklists-${{ matrix.group }}-${{ github.run_id }}
+          path: missing-checklists-${{ matrix.group }}.tar.gz
+          if-no-files-found: error
+          retention-days: 90
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: missing-checklists-${{ matrix.group }}-status-${{ github.run_id }}
+          path: .missing-checklists-${{ matrix.group }}/manifest.json
+          if-no-files-found: error
+          retention-days: 90
