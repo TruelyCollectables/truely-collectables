@@ -14,6 +14,14 @@ def test_mac_launcher_does_not_require_bash_mapfile() -> None:
     assert "IFS='|' read -r host port api_key_state" in launcher
 
 
+def test_mac_launcher_exports_protected_env_for_launchd() -> None:
+    launcher = (SERVICE_ROOT / "scripts" / "run-local.sh").read_text(encoding="utf-8")
+    assert 'if [[ -f "$service_root/.env" ]]' in launcher
+    assert "set -a" in launcher
+    assert 'source "$service_root/.env"' in launcher
+    assert "set +a" in launcher
+
+
 def test_macos_installer_rejects_python_314_and_prefers_313() -> None:
     installer = (SERVICE_ROOT / "scripts" / "install-macos.sh").read_text(
         encoding="utf-8"
