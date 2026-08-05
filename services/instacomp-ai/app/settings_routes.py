@@ -15,7 +15,7 @@ RestartLauncher = Callable[[], None]
 def launch_local_restart() -> None:
     restart_script = settings.service_root / "scripts" / "restart-local-service.sh"
     subprocess.Popen(
-        [str(restart_script)],
+        ["bash", str(restart_script)],
         cwd=str(settings.service_root),
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
