@@ -1,4 +1,3 @@
-// Triggered diagnostic run: 2026-08-05
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { chromium } from "playwright";
@@ -14,8 +13,11 @@ const targets = [
   ["racing-parkside-indycar", "https://www.sportlots.com/Racing/sets/2026-Parkside-IndyCar-Collection.tpl"],
 ];
 
-const clean = (value = "") => value.replace(/\s+/g, " ").trim();
-const looksLikeCardNumber = (value) => /^(?:#?\d+[A-Za-z]?|[A-Za-z]{1,5}-?\d+[A-Za-z]?|NNO)$/i.test(clean(value));
+const clean = (v = "") => v.replace(/\s+/g, " ").trim();
+const parsePlayer = (text) => {
+  const match = clean(text).match(/^#([^\s]+)\s+(.+)$/);
+  return match ? { cardNumber: match[1], description: match[2] } : null;
+};
 
 const browser = await chromium.launch({ headless: true });
 const report = { generatedAt: new Date().toISOString(), targets: [], totals: {} };
@@ -24,75 +26,63 @@ try {
   for (const [slug, url] of targets) {
     const dir = resolve(OUT, slug);
     mkdirSync(dir, { recursive: true });
-    const context = await browser.newContext({
-      viewport: { width: 1440, height: 1200 },
-      userAgent: "TCOS-Sportlots-Checklist-Probe/1.0",
-    });
+    const context = await browser.newContext({ viewport: { width: 1440, height: 1200 } });
     const page = await context.newPage();
-    const responses = [];
-    const jsonBodies = [];
-
-    page.on("response", async (response) => {
-      const contentType = response.headers()["content-type"] || "";
-      const item = { url: response.url(), status: response.status(), contentType };
-      responses.push(item);
-      if (/json|javascript|text\/plain/i.test(contentType)) {
-        try {
-          const body = await response.text();
-          if (/card|player|checklist|number/i.test(body)) {
-            jsonBodies.push({ ...item, body: body.slice(0, 2_000_000) });
-          }
-        } catch {}
-      }
-    });
-
+    const allRows = [];
     let error = null;
+
     try {
       await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45_000 });
       await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => {});
-      await page.waitForTimeout(5_000);
-    } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      await page.waitForTimeout(3_000);
+
+      const totalPages = Number(clean(await page.locator("#searchtotpage").textContent().catch(() => "1"))) || 1;
+      for (let pageNumber = 1; pageNumber <= totalPages; pageNumber++) {
+        await page.waitForSelector(".resultcontainerone, #search3grid", { timeout: 15_000 }).catch(() => {});
+        const pageRows = await page.locator(".resultcontainerone").evaluateAll((nodes) => nodes.map((node) => ({
+          setName: (node.querySelector(".setname")?.textContent || "").replace(/\s+/g, " ").trim(),
+          playerText: (node.querySelector(".playername")?.textContent || "").replace(/\s+/g, " ").trim(),
+          priceText: (node.querySelector(".price")?.textContent || "").replace(/\s+/g, " ").trim(),
+          details: node.getAttribute("onclick") || "",
+        })));
+        allRows.push(...pageRows.map((row) => ({ ...row, sourcePage: pageNumber })));
+
+        if (pageNumber < totalPages) {
+          const before = clean(await page.locator("#searchcurrpage").textContent().catch(() => String(pageNumber)));
+          await page.locator("#searchnextarr").click();
+          await page.waitForFunction((previous) => document.querySelector("#searchcurrpage")?.textContent?.trim() !== previous, before, { timeout: 20_000 }).catch(() => {});
+          await page.waitForTimeout(1_500);
+        }
+      }
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : String(caught);
     }
 
-    const title = await page.title().catch(() => "");
-    const html = await page.content().catch(() => "");
-    writeFileSync(resolve(dir, "rendered.html"), html);
+    const uniqueMap = new Map();
+    for (const row of allRows) {
+      const parsed = parsePlayer(row.playerText);
+      if (!parsed) continue;
+      const key = `${parsed.cardNumber}|${parsed.description}`;
+      if (!uniqueMap.has(key)) uniqueMap.set(key, {
+        cardNumber: parsed.cardNumber,
+        description: parsed.description,
+        setName: row.setName,
+        firstSeenPage: row.sourcePage,
+      });
+    }
+    const uniqueRows = [...uniqueMap.values()];
+    const resultCount = Number(clean(await page.locator("#results").textContent().catch(() => "0"))) || 0;
+    const totalPages = Number(clean(await page.locator("#searchtotpage").textContent().catch(() => "1"))) || 1;
+    const valid = uniqueRows.length > 0;
+
+    writeFileSync(resolve(dir, "rendered.html"), await page.content().catch(() => ""));
     await page.screenshot({ path: resolve(dir, "page.png"), fullPage: true }).catch(() => {});
+    writeFileSync(resolve(dir, "all-listing-rows.json"), JSON.stringify(allRows, null, 2));
+    writeFileSync(resolve(dir, "unique-card-rows.json"), JSON.stringify(uniqueRows, null, 2));
+    writeFileSync(resolve(dir, "validation.json"), JSON.stringify({ slug, url, error, valid, resultCount, totalPages, listingRows: allRows.length, uniqueCardRows: uniqueRows.length }, null, 2));
 
-    const tables = await page.locator("table").evaluateAll((nodes) => nodes.map((table, tableIndex) => ({
-      tableIndex,
-      headers: Array.from(table.querySelectorAll("thead th, tr:first-child th")).map((n) => (n.textContent || "").replace(/\s+/g, " ").trim()),
-      rows: Array.from(table.querySelectorAll("tr")).map((tr) => Array.from(tr.querySelectorAll("th,td")).map((cell) => (cell.textContent || "").replace(/\s+/g, " ").trim())).filter((row) => row.some(Boolean)),
-    })));
-
-    const allRows = tables.flatMap((table) => table.rows.map((cells) => ({ tableIndex: table.tableIndex, cells })));
-    const candidateRows = allRows.filter(({ cells }) => {
-      if (cells.length < 2) return false;
-      const firstThree = cells.slice(0, 3);
-      return firstThree.some(looksLikeCardNumber) && cells.some((cell) => /[A-Za-z]{3}/.test(cell));
-    });
-
-    const bodyLines = clean(await page.locator("body").innerText().catch(() => "")).split(/(?<=\.)\s+|\n/).map(clean).filter(Boolean);
-    const validation = {
-      valid: candidateRows.length > 0,
-      reason: candidateRows.length ? "card_number_and_description_rows_found" : "no_valid_card_rows_found",
-      tableCount: tables.length,
-      tableRowCount: allRows.length,
-      candidateCardRowCount: candidateRows.length,
-      responseCount: responses.length,
-      matchingNetworkBodies: jsonBodies.length,
-    };
-
-    writeFileSync(resolve(dir, "tables.json"), JSON.stringify(tables, null, 2));
-    writeFileSync(resolve(dir, "candidate-card-rows.json"), JSON.stringify(candidateRows, null, 2));
-    writeFileSync(resolve(dir, "network-responses.json"), JSON.stringify(responses, null, 2));
-    writeFileSync(resolve(dir, "matching-network-bodies.json"), JSON.stringify(jsonBodies, null, 2));
-    writeFileSync(resolve(dir, "body-lines.json"), JSON.stringify(bodyLines.slice(0, 20_000), null, 2));
-    writeFileSync(resolve(dir, "validation.json"), JSON.stringify({ slug, url, title, error, ...validation }, null, 2));
-
-    report.targets.push({ slug, url, title, error, ...validation });
-    console.log(JSON.stringify({ slug, ...validation }));
+    report.targets.push({ slug, url, error, valid, resultCount, totalPages, listingRows: allRows.length, uniqueCardRows: uniqueRows.length });
+    console.log(JSON.stringify(report.targets.at(-1)));
     await context.close();
   }
 } finally {
@@ -101,22 +91,24 @@ try {
 
 report.totals = {
   tested: report.targets.length,
-  validChecklists: report.targets.filter((r) => r.valid).length,
-  rejected: report.targets.filter((r) => !r.valid).length,
-  candidateCardRows: report.targets.reduce((sum, r) => sum + r.candidateCardRowCount, 0),
-  errors: report.targets.filter((r) => r.error).length,
+  validChecklists: report.targets.filter((row) => row.valid).length,
+  rejected: report.targets.filter((row) => !row.valid).length,
+  listingRows: report.targets.reduce((sum, row) => sum + row.listingRows, 0),
+  uniqueCardRows: report.targets.reduce((sum, row) => sum + row.uniqueCardRows, 0),
+  errors: report.targets.filter((row) => row.error).length,
 };
 writeFileSync(resolve(OUT, "report.json"), JSON.stringify(report, null, 2));
 writeFileSync(resolve(OUT, "report.md"), [
-  "# Sportlots Card-Row Probe",
+  "# Sportlots Div-Row Probe",
   "",
   `Tested: ${report.totals.tested}`,
-  `Valid checklists: ${report.totals.validChecklists}`,
+  `Valid pages with card rows: ${report.totals.validChecklists}`,
   `Rejected: ${report.totals.rejected}`,
-  `Candidate card rows: ${report.totals.candidateCardRows}`,
+  `Listing rows: ${report.totals.listingRows}`,
+  `Unique card rows: ${report.totals.uniqueCardRows}`,
   `Errors: ${report.totals.errors}`,
   "",
-  ...report.targets.map((r) => `- ${r.slug}: ${r.valid ? "VALID" : "REJECTED"}; rows=${r.candidateCardRowCount}; tables=${r.tableCount}; networkMatches=${r.matchingNetworkBodies}${r.error ? `; error=${r.error}` : ""}`),
+  ...report.targets.map((row) => `- ${row.slug}: ${row.valid ? "VALID" : "REJECTED"}; listings=${row.listingRows}; unique=${row.uniqueCardRows}; resultCount=${row.resultCount}; pages=${row.totalPages}${row.error ? `; error=${row.error}` : ""}`),
   "",
 ].join("\n"));
 
