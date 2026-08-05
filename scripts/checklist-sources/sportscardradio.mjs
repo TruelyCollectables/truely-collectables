@@ -17,7 +17,7 @@ import {
   saveItem,
   titleFromHtml,
   xmlLocs,
-} from "./shared.mjs";
+} from "./shared-safe.mjs";
 
 const ORIGIN = "https://www.sportscardradio.com";
 const SEARCH_TERMS = [
