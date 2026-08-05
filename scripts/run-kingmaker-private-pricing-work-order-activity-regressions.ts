@@ -118,7 +118,7 @@ if (/notesDigest|notes_digest/.test(application)) {
   );
 }
 
-if (/\bassignee\b|blockedReason|resolutionCode/.test(application)) {
+if (/\bassignee\s*:|row\.assignee|blockedReason|resolutionCode/.test(application)) {
   throw new Error(
     "Activity application path must not receive private execution-control values.",
   );
