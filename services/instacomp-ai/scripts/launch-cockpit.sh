@@ -7,7 +7,15 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
 fi
 
 service_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-port="${INSTACOMP_AI_PORT:-8787}"
+python_bin="$service_root/.venv/bin/python"
+port="8787"
+if [[ -x "$python_bin" ]]; then
+  port="$(cd "$service_root" && "$python_bin" - <<'PY'
+from app.config import settings
+print(settings.port)
+PY
+)"
+fi
 base_url="http://127.0.0.1:${port}"
 health_url="${base_url}/health"
 control_url="${base_url}/control"
