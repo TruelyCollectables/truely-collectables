@@ -19,7 +19,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: sportlots-public-main
+  group: sportlots-public-${{ inputs.year || '2026' }}
   cancel-in-progress: true
 
 jobs:
@@ -34,13 +34,13 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Restore newest Sportlots checkpoint
+      - name: Restore year-specific Sportlots checkpoint
         uses: actions/cache/restore@v4
         with:
           path: .sportlots-public-checklists
-          key: sportlots-checkpoint-${{ github.run_id }}
+          key: sportlots-${{ inputs.year || '2026' }}-checkpoint-${{ github.run_id }}
           restore-keys: |
-            sportlots-checkpoint-
+            sportlots-${{ inputs.year || '2026' }}-checkpoint-
       - name: Crawl one public Sportlots year
         env:
           SPORTLOTS_START_YEAR: ${{ inputs.year || '2026' }}
@@ -52,20 +52,20 @@ jobs:
           SPORTLOTS_RETRIES: 0
           SPORTLOTS_CHECKPOINT_EVERY: 10
         run: node --import tsx scripts/pull-sportlots-public-checklists.ts
-      - name: Save resumable Sportlots checkpoint
+      - name: Save year-specific Sportlots checkpoint
         if: always()
         uses: actions/cache/save@v4
         with:
           path: .sportlots-public-checklists
-          key: sportlots-checkpoint-${{ github.run_id }}
+          key: sportlots-${{ inputs.year || '2026' }}-checkpoint-${{ github.run_id }}
       - name: Package Sportlots public archive
         if: always()
-        run: tar -czf sportlots-public-checklists.tar.gz .sportlots-public-checklists
+        run: tar -czf sportlots-public-checklists-${{ inputs.year || '2026' }}.tar.gz .sportlots-public-checklists
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: sportlots-public-checklists-${{ inputs.year || '2026' }}-${{ github.run_id }}
-          path: sportlots-public-checklists.tar.gz
+          path: sportlots-public-checklists-${{ inputs.year || '2026' }}.tar.gz
           if-no-files-found: error
           retention-days: 90
       - uses: actions/upload-artifact@v4
