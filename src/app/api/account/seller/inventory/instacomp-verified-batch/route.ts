@@ -1,4 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  instaCompEnvelope,
+  instaCompResponseHeaders,
+  parseVerifiedBatchRequest,
+} from "../../../../../../lib/instacomp-api-contract";
 import { POST as runVerifiedPricing } from "../instacomp-verified/route";
 
 export const runtime = "nodejs";
@@ -8,55 +13,74 @@ export const maxDuration = 300;
 const MAX_BATCH_SIZE = 50;
 const MAX_CONCURRENCY = 3;
 
-function forwardedHeaders(request: NextRequest) {
+function forwardedHeaders(request: NextRequest, requestId: string) {
   const headers = new Headers({ "content-type": "application/json" });
   const authorization = request.headers.get("authorization");
   const cookie = request.headers.get("cookie");
   if (authorization) headers.set("authorization", authorization);
   if (cookie) headers.set("cookie", cookie);
+  headers.set("x-instacomp-request-id", requestId);
   return headers;
 }
 
 export async function POST(request: NextRequest) {
-  const body = await request.json().catch(() => ({}));
-  const inventoryItemIds = Array.from(
-    new Set(
-      (Array.isArray(body?.inventoryItemIds) ? body.inventoryItemIds : [])
-        .map((value: unknown) => String(value || "").trim())
-        .filter(Boolean),
-    ),
-  ).slice(0, MAX_BATCH_SIZE);
+  const startedAt = Date.now();
+  const rawBody = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+  const body = parseVerifiedBatchRequest(
+    rawBody,
+    request.headers.get("x-instacomp-request-id") ||
+      request.headers.get("idempotency-key"),
+    MAX_BATCH_SIZE,
+  );
 
-  if (!inventoryItemIds.length) {
+  if (!body.inventoryItemIds.length) {
     return NextResponse.json(
-      { success: false, error: "Choose one or more inventory items." },
-      { status: 400 },
+      instaCompEnvelope({
+        requestId: body.requestId,
+        durationMs: Date.now() - startedAt,
+        payload: {
+          success: false,
+          error: "Choose one or more inventory items.",
+          code: "INVALID_REQUEST",
+        },
+      }),
+      {
+        status: 400,
+        headers: instaCompResponseHeaders({
+          requestId: body.requestId,
+          checklistVerified: false,
+        }),
+      },
     );
   }
 
-  const headers = forwardedHeaders(request);
-  const results: Array<Record<string, unknown>> = new Array(inventoryItemIds.length);
+  const headers = forwardedHeaders(request, body.requestId);
+  const results: Array<Record<string, unknown>> = new Array(
+    body.inventoryItemIds.length,
+  );
   let cursor = 0;
 
   await Promise.all(
     Array.from(
-      { length: Math.min(MAX_CONCURRENCY, inventoryItemIds.length) },
+      { length: Math.min(MAX_CONCURRENCY, body.inventoryItemIds.length) },
       async () => {
-        while (cursor < inventoryItemIds.length) {
+        while (cursor < body.inventoryItemIds.length) {
           const index = cursor++;
-          const inventoryItemId = inventoryItemIds[index];
+          const inventoryItemId = body.inventoryItemIds[index];
+          const itemRequestId = `${body.requestId}:${index + 1}`;
           const verifiedRequest = new NextRequest(
             new URL("/api/account/seller/inventory/instacomp-verified", request.url),
             {
               method: "POST",
-              headers,
+              headers: {
+                ...Object.fromEntries(headers.entries()),
+                "x-instacomp-request-id": itemRequestId,
+              },
               body: JSON.stringify({
                 inventoryItemId,
-                aiCouncilTier:
-                  typeof body?.aiCouncilTier === "string"
-                    ? body.aiCouncilTier
-                    : "adaptive",
-                forceIdentityRescan: body?.forceIdentityRescan === true,
+                aiCouncilTier: body.aiCouncilTier,
+                forceIdentityRescan: body.forceIdentityRescan,
+                requestId: itemRequestId,
               }),
             },
           );
@@ -65,11 +89,14 @@ export async function POST(request: NextRequest) {
           const payload = await response.json().catch(() => ({}));
           results[index] = {
             inventoryItemId,
+            requestId: itemRequestId,
             ok: response.ok && payload?.success === true,
             status: response.status,
             payload,
             checklistVerified:
               response.headers.get("x-instacomp-checklist-verified") === "true",
+            registryIdentityId:
+              response.headers.get("x-instacomp-registry-identity-id") || null,
           };
         }
       },
@@ -78,27 +105,29 @@ export async function POST(request: NextRequest) {
 
   const completed = results.filter((result) => result?.ok === true).length;
   const reviewRequired = results.filter(
-    (result) =>
-      result?.ok !== true &&
-      Number(result?.status) === 409,
+    (result) => result?.ok !== true && Number(result?.status) === 409,
   ).length;
   const failed = results.length - completed;
 
   return NextResponse.json(
-    {
-      success: failed === 0,
-      total: results.length,
-      completed,
-      reviewRequired,
-      failed,
-      results,
-    },
+    instaCompEnvelope({
+      requestId: body.requestId,
+      durationMs: Date.now() - startedAt,
+      payload: {
+        success: failed === 0,
+        total: results.length,
+        completed,
+        reviewRequired,
+        failed,
+        results,
+      },
+    }),
     {
       status: failed === 0 ? 200 : 207,
-      headers: {
-        "cache-control": "no-store",
-        "x-instacomp-batch-checklist-enforced": "true",
-      },
+      headers: instaCompResponseHeaders({
+        requestId: body.requestId,
+        checklistVerified: failed === 0,
+      }),
     },
   );
 }
