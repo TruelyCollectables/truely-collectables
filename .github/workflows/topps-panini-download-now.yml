@@ -1,0 +1,116 @@
+name: Topps Panini Download Now
+
+on:
+  push:
+    branches:
+      - "agent/topps-panini-download-now-20260804"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: topps-panini-download-now-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  topps-download:
+    name: Download Topps Now
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Download every currently known Topps checklist immediately
+        continue-on-error: true
+        timeout-minutes: 150
+        run: node --import tsx scripts/archive-topps-seed-sets.ts
+      - name: Discover additional Topps and Panini checklist indexes
+        continue-on-error: true
+        timeout-minutes: 40
+        run: node --import tsx scripts/discover-topps-panini-master-indexes.ts
+      - name: Download expanded Topps checklist list
+        continue-on-error: true
+        timeout-minutes: 150
+        run: node --import tsx scripts/archive-topps-seed-sets.ts
+      - name: Package Topps downloads
+        if: always()
+        run: |
+          mkdir -p download-now/topps
+          test ! -d .topps-seed-archive || cp -a .topps-seed-archive/. download-now/topps/
+          cp data/topps-checklist-seeds.json download-now/topps/topps-checklist-seeds-final.json
+          tar -czf topps-download-now.tar.gz download-now/topps
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: topps-download-now-${{ github.run_id }}
+          path: topps-download-now.tar.gz
+          if-no-files-found: error
+          retention-days: 90
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: topps-download-status-${{ github.run_id }}
+          path: |
+            .topps-seed-archive/manifest.json
+            data/topps-checklist-seeds.json
+            .master-index-discovery/report.json
+          if-no-files-found: warn
+          retention-days: 90
+
+  panini-download:
+    name: Download Panini Now
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Download every currently known Panini checklist immediately
+        continue-on-error: true
+        timeout-minutes: 100
+        run: node --import tsx scripts/archive-panini-seed-sets.ts
+      - name: Discover Panini historical checklist indexes
+        continue-on-error: true
+        timeout-minutes: 20
+        run: node --import tsx scripts/discover-panini-checklists-via-public-indexes.ts
+      - name: Sweep master indexes for more Panini checklist URLs
+        continue-on-error: true
+        timeout-minutes: 40
+        run: node --import tsx scripts/discover-topps-panini-master-indexes.ts
+      - name: Download expanded Panini checklist list
+        continue-on-error: true
+        timeout-minutes: 100
+        run: node --import tsx scripts/archive-panini-seed-sets.ts
+      - name: Package Panini downloads
+        if: always()
+        run: |
+          mkdir -p download-now/panini
+          test ! -d .panini-seed-archive || cp -a .panini-seed-archive/. download-now/panini/
+          cp data/panini-checklist-seeds.json download-now/panini/panini-checklist-seeds-final.json
+          tar -czf panini-download-now.tar.gz download-now/panini
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: panini-download-now-${{ github.run_id }}
+          path: panini-download-now.tar.gz
+          if-no-files-found: error
+          retention-days: 90
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: panini-download-status-${{ github.run_id }}
+          path: |
+            .panini-seed-archive/manifest.json
+            data/panini-checklist-seeds.json
+            .panini-index-discovery/report.json
+            .master-index-discovery/report.json
+          if-no-files-found: warn
+          retention-days: 90
