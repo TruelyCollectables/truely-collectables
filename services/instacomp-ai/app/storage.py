@@ -94,6 +94,29 @@ class MemoryStore:
         with self.connection() as db:
             return db.execute("SELECT 1 FROM scans WHERE scan_id = ?", (scan_id,)).fetchone() is not None
 
+    def get_scan(self, scan_id: str) -> dict | None:
+        with self.connection() as db:
+            row = db.execute(
+                "SELECT * FROM scans WHERE scan_id = ?",
+                (scan_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "scan_id": row["scan_id"],
+            "created_at": row["created_at"],
+            "front_sha256": row["front_sha256"],
+            "back_sha256": row["back_sha256"],
+            "image_pair_sha256": row["image_pair_sha256"],
+            "local_suggestion": (
+                json.loads(row["local_suggestion_json"])
+                if row["local_suggestion_json"]
+                else None
+            ),
+            "checklist": json.loads(row["checklist_json"]),
+            "status": row["status"],
+        }
+
     def create_lesson(self, request: LessonCreate) -> LessonRecord:
         if not self.scan_exists(request.scan_id):
             raise ValueError("Unknown scan_id")
