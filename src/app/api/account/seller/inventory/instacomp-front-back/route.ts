@@ -57,6 +57,16 @@ function backEvidence(metadata: Record<string, unknown>) {
     .toLowerCase();
 }
 
+function stripPrizmClaims(value: unknown) {
+  const raw = typeof value === "string" ? value : "";
+  return raw
+    .replace(/\bsilver\s+prizm\b/gi, "")
+    .replace(/\bprizm\b/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([,;:])/g, "$1")
+    .trim();
+}
+
 function pair(rows: ImageRow[]) {
   const images = rows
     .map((row) => ({
@@ -163,7 +173,7 @@ export async function POST(request: NextRequest) {
       printRun: null as string | null,
       prizmBackEvidenceRequired: true,
       prizmBackEvidenceFound: false,
-      parallelReviewRequired: false,
+      forcedBaseCard: false,
     };
 
     if (response.ok && payload?.success === true) {
@@ -184,12 +194,13 @@ export async function POST(request: NextRequest) {
           normalizedPrintRun(ai.printRun) ||
           normalizedPrintRun(collectibleAsset.exact_serial_number) ||
           normalizedPrintRun(collectibleAsset.print_run);
-        const candidateText = `${scanned.title || ""} ${text(ai.parallel) || ""} ${text(ai.parallelName) || ""} ${text(collectibleAsset.parallel_name) || ""}`;
-        const claimsSilverPrizm = /\bsilver\s+prizm\b/i.test(candidateText);
+        const candidateText = `${scanned.title || ""} ${text(ai.brand) || ""} ${text(ai.set) || ""} ${text(ai.parallel) || ""} ${text(ai.parallelName) || ""} ${text(collectibleAsset.parallel_name) || ""}`;
+        const isWnbaPaniniOrSelect = /\bwnba\b/i.test(candidateText) && /\b(?:panini|select)\b/i.test(candidateText);
+        const claimsPrizm = /\bprizm\b/i.test(candidateText);
         const hasPrizmOnBack = /\bprizm\b/i.test(backEvidence(metadata));
-        const parallelReviewRequired = claimsSilverPrizm && !hasPrizmOnBack;
-        const nextTitle = parallelReviewRequired
-          ? String(scanned.title || "Untitled card").replace(/\bsilver\s+prizm\b/gi, "Parallel Review Required")
+        const forcedBaseCard = isWnbaPaniniOrSelect && claimsPrizm && !hasPrizmOnBack;
+        const nextTitle = forcedBaseCard
+          ? stripPrizmClaims(scanned.title || "Untitled card")
           : scanned.title;
 
         const nextMetadata = {
@@ -198,23 +209,19 @@ export async function POST(request: NextRequest) {
             ...collectibleAsset,
             exact_serial_number: run,
             print_run: run,
-            parallel_name: parallelReviewRequired
-              ? null
-              : collectibleAsset.parallel_name,
+            parallel_name: forcedBaseCard ? null : collectibleAsset.parallel_name,
           },
           instacomp: {
             ...instaComp,
-            humanVerified: parallelReviewRequired ? false : instaComp.humanVerified,
-            trustedForIdentity: parallelReviewRequired ? false : instaComp.trustedForIdentity,
-            identityConflict: parallelReviewRequired
-              ? "silver_prizm_without_prizm_back_evidence"
-              : instaComp.identityConflict,
+            identityRuleApplied: forcedBaseCard
+              ? "wnba_no_prizm_on_back_forced_base"
+              : instaComp.identityRuleApplied,
             ai: {
               ...ai,
               serialNumber: run,
               printRun: run,
-              parallel: parallelReviewRequired ? null : ai.parallel,
-              parallelName: parallelReviewRequired ? null : ai.parallelName,
+              parallel: forcedBaseCard ? null : ai.parallel,
+              parallelName: forcedBaseCard ? null : ai.parallelName,
             },
           },
         };
@@ -233,7 +240,7 @@ export async function POST(request: NextRequest) {
           printRun: run,
           prizmBackEvidenceRequired: true,
           prizmBackEvidenceFound: hasPrizmOnBack,
-          parallelReviewRequired,
+          forcedBaseCard,
         };
       }
     }
