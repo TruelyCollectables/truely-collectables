@@ -41,10 +41,6 @@ import {
   throwInstaCompDatabaseError,
 } from "../../../../lib/instacomp-job-server";
 import { assertTrustedInstaCompMutationRequest } from "../../../../lib/instacomp-mutation-security";
-import {
-  checkPublicEndpointRateLimit,
-  publicEndpointRateLimitResponse,
-} from "../../../../lib/public-endpoint-rate-limit";
 import { applyInstaCompIdentityGuard } from "../../../../lib/instacomp-identity-guard";
 import {
   catalogEvidenceToConsensusReferee,
@@ -3991,21 +3987,7 @@ export async function POST(req: NextRequest) {
     const ephemeralBenchmark = authorizedEphemeralBenchmark(req);
     const actor = await requireInstaCompJobActor(req);
     assertTrustedInstaCompMutationRequest({ request: req, actor });
-    const rateLimit = await checkPublicEndpointRateLimit({
-      request: req,
-      endpointKey: "instacomp_scan",
-      subjectKey:
-        actor.type === "seller"
-          ? `seller:${actor.sellerAccountId}`
-          : `admin:${actor.storeId}`,
-      maxAttempts: 250,
-      windowSeconds: 24 * 60 * 60,
-    });
-
-    if (!rateLimit.allowed) {
-      const blocked = publicEndpointRateLimitResponse(rateLimit);
-      return NextResponse.json(blocked.body, { status: blocked.status });
-    }
+    // Authenticated seller/admin scans are trusted mutations and are not subject to the public daily lockout.
     const isJsonRequest = (req.headers.get("content-type") || "")
       .toLowerCase()
       .includes("application/json");
