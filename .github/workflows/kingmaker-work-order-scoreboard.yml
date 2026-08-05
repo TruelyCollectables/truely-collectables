@@ -1,0 +1,55 @@
+name: KINGMAKER Work Order Operations Scoreboard
+
+on:
+  pull_request:
+    paths:
+      - "src/lib/kingmaker-private-pricing-work-order-scoreboard-server.ts"
+      - "src/app/api/instacomp/pricing/coverage/work-orders/execution/scoreboard/route.ts"
+      - "src/app/admin/instacomp/pricing/_components/private-pricing-work-order-scoreboard.tsx"
+      - "src/app/admin/instacomp/pricing/coverage/work-orders/page.tsx"
+      - "scripts/certify-kingmaker-work-order-scoreboard.mjs"
+      - ".github/workflows/kingmaker-work-order-scoreboard.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  certify-scoreboard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-service-role-key
+      ADMIN_PASSWORD: build-only-admin-password
+      ADMIN_SESSION_SECRET: build-only-admin-session-secret-with-sufficient-length
+      STRIPE_SECRET_KEY: sk_test_build_only
+      NEXT_PUBLIC_SITE_URL: https://truely-collectables.vercel.app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Certify scoreboard boundary
+        run: node scripts/certify-kingmaker-work-order-scoreboard.mjs
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint scoreboard files
+        run: >-
+          npx eslint
+          src/lib/kingmaker-private-pricing-work-order-scoreboard-server.ts
+          src/app/api/instacomp/pricing/coverage/work-orders/execution/scoreboard/route.ts
+          src/app/admin/instacomp/pricing/_components/private-pricing-work-order-scoreboard.tsx
+          src/app/admin/instacomp/pricing/coverage/work-orders/page.tsx
+
+      - name: TypeScript compile
+        run: npx tsc --noEmit
+
+      - name: Production build
+        run: npm run build
