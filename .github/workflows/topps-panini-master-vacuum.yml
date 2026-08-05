@@ -1,6 +1,15 @@
 name: Topps Panini Master Vacuum
 
 on:
+  pull_request:
+    paths:
+      - "scripts/discover-topps-panini-master-indexes.ts"
+      - "scripts/discover-panini-checklists-via-public-indexes.ts"
+      - "scripts/archive-topps-seed-sets.ts"
+      - "scripts/archive-panini-seed-sets.ts"
+      - "data/topps-checklist-seeds.json"
+      - "data/panini-checklist-seeds.json"
+      - ".github/workflows/topps-panini-master-vacuum.yml"
   push:
     paths:
       - "scripts/discover-topps-panini-master-indexes.ts"
