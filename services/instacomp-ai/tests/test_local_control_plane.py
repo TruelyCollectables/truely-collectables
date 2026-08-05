@@ -180,7 +180,8 @@ def test_current_scanner_keeps_central_registry_boundary() -> None:
     assert "checklist_gateway.match" in main_source
     assert "checklist_result.identity_id" in main_source
     assert "Exact Registry identity locked" in main_source
-    assert "central Checklist Registry" in checklist_source
+    assert "RegistryChecklistGateway" in checklist_source
+    assert "/api/instacomp/checklist-lookup" in checklist_source
     assert "registry_identity:" in checklist_source
     assert "registry_fingerprint:" in checklist_source
     assert "from .registry" not in main_source
