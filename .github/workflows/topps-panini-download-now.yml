@@ -1,6 +1,15 @@
 name: Topps Panini Download Now
 
 on:
+  pull_request:
+    paths:
+      - ".github/workflows/topps-panini-download-now.yml"
+      - "scripts/archive-topps-seed-sets.ts"
+      - "scripts/archive-panini-seed-sets.ts"
+      - "scripts/discover-topps-panini-master-indexes.ts"
+      - "scripts/discover-panini-checklists-via-public-indexes.ts"
+      - "data/topps-checklist-seeds.json"
+      - "data/panini-checklist-seeds.json"
   push:
     branches:
       - "agent/topps-panini-download-now-20260804"
