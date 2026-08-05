@@ -3,7 +3,7 @@
 **Codename:** InstaComp AI 1.0 Beta  
 **Build:** `1.0.0-beta.prechecklist`
 
-InstaComp AI is the private local card-identification, checklist-validation, verified-learning, and recovery system for the Mac mini. It runs on `127.0.0.1`, uses Ollama for local vision analysis, stores scan evidence and verified lessons in SQLite, and blocks exact pricing until the active checklist Registry confirms the identity.
+InstaComp AI is the private local card-identification, checklist-validation, verified-learning, and disaster-recovery system for the Mac mini. It runs from one protected folder on `127.0.0.1`, uses Ollama for local vision analysis, stores scan evidence and verified lessons in SQLite, and blocks exact pricing until the active checklist Registry confirms the identity.
 
 ## Unified command cockpit
 
@@ -15,10 +15,10 @@ http://127.0.0.1:8787/control
 
 The cockpit is one local page containing:
 
-- live database, Ollama, Registry, and backup status
+- live database, Ollama, Registry, backup, uptime, and storage status
 - front/back Scan Bay connected to `/v1/scans/analyze`
 - exact identity, confidence, checklist outcome, and pricing-lock display
-- checklist folder sync and Registry rebuild controls
+- checklist-folder sync and Registry rebuild controls
 - trusted-memory search
 - full disaster-recovery backup controls
 - storage telemetry and local service/checklist logs
@@ -32,16 +32,25 @@ All interface assets are served from the InstaComp AI folder. The cockpit does n
 services/instacomp-ai/
 ├── app/                 local APIs, AI, Registry, learning, backup, cockpit routes
 ├── cockpit/             cockpit HTML, CSS, and JavaScript
+├── assets/              approved desktop icon source
+├── desktop/             canonical InstaComp AI.app created during installation
 ├── checklists/          templates and approved local checklist material
 ├── data/                database, images, Registry, receipts, logs, quarantine
 ├── backups/             default full-recovery archive destination
-├── scripts/             install, run, sync, backup, and restore tools
+├── scripts/             install, run, sync, backup, restore, and launcher tools
 └── tests/               local and CI safety tests
 ```
 
 ## Mac mini installation
 
-From the repository root:
+Place the approved square desktop icon, at least 512 × 512 pixels, at one of these paths:
+
+```text
+assets/instacomp-ai-approved-icon.png
+assets/instacomp-ai-approved-icon.jpg
+```
+
+Then run:
 
 ```bash
 cd services/instacomp-ai
@@ -49,7 +58,16 @@ cp .env.example .env
 ./scripts/install-macos.sh
 ```
 
-The installer creates the Python environment, installs dependencies, creates the data folders, installs macOS LaunchAgents, starts the service, and starts the six-hour checklist worker.
+The installer:
+
+1. Creates the private Python environment and installs dependencies.
+2. Creates the database, image, Registry, receipt, quarantine, log, and backup folders.
+3. Installs the macOS background service and six-hour checklist worker.
+4. Builds the canonical `desktop/InstaComp AI.app` inside the protected folder.
+5. Places a desktop link at `~/Desktop/InstaComp AI.app`.
+6. Starts the service and checks the local health endpoint.
+
+Clicking the desktop app checks local health, starts Ollama when available, recovers the service when necessary, waits up to 30 seconds for readiness, opens the unified cockpit, and shows a macOS error dialog with an **Open Logs** option when launch recovery fails.
 
 Install Ollama and pull the configured local vision model:
 
@@ -57,10 +75,10 @@ Install Ollama and pull the configured local vision model:
 ollama pull qwen2.5vl:7b
 ```
 
-Manual service start:
+Manual cockpit launch:
 
 ```bash
-./scripts/run-local.sh
+./scripts/launch-cockpit.sh
 ```
 
 Health check:
@@ -77,7 +95,7 @@ Google Drive for Desktop exposes the checklist collection as a normal Mac folder
 INSTACOMP_AI_CHECKLIST_SOURCE_PATH="/Users/YOU/Library/CloudStorage/GoogleDrive-YOU/My Drive/TCOS Checklists"
 ```
 
-The local worker mirrors supported files, verifies checksums, records sync receipts, validates Registry-ready CSV/JSON/XLSX files, rebuilds the active SQLite Registry atomically, and reports rejected files without silently trusting them.
+The local worker mirrors supported files, verifies checksums, records sync receipts, validates Registry-ready CSV, JSON, XLSX, and XLSM files, rebuilds the active SQLite Registry atomically, and reports rejected files without silently trusting them.
 
 ## Full recovery backup
 
@@ -89,23 +107,13 @@ InstaComp-AI-FULL-YYYYMMDDTHHMMSSZ.zip.sha256
 InstaComp-AI-FULL-YYYYMMDDTHHMMSSZ.zip.manifest.json
 ```
 
-The archive contains the complete service folder, including the database, images, active Registry, receipts, logs, source code, settings, and recovery tools. Because `.env` may be included, full archives must be stored in encrypted, secured offsite storage.
-
-## Analyze a card directly
-
-```bash
-curl -X POST http://127.0.0.1:8787/v1/scans/analyze \
-  -H "X-InstaComp-AI-Key: YOUR_KEY_IF_CONFIGURED" \
-  -F "front=@/path/to/front.jpg" \
-  -F "back=@/path/to/back.jpg"
-```
-
-The model suggestion is not permanent truth. Exact pricing remains locked unless the active Registry resolves the identity to one exact checklist row.
+The archive contains the complete service folder, including the database, images, active Registry, receipts, logs, source code, settings, recovery tools, and canonical desktop app. Because `.env` may be included, full archives must be stored in encrypted, secured offsite storage.
 
 ## Run tests
 
 ```bash
 source .venv/bin/activate
+bash -n scripts/*.sh
 python -m compileall app scripts tests
 pytest -q
 ```
@@ -116,4 +124,4 @@ Keep the service bound to `127.0.0.1`. Do not expose the cockpit or Ollama direc
 
 ## Beta status
 
-The build remains `1.0.0-beta.prechecklist`. The cockpit code is implemented, but Beta 1.0 is not passed until the Mac installation, real checklist sync, live-card scans, complete backup, restart, and restore acceptance tests succeed.
+The build remains `1.0.0-beta.prechecklist`. The cockpit and desktop-launcher code are implemented, but Beta 1.0 is not passed until the Mac installation, real checklist sync, live-card scans, complete backup, restart, and restore acceptance tests succeed.
