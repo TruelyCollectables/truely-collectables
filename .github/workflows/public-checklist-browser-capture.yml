@@ -9,7 +9,7 @@ on:
         default: '5000'
   push:
     branches:
-      - agent/topps-panini-download-now-20260804
+      - main
     paths:
       - scripts/capture-public-checklists-browser.mjs
       - .github/workflows/public-checklist-browser-capture.yml
