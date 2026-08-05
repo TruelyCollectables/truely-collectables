@@ -14,7 +14,7 @@ Build code: `1.0.0-beta.prechecklist`
 - Rejected identity preservation
 - Trusted-memory search
 - Pricing lock until exact checklist confirmation
-- Checklist CSV/JSON/XLSX Registry importer
+- Checklist CSV/JSON/XLSX/XLSM Registry importer
 - Atomic SQLite Registry rebuild
 - Exact checklist matching gateway
 - Local checklist-folder mirror with checksums and receipts
@@ -23,6 +23,11 @@ Build code: `1.0.0-beta.prechecklist`
 - Restore verification tools
 - Unified local command cockpit at `/control`
 - Cockpit Scan Bay, Registry controls, learning search, backup vault, telemetry, and logs
+- Canonical macOS `InstaComp AI.app` stored inside the protected service folder
+- Desktop launcher link creation
+- Desktop launcher health check, Ollama startup, service recovery, readiness wait, and error dialog
+- macOS LaunchAgents for automatic service startup and checklist synchronization
+- Shell-script syntax validation in CI
 - Local installation scripts and documentation
 - Python tests and GitHub Actions workflow
 - Next.js server client for the local service
@@ -30,15 +35,16 @@ Build code: `1.0.0-beta.prechecklist`
 ## Physical Mac acceptance still required
 
 - Install the branch on the actual Mac mini
+- Place the approved desktop-icon image in the local `assets` folder
 - Install and start Ollama with the selected vision model
 - Configure the exact Google Drive checklist folder path
 - Complete the first real checklist sync and Registry build
+- Click the desktop app and verify automatic service recovery and cockpit launch
 - Scan representative real cards and verify exact checklist outcomes
 - Confirm trusted correction behavior
 - Create and verify a full backup at an approved destination
 - Restart the Mac and confirm automatic recovery
 - Perform a restore drill from the full archive
-- Install and test the desktop launcher icon
 
 ## Beta declaration
 
