@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import shutil
 import time
 from datetime import datetime, timezone
@@ -48,7 +47,7 @@ def build_cockpit_router(require_api_key) -> APIRouter:
             "__VERSION__": settings.version,
             "__MODEL__": settings.ollama_model,
             "__DEFAULT_BACKUP__": str(
-                settings.backup_default_destination.expanduser().resolve()
+                settings.resolve_local_path(settings.backup_default_destination)
             ),
         }
         for marker, value in replacements.items():
@@ -75,12 +74,13 @@ def build_cockpit_router(require_api_key) -> APIRouter:
     )
     async def system_status():
         usage = shutil.disk_usage(service_root)
-        database_path = settings.database_path.expanduser().resolve()
-        registry_path = service_root / "data" / "registry" / "checklist-registry.sqlite3"
-        image_root = settings.image_store_path.expanduser().resolve()
+        database_path = settings.resolve_local_path(settings.database_path)
+        registry_path = settings.resolve_local_path(settings.registry_path)
+        image_root = settings.resolve_local_path(settings.image_store_path)
         receipts_root = service_root / "data" / "receipts"
         quarantine_root = service_root / "data" / "quarantine"
-        backup_root = settings.backup_default_destination.expanduser().resolve()
+        backup_root = settings.resolve_local_path(settings.backup_default_destination)
+        checklist_source = settings.resolved_checklist_source()
         latest_backup = _latest_file(backup_root, "*.zip")
         return {
             "schema": "tcos.instacomp-ai.cockpit-status.v1",
@@ -104,9 +104,7 @@ def build_cockpit_router(require_api_key) -> APIRouter:
                 "database": str(database_path),
                 "registry": str(registry_path),
                 "images": str(image_root),
-                "checklist_source": os.environ.get(
-                    "INSTACOMP_AI_CHECKLIST_SOURCE_PATH"
-                ),
+                "checklist_source": str(checklist_source) if checklist_source else None,
                 "backup_default": str(backup_root),
             },
             "storage": {
