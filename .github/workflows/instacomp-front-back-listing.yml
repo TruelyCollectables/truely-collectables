@@ -1,0 +1,49 @@
+name: InstaComp Front Back Listing Gate
+
+on:
+  pull_request:
+    paths:
+      - "src/app/api/account/seller/instacomp-scan/intake/route.ts"
+      - "src/app/seller/instacomp-scan/page.tsx"
+      - "src/lib/inventory-activation.ts"
+      - "src/lib/instacomp-ai-local.ts"
+      - "scripts/run-instacomp-front-back-listing-regressions.ts"
+      - ".github/workflows/instacomp-front-back-listing.yml"
+  push:
+    paths:
+      - "src/app/api/account/seller/instacomp-scan/intake/route.ts"
+      - "src/app/seller/instacomp-scan/page.tsx"
+      - "src/lib/inventory-activation.ts"
+      - "src/lib/instacomp-ai-local.ts"
+      - "scripts/run-instacomp-front-back-listing-regressions.ts"
+      - ".github/workflows/instacomp-front-back-listing.yml"
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Front and back listing regressions
+        run: node --import tsx scripts/run-instacomp-front-back-listing-regressions.ts
+      - name: Lint changed files
+        run: >-
+          npx eslint
+          src/app/api/account/seller/instacomp-scan/intake/route.ts
+          src/app/seller/instacomp-scan/page.tsx
+          src/lib/inventory-activation.ts
+          scripts/run-instacomp-front-back-listing-regressions.ts
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Production build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key
+          NEXT_PUBLIC_SITE_URL: https://example.com
+        run: npm run build
