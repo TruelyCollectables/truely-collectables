@@ -4,11 +4,13 @@ from app.config import Settings
 from app.system_doctor import SystemDoctor
 
 
-def test_system_doctor_reports_blocking_missing_checklist(monkeypatch, tmp_path: Path):
-    monkeypatch.delenv("INSTACOMP_AI_CHECKLIST_SOURCE_PATH", raising=False)
+def test_system_doctor_reports_blocking_missing_checklist(tmp_path: Path):
     settings = Settings(
         database_path=tmp_path / "data" / "instacomp.sqlite3",
         image_store_path=tmp_path / "data" / "images",
+        checklist_source_path=None,
+        checklist_mirror_path=tmp_path / "data" / "checklists" / "mirror",
+        registry_path=tmp_path / "data" / "registry" / "registry.sqlite3",
         backup_default_destination=tmp_path / "backups",
         backup_allowed_roots=str(tmp_path / "backups"),
     )
@@ -24,13 +26,15 @@ def test_system_doctor_reports_blocking_missing_checklist(monkeypatch, tmp_path:
     assert result["summary"]["failures"] >= 1
 
 
-def test_system_doctor_accepts_readable_checklist_folder(monkeypatch, tmp_path: Path):
+def test_system_doctor_accepts_readable_checklist_folder(tmp_path: Path):
     checklist = tmp_path / "drive" / "checklists"
     checklist.mkdir(parents=True)
-    monkeypatch.setenv("INSTACOMP_AI_CHECKLIST_SOURCE_PATH", str(checklist))
     settings = Settings(
         database_path=tmp_path / "data" / "instacomp.sqlite3",
         image_store_path=tmp_path / "data" / "images",
+        checklist_source_path=checklist,
+        checklist_mirror_path=tmp_path / "data" / "checklists" / "mirror",
+        registry_path=tmp_path / "data" / "registry" / "registry.sqlite3",
         backup_default_destination=tmp_path / "backups",
         backup_allowed_roots=str(tmp_path / "backups"),
     )
