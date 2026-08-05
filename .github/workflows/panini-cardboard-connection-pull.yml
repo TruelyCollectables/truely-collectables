@@ -5,12 +5,14 @@ on:
   pull_request:
     paths:
       - "scripts/pull-panini-checklists-from-cardboard-connection.ts"
+      - "scripts/organize-panini-checklist-archive.ts"
       - ".github/workflows/panini-cardboard-connection-pull.yml"
   push:
     branches:
-      - "agent/topps-panini-download-now-20260804"
+      - "agent/panini-archive-sorting-20260805"
     paths:
       - "scripts/pull-panini-checklists-from-cardboard-connection.ts"
+      - "scripts/organize-panini-checklist-archive.ts"
       - ".github/workflows/panini-cardboard-connection-pull.yml"
 
 permissions:
@@ -22,7 +24,7 @@ concurrency:
 
 jobs:
   pull-cardboard-connection:
-    name: Pull Panini Checklists From Cardboard Connection
+    name: Pull and Sort Panini Checklists From Cardboard Connection
     runs-on: ubuntu-24.04
     timeout-minutes: 240
     steps:
@@ -37,9 +39,14 @@ jobs:
           CC_MAX_INDEX_PAGES: 500
           CC_MAX_ARTICLES: 5000
         run: node --import tsx scripts/pull-panini-checklists-from-cardboard-connection.ts
-      - name: Package Cardboard Connection Panini archive
+      - name: Sort by sport, season, product, and source
+        env:
+          PANINI_ARCHIVE_INPUTS: ".panini-cardboard-connection-archive/checklists=cardboard-connection"
+          PANINI_ORGANIZED_OUTPUT: ".panini-cardboard-connection-organized"
+        run: node --import tsx scripts/organize-panini-checklist-archive.ts
+      - name: Package raw and organized Cardboard Connection archives
         if: always()
-        run: tar -czf panini-cardboard-connection-checklists.tar.gz .panini-cardboard-connection-archive
+        run: tar -czf panini-cardboard-connection-checklists.tar.gz .panini-cardboard-connection-archive .panini-cardboard-connection-organized
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -51,6 +58,9 @@ jobs:
         if: always()
         with:
           name: panini-cardboard-connection-status-${{ github.run_id }}
-          path: .panini-cardboard-connection-archive/manifest.json
+          path: |
+            .panini-cardboard-connection-archive/manifest.json
+            .panini-cardboard-connection-organized/catalog.json
+            .panini-cardboard-connection-organized/catalog.csv
           if-no-files-found: error
           retention-days: 90
