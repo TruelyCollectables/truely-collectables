@@ -22,6 +22,51 @@ function text(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function normalizedPrintRun(value: unknown) {
+  const raw = text(value);
+  if (!raw) return null;
+  const match = raw.match(/(?:\d+\s*)?\/\s*(\d{1,6})\b/);
+  return match ? `/${Number(match[1])}` : null;
+}
+
+function backEvidence(metadata: Record<string, unknown>) {
+  const instaComp = record(metadata.instacomp);
+  const ai = record(instaComp.ai);
+  const candidates = [
+    ai.backText,
+    ai.back_text,
+    ai.backOcr,
+    ai.back_ocr,
+    ai.backEvidence,
+    ai.back_evidence,
+    instaComp.backText,
+    instaComp.backOcr,
+    instaComp.backEvidence,
+  ];
+  return candidates
+    .map((value) =>
+      typeof value === "string" ? value : value ? JSON.stringify(value) : "",
+    )
+    .join(" ")
+    .toLowerCase();
+}
+
+function stripPrizmClaims(value: unknown) {
+  const raw = typeof value === "string" ? value : "";
+  return raw
+    .replace(/\bsilver\s+prizm\b/gi, "")
+    .replace(/\bprizm\b/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([,;:])/g, "$1")
+    .trim();
+}
+
 function pair(rows: ImageRow[]) {
   const images = rows
     .map((row) => ({
@@ -123,6 +168,83 @@ export async function POST(request: NextRequest) {
     });
     const response = await runInventoryInstaComp(forwarded);
     const payload = await response.json().catch(() => ({}));
+
+    let identityRules = {
+      printRun: null as string | null,
+      prizmBackEvidenceRequired: true,
+      prizmBackEvidenceFound: false,
+      forcedBaseCard: false,
+    };
+
+    if (response.ok && payload?.success === true) {
+      const { data: scanned } = await supabase
+        .from("inventory_items")
+        .select("title,metadata")
+        .eq("id", inventoryItemId)
+        .eq("store_id", storeId)
+        .maybeSingle();
+
+      if (scanned) {
+        const metadata = record(scanned.metadata);
+        const instaComp = record(metadata.instacomp);
+        const ai = record(instaComp.ai);
+        const collectibleAsset = record(metadata.collectible_asset);
+        const run =
+          normalizedPrintRun(ai.serialNumber) ||
+          normalizedPrintRun(ai.printRun) ||
+          normalizedPrintRun(collectibleAsset.exact_serial_number) ||
+          normalizedPrintRun(collectibleAsset.print_run);
+        const candidateText = `${scanned.title || ""} ${text(ai.brand) || ""} ${text(ai.set) || ""} ${text(ai.parallel) || ""} ${text(ai.parallelName) || ""} ${text(collectibleAsset.parallel_name) || ""}`;
+        const isWnbaPaniniOrSelect = /\bwnba\b/i.test(candidateText) && /\b(?:panini|select)\b/i.test(candidateText);
+        const claimsPrizm = /\bprizm\b/i.test(candidateText);
+        const hasPrizmOnBack = /\bprizm\b/i.test(backEvidence(metadata));
+        const forcedBaseCard = isWnbaPaniniOrSelect && claimsPrizm && !hasPrizmOnBack;
+        const nextTitle = forcedBaseCard
+          ? stripPrizmClaims(scanned.title || "Untitled card")
+          : scanned.title;
+
+        const nextMetadata = {
+          ...metadata,
+          collectible_asset: {
+            ...collectibleAsset,
+            exact_serial_number: run,
+            print_run: run,
+            parallel_name: forcedBaseCard ? null : collectibleAsset.parallel_name,
+          },
+          instacomp: {
+            ...instaComp,
+            identityRuleApplied: forcedBaseCard
+              ? "wnba_no_prizm_on_back_forced_base"
+              : instaComp.identityRuleApplied,
+            ai: {
+              ...ai,
+              serialNumber: run,
+              printRun: run,
+              parallel: forcedBaseCard ? null : ai.parallel,
+              parallelName: forcedBaseCard ? null : ai.parallelName,
+            },
+          },
+        };
+
+        await supabase
+          .from("inventory_items")
+          .update({
+            title: nextTitle,
+            metadata: nextMetadata,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", inventoryItemId)
+          .eq("store_id", storeId);
+
+        identityRules = {
+          printRun: run,
+          prizmBackEvidenceRequired: true,
+          prizmBackEvidenceFound: hasPrizmOnBack,
+          forcedBaseCard,
+        };
+      }
+    }
+
     return NextResponse.json(
       {
         ...payload,
@@ -132,6 +254,7 @@ export async function POST(request: NextRequest) {
           backImageUrl: selected.back.url,
           storedImageCount: selected.count,
         },
+        identityRules,
       },
       { status: response.status },
     );
