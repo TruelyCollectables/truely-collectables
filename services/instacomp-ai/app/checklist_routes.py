@@ -26,13 +26,14 @@ def build_checklist_router(require_api_key) -> APIRouter:
     @router.get("/v1/checklists/status", dependencies=[Depends(require_api_key)])
     async def checklist_status():
         source = settings.resolved_checklist_source()
+        registry = _normalize_registry(_load_json(registry_receipt_path))
         return {
             "schema": "tcos.instacomp-ai.checklist-status.v1",
             "source_path": str(source) if source else None,
             "source_available": bool(source and source.is_dir()),
             "sync_running": _SYNC_LOCK.locked(),
             "last_sync": _load_json(receipt_path),
-            "registry": _load_json(registry_receipt_path),
+            "registry": registry,
         }
 
     @router.post("/v1/checklists/sync", dependencies=[Depends(require_api_key)])
@@ -75,11 +76,12 @@ def build_checklist_router(require_api_key) -> APIRouter:
                 )
             return {
                 "ok": process.returncode == 0,
-                "registry_ready": process.returncode == 0,
+                "registry_activated": process.returncode == 0,
                 "exit_code": process.returncode,
                 "stdout": stdout.decode("utf-8", errors="replace")[-12000:],
                 "stderr": stderr_text[-4000:],
                 "last_sync": _load_json(receipt_path),
+                "registry": _normalize_registry(_load_json(registry_receipt_path)),
             }
 
     return router
@@ -92,3 +94,17 @@ def _load_json(path: Path):
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {"error": f"Could not read {path}"}
+
+
+def _normalize_registry(registry):
+    if not isinstance(registry, dict):
+        return registry
+    normalized = dict(registry)
+    normalized.setdefault(
+        "imported_rows",
+        normalized.get("active_rows", normalized.get("candidate_imported_rows", 0)),
+    )
+    normalized.setdefault(
+        "imported_files", normalized.get("candidate_imported_files", 0)
+    )
+    return normalized
