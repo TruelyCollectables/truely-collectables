@@ -1,0 +1,438 @@
+name: Apply KINGMAKER Operations 20260805
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/apply-kingmaker-operations-20260805.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  apply-verify-deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: Production
+    env:
+      EXPECTED_MAIN_SHA: 90f0499027690f29b39513703748b75565b6de67
+      EXPECTED_BRANCH: ops/apply-kingmaker-operations-20260805
+      VERCEL_SCOPE: truelycollectables-projects
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      RECEIPT_PATH: evidence/kingmaker-operations-production-20260805/receipt.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/apply-kingmaker-operations-20260805
+          fetch-depth: 0
+
+      - name: Fail closed on exact main and operations scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          git merge-base --is-ancestor "$EXPECTED_MAIN_SHA" HEAD
+          mapfile -t changed < <(git diff --name-only "$EXPECTED_MAIN_SHA"...HEAD)
+          test "${#changed[@]}" -eq 1
+          test "${changed[0]}" = '.github/workflows/apply-kingmaker-operations-20260805.yml'
+          git diff --check "$EXPECTED_MAIN_SHA"...HEAD
+          git checkout --detach "$EXPECTED_MAIN_SHA"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_MAIN_SHA"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Pull protected Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          mkdir -p .vercel "$RUNNER_TEMP/kingmaker-operations-production"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/kingmaker-operations-production/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          test -s "$RUNNER_TEMP/kingmaker-operations-production/production.env"
+          echo "PRODUCTION_ENV_FILE=$RUNNER_TEMP/kingmaker-operations-production/production.env" >> "$GITHUB_ENV"
+
+      - name: Apply migrations, verify boundaries, deploy, and receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const { spawnSync } = require('node:child_process');
+          const { createHash } = require('node:crypto');
+          const { mkdirSync, readFileSync, writeFileSync } = require('node:fs');
+          const { dirname, resolve } = require('node:path');
+
+          const migrationPaths = [
+            'supabase/migrations/20260804111500_private_pricing_work_order_execution.sql',
+            'supabase/migrations/20260805010500_private_pricing_execution_activity_timeline.sql',
+            'supabase/migrations/20260805012500_private_pricing_work_order_target_history.sql',
+          ];
+          const receiptPath = resolve(process.env.RECEIPT_PATH);
+          const token = process.env.GH_SUPABASE_ACCESS_TOKEN;
+
+          function parseEnv(contents) {
+            const out = {};
+            for (const raw of contents.split(/\r?\n/)) {
+              const line = raw.trim();
+              if (!line || line.startsWith('#')) continue;
+              const i = line.indexOf('=');
+              if (i < 1) continue;
+              let value = line.slice(i + 1).trim();
+              if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+                value = value.slice(1, -1);
+              }
+              out[line.slice(0, i).trim().replace(/^export\s+/, '')] = value;
+            }
+            return out;
+          }
+
+          function projectRef(url) {
+            const match = String(url || '').match(/^https:\/\/([a-z0-9]+)\.supabase\.co\/?$/i);
+            if (!match) throw new Error('Production database URL was not resolved.');
+            return match[1];
+          }
+
+          async function query(project, sql, readOnly, stage) {
+            const response = await fetch(`https://api.supabase.com/v1/projects/${project}/database/query`, {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+              },
+              body: JSON.stringify({ query: sql, parameters: [], read_only: readOnly }),
+              signal: AbortSignal.timeout(119000),
+            });
+            const text = await response.text();
+            if (!response.ok) {
+              throw new Error(`${stage} failed with HTTP ${response.status}: ${text.slice(0, 600)}`);
+            }
+            return text ? JSON.parse(text) : [];
+          }
+
+          async function queryExpectFailure(project, sql, stage, expectedPattern) {
+            const response = await fetch(`https://api.supabase.com/v1/projects/${project}/database/query`, {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+              },
+              body: JSON.stringify({ query: sql, parameters: [], read_only: false }),
+              signal: AbortSignal.timeout(119000),
+            });
+            const text = await response.text();
+            if (response.ok) throw new Error(`${stage} unexpectedly succeeded.`);
+            if (!expectedPattern.test(text)) {
+              throw new Error(`${stage} failed for an unexpected reason with HTTP ${response.status}.`);
+            }
+            return { status: response.status, failClosed: true };
+          }
+
+          function first(value) {
+            return Array.isArray(value) ? value[0] || {} : value || {};
+          }
+
+          function numeric(row, field) {
+            const value = Number(row?.[field] ?? 0);
+            if (!Number.isFinite(value)) throw new Error(`Invalid aggregate ${field}.`);
+            return value;
+          }
+
+          function nestedObject(value, predicate) {
+            const seen = new Set();
+            function visit(current) {
+              if (typeof current === 'string') {
+                try { return visit(JSON.parse(current)); } catch { return null; }
+              }
+              if (!current || typeof current !== 'object' || seen.has(current)) return null;
+              seen.add(current);
+              if (!Array.isArray(current) && predicate(current)) return current;
+              const children = Array.isArray(current) ? current : Object.values(current);
+              for (const child of children) {
+                const found = visit(child);
+                if (found) return found;
+              }
+              return null;
+            }
+            return visit(value);
+          }
+
+          function quoteLiteral(value) {
+            return `'${String(value).replaceAll("'", "''")}'`;
+          }
+
+          const protectedCountsSql = `select
+            (select count(*) from public.tcos_kingmaker_private_pricing_work_orders)::bigint work_order_rows,
+            (select count(*) from public.tcos_kingmaker_private_pricing_work_order_audit)::bigint audit_rows,
+            (select count(*) from public.tcos_kingmaker_price_entries)::bigint price_entry_rows,
+            (select count(*) from public.tcos_kingmaker_price_entries where low_observation_id is not null or high_observation_id is not null)::bigint linked_price_entry_rows,
+            (select count(*) from public.tcos_kingmaker_observations)::bigint observation_rows;`;
+
+          const verifySql = `select
+            to_regprocedure('public.tcos_update_kingmaker_private_pricing_work_order_execution(text,integer,text,text,integer,timestamp with time zone,text,text)') is not null execution_update_rpc_present,
+            to_regprocedure('public.tcos_kingmaker_private_pricing_work_order_execution_report(integer,integer,text)') is not null execution_report_rpc_present,
+            to_regprocedure('public.tcos_kingmaker_private_pricing_work_order_activity_report(integer,integer,text,text)') is not null activity_report_rpc_present,
+            to_regprocedure('public.tcos_kingmaker_private_pricing_work_order_target_history_report(text,integer,integer)') is not null target_history_rpc_present,
+
+            not has_function_privilege('anon','public.tcos_kingmaker_private_pricing_work_order_execution_report(integer,integer,text)','execute') anon_execution_report_revoked,
+            not has_function_privilege('authenticated','public.tcos_kingmaker_private_pricing_work_order_execution_report(integer,integer,text)','execute') authenticated_execution_report_revoked,
+            has_function_privilege('service_role','public.tcos_kingmaker_private_pricing_work_order_execution_report(integer,integer,text)','execute') service_execution_report_granted,
+
+            not has_function_privilege('anon','public.tcos_kingmaker_private_pricing_work_order_activity_report(integer,integer,text,text)','execute') anon_activity_report_revoked,
+            not has_function_privilege('authenticated','public.tcos_kingmaker_private_pricing_work_order_activity_report(integer,integer,text,text)','execute') authenticated_activity_report_revoked,
+            has_function_privilege('service_role','public.tcos_kingmaker_private_pricing_work_order_activity_report(integer,integer,text,text)','execute') service_activity_report_granted,
+
+            not has_function_privilege('anon','public.tcos_kingmaker_private_pricing_work_order_target_history_report(text,integer,integer)','execute') anon_target_history_revoked,
+            not has_function_privilege('authenticated','public.tcos_kingmaker_private_pricing_work_order_target_history_report(text,integer,integer)','execute') authenticated_target_history_revoked,
+            has_function_privilege('service_role','public.tcos_kingmaker_private_pricing_work_order_target_history_report(text,integer,integer)','execute') service_target_history_granted,
+
+            not has_function_privilege('anon','public.tcos_update_kingmaker_private_pricing_work_order_execution(text,integer,text,text,integer,timestamp with time zone,text,text)','execute') anon_execution_update_revoked,
+            not has_function_privilege('authenticated','public.tcos_update_kingmaker_private_pricing_work_order_execution(text,integer,text,text,integer,timestamp with time zone,text,text)','execute') authenticated_execution_update_revoked,
+            has_function_privilege('service_role','public.tcos_update_kingmaker_private_pricing_work_order_execution(text,integer,text,text,integer,timestamp with time zone,text,text)','execute') service_execution_update_granted;`;
+
+          function deploy() {
+            const result = spawnSync(
+              'npx',
+              ['vercel@56.2.0', 'deploy', '--prod', '--yes', '--force', '--scope', process.env.VERCEL_SCOPE, '--token', process.env.VERCEL_TOKEN],
+              { encoding: 'utf8', maxBuffer: 30 * 1024 * 1024 },
+            );
+            if (result.error || result.status !== 0) {
+              throw new Error(`Vercel deployment failed: ${(result.stderr || result.stdout || '').slice(0, 1000)}`);
+            }
+            return (result.stdout || '').trim().split(/\r?\n/).filter(Boolean).at(-1) || null;
+          }
+
+          function smokeProductionRoute() {
+            const result = spawnSync(
+              'curl',
+              [
+                '--silent',
+                '--show-error',
+                '--location',
+                '--output',
+                '/dev/null',
+                '--write-out',
+                '%{http_code}',
+                '--max-time',
+                '30',
+                'https://truely-collectables.vercel.app/admin/instacomp/pricing/coverage/work-orders',
+              ],
+              { encoding: 'utf8' },
+            );
+            if (result.error || result.status !== 0) {
+              throw new Error(`Production route smoke failed: ${(result.stderr || '').slice(0, 500)}`);
+            }
+            const status = Number((result.stdout || '').trim());
+            if (!Number.isInteger(status) || status < 200 || status >= 500) {
+              throw new Error(`Production route returned unacceptable HTTP ${status || 'unknown'}.`);
+            }
+            return status;
+          }
+
+          async function main() {
+            if (!token || !process.env.PRODUCTION_ENV_FILE || !process.env.VERCEL_TOKEN) {
+              throw new Error('Protected Production credentials are required.');
+            }
+            console.log(`::add-mask::${token}`);
+
+            const env = parseEnv(readFileSync(process.env.PRODUCTION_ENV_FILE, 'utf8'));
+            const project = projectRef(env.NEXT_PUBLIC_SUPABASE_URL || env.SUPABASE_URL);
+            const before = first(await query(project, protectedCountsSql, true, 'pre-apply protected counts'));
+
+            const migrations = [];
+            for (const path of migrationPaths) {
+              const sql = readFileSync(path, 'utf8');
+              await query(project, sql, false, `migration ${path}`);
+              migrations.push({
+                path,
+                sha256: createHash('sha256').update(sql).digest('hex'),
+              });
+            }
+
+            const verification = first(await query(project, verifySql, true, 'function and privilege verification'));
+            for (const [field, value] of Object.entries(verification)) {
+              if (value !== true) throw new Error(`Verification failed: ${field}`);
+            }
+
+            const executionRaw = await query(
+              project,
+              `set statement_timeout='15s'; set role service_role; select public.tcos_kingmaker_private_pricing_work_order_execution_report(1,0,null) result;`,
+              false,
+              'execution report',
+            );
+            const executionReport = nestedObject(
+              executionRaw,
+              candidate => candidate.boundary === 'private_coverage_work_order_execution_only' && candidate.summary && candidate.pagination,
+            );
+            if (!executionReport) throw new Error('Execution report contract was not returned.');
+
+            const activityRaw = await query(
+              project,
+              `set statement_timeout='15s'; set role service_role; select public.tcos_kingmaker_private_pricing_work_order_activity_report(1,0,null,null) result;`,
+              false,
+              'activity report',
+            );
+            const activityReport = nestedObject(
+              activityRaw,
+              candidate => candidate.boundary === 'private_coverage_work_order_activity_only' && candidate.summary && candidate.pagination,
+            );
+            if (!activityReport) throw new Error('Activity report contract was not returned.');
+
+            const targetRow = first(await query(
+              project,
+              `select attack_key from public.tcos_kingmaker_private_pricing_work_orders limit 1;`,
+              true,
+              'target-history sample selection',
+            ));
+
+            let targetHistorySummary;
+            if (targetRow.attack_key) {
+              const targetHistoryRaw = await query(
+                project,
+                `set statement_timeout='15s'; set role service_role; select public.tcos_kingmaker_private_pricing_work_order_target_history_report(${quoteLiteral(targetRow.attack_key)},1,0) result;`,
+                false,
+                'target history report',
+              );
+              const targetHistoryReport = nestedObject(
+                targetHistoryRaw,
+                candidate => candidate.boundary === 'private_coverage_work_order_target_history_only' && candidate.summary && candidate.pagination,
+              );
+              if (!targetHistoryReport) throw new Error('Target history report contract was not returned.');
+              targetHistorySummary = {
+                exercised: true,
+                mode: 'existing_target_report',
+                failClosed: false,
+                boundary: targetHistoryReport.boundary,
+                totalEvents: Number(targetHistoryReport.summary.totalEvents || 0),
+              };
+            } else {
+              const missingTarget = await queryExpectFailure(
+                project,
+                `set statement_timeout='15s'; set role service_role; select public.tcos_kingmaker_private_pricing_work_order_target_history_report('__kingmaker_production_missing_target_verification__',1,0) result;`,
+                'target history missing-target verification',
+                /work order was not found/i,
+              );
+              targetHistorySummary = {
+                exercised: true,
+                mode: 'missing_target_fail_closed',
+                failClosed: missingTarget.failClosed,
+                boundary: 'private_coverage_work_order_target_history_only',
+                totalEvents: 0,
+              };
+            }
+
+            const afterReports = first(await query(project, protectedCountsSql, true, 'post-report protected counts'));
+            for (const field of [
+              'work_order_rows',
+              'audit_rows',
+              'price_entry_rows',
+              'linked_price_entry_rows',
+              'observation_rows',
+            ]) {
+              if (numeric(before, field) !== numeric(afterReports, field)) {
+                throw new Error(`Read-only reports changed ${field}.`);
+              }
+            }
+
+            const deployment = deploy();
+            const routeStatus = smokeProductionRoute();
+            const afterDeployment = first(await query(project, protectedCountsSql, true, 'post-deployment protected counts'));
+            for (const field of [
+              'work_order_rows',
+              'audit_rows',
+              'price_entry_rows',
+              'linked_price_entry_rows',
+              'observation_rows',
+            ]) {
+              if (numeric(afterReports, field) !== numeric(afterDeployment, field)) {
+                throw new Error(`Deployment rollout changed ${field}.`);
+              }
+            }
+
+            const receipt = {
+              schema: 'tcos.kingmaker.operationsProductionReceipt.v1',
+              status: 'passed',
+              generatedAt: new Date().toISOString(),
+              deployedCommit: process.env.EXPECTED_MAIN_SHA,
+              deployment,
+              productionRouteStatus: routeStatus,
+              migrations,
+              verification,
+              reports: {
+                execution: {
+                  boundary: executionReport.boundary,
+                  totalTargets: Number(executionReport.pagination.totalTargets || 0),
+                  returned: Number(executionReport.pagination.returned || 0),
+                },
+                activity: {
+                  boundary: activityReport.boundary,
+                  totalEvents: Number(activityReport.pagination.totalEvents || 0),
+                  returned: Number(activityReport.pagination.returned || 0),
+                },
+                targetHistory: targetHistorySummary,
+              },
+              counts: {
+                workOrders: numeric(afterDeployment, 'work_order_rows'),
+                auditEvents: numeric(afterDeployment, 'audit_rows'),
+                priceEntries: numeric(afterDeployment, 'price_entry_rows'),
+                linkedPriceEntries: numeric(afterDeployment, 'linked_price_entry_rows'),
+                observations: numeric(afterDeployment, 'observation_rows'),
+              },
+              zeroMutationVerified: true,
+              pricesPromoted: 0,
+            };
+
+            const serialized = JSON.stringify(receipt).toLowerCase();
+            for (const forbidden of [
+              '"rows":',
+              '"attack_key":',
+              '"attackkey":',
+              '"notes":',
+              '"note_digest":',
+              '"raw_text":',
+              '"source":',
+              '"sources":',
+              '"value_low":',
+              '"value_high":',
+              '"price":',
+            ]) {
+              if (serialized.includes(forbidden)) throw new Error(`Receipt contained forbidden field ${forbidden}`);
+            }
+
+            mkdirSync(dirname(receiptPath), { recursive: true });
+            writeFileSync(receiptPath, JSON.stringify(receipt, null, 2) + '\n');
+          }
+
+          main().catch(error => {
+            console.error(error instanceof Error ? error.message : error);
+            process.exit(1);
+          });
+          NODE
+
+      - name: Require sanitized Production receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$RECEIPT_PATH"
+          node -e "const r=require('./'+process.env.RECEIPT_PATH);if(r.status!=='passed'||r.deployedCommit!==process.env.EXPECTED_MAIN_SHA||r.pricesPromoted!==0||r.zeroMutationVerified!==true)process.exit(1)"
+
+      - name: Upload sanitized Production receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: kingmaker-operations-production-20260805
+          path: ${{ env.RECEIPT_PATH }}
+          if-no-files-found: error
+          retention-days: 30
