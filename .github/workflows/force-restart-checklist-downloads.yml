@@ -1,6 +1,11 @@
 name: Force Restart Checklist Downloads
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/force-restart-checklist-downloads.yml
   pull_request:
     branches:
       - main
