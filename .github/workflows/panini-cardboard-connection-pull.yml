@@ -1,0 +1,52 @@
+name: Panini Cardboard Connection Pull
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "agent/topps-panini-download-now-20260804"
+    paths:
+      - "scripts/pull-panini-checklists-from-cardboard-connection.ts"
+      - ".github/workflows/panini-cardboard-connection-pull.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: panini-cardboard-connection-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pull-cardboard-connection:
+    name: Pull Panini Checklists From Cardboard Connection
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Crawl public Cardboard Connection indexes and checklist pages
+        env:
+          CC_MAX_INDEX_PAGES: 500
+          CC_MAX_ARTICLES: 5000
+        run: node --import tsx scripts/pull-panini-checklists-from-cardboard-connection.ts
+      - name: Package Cardboard Connection Panini archive
+        if: always()
+        run: tar -czf panini-cardboard-connection-checklists.tar.gz .panini-cardboard-connection-archive
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: panini-cardboard-connection-checklists-${{ github.run_id }}
+          path: panini-cardboard-connection-checklists.tar.gz
+          if-no-files-found: error
+          retention-days: 90
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: panini-cardboard-connection-status-${{ github.run_id }}
+          path: .panini-cardboard-connection-archive/manifest.json
+          if-no-files-found: error
+          retention-days: 90
