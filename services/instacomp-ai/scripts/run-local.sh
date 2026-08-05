@@ -4,6 +4,17 @@ set -euo pipefail
 service_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$service_root"
 
+# launchd does not inherit interactive shell environment variables. Export the
+# protected local .env file so components that intentionally read os.environ
+# (including the authenticated central Registry client) receive the same values
+# as pydantic-settings.
+if [[ -f "$service_root/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$service_root/.env"
+  set +a
+fi
+
 python_bin="${INSTACOMP_AI_PYTHON:-$service_root/.venv/bin/python}"
 if [[ ! -x "$python_bin" ]]; then
   python3 -m venv "$service_root/.venv"
