@@ -12,18 +12,25 @@ if [[ ! -x "$python_bin" ]]; then
   "$python_bin" -m pip install -r "$service_root/requirements.txt"
 fi
 
-mapfile -t runtime_settings < <(
+runtime_settings="$(
   "$python_bin" - <<'PY'
 from app.config import settings
 
-print(settings.host)
-print(settings.port)
-print("configured" if settings.api_key else "missing")
-PY
+print(
+    "|".join(
+        [
+            settings.host,
+            str(settings.port),
+            "configured" if settings.api_key else "missing",
+        ]
+    )
 )
-host="${runtime_settings[0]:-127.0.0.1}"
-port="${runtime_settings[1]:-8787}"
-api_key_state="${runtime_settings[2]:-missing}"
+PY
+)"
+IFS='|' read -r host port api_key_state <<< "$runtime_settings"
+host="${host:-127.0.0.1}"
+port="${port:-8787}"
+api_key_state="${api_key_state:-missing}"
 
 case "$host" in
   127.0.0.1|localhost|::1) ;;
