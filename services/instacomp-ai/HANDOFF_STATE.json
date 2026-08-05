@@ -1,0 +1,62 @@
+{
+  "schema": "tcos.instacomp-ai.handoff-state.v1",
+  "checkpoint_date": "2026-08-04",
+  "repository": "TruelyCollectables/truely-collectables",
+  "branch": "feature/instacomp-ai-local-foundation",
+  "pull_request": 688,
+  "codename": "InstaComp AI 1.0 Beta",
+  "build": "1.0.0-beta.prechecklist",
+  "beta_1_0_passed": false,
+  "runtime_authority": "Mac mini local service",
+  "checklist_scheduler": "macOS launchd every six hours",
+  "checklist_source": "Google Drive for Desktop local folder",
+  "database": "SQLite inside the protected InstaComp AI service folder",
+  "control_surface": "http://127.0.0.1:8787/control",
+  "completed_systems": [
+    "local_fastapi_service",
+    "ollama_vision_reader",
+    "image_validation_hashing_storage",
+    "verified_learning_memory",
+    "checklist_registry_import_and_exact_match",
+    "drive_desktop_folder_mirror",
+    "sync_process_lock",
+    "checklist_quarantine",
+    "safe_atomic_registry_activation",
+    "unified_command_cockpit",
+    "full_folder_backup_and_restore",
+    "mac_launchagents",
+    "desktop_app_bundle_generator",
+    "desktop_service_recovery_launcher",
+    "system_doctor"
+  ],
+  "partial_feature": {
+    "name": "local_setup_console",
+    "created_files": [
+      "app/local_settings.py",
+      "app/settings_routes.py",
+      "scripts/restart-local-service.sh"
+    ],
+    "remaining": [
+      "wire_settings_router_into_app_main",
+      "add_cockpit_setup_ui",
+      "add_settings_route_and_ui_tests",
+      "verify_delayed_restart_on_mac"
+    ]
+  },
+  "approved_icon": {
+    "design_locked": true,
+    "binary_committed": false,
+    "expected_paths": [
+      "assets/instacomp-ai-approved-icon.png",
+      "assets/instacomp-ai-approved-icon.jpg"
+    ],
+    "minimum_size": "512x512"
+  },
+  "removed_architecture": [
+    "vercel_checklist_cron_endpoint",
+    "cloud_drive_sync_worker",
+    "supabase_cloud_checklist_sync_ledger"
+  ],
+  "physical_acceptance_required": true,
+  "continue_from": "latest head of feature/instacomp-ai-local-foundation"
+}
