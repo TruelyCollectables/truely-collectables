@@ -171,7 +171,7 @@ export async function POST(request: Request) {
         const nextDescription =
           description === undefined ? row.description : description;
         const nextQuantity =
-          quantity === undefined ? Number(row.quantity || 1) : quantity;
+          quantity === undefined ? Number(row.quantity || 1) : Number(quantity);
         if (!nextTitle) throw new Error("Title is required.");
 
         const now = new Date().toISOString();
