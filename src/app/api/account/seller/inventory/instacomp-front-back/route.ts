@@ -7,6 +7,7 @@ import {
 import { assertSafeInstaCompRemoteImageUrl } from "../../../../../../lib/instacomp-provider-safety";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
+import { getInstaCompServiceToken } from "../../../../../../lib/tcos-profit-hunter-secrets";
 import { POST as runInstaCompScan } from "../../../../instacomp/scan/route";
 
 export const runtime = "nodejs";
@@ -258,10 +259,18 @@ export async function POST(request: NextRequest) {
     formData.set("frontImage", frontFile);
     formData.set("backImage", backFile);
     formData.set("aiCouncilTier", String(value("aiCouncilTier") || "adaptive"));
-    const authorization = request.headers.get("authorization") || "";
+    const serviceToken = getInstaCompServiceToken();
+    if (!serviceToken) {
+      const error = "The internal InstaComp service credential is not configured.";
+      await saveFailure(error, "INSTACOMP_SERVICE_TOKEN_MISSING", "identity_scan");
+      return NextResponse.json(
+        { error, code: "INSTACOMP_SERVICE_TOKEN_MISSING", stage: "identity_scan", identityComplete: false },
+        { status: 503 },
+      );
+    }
     const scanRequest = new NextRequest("http://localhost/api/instacomp/scan", {
       method: "POST",
-      headers: authorization ? { authorization } : undefined,
+      headers: { "x-tcos-instacomp-service-token": serviceToken },
       body: formData,
     });
     const scanResponse = await runInstaCompScan(scanRequest);
