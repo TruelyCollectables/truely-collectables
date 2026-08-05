@@ -8,6 +8,7 @@ on:
       - "src/app/api/instacomp/pricing/coverage/work-orders/execution/route.ts"
       - "src/app/admin/instacomp/pricing/_components/private-pricing-work-order-execution.tsx"
       - "src/app/admin/instacomp/pricing/coverage/work-orders/page.tsx"
+      - "scripts/certify-kingmaker-global-execution-query.mjs"
       - ".github/workflows/kingmaker-private-pricing-work-order-execution.yml"
   workflow_dispatch:
 
@@ -50,6 +51,9 @@ jobs:
           ! grep -Eiq "insert[[:space:]]+into[[:space:]]+public\.tcos_kingmaker_(price_entries|observations)" "$migration"
           ! grep -Eiq "update[[:space:]]+public\.tcos_kingmaker_(price_entries|observations)" "$migration"
           ! grep -Eiq "delete[[:space:]]+from[[:space:]]+public\.tcos_kingmaker_(price_entries|observations)" "$migration"
+
+      - name: Certify global queue query and retry contract
+        run: node scripts/certify-kingmaker-global-execution-query.mjs
 
       - name: Install dependencies
         run: npm ci
