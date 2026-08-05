@@ -1,0 +1,75 @@
+name: Leaf Checklist Archive
+
+on:
+  pull_request:
+    paths:
+      - "data/leaf-checklist-seeds.json"
+      - "scripts/archive-leaf-checklist-sets.ts"
+      - ".github/workflows/leaf-checklist-archive.yml"
+  push:
+    paths:
+      - "data/leaf-checklist-seeds.json"
+      - "scripts/archive-leaf-checklist-sets.ts"
+      - ".github/workflows/leaf-checklist-archive.yml"
+  schedule:
+    - cron: "57 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: leaf-checklist-archive-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  archive:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Download every currently known official Leaf checklist file
+        run: node --import tsx scripts/archive-leaf-checklist-sets.ts
+      - name: Verify and report Leaf archive manifest
+        continue-on-error: true
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const manifest = JSON.parse(readFileSync('.leaf-checklist-archive/manifest.json', 'utf8'));
+          if (manifest.schema !== 'tcos.manufacturerChecklistArchiveManifest.v1') throw new Error('Wrong Leaf archive schema');
+          if (manifest.manufacturer !== 'Leaf') throw new Error('Wrong manufacturer');
+          if ((manifest.totals.archived + manifest.totals.failed) !== manifest.totals.requested) throw new Error('Manifest totals do not reconcile');
+          console.log(`Requested: ${manifest.totals.requested}`);
+          console.log(`Archived: ${manifest.totals.archived}`);
+          console.log(`Failed: ${manifest.totals.failed}`);
+          NODE
+      - name: Package successful Leaf files and receipts
+        if: always()
+        run: tar -C .leaf-checklist-archive -czf leaf-checklist-archive.tar.gz .
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: leaf-checklist-archive-${{ github.run_id }}
+          path: leaf-checklist-archive.tar.gz
+          if-no-files-found: error
+          retention-days: 90
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: leaf-checklist-manifest-${{ github.run_id }}
+          path: .leaf-checklist-archive/manifest.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Fail only when nothing could be archived
+        if: always()
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const manifest = JSON.parse(readFileSync('.leaf-checklist-archive/manifest.json', 'utf8'));
+          if ((manifest.totals?.archived ?? 0) < 1) throw new Error('Leaf sweep archived zero files');
+          NODE
