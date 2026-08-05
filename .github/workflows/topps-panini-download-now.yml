@@ -6,6 +6,8 @@ on:
       - ".github/workflows/topps-panini-download-now.yml"
       - "scripts/archive-topps-seed-sets.ts"
       - "scripts/archive-panini-seed-sets.ts"
+      - "scripts/discover-topps-official-checklist-page.ts"
+      - "scripts/discover-panini-wordpress-archive.ts"
       - "scripts/discover-topps-panini-master-indexes.ts"
       - "scripts/discover-panini-checklists-via-public-indexes.ts"
       - "data/topps-checklist-seeds.json"
@@ -34,11 +36,15 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Download every currently known Topps checklist immediately
+      - name: Crawl the official Topps checklist page directly
+        continue-on-error: true
+        timeout-minutes: 15
+        run: node --import tsx scripts/discover-topps-official-checklist-page.ts
+      - name: Download every official Topps checklist found
         continue-on-error: true
         timeout-minutes: 150
         run: node --import tsx scripts/archive-topps-seed-sets.ts
-      - name: Discover additional Topps and Panini checklist indexes
+      - name: Search additional Topps and Panini checklist indexes
         continue-on-error: true
         timeout-minutes: 40
         run: node --import tsx scripts/discover-topps-panini-master-indexes.ts
@@ -67,6 +73,7 @@ jobs:
           path: |
             .topps-seed-archive/manifest.json
             data/topps-checklist-seeds.json
+            .topps-official-discovery/report.json
             .master-index-discovery/report.json
           if-no-files-found: warn
           retention-days: 90
@@ -82,21 +89,25 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Download every currently known Panini checklist immediately
+      - name: Crawl the Panini WordPress archive and media API
         continue-on-error: true
-        timeout-minutes: 100
+        timeout-minutes: 45
+        run: node --import tsx scripts/discover-panini-wordpress-archive.ts
+      - name: Download every official Panini checklist found
+        continue-on-error: true
+        timeout-minutes: 120
         run: node --import tsx scripts/archive-panini-seed-sets.ts
-      - name: Discover Panini historical checklist indexes
+      - name: Discover additional Panini historical checklist indexes
         continue-on-error: true
         timeout-minutes: 20
         run: node --import tsx scripts/discover-panini-checklists-via-public-indexes.ts
-      - name: Sweep master indexes for more Panini checklist URLs
+      - name: Search master indexes for more Panini checklist URLs
         continue-on-error: true
         timeout-minutes: 40
         run: node --import tsx scripts/discover-topps-panini-master-indexes.ts
       - name: Download expanded Panini checklist list
         continue-on-error: true
-        timeout-minutes: 100
+        timeout-minutes: 120
         run: node --import tsx scripts/archive-panini-seed-sets.ts
       - name: Package Panini downloads
         if: always()
@@ -119,6 +130,7 @@ jobs:
           path: |
             .panini-seed-archive/manifest.json
             data/panini-checklist-seeds.json
+            .panini-wordpress-discovery/report.json
             .panini-index-discovery/report.json
             .master-index-discovery/report.json
           if-no-files-found: warn
