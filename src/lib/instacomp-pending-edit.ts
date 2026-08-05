@@ -67,6 +67,20 @@ function channelContent(content: InstaCompPendingDraftContent) {
   };
 }
 
+function sameContent(
+  leftValue: unknown,
+  right: InstaCompPendingDraftContent,
+) {
+  const left = contentFrom(leftValue);
+  return Boolean(
+    left &&
+      left.title === right.title &&
+      left.description === right.description &&
+      (left.condition || "Ungraded") === (right.condition || "Ungraded") &&
+      left.quantity === right.quantity,
+  );
+}
+
 export function synchronizeInstaCompPendingDraftMetadata(params: {
   metadata: unknown;
   previous: InstaCompPendingDraftContent;
@@ -154,4 +168,41 @@ export function synchronizeInstaCompPendingDraftMetadata(params: {
     },
     seller_edits: [...existingEdits, audit],
   };
+}
+
+export function instaCompPendingDraftParityBlockers(params: {
+  metadata: unknown;
+  content: InstaCompPendingDraftContent;
+}) {
+  const metadata = recordValue(params.metadata);
+  const instaComp = recordValue(metadata.instacomp);
+  const channelDraft = recordValue(instaComp.channelDraft);
+  if (!Object.keys(channelDraft).length) return [];
+
+  const expected: InstaCompPendingDraftContent = {
+    title: cleanTitle(params.content.title),
+    description: cleanDescription(params.content.description),
+    condition: cleanCondition(params.content.condition) || "Ungraded",
+    quantity: positiveQuantity(params.content.quantity),
+  };
+  const blockers: string[] = [];
+  if (!sameContent(channelDraft.canonical, expected)) {
+    blockers.push("canonical_draft_content_mismatch");
+  }
+  if (!sameContent(channelDraft.website, expected)) {
+    blockers.push("website_draft_content_mismatch");
+  }
+  if (!sameContent(channelDraft.ebay, expected)) {
+    blockers.push("ebay_draft_content_mismatch");
+  }
+  if (channelDraft.contentParity !== true) {
+    blockers.push("channel_content_parity_not_confirmed");
+  }
+  if (
+    channelDraft.sellerReviewRequired !== true ||
+    channelDraft.executableByInstaComp !== false
+  ) {
+    blockers.push("channel_draft_execution_boundary_invalid");
+  }
+  return blockers;
 }
