@@ -18,11 +18,11 @@ function restoreEnvironment() {
   }
 }
 
-function request() {
+function request(headers: Record<string, string> = {}) {
   return new Request("https://truelycollectables.com/api/checkout", {
     headers: {
-      "x-forwarded-for": "8.8.8.8",
       "user-agent": "public-rate-limit-simulation",
+      ...headers,
     },
   });
 }
@@ -61,26 +61,37 @@ async function main() {
     process.env.IP_INTELLIGENCE_REQUIRED = "true";
     delete process.env.IP_INTELLIGENCE_API_URL;
 
-    const identityBlocked = await checkPublicEndpointRateLimit({
+    const identityAuditOnly = await checkPublicEndpointRateLimit({
+      request: request({ "x-forwarded-for": "8.8.8.8" }),
+      endpointKey: "checkout",
+      maxAttempts: 2,
+      windowSeconds: 600,
+      supabase: fakeSupabase(),
+      failClosed: true,
+    });
+    assert.equal(identityAuditOnly.allowed, true);
+    assert.equal(identityAuditOnly.identity.blocked, false);
+    assert.equal(identityAuditOnly.identity.blockReason, null);
+
+    const missingIpAuditOnly = await checkPublicEndpointRateLimit({
       request: request(),
       endpointKey: "checkout",
       maxAttempts: 2,
       windowSeconds: 600,
-      supabase: null,
-      failClosed: false,
+      supabase: fakeSupabase(),
+      failClosed: true,
     });
-    assert.equal(identityBlocked.allowed, false);
-    assert.equal(identityBlocked.identity.blocked, true);
+    assert.equal(missingIpAuditOnly.allowed, true);
+    assert.equal(missingIpAuditOnly.identity.blocked, false);
     assert.equal(
-      identityBlocked.reason,
-      "ip_intelligence_not_configured",
-      "Identity blocks must remain unconditional even when the audit client is unavailable.",
+      missingIpAuditOnly.identity.evidence.ip_intelligence_observation,
+      "missing_public_ip",
     );
 
     process.env.IP_INTELLIGENCE_REQUIRED = "false";
 
     const unavailable = await checkPublicEndpointRateLimit({
-      request: request(),
+      request: request({ "x-forwarded-for": "8.8.8.8" }),
       endpointKey: "checkout",
       maxAttempts: 2,
       windowSeconds: 600,
@@ -92,7 +103,7 @@ async function main() {
     assert.equal(publicEndpointRateLimitResponse(unavailable).status, 503);
 
     const developmentFallback = await checkPublicEndpointRateLimit({
-      request: request(),
+      request: request({ "x-forwarded-for": "8.8.8.8" }),
       endpointKey: "checkout",
       maxAttempts: 2,
       windowSeconds: 600,
@@ -103,7 +114,7 @@ async function main() {
     assert.equal(developmentFallback.auditAvailable, false);
 
     const missingTable = await checkPublicEndpointRateLimit({
-      request: request(),
+      request: request({ "x-forwarded-for": "8.8.8.8" }),
       endpointKey: "checkout",
       maxAttempts: 2,
       windowSeconds: 600,
@@ -119,7 +130,7 @@ async function main() {
     assert.equal(missingTable.reason, "rate_limit_unavailable");
 
     const failedAuditInsert = await checkPublicEndpointRateLimit({
-      request: request(),
+      request: request({ "x-forwarded-for": "8.8.8.8" }),
       endpointKey: "checkout",
       maxAttempts: 2,
       windowSeconds: 600,
@@ -132,7 +143,7 @@ async function main() {
     assert.equal(failedAuditInsert.reason, "rate_limit_unavailable");
 
     const allowed = await checkPublicEndpointRateLimit({
-      request: request(),
+      request: request({ "x-forwarded-for": "8.8.8.8" }),
       endpointKey: "checkout",
       maxAttempts: 2,
       windowSeconds: 600,
@@ -144,7 +155,7 @@ async function main() {
 
     const now = new Date().toISOString();
     const throttled = await checkPublicEndpointRateLimit({
-      request: request(),
+      request: request({ "x-forwarded-for": "8.8.8.8" }),
       endpointKey: "checkout",
       maxAttempts: 2,
       windowSeconds: 600,
@@ -197,7 +208,7 @@ async function main() {
     }
 
     console.log(
-      "Public rate-limit fail-closed simulations passed: identity blocks are unconditional, production storage failures return 503, throttling remains 429, and IP evidence is service-role only.",
+      "Public rate-limit simulations passed: proxy/VPN/IP intelligence is audit-only, production storage failures return 503, throttling remains 429, and IP evidence is service-role only.",
     );
   } finally {
     restoreEnvironment();

@@ -82,10 +82,22 @@ async function main() {
         },
       }),
     );
-    assert.equal(optedInButMisconfigured.blocked, true);
+    assert.equal(optedInButMisconfigured.blocked, false);
+    assert.equal(optedInButMisconfigured.blockReason, null);
+    assert.equal(optedInButMisconfigured.risk, "unchecked");
+
+    const missingIp = await getClientIdentity(
+      new Request("https://truelycollectables.com/checkout", {
+        headers: {
+          "user-agent": "storefront-identity-scope-simulation",
+        },
+      }),
+    );
+    assert.equal(missingIp.blocked, false);
+    assert.equal(missingIp.blockReason, null);
     assert.equal(
-      optedInButMisconfigured.blockReason,
-      "ip_intelligence_not_configured",
+      missingIp.evidence.ip_intelligence_observation,
+      "missing_public_ip",
     );
 
     const coreSource = fs.readFileSync(
@@ -159,7 +171,7 @@ async function main() {
     );
 
     console.log(
-      "Storefront identity-scope simulations passed: VPN/proxy intelligence is optional TCOS hardening, Truely Collectables live Checkout is not blocked when it is disabled, opt-in misconfiguration still fails closed, and checkout rate limiting remains enforced.",
+      "Storefront identity-scope simulations passed: VPN/proxy intelligence and missing IP headers are audit-only, Truely Collectables live Checkout is not blocked by them, and checkout rate limiting remains enforced.",
     );
   } finally {
     restoreEnvironment();
