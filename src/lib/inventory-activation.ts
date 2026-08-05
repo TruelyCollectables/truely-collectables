@@ -30,12 +30,14 @@ function isAutographSensitive(params: {
   title: string | null;
   category: string | null;
   authenticity: AuthenticityProfile;
+  registryConfirmedCardAutograph: boolean;
 }) {
   const title = cleanText(params.title)?.toLowerCase() || "";
   const category = cleanText(params.category)?.toLowerCase() || "";
   const authenticity = params.authenticity;
 
   return (
+    params.registryConfirmedCardAutograph ||
     category === "autographs" ||
     title.includes("autograph") ||
     title.includes("autographed") ||
@@ -67,6 +69,7 @@ export function getInventoryActivationBlockers(params: {
   const authenticity = extractAuthenticityProfile(params.metadata);
   const collectibleAsset = recordValue(metadata.collectible_asset);
   const instaComp = recordValue(metadata.instacomp);
+  const checklistIdentity = recordValue(instaComp.checklistIdentity);
   const listingOutput = recordValue(instaComp.listingOutput);
   const verifiedReference = recordValue(metadata.verified_reference);
   const publicationStatus = cleanText(
@@ -75,6 +78,14 @@ export function getInventoryActivationBlockers(params: {
       : typeof listingOutput.publicationStatus === "string"
         ? listingOutput.publicationStatus
         : null,
+  );
+  const registryConfirmedCardAutograph = Boolean(
+    collectibleAsset.autograph === true &&
+      checklistIdentity.source === "checklist_registry" &&
+      cleanText(String(checklistIdentity.registryIdentityId || "")) &&
+      cleanText(
+        String(checklistIdentity.registryFingerprintSha256 || ""),
+      ),
   );
   const gradingCompany = cleanText(
     typeof collectibleAsset.grading_company === "string"
@@ -132,9 +143,13 @@ export function getInventoryActivationBlockers(params: {
       title: params.title,
       category: params.category,
       authenticity,
+      registryConfirmedCardAutograph,
     })
   ) {
-    if (authenticity.status === "not_applicable") {
+    if (
+      authenticity.status === "not_applicable" &&
+      !registryConfirmedCardAutograph
+    ) {
       blockers.push("missing_authenticity_disclosure");
     }
 
