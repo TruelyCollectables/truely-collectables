@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import subprocess
 from pathlib import Path
 
@@ -26,9 +25,11 @@ def build_checklist_router(require_api_key) -> APIRouter:
 
     @router.get("/v1/checklists/status", dependencies=[Depends(require_api_key)])
     async def checklist_status():
+        source = settings.resolved_checklist_source()
         return {
             "schema": "tcos.instacomp-ai.checklist-status.v1",
-            "source_path": os.environ.get("INSTACOMP_AI_CHECKLIST_SOURCE_PATH"),
+            "source_path": str(source) if source else None,
+            "source_available": bool(source and source.is_dir()),
             "sync_running": _SYNC_LOCK.locked(),
             "last_sync": _load_json(receipt_path),
             "registry": _load_json(registry_receipt_path),
@@ -36,6 +37,17 @@ def build_checklist_router(require_api_key) -> APIRouter:
 
     @router.post("/v1/checklists/sync", dependencies=[Depends(require_api_key)])
     async def sync_checklists_now():
+        source = settings.resolved_checklist_source()
+        if source is None:
+            raise HTTPException(
+                status_code=409,
+                detail="Checklist source is not configured in .env",
+            )
+        if not source.is_dir():
+            raise HTTPException(
+                status_code=409,
+                detail=f"Checklist source is unavailable: {source}",
+            )
         if _SYNC_LOCK.locked():
             raise HTTPException(status_code=409, detail="Checklist sync is already running")
         async with _SYNC_LOCK:
