@@ -6,12 +6,46 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   exit 2
 fi
 
-for command in python3 curl launchctl; do
+for command in curl launchctl; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "Required command is missing: $command" >&2
     exit 3
   fi
 done
+
+compatible_python() {
+  "$1" - <<'PY' >/dev/null 2>&1
+import sys
+raise SystemExit(0 if (3, 11) <= sys.version_info[:2] <= (3, 13) else 1)
+PY
+}
+
+python_bootstrap="${INSTACOMP_AI_BOOTSTRAP_PYTHON:-}"
+if [[ -n "$python_bootstrap" ]] && ! compatible_python "$python_bootstrap"; then
+  echo "INSTACOMP_AI_BOOTSTRAP_PYTHON must point to Python 3.11, 3.12, or 3.13." >&2
+  exit 4
+fi
+
+if [[ -z "$python_bootstrap" ]]; then
+  for candidate in \
+    "$(command -v python3.13 2>/dev/null || true)" \
+    "/opt/homebrew/opt/python@3.13/bin/python3.13" \
+    "/opt/homebrew/opt/python@3.13/libexec/bin/python3" \
+    "/usr/local/opt/python@3.13/bin/python3.13" \
+    "$(command -v python3 2>/dev/null || true)"; do
+    if [[ -n "$candidate" && -x "$candidate" ]] && compatible_python "$candidate"; then
+      python_bootstrap="$candidate"
+      break
+    fi
+  done
+fi
+
+if [[ -z "$python_bootstrap" ]]; then
+  echo "A supported Python version was not found." >&2
+  echo "Install Python 3.13 with: brew install python@3.13" >&2
+  echo "Python 3.14 is not supported by the pinned InstaComp dependencies." >&2
+  exit 4
+fi
 
 service_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 label="${INSTACOMP_AI_LAUNCHD_LABEL:-com.truelycollectables.instacomp-ai}"
@@ -33,7 +67,12 @@ if [[ ! -f "$service_root/.env" ]]; then
   fi
 fi
 
-python3 -m venv "$service_root/.venv"
+if [[ -x "$service_root/.venv/bin/python" ]] && ! compatible_python "$service_root/.venv/bin/python"; then
+  echo "Replacing unsupported InstaComp virtual environment."
+  rm -rf "$service_root/.venv"
+fi
+
+"$python_bootstrap" -m venv "$service_root/.venv"
 python_bin="$service_root/.venv/bin/python"
 "$python_bin" -m pip install --upgrade pip
 "$python_bin" -m pip install -r "$service_root/requirements.txt"
