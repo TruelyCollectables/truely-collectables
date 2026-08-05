@@ -30,14 +30,14 @@ function isAutographSensitive(params: {
   title: string | null;
   category: string | null;
   authenticity: AuthenticityProfile;
-  registryConfirmedCardAutograph: boolean;
+  cardAutographObserved: boolean;
 }) {
   const title = cleanText(params.title)?.toLowerCase() || "";
   const category = cleanText(params.category)?.toLowerCase() || "";
   const authenticity = params.authenticity;
 
   return (
-    params.registryConfirmedCardAutograph ||
+    params.cardAutographObserved ||
     category === "autographs" ||
     title.includes("autograph") ||
     title.includes("autographed") ||
@@ -79,8 +79,9 @@ export function getInventoryActivationBlockers(params: {
         ? listingOutput.publicationStatus
         : null,
   );
+  const cardAutographObserved = collectibleAsset.autograph === true;
   const registryConfirmedCardAutograph = Boolean(
-    collectibleAsset.autograph === true &&
+    cardAutographObserved &&
       checklistIdentity.source === "checklist_registry" &&
       cleanText(String(checklistIdentity.registryIdentityId || "")) &&
       cleanText(
@@ -143,7 +144,7 @@ export function getInventoryActivationBlockers(params: {
       title: params.title,
       category: params.category,
       authenticity,
-      registryConfirmedCardAutograph,
+      cardAutographObserved,
     })
   ) {
     if (
