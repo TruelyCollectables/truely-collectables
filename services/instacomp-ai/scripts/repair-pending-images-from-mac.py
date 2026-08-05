@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Repair pending listing image pairs from the physical Mac archive.
+"""Repair and verify pending listing image pairs from the physical Mac archive.
 
-The Mac owns the original front/back JPEGs. This command authenticates to the
-Production repair endpoint with the existing InstaComp service token, then
-uploads each verified pair. Production performs the Supabase mutation with its
-server-only service key. No Supabase secret is downloaded to the Mac.
+The Mac owns the original front/back JPEGs. This command authenticates to
+Production with the existing InstaComp service token. Production chooses repair
+candidates from actual inventory_images rows, accepts the verified file pair,
+then exposes a second audit proving both stored image sides exist.
 """
 
 from __future__ import annotations
@@ -23,7 +23,8 @@ from urllib.request import Request, urlopen
 
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
 LOCAL_ENV_PATH = SERVICE_ROOT / ".env"
-ENDPOINT_PATH = "/api/instacomp/pending-image-repair-push"
+REPAIR_ENDPOINT_PATH = "/api/instacomp/pending-image-repair-push"
+AUDIT_ENDPOINT_PATH = "/api/instacomp/pending-image-repair-audit"
 
 
 class RecoveryError(RuntimeError):
@@ -57,8 +58,9 @@ def sha256_bytes(content: bytes) -> str:
 
 
 def pair_hash(front_sha256: str, back_sha256: str) -> str:
-    value = f"front:{front_sha256}|back:{back_sha256}"
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+    return hashlib.sha256(
+        f"front:{front_sha256}|back:{back_sha256}".encode("utf-8")
+    ).hexdigest()
 
 
 def archived_image_path(root: Path, image_hash: str, side: str) -> Path:
@@ -126,7 +128,16 @@ def request_json(
     if not isinstance(result, dict):
         raise RecoveryError("Production returned an invalid response.")
     if result.get("ok") is not True:
-        raise RecoveryError(str(result.get("error") or "Production repair failed."))
+        raise RecoveryError(str(result.get("error") or "Production request failed."))
+    return result
+
+
+def audit(base_url: str, token: str) -> dict[str, Any]:
+    result = request_json(f"{base_url}{AUDIT_ENDPOINT_PATH}", token)
+    if not isinstance(result.get("items"), list):
+        raise RecoveryError("Production audit did not return an item list.")
+    if not isinstance(result.get("candidates"), list):
+        raise RecoveryError("Production audit did not return a candidate list.")
     return result
 
 
@@ -212,7 +223,7 @@ def repair_item(
         ],
     )
     return request_json(
-        f"{base_url}{ENDPOINT_PATH}",
+        f"{base_url}{REPAIR_ENDPOINT_PATH}",
         token,
         method="POST",
         body=body,
@@ -220,9 +231,26 @@ def repair_item(
     )
 
 
+def verify_target_ids(audit_result: dict[str, Any], target_ids: set[str]) -> list[str]:
+    remaining: list[str] = []
+    for row in audit_result.get("items", []):
+        if not isinstance(row, dict):
+            continue
+        item_id = str(row.get("inventoryItemId") or "")
+        if item_id in target_ids and row.get("actualHasBackImage") is not True:
+            remaining.append(item_id)
+    missing_from_audit = target_ids.difference(
+        str(row.get("inventoryItemId") or "")
+        for row in audit_result.get("items", [])
+        if isinstance(row, dict)
+    )
+    remaining.extend(sorted(missing_from_audit))
+    return sorted(set(remaining))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Restore original front/back scans to pending listings."
+        description="Restore and verify original front/back scans on pending listings."
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--limit", type=int, default=0)
@@ -255,22 +283,32 @@ def main() -> int:
     )
 
     try:
-        listing = request_json(f"{base_url}{ENDPOINT_PATH}", token)
-        items = listing.get("items")
-        if not isinstance(items, list):
-            raise RecoveryError("Production returned an invalid repair candidate list.")
+        before = audit(base_url, token)
+        candidates = before["candidates"]
         if args.limit > 0:
-            items = items[: args.limit]
+            candidates = candidates[: args.limit]
 
-        if not items:
-            print("No pending listings are missing a recovered back scan.")
+        summary = before.get("summary") or {}
+        print(
+            "Production audit: "
+            f"{summary.get('pendingScanDrafts', 0)} pending scan draft(s), "
+            f"{summary.get('missingStoredBack', 0)} missing stored back image(s)."
+        )
+
+        if not candidates:
+            print("VERIFIED: every audited pending scan has a stored back image.")
             print("No listings were published.")
             return 0
 
+        target_ids = {
+            str(item.get("inventoryItemId") or "")
+            for item in candidates
+            if isinstance(item, dict)
+        }
         repaired = 0
         failed = 0
-        print(f"Found {len(items)} pending listing(s) to repair.")
-        for index, item in enumerate(items, start=1):
+        print(f"Found {len(candidates)} pending listing(s) to repair.")
+        for index, item in enumerate(candidates, start=1):
             title = str(item.get("title") or "Untitled item")
             try:
                 result = repair_item(
@@ -281,19 +319,44 @@ def main() -> int:
                     image_root=image_root,
                     dry_run=args.dry_run,
                 )
-                repaired += 1
-                status = "verified" if args.dry_run else "repaired"
-                print(f"[{index}/{len(items)}] {status}: {title}")
                 if not args.dry_run and result.get("hasBackImage") is not True:
-                    raise RecoveryError("Production did not confirm the back image.")
+                    raise RecoveryError("Production upload did not confirm the back image.")
+                repaired += 1
+                status = "verified locally" if args.dry_run else "uploaded"
+                print(f"[{index}/{len(candidates)}] {status}: {title}")
             except Exception as error:
                 failed += 1
-                print(f"[{index}/{len(items)}] FAILED: {title}: {error}", file=sys.stderr)
+                print(f"[{index}/{len(candidates)}] FAILED: {title}: {error}", file=sys.stderr)
 
-        action = "verified" if args.dry_run else "repaired"
-        print(f"Finished: {repaired} {action}, {failed} failed.")
+        if args.dry_run:
+            print(f"Finished dry run: {repaired} verified locally, {failed} failed.")
+            print("No listings were published.")
+            return 1 if failed else 0
+
+        after = audit(base_url, token)
+        remaining = verify_target_ids(after, target_ids)
+        final_summary = after.get("summary") or {}
+        print(
+            "Post-repair audit: "
+            f"{final_summary.get('complete', 0)} complete, "
+            f"{final_summary.get('missingStoredBack', 0)} missing stored back image(s)."
+        )
+        if remaining:
+            print(
+                "ERROR: repair verification failed for item ID(s): "
+                + ", ".join(remaining),
+                file=sys.stderr,
+            )
+            print("No listings were published.")
+            return 1
+        if failed:
+            print(f"ERROR: {failed} repair upload(s) failed.", file=sys.stderr)
+            print("No listings were published.")
+            return 1
+
+        print(f"VERIFIED: {repaired} repaired and confirmed with stored back images.")
         print("No listings were published.")
-        return 1 if failed else 0
+        return 0
     except Exception as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 2

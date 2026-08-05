@@ -90,3 +90,25 @@ def test_multipart_contains_both_images_and_receipt_fields():
     assert b'name="imagePairSha256"' in body
     assert b"front" in body
     assert b"back" in body
+
+
+def test_verify_target_ids_requires_actual_stored_back():
+    target_ids = {"item-1", "item-2", "item-3"}
+    audit_result = {
+        "items": [
+            {"inventoryItemId": "item-1", "actualHasBackImage": True},
+            {"inventoryItemId": "item-2", "actualHasBackImage": False},
+        ]
+    }
+    assert module.verify_target_ids(audit_result, target_ids) == ["item-2", "item-3"]
+
+
+def test_verify_target_ids_passes_only_when_every_target_is_complete():
+    target_ids = {"item-1", "item-2"}
+    audit_result = {
+        "items": [
+            {"inventoryItemId": "item-1", "actualHasBackImage": True},
+            {"inventoryItemId": "item-2", "actualHasBackImage": True},
+        ]
+    }
+    assert module.verify_target_ids(audit_result, target_ids) == []
