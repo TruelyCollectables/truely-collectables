@@ -23,6 +23,15 @@ function forwardedHeaders(request: NextRequest, requestId: string) {
   return headers;
 }
 
+function batchResponseHeaders(requestId: string, checklistVerified: boolean) {
+  const headers = instaCompResponseHeaders({
+    requestId,
+    checklistVerified,
+  });
+  headers.set("x-instacomp-batch-checklist-enforced", "true");
+  return headers;
+}
+
 export async function POST(request: NextRequest) {
   const startedAt = Date.now();
   const rawBody = (await request.json().catch(() => ({}))) as Record<string, unknown>;
@@ -46,10 +55,7 @@ export async function POST(request: NextRequest) {
       }),
       {
         status: 400,
-        headers: instaCompResponseHeaders({
-          requestId: body.requestId,
-          checklistVerified: false,
-        }),
+        headers: batchResponseHeaders(body.requestId, false),
       },
     );
   }
@@ -124,10 +130,7 @@ export async function POST(request: NextRequest) {
     }),
     {
       status: failed === 0 ? 200 : 207,
-      headers: instaCompResponseHeaders({
-        requestId: body.requestId,
-        checklistVerified: failed === 0,
-      }),
+      headers: batchResponseHeaders(body.requestId, failed === 0),
     },
   );
 }
