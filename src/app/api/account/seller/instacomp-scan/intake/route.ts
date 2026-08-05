@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
-} from "../../../../../../../lib/account-auth";
-import { analyzeWithInstaCompAiLocal } from "../../../../../../../lib/instacomp-ai-local";
-import { getActiveStoreId } from "../../../../../../../lib/stores";
-import { createSupabaseServerClient } from "../../../../../../../lib/supabase-server";
+} from "../../../../../../lib/account-auth";
+import { analyzeWithInstaCompAiLocal } from "../../../../../../lib/instacomp-ai-local";
+import { getActiveStoreId } from "../../../../../../lib/stores";
+import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 import { POST as runVerifiedPricing } from "../../inventory/instacomp-verified/route";
 
 export const runtime = "nodejs";
@@ -25,7 +25,7 @@ function lockedIdentity(scan: Awaited<ReturnType<typeof analyzeWithInstaCompAiLo
 }
 
 function receiptValue(scan: Awaited<ReturnType<typeof analyzeWithInstaCompAiLocal>>, prefix: string) {
-  return scan.checklist?.source_receipts?.find((value) => value.startsWith(prefix))?.slice(prefix.length) || null;
+  return scan.checklist?.source_receipts?.find((value: string) => value.startsWith(prefix))?.slice(prefix.length) || null;
 }
 
 function canonicalFields(identity: Record<string, unknown>) {
