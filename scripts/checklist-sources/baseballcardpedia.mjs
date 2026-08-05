@@ -10,7 +10,7 @@ import {
   fetchJson,
   finishSource,
   saveItem,
-} from "./shared.mjs";
+} from "./shared-safe.mjs";
 
 const ORIGIN = "https://www.baseballcardpedia.com";
 const API = `${ORIGIN}/api.php`;
