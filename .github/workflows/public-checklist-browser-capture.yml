@@ -1,0 +1,72 @@
+name: Public Checklist Browser Capture
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_urls:
+        description: Maximum public checklist pages to capture
+        required: false
+        default: '5000'
+  push:
+    branches:
+      - agent/topps-panini-download-now-20260804
+    paths:
+      - scripts/capture-public-checklists-browser.mjs
+      - .github/workflows/public-checklist-browser-capture.yml
+      - data/checklist-capture-urls.txt
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install browser runtime
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+      - name: Build public URL queue
+        shell: bash
+        run: |
+          mkdir -p data
+          touch data/checklist-capture-urls.txt
+          grep -RhoE 'https://[^"[:space:]<>]+' scripts data 2>/dev/null \
+            | sed 's/[),.;]*$//' \
+            | grep -Ei '(topps\.com|paniniamerica\.(net|com)|upperdeck\.com|sportlots\.com|checklistinsider\.com|cardboardconnection\.com|beckett\.com)' \
+            | sort -u >> data/checklist-capture-urls.txt || true
+          sort -u -o data/checklist-capture-urls.txt data/checklist-capture-urls.txt
+          echo "Queued $(wc -l < data/checklist-capture-urls.txt) public URLs"
+      - name: Capture PDFs screenshots and structured rows
+        env:
+          CHECKLIST_CAPTURE_INPUT: data/checklist-capture-urls.txt
+          CHECKLIST_CAPTURE_OUT: .checklist-browser-capture
+          CHECKLIST_CAPTURE_MAX: ${{ inputs.max_urls || '5000' }}
+          CHECKLIST_CAPTURE_DELAY_MS: '2500'
+        run: node scripts/capture-public-checklists-browser.mjs
+      - name: Package archive
+        if: always()
+        run: tar -czf public-checklist-browser-capture.tar.gz .checklist-browser-capture
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: public-checklist-browser-capture-${{ github.run_id }}
+          path: public-checklist-browser-capture.tar.gz
+          retention-days: 90
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: public-checklist-browser-capture-status-${{ github.run_id }}
+          path: |
+            .checklist-browser-capture/manifest.json
+            .checklist-browser-capture/database-import.csv
+            .checklist-browser-capture/database-import.json
+          if-no-files-found: warn
+          retention-days: 90
