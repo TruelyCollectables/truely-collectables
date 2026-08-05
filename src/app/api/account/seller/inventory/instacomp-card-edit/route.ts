@@ -67,6 +67,7 @@ export async function POST(request: NextRequest) {
     const ai = record(instaComp.ai);
     const collectibleAsset = record(metadata.collectible_asset);
     const sellerReview = record(metadata.seller_review);
+    const editedAt = new Date().toISOString();
 
     const nextMetadata = {
       ...metadata,
@@ -78,18 +79,27 @@ export async function POST(request: NextRequest) {
       },
       seller_review: {
         ...sellerReview,
-        identity_confirmed: false,
-        edited_at: new Date().toISOString(),
+        identity_confirmed: true,
+        confirmed_at: editedAt,
+        confirmed_by: account.id,
+        edited_at: editedAt,
         edited_by: account.id,
+        identity_source: "seller_manual_edit",
       },
       instacomp: {
         ...instaComp,
-        humanVerified: false,
-        trustedForIdentity: false,
-        pricingStatus: "not_run",
-        suggestedPrice: null,
-        identityRefreshRequired: true,
+        humanVerified: true,
+        trustedForIdentity: true,
         manualIdentityEdit: true,
+        manualIdentityLocked: true,
+        identityRefreshRequired: false,
+        identitySource: "seller_manual_edit",
+        identityComplete: true,
+        pricingStatus: "manual_identity_saved_pricing_pending",
+        pricingReason: "Seller identity is locked. Pricing may run without replacing the seller correction.",
+        suggestedPrice: null,
+        lastError: null,
+        lastErrorCode: null,
         ai: {
           ...ai,
           parallel: parallel || null,
@@ -102,9 +112,10 @@ export async function POST(request: NextRequest) {
 
     const { error: updateError } = await supabase
       .from("inventory_items")
-      .update({ title, metadata: nextMetadata, updated_at: new Date().toISOString() })
+      .update({ title, metadata: nextMetadata, updated_at: editedAt })
       .eq("id", inventoryItemId)
-      .eq("store_id", storeId);
+      .eq("store_id", storeId)
+      .eq("status", "draft");
     if (updateError) throw updateError;
 
     return NextResponse.json({
@@ -112,7 +123,8 @@ export async function POST(request: NextRequest) {
       title,
       parallel: parallel || null,
       printRun: normalizedPrintRun,
-      identityRefreshRequired: true,
+      manualIdentityLocked: true,
+      identityRefreshRequired: false,
       published: false,
     });
   } catch (error) {
