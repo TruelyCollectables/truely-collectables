@@ -4,13 +4,17 @@ on:
   push:
     branches:
       - fix/remove-instacomp-daily-lockout
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: write
 
 jobs:
   patch:
-    if: ${{ !contains(github.event.head_commit.message, '[rate-limit-patched]') }}
+    if: ${{ github.head_ref == 'fix/remove-instacomp-daily-lockout' || github.ref_name == 'fix/remove-instacomp-daily-lockout' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
