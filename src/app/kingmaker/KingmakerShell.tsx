@@ -10,16 +10,16 @@ import {
 
 const navigation = [
   { href: "/kingmaker", label: "Command Center", exact: true },
-  { href: "/kingmaker/scan", label: "Scan Cards" },
-  { href: "/kingmaker/pending", label: "Pending Listings" },
-  { href: "/kingmaker/inventory", label: "Inventory" },
-  { href: "/kingmaker/intelligence", label: "Intelligence" },
-  { href: "/kingmaker/sourcing", label: "Sourcing" },
-  { href: "/kingmaker/offers", label: "Offers" },
-  { href: "/kingmaker/orders", label: "Orders" },
-  { href: "/kingmaker/marketplaces", label: "Marketplaces" },
-  { href: "/kingmaker/payouts", label: "Payouts" },
-  { href: "/kingmaker/settings", label: "Settings" },
+  { href: "/kingmaker/scan", label: "Scan Cards", exact: false },
+  { href: "/kingmaker/pending", label: "Pending Listings", exact: false },
+  { href: "/kingmaker/inventory", label: "Inventory", exact: false },
+  { href: "/kingmaker/intelligence", label: "Intelligence", exact: false },
+  { href: "/kingmaker/sourcing", label: "Sourcing", exact: false },
+  { href: "/kingmaker/offers", label: "Offers", exact: false },
+  { href: "/kingmaker/orders", label: "Orders", exact: false },
+  { href: "/kingmaker/marketplaces", label: "Marketplaces", exact: false },
+  { href: "/kingmaker/payouts", label: "Payouts", exact: false },
+  { href: "/kingmaker/settings", label: "Settings", exact: false },
 ] as const;
 
 function activeRoute(
