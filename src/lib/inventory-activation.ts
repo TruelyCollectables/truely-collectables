@@ -8,6 +8,7 @@ export type InventoryActivationBlocker =
   | "missing_price"
   | "missing_quantity"
   | "missing_image"
+  | "missing_back_image"
   | "missing_authenticity_disclosure"
   | "missing_cert_provider"
   | "missing_pass_guarantee_authenticator"
@@ -79,6 +80,13 @@ export function getInventoryActivationBlockers(params: {
         ? listingOutput.publicationStatus
         : null,
   );
+  const requiresFrontBackListing =
+    cleanText(params.category)?.toLowerCase() === "trading card singles" &&
+    cleanText(String(instaComp.source || "")) === "mac_registry_scanner";
+  const hasBackImageReceipt = Boolean(
+    instaComp.hasBackImage === true &&
+      cleanText(String(instaComp.backSha256 || "")),
+  );
   const cardAutographObserved = collectibleAsset.autograph === true;
   const registryConfirmedCardAutograph = Boolean(
     cardAutographObserved &&
@@ -123,6 +131,9 @@ export function getInventoryActivationBlockers(params: {
   if (params.price <= 0) blockers.push("missing_price");
   if (params.quantity <= 0) blockers.push("missing_quantity");
   if (!params.imageUrl) blockers.push("missing_image");
+  if (requiresFrontBackListing && !hasBackImageReceipt) {
+    blockers.push("missing_back_image");
+  }
   if (publicationStatus === "review_required") {
     blockers.push("instacomp_listing_review_required");
   }
