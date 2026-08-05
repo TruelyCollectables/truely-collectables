@@ -8,6 +8,7 @@ const OUT = resolve(process.env.CHECKLIST_CAPTURE_OUT || '.checklist-browser-cap
 const DELAY_MS = Number(process.env.CHECKLIST_CAPTURE_DELAY_MS || 2500);
 const MAX = Number(process.env.CHECKLIST_CAPTURE_MAX || 5000);
 const ALLOWED = /(^|\.)(topps\.com|paniniamerica\.net|paniniamerica\.com|upperdeck\.com|sportlots\.com|checklistinsider\.com|cardboardconnection\.com|beckett\.com)$/i;
+const MANIFEST = join(OUT, 'manifest.json');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const slug = (s) => s.normalize('NFKD').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 150) || 'checklist';
@@ -51,34 +52,82 @@ function normalizeRows(tables) {
 }
 
 async function saveCsv(path, rows) {
-  if (!rows.length) return;
+  if (!rows.length) { await writeFile(path, ''); return; }
   const headers = [...new Set(rows.flatMap((r) => Object.keys(r)))];
   const body = [headers.map(csvCell).join(','), ...rows.map((r) => headers.map((h) => csvCell(r[h])).join(','))].join('\n');
   await writeFile(path, body + '\n');
 }
 
+async function loadState() {
+  try { return JSON.parse(await readFile(MANIFEST, 'utf8')).items || []; }
+  catch { return []; }
+}
+
+async function saveState(items) {
+  const allRows = [];
+  for (const item of items) {
+    if (!item.files?.json) continue;
+    try {
+      const parsed = JSON.parse(await readFile(item.files.json, 'utf8'));
+      allRows.push(...(parsed.records || []));
+    } catch {}
+  }
+  const payload = {
+    schema: 'tcos.publicChecklistCapture.v2',
+    generated_at: new Date().toISOString(),
+    partial: true,
+    totals: {
+      urls: items.length,
+      structured: items.filter((x) => x.status === 'structured_rows').length,
+      archive_only: items.filter((x) => x.status === 'archive_only').length,
+      failed: items.filter((x) => x.status === 'failed').length,
+      rows: allRows.length,
+    },
+    items,
+  };
+  await writeFile(MANIFEST, JSON.stringify(payload, null, 2));
+  await saveCsv(join(OUT, 'database-import.csv'), allRows);
+  await writeFile(join(OUT, 'database-import.json'), JSON.stringify(allRows, null, 2));
+}
+
+async function openBrowser() {
+  const browser = await chromium.launch({ headless: true });
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1200 }, userAgent: 'Mozilla/5.0 (compatible; TCOS-Public-Checklist-Archiver/2.0)' });
+  return { browser, context };
+}
+
 async function main() {
   await ensureDirs();
   const urls = await loadUrls();
-  const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({ viewport: { width: 1440, height: 1200 }, userAgent: 'Mozilla/5.0 (compatible; TCOS-Public-Checklist-Archiver/1.0)' });
-  const manifest = [];
+  const manifest = await loadState();
+  const done = new Set(manifest.map((x) => x.source_url));
+  let runtime = await openBrowser();
 
   for (let i = 0; i < urls.length; i++) {
     const source = urls[i];
-    const page = await context.newPage();
+    if (done.has(source.toString())) continue;
+    let page;
     const downloads = [];
-    page.on('download', async (download) => {
-      const suggested = download.suggestedFilename();
-      const local = join(OUT, 'downloads', `${String(i + 1).padStart(5,'0')}-${slug(suggested)}${extname(suggested)}`);
-      await download.saveAs(local);
-      downloads.push(local);
-    });
-
     const row = { index: i + 1, source_url: source.toString(), status: 'failed', captured_at: new Date().toISOString(), files: {}, rows: 0, error: null };
+
     try {
-      const response = await page.goto(source.toString(), { waitUntil: 'networkidle', timeout: 90000 });
+      try { page = await runtime.context.newPage(); }
+      catch {
+        await runtime.browser.close().catch(() => {});
+        runtime = await openBrowser();
+        page = await runtime.context.newPage();
+      }
+
+      page.on('download', async (download) => {
+        const suggested = download.suggestedFilename();
+        const local = join(OUT, 'downloads', `${String(i + 1).padStart(5,'0')}-${slug(suggested)}${extname(suggested)}`);
+        await download.saveAs(local);
+        downloads.push(local);
+      });
+
+      const response = await page.goto(source.toString(), { waitUntil: 'domcontentloaded', timeout: 90000 });
       if (!response || response.status() >= 400) throw new Error(`HTTP ${response?.status() ?? 'no-response'}`);
+      await page.waitForTimeout(1500);
       await page.emulateMedia({ media: 'print' });
       const title = (await page.title()).trim() || basename(source.pathname) || 'checklist';
       const base = `${String(i + 1).padStart(5,'0')}-${slug(title)}`;
@@ -101,25 +150,30 @@ async function main() {
       row.sha256 = { html: sha256(Buffer.from(html)), pdf: sha256(await readFile(pdfPath)), screenshot: sha256(await readFile(pngPath)) };
     } catch (error) {
       row.error = error instanceof Error ? error.message : String(error);
+      if (/browser has been closed|Target page, context or browser has been closed/i.test(row.error)) {
+        await runtime.browser.close().catch(() => {});
+        runtime = await openBrowser();
+      }
     } finally {
+      if (page) await page.close().catch(() => {});
       manifest.push(row);
-      await page.close();
-      console.log(JSON.stringify({ processed: i + 1, total: urls.length, status: row.status, rows: row.rows, url: row.source_url }));
+      done.add(row.source_url);
+      await saveState(manifest);
+      console.log(JSON.stringify({ processed: done.size, total: urls.length, status: row.status, rows: row.rows, url: row.source_url }));
       await sleep(DELAY_MS);
     }
   }
 
-  await browser.close();
-  const allRows = [];
-  for (const item of manifest) {
-    if (!item.files?.json) continue;
-    const parsed = JSON.parse(await readFile(item.files.json, 'utf8'));
-    allRows.push(...(parsed.records || []));
-  }
-  await writeFile(join(OUT, 'manifest.json'), JSON.stringify({ schema: 'tcos.publicChecklistCapture.v1', generated_at: new Date().toISOString(), totals: { urls: manifest.length, structured: manifest.filter((x) => x.status === 'structured_rows').length, archive_only: manifest.filter((x) => x.status === 'archive_only').length, failed: manifest.filter((x) => x.status === 'failed').length, rows: allRows.length }, items: manifest }, null, 2));
-  await saveCsv(join(OUT, 'database-import.csv'), allRows);
-  await writeFile(join(OUT, 'database-import.json'), JSON.stringify(allRows, null, 2));
+  await runtime.browser.close().catch(() => {});
+  await saveState(manifest);
+  const final = JSON.parse(await readFile(MANIFEST, 'utf8'));
+  final.partial = false;
+  final.generated_at = new Date().toISOString();
+  await writeFile(MANIFEST, JSON.stringify(final, null, 2));
   if (!manifest.some((x) => x.status !== 'failed')) process.exitCode = 1;
 }
 
-main().catch((error) => { console.error(error); process.exitCode = 1; });
+main().catch(async (error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
