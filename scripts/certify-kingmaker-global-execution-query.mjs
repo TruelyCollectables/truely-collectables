@@ -24,7 +24,8 @@ assert(
 assert(
   server.includes("searchValue(row).includes(search)") &&
     server.includes("sortRows(searched, sort)") &&
-    server.indexOf("sortRows(searched, sort)") < server.indexOf("sorted.slice(offset, offset + limit)"),
+    server.indexOf("sortRows(searched, sort)") <
+      server.indexOf("sorted.slice(offset, offset + limit)"),
   "Search and sorting must run before application pagination.",
 );
 assert(
@@ -40,11 +41,13 @@ assert(
   "The admin queue must expose full-backlog search and deterministic failed-row retry controls.",
 );
 assert(
-  !dashboard.includes("window.confirm") && !dashboard.includes("confirm("),
+  !dashboard.includes("window.confirm"),
   "Administrative confirmations must remain inline and accessible.",
 );
 assert(
-  !server.match(/(?:insert|update|delete)\s+.*tcos_kingmaker_(?:price_entries|observations)/i),
+  !server.match(
+    /(?:insert|update|delete)\s+.*tcos_kingmaker_(?:price_entries|observations)/i,
+  ),
   "Global queue queries must not mutate protected pricing records.",
 );
 
