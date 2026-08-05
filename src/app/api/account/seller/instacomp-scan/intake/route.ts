@@ -6,7 +6,7 @@ import {
 import { analyzeWithInstaCompAiLocal } from "../../../../../../../lib/instacomp-ai-local";
 import { getActiveStoreId } from "../../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../../lib/supabase-server";
-import { POST as runVerifiedPricing } from "../../../inventory/instacomp-verified/route";
+import { POST as runVerifiedPricing } from "../../inventory/instacomp-verified/route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,16 +28,36 @@ function receiptValue(scan: Awaited<ReturnType<typeof analyzeWithInstaCompAiLoca
   return scan.checklist?.source_receipts?.find((value) => value.startsWith(prefix))?.slice(prefix.length) || null;
 }
 
-function titleFor(identity: Record<string, unknown>) {
+function canonicalFields(identity: Record<string, unknown>) {
+  return {
+    sport: text(identity.sport, 80),
+    league: text(identity.league, 80),
+    year: text(identity.year, 20),
+    manufacturer: text(identity.manufacturer || identity.brand, 100),
+    brand: text(identity.brand, 100),
+    setName: text(identity.set_name, 160),
+    player: text(identity.player, 180),
+    team: text(identity.team, 160),
+    cardNumber: text(identity.card_number, 80),
+    parallel: text(identity.parallel, 160),
+    variation: text(identity.variation, 160),
+    serialNumber: text(identity.serial_number, 80),
+    serialRun: typeof identity.serial_run === "number" ? identity.serial_run : null,
+    isAuto: identity.autograph === true,
+    isRelic: identity.memorabilia === true,
+  };
+}
+
+function titleFor(fields: ReturnType<typeof canonicalFields>) {
   return [
-    text(identity.year, 20),
-    text(identity.manufacturer || identity.brand, 100),
-    text(identity.set_name, 160),
-    text(identity.player, 180),
-    text(identity.card_number, 80) ? `#${text(identity.card_number, 80)}` : null,
-    text(identity.parallel, 160),
-    identity.autograph === true ? "Auto" : null,
-    identity.memorabilia === true ? "Relic" : null,
+    fields.year,
+    fields.manufacturer,
+    fields.setName,
+    fields.player,
+    fields.cardNumber ? `#${fields.cardNumber}` : null,
+    fields.parallel,
+    fields.isAuto ? "Auto" : null,
+    fields.isRelic ? "Relic" : null,
   ].filter(Boolean).join(" ");
 }
 
@@ -64,10 +84,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, code: "FRONT_IMAGE_REQUIRED", error: "Front image is required." }, { status: 400 });
     }
 
-    const scan = await analyzeWithInstaCompAiLocal({
-      front,
-      back: back instanceof Blob && back.size > 0 ? back : null,
-    });
+    const scan = await analyzeWithInstaCompAiLocal({ front, back: back instanceof Blob && back.size > 0 ? back : null });
     const identity = lockedIdentity(scan);
     const registryIdentityId = scan.checklist?.identity_id || receiptValue(scan, "registry_identity:");
     const registryFingerprint = receiptValue(scan, "registry_fingerprint:");
@@ -79,6 +96,11 @@ export async function POST(request: NextRequest) {
         error: scan.next_action || "Checklist Registry review is required before pricing.",
         scan,
       }, { status: 409, headers: { "Cache-Control": "no-store" } });
+    }
+
+    const fields = canonicalFields(identity);
+    if (!fields.year || !fields.manufacturer || !fields.cardNumber || !fields.player) {
+      return NextResponse.json({ success: false, code: "INCOMPLETE_REGISTRY_RECEIPT", error: "Registry receipt is missing canonical publish fields.", scan }, { status: 409 });
     }
 
     const supabase = createSupabaseServerClient({ admin: true });
@@ -103,7 +125,8 @@ export async function POST(request: NextRequest) {
       }, { status: 409, headers: { "Cache-Control": "no-store" } });
     }
 
-    const title = titleFor(identity) || `InstaComp scan ${scan.scan_id}`;
+    const checkedAt = new Date().toISOString();
+    const title = titleFor(fields) || `InstaComp scan ${scan.scan_id}`;
     const metadata = {
       instacomp: {
         source: "mac_registry_scanner",
@@ -115,17 +138,19 @@ export async function POST(request: NextRequest) {
         humanVerified: false,
         pricingStatus: "not_run",
         scanReceipt: scan,
-      },
-      checklist_registry: {
-        status: "identified",
-        registry_identity_id: registryIdentityId,
-        registry_fingerprint_sha256: registryFingerprint,
-        verified_at: new Date().toISOString(),
-        locked_fields: identity,
+        checklistIdentity: {
+          status: "identified",
+          source: "checklist_registry",
+          registryIdentityId,
+          registryFingerprintSha256: registryFingerprint,
+          checkedAt,
+          reasons: scan.checklist?.reasons || [],
+          lockedFields: fields,
+        },
       },
       collectible_asset: {
-        exact_serial_number: text(identity.serial_number, 80),
-        serial_run: typeof identity.serial_run === "number" ? identity.serial_run : null,
+        exact_serial_number: fields.serialNumber,
+        serial_run: fields.serialRun,
       },
       seller_review: { identity_confirmed: false },
     };
