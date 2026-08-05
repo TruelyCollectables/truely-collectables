@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import io
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from PIL import Image, ImageOps
 
 ALLOWED_FORMATS = {"JPEG": "jpg", "PNG": "png", "WEBP": "webp"}
+SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
 
 @dataclass(frozen=True)
@@ -58,10 +60,23 @@ def pair_hash(front_sha256: str, back_sha256: str | None) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def persisted_image_path(root: Path, sha256: str, side: str) -> Path:
+    normalized_sha = sha256.strip().lower()
+    if not SHA256_PATTERN.fullmatch(normalized_sha):
+        raise ValueError("Invalid archived image hash")
+    if side not in {"front", "back"}:
+        raise ValueError("Archived image side must be front or back")
+    return (
+        root
+        / normalized_sha[:2]
+        / normalized_sha[2:4]
+        / f"{normalized_sha}-{side}.jpg"
+    )
+
+
 def persist_image(image: ValidatedImage, root: Path, side: str) -> Path:
-    directory = root / image.sha256[:2] / image.sha256[2:4]
-    directory.mkdir(parents=True, exist_ok=True)
-    target = directory / f"{image.sha256}-{side}.{image.extension}"
+    target = persisted_image_path(root, image.sha256, side)
+    target.parent.mkdir(parents=True, exist_ok=True)
     if not target.exists():
         target.write_bytes(image.content)
     return target
