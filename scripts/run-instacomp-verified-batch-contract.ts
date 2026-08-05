@@ -19,8 +19,12 @@ assert.ok(
   "batch route must never invoke the unverified pricing route",
 );
 assert.ok(
-  route.includes('"x-instacomp-batch-checklist-enforced": "true"'),
+  route.includes('headers.set("x-instacomp-batch-checklist-enforced", "true")'),
   "batch route must emit its checklist enforcement receipt",
+);
+assert.ok(
+  route.includes("instaCompResponseHeaders"),
+  "batch route must preserve the versioned shared response contract",
 );
 assert.ok(
   route.includes("MAX_BATCH_SIZE = 50"),
@@ -41,6 +45,10 @@ assert.ok(
 assert.ok(
   client.includes("runVerifiedInstaCompPricingBatch"),
   "shared client must expose batch execution for web and Mobile",
+);
+assert.ok(
+  client.includes("/api/account/seller/inventory/instacomp-verified-batch"),
+  "shared client must use the protected server batch endpoint",
 );
 
 console.log("InstaComp verified batch contract passed.");
