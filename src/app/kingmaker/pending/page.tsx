@@ -69,7 +69,7 @@ export default function KingmakerPendingPage() {
     try {
       const session = await getFreshAccountSession(5 * 60, false);
       if (!session?.access_token) throw new Error("Seller login is required.");
-      const response = await fetch("/api/account/seller/inventory/instacomp", {
+      const response = await fetch("/api/account/seller/inventory/instacomp-front-back", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -78,17 +78,13 @@ export default function KingmakerPendingPage() {
         body: JSON.stringify({
           inventoryItemId: card.inventoryItemId,
           aiCouncilTier: "adaptive",
-          forceIdentityRescan: true,
-          requireFrontBackPair: true,
-          expectedFrontImageUrl: card.frontImageUrl,
-          expectedBackImageUrl: card.backImageUrl,
         }),
       });
       const data = await response.json();
-      if (!response.ok || data.success !== true) {
-        throw new Error(data.error || "Front/back InstaComp scan failed.");
+      if (!response.ok || data.success !== true || data.frontBackContract?.enforced !== true) {
+        throw new Error(data.error || "Front/back InstaComp scan failed its enforcement contract.");
       }
-      setNotice(`${card.title}: fresh InstaComp identity completed from the stored front and back pair.`);
+      setNotice(`${card.title}: fresh InstaComp identity completed from the verified stored front and back pair.`);
       await load();
     } catch (nextError) {
       setError(message(nextError));
@@ -105,7 +101,7 @@ export default function KingmakerPendingPage() {
             <p className="text-xs font-black uppercase tracking-[0.18em] text-sky-800">Kingmaker / Verified image pairs</p>
             <h1 className="mt-1 text-3xl font-black">Pending Front + Back Scans</h1>
             <p className="mt-2 max-w-3xl font-semibold text-neutral-700">
-              InstaComp is blocked unless two distinct stored images are present. Every scan from this page forces a new identity run using both sides.
+              InstaComp is blocked unless two distinct stored image rows are present. Every scan from this page forces a new identity run using both sides.
             </p>
           </div>
           <button type="button" onClick={() => void load()} disabled={loading || Boolean(busyId)} className="rounded-xl bg-neutral-950 px-4 py-3 font-black text-white disabled:opacity-50">
