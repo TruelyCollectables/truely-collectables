@@ -19,9 +19,11 @@ function baseUrl() {
   return (process.env.INSTACOMP_AI_LOCAL_URL || "http://127.0.0.1:8787").replace(/\/+$/, "");
 }
 
-function headers() {
+function requestHeaders(): Headers {
+  const headers = new Headers();
   const key = process.env.INSTACOMP_AI_LOCAL_KEY?.trim();
-  return key ? { "X-InstaComp-AI-Key": key } : {};
+  if (key) headers.set("X-InstaComp-AI-Key", key);
+  return headers;
 }
 
 export async function analyzeWithInstaCompAiLocal(params: {
@@ -34,7 +36,7 @@ export async function analyzeWithInstaCompAiLocal(params: {
   if (params.back) body.append("back", params.back, "back.jpg");
   const response = await fetch(`${baseUrl()}/v1/scans/analyze`, {
     method: "POST",
-    headers: headers(),
+    headers: requestHeaders(),
     body,
     cache: "no-store",
     signal: AbortSignal.timeout(params.timeoutMs ?? 150_000),
