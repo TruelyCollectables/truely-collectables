@@ -58,13 +58,19 @@ def build_checklist_router(require_api_key) -> APIRouter:
                 stderr=subprocess.PIPE,
             )
             stdout, stderr = await process.communicate()
+            stderr_text = stderr.decode("utf-8", errors="replace")
+            if process.returncode == 4:
+                raise HTTPException(
+                    status_code=409,
+                    detail="The scheduled or another manual checklist sync is already running",
+                )
             if process.returncode not in {0, 3}:
                 raise HTTPException(
                     status_code=500,
                     detail={
                         "message": "Checklist sync failed",
                         "exit_code": process.returncode,
-                        "stderr": stderr.decode("utf-8", errors="replace")[-8000:],
+                        "stderr": stderr_text[-8000:],
                     },
                 )
             return {
@@ -72,7 +78,7 @@ def build_checklist_router(require_api_key) -> APIRouter:
                 "registry_ready": process.returncode == 0,
                 "exit_code": process.returncode,
                 "stdout": stdout.decode("utf-8", errors="replace")[-12000:],
-                "stderr": stderr.decode("utf-8", errors="replace")[-4000:],
+                "stderr": stderr_text[-4000:],
                 "last_sync": _load_json(receipt_path),
             }
 
