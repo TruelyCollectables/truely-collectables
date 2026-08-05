@@ -18,6 +18,7 @@ _STARTED_AT = datetime.now(timezone.utc)
 _ASSETS = {
     "cockpit.css": "text/css",
     "cockpit.js": "application/javascript",
+    "cockpit-doctor.js": "application/javascript",
 }
 
 _LOGS = {
@@ -52,6 +53,10 @@ def build_cockpit_router(require_api_key) -> APIRouter:
         }
         for marker, value in replacements.items():
             page = page.replace(marker, _escape_html(value))
+        page = page.replace(
+            "</body>",
+            '<script defer src="/control/assets/cockpit-doctor.js"></script></body>',
+        )
         return page
 
     @router.get("/control/assets/{asset_name}")
