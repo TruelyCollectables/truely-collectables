@@ -4,7 +4,11 @@ on:
   pull_request:
     paths:
       - "supabase/migrations/20260804074500_private_pricing_work_order_activity.sql"
+      - "supabase/migrations/20260804083000_private_pricing_work_order_reviews.sql"
+      - "supabase/migrations/20260804111500_private_pricing_work_order_execution.sql"
+      - "supabase/migrations/20260805010500_private_pricing_execution_activity_timeline.sql"
       - "scripts/run-kingmaker-private-pricing-work-order-activity-regressions.sql"
+      - "scripts/run-kingmaker-private-pricing-execution-activity-regressions.sql"
       - "scripts/run-kingmaker-private-pricing-work-order-activity-regressions.ts"
       - "src/lib/kingmaker-private-pricing-work-order-activity-server.ts"
       - "src/app/api/instacomp/pricing/coverage/work-orders/activity/route.ts"
@@ -19,7 +23,7 @@ permissions:
 jobs:
   verify-work-order-activity:
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 45
 
     services:
       postgres:
@@ -42,16 +46,13 @@ jobs:
       PGUSER: postgres
       PGPASSWORD: postgres
       PGDATABASE: kingmaker_work_order_activity_test
-      CHECKLIST_MIGRATION: supabase/migrations/20260725200000_tcos_checklist_registry_core.sql
-      KINGMAKER_MIGRATION: supabase/migrations/20260803030000_kingmaker_intelligence_fusion.sql
-      COVERAGE_MIGRATION: supabase/migrations/20260804034500_kingmaker_private_pricing_coverage.sql
-      SNAPSHOT_MIGRATION: supabase/migrations/20260804043000_cache_kingmaker_private_pricing_coverage.sql
-      SNAPSHOT_TEMP_FIX: supabase/migrations/20260804043100_fix_private_pricing_coverage_refresh_temp_table.sql
-      QUALITY_FIREWALL: supabase/migrations/20260804050000_private_pricing_coverage_quality_firewall.sql
-      QUALITY_PERIOD_FIX: supabase/migrations/20260804050100_fix_private_pricing_quality_periods.sql
-      WORK_ORDERS_MIGRATION: supabase/migrations/20260804062000_private_pricing_coverage_work_orders.sql
-      RECONCILIATION_MIGRATION: supabase/migrations/20260804070000_private_pricing_work_order_reconciliation.sql
-      ACTIVITY_MIGRATION: supabase/migrations/20260804074500_private_pricing_work_order_activity.sql
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-service-role-key
+      ADMIN_PASSWORD: build-only-admin-password
+      ADMIN_SESSION_SECRET: build-only-admin-session-secret-with-sufficient-length
+      STRIPE_SECRET_KEY: sk_test_build_only
+      NEXT_PUBLIC_SITE_URL: https://truely-collectables.vercel.app
 
     steps:
       - uses: actions/checkout@v4
@@ -82,33 +83,51 @@ jobs:
           );
           SQL
 
-      - name: Apply Registry, coverage, work-order, reconciliation, and activity migrations
+      - name: Apply complete private pricing work-order migration chain
         run: |
           PRIVATE_PRICING_MIGRATION="$(find supabase/migrations -maxdepth 1 -name '20260803043000_kingmaker_*_price_guides.sql' -print -quit)"
           test -n "$PRIVATE_PRICING_MIGRATION"
-          psql -v ON_ERROR_STOP=1 --file "$CHECKLIST_MIGRATION"
-          psql -v ON_ERROR_STOP=1 --file "$KINGMAKER_MIGRATION"
-          psql -v ON_ERROR_STOP=1 --file "$PRIVATE_PRICING_MIGRATION"
-          psql -v ON_ERROR_STOP=1 --file "$COVERAGE_MIGRATION"
-          psql -v ON_ERROR_STOP=1 --file "$SNAPSHOT_MIGRATION"
-          psql -v ON_ERROR_STOP=1 --file "$SNAPSHOT_TEMP_FIX"
-          psql -v ON_ERROR_STOP=1 --file "$QUALITY_FIREWALL"
-          psql -v ON_ERROR_STOP=1 --file "$QUALITY_PERIOD_FIX"
-          psql -v ON_ERROR_STOP=1 --file "$WORK_ORDERS_MIGRATION"
-          psql -v ON_ERROR_STOP=1 --file "$RECONCILIATION_MIGRATION"
-          psql -v ON_ERROR_STOP=1 --file "$ACTIVITY_MIGRATION"
+          for migration in \
+            supabase/migrations/20260725200000_tcos_checklist_registry_core.sql \
+            supabase/migrations/20260803030000_kingmaker_intelligence_fusion.sql \
+            "$PRIVATE_PRICING_MIGRATION" \
+            supabase/migrations/20260804034500_kingmaker_private_pricing_coverage.sql \
+            supabase/migrations/20260804043000_cache_kingmaker_private_pricing_coverage.sql \
+            supabase/migrations/20260804043100_fix_private_pricing_coverage_refresh_temp_table.sql \
+            supabase/migrations/20260804050000_private_pricing_coverage_quality_firewall.sql \
+            supabase/migrations/20260804050100_fix_private_pricing_quality_periods.sql \
+            supabase/migrations/20260804062000_private_pricing_coverage_work_orders.sql \
+            supabase/migrations/20260804070000_private_pricing_work_order_reconciliation.sql \
+            supabase/migrations/20260804071500_preserve_private_pricing_work_order_constraints.sql \
+            supabase/migrations/20260804074500_private_pricing_work_order_activity.sql \
+            supabase/migrations/20260804083000_private_pricing_work_order_reviews.sql \
+            supabase/migrations/20260804111500_private_pricing_work_order_execution.sql \
+            supabase/migrations/20260805010500_private_pricing_execution_activity_timeline.sql; do
+            psql -v ON_ERROR_STOP=1 --file "$migration"
+          done
 
-      - name: Reapply activity migration to prove idempotence
-        run: psql -v ON_ERROR_STOP=1 --file "$ACTIVITY_MIGRATION"
+      - name: Reapply execution activity migration to prove idempotence
+        run: >-
+          psql -v ON_ERROR_STOP=1
+          --file supabase/migrations/20260805010500_private_pricing_execution_activity_timeline.sql
 
-      - name: Run ordering, filtering, privacy, privilege, and zero-promotion regression
-        run: psql -v ON_ERROR_STOP=1 --file scripts/run-kingmaker-private-pricing-work-order-activity-regressions.sql
+      - name: Run original ordering, privacy, and zero-promotion regression
+        run: >-
+          psql -v ON_ERROR_STOP=1
+          --file scripts/run-kingmaker-private-pricing-work-order-activity-regressions.sql
+
+      - name: Run execution and review activity regression
+        run: >-
+          psql -v ON_ERROR_STOP=1
+          --file scripts/run-kingmaker-private-pricing-execution-activity-regressions.sql
 
       - name: Install application dependencies
         run: npm ci
 
       - name: Run application activity boundary regression
-        run: node --import tsx scripts/run-kingmaker-private-pricing-work-order-activity-regressions.ts
+        run: >-
+          node --import tsx
+          scripts/run-kingmaker-private-pricing-work-order-activity-regressions.ts
 
       - name: Lint activity files
         run: >-
@@ -121,3 +140,6 @@ jobs:
 
       - name: Type-check application
         run: npx tsc --noEmit
+
+      - name: Production build
+        run: npm run build
