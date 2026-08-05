@@ -1,0 +1,134 @@
+name: KINGMAKER Work Order Target History
+
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/20260805012500_private_pricing_work_order_target_history.sql"
+      - "scripts/run-kingmaker-private-pricing-target-history-regressions.sql"
+      - "scripts/certify-kingmaker-target-history.mjs"
+      - "src/lib/kingmaker-private-pricing-work-order-target-history-server.ts"
+      - "src/app/api/instacomp/pricing/coverage/work-orders/execution/history/route.ts"
+      - "src/app/admin/instacomp/pricing/_components/private-pricing-work-order-target-history.tsx"
+      - "src/app/admin/instacomp/pricing/_components/private-pricing-work-order-execution.tsx"
+      - ".github/workflows/kingmaker-work-order-target-history.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  certify-target-history:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: kingmaker_target_history_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d kingmaker_target_history_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: kingmaker_target_history_test
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-service-role-key
+      ADMIN_PASSWORD: build-only-admin-password
+      ADMIN_SESSION_SECRET: build-only-admin-session-secret-with-sufficient-length
+      STRIPE_SECRET_KEY: sk_test_build_only
+      NEXT_PUBLIC_SITE_URL: https://truely-collectables.vercel.app
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+
+      - name: Create Supabase-compatible roles and storage contract
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          do $$ begin create role anon nologin; exception when duplicate_object then null; end $$;
+          do $$ begin create role authenticated nologin; exception when duplicate_object then null; end $$;
+          do $$ begin create role service_role nologin bypassrls; exception when duplicate_object then null; end $$;
+          create schema if not exists storage;
+          create table if not exists storage.buckets (
+            id text primary key,
+            name text not null unique,
+            public boolean not null default false,
+            file_size_limit bigint,
+            allowed_mime_types text[]
+          );
+          SQL
+
+      - name: Apply complete private pricing work-order migration chain
+        run: |
+          PRIVATE_PRICING_MIGRATION="$(find supabase/migrations -maxdepth 1 -name '20260803043000_kingmaker_*_price_guides.sql' -print -quit)"
+          test -n "$PRIVATE_PRICING_MIGRATION"
+          for migration in \
+            supabase/migrations/20260725200000_tcos_checklist_registry_core.sql \
+            supabase/migrations/20260803030000_kingmaker_intelligence_fusion.sql \
+            "$PRIVATE_PRICING_MIGRATION" \
+            supabase/migrations/20260804034500_kingmaker_private_pricing_coverage.sql \
+            supabase/migrations/20260804043000_cache_kingmaker_private_pricing_coverage.sql \
+            supabase/migrations/20260804043100_fix_private_pricing_coverage_refresh_temp_table.sql \
+            supabase/migrations/20260804050000_private_pricing_coverage_quality_firewall.sql \
+            supabase/migrations/20260804050100_fix_private_pricing_quality_periods.sql \
+            supabase/migrations/20260804062000_private_pricing_coverage_work_orders.sql \
+            supabase/migrations/20260804070000_private_pricing_work_order_reconciliation.sql \
+            supabase/migrations/20260804071500_preserve_private_pricing_work_order_constraints.sql \
+            supabase/migrations/20260804074500_private_pricing_work_order_activity.sql \
+            supabase/migrations/20260804083000_private_pricing_work_order_reviews.sql \
+            supabase/migrations/20260804111500_private_pricing_work_order_execution.sql \
+            supabase/migrations/20260805010500_private_pricing_execution_activity_timeline.sql \
+            supabase/migrations/20260805012500_private_pricing_work_order_target_history.sql; do
+            psql -v ON_ERROR_STOP=1 --file "$migration"
+          done
+
+      - name: Reapply target history migration to prove idempotence
+        run: >-
+          psql -v ON_ERROR_STOP=1
+          --file supabase/migrations/20260805012500_private_pricing_work_order_target_history.sql
+
+      - name: Run target history PostgreSQL regression
+        run: >-
+          psql -v ON_ERROR_STOP=1
+          --file scripts/run-kingmaker-private-pricing-target-history-regressions.sql
+
+      - name: Certify application target history boundary
+        run: node scripts/certify-kingmaker-target-history.mjs
+
+      - name: Install application dependencies
+        run: npm ci
+
+      - name: Lint target history files
+        run: >-
+          npx eslint
+          src/lib/kingmaker-private-pricing-work-order-target-history-server.ts
+          src/app/api/instacomp/pricing/coverage/work-orders/execution/history/route.ts
+          src/app/admin/instacomp/pricing/_components/private-pricing-work-order-target-history.tsx
+          src/app/admin/instacomp/pricing/_components/private-pricing-work-order-execution.tsx
+
+      - name: Type-check application
+        run: npx tsc --noEmit
+
+      - name: Production build
+        run: npm run build

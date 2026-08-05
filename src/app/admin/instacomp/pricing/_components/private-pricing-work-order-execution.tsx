@@ -8,6 +8,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import PrivatePricingWorkOrderTargetHistory from "./private-pricing-work-order-target-history";
 
 type Lane =
   | "unassigned"
@@ -281,7 +282,7 @@ export default function PrivatePricingWorkOrderExecution() {
     return () => window.clearTimeout(timer);
   }, [load]);
 
-  const rows = report?.rows || [];
+  const rows = useMemo(() => report?.rows || [], [report]);
   const selectedRows = useMemo(
     () => rows.filter((row) => selected.has(row.attackKey)),
     [rows, selected],
@@ -492,8 +493,8 @@ export default function PrivatePricingWorkOrderExecution() {
             <h2 className="mt-1 text-3xl font-black">Execution Queue</h2>
             <p className="mt-2 max-w-4xl font-semibold text-neutral-300">
               Search and sort the entire backlog, jump directly to any matching
-              page, and update as many as 250 selected work orders in one
-              protected batch.
+              page, inspect a target&apos;s immutable history, and update as many as
+              250 selected work orders in one protected batch.
             </p>
           </div>
           <button
@@ -1022,6 +1023,7 @@ function ExecutionRow({
     blockedReason: row.blockedReason || "",
     resolutionCode: row.resolutionCode || "",
   });
+  const targetLabel = `${row.releaseYear} ${row.manufacturer} ${row.product}`;
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1036,7 +1038,7 @@ function ExecutionRow({
           checked={selected}
           onChange={() => onToggle(row.attackKey)}
           disabled={saving}
-          aria-label={`Select ${row.releaseYear} ${row.manufacturer} ${row.product}`}
+          aria-label={`Select ${targetLabel}`}
           className="h-5 w-5"
         />
       </td>
@@ -1049,9 +1051,7 @@ function ExecutionRow({
         </p>
       </td>
       <td className="px-4 py-4">
-        <p className="font-black">
-          {row.releaseYear} {row.manufacturer} {row.product}
-        </p>
+        <p className="font-black">{targetLabel}</p>
         <p className="mt-1 text-sm font-semibold text-neutral-600">
           {row.sport} · {row.setName} · {row.gapType.replaceAll("_", " ")}
         </p>
@@ -1165,6 +1165,11 @@ function ExecutionRow({
             >
               Record Resolution
             </button>
+            <PrivatePricingWorkOrderTargetHistory
+              attackKey={row.attackKey}
+              label={targetLabel}
+              disabled={saving}
+            />
           </div>
         </form>
       </td>
