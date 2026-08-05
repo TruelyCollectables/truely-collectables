@@ -99,6 +99,53 @@ function effectiveGraderStatus(metadata: Record<string, unknown>) {
   return stored || "pending";
 }
 
+type StoredImage = {
+  inventory_item_id: string;
+  image_url: string | null;
+  alt_text: string | null;
+  sort_order: number | null;
+  is_primary: boolean | null;
+};
+
+function normalizedImages(rows: StoredImage[]) {
+  return [...rows]
+    .filter((row) => Boolean(textValue(row.image_url)))
+    .sort((left, right) => {
+      if (left.is_primary === true && right.is_primary !== true) return -1;
+      if (right.is_primary === true && left.is_primary !== true) return 1;
+      return Number(left.sort_order || 0) - Number(right.sort_order || 0);
+    })
+    .map((row) => ({
+      url: textValue(row.image_url) as string,
+      altText: textValue(row.alt_text),
+      sortOrder: Number(row.sort_order || 0),
+      isPrimary: row.is_primary === true,
+    }));
+}
+
+function imagePairForItem(rows: StoredImage[]) {
+  const images = normalizedImages(rows);
+  const front =
+    images.find((image) => image.isPrimary) ||
+    images.find((image) => /\bfront\b/i.test(image.altText || "")) ||
+    images[0] ||
+    null;
+  const back =
+    images.find((image) => /\bback\b/i.test(image.altText || "")) ||
+    images.find((image) => !image.isPrimary && image.url !== front?.url) ||
+    images.find((image) => image.url !== front?.url) ||
+    null;
+
+  return {
+    images,
+    frontImageUrl: front?.url || null,
+    backImageUrl: back?.url || null,
+    hasStoredFrontImage: Boolean(front?.url),
+    hasStoredBackImage: Boolean(back?.url),
+    storedImageCount: images.length,
+  };
+}
+
 export async function GET(request: Request) {
   try {
     const account = await getAuthenticatedAccountFromRequest(request);
@@ -140,6 +187,27 @@ export async function GET(request: Request) {
       return Boolean(textValue(instaComp.source) || textValue(instaComp.scanId));
     });
 
+    const itemIds = rows.map((row: any) => String(row.id));
+    const { data: storedImages, error: imageError } =
+      itemIds.length === 0
+        ? { data: [], error: null }
+        : await supabase
+            .from("inventory_images")
+            .select(
+              "inventory_item_id,image_url,alt_text,sort_order,is_primary",
+            )
+            .in("inventory_item_id", itemIds)
+            .order("sort_order", { ascending: true });
+    if (imageError) throw imageError;
+
+    const imageRowsByItem = new Map<string, StoredImage[]>();
+    for (const image of (storedImages || []) as StoredImage[]) {
+      const key = String(image.inventory_item_id);
+      const current = imageRowsByItem.get(key) || [];
+      current.push(image);
+      imageRowsByItem.set(key, current);
+    }
+
     const productIds = Array.from(
       new Set(
         rows
@@ -173,6 +241,23 @@ export async function GET(request: Request) {
       const product = row.legacy_product_id
         ? productMap.get(row.legacy_product_id)
         : null;
+      const storedPair = imagePairForItem(
+        imageRowsByItem.get(String(row.id)) || [],
+      );
+      const metadataBackUrl =
+        textValue(recordValue(instaComp.recoveredImageUrls).back) ||
+        (Array.isArray(instaComp.sourceImageUrls)
+          ? textValue(instaComp.sourceImageUrls[1])
+          : null) ||
+        (Array.isArray(metadata.ebay_image_urls)
+          ? textValue(metadata.ebay_image_urls[1])
+          : null);
+      const hasBackImage =
+        storedPair.hasStoredBackImage || Boolean(metadataBackUrl);
+      const displayFrontUrl =
+        storedPair.frontImageUrl || product?.image_url || null;
+      const displayBackUrl = storedPair.backImageUrl || metadataBackUrl || null;
+
       const suggestedPrice = optionalPrice(
         Object.prototype.hasOwnProperty.call(instaComp, "suggestedPrice")
           ? instaComp.suggestedPrice
@@ -185,14 +270,27 @@ export async function GET(request: Request) {
           : suggestedPrice > 0
             ? "suggested_from_reliable_sold_comps"
             : "seller_price_required");
+
+      const effectiveMetadata = hasBackImage
+        ? {
+            ...metadata,
+            instacomp: {
+              ...instaComp,
+              hasBackImage: true,
+              backSha256:
+                textValue(instaComp.backSha256) || "stored-image-row-confirmed",
+            },
+          }
+        : metadata;
+
       const blockers = getInventoryActivationBlockers({
         sku: row.sku || null,
         price: Number(row.price || 0),
         quantity: Number(row.quantity || 0),
-        imageUrl: product?.image_url || null,
+        imageUrl: displayFrontUrl,
         title: row.title || null,
         category: row.category || null,
-        metadata,
+        metadata: effectiveMetadata,
       });
       const exactSerialNumber = textValue(collectibleAsset.exact_serial_number);
       const gradingCertNumber =
@@ -210,7 +308,11 @@ export async function GET(request: Request) {
         status: row.status || "draft",
         quantity: Number(row.quantity || 0),
         price: Number(row.price || 0),
-        imageUrl: product?.image_url || null,
+        imageUrl: displayFrontUrl,
+        frontImageUrl: displayFrontUrl,
+        backImageUrl: displayBackUrl,
+        images: storedPair.images,
+        storedImageCount: storedPair.storedImageCount,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
         uniquePhysicalCopy,
@@ -231,7 +333,12 @@ export async function GET(request: Request) {
           scanId: textValue(instaComp.scanId),
           humanVerified: instaComp.humanVerified === true,
           serialNumber: textValue(ai.serialNumber) || exactSerialNumber,
-          hasBackImage: instaComp.hasBackImage === true,
+          hasBackImage,
+          backImageSource: storedPair.hasStoredBackImage
+            ? "inventory_images"
+            : metadataBackUrl
+              ? "metadata_url"
+              : "missing",
           suggestedPrice,
           pricingStatus,
           pricingReason:
@@ -294,6 +401,18 @@ export async function GET(request: Request) {
       {
         items,
         count: items.length,
+        imageAudit: {
+          itemCount: items.length,
+          withStoredBackImage: items.filter(
+            (item) => item.instaComp.backImageSource === "inventory_images",
+          ).length,
+          withMetadataBackImage: items.filter(
+            (item) => item.instaComp.backImageSource === "metadata_url",
+          ).length,
+          missingBackImage: items.filter(
+            (item) => item.instaComp.hasBackImage !== true,
+          ).length,
+        },
         pricingRule: {
           reliableSoldComps:
             "Exact sold comps establish market value. Exact active listings establish current competition. InstaComp combines both into a transparent sweet-spot listing suggestion.",
