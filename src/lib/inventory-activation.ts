@@ -13,7 +13,8 @@ export type InventoryActivationBlocker =
   | "missing_pass_guarantee_authenticator"
   | "missing_provenance_evidence"
   | "grader_verification_required"
-  | "grader_verification_conflict";
+  | "grader_verification_conflict"
+  | "instacomp_listing_review_required";
 
 function cleanText(value: string | null | undefined) {
   return value?.trim() || null;
@@ -29,12 +30,14 @@ function isAutographSensitive(params: {
   title: string | null;
   category: string | null;
   authenticity: AuthenticityProfile;
+  cardAutographObserved: boolean;
 }) {
   const title = cleanText(params.title)?.toLowerCase() || "";
   const category = cleanText(params.category)?.toLowerCase() || "";
   const authenticity = params.authenticity;
 
   return (
+    params.cardAutographObserved ||
     category === "autographs" ||
     title.includes("autograph") ||
     title.includes("autographed") ||
@@ -66,7 +69,25 @@ export function getInventoryActivationBlockers(params: {
   const authenticity = extractAuthenticityProfile(params.metadata);
   const collectibleAsset = recordValue(metadata.collectible_asset);
   const instaComp = recordValue(metadata.instacomp);
+  const checklistIdentity = recordValue(instaComp.checklistIdentity);
+  const listingOutput = recordValue(instaComp.listingOutput);
   const verifiedReference = recordValue(metadata.verified_reference);
+  const publicationStatus = cleanText(
+    typeof instaComp.publicationStatus === "string"
+      ? instaComp.publicationStatus
+      : typeof listingOutput.publicationStatus === "string"
+        ? listingOutput.publicationStatus
+        : null,
+  );
+  const cardAutographObserved = collectibleAsset.autograph === true;
+  const registryConfirmedCardAutograph = Boolean(
+    cardAutographObserved &&
+      checklistIdentity.source === "checklist_registry" &&
+      cleanText(String(checklistIdentity.registryIdentityId || "")) &&
+      cleanText(
+        String(checklistIdentity.registryFingerprintSha256 || ""),
+      ),
+  );
   const gradingCompany = cleanText(
     typeof collectibleAsset.grading_company === "string"
       ? collectibleAsset.grading_company
@@ -102,6 +123,9 @@ export function getInventoryActivationBlockers(params: {
   if (params.price <= 0) blockers.push("missing_price");
   if (params.quantity <= 0) blockers.push("missing_quantity");
   if (!params.imageUrl) blockers.push("missing_image");
+  if (publicationStatus === "review_required") {
+    blockers.push("instacomp_listing_review_required");
+  }
 
   if (gradingCompany) {
     if (graderVerificationStatus === "conflict") {
@@ -115,12 +139,18 @@ export function getInventoryActivationBlockers(params: {
     }
   }
 
-  if (isAutographSensitive({
-    title: params.title,
-    category: params.category,
-    authenticity,
-  })) {
-    if (authenticity.status === "not_applicable") {
+  if (
+    isAutographSensitive({
+      title: params.title,
+      category: params.category,
+      authenticity,
+      cardAutographObserved,
+    })
+  ) {
+    if (
+      authenticity.status === "not_applicable" &&
+      !registryConfirmedCardAutograph
+    ) {
       blockers.push("missing_authenticity_disclosure");
     }
 

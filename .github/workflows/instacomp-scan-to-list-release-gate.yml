@@ -1,0 +1,85 @@
+name: InstaComp Scan-to-List Release Gate
+
+on:
+  pull_request:
+    paths:
+      - "src/app/api/account/seller/instacomp-scan/intake/route.ts"
+      - "src/app/api/account/seller/instacomp-pending/publish/route.ts"
+      - "src/app/seller/instacomp-scan/**"
+      - "src/app/seller/instacomp-pending/**"
+      - "src/app/kingmaker/scan/**"
+      - "src/app/kingmaker/pending/**"
+      - "src/lib/instacomp-ai-local.ts"
+      - "src/lib/instacomp-channel-draft.ts"
+      - "src/lib/instacomp-copy-identity.ts"
+      - "src/lib/instacomp-inscription-evidence.ts"
+      - "src/lib/instacomp-listing-output.ts"
+      - "src/lib/instacomp-market-evidence.ts"
+      - "src/lib/instacomp-scan-review.ts"
+      - "src/lib/inventory-activation.ts"
+      - "scripts/certify-instacomp-direct-ui-integration.mjs"
+      - "scripts/run-instacomp-universal-inscription-listing-regressions.ts"
+      - "scripts/run-instacomp-scan-to-list-release-gate.ts"
+      - "scripts/run-instacomp-registry-autograph-activation-regressions.ts"
+      - "docs/INSTACOMP_SCAN_TO_LIST_RELEASE_GATE.md"
+      - ".github/workflows/instacomp-scan-to-list-release-gate.yml"
+  push:
+    paths:
+      - "src/app/api/account/seller/instacomp-scan/intake/route.ts"
+      - "src/app/api/account/seller/instacomp-pending/publish/route.ts"
+      - "src/app/seller/instacomp-scan/**"
+      - "src/app/seller/instacomp-pending/**"
+      - "src/app/kingmaker/scan/**"
+      - "src/app/kingmaker/pending/**"
+      - "src/lib/instacomp-ai-local.ts"
+      - "src/lib/instacomp-channel-draft.ts"
+      - "src/lib/instacomp-copy-identity.ts"
+      - "src/lib/instacomp-inscription-evidence.ts"
+      - "src/lib/instacomp-listing-output.ts"
+      - "src/lib/instacomp-market-evidence.ts"
+      - "src/lib/instacomp-scan-review.ts"
+      - "src/lib/inventory-activation.ts"
+      - "scripts/certify-instacomp-direct-ui-integration.mjs"
+      - "scripts/run-instacomp-universal-inscription-listing-regressions.ts"
+      - "scripts/run-instacomp-scan-to-list-release-gate.ts"
+      - "scripts/run-instacomp-registry-autograph-activation-regressions.ts"
+      - "docs/INSTACOMP_SCAN_TO_LIST_RELEASE_GATE.md"
+      - ".github/workflows/instacomp-scan-to-list-release-gate.yml"
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Universal inscription and copy-number regressions
+        run: node --import tsx scripts/run-instacomp-universal-inscription-listing-regressions.ts
+      - name: Registry autograph activation regressions
+        run: node --import tsx scripts/run-instacomp-registry-autograph-activation-regressions.ts
+      - name: Representative scan-to-list release matrix
+        run: node --import tsx scripts/run-instacomp-scan-to-list-release-gate.ts
+      - name: Direct scanner and Pending Listings certification
+        run: node scripts/certify-instacomp-direct-ui-integration.mjs
+      - name: Lint release-gate files
+        run: >-
+          npx eslint
+          src/app/api/account/seller/instacomp-scan/intake/route.ts
+          src/lib/instacomp-ai-local.ts
+          src/lib/instacomp-channel-draft.ts
+          src/lib/inventory-activation.ts
+          scripts/run-instacomp-scan-to-list-release-gate.ts
+          scripts/run-instacomp-registry-autograph-activation-regressions.ts
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Production build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key
+          NEXT_PUBLIC_SITE_URL: https://example.com
+        run: npm run build
