@@ -32,6 +32,19 @@ class Settings(BaseSettings):
     ollama_timeout_seconds: float = 120.0
     api_key: str | None = None
 
+    # Mac-owned Truely Collectables scheduler. The service LaunchAgent already
+    # survives reboots; this internal scheduler owns cadence, locking, retries,
+    # durable receipts, and the Deal Hunter chain without ChatGPT automations.
+    deal_hunter_enabled: bool = True
+    deal_hunter_run_on_startup: bool = True
+    deal_hunter_startup_delay_seconds: int = 45
+    deal_hunter_interval_minutes: int = 60
+    deal_hunter_site_url: str = "https://truelycollectables.com"
+    deal_hunter_per_query: int = 20
+    deal_hunter_max_candidates_per_run: int = 20
+    deal_hunter_candidate_cooldown_hours: int = 6
+    deal_hunter_request_timeout_seconds: float = 300.0
+
     @property
     def service_root(self) -> Path:
         return SERVICE_ROOT

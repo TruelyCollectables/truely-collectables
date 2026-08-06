@@ -6,6 +6,7 @@ from collections.abc import Callable
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from .config import settings
+from .deal_hunter_routes import build_deal_hunter_router
 from .local_settings import LocalSettingsManager, LocalSettingsUpdate
 from .sentinel_routes import build_sentinel_router
 
@@ -44,6 +45,11 @@ def build_settings_router(
             settings.service_root,
         )
     )
+
+    # The physical Mac also owns Deal Hunter under the same always-on service.
+    # It starts and stops with InstaComp AI, keeps durable run state locally,
+    # and does not depend on ChatGPT tasks for execution or recovery.
+    router.include_router(build_deal_hunter_router(require_api_key))
 
     @router.get(
         "/v1/settings/local",
