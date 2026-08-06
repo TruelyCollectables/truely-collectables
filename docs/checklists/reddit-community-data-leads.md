@@ -8,6 +8,8 @@ Purpose: identify collectors and developers who have publicly shared checklist s
 
 A public Reddit post, Google Sheet, Drive file, Dropbox file, or GitHub repository is a contact lead, not automatic permission for commercial Registry ingestion. Before importing a contributed dataset, retain a written permission receipt covering normalization, commercial use, attribution, corrections, and redistribution of derived factual records. Do not import card images unless the contributor separately owns or licenses those images.
 
+TCDB is excluded from automated capture and community backdoor intake. Do not accept or import a TCDB scrape, database dump, bulk PDF capture, or derivative workbook unless TCDB provides written permission or a licensed export.
+
 ## Priority contacts
 
 | Priority | Reddit user | Scope | Public evidence | Why contact them | Current permission status |
