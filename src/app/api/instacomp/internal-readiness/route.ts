@@ -1,7 +1,11 @@
+import { lookup } from "node:dns/promises";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const HEALTH_TIMEOUT_MS = 20_000;
+const DNS_TIMEOUT_MS = 5_000;
 
 function configuredLocalUrl() {
   const value = String(process.env.INSTACOMP_AI_LOCAL_URL || "")
@@ -24,10 +28,95 @@ function readinessResponse(
   return NextResponse.json(payload, {
     status,
     headers: {
-      "Cache-Control": "public, max-age=0, s-maxage=30, stale-while-revalidate=60",
+      "Cache-Control": "private, no-store, max-age=0",
       "X-Content-Type-Options": "nosniff",
     },
   });
+}
+
+function normalizedErrorCode(value: unknown) {
+  const code = String(value || "")
+    .trim()
+    .toUpperCase();
+  const allowed = new Set([
+    "ENOTFOUND",
+    "EAI_AGAIN",
+    "ECONNREFUSED",
+    "ECONNRESET",
+    "ETIMEDOUT",
+    "EHOSTUNREACH",
+    "ENETUNREACH",
+    "UND_ERR_CONNECT_TIMEOUT",
+    "UND_ERR_HEADERS_TIMEOUT",
+    "CERT_HAS_EXPIRED",
+    "ERR_TLS_CERT_ALTNAME_INVALID",
+    "DEPTH_ZERO_SELF_SIGNED_CERT",
+  ]);
+  return allowed.has(code) ? code.toLowerCase() : null;
+}
+
+function safeNetworkFailure(error: unknown) {
+  const record =
+    error && typeof error === "object"
+      ? (error as Record<string, unknown>)
+      : null;
+  const cause =
+    record?.cause && typeof record.cause === "object"
+      ? (record.cause as Record<string, unknown>)
+      : null;
+  const name = String(record?.name || "").trim();
+  const message = String(record?.message || "").toLowerCase();
+  const timedOut =
+    name === "TimeoutError" ||
+    name === "AbortError" ||
+    /timeout|timed out/.test(message);
+  const code =
+    normalizedErrorCode(cause?.code) || normalizedErrorCode(record?.code);
+
+  return {
+    reason: timedOut
+      ? "internal_engine_health_timeout"
+      : code
+        ? `internal_engine_network_${code}`
+        : "internal_engine_health_unreachable",
+    networkErrorCode: code,
+    networkErrorName:
+      name === "TypeError" || name === "TimeoutError" || name === "AbortError"
+        ? name
+        : null,
+  };
+}
+
+async function resolveConfiguredHostname(baseUrl: string) {
+  const hostname = new URL(baseUrl).hostname;
+  try {
+    const records = await Promise.race([
+      lookup(hostname, { all: true, verbatim: true }),
+      new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error("dns_timeout")), DNS_TIMEOUT_MS);
+      }),
+    ]);
+    return {
+      dnsResolved: records.length > 0,
+      dnsRecordCount: records.length,
+      dnsFamilies: Array.from(
+        new Set(records.map((record) => record.family)),
+      ).sort(),
+      dnsErrorCode: null,
+    };
+  } catch (error) {
+    const record =
+      error && typeof error === "object"
+        ? (error as Record<string, unknown>)
+        : null;
+    const code = normalizedErrorCode(record?.code);
+    return {
+      dnsResolved: false,
+      dnsRecordCount: 0,
+      dnsFamilies: [] as number[],
+      dnsErrorCode: code || "dns_lookup_failed",
+    };
+  }
 }
 
 export async function GET() {
@@ -41,6 +130,7 @@ export async function GET() {
         ok: false,
         configured: false,
         reachable: false,
+        dnsResolved: false,
         internalMemoryReady: false,
         checklistReady: false,
         ollamaBackupReady: false,
@@ -51,6 +141,8 @@ export async function GET() {
     );
   }
 
+  const dns = await resolveConfiguredHostname(baseUrl);
+
   try {
     const headers = new Headers();
     const key = String(process.env.INSTACOMP_AI_LOCAL_KEY || "").trim();
@@ -58,7 +150,8 @@ export async function GET() {
     const response = await fetch(`${baseUrl}/health`, {
       headers,
       cache: "no-store",
-      signal: AbortSignal.timeout(8_000),
+      redirect: "error",
+      signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
     });
     const health = (await response.json().catch(() => null)) as
       | Record<string, unknown>
@@ -69,6 +162,7 @@ export async function GET() {
           ok: false,
           configured: true,
           reachable: true,
+          ...dns,
           internalMemoryReady: false,
           checklistReady: false,
           ollamaBackupReady: false,
@@ -88,6 +182,7 @@ export async function GET() {
         ok,
         configured: true,
         reachable: true,
+        ...dns,
         internalMemoryReady,
         checklistReady,
         ollamaBackupReady,
@@ -105,21 +200,18 @@ export async function GET() {
       ok ? 200 : 503,
     );
   } catch (error) {
-    const timedOut =
-      error instanceof Error &&
-      (error.name === "TimeoutError" || /timeout/i.test(error.message));
+    const failure = safeNetworkFailure(error);
     return readinessResponse(
       {
         ok: false,
         configured: true,
         reachable: false,
+        ...dns,
         internalMemoryReady: false,
         checklistReady: false,
         ollamaBackupReady: false,
         openAiEmergencyConfigured: emergencyConfigured,
-        reason: timedOut
-          ? "internal_engine_health_timeout"
-          : "internal_engine_health_unreachable",
+        ...failure,
       },
       503,
     );
