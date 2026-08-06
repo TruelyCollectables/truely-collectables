@@ -32,10 +32,6 @@ function text(value: unknown, maximum = 2_000) {
   return cleaned ? cleaned.slice(0, maximum) : null;
 }
 
-function booleanOrNull(value: unknown) {
-  return typeof value === "boolean" ? value : null;
-}
-
 function numberOrZero(value: unknown) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -203,19 +199,19 @@ export async function GET(request: NextRequest) {
       const metadata = record(row.metadata);
       const instaComp = record(metadata.instacomp);
       const ai = record(instaComp.ai);
-      const asset = record(metadata.collectible_asset);
       const orientation = record(instaComp.imageOrientation);
       const checklistDecision = record(instaComp.checklistDecision);
       const parallelDecision = record(instaComp.parallelDecision);
       const identityComplete = instaComp.identityComplete === true;
+      const manuallyLocked = instaComp.manualIdentityLocked === true;
+      const trustedParallel = text(
+        ai.checklistParallel || ai.parallelName || ai.parallel,
+        160,
+      );
       const parallel =
-        text(
-          ai.checklistParallel ||
-            ai.parallelName ||
-            ai.parallel ||
-            asset.parallel_name,
-          160,
-        ) || (identityComplete ? "Base" : null);
+        identityComplete || manuallyLocked
+          ? trustedParallel || "Base"
+          : null;
 
       return {
         inventoryItemId: String(row.id),
@@ -227,7 +223,7 @@ export async function GET(request: NextRequest) {
         ),
         identity: {
           identityComplete,
-          locked: instaComp.manualIdentityLocked === true,
+          locked: manuallyLocked,
           humanVerified: instaComp.humanVerified === true,
           trustedForIdentity: instaComp.trustedForIdentity === true,
           savedAt: text(instaComp.manualIdentitySavedAt, 80),
