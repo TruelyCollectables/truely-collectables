@@ -1,1 +1,1 @@
-Trigger the checklist-only unresolved-scan contract repair and full certification.
+Trigger the checklist-only unresolved-scan contract repair and full certification after PR #744 opened.
