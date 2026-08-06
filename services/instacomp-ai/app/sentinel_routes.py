@@ -1,12 +1,56 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
+import json
+import os
 from pathlib import Path
 from typing import Any, Callable
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+import httpx
+from fastapi import (
+    APIRouter,
+    Body,
+    Depends,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    Query,
+    UploadFile,
+)
 
 from .sentinel import ChecklistSentinel
 from .sentinel_sources import targets_from_payload
+
+_MAX_RELAY_BYTES = 50_000_000
+
+
+def _constant_time_text_equal(left: str, right: str) -> bool:
+    return bool(left and right and hmac.compare_digest(left.encode(), right.encode()))
+
+
+def _archive_token_valid(
+    provided: str | None,
+    authorization: str | None = None,
+) -> bool:
+    expected = os.getenv("INSTACOMP_AI_SENTINEL_ARCHIVE_TOKEN", "").strip()
+    if _constant_time_text_equal((provided or "").strip(), expected):
+        return True
+    scheme, _, encoded = (authorization or "").partition(" ")
+    if scheme.lower() != "basic" or not encoded.strip():
+        return False
+    try:
+        decoded = base64.b64decode(encoded.strip(), validate=True).decode("utf-8")
+    except (ValueError, UnicodeDecodeError):
+        return False
+    username, separator, password = decoded.partition(":")
+    return bool(
+        separator
+        and username == "sentinel"
+        and _constant_time_text_equal(password, expected)
+    )
 
 
 def build_sentinel_router(
@@ -18,36 +62,37 @@ def build_sentinel_router(
         database_path=database_path,
         service_root=service_root,
     )
-    router = APIRouter(
+    outer = APIRouter()
+    protected = APIRouter(
         prefix="/v1/checklist-sentinel",
         tags=["InstaComp AI Checklist Sentinel"],
         dependencies=[Depends(require_api_key)],
     )
 
-    @router.on_event("startup")
+    @outer.on_event("startup")
     async def _start_sentinel() -> None:
         await sentinel.start()
 
-    @router.on_event("shutdown")
+    @outer.on_event("shutdown")
     async def _stop_sentinel() -> None:
         await sentinel.stop()
 
-    @router.get("/status")
+    @protected.get("/status")
     async def status() -> dict[str, Any]:
         return sentinel.status()
 
-    @router.post("/run")
+    @protected.post("/run")
     async def run_now(
         trigger: str = Body(default="manual-api", embed=True),
     ) -> dict[str, Any]:
         return await sentinel.trigger(trigger=trigger[:100])
 
-    @router.post("/refresh-targets")
+    @protected.post("/refresh-targets")
     async def refresh_targets() -> dict[str, Any]:
         counts = await sentinel.refresh_targets()
         return {"ok": True, "targets": counts}
 
-    @router.post("/targets")
+    @protected.post("/targets")
     async def add_targets(payload: Any = Body(...)) -> dict[str, Any]:
         targets = targets_from_payload(payload)
         if not targets:
@@ -63,7 +108,7 @@ def build_sentinel_router(
             "targets": sentinel.store.target_counts(),
         }
 
-    @router.get("/targets")
+    @protected.get("/targets")
     async def list_targets(
         limit: int = Query(default=500, ge=1, le=5000),
         status_filter: str | None = Query(default=None, alias="status"),
@@ -76,7 +121,7 @@ def build_sentinel_router(
             "counts": sentinel.store.target_counts(),
         }
 
-    @router.get("/findings")
+    @protected.get("/findings")
     async def findings(
         limit: int = Query(default=200, ge=1, le=5000),
         status_filter: str | None = Query(default=None, alias="status"),
@@ -88,14 +133,134 @@ def build_sentinel_router(
             )
         }
 
-    @router.get("/downloads")
+    @protected.get("/downloads")
     async def downloads(
         limit: int = Query(default=200, ge=1, le=5000),
     ) -> dict[str, Any]:
         return {"downloads": sentinel.store.list_downloads(limit=limit)}
 
-    @router.get("/sources")
+    @protected.get("/sources")
     async def sources() -> dict[str, Any]:
         return {"sources": sentinel.store.list_sources()}
 
-    return router
+    # Sentinel posts a multipart source file to localhost. The relay validates
+    # the dedicated archive credential and exact bytes, then sends only a small
+    # signed metadata request to Vercel. Production independently re-fetches the
+    # public source and verifies the same SHA-256 before private archival.
+    @outer.post(
+        "/v1/checklist-sentinel/registry-import-relay",
+        tags=["InstaComp AI Checklist Sentinel"],
+    )
+    async def registry_import_relay(
+        file: UploadFile = File(...),
+        target_key: str = Form(alias="targetKey"),
+        sport: str = Form(default=""),
+        year: str = Form(default=""),
+        season: str = Form(default=""),
+        manufacturer: str = Form(default=""),
+        product: str = Form(default=""),
+        source_url: str = Form(alias="sourceUrl"),
+        sha256: str = Form(...),
+        source: str = Form(default="instacomp-ai-checklist-sentinel"),
+        archive_token_header: str | None = Header(
+            default=None,
+            alias="x-instacomp-sentinel-archive-token",
+        ),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        if not _archive_token_valid(archive_token_header, authorization):
+            raise HTTPException(
+                status_code=401,
+                detail="Valid Sentinel archive token required.",
+            )
+
+        central_url = os.getenv(
+            "INSTACOMP_AI_SENTINEL_CENTRAL_IMPORT_URL",
+            "",
+        ).strip()
+        archive_token = os.getenv(
+            "INSTACOMP_AI_SENTINEL_ARCHIVE_TOKEN",
+            "",
+        ).strip()
+        if not central_url.startswith("https://"):
+            raise HTTPException(
+                status_code=503,
+                detail="Central Sentinel archive endpoint is not configured.",
+            )
+        if not archive_token:
+            raise HTTPException(
+                status_code=503,
+                detail="Sentinel archive authentication is not configured.",
+            )
+
+        expected_sha = sha256.strip().lower()
+        if len(expected_sha) != 64 or any(
+            ch not in "0123456789abcdef" for ch in expected_sha
+        ):
+            raise HTTPException(status_code=400, detail="Invalid SHA-256 receipt.")
+
+        digest = hashlib.sha256()
+        byte_count = 0
+        while True:
+            chunk = await file.read(1024 * 1024)
+            if not chunk:
+                break
+            byte_count += len(chunk)
+            if byte_count > _MAX_RELAY_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail="Checklist source exceeds 50 MB limit.",
+                )
+            digest.update(chunk)
+
+        actual_sha = digest.hexdigest()
+        if actual_sha != expected_sha:
+            raise HTTPException(
+                status_code=409,
+                detail="Local checklist SHA-256 receipt mismatch.",
+            )
+
+        payload = {
+            "targetKey": target_key[:500],
+            "sport": sport[:120],
+            "year": year[:40],
+            "season": season[:40],
+            "manufacturer": manufacturer[:200],
+            "product": product[:300],
+            "sourceUrl": source_url[:4000],
+            "sha256": expected_sha,
+            "source": source[:120],
+            "byteCount": byte_count,
+            "contentType": (file.content_type or "application/octet-stream")[:200],
+            "fileName": (file.filename or "checklist-source.bin")[:300],
+        }
+        headers = {
+            "content-type": "application/json",
+            "x-instacomp-sentinel-archive-token": archive_token,
+        }
+        try:
+            async with httpx.AsyncClient(
+                timeout=180.0,
+                follow_redirects=False,
+                headers=headers,
+            ) as client:
+                response = await client.post(central_url, json=payload)
+            data = response.json() if response.content else {}
+        except (httpx.HTTPError, json.JSONDecodeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Central Registry archive request failed: {str(exc)[:500]}",
+            ) from exc
+
+        if not response.is_success or data.get("ok") is not True:
+            raise HTTPException(
+                status_code=502,
+                detail=str(
+                    data.get("error")
+                    or f"Central archive HTTP {response.status_code}"
+                )[:1000],
+            )
+        return data
+
+    outer.include_router(protected)
+    return outer
