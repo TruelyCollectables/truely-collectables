@@ -19,7 +19,16 @@ const ORIGIN = "https://www.breakninja.com";
 const ROOT_INDEX = `${ORIGIN}/sports.html`;
 const MAX_PRODUCTS = Number(process.env.BREAKNINJA_MAX_PRODUCTS || MAX_ITEMS || 2500);
 const MAX_TEAM_PAGES = Number(process.env.BREAKNINJA_MAX_TEAM_PAGES || 80);
-const DELAY_MS = Number(process.env.PUBLIC_SOURCE_DELAY_MS || 250);
+const PRODUCT_CONCURRENCY = boundedInteger(process.env.BREAKNINJA_PRODUCT_CONCURRENCY, 4, 1, 12);
+const TEAM_CONCURRENCY = boundedInteger(process.env.BREAKNINJA_TEAM_CONCURRENCY, 8, 1, 20);
+const CHECKPOINT_EVERY = boundedInteger(process.env.BREAKNINJA_CHECKPOINT_EVERY, 25, 1, 500);
+const REQUEST_DELAY_MS = boundedInteger(
+  process.env.BREAKNINJA_REQUEST_DELAY_MS,
+  125,
+  0,
+  5000,
+);
+const FETCH_ATTEMPTS = boundedInteger(process.env.BREAKNINJA_FETCH_ATTEMPTS, 3, 1, 5);
 
 const PATH_UNIVERSES = new Map([
   ["baseball", "baseball"],
@@ -43,8 +52,59 @@ const PATH_UNIVERSES = new Map([
   ["yugioh", "yu-gi-oh"],
 ]);
 
-function pause() {
-  return DELAY_MS > 0 ? new Promise((resolve) => setTimeout(resolve, DELAY_MS)) : Promise.resolve();
+let requestGate = Promise.resolve();
+let nextRequestAt = 0;
+
+function boundedInteger(value, fallback, min, max) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, Math.trunc(parsed)));
+}
+
+function sleep(ms) {
+  return ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
+}
+
+async function reserveRequestSlot() {
+  const reservation = requestGate.then(async () => {
+    const wait = Math.max(0, nextRequestAt - Date.now());
+    if (wait) await sleep(wait);
+    nextRequestAt = Date.now() + REQUEST_DELAY_MS;
+  });
+  requestGate = reservation.catch(() => {});
+  await reservation;
+}
+
+function transientFetchError(error) {
+  return /HTTP (?:408|425|429|5\d\d)\b|aborted|timeout|fetch failed|ECONNRESET|EAI_AGAIN/i.test(String(error));
+}
+
+async function fetchPublic(url) {
+  let lastError;
+  for (let attempt = 1; attempt <= FETCH_ATTEMPTS; attempt += 1) {
+    try {
+      await reserveRequestSlot();
+      return await fetchText(url);
+    } catch (error) {
+      lastError = error;
+      if (attempt >= FETCH_ATTEMPTS || !transientFetchError(error)) throw error;
+      await sleep(500 * (2 ** (attempt - 1)));
+    }
+  }
+  throw lastError;
+}
+
+async function forEachConcurrent(values, limit, worker) {
+  const items = [...values];
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      await worker(items[index], index);
+    }
+  });
+  await Promise.all(workers);
 }
 
 function sameHost(value) {
@@ -101,6 +161,14 @@ function sourceRevision(html) {
   return String(html).match(/Release Date:\s*([^<\n]+)/i)?.[1]?.trim() || null;
 }
 
+function normalizedHeader(value) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function headerColumn(headers, patterns) {
+  return headers.findIndex((header) => patterns.some((pattern) => pattern.test(header)));
+}
+
 function tableRows(html, team) {
   const rows = [];
   for (const table of String(html).matchAll(/<table\b[^>]*>([\s\S]*?)<\/table>/gi)) {
@@ -110,16 +178,28 @@ function tableRows(html, team) {
         .map((cell) => decodeHtml(cell[1]).replace(/\s+/g, " ").trim());
       if (cells.length) parsed.push(cells);
     }
+
     const headerIndex = parsed.findIndex((cells) => {
-      const header = cells.join("|").toLowerCase();
-      return header.includes("player") && header.includes("card set") && header.includes("print run");
+      const headers = cells.map(normalizedHeader);
+      return headerColumn(headers, [/^player$/, /^name$/]) >= 0
+        && headerColumn(headers, [/^card set$/, /^set$/, /parallel/]) >= 0
+        && headerColumn(headers, [/^copies$/, /^copy$/, /print run/, /serial/]) >= 0;
     });
     if (headerIndex < 0) continue;
+
+    const headers = parsed[headerIndex].map(normalizedHeader);
+    const playerIndex = headerColumn(headers, [/^player$/, /^name$/]);
+    const numberIndex = headerColumn(headers, [/^number$/, /^card number$/, /^no$/, /^card no$/]);
+    const cardSetIndex = headerColumn(headers, [/^card set$/, /^set$/, /parallel/]);
+    const printRunIndex = headerColumn(headers, [/^copies$/, /^copy$/, /print run/, /serial/]);
+
     for (const cells of parsed.slice(headerIndex + 1)) {
-      if (cells.length < 3) continue;
-      const [player, cardSet, printRun] = cells;
+      const player = cells[playerIndex]?.trim() || "";
+      const cardNumber = numberIndex >= 0 ? cells[numberIndex]?.trim() || "" : "";
+      const cardSet = cells[cardSetIndex]?.trim() || "";
+      const printRun = cells[printRunIndex]?.trim() || "";
       if (!player || !cardSet || /^player$/i.test(player)) continue;
-      rows.push({ player, cardSet, printRun: printRun || "", team: team || "" });
+      rows.push({ player, cardNumber, cardSet, printRun, team: team || "" });
     }
   }
   return rows;
@@ -140,7 +220,7 @@ function childPages(html, mainUrl) {
     if (!/\.(?:html?|php)$/i.test(childPath)) continue;
     out.add(url);
   }
-  return [...out].slice(0, MAX_TEAM_PAGES);
+  return [...out].sort().slice(0, MAX_TEAM_PAGES);
 }
 
 function teamFromUrl(url, mainUrl) {
@@ -152,8 +232,8 @@ function teamFromUrl(url, mainUrl) {
 function checklistPayload(rows) {
   if (!rows.length) return "";
   return [
-    "row_id\tplayer\tcard_set\tprint_run\tteam",
-    ...rows.map((row, index) => [index + 1, row.player, row.cardSet, row.printRun, row.team]
+    "row_id\tplayer\tcard_number\tcard_set\tprint_run\tteam",
+    ...rows.map((row, index) => [index + 1, row.player, row.cardNumber, row.cardSet, row.printRun, row.team]
       .map((value) => String(value || "").replace(/[\t\r\n]+/g, " ").trim())
       .join("\t")),
   ].join("\n");
@@ -170,7 +250,7 @@ async function discover() {
     if (!url || seen.has(url)) continue;
     seen.add(url);
     try {
-      const { text: html, finalUrl } = await fetchText(url);
+      const { text: html, finalUrl } = await fetchPublic(url);
       for (const link of hrefs(html, finalUrl)) {
         const normalized = canonical(link);
         if (!normalized) continue;
@@ -180,62 +260,83 @@ async function discover() {
     } catch (error) {
       discoveryFailures.push({ stage: "index", url, error: String(error) });
     }
-    await pause();
   }
 
   return { products, discoveryFailures };
 }
 
+async function collectProduct(url, failures) {
+  try {
+    const { text: html, finalUrl } = await fetchPublic(url);
+    const title = titleFromHtml(html, finalUrl);
+    const universe = universeFromUrl(finalUrl, title);
+    const sport = universe && !["non-sport", "pokemon", "tcg", "yu-gi-oh"].includes(universe) ? universe : null;
+    const season = extractSeason(title);
+    const manufacturer = extractMaker(title, [], finalUrl);
+    const product = extractProduct(title, manufacturer, sport || universe);
+    const rows = [...tableRows(html, "")];
+    const childUrls = childPages(html, finalUrl);
+
+    await forEachConcurrent(childUrls, TEAM_CONCURRENCY, async (childUrl) => {
+      try {
+        const { text: childHtml } = await fetchPublic(childUrl);
+        rows.push(...tableRows(childHtml, teamFromUrl(childUrl, finalUrl)));
+      } catch (error) {
+        failures.push({ stage: "team-page", url: childUrl, parentUrl: finalUrl, error: String(error) });
+      }
+    });
+
+    const uniqueRows = [...new Map(rows.map((row) => [
+      [row.player, row.cardNumber, row.cardSet, row.printRun, row.team].join("|").toLowerCase(),
+      row,
+    ])).values()];
+    const checklist = checklistPayload(uniqueRows);
+    return saveItem({
+      url: finalUrl,
+      title,
+      universe,
+      sport,
+      season,
+      manufacturer,
+      product,
+      categories: universe ? [universe] : [],
+      sourceRevision: sourceRevision(html),
+      checklist,
+      checklistRows: uniqueRows.length,
+    });
+  } catch (error) {
+    failures.push({ stage: "product", url, error: String(error) });
+    return null;
+  }
+}
+
 async function main() {
   mkdirSync(ITEMS, { recursive: true });
   const { products, discoveryFailures } = await discover();
+  const productUrls = [...products].sort().slice(0, MAX_PRODUCTS);
   const items = [];
   const failures = [];
+  let completed = 0;
+  let checkpointed = 0;
 
-  for (const url of [...products].slice(0, MAX_PRODUCTS)) {
-    try {
-      const { text: html, finalUrl } = await fetchText(url);
-      const title = titleFromHtml(html, finalUrl);
-      const universe = universeFromUrl(finalUrl, title);
-      const sport = universe && !["non-sport", "pokemon", "tcg", "yu-gi-oh"].includes(universe) ? universe : null;
-      const season = extractSeason(title);
-      const manufacturer = extractMaker(title, [], finalUrl);
-      const product = extractProduct(title, manufacturer, sport || universe);
-      const rows = [...tableRows(html, "")];
+  await forEachConcurrent(productUrls, PRODUCT_CONCURRENCY, async (url) => {
+    const item = await collectProduct(url, failures);
+    if (item) items.push(item);
+    completed += 1;
 
-      for (const childUrl of childPages(html, finalUrl)) {
-        try {
-          await pause();
-          const { text: childHtml } = await fetchText(childUrl);
-          rows.push(...tableRows(childHtml, teamFromUrl(childUrl, finalUrl)));
-        } catch (error) {
-          failures.push({ stage: "team-page", url: childUrl, parentUrl: finalUrl, error: String(error) });
-        }
-      }
-
-      const uniqueRows = [...new Map(rows.map((row) => [
-        [row.player, row.cardSet, row.printRun, row.team].join("|").toLowerCase(),
-        row,
-      ])).values()];
-      const checklist = checklistPayload(uniqueRows);
-      items.push(saveItem({
-        url: finalUrl,
-        title,
-        universe,
-        sport,
-        season,
-        manufacturer,
-        product,
-        categories: universe ? [universe] : [],
-        sourceRevision: sourceRevision(html),
-        checklist,
-        checklistRows: uniqueRows.length,
+    if (items.length && completed - checkpointed >= CHECKPOINT_EVERY) {
+      checkpointed = completed;
+      finishSource({ items, failures, discoveryFailures, discovered: products.size });
+      console.log(JSON.stringify({
+        source: "breakninja",
+        stage: "checkpoint",
+        completedProducts: completed,
+        archivedItems: items.length,
+        checklistItems: items.filter((entry) => entry.status === "checklist-saved").length,
+        discoveredCandidates: products.size,
       }));
-    } catch (error) {
-      failures.push({ stage: "product", url, error: String(error) });
     }
-    await pause();
-  }
+  });
 
   finishSource({ items, failures, discoveryFailures, discovered: products.size });
 }
