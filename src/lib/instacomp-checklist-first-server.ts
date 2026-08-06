@@ -203,7 +203,7 @@ function inferManufacturerFromOcr(
   return manufacturers.length === 1 ? manufacturers[0] : null;
 }
 
-function enrichInputFromOcr(
+export function enrichInstaCompChecklistInputFromOcr(
   input: InstaCompChecklistLookupInput,
   candidates: InstaCompChecklistCandidate[],
 ) {
@@ -290,7 +290,7 @@ export async function resolveInstaCompChecklistFirstFromRegistry(
   }
 
   const candidates = toCandidates(data || []);
-  const enriched = enrichInputFromOcr(input, candidates);
+  const enriched = enrichInstaCompChecklistInputFromOcr(input, candidates);
   const decision = resolveInstaCompChecklistFirst({
     input: enriched.input,
     candidates,
