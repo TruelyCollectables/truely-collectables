@@ -3,9 +3,9 @@ from pathlib import Path
 
 def analyze_source() -> str:
     source = Path("services/instacomp-ai/app/main.py").read_text()
+    lesson_marker = '\n@app.post(\n    "/v1/lessons"'
     return source.split("async def analyze_scan", 1)[1].split(
-        '@app.post(
-    "/v1/lessons"', 1
+        lesson_marker, 1
     )[0]
 
 
