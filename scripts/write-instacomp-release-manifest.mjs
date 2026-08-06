@@ -75,8 +75,25 @@ function runKingmakerForensicContracts() {
   );
 }
 
+function runExactParallelSimulations() {
+  execFileSync(
+    process.execPath,
+    [
+      "--import",
+      "tsx",
+      "scripts/run-instacomp-parallel-pattern-simulations.ts",
+    ],
+    {
+      cwd: process.cwd(),
+      stdio: "inherit",
+      env: process.env,
+    },
+  );
+}
+
 async function main() {
   runKingmakerForensicContracts();
+  runExactParallelSimulations();
   const explicit = process.argv.find((argument) => /^[0-9a-f]{40}$/i.test(argument));
   const manifest = writeInstaCompReleaseManifest({ commit: explicit });
   console.log(

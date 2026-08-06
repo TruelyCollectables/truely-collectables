@@ -77,7 +77,11 @@ const nextConfig: NextConfig = {
         },
         {
           source: "/api/account/seller/inventory/instacomp-front-back",
-          destination: "/api/kingmaker/instacomp-front-back-auto",
+          destination: "/api/kingmaker/instacomp-front-back-exact",
+        },
+        {
+          source: "/api/account/seller/instacomp-scan/intake",
+          destination: "/api/kingmaker/instacomp-scan-intake-v2",
         },
         {
           source: "/api/admin/card-listing-images",

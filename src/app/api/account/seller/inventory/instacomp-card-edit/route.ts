@@ -14,9 +14,11 @@ import { createSupabaseServerClient } from "../../../../../../lib/supabase-serve
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function record(value: unknown): Record<string, unknown> {
+type JsonRecord = Record<string, unknown>;
+
+function record(value: unknown): JsonRecord {
   return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
+    ? (value as JsonRecord)
     : {};
 }
 
@@ -32,13 +34,21 @@ function booleanValue(value: unknown) {
   return value === true;
 }
 
-function printRun(value: unknown) {
-  const raw = clean(value, 30);
+function exactSerialStamp(value: unknown) {
+  const raw = clean(value, 30).replace(/\s+/g, "");
   if (!raw) return null;
-  const match = raw.match(/(?:\d+\s*)?\/\s*(\d{1,6})\b/);
-  if (match) return `/${Number(match[1])}`;
-  const digits = raw.match(/^\/?(\d{1,6})$/);
-  return digits ? `/${Number(digits[1])}` : null;
+  if (/^1(?:\/|of)1$/i.test(raw)) return "1/1";
+  const full = raw.match(/^(\d{1,6})\/(\d{1,6})$/);
+  if (full) return `${Number(full[1])}/${Number(full[2])}`;
+  const denominator = raw.match(/^\/?(\d{1,6})$/);
+  return denominator ? `/${Number(denominator[1])}` : null;
+}
+
+function printRunFromSerial(value: string | null) {
+  if (!value) return null;
+  if (value === "1/1") return "/1";
+  const denominator = value.match(/\/(\d{1,6})$/)?.[1];
+  return denominator ? `/${Number(denominator)}` : null;
 }
 
 function printRunNumber(value: string | null) {
@@ -47,12 +57,12 @@ function printRunNumber(value: string | null) {
 }
 
 function sellerLessonIdentity(params: {
-  ai: Record<string, unknown>;
-  body: Record<string, unknown>;
-  parallel: string;
+  ai: JsonRecord;
+  body: JsonRecord;
+  storedParallel: string | null;
   normalizedPrintRun: string | null;
 }): InstaCompAiLocalLessonIdentity {
-  const { ai, body, parallel, normalizedPrintRun } = params;
+  const { ai, body, storedParallel, normalizedPrintRun } = params;
   return {
     sport: nullableText(body.sport ?? ai.sport, 100),
     league: nullableText(body.league ?? ai.league, 100),
@@ -70,10 +80,9 @@ function sellerLessonIdentity(params: {
       body.cardNumber ?? body.card_number ?? ai.cardNumber,
       80,
     ),
-    parallel: parallel || null,
+    parallel: storedParallel,
     variation: nullableText(body.variation ?? ai.variation, 160),
-    // The exact copy number is deliberately not taught as identity. Only the
-    // shared print run is retained so 17/99 and 44/99 learn the same card design.
+    // Reusable learning stores the shared denominator, not this copy's numerator.
     serial_number: normalizedPrintRun,
     serial_run: printRunNumber(normalizedPrintRun),
     rookie: booleanValue(body.isRookie ?? ai.isRookie),
@@ -111,11 +120,33 @@ export async function POST(request: NextRequest) {
     const body = record(parsedBody);
     const inventoryItemId = clean(body.inventoryItemId, 100);
     const title = clean(body.title, 300);
-    const parallel = clean(body.parallel, 120);
-    const normalizedPrintRun = printRun(body.printRun);
+    const exactParallel = clean(body.parallel, 120);
+    const baseSelected = /^base$/i.test(exactParallel);
+    const storedParallel = baseSelected ? null : exactParallel || null;
+    const serialStamp = exactSerialStamp(body.printRun);
+    const normalizedPrintRun = printRunFromSerial(serialStamp);
+
     if (!inventoryItemId || !title) {
       return NextResponse.json(
         { error: "Card and title are required." },
+        { status: 400 },
+      );
+    }
+    if (!exactParallel) {
+      return NextResponse.json(
+        {
+          error:
+            "Enter Base or the exact checklist parallel. Blank is not accepted as Base.",
+        },
+        { status: 400 },
+      );
+    }
+    if (clean(body.printRun, 30) && !serialStamp) {
+      return NextResponse.json(
+        {
+          error:
+            "Serial must be an exact stamp such as 17/99, 1/1, or a denominator such as /99.",
+        },
         { status: 400 },
       );
     }
@@ -168,7 +199,7 @@ export async function POST(request: NextRequest) {
           identity: sellerLessonIdentity({
             ai,
             body,
-            parallel,
+            storedParallel,
             normalizedPrintRun,
           }),
           operatorId: account.id,
@@ -193,9 +224,10 @@ export async function POST(request: NextRequest) {
       ...metadata,
       collectible_asset: {
         ...collectibleAsset,
-        parallel_name: parallel || null,
-        exact_serial_number: normalizedPrintRun,
+        parallel_name: storedParallel,
+        exact_serial_number: serialStamp,
         print_run: normalizedPrintRun,
+        serial_run: printRunNumber(normalizedPrintRun),
       },
       seller_review: {
         ...sellerReview,
@@ -223,6 +255,8 @@ export async function POST(request: NextRequest) {
         pricingReason:
           "Seller identity is locked. Pricing may run without replacing the seller correction.",
         suggestedPrice: null,
+        lastStatus: "identity_complete",
+        lastStage: "manual_lock",
         lastError: null,
         lastErrorCode: null,
         ai: {
@@ -248,9 +282,10 @@ export async function POST(request: NextRequest) {
             body.memorabiliaType ?? ai.internalMemorabiliaType,
             160,
           ),
-          parallel: parallel || null,
-          parallelName: parallel || null,
-          serialNumber: normalizedPrintRun,
+          parallel: storedParallel,
+          parallelName: storedParallel,
+          checklistParallel: exactParallel,
+          serialNumber: serialStamp,
           printRun: normalizedPrintRun,
         },
       },
@@ -267,7 +302,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       title,
-      parallel: parallel || null,
+      parallel: exactParallel,
+      serialNumber: serialStamp,
       printRun: normalizedPrintRun,
       manualIdentityLocked: true,
       identityRefreshRequired: false,

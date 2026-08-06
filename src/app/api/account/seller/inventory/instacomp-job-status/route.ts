@@ -18,11 +18,21 @@ function text(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function textList(value: unknown) {
+  return Array.isArray(value)
+    ? value.map(String).map((entry) => entry.trim()).filter(Boolean).slice(0, 100)
+    : [];
+}
+
 export async function GET(request: Request) {
   try {
     const account = await getAuthenticatedAccountFromRequest(request);
     if (!account) return Response.json({ error: "Unauthorized" }, { status: 401 });
-    await ensureAccountStoreMembership({ accountId: account.id, role: "seller", status: "active" });
+    await ensureAccountStoreMembership({
+      accountId: account.id,
+      role: "seller",
+      status: "active",
+    });
 
     const supabase = createSupabaseServerClient({ admin: true });
     const storeId = getActiveStoreId();
@@ -47,19 +57,53 @@ export async function GET(request: Request) {
         const metadata = record(row.metadata);
         const instaComp = record(metadata.instacomp);
         const ai = record(instaComp.ai);
+        const parallelDecision = record(instaComp.parallelDecision);
+        const visualFeatures = record(
+          instaComp.parallelVisualFeatures || ai.parallelVisualFeatures,
+        );
+        const manualIdentityLocked = instaComp.manualIdentityLocked === true;
+        const identityComplete = instaComp.identityComplete === true;
+        const effectiveStatus = manualIdentityLocked
+          ? "manual_locked"
+          : identityComplete
+            ? "identity_complete"
+            : text(instaComp.lastStatus) || "waiting";
+        const effectiveStage = manualIdentityLocked
+          ? "manual_lock"
+          : identityComplete
+            ? "complete"
+            : text(instaComp.lastStage);
+        const suppressStaleFailure = manualIdentityLocked || identityComplete;
+
         return [
           String(row.id),
           {
-            status: text(instaComp.lastStatus) || (instaComp.identityComplete === true ? "identity_complete" : "waiting"),
-            stage: text(instaComp.lastStage) || null,
-            error: text(instaComp.lastError),
-            errorCode: text(instaComp.lastErrorCode),
-            identityComplete: instaComp.identityComplete === true,
-            manualIdentityLocked: instaComp.manualIdentityLocked === true,
+            status: effectiveStatus,
+            stage: effectiveStage,
+            error: suppressStaleFailure ? null : text(instaComp.lastError),
+            errorCode: suppressStaleFailure
+              ? null
+              : text(instaComp.lastErrorCode),
+            identityComplete,
+            manualIdentityLocked,
             identitySource: text(instaComp.identitySource),
             pricingStatus: text(instaComp.pricingStatus),
-            printRun: text(ai.printRun) || text(ai.serialNumber),
+            printRun:
+              text(ai.printRun) ||
+              text(ai.serialNumber) ||
+              text(visualFeatures.serialStampText),
             backEvidenceText: text(ai.backEvidenceText),
+            selectedParallel:
+              text(ai.checklistParallel) ||
+              text(ai.parallelName) ||
+              text(ai.parallel) ||
+              text(parallelDecision.selectedParallel),
+            candidateParallels: textList(parallelDecision.candidateParallels),
+            visualColor: text(visualFeatures.dominantColor),
+            visualPattern: text(visualFeatures.pattern),
+            visualSerial: text(visualFeatures.serialStampText),
+            visualConfidence: Number(visualFeatures.confidence || 0),
+            parallelEvidence: text(parallelDecision.evidence),
             updatedAt: row.updated_at || null,
           },
         ];
@@ -72,7 +116,12 @@ export async function GET(request: Request) {
     );
   } catch (error) {
     return Response.json(
-      { error: error instanceof Error ? error.message : "Could not load InstaComp job status." },
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Could not load InstaComp job status.",
+      },
       { status: 500 },
     );
   }
