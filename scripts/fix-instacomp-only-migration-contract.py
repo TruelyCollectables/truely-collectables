@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+# This idempotent repair is retained as the certification source of truth.
 from pathlib import Path
 
 
