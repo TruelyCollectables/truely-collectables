@@ -1,4 +1,4 @@
-name: Public Sports Checklist Universe
+name: Universal Card Checklist Universe
 
 on:
   workflow_dispatch:
@@ -21,7 +21,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: public-sports-checklist-universe-${{ github.ref }}
+  group: universal-card-checklist-universe-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -102,7 +102,7 @@ jobs:
           }, null, 2) + '\n');
           NODE
           fi
-      - name: Sort source by exact sport, season, manufacturer, product, and source
+      - name: Sort source by exact universe, season, manufacturer, product, and source
         if: ${{ steps.collect.outcome == 'success' }}
         env:
           CHECKLIST_ARCHIVE_INPUTS: ".public-checklist-source-archive/${{ matrix.source }}=${{ matrix.source }}"
@@ -137,12 +137,89 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-  merge-universe:
-    name: Merge Exact-Key Sports Checklist Universe
-    needs: collect
-    if: always()
+  collect-instacomp-pokemon:
+    name: Export InstaComp Pokemon into universal database
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate Pokemon exporter and organizer syntax
+        run: |
+          node --check scripts/checklist-sources/instacomp-pokemon.mjs
+          node --check scripts/organize-universal-checklist-archive.mjs
+      - name: Export active live Pokemon releases from InstaComp Registry
+        id: collect
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          INSTACOMP_POKEMON_MAX_RELEASES: 5000
+        run: node scripts/checklist-sources/instacomp-pokemon.mjs
+      - name: Ensure InstaComp Pokemon receipt exists
+        if: always()
+        env:
+          COLLECTION_OUTCOME: ${{ steps.collect.outcome }}
+        run: |
+          root=".internal-checklist-source-archive/instacomp-pokemon"
+          mkdir -p "$root/items"
+          if [ ! -f "$root/manifest.json" ]; then
+            node - <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const root = path.resolve('.internal-checklist-source-archive/instacomp-pokemon');
+          fs.writeFileSync(path.join(root, 'manifest.json'), JSON.stringify({
+            schema: 'tcos.internalChecklistSourceArchive.v1',
+            source: 'instacomp-pokemon',
+            generatedAt: new Date().toISOString(),
+            collectionOutcome: process.env.COLLECTION_OUTCOME || 'unknown',
+            universe: 'pokemon',
+            totals: { discoveredCandidates: 0, archivedItems: 0, checklistItems: 0, setIndexOnlyItems: 0 },
+            failures: [{ stage: 'collector', error: 'InstaComp Pokemon exporter ended without producing a manifest.' }],
+          }, null, 2) + '\n');
+          NODE
+          fi
+      - name: Sort InstaComp Pokemon into the same universe hierarchy
+        if: ${{ steps.collect.outcome == 'success' }}
+        env:
+          CHECKLIST_ARCHIVE_INPUTS: ".internal-checklist-source-archive/instacomp-pokemon=instacomp-pokemon"
+          CHECKLIST_ORGANIZED_OUTPUT: ".internal-checklist-organized/instacomp-pokemon"
+        run: node scripts/organize-universal-checklist-archive.mjs
+      - name: Package InstaComp Pokemon archive and organized output
+        if: always()
+        run: |
+          paths=(".internal-checklist-source-archive/instacomp-pokemon")
+          if [ -d ".internal-checklist-organized/instacomp-pokemon" ]; then
+            paths+=(".internal-checklist-organized/instacomp-pokemon")
+          fi
+          tar -czf checklist-source-instacomp-pokemon.tar.gz "${paths[@]}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: internal-checklist-source-instacomp-pokemon-${{ github.run_id }}
+          path: checklist-source-instacomp-pokemon.tar.gz
+          if-no-files-found: error
+          retention-days: 90
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: internal-checklist-status-instacomp-pokemon-${{ github.run_id }}
+          path: |
+            .internal-checklist-source-archive/instacomp-pokemon/manifest.json
+            .internal-checklist-organized/instacomp-pokemon/manifest.json
+            .internal-checklist-organized/instacomp-pokemon/master-sets.csv
+            .internal-checklist-organized/instacomp-pokemon/source-items.csv
+          if-no-files-found: error
+          retention-days: 90
+
+  merge-universe:
+    name: Merge Universal Card Checklist Database
+    needs: [collect, collect-instacomp-pokemon]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -151,51 +228,59 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           pattern: public-checklist-source-*-${{ github.run_id }}
-          path: downloaded-source-archives
+          path: downloaded-public-source-archives
           merge-multiple: true
-      - name: Extract and verify all eight source receipts
+      - uses: actions/download-artifact@v4
+        with:
+          name: internal-checklist-source-instacomp-pokemon-${{ github.run_id }}
+          path: downloaded-instacomp-pokemon
+      - name: Extract and verify all source receipts
         run: |
-          find downloaded-source-archives -type f -name '*.tar.gz' -print -exec tar -xzf {} \;
+          find downloaded-public-source-archives downloaded-instacomp-pokemon -type f -name '*.tar.gz' -print -exec tar -xzf {} \;
           for source in baseballcardpedia keyman sportscardradio cardboardconnection beckett bigapplecollects cardboardchecklist gogts; do
             test -f ".public-checklist-source-archive/${source}/manifest.json"
           done
-      - name: Build one exact-key master set catalog from successful source items
+          test -f ".internal-checklist-source-archive/instacomp-pokemon/manifest.json"
+      - name: Build one exact-key master database across every universe
         env:
-          CHECKLIST_ARCHIVE_INPUTS: ".public-checklist-source-archive/baseballcardpedia=baseballcardpedia,.public-checklist-source-archive/keyman=keyman,.public-checklist-source-archive/sportscardradio=sportscardradio,.public-checklist-source-archive/cardboardconnection=cardboardconnection,.public-checklist-source-archive/beckett=beckett,.public-checklist-source-archive/bigapplecollects=bigapplecollects,.public-checklist-source-archive/cardboardchecklist=cardboardchecklist,.public-checklist-source-archive/gogts=gogts"
-          CHECKLIST_ORGANIZED_OUTPUT: ".sports-checklist-master-archive"
+          CHECKLIST_ARCHIVE_INPUTS: ".public-checklist-source-archive/baseballcardpedia=baseballcardpedia,.public-checklist-source-archive/keyman=keyman,.public-checklist-source-archive/sportscardradio=sportscardradio,.public-checklist-source-archive/cardboardconnection=cardboardconnection,.public-checklist-source-archive/beckett=beckett,.public-checklist-source-archive/bigapplecollects=bigapplecollects,.public-checklist-source-archive/cardboardchecklist=cardboardchecklist,.public-checklist-source-archive/gogts=gogts,.internal-checklist-source-archive/instacomp-pokemon=instacomp-pokemon"
+          CHECKLIST_ORGANIZED_OUTPUT: ".card-checklist-master-archive"
         run: node scripts/organize-universal-checklist-archive.mjs
       - name: Audit Phase 1 mainstream releases from 2000 forward
         env:
-          CHECKLIST_MASTER_ROOT: ".sports-checklist-master-archive"
+          CHECKLIST_MASTER_ROOT: ".card-checklist-master-archive"
           CHECKLIST_PHASE1_START_YEAR: 2000
+          REQUIRE_INSTACOMP_POKEMON: "true"
         run: node scripts/audit-mainstream-2000-plus.mjs
       - name: Copy all source receipts into the master archive
         run: |
-          mkdir -p .sports-checklist-master-archive/source-receipts
+          mkdir -p .card-checklist-master-archive/source-receipts
           for source in baseballcardpedia keyman sportscardradio cardboardconnection beckett bigapplecollects cardboardchecklist gogts; do
-            cp ".public-checklist-source-archive/${source}/manifest.json" ".sports-checklist-master-archive/source-receipts/${source}.json"
+            cp ".public-checklist-source-archive/${source}/manifest.json" ".card-checklist-master-archive/source-receipts/${source}.json"
           done
+          cp ".internal-checklist-source-archive/instacomp-pokemon/manifest.json" ".card-checklist-master-archive/source-receipts/instacomp-pokemon.json"
       - name: Package master universe and source evidence
         run: |
-          tar -czf sports-checklist-master-archive.tar.gz \
-            .sports-checklist-master-archive \
-            .public-checklist-source-archive
+          tar -czf card-checklist-master-archive.tar.gz \
+            .card-checklist-master-archive \
+            .public-checklist-source-archive \
+            .internal-checklist-source-archive
       - uses: actions/upload-artifact@v4
         with:
-          name: sports-checklist-master-archive-${{ github.run_id }}
-          path: sports-checklist-master-archive.tar.gz
+          name: card-checklist-master-archive-${{ github.run_id }}
+          path: card-checklist-master-archive.tar.gz
           if-no-files-found: error
           retention-days: 90
       - uses: actions/upload-artifact@v4
         with:
-          name: sports-checklist-master-catalog-${{ github.run_id }}
+          name: card-checklist-master-catalog-${{ github.run_id }}
           path: |
-            .sports-checklist-master-archive/manifest.json
-            .sports-checklist-master-archive/master-sets.json
-            .sports-checklist-master-archive/master-sets.csv
-            .sports-checklist-master-archive/source-items.json
-            .sports-checklist-master-archive/source-items.csv
-            .sports-checklist-master-archive/source-receipts/*.json
-            .sports-checklist-master-archive/phase1-mainstream-2000-plus/*
+            .card-checklist-master-archive/manifest.json
+            .card-checklist-master-archive/master-sets.json
+            .card-checklist-master-archive/master-sets.csv
+            .card-checklist-master-archive/source-items.json
+            .card-checklist-master-archive/source-items.csv
+            .card-checklist-master-archive/source-receipts/*.json
+            .card-checklist-master-archive/phase1-mainstream-2000-plus/*
           if-no-files-found: error
           retention-days: 90
