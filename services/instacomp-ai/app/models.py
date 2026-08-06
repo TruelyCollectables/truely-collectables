@@ -88,6 +88,7 @@ class MemoryMatch(BaseModel):
     identity: CardIdentity
     score: float = Field(ge=0, le=1)
     verification_state: LearningState
+    verification_source: str | None = None
     reasons: list[str] = Field(default_factory=list)
 
 
@@ -115,8 +116,9 @@ class AnalyzeResponse(BaseModel):
     match_source: Literal[
         "exact_image_pair",
         "visual_memory",
+        "trusted_text_memory",
         "checklist_registry",
-        "local_ollama",
+        "ollama_backup",
         "none",
     ] = "none"
     visual_match_score: float | None = Field(default=None, ge=0, le=1)
