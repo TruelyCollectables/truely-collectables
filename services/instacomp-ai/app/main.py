@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -20,10 +21,13 @@ from .images import (
 from .models import (
     AnalyzeResponse,
     CardIdentity,
+    ChecklistOutcome,
+    ChecklistResult,
     HealthResponse,
     LearningState,
     LessonCreate,
     LessonRecord,
+    MemoryMatch,
 )
 from .ollama import OllamaReader
 from .settings_routes import build_settings_router
@@ -40,8 +44,8 @@ app = FastAPI(
     title=settings.app_name,
     version=settings.version,
     description=(
-        "Private local evidence reader with central Checklist Registry identity "
-        "locking and an owner-only local control plane."
+        "Private InstaComp internal memory engine with Checklist Registry locking, "
+        "Ollama backup vision, and no direct OpenAI dependency."
     ),
 )
 
@@ -65,11 +69,97 @@ app.include_router(
 )
 
 
+def _slug(value: object) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", "-", str(value or "").strip().lower())
+    return normalized.strip("-")
+
+
+def canonical_filename(identity: CardIdentity | None) -> str | None:
+    if not identity:
+        return None
+    parts: list[str] = []
+    for value in [
+        identity.year,
+        identity.manufacturer or identity.brand,
+        identity.set_name,
+        identity.subset,
+        identity.player,
+    ]:
+        if _slug(value):
+            parts.append(_slug(value))
+    if identity.card_number:
+        parts.append(f"card-{_slug(identity.card_number)}")
+    if identity.parallel:
+        parts.append(_slug(identity.parallel))
+    if identity.rookie:
+        parts.append("rookie")
+    if identity.autograph:
+        parts.append("autograph")
+    if identity.inscription:
+        parts.append("inscription")
+        if identity.inscription_text:
+            parts.append(_slug(identity.inscription_text)[:80])
+    if identity.memorabilia:
+        parts.append("memorabilia")
+        if identity.memorabilia_type:
+            parts.append(_slug(identity.memorabilia_type)[:80])
+    # The copy number is intentionally excluded. Only the print run belongs in
+    # the canonical card identity and filename.
+    if identity.serial_run:
+        parts.append(f"print-run-{identity.serial_run}")
+    return "-".join(part for part in parts if part) or None
+
+
+def _memory_source(match: MemoryMatch) -> str:
+    return (
+        "exact_image_pair"
+        if "exact_image_pair" in match.reasons
+        else "visual_memory"
+    )
+
+
+def _memory_checklist_result(match: MemoryMatch) -> ChecklistResult:
+    return ChecklistResult(
+        outcome=ChecklistOutcome.SET_PRESENT_NO_EXACT_MATCH,
+        identity=match.identity,
+        candidate_count=1,
+        reasons=[
+            "Trusted InstaComp memory identified this card before any backup model ran.",
+            *match.reasons,
+        ],
+        source_receipts=[f"trusted_memory_lesson:{match.lesson_id}"],
+    )
+
+
+def _trusted_memory_back_evidence(
+    match: MemoryMatch,
+    has_back_image: bool,
+) -> list[str]:
+    if not has_back_image:
+        return []
+    evidence: list[str] = []
+    parallel = str(match.identity.parallel or "").strip()
+    if "prizm" in parallel.lower():
+        evidence.append(
+            "PRIZM verified by trusted operator/checklist-confirmed back-image memory"
+        )
+    if match.identity.serial_run:
+        evidence.append(
+            f"PRINT RUN /{match.identity.serial_run} verified by trusted back-image memory"
+        )
+    evidence.append(
+        f"TRUSTED BACK IMAGE MATCH ({', '.join(match.reasons)})"
+    )
+    return evidence
+
+
 @app.get("/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
     database_ready = store.ready()
     ollama_ready = await reader.health()
     checklist_ready = await checklist_gateway.health()
+    # Ollama is a backup reader. Its outage must not mark the internal memory
+    # engine unhealthy.
     return HealthResponse(
         ok=database_ready and checklist_ready,
         app=settings.app_name,
@@ -155,6 +245,37 @@ async def archived_scan_image(scan_id: str, side: str):
     )
 
 
+def _save_scan(
+    *,
+    scan_id: str,
+    created_at: datetime,
+    front_image,
+    back_image,
+    combined_hash: str,
+    suggestion,
+    checklist_result: ChecklistResult,
+    status: str,
+) -> None:
+    store.save_scan(
+        scan_id=scan_id,
+        created_at=created_at,
+        front_sha256=front_image.sha256,
+        back_sha256=back_image.sha256 if back_image else None,
+        image_pair_sha256=combined_hash,
+        front_reference_sha256=front_image.reference_sha256,
+        back_reference_sha256=(
+            back_image.reference_sha256 if back_image else None
+        ),
+        front_perceptual_hash=front_image.perceptual_hash,
+        back_perceptual_hash=(back_image.perceptual_hash if back_image else None),
+        local_suggestion=(
+            suggestion.model_dump(mode="json") if suggestion else None
+        ),
+        checklist=checklist_result.model_dump(mode="json"),
+        status=status,
+    )
+
+
 @app.post(
     "/v1/scans/analyze",
     response_model=AnalyzeResponse,
@@ -194,6 +315,71 @@ async def analyze_scan(
         front_image.sha256,
         back_image.sha256 if back_image else None,
     )
+
+    # PRIMARY ENGINE: exact and near-visual trusted InstaComp memory. This path
+    # does not call Ollama or OpenAI.
+    image_memory = store.find_trusted_image_match(
+        image_pair_sha256=combined_hash,
+        front_perceptual_hash=front_image.perceptual_hash,
+        back_perceptual_hash=(back_image.perceptual_hash if back_image else None),
+    )
+    if image_memory:
+        trusted_identity = image_memory.identity
+        registry_result = await checklist_gateway.match(trusted_identity)
+        checklist_result = (
+            registry_result
+            if registry_result.outcome == ChecklistOutcome.EXACT_MATCH
+            else _memory_checklist_result(image_memory)
+        )
+        pricing_allowed = registry_result.outcome == ChecklistOutcome.EXACT_MATCH
+        status = "trusted_memory_match"
+        _save_scan(
+            scan_id=scan_id,
+            created_at=created_at,
+            front_image=front_image,
+            back_image=back_image,
+            combined_hash=combined_hash,
+            suggestion=None,
+            checklist_result=checklist_result,
+            status=status,
+        )
+        return AnalyzeResponse(
+            scan_id=scan_id,
+            created_at=created_at,
+            status=status,
+            front_sha256=front_image.sha256,
+            back_sha256=back_image.sha256 if back_image else None,
+            image_pair_sha256=combined_hash,
+            front_reference_sha256=front_image.reference_sha256,
+            back_reference_sha256=(
+                back_image.reference_sha256 if back_image else None
+            ),
+            front_perceptual_hash=front_image.perceptual_hash,
+            back_perceptual_hash=(
+                back_image.perceptual_hash if back_image else None
+            ),
+            back_evidence=_trusted_memory_back_evidence(
+                image_memory,
+                back_image is not None,
+            ),
+            memory_matches=[image_memory],
+            local_suggestion=None,
+            checklist=checklist_result,
+            trusted_identity=trusted_identity,
+            match_source=_memory_source(image_memory),
+            visual_match_score=image_memory.score,
+            canonical_filename=canonical_filename(trusted_identity),
+            pricing_allowed=pricing_allowed,
+            learning_allowed=True,
+            next_action=(
+                "Known card identified internally. Continue to verified comps."
+                if pricing_allowed
+                else "Known card identified internally; Registry verification is still required for pricing."
+            ),
+        )
+
+    # BACKUP READER: Ollama is called only for a card the internal visual memory
+    # did not know. Its suggestion is evidence, not trusted identity.
     suggestion = None
     model_error = None
     try:
@@ -206,37 +392,81 @@ async def analyze_scan(
 
     proposed_identity = suggestion.identity if suggestion else CardIdentity()
     memory_matches = store.search(proposed_identity)
-    checklist_result = await checklist_gateway.match(proposed_identity)
+    trusted_text_match = next(
+        (
+            match
+            for match in memory_matches
+            if match.score >= 0.98
+            and match.identity.player
+            and match.identity.card_number
+            and match.identity.set_name
+        ),
+        None,
+    )
 
-    trusted_identity = None
-    pricing_allowed = False
-    learning_allowed = False
-    if (
-        checklist_result.outcome.value == "exact_match"
-        and checklist_result.identity
-        and checklist_result.identity_id
-    ):
-        trusted_identity = checklist_result.identity
-        pricing_allowed = True
-        learning_allowed = True
+    if trusted_text_match:
+        trusted_identity = trusted_text_match.identity
+        checklist_result = await checklist_gateway.match(trusted_identity)
+        pricing_allowed = checklist_result.outcome == ChecklistOutcome.EXACT_MATCH
         status = "trusted_memory_match"
+        match_source = "trusted_text_memory"
         next_action = (
-            "Exact Registry identity locked. Continue to verified marketplace comps."
-        )
-    elif model_error:
-        status = "model_unavailable"
-        next_action = "Start Ollama or correct its model configuration, then retry."
-    elif checklist_result.outcome.value == "not_configured":
-        status = "needs_checklist"
-        next_action = (
-            "Connect the Mac service to the authenticated central Checklist Registry."
+            "Known card identified from internal text memory. Continue to verified comps."
+            if pricing_allowed
+            else "Known card identified from internal text memory; Registry verification is required for pricing."
         )
     else:
-        status = "needs_review"
-        next_action = (
-            "Review evidence or provide clearer front and back images; "
-            "pricing remains blocked."
+        checklist_result = await checklist_gateway.match(proposed_identity)
+        if (
+            checklist_result.outcome == ChecklistOutcome.EXACT_MATCH
+            and checklist_result.identity
+            and checklist_result.identity_id
+        ):
+            trusted_identity = checklist_result.identity
+            pricing_allowed = True
+            status = "trusted_memory_match"
+            match_source = "checklist_registry"
+            next_action = (
+                "Exact Registry identity locked. Teach InstaComp and continue to verified comps."
+            )
+        elif model_error:
+            trusted_identity = None
+            pricing_allowed = False
+            status = "model_unavailable"
+            match_source = "none"
+            next_action = (
+                "Internal memory did not know this card and the Ollama backup reader was unavailable. "
+                "The website may use OpenAI only as the emergency teacher."
+            )
+        elif checklist_result.outcome == ChecklistOutcome.NOT_CONFIGURED:
+            trusted_identity = None
+            pricing_allowed = False
+            status = "needs_checklist"
+            match_source = "ollama_backup" if suggestion else "none"
+            next_action = (
+                "Ollama supplied backup evidence, but the Checklist Registry is not connected."
+            )
+        else:
+            trusted_identity = None
+            pricing_allowed = False
+            status = "needs_review"
+            match_source = "ollama_backup" if suggestion else "none"
+            next_action = (
+                "Review the backup evidence or confirm the card manually. The confirmed result will become trusted InstaComp memory."
+            )
+
+    suggestion_back_evidence = (
+        list(
+            dict.fromkeys(
+                [
+                    *suggestion.evidence.back_visible_text,
+                    *suggestion.evidence.back_notes,
+                ]
+            )
         )
+        if suggestion
+        else []
+    )
 
     result = AnalyzeResponse(
         scan_id=scan_id,
@@ -245,24 +475,32 @@ async def analyze_scan(
         front_sha256=front_image.sha256,
         back_sha256=back_image.sha256 if back_image else None,
         image_pair_sha256=combined_hash,
+        front_reference_sha256=front_image.reference_sha256,
+        back_reference_sha256=(
+            back_image.reference_sha256 if back_image else None
+        ),
+        front_perceptual_hash=front_image.perceptual_hash,
+        back_perceptual_hash=(back_image.perceptual_hash if back_image else None),
+        back_evidence=suggestion_back_evidence,
         memory_matches=memory_matches,
         local_suggestion=suggestion,
         checklist=checklist_result,
         trusted_identity=trusted_identity,
+        match_source=match_source,
+        visual_match_score=(trusted_text_match.score if trusted_text_match else None),
+        canonical_filename=canonical_filename(trusted_identity or proposed_identity),
         pricing_allowed=pricing_allowed,
-        learning_allowed=learning_allowed,
+        learning_allowed=bool(trusted_identity),
         next_action=next_action,
     )
-    store.save_scan(
+    _save_scan(
         scan_id=scan_id,
         created_at=created_at,
-        front_sha256=front_image.sha256,
-        back_sha256=back_image.sha256 if back_image else None,
-        image_pair_sha256=combined_hash,
-        local_suggestion=(
-            suggestion.model_dump(mode="json") if suggestion else None
-        ),
-        checklist=checklist_result.model_dump(mode="json"),
+        front_image=front_image,
+        back_image=back_image,
+        combined_hash=combined_hash,
+        suggestion=suggestion,
+        checklist_result=checklist_result,
         status=status,
     )
     if pricing_allowed and trusted_identity:
@@ -273,7 +511,7 @@ async def analyze_scan(
                 identity=trusted_identity,
                 verification_source=f"registry:{checklist_result.identity_id}",
                 notes=(
-                    "Automatically promoted only after exact central Registry lock."
+                    "Promoted only after exact Registry lock. Future matching checks internal memory before Ollama."
                 ),
             )
         )

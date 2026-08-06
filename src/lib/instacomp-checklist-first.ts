@@ -8,6 +8,7 @@ export type InstaCompChecklistLookupInput = {
   isRelic?: boolean | null;
   parallel?: string | null;
   variation?: string | null;
+  ocrText?: string | null;
 };
 
 export type InstaCompChecklistCandidate = {

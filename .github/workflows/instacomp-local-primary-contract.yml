@@ -1,0 +1,56 @@
+name: InstaComp Local Primary Contract
+
+on:
+  pull_request:
+    paths:
+      - "services/instacomp-ai/**"
+      - "src/lib/instacomp-ai-local.ts"
+      - "src/app/api/instacomp/scan/route.ts"
+      - "src/app/api/instacomp/internal-readiness/route.ts"
+      - "src/app/api/account/seller/inventory/instacomp-card-edit/route.ts"
+      - "scripts/check-instacomp-local-primary-contract.mjs"
+      - ".github/workflows/instacomp-local-primary-contract.yml"
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/instacomp-ai/requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: |
+          pip install -r services/instacomp-ai/requirements.txt
+          npm ci
+      - name: Internal architecture contract
+        run: node scripts/check-instacomp-local-primary-contract.mjs
+      - name: Mac engine tests
+        working-directory: services/instacomp-ai
+        run: |
+          python -m compileall app tests
+          pytest -q
+      - name: Lint local-primary files
+        run: >-
+          npx eslint
+          src/app/api/instacomp/scan/route.ts
+          src/app/api/instacomp/internal-readiness/route.ts
+          src/app/api/account/seller/inventory/instacomp-card-edit/route.ts
+          src/lib/instacomp-ai-local.ts
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Production build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key
+          NEXT_PUBLIC_SITE_URL: https://example.com
+          INSTACOMP_SERVICE_TOKEN: placeholder-service-token
+        run: npm run build

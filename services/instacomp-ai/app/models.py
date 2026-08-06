@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -32,7 +33,10 @@ class CardIdentity(BaseModel):
     serial_run: int | None = None
     rookie: bool | None = None
     autograph: bool | None = None
+    inscription: bool | None = None
+    inscription_text: str | None = None
     memorabilia: bool | None = None
+    memorabilia_type: str | None = None
 
     @field_validator("serial_run")
     @classmethod
@@ -44,6 +48,8 @@ class CardIdentity(BaseModel):
 
 class VisualEvidence(BaseModel):
     visible_text: list[str] = Field(default_factory=list)
+    front_visible_text: list[str] = Field(default_factory=list)
+    back_visible_text: list[str] = Field(default_factory=list)
     logos: list[str] = Field(default_factory=list)
     colors: list[str] = Field(default_factory=list)
     foil_or_pattern: list[str] = Field(default_factory=list)
@@ -84,6 +90,7 @@ class MemoryMatch(BaseModel):
     identity: CardIdentity
     score: float = Field(ge=0, le=1)
     verification_state: LearningState
+    verification_source: str | None = None
     reasons: list[str] = Field(default_factory=list)
 
 
@@ -100,10 +107,25 @@ class AnalyzeResponse(BaseModel):
     front_sha256: str
     back_sha256: str | None = None
     image_pair_sha256: str
+    front_reference_sha256: str | None = None
+    back_reference_sha256: str | None = None
+    front_perceptual_hash: str | None = None
+    back_perceptual_hash: str | None = None
+    back_evidence: list[str] = Field(default_factory=list)
     memory_matches: list[MemoryMatch] = Field(default_factory=list)
     local_suggestion: ModelSuggestion | None = None
     checklist: ChecklistResult
     trusted_identity: CardIdentity | None = None
+    match_source: Literal[
+        "exact_image_pair",
+        "visual_memory",
+        "trusted_text_memory",
+        "checklist_registry",
+        "ollama_backup",
+        "none",
+    ] = "none"
+    visual_match_score: float | None = Field(default=None, ge=0, le=1)
+    canonical_filename: str | None = None
     pricing_allowed: bool = False
     learning_allowed: bool = False
     next_action: str

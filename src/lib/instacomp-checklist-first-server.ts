@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import {
   resolveInstaCompChecklistFirst,
@@ -33,6 +34,10 @@ function normalizedCardNumber(value: unknown) {
   return normalizedText(value).replace(/[\s-]/g, "");
 }
 
+function boundedOcr(value: unknown) {
+  return normalizedText(String(value ?? "").slice(0, 12_000));
+}
+
 function statusIsPositive(value: unknown, kind: "auto" | "relic") {
   const normalized = normalizedText(value);
   if (!normalized) return false;
@@ -55,10 +60,34 @@ function playerNames(card: any) {
 
 function firstTeam(card: any) {
   if (!Array.isArray(card.teams)) return null;
-  return card.teams
-    .map((link: any) => link?.team?.canonical_name)
-    .filter(Boolean)
-    .join(" / ") || null;
+  return (
+    card.teams
+      .map((link: any) => link?.team?.canonical_name)
+      .filter(Boolean)
+      .join(" / ") || null
+  );
+}
+
+function candidateFingerprint(candidate: Omit<InstaCompChecklistCandidate, "fingerprintSha256">) {
+  const canonical = [
+    candidate.identityId,
+    candidate.year,
+    candidate.manufacturer,
+    candidate.brand,
+    candidate.setName,
+    candidate.cardNumber,
+    candidate.player,
+    candidate.serialRun,
+    candidate.isAuto,
+    candidate.isRelic,
+    candidate.parallel,
+    candidate.variation,
+    candidate.team,
+    candidate.sport,
+  ]
+    .map((value) => normalizedText(value))
+    .join("|");
+  return createHash("sha256").update(canonical).digest("hex");
 }
 
 function toCandidates(rows: any[]): InstaCompChecklistCandidate[] {
@@ -71,7 +100,7 @@ function toCandidates(rows: any[]): InstaCompChecklistCandidate[] {
 
     for (const identity of identities) {
       const parallel = identity.parallel || {};
-      candidates.push({
+      const candidate = {
         identityId: String(identity.id),
         year: release.release_year || release.season || null,
         manufacturer: release.manufacturer?.name || null,
@@ -95,11 +124,114 @@ function toCandidates(rows: any[]): InstaCompChecklistCandidate[] {
         variation: identity.variation || card.variation || null,
         team: firstTeam(card),
         sport: release.sport?.name || null,
+      } satisfies Omit<InstaCompChecklistCandidate, "fingerprintSha256">;
+      candidates.push({
+        ...candidate,
+        fingerprintSha256: candidateFingerprint(candidate),
       });
     }
   }
 
   return candidates;
+}
+
+function phraseInOcr(ocr: string, value: unknown) {
+  const phrase = normalizedText(value);
+  if (!phrase || phrase.length < 2) return false;
+  return (` ${ocr} `).includes(` ${phrase} `);
+}
+
+function uniqueNormalized(values: Array<string | null | undefined>) {
+  const byNormalized = new Map<string, string>();
+  for (const value of values) {
+    const display = String(value || "").trim();
+    const normalized = normalizedText(display);
+    if (normalized && !byNormalized.has(normalized)) {
+      byNormalized.set(normalized, display);
+    }
+  }
+  return [...byNormalized.values()];
+}
+
+function inferPlayerFromOcr(
+  ocr: string,
+  candidates: InstaCompChecklistCandidate[],
+) {
+  const matched = uniqueNormalized(
+    candidates
+      .map((candidate) => candidate.player)
+      .filter((player) => {
+        const names = String(player || "")
+          .split("/")
+          .map((value) => value.trim())
+          .filter(Boolean);
+        return names.length > 0 && names.every((name) => phraseInOcr(ocr, name));
+      }),
+  );
+  return matched.length === 1 ? matched[0] : null;
+}
+
+function inferYearFromOcr(
+  ocr: string,
+  candidates: InstaCompChecklistCandidate[],
+) {
+  const matched = uniqueNormalized(
+    candidates
+      .map((candidate) => candidate.year)
+      .filter((year) => {
+        const start = normalizedText(year).match(/\b((?:18|19|20)\d{2})\b/)?.[1];
+        return Boolean(start && new RegExp(`\\b${start}\\b`).test(ocr));
+      }),
+  );
+  return matched.length === 1 ? matched[0] : null;
+}
+
+function inferManufacturerFromOcr(
+  ocr: string,
+  candidates: InstaCompChecklistCandidate[],
+) {
+  const matchedCandidates = candidates.filter((candidate) =>
+    [candidate.manufacturer, candidate.brand, candidate.setName]
+      .filter(Boolean)
+      .some((value) => phraseInOcr(ocr, value)),
+  );
+  const manufacturers = uniqueNormalized(
+    matchedCandidates.map(
+      (candidate) => candidate.manufacturer || candidate.brand || null,
+    ),
+  );
+  return manufacturers.length === 1 ? manufacturers[0] : null;
+}
+
+export function enrichInstaCompChecklistInputFromOcr(
+  input: InstaCompChecklistLookupInput,
+  candidates: InstaCompChecklistCandidate[],
+) {
+  const ocr = boundedOcr(input.ocrText);
+  if (!ocr) return { input, reasons: [] as string[] };
+
+  const inferredYear = input.year || inferYearFromOcr(ocr, candidates);
+  const inferredManufacturer =
+    input.manufacturer || inferManufacturerFromOcr(ocr, candidates);
+  const inferredPlayer = input.player || inferPlayerFromOcr(ocr, candidates);
+  const reasons = [
+    !input.year && inferredYear ? "ocr_inferred_year" : null,
+    !input.manufacturer && inferredManufacturer
+      ? "ocr_inferred_manufacturer"
+      : null,
+    !input.player && inferredPlayer ? "ocr_inferred_player" : null,
+  ].filter((value): value is string => Boolean(value));
+
+  return {
+    input: {
+      ...input,
+      year: inferredYear || null,
+      manufacturer: inferredManufacturer || null,
+      player: inferredPlayer || null,
+      ocrText: null,
+    },
+    reasons,
+  };
 }
 
 export type InstaCompChecklistFirstServerDecision = InstaCompChecklistFirstDecision & {
@@ -157,13 +289,16 @@ export async function resolveInstaCompChecklistFirstFromRegistry(
     };
   }
 
+  const candidates = toCandidates(data || []);
+  const enriched = enrichInstaCompChecklistInputFromOcr(input, candidates);
   const decision = resolveInstaCompChecklistFirst({
-    input,
-    candidates: toCandidates(data || []),
+    input: enriched.input,
+    candidates,
   });
 
   return {
     ...decision,
+    reasons: [...enriched.reasons, ...decision.reasons],
     source: "checklist_registry",
     lookupAttempted: true,
   };

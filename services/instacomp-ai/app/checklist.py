@@ -9,7 +9,11 @@ from .models import CardIdentity, ChecklistOutcome, ChecklistResult
 
 
 class ChecklistGateway(Protocol):
-    async def match(self, identity: CardIdentity) -> ChecklistResult: ...
+    async def match(
+        self,
+        identity: CardIdentity,
+        ocr_text: str | None = None,
+    ) -> ChecklistResult: ...
 
     async def health(self) -> bool: ...
 
@@ -17,6 +21,11 @@ class ChecklistGateway(Protocol):
 def _text(value: Any) -> str | None:
     normalized = str(value or "").strip()
     return normalized or None
+
+
+def _bounded_ocr(value: str | None) -> str | None:
+    normalized = " ".join(str(value or "").replace("\x00", " ").split())
+    return normalized[:12_000] or None
 
 
 def _registry_base_url() -> str | None:
@@ -41,15 +50,19 @@ def _registry_headers() -> dict[str, str]:
 class RegistryChecklistGateway:
     """Calls the website's authenticated Checklist Registry resolver.
 
-    The local vision model supplies evidence only. Exact identity remains owned by
-    the central Registry, and pricing stays blocked unless that resolver returns
-    an exact match with both an identity ID and fingerprint.
+    Trusted image memory and bounded OCR evidence run before the Ollama backup.
+    Exact identity remains owned by the central Registry, and pricing stays
+    blocked unless that resolver returns both an identity ID and fingerprint.
     """
 
     def __init__(self, timeout_seconds: float = 20.0) -> None:
         self.timeout_seconds = timeout_seconds
 
-    async def match(self, identity: CardIdentity) -> ChecklistResult:
+    async def match(
+        self,
+        identity: CardIdentity,
+        ocr_text: str | None = None,
+    ) -> ChecklistResult:
         base_url = _registry_base_url()
         if not base_url:
             return ChecklistResult(
@@ -57,20 +70,13 @@ class RegistryChecklistGateway:
                 reasons=["INSTACOMP_AI_REGISTRY_URL is not configured."],
             )
 
-        missing = [
-            name
-            for name, value in {
-                "year": identity.year,
-                "manufacturer": identity.manufacturer or identity.brand,
-                "player": identity.player,
-                "card_number": identity.card_number,
-            }.items()
-            if not value
-        ]
-        if missing:
+        # The Registry can infer year, manufacturer, and player from the bounded
+        # OCR block after card-number candidate retrieval. A card number is the
+        # only required pre-query field.
+        if not identity.card_number:
             return ChecklistResult(
                 outcome=ChecklistOutcome.INPUT_INCOMPLETE,
-                reasons=[f"Missing identity fields: {', '.join(missing)}"],
+                reasons=["Missing identity field: card_number"],
             )
 
         payload = {
@@ -83,6 +89,7 @@ class RegistryChecklistGateway:
             "isRelic": identity.memorabilia,
             "parallel": identity.parallel,
             "variation": identity.variation,
+            "ocrText": _bounded_ocr(ocr_text),
         }
 
         try:
@@ -144,7 +151,10 @@ class RegistryChecklistGateway:
                 serial_run=identity.serial_run,
                 rookie=identity.rookie,
                 autograph=identity.autograph,
+                inscription=identity.inscription,
+                inscription_text=identity.inscription_text,
                 memorabilia=identity.memorabilia,
+                memorabilia_type=identity.memorabilia_type,
             )
             return ChecklistResult(
                 outcome=ChecklistOutcome.EXACT_MATCH,
