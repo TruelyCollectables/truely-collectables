@@ -1,0 +1,72 @@
+{
+  "schema": "tcos.officialManufacturerChecklistPolicy.v1",
+  "policy": "new_release_updates_official_manufacturer_only",
+  "generatedFor": "TCOS Checklist Registry",
+  "defaultMaxSourcesPerManufacturer": 150,
+  "manufacturers": [
+    {
+      "id": "topps",
+      "name": "Topps",
+      "seedPath": "data/topps-checklist-seeds.json",
+      "officialHosts": ["topps.com", "www.topps.com", "cdn.shopify.com"],
+      "registryMode": "validate_and_import_supported",
+      "universes": ["baseball", "basketball", "football", "hockey", "soccer", "racing", "wrestling", "mma", "golf", "entertainment", "non-sport", "stickers", "multi-sport"]
+    },
+    {
+      "id": "panini",
+      "name": "Panini",
+      "seedPath": "data/panini-checklist-seeds.json",
+      "officialHosts": ["paniniamerica.net", "www.paniniamerica.net", "blog.paniniamerica.net", "assets.paniniamerica.net"],
+      "registryMode": "validate_and_import_supported",
+      "universes": ["baseball", "basketball", "football", "hockey", "soccer", "racing", "wrestling", "mma", "entertainment", "non-sport", "stickers", "multi-sport"]
+    },
+    {
+      "id": "upper-deck",
+      "name": "Upper Deck",
+      "seedPath": "data/upper-deck-checklist-seeds.json",
+      "officialHosts": ["upperdeck.com", "www.upperdeck.com"],
+      "registryMode": "validate_and_import_supported",
+      "universes": ["baseball", "basketball", "football", "hockey", "golf", "entertainment", "non-sport", "multi-sport"]
+    },
+    {
+      "id": "leaf",
+      "name": "Leaf",
+      "seedPath": "data/leaf-checklist-seeds.json",
+      "officialHosts": ["leaftradingcards.com", "www.leaftradingcards.com", "cdn.prod.website-files.com", "docs.google.com", "drive.google.com"],
+      "registryMode": "validate_and_import_supported",
+      "universes": ["baseball", "basketball", "football", "hockey", "soccer", "wrestling", "boxing", "golf", "multi-sport", "entertainment", "non-sport", "celebrity"]
+    },
+    {
+      "id": "pokemon",
+      "name": "The Pokemon Company",
+      "seedPath": "data/pokemon-official-checklist-seeds.json",
+      "officialHosts": ["pokemon.com", "www.pokemon.com", "assets.pokemon.com", "static-assets.pokemon.com", "pokemon-card.com", "www.pokemon-card.com"],
+      "registryMode": "validate_and_import_supported",
+      "universes": ["pokemon"]
+    },
+    {
+      "id": "konami-yugioh",
+      "name": "Konami Yu-Gi-Oh",
+      "seedPath": "data/yugioh-official-checklist-seeds.json",
+      "officialHosts": ["db.yugioh-card.com", "www.db.yugioh-card.com", "yugioh-card.com", "www.yugioh-card.com"],
+      "registryMode": "validate_and_import_supported",
+      "universes": ["yu-gi-oh"]
+    },
+    {
+      "id": "wizards-magic",
+      "name": "Wizards of the Coast",
+      "seedPath": "data/magic-official-checklist-seeds.json",
+      "officialHosts": ["magic.wizards.com", "gatherer.wizards.com", "media.wizards.com", "wizards.com", "www.wizards.com"],
+      "registryMode": "validate_and_import_supported",
+      "universes": ["magic-the-gathering"]
+    },
+    {
+      "id": "ravensburger-lorcana",
+      "name": "Ravensburger Disney Lorcana",
+      "seedPath": "data/lorcana-official-checklist-seeds.json",
+      "officialHosts": ["disneylorcana.com", "www.disneylorcana.com", "cards.disneylorcana.com", "files.disneylorcana.com", "ravensburger.com", "www.ravensburger.com"],
+      "registryMode": "validate_and_import_supported",
+      "universes": ["lorcana"]
+    }
+  ]
+}
