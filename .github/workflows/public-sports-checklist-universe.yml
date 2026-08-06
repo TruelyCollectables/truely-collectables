@@ -6,6 +6,7 @@ on:
     paths:
       - "scripts/checklist-sources/**"
       - "scripts/organize-universal-checklist-archive.mjs"
+      - "scripts/audit-mainstream-2000-plus.mjs"
       - ".github/workflows/public-sports-checklist-universe.yml"
   push:
     branches:
@@ -13,6 +14,7 @@ on:
     paths:
       - "scripts/checklist-sources/**"
       - "scripts/organize-universal-checklist-archive.mjs"
+      - "scripts/audit-mainstream-2000-plus.mjs"
       - ".github/workflows/public-sports-checklist-universe.yml"
 
 permissions:
@@ -65,6 +67,7 @@ jobs:
           node --check scripts/checklist-sources/shared.mjs
           node --check "${{ matrix.script }}"
           node --check scripts/organize-universal-checklist-archive.mjs
+          node --check scripts/audit-mainstream-2000-plus.mjs
       - name: Collect public checklist and set records
         id: collect
         continue-on-error: true
@@ -161,6 +164,11 @@ jobs:
           CHECKLIST_ARCHIVE_INPUTS: ".public-checklist-source-archive/baseballcardpedia=baseballcardpedia,.public-checklist-source-archive/keyman=keyman,.public-checklist-source-archive/sportscardradio=sportscardradio,.public-checklist-source-archive/cardboardconnection=cardboardconnection,.public-checklist-source-archive/beckett=beckett,.public-checklist-source-archive/bigapplecollects=bigapplecollects,.public-checklist-source-archive/cardboardchecklist=cardboardchecklist,.public-checklist-source-archive/gogts=gogts"
           CHECKLIST_ORGANIZED_OUTPUT: ".sports-checklist-master-archive"
         run: node scripts/organize-universal-checklist-archive.mjs
+      - name: Audit Phase 1 mainstream releases from 2000 forward
+        env:
+          CHECKLIST_MASTER_ROOT: ".sports-checklist-master-archive"
+          CHECKLIST_PHASE1_START_YEAR: 2000
+        run: node scripts/audit-mainstream-2000-plus.mjs
       - name: Copy all source receipts into the master archive
         run: |
           mkdir -p .sports-checklist-master-archive/source-receipts
@@ -188,5 +196,6 @@ jobs:
             .sports-checklist-master-archive/source-items.json
             .sports-checklist-master-archive/source-items.csv
             .sports-checklist-master-archive/source-receipts/*.json
+            .sports-checklist-master-archive/phase1-mainstream-2000-plus/*
           if-no-files-found: error
           retention-days: 90
