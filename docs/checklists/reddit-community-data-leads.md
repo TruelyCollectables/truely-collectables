@@ -10,6 +10,8 @@ A public Reddit post, Google Sheet, Drive file, Dropbox file, or GitHub reposito
 
 TCDB is excluded from automated capture and community backdoor intake. Do not accept or import a TCDB scrape, database dump, bulk PDF capture, or derivative workbook unless TCDB provides written permission or a licensed export.
 
+Public checklist aggregators are secondary evidence. Manufacturer-issued checklist files and exact published tables take priority over editorial descriptions, inferred parallel structures, or generated summaries.
+
 ## Priority contacts
 
 | Priority | Reddit user | Scope | Public evidence | Why contact them | Current permission status |
