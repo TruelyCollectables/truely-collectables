@@ -18,6 +18,23 @@ on:
       - "src/app/components/AdminInstaCompMobileShortcut.tsx"
       - "scripts/run-instacomp-sentinel-control-audit.mjs"
       - ".github/workflows/instacomp-ai-checklist-sentinel-build.yml"
+  push:
+    branches: [main]
+    paths:
+      - "services/instacomp-ai/app/sentinel*.py"
+      - "services/instacomp-ai/app/settings_routes.py"
+      - "services/instacomp-ai/scripts/install-sentinel-control.sh"
+      - "services/instacomp-ai/.env.example"
+      - "services/instacomp-ai/data/sentinel-target-keys.txt"
+      - "services/instacomp-ai/tests/test_sentinel.py"
+      - "services/instacomp-ai/tests/test_sentinel_control.py"
+      - "services/instacomp-ai/CHECKLIST_SENTINEL.md"
+      - "src/lib/instacomp-sentinel-auth.ts"
+      - "src/app/api/instacomp/checklist-sentinel/**"
+      - "src/app/admin/instacomp/checklist-sentinel/**"
+      - "src/app/components/AdminInstaCompMobileShortcut.tsx"
+      - "scripts/run-instacomp-sentinel-control-audit.mjs"
+      - ".github/workflows/instacomp-ai-checklist-sentinel-build.yml"
 
 permissions:
   contents: read
