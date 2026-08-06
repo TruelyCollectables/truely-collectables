@@ -516,8 +516,9 @@ async def analyze_scan(
             status = "model_unavailable"
             match_source = "none"
             next_action = (
-                "Internal memory did not know this card and the Ollama backup reader was unavailable. "
-                "The website may use OpenAI only as the emergency teacher."
+                "InstaComp AI could not identify this unknown card because the local Ollama reader "
+                "was unavailable. No external identity provider was called. Restore the local "
+                "reader and retry, or send the card to private manual review."
             )
         elif checklist_result.outcome == ChecklistOutcome.NOT_CONFIGURED:
             trusted_identity = None
