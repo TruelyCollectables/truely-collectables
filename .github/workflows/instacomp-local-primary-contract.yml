@@ -5,18 +5,29 @@ on:
     paths:
       - "services/instacomp-ai/**"
       - "src/lib/instacomp-ai-local.ts"
+      - "src/lib/instacomp-ai-provider-failover.ts"
+      - "src/lib/instacomp-checklist-first-server.ts"
       - "src/app/api/instacomp/scan/route.ts"
       - "src/app/api/instacomp/internal-readiness/route.ts"
       - "src/app/api/account/seller/inventory/instacomp-card-edit/route.ts"
       - "scripts/check-instacomp-local-primary-contract.mjs"
+      - "scripts/patch-instacomp-ocr-registry-primary.py"
+      - "scripts/run-instacomp-internal-fail-closed-regressions.ts"
+      - "scripts/run-instacomp-ocr-registry-primary-regressions.ts"
       - ".github/workflows/instacomp-local-primary-contract.yml"
+
+permissions:
+  contents: write
 
 jobs:
   certify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -30,6 +41,15 @@ jobs:
         run: |
           pip install -r services/instacomp-ai/requirements.txt
           npm ci
+      - name: Apply OCR and Registry runtime patch
+        run: python scripts/patch-instacomp-ocr-registry-primary.py
+      - name: Internal fail-closed regressions
+        run: node --import tsx scripts/run-instacomp-internal-fail-closed-regressions.ts
+      - name: OCR to Registry primary regressions
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key
+        run: node --import tsx scripts/run-instacomp-ocr-registry-primary-regressions.ts
       - name: Internal architecture contract
         run: node scripts/check-instacomp-local-primary-contract.mjs
       - name: Mac engine tests
@@ -44,6 +64,10 @@ jobs:
           src/app/api/instacomp/internal-readiness/route.ts
           src/app/api/account/seller/inventory/instacomp-card-edit/route.ts
           src/lib/instacomp-ai-local.ts
+          src/lib/instacomp-ai-provider-failover.ts
+          src/lib/instacomp-checklist-first-server.ts
+          scripts/run-instacomp-internal-fail-closed-regressions.ts
+          scripts/run-instacomp-ocr-registry-primary-regressions.ts
       - name: TypeScript
         run: npx tsc --noEmit
       - name: Production build
@@ -53,4 +77,25 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key
           NEXT_PUBLIC_SITE_URL: https://example.com
           INSTACOMP_SERVICE_TOKEN: placeholder-service-token
-        run: npm run build
+          INTERNAL_PUBLISH_WEBHOOK_SECRET: placeholder-internal-publish-secret
+          INTERNAL_IMPORT_WEBHOOK_SECRET: placeholder-internal-import-secret
+        run: |
+          npm run build
+          git checkout -- public/instacomp-release.json
+      - name: Commit applied runtime patch
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            services/instacomp-ai/app/main.py \
+            src/app/api/instacomp/scan/route.ts \
+            src/lib/instacomp-ai-local.ts \
+            src/lib/instacomp-checklist-first-server.ts \
+            scripts/check-instacomp-local-primary-contract.mjs
+          if git diff --cached --quiet; then
+            echo "Runtime patch already committed."
+          else
+            git commit -m "Apply InstaComp OCR Registry primary runtime path"
+            git push origin HEAD:${{ github.head_ref }}
+          fi
