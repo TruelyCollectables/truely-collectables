@@ -1,5 +1,6 @@
 import fs from "node:fs";
 
+// Certification marker: catalog-only pending rebuild v1.
 function read(path) {
   return fs.readFileSync(path, "utf8");
 }
