@@ -57,6 +57,12 @@ jobs:
           - source: gogts
             script: scripts/checklist-sources/gogts.mjs
             max_items: 10000
+          - source: breakninja
+            script: scripts/checklist-sources/breakninja.mjs
+            max_items: 2500
+          - source: cloutsnchara
+            script: scripts/checklist-sources/cloutsnchara.mjs
+            max_items: 5000
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -77,6 +83,10 @@ jobs:
           CHECKLIST_MAX_DISCOVERY_PAGES: 500
           CHECKLIST_MAX_DOWNLOAD_BYTES: 50000000
           BECKETT_MAX_PAGES: 100
+          BREAKNINJA_MAX_PRODUCTS: 2500
+          BREAKNINJA_MAX_TEAM_PAGES: 80
+          CLOUTSNCHARA_MAX_PAGES: 100
+          PUBLIC_SOURCE_DELAY_MS: 250
         run: node "${{ matrix.script }}"
       - name: Ensure source manifest exists
         if: always()
@@ -219,7 +229,7 @@ jobs:
     needs: [collect, collect-instacomp-pokemon]
     if: always()
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -237,13 +247,13 @@ jobs:
       - name: Extract and verify source receipts
         run: |
           find downloaded-public-source-archives downloaded-instacomp-pokemon -type f -name '*.tar.gz' -print -exec tar -xzf {} \;
-          for source in baseballcardpedia keyman sportscardradio cardboardconnection beckett bigapplecollects cardboardchecklist gogts; do
+          for source in baseballcardpedia keyman sportscardradio cardboardconnection beckett bigapplecollects cardboardchecklist gogts breakninja cloutsnchara; do
             test -f ".public-checklist-source-archive/${source}/manifest.json"
           done
           test -f ".internal-checklist-source-archive/instacomp-pokemon/manifest.json"
       - name: Build one exact-key master database
         env:
-          CHECKLIST_ARCHIVE_INPUTS: ".public-checklist-source-archive/baseballcardpedia=baseballcardpedia,.public-checklist-source-archive/keyman=keyman,.public-checklist-source-archive/sportscardradio=sportscardradio,.public-checklist-source-archive/cardboardconnection=cardboardconnection,.public-checklist-source-archive/beckett=beckett,.public-checklist-source-archive/bigapplecollects=bigapplecollects,.public-checklist-source-archive/cardboardchecklist=cardboardchecklist,.public-checklist-source-archive/gogts=gogts,.internal-checklist-source-archive/instacomp-pokemon=instacomp-pokemon"
+          CHECKLIST_ARCHIVE_INPUTS: ".public-checklist-source-archive/baseballcardpedia=baseballcardpedia,.public-checklist-source-archive/keyman=keyman,.public-checklist-source-archive/sportscardradio=sportscardradio,.public-checklist-source-archive/cardboardconnection=cardboardconnection,.public-checklist-source-archive/beckett=beckett,.public-checklist-source-archive/bigapplecollects=bigapplecollects,.public-checklist-source-archive/cardboardchecklist=cardboardchecklist,.public-checklist-source-archive/gogts=gogts,.public-checklist-source-archive/breakninja=breakninja,.public-checklist-source-archive/cloutsnchara=cloutsnchara,.internal-checklist-source-archive/instacomp-pokemon=instacomp-pokemon"
           CHECKLIST_ORGANIZED_OUTPUT: ".card-checklist-master-archive"
         run: node scripts/organize-universal-checklist-archive.mjs
       - name: Audit sports-card releases from 2000 forward
@@ -254,7 +264,7 @@ jobs:
       - name: Copy source receipts into the master archive
         run: |
           mkdir -p .card-checklist-master-archive/source-receipts
-          for source in baseballcardpedia keyman sportscardradio cardboardconnection beckett bigapplecollects cardboardchecklist gogts; do
+          for source in baseballcardpedia keyman sportscardradio cardboardconnection beckett bigapplecollects cardboardchecklist gogts breakninja cloutsnchara; do
             cp ".public-checklist-source-archive/${source}/manifest.json" ".card-checklist-master-archive/source-receipts/${source}.json"
           done
           cp ".internal-checklist-source-archive/instacomp-pokemon/manifest.json" ".card-checklist-master-archive/source-receipts/instacomp-pokemon.json"
