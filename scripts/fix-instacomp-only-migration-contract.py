@@ -57,18 +57,27 @@ else:
 
 route_path = Path("src/app/api/instacomp/scan/route.ts")
 route = route_path.read_text()
-untyped_serial = "    const serialOcr = null;\n"
-typed_serial = (
-    "    const serialOcr = null as ExternalOcrResult | null;\n"
+target_serial = (
+    "    const serialOcr = null as InstaCompSerialOcrResult | null;\n"
 )
 
-if typed_serial in route:
-    print("Disabled serial reader is already type-safe")
-elif untyped_serial in route:
-    route_path.write_text(route.replace(untyped_serial, typed_serial, 1))
-    print("Disabled serial reader made type-safe")
+if target_serial in route:
+    print("Disabled serial reader already uses the exact result type")
 else:
-    raise SystemExit("Disabled serial reader declaration anchor missing")
+    replaced = False
+    for prior in [
+        "    const serialOcr = null;\n",
+        "    const serialOcr: ExternalOcrResult | null = null;\n",
+        "    const serialOcr = null as ExternalOcrResult | null;\n",
+    ]:
+        if prior in route:
+            route = route.replace(prior, target_serial, 1)
+            replaced = True
+            break
+    if not replaced:
+        raise SystemExit("Disabled serial reader declaration anchor missing")
+    route_path.write_text(route)
+    print("Disabled serial reader now uses the exact result type")
 
 
 for gate_path in [
@@ -76,19 +85,20 @@ for gate_path in [
     Path("scripts/check-instacomp-local-primary-contract.mjs"),
 ]:
     gate = gate_path.read_text()
-    expected = "const serialOcr = null as ExternalOcrResult | null;"
+    expected = "const serialOcr = null as InstaCompSerialOcrResult | null;"
     if expected in gate:
         continue
     replaced = False
     for prior in [
         "const serialOcr = null;",
         "const serialOcr: ExternalOcrResult | null = null;",
+        "const serialOcr = null as ExternalOcrResult | null;",
     ]:
         if prior in gate:
             gate = gate.replace(prior, expected)
             replaced = True
     if not replaced:
-        raise SystemExit(f"Type-safe serial-reader gate anchor missing: {gate_path}")
+        raise SystemExit(f"Exact serial-reader gate anchor missing: {gate_path}")
     gate_path.write_text(gate)
 
-print("Type-safe disabled-serial-reader gates applied")
+print("Exact disabled-serial-reader gates applied")
