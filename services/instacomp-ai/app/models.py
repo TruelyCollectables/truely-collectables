@@ -48,6 +48,8 @@ class CardIdentity(BaseModel):
 
 class VisualEvidence(BaseModel):
     visible_text: list[str] = Field(default_factory=list)
+    front_visible_text: list[str] = Field(default_factory=list)
+    back_visible_text: list[str] = Field(default_factory=list)
     logos: list[str] = Field(default_factory=list)
     colors: list[str] = Field(default_factory=list)
     foil_or_pattern: list[str] = Field(default_factory=list)
