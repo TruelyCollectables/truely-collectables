@@ -2,29 +2,30 @@
 
 ## Objective
 
-Build and audit the mainstream checklist universe from 2000 through the current year before expanding into vintage, regional, promotional, food, convention, test, proof, mail-in, and other one-off issues.
+Build and audit one universal card checklist database from 2000 through the current year before expanding into vintage, regional, promotional, food, convention, test, proof, mail-in, and other one-off issues.
 
-## Included acquisition universes
+## Included universes in the same database
 
 - Baseball, basketball, football, hockey, soccer
 - Racing, wrestling, MMA/UFC/PFL, boxing, golf, tennis
 - Multi-sport products
+- Pokemon
 - Licensed entertainment and non-sport trading cards
-- Major mainstream TCG families still needing acquisition: Magic: The Gathering, Yu-Gi-Oh!, Disney Lorcana, and other major TCG products
-- Mainstream sticker products when they belong to the included universes
+- Magic: The Gathering, Yu-Gi-Oh!, Disney Lorcana, and other major TCG products
+- Mainstream sticker products
 
-## Existing InstaComp AI database — audit and updates only
+## Pokemon placement and source
 
-- Pokemon sets are already present in InstaComp AI's database.
-- Phase 1 must not reacquire or rebuild Pokemon through the new public checklist collectors.
-- Pokemon is excluded from new-source acquisition gap counts.
-- Pokemon may be checked for missing recent releases, corrections, duplicate identities, checklist completeness, and schema compatibility with the universal Registry.
-- Any proposed Pokemon import must reconcile against InstaComp AI's existing Pokemon database rather than replacing it.
-- The new universal checklist archive may reference InstaComp AI's Pokemon records, but it must preserve InstaComp AI as the existing database of record for that material.
+- Pokemon is a first-class universe in the same master database as every other card category.
+- Pokemon is classified as `universe=pokemon` and `sport=null`; it is not filed under sports cards.
+- Existing Pokemon data is exported from InstaComp AI's live Checklist Registry tables and merged into the same exact-key master output.
+- InstaComp AI is the Pokemon source system, not a separate final database.
+- Public Pokemon records may corroborate, correct, or add missing releases, but they must reconcile against InstaComp's existing identities rather than overwrite them blindly.
+- No card images are copied by this checklist merge.
 
 ## Mainstream release rule
 
-A Phase 1 release is a nationally or broadly distributed, cataloged product issued from 2000 through the current year by an established manufacturer or printed brand. Hobby, retail, update, traded, insert, parallel, autograph, memorabilia, and mainstream regional-language counterparts may be included when the source identifies them as part of the regular product structure.
+A Phase 1 release is a nationally or broadly distributed, cataloged product issued from 2000 through the current year by an established manufacturer or printed brand. Hobby, retail, update, traded, insert, parallel, autograph, memorabilia, mainstream TCG, entertainment, and mainstream regional-language counterparts may be included when the source identifies them as part of the regular product structure.
 
 ## Deferred until Phase 2
 
@@ -45,21 +46,20 @@ A set identity alone is not checklist-complete. Phase 1 reporting distinguishes:
 1. Set identity only
 2. Checklist rows present from one source
 3. Checklist rows present with multiple-source corroboration
-4. InstaComp AI database audit only
-5. Unresolved classification or conflicting evidence
+4. Unresolved classification or conflicting evidence
 
 A release is not marked checklist-ready unless at least one source supplies actual checklist rows. Manufacturer-issued files and exact published tables have priority over secondary editorial summaries.
 
 ## Required outputs
 
-- Mainstream 2000+ acquisition catalog
+- One universal 2000+ exact-set catalog containing sports, Pokemon, entertainment, non-sport, stickers, and other TCGs
 - Coverage by year and universe
 - Set identities lacking checklist rows
 - Multi-source corroboration counts
-- InstaComp AI Pokemon audit-only catalog for Pokemon records encountered by collectors
+- Pokemon convenience view sourced from the same master rows, not a separate database
 - Deferred Phase 2 catalog
 - Unresolved records and source failure receipts
 
 ## Completion rule
 
-TCOS must not claim Phase 1 complete merely because every year has some records. Completion requires a release inventory reconciliation by year, universe, manufacturer/printed brand, and product family, followed by targeted gap acquisition. Pokemon completeness is measured against InstaComp AI's existing Pokemon database and is not part of the new-source acquisition gap count.
+TCOS must not claim Phase 1 complete merely because every year has some records. Completion requires release-inventory reconciliation by year, universe, manufacturer or printed brand, and product family. The build must fail its completeness gate when InstaComp Pokemon records are not present in the same master database.
