@@ -66,6 +66,8 @@ jobs:
           node --check "${{ matrix.script }}"
           node --check scripts/organize-universal-checklist-archive.mjs
       - name: Collect public checklist and set records
+        id: collect
+        continue-on-error: true
         env:
           CHECKLIST_SOURCE: ${{ matrix.source }}
           CHECKLIST_MAX_ITEMS: ${{ matrix.max_items }}
@@ -73,23 +75,55 @@ jobs:
           CHECKLIST_MAX_DOWNLOAD_BYTES: 50000000
           BECKETT_MAX_PAGES: 100
         run: node "${{ matrix.script }}"
+      - name: Ensure source manifest exists
+        if: always()
+        env:
+          SOURCE: ${{ matrix.source }}
+          COLLECTION_OUTCOME: ${{ steps.collect.outcome }}
+        run: |
+          root=".public-checklist-source-archive/${SOURCE}"
+          mkdir -p "$root/items"
+          if [ ! -f "$root/manifest.json" ]; then
+            node - <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const source = process.env.SOURCE;
+          const root = path.resolve(`.public-checklist-source-archive/${source}`);
+          fs.writeFileSync(path.join(root, 'manifest.json'), JSON.stringify({
+            schema: 'tcos.publicChecklistSourceArchive.v1',
+            source,
+            generatedAt: new Date().toISOString(),
+            collectionOutcome: process.env.COLLECTION_OUTCOME || 'unknown',
+            totals: { discoveredCandidates: 0, archivedItems: 0, checklistItems: 0, setIndexOnlyItems: 0 },
+            failures: [{ stage: 'collector', error: 'Collector ended without producing a manifest.' }],
+          }, null, 2) + '\n');
+          NODE
+          fi
       - name: Sort source by exact sport, season, manufacturer, product, and source
+        if: ${{ steps.collect.outcome == 'success' }}
         env:
           CHECKLIST_ARCHIVE_INPUTS: ".public-checklist-source-archive/${{ matrix.source }}=${{ matrix.source }}"
           CHECKLIST_ORGANIZED_OUTPUT: ".public-checklist-organized/${{ matrix.source }}"
         run: node scripts/organize-universal-checklist-archive.mjs
-      - name: Package raw and organized source archive
+      - name: Package source archive and any organized output
+        if: always()
+        env:
+          SOURCE: ${{ matrix.source }}
         run: |
-          tar -czf "checklist-source-${{ matrix.source }}.tar.gz" \
-            ".public-checklist-source-archive/${{ matrix.source }}" \
-            ".public-checklist-organized/${{ matrix.source }}"
+          paths=(".public-checklist-source-archive/${SOURCE}")
+          if [ -d ".public-checklist-organized/${SOURCE}" ]; then
+            paths+=(".public-checklist-organized/${SOURCE}")
+          fi
+          tar -czf "checklist-source-${SOURCE}.tar.gz" "${paths[@]}"
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: public-checklist-source-${{ matrix.source }}-${{ github.run_id }}
           path: checklist-source-${{ matrix.source }}.tar.gz
           if-no-files-found: error
           retention-days: 90
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: public-checklist-status-${{ matrix.source }}-${{ github.run_id }}
           path: |
@@ -103,7 +137,7 @@ jobs:
   merge-universe:
     name: Merge Exact-Key Sports Checklist Universe
     needs: collect
-    if: ${{ needs.collect.result == 'success' }}
+    if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
@@ -116,17 +150,23 @@ jobs:
           pattern: public-checklist-source-*-${{ github.run_id }}
           path: downloaded-source-archives
           merge-multiple: true
-      - name: Extract and verify all eight source archives
+      - name: Extract and verify all eight source receipts
         run: |
           find downloaded-source-archives -type f -name '*.tar.gz' -print -exec tar -xzf {} \;
           for source in baseballcardpedia keyman sportscardradio cardboardconnection beckett bigapplecollects cardboardchecklist gogts; do
             test -f ".public-checklist-source-archive/${source}/manifest.json"
           done
-      - name: Build one exact-key master set catalog
+      - name: Build one exact-key master set catalog from successful source items
         env:
           CHECKLIST_ARCHIVE_INPUTS: ".public-checklist-source-archive/baseballcardpedia=baseballcardpedia,.public-checklist-source-archive/keyman=keyman,.public-checklist-source-archive/sportscardradio=sportscardradio,.public-checklist-source-archive/cardboardconnection=cardboardconnection,.public-checklist-source-archive/beckett=beckett,.public-checklist-source-archive/bigapplecollects=bigapplecollects,.public-checklist-source-archive/cardboardchecklist=cardboardchecklist,.public-checklist-source-archive/gogts=gogts"
           CHECKLIST_ORGANIZED_OUTPUT: ".sports-checklist-master-archive"
         run: node scripts/organize-universal-checklist-archive.mjs
+      - name: Copy all source receipts into the master archive
+        run: |
+          mkdir -p .sports-checklist-master-archive/source-receipts
+          for source in baseballcardpedia keyman sportscardradio cardboardconnection beckett bigapplecollects cardboardchecklist gogts; do
+            cp ".public-checklist-source-archive/${source}/manifest.json" ".sports-checklist-master-archive/source-receipts/${source}.json"
+          done
       - name: Package master universe and source evidence
         run: |
           tar -czf sports-checklist-master-archive.tar.gz \
@@ -147,5 +187,6 @@ jobs:
             .sports-checklist-master-archive/master-sets.csv
             .sports-checklist-master-archive/source-items.json
             .sports-checklist-master-archive/source-items.csv
+            .sports-checklist-master-archive/source-receipts/*.json
           if-no-files-found: error
           retention-days: 90
