@@ -11,7 +11,9 @@ on:
       - "src/app/api/instacomp/internal-readiness/route.ts"
       - "src/app/api/account/seller/inventory/instacomp-card-edit/route.ts"
       - "scripts/check-instacomp-local-primary-contract.mjs"
+      - "scripts/check-instacomp-provider-fallback.mjs"
       - "scripts/patch-instacomp-ocr-registry-primary.py"
+      - "scripts/patch-instacomp-only.py"
       - "scripts/run-instacomp-internal-fail-closed-regressions.ts"
       - "scripts/run-instacomp-ocr-registry-primary-regressions.ts"
       - ".github/workflows/instacomp-local-primary-contract.yml"
@@ -43,6 +45,8 @@ jobs:
           npm ci
       - name: Apply OCR and Registry runtime patch
         run: python scripts/patch-instacomp-ocr-registry-primary.py
+      - name: Apply InstaComp-only runtime patch
+        run: python scripts/patch-instacomp-only.py
       - name: Internal fail-closed regressions
         run: node --import tsx scripts/run-instacomp-internal-fail-closed-regressions.ts
       - name: OCR to Registry primary regressions
@@ -52,6 +56,8 @@ jobs:
         run: node --import tsx scripts/run-instacomp-ocr-registry-primary-regressions.ts
       - name: Internal architecture contract
         run: node scripts/check-instacomp-local-primary-contract.mjs
+      - name: InstaComp-only identity gate
+        run: node scripts/check-instacomp-provider-fallback.mjs
       - name: Mac engine tests
         working-directory: services/instacomp-ai
         run: |
@@ -89,13 +95,20 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add \
             services/instacomp-ai/app/main.py \
+            services/instacomp-ai/app/storage.py \
+            services/instacomp-ai/tests/test_storage_migration.py \
+            src/app/api/instacomp/internal-readiness/route.ts \
             src/app/api/instacomp/scan/route.ts \
             src/lib/instacomp-ai-local.ts \
+            src/lib/instacomp-ai-provider-failover.ts \
             src/lib/instacomp-checklist-first-server.ts \
-            scripts/check-instacomp-local-primary-contract.mjs
+            scripts/check-instacomp-local-primary-contract.mjs \
+            scripts/check-instacomp-provider-fallback.mjs \
+            scripts/patch-instacomp-only.py \
+            scripts/run-instacomp-internal-fail-closed-regressions.ts
           if git diff --cached --quiet; then
             echo "Runtime patch already committed."
           else
-            git commit -m "Apply InstaComp OCR Registry primary runtime path"
+            git commit -m "Apply InstaComp-only runtime repair"
             git push origin HEAD:${{ github.head_ref }}
           fi
