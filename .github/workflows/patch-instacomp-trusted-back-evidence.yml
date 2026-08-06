@@ -1,0 +1,161 @@
+name: Patch InstaComp Trusted Back Evidence
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-certify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/instacomp-local-engine-primary
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/instacomp-ai/requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: |
+          pip install -r services/instacomp-ai/requirements.txt
+          npm ci
+      - name: Add trusted back-evidence receipts
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('services/instacomp-ai/app/main.py')
+          text = path.read_text()
+
+          anchor = '''def _memory_checklist_result(match: MemoryMatch) -> ChecklistResult:
+              return ChecklistResult(
+                  outcome=ChecklistOutcome.SET_PRESENT_NO_EXACT_MATCH,
+                  identity=match.identity,
+                  candidate_count=1,
+                  reasons=[
+                      "Trusted InstaComp memory identified this card before any backup model ran.",
+                      *match.reasons,
+                  ],
+                  source_receipts=[f"trusted_memory_lesson:{match.lesson_id}"],
+              )
+          '''
+          helper = '''
+
+          def _trusted_memory_back_evidence(
+              match: MemoryMatch,
+              has_back_image: bool,
+          ) -> list[str]:
+              if not has_back_image:
+                  return []
+              evidence: list[str] = []
+              parallel = str(match.identity.parallel or "").strip()
+              if "prizm" in parallel.lower():
+                  evidence.append(
+                      "PRIZM verified by trusted operator/checklist-confirmed back-image memory"
+                  )
+              if match.identity.serial_run:
+                  evidence.append(
+                      f"PRINT RUN /{match.identity.serial_run} verified by trusted back-image memory"
+                  )
+              evidence.append(
+                  f"TRUSTED BACK IMAGE MATCH ({', '.join(match.reasons)})"
+              )
+              return evidence
+          '''
+          if '_trusted_memory_back_evidence(' not in text:
+              if anchor not in text:
+                  raise SystemExit('memory checklist anchor missing')
+              text = text.replace(anchor, anchor + helper, 1)
+
+          memory_anchor = '''            back_perceptual_hash=(
+                          back_image.perceptual_hash if back_image else None
+                      ),
+                      memory_matches=[image_memory],'''
+          memory_replacement = '''            back_perceptual_hash=(
+                          back_image.perceptual_hash if back_image else None
+                      ),
+                      back_evidence=_trusted_memory_back_evidence(
+                          image_memory,
+                          back_image is not None,
+                      ),
+                      memory_matches=[image_memory],'''
+          if 'back_evidence=_trusted_memory_back_evidence(' not in text:
+              if memory_anchor not in text:
+                  raise SystemExit('memory response anchor missing')
+              text = text.replace(memory_anchor, memory_replacement, 1)
+
+          result_anchor = '''    result = AnalyzeResponse(
+                  scan_id=scan_id,'''
+          result_prefix = '''    suggestion_back_evidence = (
+                  list(
+                      dict.fromkeys(
+                          [
+                              *suggestion.evidence.back_visible_text,
+                              *suggestion.evidence.back_notes,
+                          ]
+                      )
+                  )
+                  if suggestion
+                  else []
+              )
+
+              result = AnalyzeResponse(
+                  scan_id=scan_id,'''
+          if 'suggestion_back_evidence = (' not in text:
+              if result_anchor not in text:
+                  raise SystemExit('result anchor missing')
+              text = text.replace(result_anchor, result_prefix, 1)
+
+          normal_anchor = '''        back_perceptual_hash=(back_image.perceptual_hash if back_image else None),
+                  memory_matches=memory_matches,'''
+          normal_replacement = '''        back_perceptual_hash=(back_image.perceptual_hash if back_image else None),
+                  back_evidence=suggestion_back_evidence,
+                  memory_matches=memory_matches,'''
+          if 'back_evidence=suggestion_back_evidence' not in text:
+              if normal_anchor not in text:
+                  raise SystemExit('normal response anchor missing')
+              text = text.replace(normal_anchor, normal_replacement, 1)
+
+          path.write_text(text)
+          PY
+          rm .github/workflows/patch-instacomp-trusted-back-evidence.yml
+      - name: Certify patch
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key
+          NEXT_PUBLIC_SITE_URL: https://example.com
+          INSTACOMP_SERVICE_TOKEN: placeholder-service-token
+        run: |
+          cd services/instacomp-ai
+          python -m compileall app tests
+          pytest -q
+          cd ../..
+          node scripts/check-instacomp-local-primary-contract.mjs
+          npx eslint src/app/api/instacomp/scan/route.ts src/app/api/instacomp/internal-readiness/route.ts src/app/api/account/seller/inventory/instacomp-card-edit/route.ts src/lib/instacomp-ai-local.ts
+          npx tsc --noEmit
+          npm run build
+          python - <<'PY'
+          from pathlib import Path
+          main = Path('services/instacomp-ai/app/main.py').read_text()
+          assert 'back_evidence=_trusted_memory_back_evidence(' in main
+          assert 'back_evidence=suggestion_back_evidence' in main
+          assert main.index('find_trusted_image_match') < main.index('reader.analyze')
+          print('Trusted back-evidence receipt verified')
+          PY
+      - name: Commit verified patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "[trusted-back-evidence-patched] Preserve learned back evidence"
+          git push origin HEAD:fix/instacomp-local-engine-primary
