@@ -6,6 +6,7 @@ on:
       - "services/instacomp-ai/**"
       - "src/lib/instacomp-ai-local.ts"
       - "src/app/api/instacomp/scan/route.ts"
+      - "src/app/api/instacomp/internal-readiness/route.ts"
       - "src/app/api/account/seller/inventory/instacomp-card-edit/route.ts"
       - "scripts/check-instacomp-local-primary-contract.mjs"
       - ".github/workflows/instacomp-local-primary-contract.yml"
@@ -40,6 +41,7 @@ jobs:
         run: >-
           npx eslint
           src/app/api/instacomp/scan/route.ts
+          src/app/api/instacomp/internal-readiness/route.ts
           src/app/api/account/seller/inventory/instacomp-card-edit/route.ts
           src/lib/instacomp-ai-local.ts
       - name: TypeScript
