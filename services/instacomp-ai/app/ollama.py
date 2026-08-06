@@ -3,17 +3,27 @@ from __future__ import annotations
 import base64
 import json
 import re
+
 import httpx
 
 from .config import Settings
 from .models import CardIdentity, ModelSuggestion, VisualEvidence
 
 
-SYSTEM_PROMPT = """You are the local vision reader for InstaComp AI™.
-Analyze trading-card images conservatively. Return evidence, not certainty.
-Never invent a player, set, card number, parallel, serial number, autograph,
-or memorabilia claim that is not visibly supported. Use null for unknown fields.
-The checklist registry, not this model, will ultimately authorize an exact identity.
+SYSTEM_PROMPT = """You are the primary local vision reader for InstaComp AI™.
+Analyze the front and back of one trading card together. Return visible evidence and a conservative identity suggestion.
+Never invent a player, set, card number, parallel, print run, autograph, inscription, or memorabilia claim that is not visibly supported. Use null for unknown fields.
+
+Critical rules:
+- The first image is the FRONT and the optional second image is the BACK.
+- Read player, team, year, manufacturer/product, card number, rookie mark, autograph, inscription, memorabilia, and serial-number evidence from both sides.
+- serial_number may contain the exact visible copy stamp such as 017/299, but serial_run must contain only the denominator as an integer, such as 299.
+- An autograph is not an inscription. Set inscription true only when handwriting contains extra words, a phrase, date, nickname, statistic, or message beyond the signature itself. Copy the visible phrase into inscription_text when readable.
+- memorabilia means a relic, patch, jersey, bat, puck, ball, or other embedded material. Put the material description in memorabilia_type when visible.
+- Autograph, inscription, memorabilia, and serial numbering may occur in any combination. Report each independently.
+- For Panini Prizm WNBA and Panini Select WNBA, the word PRIZM on the back is the printed proof that a Prizm parallel exists. If the back does not say PRIZM, return parallel Base even when the front has a colored design. Do not remove Prizm or Select from the product/set name.
+- A colored Prizm name such as Green Prizm, Silver Prizm, Blue Prizm, or Red Prizm requires visible color/finish evidence plus PRIZM back evidence.
+- The Checklist Registry locks the final exact identity. The local engine should still produce the strongest evidence-first suggestion it can.
 Return one JSON object only.
 """
 
@@ -35,7 +45,10 @@ JSON_SHAPE = {
         "serial_run": None,
         "rookie": None,
         "autograph": None,
+        "inscription": None,
+        "inscription_text": None,
         "memorabilia": None,
+        "memorabilia_type": None,
     },
     "evidence": {
         "visible_text": [],
@@ -66,6 +79,29 @@ def extract_json(text: str) -> dict:
         return json.loads(cleaned[start : end + 1])
 
 
+def normalize_identity_payload(payload: dict) -> dict:
+    identity = dict(payload.get("identity") or {})
+    serial_number = str(identity.get("serial_number") or "").strip()
+    serial_run = identity.get("serial_run")
+    if not serial_run and serial_number:
+        match = re.search(r"/\s*(\d{1,6})\b", serial_number)
+        if match:
+            serial_run = int(match.group(1))
+    if serial_run is not None:
+        try:
+            identity["serial_run"] = int(serial_run)
+        except (TypeError, ValueError):
+            identity["serial_run"] = None
+    identity["inscription_text"] = (
+        str(identity.get("inscription_text") or "").strip() or None
+    )
+    identity["memorabilia_type"] = (
+        str(identity.get("memorabilia_type") or "").strip() or None
+    )
+    payload["identity"] = identity
+    return payload
+
+
 class OllamaReader:
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -73,7 +109,9 @@ class OllamaReader:
     async def health(self) -> bool:
         try:
             async with httpx.AsyncClient(timeout=4.0) as client:
-                response = await client.get(f"{self.settings.ollama_base_url.rstrip('/')}/api/tags")
+                response = await client.get(
+                    f"{self.settings.ollama_base_url.rstrip('/')}/api/tags"
+                )
                 return response.is_success
         except httpx.HTTPError:
             return False
@@ -84,8 +122,7 @@ class OllamaReader:
             images.append(base64.b64encode(back).decode("ascii"))
         prompt = (
             SYSTEM_PROMPT
-            + "\nThe first image is the front. The optional second image is the back.\n"
-            + "Return this exact structural shape, populated with observed evidence:\n"
+            + "\nReturn this exact structural shape, populated with observed evidence:\n"
             + json.dumps(JSON_SHAPE)
         )
         payload = {
@@ -96,25 +133,31 @@ class OllamaReader:
             "format": "json",
             "options": {"temperature": 0.0},
         }
-        async with httpx.AsyncClient(timeout=self.settings.ollama_timeout_seconds) as client:
+        async with httpx.AsyncClient(
+            timeout=self.settings.ollama_timeout_seconds
+        ) as client:
             response = await client.post(
                 f"{self.settings.ollama_base_url.rstrip('/')}/api/generate",
                 json=payload,
             )
             response.raise_for_status()
             envelope = response.json()
-        parsed = extract_json(str(envelope.get("response") or ""))
+        parsed = normalize_identity_payload(
+            extract_json(str(envelope.get("response") or ""))
+        )
         confidence = float(parsed.get("confidence") or 0)
         if confidence > 1:
             confidence /= 100
         confidence = max(0.0, min(confidence, 1.0))
         return ModelSuggestion(
-            provider="ollama",
+            provider="instacomp_local_ollama",
             model=self.settings.ollama_model,
             identity=CardIdentity.model_validate(parsed.get("identity") or {}),
             evidence=VisualEvidence.model_validate(parsed.get("evidence") or {}),
             confidence=confidence,
-            explanation=str(parsed.get("explanation") or "Local visual evidence only."),
+            explanation=str(
+                parsed.get("explanation") or "Local visual evidence only."
+            ),
             raw={
                 "done_reason": envelope.get("done_reason"),
                 "total_duration": envelope.get("total_duration"),
