@@ -45,3 +45,14 @@ def test_checklist_result_carries_lookup_receipt_and_candidates() -> None:
         "Blue Velocity Prizm",
         "Blue Cracked Ice Prizm",
     ]
+
+
+def test_incomplete_result_proves_registry_was_not_called() -> None:
+    result = ChecklistResult(
+        outcome=ChecklistOutcome.INPUT_INCOMPLETE,
+        lookup_attempted=False,
+        registry_reachable=False,
+        reasons=["Missing identity field: card_number"],
+    )
+    assert result.lookup_attempted is False
+    assert result.registry_reachable is False
