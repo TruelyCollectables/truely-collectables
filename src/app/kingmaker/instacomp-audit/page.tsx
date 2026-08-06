@@ -447,9 +447,16 @@ export default function InstaCompAuditPage() {
       error: "",
     });
     try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) {
+        throw new Error("Seller login is required for image editing.");
+      }
       const response = await fetch("/api/admin/card-listing-images", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
         credentials: "same-origin",
         body: JSON.stringify({
           inventoryItemId: item.inventoryItemId,
@@ -462,6 +469,29 @@ export default function InstaCompAuditPage() {
       if (!response.ok || data.success !== true) {
         throw new Error(text(data.error) || "Image edit failed.");
       }
+      const nextFront = text(data.frontImageUrl);
+      const nextBack = text(data.backImageUrl);
+      setPayload((current) =>
+        current
+          ? {
+              ...current,
+              items: current.items.map((candidate) =>
+                candidate.inventoryItemId === item.inventoryItemId
+                  ? {
+                      ...candidate,
+                      imageAudit: {
+                        ...candidate.imageAudit,
+                        frontImageUrl:
+                          nextFront || candidate.imageAudit.frontImageUrl,
+                        backImageUrl:
+                          nextBack || candidate.imageAudit.backImageUrl,
+                      },
+                    }
+                  : candidate,
+              ),
+            }
+          : current,
+      );
       setAction(item.inventoryItemId, {
         busy: null,
         notice: text(data.message) || "Image edit saved.",
