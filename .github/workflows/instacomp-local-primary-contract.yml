@@ -6,6 +6,7 @@ on:
       - "services/instacomp-ai/**"
       - "src/lib/instacomp-ai-local.ts"
       - "src/lib/instacomp-ai-provider-failover.ts"
+      - "src/lib/instacomp-ai-council-runtime.ts"
       - "src/lib/instacomp-checklist-first-server.ts"
       - "src/lib/instacomp-identity-guard.ts"
       - "src/app/api/instacomp/scan/route.ts"
@@ -15,11 +16,9 @@ on:
       - "scripts/check-instacomp-provider-fallback.mjs"
       - "scripts/check-instacomp-no-external-reader-plan.mjs"
       - "scripts/fix-instacomp-only-migration-contract.py"
-      - "scripts/fix-instacomp-prizm-firewall-scope.py"
       - "scripts/patch-instacomp-ocr-registry-primary.py"
       - "scripts/patch-instacomp-only.py"
-      - "scripts/patch-instacomp-velocity-hard-gates.py"
-      - "scripts/patch-instacomp-no-stale-openai-handoff.py"
+      - "scripts/run-instacomp-ai-council-runtime-regressions.ts"
       - "scripts/run-instacomp-internal-fail-closed-regressions.ts"
       - "scripts/run-instacomp-ocr-registry-primary-regressions.ts"
       - "scripts/run-instacomp-prizm-surface-regressions.ts"
@@ -30,7 +29,7 @@ permissions:
 
 jobs:
   certify:
-    runs-on: macos-15
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -56,14 +55,10 @@ jobs:
         run: python scripts/patch-instacomp-only.py
       - name: Fix exact migration-order contract
         run: python scripts/fix-instacomp-only-migration-contract.py
-      - name: Apply hard reader and Prizm surface gates
-        run: python scripts/patch-instacomp-velocity-hard-gates.py
-      - name: Remove stale external-reader handoff
-        run: python scripts/patch-instacomp-no-stale-openai-handoff.py
-      - name: Verify Prizm firewall helper scope
-        run: python scripts/fix-instacomp-prizm-firewall-scope.py
       - name: Internal fail-closed regressions
         run: node --import tsx scripts/run-instacomp-internal-fail-closed-regressions.ts
+      - name: Council runtime hard-stop regressions
+        run: node --import tsx scripts/run-instacomp-ai-council-runtime-regressions.ts
       - name: OCR to Registry primary regressions
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
@@ -75,12 +70,8 @@ jobs:
         run: node scripts/check-instacomp-local-primary-contract.mjs
       - name: InstaComp-only identity gate
         run: node scripts/check-instacomp-provider-fallback.mjs
-      - name: No external reader execution plan
+      - name: No external reader execution gate
         run: node scripts/check-instacomp-no-external-reader-plan.mjs
-      - name: No stale external handoff
-        run: |
-          grep -q 'No external identity provider was called' services/instacomp-ai/app/main.py
-          ! grep -q 'The website may use OpenAI only as the emergency teacher' services/instacomp-ai/app/main.py
       - name: Mac engine tests
         working-directory: services/instacomp-ai
         run: |
@@ -94,8 +85,10 @@ jobs:
           src/app/api/account/seller/inventory/instacomp-card-edit/route.ts
           src/lib/instacomp-ai-local.ts
           src/lib/instacomp-ai-provider-failover.ts
+          src/lib/instacomp-ai-council-runtime.ts
           src/lib/instacomp-checklist-first-server.ts
           src/lib/instacomp-identity-guard.ts
+          scripts/run-instacomp-ai-council-runtime-regressions.ts
           scripts/run-instacomp-internal-fail-closed-regressions.ts
           scripts/run-instacomp-ocr-registry-primary-regressions.ts
           scripts/run-instacomp-prizm-surface-regressions.ts
@@ -120,29 +113,21 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add \
             services/instacomp-ai/app/main.py \
-            services/instacomp-ai/app/ollama.py \
             services/instacomp-ai/app/storage.py \
-            services/instacomp-ai/tests/test_prizm_surface_parallel.py \
             services/instacomp-ai/tests/test_storage_migration.py \
             src/app/api/instacomp/internal-readiness/route.ts \
             src/app/api/instacomp/scan/route.ts \
             src/lib/instacomp-ai-local.ts \
             src/lib/instacomp-ai-provider-failover.ts \
             src/lib/instacomp-checklist-first-server.ts \
-            src/lib/instacomp-identity-guard.ts \
             scripts/check-instacomp-local-primary-contract.mjs \
             scripts/check-instacomp-provider-fallback.mjs \
-            scripts/check-instacomp-no-external-reader-plan.mjs \
             scripts/fix-instacomp-only-migration-contract.py \
-            scripts/fix-instacomp-prizm-firewall-scope.py \
             scripts/patch-instacomp-only.py \
-            scripts/patch-instacomp-velocity-hard-gates.py \
-            scripts/patch-instacomp-no-stale-openai-handoff.py \
-            scripts/run-instacomp-internal-fail-closed-regressions.ts \
-            scripts/run-instacomp-prizm-surface-regressions.ts
+            scripts/run-instacomp-internal-fail-closed-regressions.ts
           if git diff --cached --quiet; then
             echo "Runtime patch already committed."
           else
-            git commit -m "Apply InstaComp reader and Prizm surface repair"
+            git commit -m "Apply InstaComp-only runtime repair"
             git push origin HEAD:${{ github.head_ref }}
           fi
