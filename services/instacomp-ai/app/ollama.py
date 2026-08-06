@@ -26,6 +26,9 @@ Critical rules:
 - Autograph, inscription, memorabilia, and serial numbering may occur in any combination. Report each independently.
 - For Panini Prizm WNBA and Panini Select WNBA, the word PRIZM in back_visible_text is the printed proof that a Prizm parallel exists. If the back does not say PRIZM, return parallel Base even when the front has a colored design. Do not remove Prizm or Select from the product/set name.
 - A colored Prizm name such as Green Prizm, Silver Prizm, Blue Prizm, or Red Prizm requires visible color/finish evidence plus PRIZM in back_visible_text.
+- Blue Velocity Prizm has a directional speed pattern: dense repeating diagonal lines, slashes, chevrons, or criss-cross velocity streaks. Call it Blue Velocity Prizm, never Blue Cracked Ice.
+- Blue Cracked Ice Prizm has irregular polygonal shattered-ice or broken-glass facets. Do not call a card Cracked Ice from blue color, sparkle, or diagonal lines alone.
+- When Velocity and Cracked Ice are the two candidates, describe the observed surface geometry in foil_or_pattern and choose the name supported by that geometry.
 - The Checklist Registry locks the final exact identity. This backup reader supplies evidence only.
 Return one JSON object only.
 """
@@ -84,6 +87,70 @@ def extract_json(text: str) -> dict:
         return json.loads(cleaned[start : end + 1])
 
 
+def _surface_text(value: object) -> str:
+    if isinstance(value, list):
+        return " ".join(_surface_text(item) for item in value)
+    if isinstance(value, dict):
+        return " ".join(_surface_text(item) for item in value.values())
+    return str(value or "")
+
+
+def normalize_prizm_surface_parallel(
+    identity: dict,
+    evidence: dict,
+    explanation: str = "",
+) -> dict:
+    normalized = dict(identity)
+    parallel = str(normalized.get("parallel") or "").strip()
+    if not parallel:
+        return normalized
+
+    context = " ".join(
+        [
+            parallel,
+            str(normalized.get("set_name") or ""),
+            str(normalized.get("brand") or ""),
+            _surface_text(evidence),
+            explanation,
+        ]
+    ).lower()
+    if "prizm" not in context:
+        return normalized
+
+    explicit_velocity = bool(re.search(r"\bvelocity\b", context))
+    directional_velocity = bool(
+        re.search(
+            r"\b(?:dense|repeating|directional|angled)?\s*(?:diagonal|chevron|speed[- ]?line|criss[- ]?cross|cross[- ]?hatch)(?:\s+(?:line|lines|slash|slashes|streak|streaks|pattern))?\b",
+            context,
+        )
+    )
+    strong_cracked_ice = bool(
+        re.search(
+            r"\b(?:irregular\s+polygon|polygonal|shattered[- ]?(?:ice|glass)|broken[- ]?glass|ice[- ]?shard|faceted[- ]?(?:ice|crystal))\b",
+            context,
+        )
+    )
+    weak_cracked_ice = bool(re.search(r"\bcracked[- ]?ice\b", context))
+
+    color = "Blue" if "blue" in context else ""
+    velocity_supported = explicit_velocity or directional_velocity
+    cracked_supported = strong_cracked_ice or (
+        weak_cracked_ice and not directional_velocity
+    )
+
+    if velocity_supported and not strong_cracked_ice:
+        if re.search(r"cracked[- ]?ice|\bblue\s+prizm\b|\bvelocity\b", parallel, re.I):
+            normalized["parallel"] = f"{color + ' ' if color else ''}Velocity Prizm"
+    elif cracked_supported and not velocity_supported and re.search(
+        r"velocity|\bblue\s+prizm\b",
+        parallel,
+        re.I,
+    ):
+        normalized["parallel"] = f"{color + ' ' if color else ''}Cracked Ice Prizm"
+
+    return normalized
+
+
 def normalize_identity_payload(payload: dict) -> dict:
     identity = dict(payload.get("identity") or {})
     serial_number = str(identity.get("serial_number") or "").strip()
@@ -103,14 +170,16 @@ def normalize_identity_payload(payload: dict) -> dict:
     identity["memorabilia_type"] = (
         str(identity.get("memorabilia_type") or "").strip() or None
     )
-    payload["identity"] = identity
     evidence = dict(payload.get("evidence") or {})
     for field in [
         "visible_text",
         "front_visible_text",
         "back_visible_text",
+        "colors",
+        "foil_or_pattern",
         "front_notes",
         "back_notes",
+        "uncertainty",
     ]:
         value = evidence.get(field)
         evidence[field] = [
@@ -119,6 +188,11 @@ def normalize_identity_payload(payload: dict) -> dict:
             if str(item).strip()
         ]
     payload["evidence"] = evidence
+    payload["identity"] = normalize_prizm_surface_parallel(
+        identity,
+        evidence,
+        str(payload.get("explanation") or ""),
+    )
     return payload
 
 
