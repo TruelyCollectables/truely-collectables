@@ -17,13 +17,15 @@ Never invent a player, set, card number, parallel, print run, autograph, inscrip
 
 Critical rules:
 - The first image is the FRONT and the optional second image is the BACK.
+- Transcribe front-only printed text into front_visible_text and back-only printed text into back_visible_text. Never copy front text into back_visible_text.
+- The back-visible-text field is the decisive evidence for printed back markers such as PRIZM and serial numbering.
 - Read player, team, year, manufacturer/product, card number, rookie mark, autograph, inscription, memorabilia, and serial-number evidence from both sides.
 - serial_number may contain the exact visible copy stamp such as 017/299, but serial_run must contain only the denominator as an integer, such as 299.
 - An autograph is not an inscription. Set inscription true only when handwriting contains extra words, a phrase, date, nickname, statistic, or message beyond the signature itself. Copy the visible phrase into inscription_text when readable.
 - memorabilia means a relic, patch, jersey, bat, puck, ball, or other embedded material. Put the material description in memorabilia_type when visible.
 - Autograph, inscription, memorabilia, and serial numbering may occur in any combination. Report each independently.
-- For Panini Prizm WNBA and Panini Select WNBA, the word PRIZM on the back is the printed proof that a Prizm parallel exists. If the back does not say PRIZM, return parallel Base even when the front has a colored design. Do not remove Prizm or Select from the product/set name.
-- A colored Prizm name such as Green Prizm, Silver Prizm, Blue Prizm, or Red Prizm requires visible color/finish evidence plus PRIZM back evidence.
+- For Panini Prizm WNBA and Panini Select WNBA, the word PRIZM in back_visible_text is the printed proof that a Prizm parallel exists. If the back does not say PRIZM, return parallel Base even when the front has a colored design. Do not remove Prizm or Select from the product/set name.
+- A colored Prizm name such as Green Prizm, Silver Prizm, Blue Prizm, or Red Prizm requires visible color/finish evidence plus PRIZM in back_visible_text.
 - The Checklist Registry locks the final exact identity. This backup reader supplies evidence only.
 Return one JSON object only.
 """
@@ -53,6 +55,8 @@ JSON_SHAPE = {
     },
     "evidence": {
         "visible_text": [],
+        "front_visible_text": [],
+        "back_visible_text": [],
         "logos": [],
         "colors": [],
         "foil_or_pattern": [],
@@ -100,6 +104,21 @@ def normalize_identity_payload(payload: dict) -> dict:
         str(identity.get("memorabilia_type") or "").strip() or None
     )
     payload["identity"] = identity
+    evidence = dict(payload.get("evidence") or {})
+    for field in [
+        "visible_text",
+        "front_visible_text",
+        "back_visible_text",
+        "front_notes",
+        "back_notes",
+    ]:
+        value = evidence.get(field)
+        evidence[field] = [
+            str(item).strip()
+            for item in (value if isinstance(value, list) else [])
+            if str(item).strip()
+        ]
+    payload["evidence"] = evidence
     return payload
 
 
