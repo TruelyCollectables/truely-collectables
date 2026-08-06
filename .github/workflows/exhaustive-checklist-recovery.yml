@@ -18,6 +18,15 @@ on:
         type: boolean
   schedule:
     - cron: "17 */6 * * *"
+  pull_request:
+    paths:
+      - "data/checklist-recovery-targets.json"
+      - "data/checklist-recovery-modern-gap-keys.txt"
+      - "scripts/build-checklist-recovery-targets.mjs"
+      - "scripts/recover-missing-checklists.mjs"
+      - "scripts/run-checklist-recovery.mjs"
+      - "scripts/merge-recovery-catalog.mjs"
+      - ".github/workflows/exhaustive-checklist-recovery.yml"
   push:
     branches:
       - "feature/universal-sports-checklist-universe-20260805"
