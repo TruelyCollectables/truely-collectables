@@ -14,6 +14,8 @@ import {
   type InstaCompAiInscriptionFields,
 } from "../../../../../../lib/instacomp-listing-output";
 import type { InstaCompAiResult } from "../../../../../../lib/instacomp";
+import { normalizeInstaCompSideImages } from "../../../../../../lib/instacomp-image-orientation";
+import { persistNormalizedInstaCompImagePair } from "../../../../../../lib/instacomp-normalized-image-storage";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 import { POST as runVerifiedPricing } from "../../inventory/instacomp-verified/route";
@@ -310,7 +312,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const scan = await analyzeWithInstaCompAiLocal({ front, back });
+    const frontFile = front;
+    const backFile = back;
+    const normalizedSides = await normalizeInstaCompSideImages({
+      frontImage: frontFile,
+      backImage: backFile,
+    });
+    if (!normalizedSides.backFile) {
+      throw new Error("Back image normalization did not return an image.");
+    }
+    const scan = await analyzeWithInstaCompAiLocal({
+      front: normalizedSides.frontFile,
+      back: normalizedSides.backFile,
+    });
     const identity = lockedIdentity(scan);
     const registryIdentityId =
       scan.checklist?.identity_id || receiptValue(scan, "registry_identity:");
@@ -335,7 +349,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const fields = canonicalFields(identity);
+    let fields = canonicalFields(identity);
     if (
       !fields.year ||
       !fields.manufacturer ||
@@ -351,6 +365,24 @@ export async function POST(request: NextRequest) {
         },
         { status: 409 },
       );
+    }
+
+    const isWnbaProduct = /\bwnba\b/i.test(
+      [fields.league, fields.setName].filter(Boolean).join(" "),
+    );
+    const claimsPrizmParallel = Boolean(
+      fields.parallel &&
+        /\b(?:silver|green|red|blue|gold|orange|purple|pink|black|white|ice|wave|velocity|cracked\s+ice)(?:\s+prizm)?\b/i.test(
+          fields.parallel,
+        ),
+    );
+    const forcedBaseFromBack =
+      isWnbaProduct &&
+      claimsPrizmParallel &&
+      normalizedSides.orientation.backStandalonePrizm === false &&
+      normalizedSides.orientation.backDesignationConfidence >= 0.8;
+    if (forcedBaseFromBack) {
+      fields = { ...fields, parallel: null, variation: null };
     }
 
     const imagePairSha256 = text(scan.image_pair_sha256, 128);
@@ -450,6 +482,10 @@ export async function POST(request: NextRequest) {
         listingOutput,
         channelDraft,
         scanReceipt: scan,
+        imageOrientation: normalizedSides.orientation,
+        identityRuleApplied: forcedBaseFromBack
+          ? "wnba_back_without_standalone_prizm_forced_base"
+          : null,
         localEvidence: {
           provider: text(scan.local_suggestion?.provider, 100),
           model: text(scan.local_suggestion?.model, 100),
@@ -505,6 +541,16 @@ export async function POST(request: NextRequest) {
       .single();
     if (insertError) throw insertError;
 
+    const persistedImages = await persistNormalizedInstaCompImagePair({
+      supabase,
+      storeId,
+      inventoryItemId: inserted.id,
+      title: inserted.title,
+      frontFile: normalizedSides.frontFile,
+      backFile: normalizedSides.backFile,
+      orientation: normalizedSides.orientation,
+    });
+
     const requestId = `scan-${scan.scan_id}`;
     const pricingRequest = new NextRequest(
       new URL(
@@ -534,6 +580,11 @@ export async function POST(request: NextRequest) {
         scan,
         pricing,
         pricingSucceeded: pricingResponse.ok,
+        imageOrientation: normalizedSides.orientation,
+        normalizedImages: persistedImages,
+        identityRuleApplied: forcedBaseFromBack
+          ? "wnba_back_without_standalone_prizm_forced_base"
+          : null,
         durationMs: Date.now() - startedAt,
       },
       {
