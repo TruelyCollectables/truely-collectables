@@ -305,11 +305,12 @@ export default function InstaCompAuditPage() {
     setActions((current) => ({
       ...current,
       [inventoryItemId]: {
-        busy: null,
-        notice: "",
-        error: "",
-        audit: current[inventoryItemId]?.audit || null,
-        ...current[inventoryItemId],
+        ...(current[inventoryItemId] || {
+          busy: null,
+          notice: "",
+          error: "",
+          audit: null,
+        }),
         ...next,
       },
     }));
