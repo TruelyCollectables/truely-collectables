@@ -13,13 +13,14 @@ Build and audit the mainstream checklist universe from 2000 through the current 
 - Major mainstream TCG families still needing acquisition: Magic: The Gathering, Yu-Gi-Oh!, Disney Lorcana, and other major TCG products
 - Mainstream sticker products when they belong to the included universes
 
-## Existing inventory — audit and updates only
+## Existing InstaComp AI database — audit and updates only
 
-- Pokemon sets are already present in the existing TCOS set inventory.
-- Phase 1 must not reacquire or rebuild Pokemon from the new public checklist collectors.
-- Pokemon is excluded from acquisition gap counts.
-- Pokemon may be checked for missing recent releases, corrections, duplicate identities, and schema compatibility with the universal Registry.
-- Any proposed Pokemon import must reconcile against the existing inventory rather than replacing it.
+- Pokemon sets are already present in InstaComp AI's database.
+- Phase 1 must not reacquire or rebuild Pokemon through the new public checklist collectors.
+- Pokemon is excluded from new-source acquisition gap counts.
+- Pokemon may be checked for missing recent releases, corrections, duplicate identities, checklist completeness, and schema compatibility with the universal Registry.
+- Any proposed Pokemon import must reconcile against InstaComp AI's existing Pokemon database rather than replacing it.
+- The new universal checklist archive may reference InstaComp AI's Pokemon records, but it must preserve InstaComp AI as the existing database of record for that material.
 
 ## Mainstream release rule
 
@@ -44,7 +45,7 @@ A set identity alone is not checklist-complete. Phase 1 reporting distinguishes:
 1. Set identity only
 2. Checklist rows present from one source
 3. Checklist rows present with multiple-source corroboration
-4. Existing-inventory audit only
+4. InstaComp AI database audit only
 5. Unresolved classification or conflicting evidence
 
 A release is not marked checklist-ready unless at least one source supplies actual checklist rows. Manufacturer-issued files and exact published tables have priority over secondary editorial summaries.
@@ -55,10 +56,10 @@ A release is not marked checklist-ready unless at least one source supplies actu
 - Coverage by year and universe
 - Set identities lacking checklist rows
 - Multi-source corroboration counts
-- Existing-inventory audit-only catalog for Pokemon records encountered by collectors
+- InstaComp AI Pokemon audit-only catalog for Pokemon records encountered by collectors
 - Deferred Phase 2 catalog
 - Unresolved records and source failure receipts
 
 ## Completion rule
 
-TCOS must not claim Phase 1 complete merely because every year has some records. Completion requires a release inventory reconciliation by year, universe, manufacturer/printed brand, and product family, followed by targeted gap acquisition. Pokemon completeness is measured against the existing TCOS Pokemon inventory and is not part of the new-source acquisition gap count.
+TCOS must not claim Phase 1 complete merely because every year has some records. Completion requires a release inventory reconciliation by year, universe, manufacturer/printed brand, and product family, followed by targeted gap acquisition. Pokemon completeness is measured against InstaComp AI's existing Pokemon database and is not part of the new-source acquisition gap count.
