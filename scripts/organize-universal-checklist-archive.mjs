@@ -2,10 +2,18 @@ import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, relative, resolve, sep } from "node:path";
 
-const OUTPUT_ROOT = resolve(process.cwd(), process.env.CHECKLIST_ORGANIZED_OUTPUT || ".universal-checklist-archive");
+const OUTPUT_ROOT = resolve(process.cwd(), process.env.CHECKLIST_ORGANIZED_OUTPUT || ".universal-card-checklist-archive");
 const SORTED_ROOT = resolve(OUTPUT_ROOT, "SORTED");
 const UNRESOLVED_ROOT = resolve(OUTPUT_ROOT, "UNRESOLVED");
 const INPUTS = parseInputs(process.env.CHECKLIST_ARCHIVE_INPUTS || "");
+const ACCEPTED_ITEM_SCHEMAS = new Set([
+  "tcos.publicChecklistSourceItem.v1",
+  "tcos.internalChecklistSourceItem.v1",
+]);
+const SPORTS_UNIVERSES = new Set([
+  "baseball", "basketball", "football", "hockey", "soccer", "racing", "wrestling",
+  "mma", "boxing", "golf", "tennis", "multi-sport",
+]);
 
 function parseInputs(raw) {
   if (!raw.trim()) throw new Error("CHECKLIST_ARCHIVE_INPUTS is required as path=source,path=source");
@@ -57,9 +65,19 @@ function csvCell(value) {
   return `"${text.replace(/"/g, '""')}"`;
 }
 
+function universeFor(item) {
+  return item.universe || item.sport || null;
+}
+
+function sportFor(item, universe) {
+  if (item.sport) return item.sport;
+  return SPORTS_UNIVERSES.has(slug(universe)) ? universe : null;
+}
+
 function exactSetKey(item) {
-  if (!item.sport || !item.season || !item.manufacturer || !item.product) return null;
-  return [item.sport, item.season, item.manufacturer, item.product].map((value) => slug(value)).join("|");
+  const universe = universeFor(item);
+  if (!universe || !item.season || !item.manufacturer || !item.product) return null;
+  return [universe, item.season, item.manufacturer, item.product].map((value) => slug(value)).join("|");
 }
 
 function main() {
@@ -73,17 +91,19 @@ function main() {
   for (const input of INPUTS) {
     for (const metadataPath of walk(input.path, "metadata.json")) {
       const metadata = JSON.parse(readFileSync(metadataPath, "utf8"));
-      if (metadata.schema !== "tcos.publicChecklistSourceItem.v1") continue;
+      if (!ACCEPTED_ITEM_SCHEMAS.has(metadata.schema)) continue;
       const source = slug(metadata.source || input.source);
+      const universe = universeFor(metadata);
+      const sport = sportFor(metadata, universe);
       const missing = [];
-      if (!metadata.sport) missing.push("SPORT");
+      if (!universe) missing.push("UNIVERSE");
       if (!metadata.season) missing.push("YEAR");
       if (!metadata.manufacturer) missing.push("MANUFACTURER");
       if (!metadata.product) missing.push("PRODUCT");
       const classificationStatus = missing.length ? "unresolved" : "sorted";
       const itemId = slug(metadata.id || basename(dirname(metadataPath)), 190);
       const destination = classificationStatus === "sorted"
-        ? resolve(SORTED_ROOT, slug(metadata.sport), slug(metadata.season), slug(metadata.manufacturer), slug(metadata.product), source, itemId)
+        ? resolve(SORTED_ROOT, slug(universe), slug(metadata.season), slug(metadata.manufacturer), slug(metadata.product), source, itemId)
         : resolve(UNRESOLVED_ROOT, `MISSING_${missing.join("+")}`, source, itemId);
       ensureContained(destination);
       mkdirSync(destination, { recursive: true });
@@ -116,7 +136,8 @@ function main() {
       const row = {
         id: metadata.id,
         title: metadata.title,
-        sport: metadata.sport || null,
+        universe: universe || null,
+        sport,
         season: metadata.season || null,
         manufacturer: metadata.manufacturer || null,
         product: metadata.product || null,
@@ -136,7 +157,8 @@ function main() {
       if (key) {
         const existing = exactSets.get(key) || {
           exactSetKey: key,
-          sport: metadata.sport,
+          universe,
+          sport,
           season: metadata.season,
           manufacturer: metadata.manufacturer,
           product: metadata.product,
@@ -156,11 +178,11 @@ function main() {
     }
   }
 
-  sourceItems.sort((a, b) => [a.sport, a.season, a.manufacturer, a.product, a.source, a.title].join("|").localeCompare(
-    [b.sport, b.season, b.manufacturer, b.product, b.source, b.title].join("|"), undefined, { numeric: true, sensitivity: "base" },
+  sourceItems.sort((a, b) => [a.universe, a.season, a.manufacturer, a.product, a.source, a.title].join("|").localeCompare(
+    [b.universe, b.season, b.manufacturer, b.product, b.source, b.title].join("|"), undefined, { numeric: true, sensitivity: "base" },
   ));
-  const masterSets = [...exactSets.values()].sort((a, b) => [a.sport, a.season, a.manufacturer, a.product].join("|").localeCompare(
-    [b.sport, b.season, b.manufacturer, b.product].join("|"), undefined, { numeric: true, sensitivity: "base" },
+  const masterSets = [...exactSets.values()].sort((a, b) => [a.universe, a.season, a.manufacturer, a.product].join("|").localeCompare(
+    [b.universe, b.season, b.manufacturer, b.product].join("|"), undefined, { numeric: true, sensitivity: "base" },
   ));
 
   const totals = {
@@ -171,17 +193,19 @@ function main() {
     exactMasterSets: masterSets.length,
     setsCoveredByMultipleSources: masterSets.filter((row) => row.sourceCount > 1).length,
     uniqueStoredFileHashes: fileHashes.size,
-    sports: [...new Set(masterSets.map((row) => row.sport))].sort(),
+    universes: [...new Set(masterSets.map((row) => row.universe))].sort(),
+    sports: [...new Set(masterSets.map((row) => row.sport).filter(Boolean))].sort(),
     seasons: [...new Set(masterSets.map((row) => row.season))].sort(),
     manufacturers: [...new Set(masterSets.map((row) => row.manufacturer))].sort(),
   };
 
   const manifest = {
-    schema: "tcos.universalChecklistArchive.v1",
+    schema: "tcos.universalCardChecklistArchive.v2",
     generatedAt: new Date().toISOString(),
-    hierarchy: "SORTED/<sport>/<season>/<manufacturer>/<product>/<source>/<source-item-id>",
+    hierarchy: "SORTED/<universe>/<season>/<manufacturer>/<product>/<source>/<source-item-id>",
     unresolvedHierarchy: "UNRESOLVED/MISSING_<fields>/<source>/<source-item-id>",
-    mergeRule: "Source records merge into one master set only when normalized sport, season, manufacturer, and product all match exactly. No fuzzy merges.",
+    mergeRule: "Source records merge into one master set only when normalized universe, season, manufacturer, and product all match exactly. No fuzzy merges.",
+    universePolicy: "Sports, Pokemon, entertainment, non-sport, and other TCG families are peers in one card database. Sport is populated only for sports universes.",
     manufacturerPolicy: "Manufacturer is the maker or printed brand explicitly supplied by the source. Corporate ownership is not silently rewritten across eras.",
     inputs: INPUTS.map((input) => ({ path: relative(process.cwd(), input.path).split(sep).join("/"), source: input.source })),
     totals,
@@ -191,25 +215,26 @@ function main() {
   writeFileSync(resolve(OUTPUT_ROOT, "source-items.json"), `${JSON.stringify(sourceItems, null, 2)}\n`);
   writeFileSync(resolve(OUTPUT_ROOT, "master-sets.json"), `${JSON.stringify(masterSets, null, 2)}\n`);
 
-  const itemHeaders = ["classificationStatus", "sport", "season", "manufacturer", "product", "source", "title", "status", "checklistRows", "sourceUrl", "archivePath", "missing", "exactSetKey"];
+  const itemHeaders = ["classificationStatus", "universe", "sport", "season", "manufacturer", "product", "source", "title", "status", "checklistRows", "sourceUrl", "archivePath", "missing", "exactSetKey"];
   const itemCsv = [itemHeaders.map(csvCell).join(",")];
   for (const row of sourceItems) itemCsv.push(itemHeaders.map((header) => csvCell(row[header])).join(","));
   writeFileSync(resolve(OUTPUT_ROOT, "source-items.csv"), `${itemCsv.join("\n")}\n`);
 
-  const setHeaders = ["sport", "season", "manufacturer", "product", "sourceCount", "itemCount", "checklistRowsMaximum", "sources", "exactSetKey"];
+  const setHeaders = ["universe", "sport", "season", "manufacturer", "product", "sourceCount", "itemCount", "checklistRowsMaximum", "sources", "exactSetKey"];
   const setCsv = [setHeaders.map(csvCell).join(",")];
   for (const row of masterSets) setCsv.push(setHeaders.map((header) => csvCell(row[header])).join(","));
   writeFileSync(resolve(OUTPUT_ROOT, "master-sets.csv"), `${setCsv.join("\n")}\n`);
 
   writeFileSync(resolve(OUTPUT_ROOT, "README.txt"), [
-    "TCOS UNIVERSAL SPORTS CHECKLIST ARCHIVE",
+    "TCOS UNIVERSAL CARD CHECKLIST ARCHIVE",
     "",
-    "SORTED/<sport>/<season>/<manufacturer>/<product>/<source>/<source-item-id>",
+    "SORTED/<universe>/<season>/<manufacturer>/<product>/<source>/<source-item-id>",
     "UNRESOLVED/MISSING_<fields>/<source>/<source-item-id>",
     "",
-    "No fuzzy set merging is permitted. A master set is formed only when sport, season, manufacturer, and product match exactly.",
+    "Pokemon, sports, entertainment, non-sport, and other TCG releases live in this same master database.",
+    "Pokemon uses universe=pokemon and sport=null; it is not hidden in a sports category or separated into another final database.",
+    "No fuzzy set merging is permitted. A master set is formed only when universe, season, manufacturer, and product match exactly.",
     "Unknown fields are quarantined rather than guessed. Original source files are preserved; identical file bytes are stored once by SHA-256.",
-    "Manufacturer means the maker or printed brand explicitly identified by the source. Historical corporate ownership is not silently rewritten.",
     "",
     JSON.stringify(totals, null, 2),
     "",
