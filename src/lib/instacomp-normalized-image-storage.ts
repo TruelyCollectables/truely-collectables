@@ -6,6 +6,12 @@ const IMAGE_BUCKET =
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 
 type SupabaseServerClient = ReturnType<typeof createSupabaseServerClient>;
+type StoredImageRow = {
+  image_url: string | null;
+  alt_text: string | null;
+  sort_order: number | null;
+  is_primary: boolean | null;
+};
 
 type OrientationReceipt = {
   status: string;
@@ -14,6 +20,8 @@ type OrientationReceipt = {
   backRotation: number;
   frontConfidence: number;
   backConfidence: number;
+  frontEvidenceText?: string[];
+  backEvidenceText?: string[];
   backStandalonePrizm?: boolean | null;
   backDesignationConfidence?: number;
   reason: string;
@@ -25,6 +33,11 @@ function safePart(value: string) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 80) || "card";
+}
+
+function text(value: unknown) {
+  const cleaned = String(value ?? "").trim();
+  return cleaned || null;
 }
 
 function extension(file: File) {
@@ -82,6 +95,80 @@ async function upload(params: {
     .publicUrl;
 }
 
+function assignedPair(rows: StoredImageRow[]) {
+  const sorted = rows
+    .filter((row) => text(row.image_url))
+    .sort((left, right) => {
+      if (Boolean(left.is_primary) !== Boolean(right.is_primary)) {
+        return left.is_primary ? -1 : 1;
+      }
+      return Number(left.sort_order || 0) - Number(right.sort_order || 0);
+    });
+  const front =
+    sorted.find((row) => /\bfront\b/i.test(row.alt_text || "")) ||
+    sorted.find((row) => row.is_primary === true) ||
+    sorted[0] ||
+    null;
+  const back =
+    sorted.find(
+      (row) =>
+        /\bback\b/i.test(row.alt_text || "") &&
+        row.image_url !== front?.image_url,
+    ) ||
+    sorted.find(
+      (row) =>
+        row.is_primary !== true && row.image_url !== front?.image_url,
+    ) ||
+    sorted.find((row) => row.image_url !== front?.image_url) ||
+    null;
+  return {
+    frontImageUrl: text(front?.image_url),
+    backImageUrl: text(back?.image_url),
+  };
+}
+
+async function updateExistingRow(params: {
+  supabase: SupabaseServerClient;
+  inventoryItemId: string;
+  previousUrl: string;
+  nextUrl: string;
+  altText: string;
+  sortOrder: number;
+  isPrimary: boolean;
+}) {
+  const { data, error } = await params.supabase
+    .from("inventory_images")
+    .update({
+      image_url: params.nextUrl,
+      alt_text: params.altText,
+      sort_order: params.sortOrder,
+      is_primary: params.isPrimary,
+    })
+    .eq("inventory_item_id", params.inventoryItemId)
+    .eq("image_url", params.previousUrl)
+    .select("image_url");
+  if (error) throw error;
+  return Array.isArray(data) && data.length > 0;
+}
+
+async function insertAssignedRow(params: {
+  supabase: SupabaseServerClient;
+  inventoryItemId: string;
+  imageUrl: string;
+  altText: string;
+  sortOrder: number;
+  isPrimary: boolean;
+}) {
+  const { error } = await params.supabase.from("inventory_images").insert({
+    inventory_item_id: params.inventoryItemId,
+    image_url: params.imageUrl,
+    alt_text: params.altText,
+    sort_order: params.sortOrder,
+    is_primary: params.isPrimary,
+  });
+  if (error) throw error;
+}
+
 export async function persistNormalizedInstaCompImagePair(params: {
   supabase: SupabaseServerClient;
   storeId: string;
@@ -90,6 +177,8 @@ export async function persistNormalizedInstaCompImagePair(params: {
   frontFile: File;
   backFile: File;
   orientation: OrientationReceipt;
+  previousFrontImageUrl?: string | null;
+  previousBackImageUrl?: string | null;
 }) {
   const [frontImageUrl, backImageUrl] = await Promise.all([
     upload({
@@ -108,31 +197,106 @@ export async function persistNormalizedInstaCompImagePair(params: {
     }),
   ]);
 
-  const { error: imageDeleteError } = await params.supabase
+  const { data: currentRows, error: currentError } = await params.supabase
     .from("inventory_images")
-    .delete()
-    .eq("inventory_item_id", params.inventoryItemId);
-  if (imageDeleteError) throw imageDeleteError;
+    .select("image_url,alt_text,sort_order,is_primary")
+    .eq("inventory_item_id", params.inventoryItemId)
+    .order("sort_order", { ascending: true });
+  if (currentError) throw currentError;
+  const current = (currentRows || []) as StoredImageRow[];
+  const currentPair = assignedPair(current);
+  const previousFront =
+    text(params.previousFrontImageUrl) || currentPair.frontImageUrl;
+  const previousBack =
+    text(params.previousBackImageUrl) || currentPair.backImageUrl;
 
-  const { error: imageInsertError } = await params.supabase
+  if (!current.length) {
+    const { error: insertError } = await params.supabase
+      .from("inventory_images")
+      .insert([
+        {
+          inventory_item_id: params.inventoryItemId,
+          image_url: frontImageUrl,
+          alt_text: `${params.title} front`,
+          sort_order: 0,
+          is_primary: true,
+        },
+        {
+          inventory_item_id: params.inventoryItemId,
+          image_url: backImageUrl,
+          alt_text: `${params.title} back`,
+          sort_order: 1,
+          is_primary: false,
+        },
+      ]);
+    if (insertError) throw insertError;
+  } else {
+    const { error: primaryResetError } = await params.supabase
+      .from("inventory_images")
+      .update({ is_primary: false })
+      .eq("inventory_item_id", params.inventoryItemId);
+    if (primaryResetError) throw primaryResetError;
+
+    const frontUpdated = previousFront
+      ? await updateExistingRow({
+          supabase: params.supabase,
+          inventoryItemId: params.inventoryItemId,
+          previousUrl: previousFront,
+          nextUrl: frontImageUrl,
+          altText: `${params.title} front`,
+          sortOrder: 0,
+          isPrimary: true,
+        })
+      : false;
+    if (!frontUpdated) {
+      await insertAssignedRow({
+        supabase: params.supabase,
+        inventoryItemId: params.inventoryItemId,
+        imageUrl: frontImageUrl,
+        altText: `${params.title} front`,
+        sortOrder: 0,
+        isPrimary: true,
+      });
+    }
+
+    const backUpdated = previousBack
+      ? await updateExistingRow({
+          supabase: params.supabase,
+          inventoryItemId: params.inventoryItemId,
+          previousUrl: previousBack,
+          nextUrl: backImageUrl,
+          altText: `${params.title} back`,
+          sortOrder: 1,
+          isPrimary: false,
+        })
+      : false;
+    if (!backUpdated) {
+      await insertAssignedRow({
+        supabase: params.supabase,
+        inventoryItemId: params.inventoryItemId,
+        imageUrl: backImageUrl,
+        altText: `${params.title} back`,
+        sortOrder: 1,
+        isPrimary: false,
+      });
+    }
+  }
+
+  const { data: verifiedRows, error: verifyError } = await params.supabase
     .from("inventory_images")
-    .insert([
-      {
-        inventory_item_id: params.inventoryItemId,
-        image_url: frontImageUrl,
-        alt_text: `${params.title} front`,
-        sort_order: 0,
-        is_primary: true,
-      },
-      {
-        inventory_item_id: params.inventoryItemId,
-        image_url: backImageUrl,
-        alt_text: `${params.title} back`,
-        sort_order: 1,
-        is_primary: false,
-      },
-    ]);
-  if (imageInsertError) throw imageInsertError;
+    .select("image_url,alt_text,sort_order,is_primary")
+    .eq("inventory_item_id", params.inventoryItemId)
+    .order("sort_order", { ascending: true });
+  if (verifyError) throw verifyError;
+  const verified = assignedPair((verifiedRows || []) as StoredImageRow[]);
+  if (
+    verified.frontImageUrl !== frontImageUrl ||
+    verified.backImageUrl !== backImageUrl
+  ) {
+    throw new Error(
+      "Normalized image persistence failed its front/back read-back verification.",
+    );
+  }
 
   const { data: item, error: itemError } = await params.supabase
     .from("inventory_items")
@@ -142,7 +306,9 @@ export async function persistNormalizedInstaCompImagePair(params: {
     .maybeSingle();
   if (itemError) throw itemError;
   const metadata =
-    item?.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata)
+    item?.metadata &&
+    typeof item.metadata === "object" &&
+    !Array.isArray(item.metadata)
       ? (item.metadata as Record<string, unknown>)
       : {};
   const instacomp =
@@ -165,6 +331,7 @@ export async function persistNormalizedInstaCompImagePair(params: {
           imageOrientation: params.orientation,
           imageOrientationNormalizedAt: checkedAt,
           imageOrientationPersisted: true,
+          imagePersistenceVerified: true,
         },
       },
       updated_at: checkedAt,
@@ -173,5 +340,10 @@ export async function persistNormalizedInstaCompImagePair(params: {
     .eq("store_id", params.storeId);
   if (metadataError) throw metadataError;
 
-  return { frontImageUrl, backImageUrl };
+  return {
+    frontImageUrl,
+    backImageUrl,
+    verified: true,
+    preservedAdditionalImages: Math.max(0, current.length - 2),
+  };
 }
