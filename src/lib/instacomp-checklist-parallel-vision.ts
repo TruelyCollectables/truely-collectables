@@ -3,7 +3,7 @@ import "server-only";
 import type { InstaCompChecklistCandidate } from "./instacomp-checklist-first";
 import { sanitizeInstaCompProviderError } from "./instacomp-provider-safety";
 
-type ParallelVisionDecision = {
+export type ParallelVisionDecision = {
   status: "resolved" | "ambiguous" | "not_configured" | "error";
   selectedParallel: string | null;
   selectedIdentityId: string | null;
@@ -36,18 +36,6 @@ function uniqueCandidates(candidates: InstaCompChecklistCandidate[]) {
   return [...byIdentity.values()];
 }
 
-function exactCandidateForParallel(
-  candidates: InstaCompChecklistCandidate[],
-  parallel: unknown,
-) {
-  const target = normalized(parallel);
-  if (!target) return null;
-  const matches = candidates.filter(
-    (candidate) => normalized(candidate.parallel || "Base") === target,
-  );
-  return matches.length === 1 ? matches[0] : null;
-}
-
 function parseJsonObject(value: string) {
   const trimmed = value.trim();
   const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1];
@@ -64,7 +52,6 @@ export async function resolveChecklistParallelFromVision(params: {
   frontDataUrl: string;
   backDataUrl?: string | null;
   candidates: InstaCompChecklistCandidate[];
-  aiParallel?: string | null;
 }): Promise<ParallelVisionDecision> {
   const candidates = uniqueCandidates(params.candidates);
   const candidateParallels = Array.from(
@@ -89,19 +76,8 @@ export async function resolveChecklistParallelFromVision(params: {
       selectedParallel: only.parallel || "Base",
       selectedIdentityId: only.identityId,
       confidence: 1,
-      evidence: "Only one checklist identity exists after the printed identity fields were matched.",
-      candidateParallels,
-    };
-  }
-
-  const aiCandidate = exactCandidateForParallel(candidates, params.aiParallel);
-  if (aiCandidate) {
-    return {
-      status: "resolved",
-      selectedParallel: aiCandidate.parallel || "Base",
-      selectedIdentityId: aiCandidate.identityId,
-      confidence: 0.9,
-      evidence: "The scan parallel exactly matched one valid checklist identity.",
+      evidence:
+        "Only one live checklist identity remains after year, manufacturer, card number, and player were matched.",
       candidateParallels,
     };
   }
@@ -113,7 +89,8 @@ export async function resolveChecklistParallelFromVision(params: {
       selectedParallel: null,
       selectedIdentityId: null,
       confidence: 0,
-      evidence: "OPENAI_API_KEY is not configured for checklist-constrained parallel review.",
+      evidence:
+        "OPENAI_API_KEY is not configured for checklist-constrained visual parallel review.",
       candidateParallels,
     };
   }
@@ -138,11 +115,12 @@ export async function resolveChecklistParallelFromVision(params: {
       type: "text",
       text: [
         "You are the TCOS checklist-constrained sports-card parallel referee.",
-        "The card's year, manufacturer, card number, and player already matched the checklist.",
-        "Choose only from the supplied checklist identity IDs. Never invent a parallel.",
+        "The card's year, manufacturer, card number, and player already matched the live checklist.",
+        "Choose only from the supplied checklist identity IDs. Never invent a parallel and never trust a prior scanner label by itself.",
         "Judge foil color, border color, background pattern, refractor/prizm finish, wave/ice/velocity pattern, serial stamp, autograph, memorabilia, and variation marks visible on the FRONT and BACK.",
         "The absence of a standalone PRIZM word on the back is NOT evidence that the card is Base.",
-        "Choose Base only when the visible design is consistent with Base and no listed parallel treatment is visible.",
+        "Select Base only when the visible design positively matches Base and none of the listed parallel treatments is visible.",
+        "When selecting Base, explicitly explain why each plausible non-Base treatment is absent.",
         "If the images do not distinguish one identity with high confidence, return selectedIdentityId=null.",
         `VALID CHECKLIST IDENTITIES: ${JSON.stringify(labels)}`,
         "Return JSON only.",
@@ -215,8 +193,10 @@ export async function resolveChecklistParallelFromVision(params: {
     const evidence = sanitizeInstaCompProviderError(
       String(parsed.evidence || "No parallel evidence returned."),
     );
+    const selectedIsBase = normalized(selected?.parallel || "Base") === "base";
+    const requiredConfidence = selectedIsBase ? 0.9 : 0.82;
 
-    if (!selected || score < 0.78) {
+    if (!selected || score < requiredConfidence) {
       return {
         status: "ambiguous",
         selectedParallel: null,

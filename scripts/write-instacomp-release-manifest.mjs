@@ -63,7 +63,20 @@ export function writeInstaCompReleaseManifest({
   return next;
 }
 
+function runKingmakerForensicContracts() {
+  execFileSync(
+    process.execPath,
+    ["scripts/check-instacomp-text-orientation-checklist.mjs"],
+    {
+      cwd: process.cwd(),
+      stdio: "inherit",
+      env: process.env,
+    },
+  );
+}
+
 async function main() {
+  runKingmakerForensicContracts();
   const explicit = process.argv.find((argument) => /^[0-9a-f]{40}$/i.test(argument));
   const manifest = writeInstaCompReleaseManifest({ commit: explicit });
   console.log(
