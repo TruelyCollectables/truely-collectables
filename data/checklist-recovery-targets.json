@@ -1,1 +1,11 @@
-PLACEHOLDER
+{
+  "schema": "tcos.checklistRecoveryTargetConfig.v1",
+  "sourceRunId": 31100986894,
+  "modernGapKeysFile": "data/checklist-recovery-modern-gap-keys.txt",
+  "policy": {
+    "scope": "Every known missing mainstream sports set from 2000-2026 plus every known pre-2000 sports set identity without checklist rows.",
+    "communitySources": "Reddit, Blowout Forums, TCDB, and shared spreadsheets are discovery leads only until provenance and redistribution permission are confirmed.",
+    "dedupe": "Exact set keys are unique. Recovered source files are hashed and source items are deduplicated before catalog merge.",
+    "completeness": "The crawler also runs broad vintage decade-by-sport discovery queries to identify additional pre-2000 set identities not yet in the master catalog."
+  }
+}
