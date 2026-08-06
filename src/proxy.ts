@@ -64,6 +64,10 @@ function isProtectedPath(pathname: string): boolean {
     return false;
   }
 
+  if (pathname === "/api/admin/card-listing-images") {
+    return false;
+  }
+
   if (pathname.startsWith("/admin")) {
     return true;
   }
