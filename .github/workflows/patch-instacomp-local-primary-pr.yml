@@ -1,0 +1,172 @@
+name: Patch InstaComp Local Primary PR
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-certify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/instacomp-local-engine-primary
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: services/instacomp-ai/requirements.txt
+      - run: |
+          npm ci
+          pip install -r services/instacomp-ai/requirements.txt
+      - name: Patch route
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          path = Path('src/app/api/instacomp/scan/route.ts')
+          text = path.read_text()
+          anchor = '''import {
+            buildChecklistRegistryCatalogEvidence,
+            buildChecklistRegistryReviewEvidence,
+            buildInstaCompEvidenceIdentityDecision,
+            resolveChecklistRegistry,
+          } from "../../../../lib/instacomp-learning-server";
+          '''
+          addition = '''import {
+            analyzeWithInstaCompAiLocal,
+            hasConfiguredInstaCompAiLocal,
+            instaCompAiLocalScanToAi,
+          } from "../../../../lib/instacomp-ai-local";
+          '''
+          if addition not in text:
+              if anchor not in text:
+                  raise SystemExit('import anchor missing')
+              text = text.replace(anchor, anchor + addition, 1)
+          pattern = re.compile(r'async function identifyCardWithConfiguredProviderFailover\(params: \{.*?\n\}\n\nexport async function POST', re.S)
+          replacement = '''async function identifyCardWithConfiguredProviderFailover(params: {
+            frontImage: File;
+            backImage?: File | null;
+            frontDataUrl: string;
+            backDataUrl?: string;
+            detailImages: InstaCompDetailImage[];
+            externalOcr: ExternalOcrResult | null;
+          }) {
+            return runInstaCompPrimaryAiFailover<InstaCompAiResult>([
+              {
+                provider: "instacomp_internal",
+                family: "instacomp_internal",
+                configured: hasConfiguredInstaCompAiLocal(),
+                run: async () => {
+                  const scan = await analyzeWithInstaCompAiLocal({
+                    front: params.frontImage,
+                    back: params.backImage || null,
+                    timeoutMs: 150_000,
+                  });
+                  const ai = instaCompAiLocalScanToAi(scan);
+                  if (!ai) {
+                    throw new Error(`InstaComp internal engine returned ${scan.status} without usable identity evidence.`);
+                  }
+                  return ai;
+                },
+              },
+              {
+                provider: "openai_emergency",
+                family: "openai",
+                configured: Boolean(OPENAI_API_KEY),
+                run: () => identifyCardWithOpenAI(
+                  params.frontDataUrl,
+                  params.backDataUrl,
+                  params.detailImages.slice(0, 8),
+                  params.externalOcr,
+                ),
+              },
+            ]);
+          }
+
+          export async function POST'''
+          text, count = pattern.subn(replacement, text, count=1)
+          if count != 1:
+              raise SystemExit(f'failover replacement count={count}')
+          preflight = re.compile(r'    const preflightSerialOcrPromise = shouldPreflightSerialVision\(\{.*?\n      : null;\n', re.S)
+          text, count = preflight.subn('    // OpenAI serial vision is emergency-only; never preflight it before InstaComp.\n    const preflightSerialOcrPromise = null;\n', text, count=1)
+          if count != 1:
+              raise SystemExit(f'preflight replacement count={count}')
+          old_call = '''    const primaryAiResult = await identifyCardWithConfiguredProviderFailover({
+              frontDataUrl,
+              backDataUrl,
+              detailImages,
+              externalOcr,
+            });'''
+          new_call = '''    const primaryAiResult = await identifyCardWithConfiguredProviderFailover({
+              frontImage,
+              backImage: backImageForScan,
+              frontDataUrl,
+              backDataUrl,
+              detailImages,
+              externalOcr,
+            });'''
+          if old_call not in text:
+              raise SystemExit('primary call anchor missing')
+          text = text.replace(old_call, new_call, 1)
+          old_serial = '''        : shouldRunSerialVision({
+                    ai: baseAi,
+                    externalOcr,
+                    requestedTier: requestedAiCouncilTier,
+                  })
+              ? await optionalInstaCompProviderResult('''
+          new_serial = '''        : primaryAiResult.family === "openai" && shouldRunSerialVision({
+                    ai: baseAi,
+                    externalOcr,
+                    requestedTier: requestedAiCouncilTier,
+                  })
+              ? await optionalInstaCompProviderResult('''
+          if old_serial not in text:
+              raise SystemExit('serial anchor missing')
+          text = text.replace(old_serial, new_serial, 1)
+          old_council = '      runSecondaryVision: consensusEscalation.runSecondaryVision,'
+          new_council = '''      runSecondaryVision:
+                primaryAiResult.family !== "instacomp_internal" &&
+                consensusEscalation.runSecondaryVision,'''
+          if old_council not in text:
+              raise SystemExit('council anchor missing')
+          text = text.replace(old_council, new_council, 1)
+          path.write_text(text)
+          PY
+          rm -f .github/workflows/patch-instacomp-local-primary.yml
+          rm -f .github/workflows/patch-instacomp-local-primary-pr.yml
+      - name: Certify
+        run: |
+          cd services/instacomp-ai
+          python -m compileall app tests
+          pytest -q
+          cd ../..
+          npx eslint src/app/api/instacomp/scan/route.ts src/lib/instacomp-ai-local.ts
+          npx tsc --noEmit
+          npm run build
+          python - <<'PY'
+          from pathlib import Path
+          route = Path('src/app/api/instacomp/scan/route.ts').read_text()
+          service = Path('services/instacomp-ai/app/main.py').read_text()
+          assert route.index('provider: "instacomp_internal"') < route.index('provider: "openai_emergency"')
+          assert 'provider: "openai_primary"' not in route
+          assert service.index('find_trusted_image_match') < service.index('reader.analyze')
+          assert 'provider="instacomp_ollama_backup"' in Path('services/instacomp-ai/app/ollama.py').read_text()
+          print('InstaComp primary, Ollama backup, OpenAI emergency verified')
+          PY
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "[local-primary-patched] Make InstaComp internal engine primary"
+          git push origin HEAD:fix/instacomp-local-engine-primary
