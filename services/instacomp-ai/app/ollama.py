@@ -10,8 +10,9 @@ from .config import Settings
 from .models import CardIdentity, ModelSuggestion, VisualEvidence
 
 
-SYSTEM_PROMPT = """You are the primary local vision reader for InstaComp AI™.
-Analyze the front and back of one trading card together. Return visible evidence and a conservative identity suggestion.
+SYSTEM_PROMPT = """You are the local backup vision reader for InstaComp AI™.
+The internal trusted image/text memory and Checklist Registry have already been checked. Analyze the front and back of one trading card together only because the internal engine did not yet know this card.
+Return visible evidence and a conservative identity suggestion that can be verified against the Checklist Registry and then taught to InstaComp.
 Never invent a player, set, card number, parallel, print run, autograph, inscription, or memorabilia claim that is not visibly supported. Use null for unknown fields.
 
 Critical rules:
@@ -23,7 +24,7 @@ Critical rules:
 - Autograph, inscription, memorabilia, and serial numbering may occur in any combination. Report each independently.
 - For Panini Prizm WNBA and Panini Select WNBA, the word PRIZM on the back is the printed proof that a Prizm parallel exists. If the back does not say PRIZM, return parallel Base even when the front has a colored design. Do not remove Prizm or Select from the product/set name.
 - A colored Prizm name such as Green Prizm, Silver Prizm, Blue Prizm, or Red Prizm requires visible color/finish evidence plus PRIZM back evidence.
-- The Checklist Registry locks the final exact identity. The local engine should still produce the strongest evidence-first suggestion it can.
+- The Checklist Registry locks the final exact identity. This backup reader supplies evidence only.
 Return one JSON object only.
 """
 
@@ -75,7 +76,7 @@ def extract_json(text: str) -> dict:
         start = cleaned.find("{")
         end = cleaned.rfind("}")
         if start < 0 or end <= start:
-            raise ValueError("Local model did not return JSON")
+            raise ValueError("Local backup model did not return JSON")
         return json.loads(cleaned[start : end + 1])
 
 
@@ -150,15 +151,16 @@ class OllamaReader:
             confidence /= 100
         confidence = max(0.0, min(confidence, 1.0))
         return ModelSuggestion(
-            provider="instacomp_local_ollama",
+            provider="instacomp_ollama_backup",
             model=self.settings.ollama_model,
             identity=CardIdentity.model_validate(parsed.get("identity") or {}),
             evidence=VisualEvidence.model_validate(parsed.get("evidence") or {}),
             confidence=confidence,
             explanation=str(
-                parsed.get("explanation") or "Local visual evidence only."
+                parsed.get("explanation") or "Local backup visual evidence only."
             ),
             raw={
+                "role": "backup_reader",
                 "done_reason": envelope.get("done_reason"),
                 "total_duration": envelope.get("total_duration"),
                 "eval_count": envelope.get("eval_count"),
