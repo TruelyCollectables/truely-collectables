@@ -192,11 +192,12 @@ function formFromItem(item: AuditItem, status?: LockStatus): EditForm {
     status?.cardNumber || item.extractedInput.cardNumber || "";
   const manufacturer =
     status?.manufacturer || item.extractedInput.manufacturer || "";
-  const contradiction = hasImpossibleBaseParallelTitle(item.title);
-  const title = contradiction ? correctedBaseTitle(item.title) : item.title;
+  const sourceTitle = status?.title || item.title;
+  const contradiction = hasImpossibleBaseParallelTitle(sourceTitle);
+  const title = contradiction ? correctedBaseTitle(sourceTitle) : sourceTitle;
 
   return {
-    title: status?.title || title,
+    title,
     player:
       status?.player ||
       item.extractedInput.player ||
@@ -440,14 +441,6 @@ export default function InstaCompAuditPage() {
     side?: "front" | "back",
     degrees?: -90 | 90,
   ) {
-    const locked = statuses[item.inventoryItemId]?.locked === true;
-    if (locked) {
-      setAction(item.inventoryItemId, {
-        error: "Unlock the identity before changing its image evidence.",
-        notice: "",
-      });
-      return;
-    }
     setAction(item.inventoryItemId, {
       busy: `image-${action}`,
       notice: "",
@@ -638,14 +631,14 @@ export default function InstaCompAuditPage() {
                     <div>
                       <h3 className="text-2xl font-black">Card images</h3>
                       <p className="font-semibold text-neutral-600">
-                        Rotate and swap save immediately. Lock the identity after the
-                        images are correct.
+                        Rotate and swap save immediately. Any image change automatically
+                        unlocks and invalidates the old identity before a fresh scan.
                       </p>
                     </div>
                     <button
                       type="button"
                       onClick={() => void editImage(item, "swap")}
-                      disabled={locked || Boolean(action?.busy)}
+                      disabled={Boolean(action?.busy)}
                       className="rounded-xl border-2 border-neutral-950 bg-yellow-300 px-4 py-2 font-black disabled:opacity-40"
                     >
                       Swap front / back
@@ -684,7 +677,7 @@ export default function InstaCompAuditPage() {
                             onClick={() =>
                               void editImage(item, "rotate", side, -90)
                             }
-                            disabled={locked || Boolean(action?.busy) || !url}
+                            disabled={Boolean(action?.busy) || !url}
                             className="rounded-lg border-2 border-neutral-950 bg-white px-3 py-2 font-black disabled:opacity-40"
                           >
                             ↶ Rotate left
@@ -694,7 +687,7 @@ export default function InstaCompAuditPage() {
                             onClick={() =>
                               void editImage(item, "rotate", side, 90)
                             }
-                            disabled={locked || Boolean(action?.busy) || !url}
+                            disabled={Boolean(action?.busy) || !url}
                             className="rounded-lg border-2 border-neutral-950 bg-white px-3 py-2 font-black disabled:opacity-40"
                           >
                             Rotate right ↷

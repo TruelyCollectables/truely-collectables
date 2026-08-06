@@ -357,6 +357,12 @@ function nextMetadata(params: {
       lastImageEditAt: now,
       frontImageUrl: params.front,
       backImageUrl: params.back || null,
+      humanVerified: false,
+      trustedForIdentity: false,
+      manualIdentityEdit: false,
+      manualIdentityLocked: false,
+      identityRefreshRequired: true,
+      identityResolutionStatus: "awaiting_front_back_registry_rescan",
     },
     imageEditing: {
       ...previousEditing,
