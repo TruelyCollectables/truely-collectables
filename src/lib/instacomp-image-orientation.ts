@@ -270,6 +270,7 @@ export async function rotateInstaCompImageBytes(params: {
   bytes: Uint8Array;
   mime: InstaCompImageMime;
   rotation: InstaCompRotation;
+  addScanFrame?: boolean;
 }) {
   const normalized = await sharp(Buffer.from(params.bytes), {
     failOn: "warning",
@@ -280,19 +281,26 @@ export async function rotateInstaCompImageBytes(params: {
     .ensureAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });
-  const frame = cardScanFrameInsets(normalized.info.width, normalized.info.height);
+
   let pipeline = sharp(normalized.data, {
     raw: {
       width: normalized.info.width,
       height: normalized.info.height,
       channels: normalized.info.channels,
     },
-  })
-    .extend({
+  });
+
+  if (params.addScanFrame !== false) {
+    const frame = cardScanFrameInsets(
+      normalized.info.width,
+      normalized.info.height,
+    );
+    pipeline = pipeline.extend({
       ...frame,
       background: CARD_SCAN_FRAME_SHARP_COLOR,
-    })
-    .flatten({ background: CARD_SCAN_FRAME_SHARP_COLOR });
+    });
+  }
+  pipeline = pipeline.flatten({ background: CARD_SCAN_FRAME_SHARP_COLOR });
 
   if (params.mime === "image/png") pipeline = pipeline.png();
   else if (params.mime === "image/webp") {
@@ -307,6 +315,7 @@ export async function rotateInstaCompImageBytes(params: {
 export async function normalizeInstaCompSideImages(params: {
   frontImage: File;
   backImage?: File | null;
+  addScanFrame?: boolean;
 }) {
   const front = await readValidatedInstaCompImage(
     params.frontImage,
@@ -324,12 +333,14 @@ export async function normalizeInstaCompSideImages(params: {
       bytes: front.bytes,
       mime: front.mime,
       rotation: orientation.frontRotation,
+      addScanFrame: params.addScanFrame,
     }),
     back
       ? rotateInstaCompImageBytes({
           bytes: back.bytes,
           mime: back.mime,
           rotation: orientation.backRotation,
+          addScanFrame: params.addScanFrame,
         })
       : Promise.resolve(null),
   ]);
