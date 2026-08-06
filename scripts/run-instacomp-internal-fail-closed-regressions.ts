@@ -4,6 +4,7 @@ import {
   type InstaCompAiFailoverError,
 } from "../src/lib/instacomp-ai-provider-failover";
 
+// This regression runs against the committed runtime files, not a temporary patch.
 async function expectFailure(
   operation: Promise<unknown>,
   code: string,
