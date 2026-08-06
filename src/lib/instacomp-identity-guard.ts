@@ -175,6 +175,67 @@ function appendNote(notes: string | null, note: string) {
   return [notes, note].filter(Boolean).join(" ");
 }
 
+function normalizePrizmSurfaceParallel(
+  ai: InstaCompAiResult,
+  evidenceText: string,
+): InstaCompAiResult {
+  const parallel = cleanSignalText(ai.parallel);
+  if (!parallel) return ai;
+
+  const context = cleanSignalText(
+    [parallel, ai.setName, ai.brand, ai.notes, evidenceText]
+      .filter(Boolean)
+      .join(" "),
+  );
+  if (!/\bprizm\b/i.test(context)) return ai;
+
+  const explicitVelocity = /\bvelocity\b/i.test(context);
+  const directionalVelocity = /\b(?:dense|repeating|directional|angled)?\s*(?:diagonal|chevron|speed[- ]?line|criss[- ]?cross|cross[- ]?hatch)(?:\s+(?:line|lines|slash|slashes|streak|streaks|pattern))?\b/i.test(
+    context,
+  );
+  const strongCrackedIce = /\b(?:irregular\s+polygon|polygonal|shattered[- ]?(?:ice|glass)|broken[- ]?glass|ice[- ]?shard|faceted[- ]?(?:ice|crystal))\b/i.test(
+    context,
+  );
+  const weakCrackedIce = /\bcracked[- ]?ice\b/i.test(context);
+  const color = /\bblue\b/i.test(context) ? "Blue " : "";
+
+  if (
+    (explicitVelocity || directionalVelocity) &&
+    !strongCrackedIce &&
+    /cracked[- ]?ice|\bblue\s+prizm\b|\bvelocity\b/i.test(parallel)
+  ) {
+    const corrected = `${color}Velocity Prizm`;
+    if (parallel.toLowerCase() === corrected.toLowerCase()) return ai;
+    return {
+      ...ai,
+      parallel: corrected,
+      notes: appendNote(
+        ai.notes,
+        `Prizm surface firewall corrected "${parallel}" to "${corrected}" because the evidence shows directional velocity lines rather than irregular shattered-ice facets.`,
+      ),
+    };
+  }
+
+  if (
+    (strongCrackedIce || (weakCrackedIce && !directionalVelocity)) &&
+    !explicitVelocity &&
+    /velocity|\bblue\s+prizm\b/i.test(parallel)
+  ) {
+    const corrected = `${color}Cracked Ice Prizm`;
+    if (parallel.toLowerCase() === corrected.toLowerCase()) return ai;
+    return {
+      ...ai,
+      parallel: corrected,
+      notes: appendNote(
+        ai.notes,
+        `Prizm surface firewall corrected "${parallel}" to "${corrected}" because the evidence shows irregular shattered-ice facets.`,
+      ),
+    };
+  }
+
+  return ai;
+}
+
 export function applyInstaCompIdentityGuard(
   ai: InstaCompAiResult,
   context: {
@@ -191,15 +252,16 @@ export function applyInstaCompIdentityGuard(
       .filter(Boolean)
       .join(" "),
   );
+  const surfaceGuardedAi = normalizePrizmSurfaceParallel(ai, combinedEvidence);
   const signal = detectPrintedVariantSignal(combinedEvidence);
-  const currentParallel = ai.parallel || null;
+  const currentParallel = surfaceGuardedAi.parallel || null;
 
   if (!signal && currentParallel && /uncertain|unknown|unsure|ambiguous|exact type uncertain/i.test(currentParallel)) {
     return {
-      ...ai,
+      ...surfaceGuardedAi,
       parallel: null,
       notes: appendNote(
-        ai.notes,
+        surfaceGuardedAi.notes,
         `Identity guardrail suppressed uncertain parallel label "${currentParallel}" because OCR/printed evidence did not confirm it.`,
       ),
     };
@@ -207,16 +269,16 @@ export function applyInstaCompIdentityGuard(
 
   if (!signal && currentParallel && isBaseParallel(currentParallel)) {
     return {
-      ...ai,
+      ...surfaceGuardedAi,
       parallel: null,
       notes: appendNote(
-        ai.notes,
+        surfaceGuardedAi.notes,
         "Identity guardrail suppressed generic Base parallel label; base cards stay unlabelled unless the printed card name requires it.",
       ),
     };
   }
 
-  if (!signal) return ai;
+  if (!signal) return surfaceGuardedAi;
 
   const shouldOverrideBase = isBaseParallel(currentParallel);
   const shouldPreserveSpecificParallel =
@@ -226,9 +288,9 @@ export function applyInstaCompIdentityGuard(
 
   if (shouldPreserveSpecificParallel) {
     return {
-      ...ai,
+      ...surfaceGuardedAi,
       notes: appendNote(
-        ai.notes,
+        surfaceGuardedAi.notes,
         `Identity guardrail checked printed variant signal (${signal.reason}) and preserved AI parallel "${currentParallel}".`,
       ),
     };
@@ -236,19 +298,21 @@ export function applyInstaCompIdentityGuard(
 
   const guardedParallel = signal.label;
   const guardedSetName =
-    signal.setName && (!ai.setName || isBaseParallel(ai.setName))
+    signal.setName && (!surfaceGuardedAi.setName || isBaseParallel(surfaceGuardedAi.setName))
       ? signal.setName
-      : ai.setName;
+      : surfaceGuardedAi.setName;
   const loweredConfidence =
-    signal.confidence === "review" ? Math.min(ai.confidence || 0, 0.84) : ai.confidence;
+    signal.confidence === "review"
+      ? Math.min(surfaceGuardedAi.confidence || 0, 0.84)
+      : surfaceGuardedAi.confidence;
 
   return {
-    ...ai,
+    ...surfaceGuardedAi,
     setName: guardedSetName,
     parallel: guardedParallel,
     confidence: loweredConfidence,
     notes: appendNote(
-      ai.notes,
+      surfaceGuardedAi.notes,
       `Identity guardrail: ${signal.reason}; replaced ${
         shouldOverrideBase ? "Base/null" : `uncertain value "${currentParallel}"`
       } with "${guardedParallel}".`,

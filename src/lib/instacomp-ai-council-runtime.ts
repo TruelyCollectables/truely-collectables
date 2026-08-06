@@ -52,18 +52,10 @@ export function shouldContinueCouncilRuntime(params: {
   configuredReaderCount: number;
   primaryFamily?: string;
 }) {
-  if (params.cursor >= params.configuredReaderCount) return false;
-
-  const primaryFamily = (params.primaryFamily || "openai").trim().toLowerCase();
-  const independentConfigured = params.configuredFamilies.some(
-    (family) => String(family || "").trim().toLowerCase() !== primaryFamily,
-  );
-  const independentCompleted = params.completedFamilies.some(
-    (family) => String(family || "").trim().toLowerCase() !== primaryFamily,
-  );
-
-  return (
-    params.completedReaders < params.desiredReaders ||
-    (independentConfigured && !independentCompleted)
-  );
+  void params;
+  // Production identity belongs exclusively to InstaComp AI on the Mac.
+  // This shared runtime gate prevents every website council provider from
+  // executing, even if a caller requests a higher tier or environment flags
+  // are accidentally re-enabled.
+  return false;
 }
