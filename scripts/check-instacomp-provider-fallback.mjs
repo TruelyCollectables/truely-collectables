@@ -5,6 +5,10 @@ const failover = fs.readFileSync(
   "utf8",
 );
 const scan = fs.readFileSync("src/app/api/instacomp/scan/route.ts", "utf8");
+const readiness = fs.readFileSync(
+  "src/app/api/instacomp/internal-readiness/route.ts",
+  "utf8",
+);
 const failures = [];
 
 if (!failover.includes("INSTACOMP_INTERNAL_ENGINE_NOT_CONFIGURED")) {
@@ -13,31 +17,39 @@ if (!failover.includes("INSTACOMP_INTERNAL_ENGINE_NOT_CONFIGURED")) {
 if (!failover.includes("INSTACOMP_INTERNAL_ENGINE_OFFLINE")) {
   failures.push("missing internal-engine offline failure");
 }
-if (!failover.includes("isInstaCompInternalEmergencyEligible")) {
-  failures.push("missing explicit emergency eligibility gate");
+if (!failover.includes("INSTACOMP_INTERNAL_ENGINE_SCAN_FAILED")) {
+  failures.push("missing internal-engine scan failure");
 }
-if (!failover.includes("model_unavailable")) {
-  failures.push("model failure classification missing");
+if (failover.includes("isInstaCompInternalEmergencyEligible")) {
+  failures.push("emergency eligibility gate still exists");
 }
-if (!failover.includes("Reader failures:")) {
-  failures.push("durable reader failure summary missing");
+if (scan.includes('provider: "openai_emergency"')) {
+  failures.push("OpenAI emergency identity reader still exists");
 }
-
-const internalProvider = scan.indexOf('provider: "instacomp_internal"');
-const emergencyProvider = scan.indexOf('provider: "openai_emergency"');
-if (
-  internalProvider < 0 ||
-  emergencyProvider < 0 ||
-  internalProvider >= emergencyProvider
-) {
-  failures.push("scan does not keep InstaComp before OpenAI emergency");
+if (!scan.includes('provider: "instacomp_internal"')) {
+  failures.push("InstaComp internal identity reader is missing");
 }
-if (!scan.includes("[INSTACOMP_OPENAI_MODEL, INSTACOMP_OPENAI_FALLBACK_MODEL]")) {
-  failures.push("OpenAI emergency path does not retain its model fallback");
+if (!scan.includes("const serialOcr = null as InstaCompSerialOcrResult | null;")) {
+  failures.push("external serial identity reader is not disabled");
+}
+if (!scan.includes("runSecondaryVision: false")) {
+  failures.push("external AI council is not disabled");
+}
+if (!scan.includes('requestedTier: "basic"')) {
+  failures.push("AI council is not pinned to its zero-reader tier");
+}
+if (readiness.includes("openAiEmergencyConfigured")) {
+  failures.push("readiness still advertises OpenAI emergency");
+}
+if (readiness.includes("openai_emergency")) {
+  failures.push("readiness architecture still includes OpenAI emergency");
+}
+if (!readiness.includes('architecture: ["instacomp_ai"]')) {
+  failures.push("readiness does not advertise the single InstaComp AI engine");
 }
 
 if (failures.length) {
   console.error(failures.join("\n"));
   process.exit(1);
 }
-console.log("InstaComp provider fallback gate PASSED");
+console.log("InstaComp-only identity gate PASSED");

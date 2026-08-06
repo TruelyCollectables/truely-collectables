@@ -3957,18 +3957,6 @@ async function identifyCardWithConfiguredProviderFailover(params: {
             return ai;
           },
         },
-        {
-          provider: "openai_emergency",
-          family: "openai",
-          configured: Boolean(OPENAI_API_KEY),
-          run: () =>
-            identifyCardWithOpenAI(
-              params.frontDataUrl,
-              params.backDataUrl,
-              params.detailImages.slice(0, 8),
-              params.externalOcr,
-            ),
-        },
       ]);
     }
 
@@ -4137,9 +4125,7 @@ async function identifyCardWithConfiguredProviderFailover(params: {
       ...detailImages,
     ];
     const externalOcr = await getBestExternalOcr(externalOcrImages);
-    // OpenAI serial vision is emergency-only; never preflight it before InstaComp.
-    const preflightSerialOcrPromise = null;
-
+    // InstaComp AI is the only identity engine. External serial vision is disabled.
     const primaryAiResult = await identifyCardWithConfiguredProviderFailover({
       frontImage,
       backImage: backImageForScan,
@@ -4152,23 +4138,7 @@ async function identifyCardWithConfiguredProviderFailover(params: {
       primaryAiResult.value,
       externalOcr,
     );
-    const serialOcr =
-      (preflightSerialOcrPromise
-        ? await preflightSerialOcrPromise
-        : primaryAiResult.family === "openai" && shouldRunSerialVision({
-              ai: baseAi,
-              externalOcr,
-              requestedTier: requestedAiCouncilTier,
-            })
-          ? await optionalInstaCompProviderResult(
-              detectSerialNumberWithOpenAI(
-                frontDataUrl,
-                backDataUrl,
-                detailImages.slice(0, 16),
-                externalOcr,
-              ),
-            )
-          : null);
+    const serialOcr = null as InstaCompSerialOcrResult | null;
     const baseAiForConsensus = applyOperatorSerialNumberOverride(
       baseAi,
       operatorSerialNumberOverride,
@@ -4201,10 +4171,8 @@ async function identifyCardWithConfiguredProviderFailover(params: {
     // model guess happened to match a checklist row.
     const consensusEscalation = baselineConsensusEscalation;
     const aiCouncilRaw = await runInstaCompAiCouncil({
-      runSecondaryVision:
-      primaryAiResult.family !== "instacomp_internal" &&
-      consensusEscalation.runSecondaryVision,
-      requestedTier: requestedAiCouncilTier,
+      runSecondaryVision: false,
+      requestedTier: "basic",
       frontDataUrl,
       backDataUrl,
       detailImages,

@@ -121,9 +121,6 @@ async function resolveConfiguredHostname(baseUrl: string) {
 
 export async function GET() {
   const baseUrl = configuredLocalUrl();
-  const emergencyConfigured = Boolean(
-    String(process.env.OPENAI_API_KEY || "").trim(),
-  );
   if (!baseUrl) {
     return readinessResponse(
       {
@@ -133,8 +130,8 @@ export async function GET() {
         dnsResolved: false,
         internalMemoryReady: false,
         checklistReady: false,
-        ollamaBackupReady: false,
-        openAiEmergencyConfigured: emergencyConfigured,
+        localModelReady: false,
+        architecture: ["instacomp_ai"],
         reason: "internal_engine_url_not_configured",
       },
       503,
@@ -165,8 +162,8 @@ export async function GET() {
           ...dns,
           internalMemoryReady: false,
           checklistReady: false,
-          ollamaBackupReady: false,
-          openAiEmergencyConfigured: emergencyConfigured,
+          localModelReady: false,
+          architecture: ["instacomp_ai"],
           reason: `internal_health_http_${response.status}`,
         },
         503,
@@ -175,8 +172,8 @@ export async function GET() {
 
     const internalMemoryReady = health.database === "ready";
     const checklistReady = health.checklist === "ready";
-    const ollamaBackupReady = health.ollama === "ready";
-    const ok = internalMemoryReady && checklistReady;
+    const localModelReady = health.ollama === "ready";
+    const ok = internalMemoryReady && checklistReady && localModelReady;
     return readinessResponse(
       {
         ok,
@@ -185,16 +182,10 @@ export async function GET() {
         ...dns,
         internalMemoryReady,
         checklistReady,
-        ollamaBackupReady,
-        openAiEmergencyConfigured: emergencyConfigured,
+        localModelReady,
         app: typeof health.app === "string" ? health.app : "InstaComp AI",
         version: typeof health.version === "string" ? health.version : null,
-        architecture: [
-          "instacomp_internal_memory",
-          "checklist_registry",
-          "ollama_backup",
-          "openai_emergency",
-        ],
+        architecture: ["instacomp_ai"],
         reason: ok ? null : "internal_engine_not_fully_ready",
       },
       ok ? 200 : 503,
@@ -209,8 +200,8 @@ export async function GET() {
         ...dns,
         internalMemoryReady: false,
         checklistReady: false,
-        ollamaBackupReady: false,
-        openAiEmergencyConfigured: emergencyConfigured,
+        localModelReady: false,
+        architecture: ["instacomp_ai"],
         ...failure,
       },
       503,

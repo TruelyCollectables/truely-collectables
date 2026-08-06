@@ -86,7 +86,6 @@ class MemoryStore:
                     status TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS scans_pair_hash_idx ON scans(image_pair_sha256);
-                CREATE INDEX IF NOT EXISTS scans_front_phash_idx ON scans(front_perceptual_hash);
                 CREATE TABLE IF NOT EXISTS lessons (
                     lesson_id TEXT PRIMARY KEY,
                     scan_id TEXT NOT NULL,
