@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import sharp from "sharp";
+import { getAuthenticatedAccountFromRequest } from "../../../../lib/account-auth";
 import {
   requireInstaCompJobActor,
   InstaCompJobServerError,
@@ -94,14 +95,28 @@ function storageObject(url: string) {
 
 async function requireAdmin(request: Request) {
   const actor = await requireInstaCompJobActor(request);
-  if (actor.type !== "admin") {
-    throw new InstaCompJobServerError(
-      "Card image editing is owner/admin only.",
-      403,
-      "INSTACOMP_ADMIN_REQUIRED",
-    );
+  if (actor.type === "admin") return actor;
+
+  const account = await getAuthenticatedAccountFromRequest(request);
+  const email = String(account?.email || "").trim().toLowerCase();
+  const isOwner =
+    account?.id === actor.sellerAccountId &&
+    (email === "sales@truelycollectables.com" ||
+      email === "sales@trulycollectables.com");
+
+  if (isOwner) {
+    return {
+      type: "admin" as const,
+      storeId: actor.storeId,
+      sellerAccountId: null,
+    };
   }
-  return actor;
+
+  throw new InstaCompJobServerError(
+    "Card image editing is owner/admin only.",
+    403,
+    "INSTACOMP_ADMIN_REQUIRED",
+  );
 }
 
 async function ensureImageBucket(
@@ -235,6 +250,7 @@ async function rotateImage(params: {
   }
 
   const rotated = await sharp(bytes, { failOn: "error" })
+    .autoOrient()
     .rotate(params.degrees, { background: "#ffffff" })
     .flatten({ background: "#ffffff" })
     .jpeg({ quality: 95, chromaSubsampling: "4:4:4", mozjpeg: true })
@@ -503,6 +519,28 @@ export async function POST(request: Request) {
       .eq("id", inventoryItemId);
     if (metadataError) throw metadataError;
 
+    const { data: storedRows, error: readBackError } = await supabase
+      .from("inventory_images")
+      .select("image_url,sort_order,is_primary")
+      .eq("inventory_item_id", inventoryItemId)
+      .order("sort_order", { ascending: true });
+    if (readBackError) throw readBackError;
+    const storedFront = text(
+      storedRows?.find((row) => row.is_primary === true)?.image_url ||
+        storedRows?.[0]?.image_url,
+    );
+    const storedBack = text(
+      storedRows?.find(
+        (row) => row.is_primary !== true && text(row.image_url) !== storedFront,
+      )?.image_url ||
+        storedRows?.find((row) => text(row.image_url) !== storedFront)?.image_url,
+    );
+    if (storedFront !== front || storedBack !== back) {
+      throw new Error(
+        "The rotated image was created but the permanent front/back assignment did not read back correctly.",
+      );
+    }
+
     const warnings: string[] = [];
     if (
       rotatedSourceUrl &&
@@ -520,6 +558,10 @@ export async function POST(request: Request) {
       frontImageUrl: front,
       backImageUrl: back || null,
       instaCompStatus: "pending",
+      storedImageReadBack: true,
+      previousImageUrl: rotatedSourceUrl || null,
+      rotatedImageUrl:
+        action === "rotate" ? (side === "front" ? front : back) : null,
       warnings,
       message:
         action === "swap"
