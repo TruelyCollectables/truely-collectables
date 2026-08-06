@@ -191,6 +191,11 @@ export function instaCompAiLocalScanToAi(
   const frontVisibleText = textList(evidence?.front_visible_text);
   const backVisibleText = textList(evidence?.back_visible_text);
   const backNotes = textList(evidence?.back_notes);
+  const frontPatternEvidence = [
+    ...textList(evidence?.colors),
+    ...textList(evidence?.foil_or_pattern),
+    ...textList(evidence?.front_notes),
+  ].join(" | ") || null;
   const backEvidence = [...backVisibleText, ...backNotes].join(" | ") || null;
   const notes = [
     `InstaComp internal source: ${source}.`,
@@ -198,6 +203,9 @@ export function instaCompAiLocalScanToAi(
       ? `Canonical filename: ${scan.canonical_filename}.`
       : null,
     scan.local_suggestion?.explanation || null,
+    frontPatternEvidence
+      ? `Front surface evidence: ${frontPatternEvidence}`
+      : null,
     backEvidence ? `Back evidence: ${backEvidence}` : null,
   ]
     .filter(Boolean)
