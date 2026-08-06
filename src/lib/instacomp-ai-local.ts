@@ -101,6 +101,11 @@ export type InstaCompAiLocalLessonIdentity = {
 
 export type InstaCompAiResultWithInternalReceipt = InstaCompAiResult & {
   internalScanId: string;
+  internalStatus: string;
+  internalChecklistOutcome: string | null;
+  internalChecklistCandidateCount: number;
+  internalChecklistReasons: string[];
+  internalChecklistSourceReceipts: string[];
   internalMatchSource: string | null;
   internalCanonicalFilename: string | null;
   internalLearningAllowed: boolean;
@@ -173,12 +178,60 @@ export function instaCompAiLocalScanToAi(
   const trusted = scan.trusted_identity || null;
   const suggested = scan.local_suggestion?.identity || null;
   const identity = trusted || suggested;
-  if (!identity) return null;
+  if (!identity) {
+    const checklistReasons = textList(scan.checklist?.reasons);
+    const checklistReceipts = textList(scan.checklist?.source_receipts);
+    return {
+      player: null,
+      year: null,
+      brand: null,
+      setName: null,
+      cardNumber: null,
+      parallel: null,
+      serialNumber: null,
+      team: null,
+      sport: null,
+      isRookie: false,
+      isAuto: false,
+      isRelic: false,
+      conditionGuess: null,
+      confidence: 0,
+      notes: [
+        `InstaComp internal status: ${scan.status}.`,
+        scan.next_action || null,
+        checklistReasons.length
+          ? `Checklist: ${checklistReasons.join(" | ")}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" "),
+      internalScanId: safeScanId(scan.scan_id),
+      internalStatus: scan.status,
+      internalChecklistOutcome: text(scan.checklist?.outcome),
+      internalChecklistCandidateCount: Math.max(
+        0,
+        Number(
+          (scan.checklist as Record<string, unknown> | undefined)
+            ?.candidate_count || 0,
+        ),
+      ),
+      internalChecklistReasons: checklistReasons,
+      internalChecklistSourceReceipts: checklistReceipts,
+      internalMatchSource: text(scan.match_source),
+      internalCanonicalFilename: text(scan.canonical_filename),
+      internalLearningAllowed: false,
+      internalInscription: false,
+      internalInscriptionText: null,
+      internalMemorabiliaType: null,
+      frontVisibleText: [],
+      backVisibleText: [],
+      backEvidence: null,
+    };
+  }
 
   const player = text(identity.player);
   const cardNumber = text(identity.card_number ?? identity.cardNumber);
   const setName = text(identity.set_name ?? identity.setName);
-  if (!player && !cardNumber && !setName) return null;
 
   const serialRun = Number(identity.serial_run ?? identity.serialRun);
   const printRun =
@@ -230,6 +283,19 @@ export function instaCompAiLocalScanToAi(
     confidence: identityConfidence,
     notes: notes || null,
     internalScanId: safeScanId(scan.scan_id),
+    internalStatus: scan.status,
+    internalChecklistOutcome: text(scan.checklist?.outcome),
+    internalChecklistCandidateCount: Math.max(
+      0,
+      Number(
+        (scan.checklist as Record<string, unknown> | undefined)
+          ?.candidate_count || 0,
+      ),
+    ),
+    internalChecklistReasons: textList(scan.checklist?.reasons),
+    internalChecklistSourceReceipts: textList(
+      scan.checklist?.source_receipts,
+    ),
     internalMatchSource: text(source),
     internalCanonicalFilename: text(scan.canonical_filename),
     internalLearningAllowed: scan.learning_allowed === true,
