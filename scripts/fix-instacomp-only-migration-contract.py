@@ -53,3 +53,36 @@ elif old in text:
     print("Exact migration-order contract applied")
 else:
     raise SystemExit("Migration contract anchor missing")
+
+
+route_path = Path("src/app/api/instacomp/scan/route.ts")
+route = route_path.read_text()
+untyped_serial = "    const serialOcr = null;\n"
+typed_serial = "    const serialOcr: ExternalOcrResult | null = null;\n"
+
+if typed_serial in route:
+    print("Disabled serial reader is already explicitly typed")
+elif untyped_serial in route:
+    route_path.write_text(route.replace(untyped_serial, typed_serial, 1))
+    print("Disabled serial reader explicitly typed")
+else:
+    raise SystemExit("Disabled serial reader declaration anchor missing")
+
+
+for gate_path in [
+    Path("scripts/check-instacomp-provider-fallback.mjs"),
+    Path("scripts/check-instacomp-local-primary-contract.mjs"),
+]:
+    gate = gate_path.read_text()
+    if "const serialOcr: ExternalOcrResult | null = null;" in gate:
+        continue
+    if "const serialOcr = null;" not in gate:
+        raise SystemExit(f"Typed serial-reader gate anchor missing: {gate_path}")
+    gate_path.write_text(
+        gate.replace(
+            "const serialOcr = null;",
+            "const serialOcr: ExternalOcrResult | null = null;",
+        )
+    )
+
+print("Typed disabled-serial-reader gates applied")
