@@ -32,6 +32,9 @@ function targetFromSet(row, scope, priority) {
 }
 
 const config = JSON.parse(readFileSync(CONFIG_PATH, "utf8"));
+if (config.serviceName !== "InstaComp AI Checklist Sentinel™") {
+  throw new Error("Checklist Sentinel configuration has the wrong serviceName.");
+}
 const masterSets = JSON.parse(readFileSync(resolve(BASE_ROOT, "master-sets.json"), "utf8"));
 const setMap = new Map(masterSets.map((row) => [row.exactSetKey, row]));
 const modernKeys = readFileSync(resolve(process.cwd(), config.modernGapKeysFile), "utf8").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
@@ -53,9 +56,12 @@ const deduped = [...new Map(targets.map((target) => [target.exactSetKey, target]
   a.year - b.year || a.sport.localeCompare(b.sport) || a.manufacturer.localeCompare(b.manufacturer) || a.product.localeCompare(b.product),
 );
 const output = {
-  schema: "tcos.checklistRecoveryTargets.v1",
+  schema: "instacomp.aiChecklistSentinelTargets.v1",
+  serviceName: config.serviceName,
   generatedAt: new Date().toISOString(),
   sourceRunId: config.sourceRunId,
+  schedule: config.schedule,
+  searchRegistry: config.searchRegistry,
   policy: config.policy,
   totals: {
     targets: deduped.length,
@@ -68,6 +74,6 @@ const output = {
 };
 mkdirSync(dirname(OUT), { recursive: true });
 writeFileSync(OUT, `${JSON.stringify(output, null, 2)}\n`);
-console.log(JSON.stringify(output.totals));
+console.log(JSON.stringify({ serviceName: output.serviceName, ...output.totals }));
 if (missingModernKeys.length) throw new Error(`Modern gap keys missing from base catalog: ${missingModernKeys.length}`);
 if (!deduped.length) throw new Error("No recovery targets were generated.");
