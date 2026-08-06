@@ -12,13 +12,13 @@ import {
 import { sanitizeInstaCompProviderError } from "./instacomp-provider-safety";
 
 const requestedMinimumOrientationConfidence = Number(
-  process.env.INSTACOMP_ORIENTATION_MIN_CONFIDENCE || 0.75,
+  process.env.INSTACOMP_ORIENTATION_MIN_CONFIDENCE || 0.55,
 );
 const MINIMUM_ORIENTATION_CONFIDENCE = Number.isFinite(
   requestedMinimumOrientationConfidence,
 )
   ? Math.max(0.5, Math.min(0.99, requestedMinimumOrientationConfidence))
-  : 0.75;
+  : 0.55;
 const MAX_ORIENTATION_INPUT_PIXELS = 40_000_000;
 
 export type InstaCompRotation = 0 | 90 | 180 | 270;
@@ -30,6 +30,8 @@ export type InstaCompOrientationDecision = {
   backRotation: InstaCompRotation;
   frontConfidence: number;
   backConfidence: number;
+  frontEvidenceText: string[];
+  backEvidenceText: string[];
   backStandalonePrizm: boolean | null;
   backDesignationConfidence: number;
   reason: string;
@@ -47,6 +49,15 @@ export function normalizeInstaCompRotation(value: unknown): InstaCompRotation {
 function normalizedConfidence(value: unknown) {
   const number = Number(value);
   return Number.isFinite(number) ? Math.max(0, Math.min(1, number)) : 0;
+}
+
+function normalizedEvidence(value: unknown) {
+  return Array.isArray(value)
+    ? value
+        .map((item) => String(item || "").replace(/\s+/g, " ").trim())
+        .filter(Boolean)
+        .slice(0, 12)
+    : [];
 }
 
 function parseJsonObject(value: string) {
@@ -69,9 +80,9 @@ export async function detectInstaCompSideOrientations(params: {
   const model =
     String(
       process.env.INSTACOMP_ORIENTATION_MODEL ||
-        process.env.INSTACOMP_OPENAI_FALLBACK_MODEL ||
-        "gpt-4.1-mini",
-    ).trim() || "gpt-4.1-mini";
+        process.env.INSTACOMP_OPENAI_MODEL ||
+        "gpt-4.1",
+    ).trim() || "gpt-4.1";
 
   if (!apiKey) {
     return {
@@ -81,10 +92,12 @@ export async function detectInstaCompSideOrientations(params: {
       backRotation: 0,
       frontConfidence: 0,
       backConfidence: 0,
+      frontEvidenceText: [],
+      backEvidenceText: [],
       backStandalonePrizm: null,
       backDesignationConfidence: 0,
       reason:
-        "OPENAI_API_KEY is not configured; only embedded EXIF orientation can be normalized.",
+        "OPENAI_API_KEY is not configured; embedded EXIF orientation was still normalized.",
     };
   }
 
@@ -92,20 +105,22 @@ export async function detectInstaCompSideOrientations(params: {
     {
       type: "text",
       text: [
-        "You are the TCOS sports-card orientation referee.",
-        "Judge FRONT and BACK independently. Return the clockwise rotation needed to make each physical card upright and readable.",
-        "Allowed values are exactly 0, 90, 180, or 270 degrees.",
-        "Use printed player names, team names, logos, card numbers, copyright text, grading labels, and serial stamps as orientation evidence.",
-        "A horizontal card may correctly require 90 or 270 degrees. The back may require a different rotation from the front.",
-        "Also inspect the BACK for a standalone PRIZM parallel designation printed separately from the product/legal line.",
-        "The phrase Panini - WNBA Prizm Basketball in copyright or product text does NOT prove a Prizm parallel. Return backStandalonePrizm=false unless a separate PRIZM designation is visibly printed on the card back.",
-        "Do not identify, price, or compare the card. Return JSON only.",
+        "You are the TCOS sports-card text-orientation referee.",
+        "Judge FRONT and BACK independently and return the clockwise rotation needed to make the physical card upright.",
+        "Allowed rotations are exactly 0, 90, 180, or 270 degrees.",
+        "Mentally test all four rotations for each side.",
+        "Use the direction of printed writing as the primary evidence: player name, team name, card number, copyright line, statistics, biography, serial stamp, autograph wording, logos containing letters, and grading labels.",
+        "The correct rotation makes the majority of readable text run left-to-right and places normal text baselines below the letters rather than above them.",
+        "A horizontal card is valid; choose the orientation that makes its writing naturally readable, not the orientation that makes the card portrait-shaped.",
+        "Transcribe a few short text fragments from each side that prove the chosen direction.",
+        "Do not identify the card, do not determine its parallel, and do not use color or foil to decide orientation.",
+        "Return JSON only.",
       ].join("\n"),
     },
     { type: "text", text: "FRONT SIDE" },
     {
       type: "image_url",
-      image_url: { url: params.frontDataUrl, detail: "low" },
+      image_url: { url: params.frontDataUrl, detail: "high" },
     },
   ];
   if (params.backDataUrl) {
@@ -113,7 +128,7 @@ export async function detectInstaCompSideOrientations(params: {
       { type: "text", text: "BACK SIDE" },
       {
         type: "image_url",
-        image_url: { url: params.backDataUrl, detail: "low" },
+        image_url: { url: params.backDataUrl, detail: "high" },
       },
     );
   }
@@ -121,7 +136,7 @@ export async function detectInstaCompSideOrientations(params: {
   try {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
-      signal: AbortSignal.timeout(45_000),
+      signal: AbortSignal.timeout(60_000),
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
@@ -148,8 +163,14 @@ export async function detectInstaCompSideOrientations(params: {
                 },
                 frontConfidence: { type: "number" },
                 backConfidence: { type: "number" },
-                backStandalonePrizm: { type: "boolean" },
-                backDesignationConfidence: { type: "number" },
+                frontEvidenceText: {
+                  type: "array",
+                  items: { type: "string" },
+                },
+                backEvidenceText: {
+                  type: "array",
+                  items: { type: "string" },
+                },
                 reason: { type: "string" },
               },
               required: [
@@ -157,8 +178,8 @@ export async function detectInstaCompSideOrientations(params: {
                 "backRotation",
                 "frontConfidence",
                 "backConfidence",
-                "backStandalonePrizm",
-                "backDesignationConfidence",
+                "frontEvidenceText",
+                "backEvidenceText",
                 "reason",
               ],
             },
@@ -181,15 +202,11 @@ export async function detectInstaCompSideOrientations(params: {
     const backConfidence = params.backDataUrl
       ? normalizedConfidence(parsed.backConfidence)
       : 0;
-    const recommendedFrontRotation = normalizeInstaCompRotation(parsed.frontRotation);
+    const recommendedFrontRotation = normalizeInstaCompRotation(
+      parsed.frontRotation,
+    );
     const recommendedBackRotation = params.backDataUrl
       ? normalizeInstaCompRotation(parsed.backRotation)
-      : 0;
-    const backStandalonePrizm = params.backDataUrl
-      ? parsed.backStandalonePrizm === true
-      : null;
-    const backDesignationConfidence = params.backDataUrl
-      ? normalizedConfidence(parsed.backDesignationConfidence)
       : 0;
     const frontRotation =
       frontConfidence >= MINIMUM_ORIENTATION_CONFIDENCE
@@ -199,6 +216,10 @@ export async function detectInstaCompSideOrientations(params: {
       backConfidence >= MINIMUM_ORIENTATION_CONFIDENCE
         ? recommendedBackRotation
         : 0;
+    const frontEvidenceText = normalizedEvidence(parsed.frontEvidenceText);
+    const backEvidenceText = params.backDataUrl
+      ? normalizedEvidence(parsed.backEvidenceText)
+      : [];
     const lowConfidenceSides = [
       frontRotation !== recommendedFrontRotation ? "front" : "",
       params.backDataUrl && backRotation !== recommendedBackRotation
@@ -216,10 +237,12 @@ export async function detectInstaCompSideOrientations(params: {
       backRotation,
       frontConfidence,
       backConfidence,
-      backStandalonePrizm,
-      backDesignationConfidence,
+      frontEvidenceText,
+      backEvidenceText,
+      backStandalonePrizm: null,
+      backDesignationConfidence: 0,
       reason: lowConfidenceSides.length
-        ? `${baseReason} Model rotation was not applied to low-confidence side(s): ${lowConfidenceSides.join(", ")}.`
+        ? `${baseReason} Rotation was not applied to low-confidence side(s): ${lowConfidenceSides.join(", ")}.`
         : baseReason,
     };
   } catch (error) {
@@ -230,9 +253,15 @@ export async function detectInstaCompSideOrientations(params: {
       backRotation: 0,
       frontConfidence: 0,
       backConfidence: 0,
+      frontEvidenceText: [],
+      backEvidenceText: [],
       backStandalonePrizm: null,
       backDesignationConfidence: 0,
-      reason: sanitizeInstaCompProviderError(error instanceof Error ? error.message : "Orientation detection failed."),
+      reason: sanitizeInstaCompProviderError(
+        error instanceof Error
+          ? error.message
+          : "Orientation detection failed.",
+      ),
     };
   }
 }

@@ -76,6 +76,10 @@ const nextConfig: NextConfig = {
           destination: "/api/account/seller/inventory/instacomp-verified",
         },
         {
+          source: "/api/account/seller/inventory/instacomp-front-back",
+          destination: "/api/kingmaker/instacomp-front-back-auto",
+        },
+        {
           source: "/api/admin/card-listing-images",
           destination: "/api/kingmaker/card-listing-images",
         },
