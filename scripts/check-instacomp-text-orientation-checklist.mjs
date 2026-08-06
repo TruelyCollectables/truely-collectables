@@ -16,21 +16,11 @@ function requireMissing(path, message) {
   if (fs.existsSync(path)) throw new Error(message);
 }
 
-const page = read("src/app/kingmaker/instacomp-audit/page.tsx");
+const auditPage = read("src/app/kingmaker/instacomp-audit/page.tsx");
 requireText(
-  page,
+  auditPage,
   '"/api/account/seller/inventory/instacomp-kingmaker"',
-  "KINGMAKER must use the fast workbench loader.",
-);
-requireText(
-  page,
-  "Re-run Automatic Orientation + Checklist",
-  "KINGMAKER must expose the automatic repair workflow.",
-);
-requireText(
-  page,
-  "Save, Lock & Teach InstaComp",
-  "KINGMAKER must make learning promotion explicit.",
+  "The audit desk must use the bounded workbench loader.",
 );
 for (const forbidden of [
   "MutationObserver",
@@ -38,46 +28,56 @@ for (const forbidden of [
   "Rotate right",
   "Swap front / back",
   "editImage(",
-  "correctedBaseTitle",
-  "hasImpossibleBaseParallelTitle",
 ]) {
   forbidText(
-    page,
+    auditPage,
     forbidden,
-    `KINGMAKER still contains obsolete manual/automatic-coercion code: ${forbidden}`,
+    `The audit desk still contains obsolete image controls: ${forbidden}`,
   );
 }
 requireMissing(
   "src/app/kingmaker/instacomp-audit/automatic-image-policy.tsx",
-  "The recursive DOM policy file must be deleted.",
+  "The recursive DOM policy file must remain deleted.",
 );
 requireMissing(
   "src/app/kingmaker/instacomp-audit/layout.tsx",
-  "The obsolete nested policy layout must be deleted.",
+  "The obsolete nested policy layout must remain deleted.",
 );
 
-const loader = read(
-  "src/app/api/account/seller/inventory/instacomp-kingmaker/route.ts",
+const pendingPage = read("src/app/kingmaker/pending/page.tsx");
+requireText(
+  pendingPage,
+  "year, set, player, card number, visible parallel",
+  "Pending must explain the exact identity order.",
 );
 requireText(
-  loader,
-  "MAX_WORKBENCH_CARDS = 100",
-  "The workbench loader must have a bounded card limit.",
+  pendingPage,
+  "Velocity and Cracked Ice are treated as different patterns",
+  "Pending must preserve the Velocity/Cracked Ice distinction.",
 );
 requireText(
-  loader,
-  "identityComplete || manuallyLocked",
-  "Unresolved scanner parallel guesses must be hidden.",
+  pendingPage,
+  "Card {side} · automatically oriented",
+  "Pending must display the saved automatic orientation.",
+);
+requireText(
+  pendingPage,
+  "Enter Base or the exact checklist parallel. Blank no longer means Base.",
+  "Pending manual corrections must require an explicit parallel.",
 );
 for (const forbidden of [
-  "getInstaCompAiLocalScanArchive",
-  "resolveInstaCompChecklistFirstFromRegistry",
-  "for (const row of rows",
+  "rotatedImageFile",
+  "createImageBitmap",
+  "Rotate ↷",
+  "↶ Rotate",
+  "autoRunning",
+  "batchRunning",
+  "rotations",
 ]) {
   forbidText(
-    loader,
+    pendingPage,
     forbidden,
-    `The normal page loader still contains per-card heavy work: ${forbidden}`,
+    `Pending still contains the obsolete browser rotation/auto-run path: ${forbidden}`,
   );
 }
 
@@ -99,8 +99,13 @@ requireText(
 );
 requireText(
   orientation,
+  "addScanFrame?: boolean",
+  "Stored-card retries must be able to avoid nested scan frames.",
+);
+requireText(
+  orientation,
   "backStandalonePrizm: null",
-  "Orientation must not decide the parallel.",
+  "Orientation must never decide Base or a parallel.",
 );
 
 const storage = read("src/lib/instacomp-normalized-image-storage.ts");
@@ -120,112 +125,152 @@ forbidText(
   "Normalized storage must never delete every card image before replacement.",
 );
 
-const parallel = read("src/lib/instacomp-checklist-parallel-vision.ts");
+const matcher = read("src/lib/instacomp-parallel-pattern-matcher.ts");
 requireText(
-  parallel,
-  "never trust a prior scanner label by itself",
-  "Parallel resolution must not trust the scanner guess.",
+  matcher,
+  'return "cracked_ice"',
+  "The matcher must have a distinct Cracked Ice signature.",
 );
 requireText(
-  parallel,
-  "selectedIsBase ? 0.9 : 0.82",
-  "Base must require stronger positive visual proof.",
+  matcher,
+  'return "velocity"',
+  "The matcher must have a distinct Velocity signature.",
 );
-forbidText(
-  parallel,
-  "aiParallel",
-  "Scanner-provided parallel labels must not bypass visual checklist review.",
+requireText(
+  matcher,
+  "base_conflicts_with_visible_",
+  "Visible parallel treatment must block Base.",
+);
+requireText(
+  matcher,
+  "serial_run_",
+  "Serial denominators must participate in exact identity matching.",
 );
 
-const route = read(
-  "src/app/api/kingmaker/instacomp-front-back-auto/route.ts",
+const parallelVision = read("src/lib/instacomp-checklist-parallel-vision.ts");
+requireText(
+  parallelVision,
+  "Do NOT choose a checklist identity",
+  "Vision must extract features before software chooses an identity.",
 );
 requireText(
-  route,
-  "previousFrontImageUrl: pair.front.url",
-  "The automatic route must replace the assigned rows without losing the card.",
+  parallelVision,
+  "Velocity and Cracked Ice are never interchangeable",
+  "The visual reader must explicitly distinguish the two patterns.",
 );
 requireText(
-  route,
+  parallelVision,
+  "Green Prizm or other colored solid prizm is not Base",
+  "Colored Prizms must not be erased to Base.",
+);
+requireText(
+  parallelVision,
+  "resolveChecklistParallelFromVisualFeatures",
+  "Checklist selection must be deterministic after feature extraction.",
+);
+forbidText(
+  parallelVision,
+  "selectedIdentityId: {",
+  "The visual model must not directly return a checklist identity ID.",
+);
+
+const exactRoute = read(
+  "src/app/api/kingmaker/instacomp-front-back-exact/route.ts",
+);
+requireText(
+  exactRoute,
+  "addScanFrame: multipart",
+  "Fresh uploads get one frame and stored retries must not nest frames.",
+);
+requireText(
+  exactRoute,
   "serialNumber: null",
-  "Broad checklist retrieval must not trust scanner serial/type guesses.",
+  "Broad candidate retrieval must ignore scanner serial guesses.",
 );
 requireText(
-  route,
-  "Checklist identity remains ambiguous. Base was not assumed",
-  "Ambiguous cards must never default to Base.",
+  exactRoute,
+  "core_identity_then_color_pattern_serial_match",
+  "The exact identity order must be persisted in the receipt.",
 );
 requireText(
-  route,
-  "stripTrailingChecklistParallel",
-  "Title updates must be suffix-scoped rather than deleting color words globally.",
+  exactRoute,
+  "No Base or look-alike parallel was substituted",
+  "Ambiguous parallels must remain review-required.",
 );
 for (const forbidden of [
-  "aiParallel:",
   "forcedBaseFromBack",
-  "backStandalonePrizm",
-  "Base was not assumed and pricing is blocked" + "x",
+  "backDesignationConfidence >=",
+  "no_prizm_on_back_forced_base",
 ]) {
   forbidText(
-    route,
+    exactRoute,
     forbidden,
-    `The automatic route still contains unsafe parallel logic: ${forbidden}`,
+    `The exact route contains a forbidden Base shortcut: ${forbidden}`,
   );
 }
 
-const manual = read(
-  "src/app/api/account/seller/inventory/instacomp-manual-identity/route.ts",
+const intakeV2 = read(
+  "src/app/api/kingmaker/instacomp-scan-intake-v2/route.ts",
 );
 requireText(
-  manual,
-  "Parallel is required. Enter Base or the exact checklist parallel",
-  "Manual save must require an explicit parallel choice.",
+  intakeV2,
+  "runExactFrontBack",
+  "New scans and pending retries must use the same exact identity pipeline.",
 );
 requireText(
-  manual,
-  "confirmInstaCompKnowledge",
-  "Manual corrections must promote reusable InstaComp knowledge.",
+  intakeV2,
+  "imagesPreserved: true",
+  "An unresolved scan must preserve its front and back.",
 );
 requireText(
-  manual,
-  "learningPromotion",
-  "Manual learning must persist an audit receipt.",
+  intakeV2,
+  'stage: "review_required"',
+  "An unresolved scan must become a reviewable draft instead of disappearing.",
 );
-forbidText(
-  manual,
-  "normalizeBaseParallel",
-  "Blank parallel values must not silently become Base.",
+
+const cardEdit = read(
+  "src/app/api/account/seller/inventory/instacomp-card-edit/route.ts",
+);
+requireText(
+  cardEdit,
+  "Blank is not accepted as Base",
+  "Manual correction must require Base or an exact parallel.",
+);
+requireText(
+  cardEdit,
+  "exactSerialStamp",
+  "Manual correction must preserve the exact serial numerator and denominator.",
+);
+requireText(
+  cardEdit,
+  "confirmInstaCompAiLocalLesson",
+  "Manual correction must teach the local InstaComp engine.",
+);
+
+const jobStatus = read(
+  "src/app/api/account/seller/inventory/instacomp-job-status/route.ts",
+);
+requireText(
+  jobStatus,
+  "suppressStaleFailure",
+  "A completed or locked card must not display an old failed stage.",
+);
+requireText(
+  jobStatus,
+  "visualPattern",
+  "Pending must receive the visual pattern receipt.",
 );
 
 const config = read("next.config.ts");
 requireText(
   config,
-  'source: "/api/account/seller/inventory/instacomp-front-back"',
-  "Existing front/back requests must route through the automatic pipeline.",
+  'destination: "/api/kingmaker/instacomp-front-back-exact"',
+  "Pending exact scans must route through the new pipeline.",
 );
 requireText(
   config,
-  'destination: "/api/kingmaker/instacomp-front-back-auto"',
-  "The automatic route rewrite is missing.",
+  'destination: "/api/kingmaker/instacomp-scan-intake-v2"',
+  "Fresh scanner intake must bypass the legacy Base shortcut.",
 );
 
-const intake = read(
-  "src/app/api/account/seller/instacomp-scan/intake/route.ts",
-);
-requireText(
-  intake,
-  "normalizeInstaCompSideImages",
-  "New-card intake must normalize orientation before creating the draft.",
-);
-requireText(
-  intake,
-  "persistNormalizedInstaCompImagePair",
-  "New-card intake must persist the normalized pair.",
-);
-requireText(
-  orientation,
-  "backDesignationConfidence: 0",
-  "The legacy back-word Base gate must remain impossible while legacy intake code is removed.",
-);
-
-console.log("KINGMAKER forensic orientation/checklist contracts passed.");
+console.log("KINGMAKER exact orientation and parallel contracts passed.");
