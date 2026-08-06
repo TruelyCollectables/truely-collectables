@@ -1,18 +1,17 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 
-const MASTER_ROOT = resolve(process.cwd(), process.env.CHECKLIST_MASTER_ROOT || ".sports-checklist-master-archive");
+const MASTER_ROOT = resolve(process.cwd(), process.env.CHECKLIST_MASTER_ROOT || ".card-checklist-master-archive");
 const OUT = resolve(MASTER_ROOT, "phase1-mainstream-2000-plus");
 const START_YEAR = Number(process.env.CHECKLIST_PHASE1_START_YEAR || 2000);
 const END_YEAR = Number(process.env.CHECKLIST_PHASE1_END_YEAR || new Date().getUTCFullYear());
+const REQUIRE_INSTACOMP_POKEMON = process.env.REQUIRE_INSTACOMP_POKEMON === "true";
 
-const ACQUISITION_UNIVERSES = [
+const TARGET_UNIVERSES = [
   "baseball", "basketball", "football", "hockey", "soccer", "racing", "wrestling",
   "mma", "boxing", "golf", "tennis", "multi-sport", "non-sport", "entertainment",
-  "magic-the-gathering", "yu-gi-oh", "lorcana", "other-tcg",
+  "pokemon", "magic-the-gathering", "yu-gi-oh", "lorcana", "other-tcg",
 ];
-
-const INSTACOMP_AI_AUDIT_ONLY_UNIVERSES = ["pokemon"];
 
 const SPORT_ALIASES = new Map([
   ["baseball", "baseball"], ["mlb", "baseball"],
@@ -26,6 +25,7 @@ const SPORT_ALIASES = new Map([
   ["boxing", "boxing"], ["golf", "golf"], ["tennis", "tennis"],
   ["multi-sport", "multi-sport"], ["multisport", "multi-sport"],
   ["non-sport", "non-sport"], ["nonsport", "non-sport"], ["entertainment", "entertainment"],
+  ["pokemon", "pokemon"], ["pokémon", "pokemon"],
 ]);
 
 const DEFER_KEYWORDS = [
@@ -55,6 +55,8 @@ function seasonStart(value) {
 }
 
 function inferUniverse(row) {
+  const explicit = slug(row.universe);
+  if (explicit) return SPORT_ALIASES.get(explicit) || explicit;
   const rawSport = slug(row.sport);
   if (SPORT_ALIASES.has(rawSport)) return SPORT_ALIASES.get(rawSport);
   const text = `${row.title || ""} ${row.manufacturer || ""} ${row.product || ""}`.toLowerCase();
@@ -82,18 +84,6 @@ function readiness(row) {
   return "SET_INDEX_ONLY";
 }
 
-function phase1Status({ year, universe, defer }) {
-  const inYearRange = year != null && year >= START_YEAR && year <= END_YEAR;
-  if (inYearRange && INSTACOMP_AI_AUDIT_ONLY_UNIVERSES.includes(universe)) {
-    return "AUDIT_ONLY_INSTACOMP_AI_DATABASE";
-  }
-  if (inYearRange && ACQUISITION_UNIVERSES.includes(universe) && !defer) {
-    return "IN_SCOPE_MAINSTREAM_2000_PLUS";
-  }
-  if (defer) return "DEFERRED_ODDBALL_OR_ONE_OFF";
-  return "OUT_OF_PHASE1_SCOPE";
-}
-
 function main() {
   mkdirSync(OUT, { recursive: true });
   const masterSets = JSON.parse(readFileSync(resolve(MASTER_ROOT, "master-sets.json"), "utf8"));
@@ -103,23 +93,29 @@ function main() {
     const year = seasonStart(row.season);
     const universe = inferUniverse(row);
     const defer = deferredReason(row);
+    const inYearRange = year != null && year >= START_YEAR && year <= END_YEAR;
     return {
       ...row,
       year,
       universe,
-      phase1Status: phase1Status({ year, universe, defer }),
+      phase1Status: inYearRange && TARGET_UNIVERSES.includes(universe) && !defer
+        ? "IN_SCOPE_MAINSTREAM_2000_PLUS"
+        : defer
+          ? "DEFERRED_ODDBALL_OR_ONE_OFF"
+          : "OUT_OF_PHASE1_SCOPE",
       deferredReason: defer,
       readiness: readiness(row),
     };
   });
 
   const mainstream = enriched.filter((row) => row.phase1Status === "IN_SCOPE_MAINSTREAM_2000_PLUS");
-  const instaCompAiAuditOnly = enriched.filter((row) => row.phase1Status === "AUDIT_ONLY_INSTACOMP_AI_DATABASE");
+  const pokemon = mainstream.filter((row) => row.universe === "pokemon");
+  const pokemonFromInstaComp = pokemon.filter((row) => Array.isArray(row.sources) && row.sources.includes("instacomp-pokemon"));
   const deferred = enriched.filter((row) => row.phase1Status === "DEFERRED_ODDBALL_OR_ONE_OFF");
   const coverage = [];
 
   for (let year = START_YEAR; year <= END_YEAR; year++) {
-    for (const universe of ACQUISITION_UNIVERSES) {
+    for (const universe of TARGET_UNIVERSES) {
       const rows = mainstream.filter((row) => row.year === year && row.universe === universe);
       coverage.push({
         year,
@@ -143,14 +139,16 @@ function main() {
     phase: "MAINSTREAM_2000_PLUS",
     startYear: START_YEAR,
     endYear: END_YEAR,
-    acquisitionUniverses: ACQUISITION_UNIVERSES,
-    instaCompAiAuditOnlyUniverses: INSTACOMP_AI_AUDIT_ONLY_UNIVERSES,
+    targetUniverses: TARGET_UNIVERSES,
     exactMasterSetsAllYears: masterSets.length,
     inScopeExactSets: mainstream.length,
     inScopeSetsWithChecklistRows: mainstream.filter((row) => Number(row.checklistRowsMaximum || 0) > 0).length,
     inScopeSetsWithMultipleSources: mainstream.filter((row) => Number(row.sourceCount || 0) > 1).length,
     inScopeSetIndexOnly: mainstream.filter((row) => row.readiness === "SET_INDEX_ONLY").length,
-    instaCompAiAuditOnlyRecordsFound: instaCompAiAuditOnly.length,
+    pokemonExactSets: pokemon.length,
+    pokemonSetsWithChecklistRows: pokemon.filter((row) => Number(row.checklistRowsMaximum || 0) > 0).length,
+    pokemonInstaCompSourceSets: pokemonFromInstaComp.length,
+    pokemonDatabaseStatus: pokemonFromInstaComp.length ? "INCLUDED_IN_SAME_MASTER_DATABASE" : "MISSING_INSTACOMP_POKEMON_SOURCE",
     deferredOddballOrOneOff: deferred.length,
     unresolvedSourceItems: unresolvedSourceItems.length,
     emptyYearUniverseCells: coverage.filter((row) => row.coverageStatus === "NO_SETS_FOUND").length,
@@ -158,15 +156,15 @@ function main() {
   };
 
   writeFileSync(resolve(OUT, "manifest.json"), `${JSON.stringify({
-    schema: "tcos.mainstream2000PlusCoverage.v3",
+    schema: "tcos.mainstream2000PlusCoverage.v4",
     generatedAt: new Date().toISOString(),
-    scopeRule: "Years 2000-current, mainstream sports/non-sport/entertainment and major TCG releases still needing acquisition. Pokemon is already stored in InstaComp AI's database and is audit/update-only, not an acquisition gap universe.",
+    scopeRule: "Years 2000-current, mainstream sports, Pokemon, entertainment, non-sport, stickers, and major TCG releases in one universal card database.",
     completenessRule: "A set is not considered checklist-ready unless checklistRowsMaximum is greater than zero. Multi-source corroboration is tracked separately.",
-    instaCompAiDatabaseRule: "Pokemon records encountered by public collectors are isolated for reconciliation and may not replace InstaComp AI's existing Pokemon database.",
+    pokemonRule: "Pokemon is a first-class universe in this same master database. InstaComp Checklist Registry is its source system; Pokemon is not classified as a sport and is not omitted into a sidecar database.",
     totals,
   }, null, 2)}\n`);
   writeFileSync(resolve(OUT, "mainstream-sets.json"), `${JSON.stringify(mainstream, null, 2)}\n`);
-  writeFileSync(resolve(OUT, "instacomp-ai-pokemon-audit-only.json"), `${JSON.stringify(instaCompAiAuditOnly, null, 2)}\n`);
+  writeFileSync(resolve(OUT, "pokemon-sets.json"), `${JSON.stringify(pokemon, null, 2)}\n`);
   writeFileSync(resolve(OUT, "deferred-sets.json"), `${JSON.stringify(deferred, null, 2)}\n`);
   writeFileSync(resolve(OUT, "coverage-by-year-universe.json"), `${JSON.stringify(coverage, null, 2)}\n`);
 
@@ -175,9 +173,9 @@ function main() {
   for (const row of mainstream) setCsv.push(setHeaders.map((header) => csvCell(row[header])).join(","));
   writeFileSync(resolve(OUT, "mainstream-sets.csv"), `${setCsv.join("\n")}\n`);
 
-  const instaCompAiAuditCsv = [setHeaders.map(csvCell).join(",")];
-  for (const row of instaCompAiAuditOnly) instaCompAiAuditCsv.push(setHeaders.map((header) => csvCell(row[header])).join(","));
-  writeFileSync(resolve(OUT, "instacomp-ai-pokemon-audit-only.csv"), `${instaCompAiAuditCsv.join("\n")}\n`);
+  const pokemonCsv = [setHeaders.map(csvCell).join(",")];
+  for (const row of pokemon) pokemonCsv.push(setHeaders.map((header) => csvCell(row[header])).join(","));
+  writeFileSync(resolve(OUT, "pokemon-sets.csv"), `${pokemonCsv.join("\n")}\n`);
 
   const coverageHeaders = ["year", "universe", "exactSets", "setsWithChecklistRows", "setsWithMultipleSources", "setIndexOnly", "coverageStatus", "manufacturers"];
   const coverageCsv = [coverageHeaders.map(csvCell).join(",")];
@@ -186,13 +184,13 @@ function main() {
 
   const gaps = coverage.filter((row) => row.coverageStatus !== "CHECKLIST_COVERAGE_PRESENT");
   writeFileSync(resolve(OUT, "gap-report.md"), [
-    "# TCOS Phase 1 — Mainstream 2000+ Coverage",
+    "# TCOS Phase 1 — Universal Card Database Coverage",
     "",
     `Generated: ${new Date().toISOString()}`,
     "",
-    "## InstaComp AI database exclusion",
+    "## Pokemon inclusion",
     "",
-    "Pokemon sets are already present in InstaComp AI's database and are excluded from new-source acquisition gap counts. Public Pokemon records are retained only for missing-release, correction, duplicate, checklist-completeness, and schema reconciliation against InstaComp AI.",
+    `Pokemon is included in the same master database under universe=pokemon and sport=null. InstaComp-backed Pokemon sets found: ${pokemonFromInstaComp.length}.`,
     "",
     "## Totals",
     "",
@@ -200,7 +198,7 @@ function main() {
     JSON.stringify(totals, null, 2),
     "```",
     "",
-    "## Acquisition coverage gaps",
+    "## Coverage gaps",
     "",
     ...gaps.map((row) => `- ${row.year} — ${row.universe}: ${row.coverageStatus} (${row.exactSets} set identities, ${row.setsWithChecklistRows} with checklist rows)`),
     "",
@@ -211,7 +209,10 @@ function main() {
   ].join("\n"));
 
   console.log(JSON.stringify(totals));
-  if (!mainstream.length) throw new Error("No Phase 1 mainstream 2000+ acquisition sets were found.");
+  if (!mainstream.length) throw new Error("No Phase 1 mainstream 2000+ sets were found.");
+  if (REQUIRE_INSTACOMP_POKEMON && !pokemonFromInstaComp.length) {
+    throw new Error("Pokemon is required in the same master database, but no InstaComp Pokemon source sets were merged.");
+  }
 }
 
 main();
