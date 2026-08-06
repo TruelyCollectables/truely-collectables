@@ -33,8 +33,10 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           import re
+
           path = Path('src/app/api/instacomp/scan/route.ts')
           text = path.read_text()
+
           anchor = '''import {
             buildChecklistRegistryCatalogEvidence,
             buildChecklistRegistryReviewEvidence,
@@ -52,94 +54,123 @@ jobs:
               if anchor not in text:
                   raise SystemExit('import anchor missing')
               text = text.replace(anchor, anchor + addition, 1)
-          pattern = re.compile(r'async function identifyCardWithConfiguredProviderFailover\(params: \{.*?\n\}\n\nexport async function POST', re.S)
-          replacement = '''async function identifyCardWithConfiguredProviderFailover(params: {
-            frontImage: File;
-            backImage?: File | null;
-            frontDataUrl: string;
-            backDataUrl?: string;
-            detailImages: InstaCompDetailImage[];
-            externalOcr: ExternalOcrResult | null;
-          }) {
-            return runInstaCompPrimaryAiFailover<InstaCompAiResult>([
-              {
-                provider: "instacomp_internal",
-                family: "instacomp_internal",
-                configured: hasConfiguredInstaCompAiLocal(),
-                run: async () => {
-                  const scan = await analyzeWithInstaCompAiLocal({
-                    front: params.frontImage,
-                    back: params.backImage || null,
-                    timeoutMs: 150_000,
-                  });
-                  const ai = instaCompAiLocalScanToAi(scan);
-                  if (!ai) {
-                    throw new Error(`InstaComp internal engine returned ${scan.status} without usable identity evidence.`);
-                  }
-                  return ai;
-                },
-              },
-              {
-                provider: "openai_emergency",
-                family: "openai",
-                configured: Boolean(OPENAI_API_KEY),
-                run: () => identifyCardWithOpenAI(
-                  params.frontDataUrl,
-                  params.backDataUrl,
-                  params.detailImages.slice(0, 8),
-                  params.externalOcr,
-                ),
-              },
-            ]);
-          }
 
-          export async function POST'''
-          text, count = pattern.subn(replacement, text, count=1)
-          if count != 1:
-              raise SystemExit(f'failover replacement count={count}')
-          preflight = re.compile(r'    const preflightSerialOcrPromise = shouldPreflightSerialVision\(\{.*?\n      : null;\n', re.S)
-          text, count = preflight.subn('    // OpenAI serial vision is emergency-only; never preflight it before InstaComp.\n    const preflightSerialOcrPromise = null;\n', text, count=1)
-          if count != 1:
-              raise SystemExit(f'preflight replacement count={count}')
-          old_call = '''    const primaryAiResult = await identifyCardWithConfiguredProviderFailover({
-              frontDataUrl,
-              backDataUrl,
-              detailImages,
-              externalOcr,
-            });'''
-          new_call = '''    const primaryAiResult = await identifyCardWithConfiguredProviderFailover({
-              frontImage,
-              backImage: backImageForScan,
-              frontDataUrl,
-              backDataUrl,
-              detailImages,
-              externalOcr,
-            });'''
-          if old_call not in text:
-              raise SystemExit('primary call anchor missing')
-          text = text.replace(old_call, new_call, 1)
-          old_serial = '''        : shouldRunSerialVision({
-                    ai: baseAi,
-                    externalOcr,
-                    requestedTier: requestedAiCouncilTier,
-                  })
-              ? await optionalInstaCompProviderResult('''
-          new_serial = '''        : primaryAiResult.family === "openai" && shouldRunSerialVision({
-                    ai: baseAi,
-                    externalOcr,
-                    requestedTier: requestedAiCouncilTier,
-                  })
-              ? await optionalInstaCompProviderResult('''
-          if old_serial not in text:
-              raise SystemExit('serial anchor missing')
-          text = text.replace(old_serial, new_serial, 1)
-          old_council = '      runSecondaryVision: consensusEscalation.runSecondaryVision,'
-          new_council = '''      runSecondaryVision:
+          if 'provider: "instacomp_internal"' not in text:
+              pattern = re.compile(
+                  r'async function identifyCardWithConfiguredProviderFailover\(params: \{.*?\n\}\n\nexport async function POST',
+                  re.S,
+              )
+              replacement = '''async function identifyCardWithConfiguredProviderFailover(params: {
+                frontImage: File;
+                backImage?: File | null;
+                frontDataUrl: string;
+                backDataUrl?: string;
+                detailImages: InstaCompDetailImage[];
+                externalOcr: ExternalOcrResult | null;
+              }) {
+                return runInstaCompPrimaryAiFailover<InstaCompAiResult>([
+                  {
+                    provider: "instacomp_internal",
+                    family: "instacomp_internal",
+                    configured: hasConfiguredInstaCompAiLocal(),
+                    run: async () => {
+                      const scan = await analyzeWithInstaCompAiLocal({
+                        front: params.frontImage,
+                        back: params.backImage || null,
+                        timeoutMs: 150_000,
+                      });
+                      const ai = instaCompAiLocalScanToAi(scan);
+                      if (!ai) {
+                        throw new Error(
+                          `InstaComp internal engine returned ${scan.status} without usable identity evidence.`,
+                        );
+                      }
+                      return ai;
+                    },
+                  },
+                  {
+                    provider: "openai_emergency",
+                    family: "openai",
+                    configured: Boolean(OPENAI_API_KEY),
+                    run: () =>
+                      identifyCardWithOpenAI(
+                        params.frontDataUrl,
+                        params.backDataUrl,
+                        params.detailImages.slice(0, 8),
+                        params.externalOcr,
+                      ),
+                  },
+                ]);
+              }
+
+              export async function POST'''
+              text, count = pattern.subn(replacement, text, count=1)
+              if count != 1:
+                  raise SystemExit(f'failover replacement count={count}')
+
+          if 'const preflightSerialOcrPromise = null;' not in text:
+              preflight = re.compile(
+                  r'    const preflightSerialOcrPromise = shouldPreflightSerialVision\(\{.*?\n      : null;\n',
+                  re.S,
+              )
+              text, count = preflight.subn(
+                  '    // OpenAI serial vision is emergency-only; never preflight it before InstaComp.\n'
+                  '    const preflightSerialOcrPromise = null;\n',
+                  text,
+                  count=1,
+              )
+              if count != 1:
+                  raise SystemExit(f'preflight replacement count={count}')
+
+          if not re.search(
+              r'identifyCardWithConfiguredProviderFailover\(\{\s*frontImage,\s*backImage:',
+              text,
+          ):
+              call_pattern = re.compile(
+                  r'    const primaryAiResult = await identifyCardWithConfiguredProviderFailover\(\{\s*'
+                  r'frontDataUrl,\s*backDataUrl,\s*detailImages,\s*externalOcr,\s*\}\);',
+                  re.S,
+              )
+              call_replacement = '''    const primaryAiResult = await identifyCardWithConfiguredProviderFailover({
+                frontImage,
+                backImage: backImageForScan,
+                frontDataUrl,
+                backDataUrl,
+                detailImages,
+                externalOcr,
+              });'''
+              text, count = call_pattern.subn(call_replacement, text, count=1)
+              if count != 1:
+                  raise SystemExit(f'primary call replacement count={count}')
+
+          if 'primaryAiResult.family === "openai" && shouldRunSerialVision' not in text:
+              serial_pattern = re.compile(
+                  r'(\s*:\s*)shouldRunSerialVision\(\{\s*ai: baseAi,\s*externalOcr,\s*'
+                  r'requestedTier: requestedAiCouncilTier,\s*\}\)\s*'
+                  r'(\? await optionalInstaCompProviderResult\()',
+                  re.S,
+              )
+              text, count = serial_pattern.subn(
+                  r'\1primaryAiResult.family === "openai" && shouldRunSerialVision({\n'
+                  r'              ai: baseAi,\n'
+                  r'              externalOcr,\n'
+                  r'              requestedTier: requestedAiCouncilTier,\n'
+                  r'            })\n          \2',
+                  text,
+                  count=1,
+              )
+              if count != 1:
+                  raise SystemExit(f'serial replacement count={count}')
+
+          if 'primaryAiResult.family !== "instacomp_internal"' not in text:
+              old_council = '      runSecondaryVision: consensusEscalation.runSecondaryVision,'
+              new_council = '''      runSecondaryVision:
                 primaryAiResult.family !== "instacomp_internal" &&
                 consensusEscalation.runSecondaryVision,'''
-          if old_council not in text:
-              raise SystemExit('council anchor missing')
-          text = text.replace(old_council, new_council, 1)
+              if old_council not in text:
+                  raise SystemExit('council anchor missing')
+              text = text.replace(old_council, new_council, 1)
+
           path.write_text(text)
           PY
           rm -f .github/workflows/patch-instacomp-local-primary.yml
