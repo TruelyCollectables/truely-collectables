@@ -111,6 +111,7 @@ class AnalyzeResponse(BaseModel):
     back_reference_sha256: str | None = None
     front_perceptual_hash: str | None = None
     back_perceptual_hash: str | None = None
+    back_evidence: list[str] = Field(default_factory=list)
     memory_matches: list[MemoryMatch] = Field(default_factory=list)
     local_suggestion: ModelSuggestion | None = None
     checklist: ChecklistResult
