@@ -74,6 +74,39 @@ export type InstaCompAiLocalScanArchive = {
   has_back_image: boolean;
 };
 
+export type InstaCompAiLocalLessonIdentity = {
+  sport?: string | null;
+  league?: string | null;
+  year?: string | null;
+  manufacturer?: string | null;
+  brand?: string | null;
+  set_name?: string | null;
+  subset?: string | null;
+  player?: string | null;
+  team?: string | null;
+  card_number?: string | null;
+  parallel?: string | null;
+  variation?: string | null;
+  serial_number?: string | null;
+  serial_run?: number | null;
+  rookie?: boolean | null;
+  autograph?: boolean | null;
+  inscription?: boolean | null;
+  inscription_text?: string | null;
+  memorabilia?: boolean | null;
+  memorabilia_type?: string | null;
+};
+
+export type InstaCompAiResultWithInternalReceipt = InstaCompAiResult & {
+  internalScanId: string;
+  internalMatchSource: string | null;
+  internalCanonicalFilename: string | null;
+  internalLearningAllowed: boolean;
+  internalInscription: boolean;
+  internalInscriptionText: string | null;
+  internalMemorabiliaType: string | null;
+};
+
 function baseUrl() {
   return (process.env.INSTACOMP_AI_LOCAL_URL || "http://127.0.0.1:8787").replace(
     /\/+$/,
@@ -125,7 +158,7 @@ function confidence(value: unknown) {
 
 export function instaCompAiLocalScanToAi(
   scan: InstaCompAiLocalScan,
-): InstaCompAiResult | null {
+): InstaCompAiResultWithInternalReceipt | null {
   const trusted = scan.trusted_identity || null;
   const suggested = scan.local_suggestion?.identity || null;
   const identity = trusted || suggested;
@@ -175,6 +208,13 @@ export function instaCompAiLocalScanToAi(
     conditionGuess: null,
     confidence: identityConfidence,
     notes: notes || null,
+    internalScanId: safeScanId(scan.scan_id),
+    internalMatchSource: text(source),
+    internalCanonicalFilename: text(scan.canonical_filename),
+    internalLearningAllowed: scan.learning_allowed === true,
+    internalInscription: boolean(identity.inscription),
+    internalInscriptionText: text(identity.inscription_text),
+    internalMemorabiliaType: text(identity.memorabilia_type),
   };
 }
 
@@ -218,6 +258,48 @@ export async function analyzeWithInstaCompAiLocal(params: {
     );
   }
   return scan;
+}
+
+export async function confirmInstaCompAiLocalLesson(params: {
+  scanId: string;
+  identity: InstaCompAiLocalLessonIdentity;
+  operatorId: string;
+  notes?: string | null;
+  timeoutMs?: number;
+}) {
+  if (!hasConfiguredInstaCompAiLocal()) {
+    throw new Error("InstaComp internal engine is not configured for this runtime.");
+  }
+  const headers = requestHeaders();
+  headers.set("content-type", "application/json");
+  const response = await fetch(`${baseUrl()}/v1/lessons`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      scan_id: safeScanId(params.scanId),
+      state: "operator_confirmed",
+      identity: params.identity,
+      verification_source: "seller_manual_edit",
+      operator_id: params.operatorId.trim().slice(0, 200),
+      notes: text(params.notes)?.slice(0, 4000) || null,
+    }),
+    cache: "no-store",
+    signal: AbortSignal.timeout(params.timeoutMs ?? 30_000),
+  });
+  const payload = (await response.json().catch(() => null)) as
+    | { lesson_id?: unknown; trusted?: unknown; detail?: unknown }
+    | null;
+  if (!response.ok) {
+    throw new Error(
+      text(payload?.detail) ||
+        `InstaComp internal lesson failed with HTTP ${response.status}.`,
+    );
+  }
+  const lessonId = text(payload?.lesson_id);
+  if (!lessonId || payload?.trusted !== true) {
+    throw new Error("InstaComp did not confirm the seller correction as trusted memory.");
+  }
+  return { lessonId, trusted: true as const };
 }
 
 export async function getInstaCompAiLocalScanArchive(
