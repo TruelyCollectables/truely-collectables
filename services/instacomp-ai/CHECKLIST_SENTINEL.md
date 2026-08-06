@@ -37,6 +37,10 @@ All endpoints require the normal `x-instacomp-ai-key` when configured.
 - `GET /v1/checklist-sentinel/downloads`
 - `GET /v1/checklist-sentinel/sources`
 
+The status response includes the current percentage, current target, processed
+and remaining totals, finds, downloads, imports, duplicates, failures, latest
+heartbeat, and freeze-protection health.
+
 ## Configuration
 
 All settings use the existing `INSTACOMP_AI_` environment namespace.
