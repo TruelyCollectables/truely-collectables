@@ -12,6 +12,7 @@ on:
       - "src/app/api/account/seller/inventory/instacomp-card-edit/route.ts"
       - "scripts/check-instacomp-local-primary-contract.mjs"
       - "scripts/check-instacomp-provider-fallback.mjs"
+      - "scripts/fix-instacomp-only-migration-contract.py"
       - "scripts/patch-instacomp-ocr-registry-primary.py"
       - "scripts/patch-instacomp-only.py"
       - "scripts/run-instacomp-internal-fail-closed-regressions.ts"
@@ -47,6 +48,8 @@ jobs:
         run: python scripts/patch-instacomp-ocr-registry-primary.py
       - name: Apply InstaComp-only runtime patch
         run: python scripts/patch-instacomp-only.py
+      - name: Fix exact migration-order contract
+        run: python scripts/fix-instacomp-only-migration-contract.py
       - name: Internal fail-closed regressions
         run: node --import tsx scripts/run-instacomp-internal-fail-closed-regressions.ts
       - name: OCR to Registry primary regressions
@@ -104,6 +107,7 @@ jobs:
             src/lib/instacomp-checklist-first-server.ts \
             scripts/check-instacomp-local-primary-contract.mjs \
             scripts/check-instacomp-provider-fallback.mjs \
+            scripts/fix-instacomp-only-migration-contract.py \
             scripts/patch-instacomp-only.py \
             scripts/run-instacomp-internal-fail-closed-regressions.ts
           if git diff --cached --quiet; then
