@@ -13,9 +13,13 @@ const client = read("src/lib/instacomp-ai-local.ts");
 const editRoute = read(
   "src/app/api/account/seller/inventory/instacomp-card-edit/route.ts",
 );
+const readinessRoute = read(
+  "src/app/api/instacomp/internal-readiness/route.ts",
+);
 const service = read("services/instacomp-ai/app/main.py");
 const storage = read("services/instacomp-ai/app/storage.py");
 const images = read("services/instacomp-ai/app/images.py");
+const models = read("services/instacomp-ai/app/models.py");
 const ollama = read("services/instacomp-ai/app/ollama.py");
 
 const internalProvider = route.indexOf('provider: "instacomp_internal"');
@@ -53,6 +57,16 @@ requireText(
   ollama,
   'provider="instacomp_ollama_backup"',
   "Ollama must identify itself as the backup reader.",
+);
+requireText(
+  ollama,
+  '"back_visible_text": []',
+  "Ollama backup must return separate back-only visible text.",
+);
+requireText(
+  models,
+  "back_visible_text: list[str]",
+  "The local evidence schema must retain back-only printed text.",
 );
 requireText(
   images,
@@ -96,6 +110,16 @@ requireText(
   "The website must expose seller-confirmed lesson storage.",
 );
 requireText(
+  client,
+  "const backEvidence = [...backVisibleText, ...backNotes]",
+  "The website must pass dedicated back evidence into identity rules.",
+);
+requireText(
+  client,
+  "backEvidence,",
+  "The card result must retain back-only evidence.",
+);
+requireText(
   editRoute,
   "await confirmInstaCompAiLocalLesson",
   "Seller corrections must teach the internal engine.",
@@ -115,6 +139,20 @@ requireText(
   "manualIdentityLocked: true",
   "Seller corrections must remain authoritative and locked.",
 );
+
+requireText(
+  readinessRoute,
+  "internalMemoryReady",
+  "Production must expose a safe internal-memory readiness receipt.",
+);
+requireText(
+  readinessRoute,
+  "checklistReady",
+  "Production readiness must include the Checklist Registry.",
+);
+if (readinessRoute.includes("INSTACOMP_AI_LOCAL_URL:")) {
+  throw new Error("The public readiness response may not expose the internal URL.");
+}
 
 console.log(
   "InstaComp internal memory -> Checklist Registry -> Ollama backup -> OpenAI emergency contract passed.",
