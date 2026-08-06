@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const route = readFileSync("src/app/api/instacomp/scan/route.ts", "utf8");
+const runtime = readFileSync(
+  "src/lib/instacomp-ai-council-runtime.ts",
+  "utf8",
+);
 
 const desiredReaders = route.match(
   /function desiredAiCouncilReaders\([\s\S]*?\n}\n\nfunction dataUrlMimeType/,
@@ -19,6 +23,13 @@ const providerPlan = route.match(
 assert.ok(providerPlan, "buildAiCouncilProviderPlan block was not found");
 assert.match(providerPlan, /return \[\];/);
 assert.doesNotMatch(providerPlan, /builtInAiCouncilProviderPlan|customAiCouncilProviderSlots/);
+
+const runtimeGate = runtime.match(
+  /export function shouldContinueCouncilRuntime\([\s\S]*?\n}/,
+)?.[0];
+assert.ok(runtimeGate, "shared council runtime gate was not found");
+assert.match(runtimeGate, /return false;/);
+assert.doesNotMatch(runtimeGate, /return\s*\(/);
 
 assert.doesNotMatch(route, /provider:\s*"openai_emergency"/);
 assert.match(route, /runSecondaryVision:\s*false/);
