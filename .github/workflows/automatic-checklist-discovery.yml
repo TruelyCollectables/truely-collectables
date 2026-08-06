@@ -1,60 +1,100 @@
-name: Automatic Checklist Discovery
+name: Official Manufacturer Checklist Update
 
 on:
+  pull_request:
+    paths:
+      - "data/official-checklist-manufacturers.json"
+      - "data/*-checklist-seeds.json"
+      - "scripts/discover-official-checklists.ts"
+      - "scripts/discover-and-import-checklists.ts"
+      - "scripts/run-official-manufacturer-checklist-update-simulations.mjs"
+      - "docs/checklists/official-manufacturer-update-policy.md"
+      - ".github/workflows/automatic-checklist-discovery.yml"
+  schedule:
+    - cron: "17 */6 * * *"
   workflow_dispatch:
     inputs:
       mode:
-        description: Validate only or import clean discoveries
+        description: Validate only or import clean official manufacturer updates
         required: true
-        default: validate
+        default: apply
         type: choice
         options:
           - validate
           - apply
-      max_pages:
-        description: Archive pages to inspect
+      manufacturers:
+        description: Optional comma-separated manufacturer ids; blank means every configured manufacturer
+        required: false
+        default: ""
+      max_sources_per_manufacturer:
+        description: Maximum official source URLs processed for each manufacturer
         required: true
-        default: "3"
-      max_sources:
-        description: Maximum checklist sources per run
-        required: true
-        default: "25"
-  schedule:
-    - cron: "17 11 * * *"
+        default: "150"
 
 permissions:
   contents: read
 
 concurrency:
-  group: automatic-checklist-discovery
+  group: official-manufacturer-checklist-update
   cancel-in-progress: false
 
 jobs:
-  discover-and-import:
+  certify:
+    name: Certify manufacturer-only update boundary
     runs-on: ubuntu-24.04
-    environment: Production
-    timeout-minutes: 45
-    env:
-      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      CHECKLIST_DISCOVERY_AUTO_IMPORT: ${{ github.event_name == 'schedule' || inputs.mode == 'apply' }}
-      CHECKLIST_DISCOVERY_MAX_PAGES: ${{ inputs.max_pages || '3' }}
-      CHECKLIST_DISCOVERY_MAX_SOURCES: ${{ inputs.max_sources || '25' }}
-      CHECKLIST_DISCOVERY_OUTPUT: .checklist-discovery/receipt.json
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
       - run: npm ci
-      - name: Discover, validate, and safely import
-        run: npx tsx scripts/discover-and-import-checklists.ts
-      - name: Upload sanitized receipt
+      - name: Verify manufacturer-only discovery, validation and Registry contracts
+        run: node scripts/run-official-manufacturer-checklist-update-simulations.mjs
+      - name: Type-check updater source
+        run: npx tsc --noEmit --pretty false
+
+  update-registry:
+    name: Discover and import official manufacturer releases
+    needs: certify
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 300
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      CHECKLIST_DISCOVERY_AUTO_IMPORT: ${{ github.event_name == 'schedule' || inputs.mode == 'apply' }}
+      CHECKLIST_DISCOVERY_MANUFACTURERS: ${{ inputs.manufacturers || '' }}
+      CHECKLIST_DISCOVERY_MAX_SOURCES_PER_MANUFACTURER: ${{ inputs.max_sources_per_manufacturer || '150' }}
+      CHECKLIST_MANUFACTURER_POLICY: data/official-checklist-manufacturers.json
+      CHECKLIST_DISCOVERY_OUTPUT: .checklist-discovery/official-manufacturer-update-receipt.json
+      CHECKLIST_MAX_DOWNLOAD_BYTES: "50000000"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install deterministic PDF text extractor
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends poppler-utils
+          pdftotext -v
+      - run: npm ci
+      - name: Discover newly published official manufacturer sources
+        continue-on-error: true
+        run: node --import tsx scripts/discover-official-checklists.ts
+      - name: Hash, validate and import clean official manufacturer checklists
+        run: node --import tsx scripts/discover-and-import-checklists.ts
+      - name: Upload sanitized manufacturer update receipts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: automatic-checklist-discovery-receipt
-          path: .checklist-discovery/*.json
+          name: official-manufacturer-checklist-update-${{ github.run_id }}
+          path: |
+            .checklist-discovery/*.json
+            data/*-checklist-seeds.json
           if-no-files-found: warn
           retention-days: 90
