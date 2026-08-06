@@ -90,6 +90,26 @@ requireText(
 );
 requireText(
   storage,
+  "if not back_perceptual_hash:",
+  "Near-visual automation must require both sides.",
+);
+requireText(
+  storage,
+  "front_distance > 4",
+  "Front visual-memory distance must stay strict.",
+);
+requireText(
+  storage,
+  "back_distance > 4",
+  "Back visual-memory distance must stay strict.",
+);
+requireText(
+  storage,
+  "score < 0.9375",
+  "Near-visual trusted-memory confidence must remain at least 93.75%.",
+);
+requireText(
+  storage,
   "identity.serial_run",
   "The print run must be part of the learned identity fingerprint.",
 );

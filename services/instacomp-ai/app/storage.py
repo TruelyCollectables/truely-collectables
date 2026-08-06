@@ -295,31 +295,35 @@ class MemoryStore:
                 """
             ).fetchall()
 
+        # Near-visual automation requires both sides. One-sided or looser
+        # matches fall through to the Ollama backup rather than risking a wrong
+        # player, parallel, autograph, relic, inscription, or print run.
+        if not back_perceptual_hash:
+            return None
+
         best: tuple[float, sqlite3.Row, list[str]] | None = None
         for row in rows:
             front_distance = perceptual_hash_distance(
                 front_perceptual_hash,
                 row["front_perceptual_hash"],
             )
-            if front_distance is None or front_distance > 8:
+            if front_distance is None or front_distance > 4:
                 continue
 
-            reasons = [f"front_visual_distance:{front_distance}"]
-            distances = [front_distance]
-            if back_perceptual_hash:
-                back_distance = perceptual_hash_distance(
-                    back_perceptual_hash,
-                    row["back_perceptual_hash"],
-                )
-                if back_distance is None or back_distance > 8:
-                    continue
-                distances.append(back_distance)
-                reasons.append(f"back_visual_distance:{back_distance}")
-            elif front_distance > 4:
+            back_distance = perceptual_hash_distance(
+                back_perceptual_hash,
+                row["back_perceptual_hash"],
+            )
+            if back_distance is None or back_distance > 4:
                 continue
 
+            reasons = [
+                f"front_visual_distance:{front_distance}",
+                f"back_visual_distance:{back_distance}",
+            ]
+            distances = [front_distance, back_distance]
             score = 1.0 - (sum(distances) / len(distances)) / 64.0
-            if score < 0.875:
+            if score < 0.9375:
                 continue
             reasons.append("trusted_visual_memory")
             if best is None or score > best[0]:

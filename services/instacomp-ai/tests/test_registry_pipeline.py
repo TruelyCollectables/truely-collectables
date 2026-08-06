@@ -231,3 +231,43 @@ def test_front_and_back_visible_text_remain_separate():
     assert "PRIZM" not in evidence.front_visible_text
     assert "PRIZM" in evidence.back_visible_text
     assert evidence.back_notes == ["PRIZM printed above legal line"]
+
+
+def test_near_visual_memory_requires_close_front_and_back(tmp_path: Path):
+    store = MemoryStore(tmp_path / "memory.sqlite3")
+    store.initialize()
+    save_test_scan(store)
+    identity = CardIdentity(
+        year="2025",
+        manufacturer="Panini",
+        set_name="Prizm WNBA",
+        player="Sonia Citron",
+        card_number="122",
+        parallel="Base",
+    )
+    store.create_lesson(
+        LessonCreate(
+            scan_id="scan-1",
+            state=LearningState.OPERATOR_CONFIRMED,
+            identity=identity,
+            verification_source="operator",
+            operator_id="owner",
+        )
+    )
+    close_match = store.find_trusted_image_match(
+        image_pair_sha256="f" * 64,
+        front_perceptual_hash="0123456789abcdef",
+        back_perceptual_hash="fedcba9876543210",
+    )
+    assert close_match is not None
+    assert "trusted_visual_memory" in close_match.reasons
+    assert store.find_trusted_image_match(
+        image_pair_sha256="f" * 64,
+        front_perceptual_hash="0123456789abcdef",
+        back_perceptual_hash=None,
+    ) is None
+    assert store.find_trusted_image_match(
+        image_pair_sha256="f" * 64,
+        front_perceptual_hash="0123456789abcde0",
+        back_perceptual_hash="fedcba98765432ef",
+    ) is None
