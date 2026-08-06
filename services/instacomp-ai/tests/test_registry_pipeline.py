@@ -4,7 +4,13 @@ from pathlib import Path
 import pytest
 
 from app.checklist import RegistryChecklistGateway
-from app.models import CardIdentity, ChecklistOutcome, LearningState, LessonCreate
+from app.models import (
+    CardIdentity,
+    ChecklistOutcome,
+    LearningState,
+    LessonCreate,
+    VisualEvidence,
+)
 from app.storage import MemoryStore
 
 
@@ -210,3 +216,18 @@ def test_copy_number_does_not_change_identity_fingerprint(tmp_path: Path):
         )
     )
     assert first_lesson.identity_fingerprint == second_lesson.identity_fingerprint
+
+
+def test_front_and_back_visible_text_remain_separate():
+    evidence = VisualEvidence.model_validate(
+        {
+            "visible_text": ["PRIZM", "SONIA CITRON"],
+            "front_visible_text": ["SONIA CITRON"],
+            "back_visible_text": ["NO. 122", "PRIZM"],
+            "front_notes": ["green border"],
+            "back_notes": ["PRIZM printed above legal line"],
+        }
+    )
+    assert "PRIZM" not in evidence.front_visible_text
+    assert "PRIZM" in evidence.back_visible_text
+    assert evidence.back_notes == ["PRIZM printed above legal line"]
