@@ -2,6 +2,8 @@ import type { InstaCompAiResult } from "./instacomp";
 
 export type InstaCompAiLocalVisualEvidence = {
   visible_text?: string[];
+  front_visible_text?: string[];
+  back_visible_text?: string[];
   logos?: string[];
   colors?: string[];
   foil_or_pattern?: string[];
@@ -105,6 +107,9 @@ export type InstaCompAiResultWithInternalReceipt = InstaCompAiResult & {
   internalInscription: boolean;
   internalInscriptionText: string | null;
   internalMemorabiliaType: string | null;
+  frontVisibleText: string[];
+  backVisibleText: string[];
+  backEvidence: string | null;
 };
 
 function baseUrl() {
@@ -146,6 +151,12 @@ function text(value: unknown): string | null {
   return normalized || null;
 }
 
+function textList(value: unknown) {
+  return Array.isArray(value)
+    ? value.map((item) => text(item)).filter((item): item is string => Boolean(item))
+    : [];
+}
+
 function boolean(value: unknown) {
   return value === true;
 }
@@ -177,15 +188,17 @@ export function instaCompAiLocalScanToAi(
     : confidence(scan.local_suggestion?.confidence);
   const source = scan.match_source || scan.local_suggestion?.provider || "instacomp";
   const evidence = scan.local_suggestion?.evidence;
+  const frontVisibleText = textList(evidence?.front_visible_text);
+  const backVisibleText = textList(evidence?.back_visible_text);
+  const backNotes = textList(evidence?.back_notes);
+  const backEvidence = [...backVisibleText, ...backNotes].join(" | ") || null;
   const notes = [
     `InstaComp internal source: ${source}.`,
     scan.canonical_filename
       ? `Canonical filename: ${scan.canonical_filename}.`
       : null,
     scan.local_suggestion?.explanation || null,
-    evidence?.back_notes?.length
-      ? `Back evidence: ${evidence.back_notes.join(" | ")}`
-      : null,
+    backEvidence ? `Back evidence: ${backEvidence}` : null,
   ]
     .filter(Boolean)
     .join(" ");
@@ -215,6 +228,9 @@ export function instaCompAiLocalScanToAi(
     internalInscription: boolean(identity.inscription),
     internalInscriptionText: text(identity.inscription_text),
     internalMemorabiliaType: text(identity.memorabilia_type),
+    frontVisibleText,
+    backVisibleText,
+    backEvidence,
   };
 }
 
