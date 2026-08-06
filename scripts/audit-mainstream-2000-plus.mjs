@@ -12,7 +12,7 @@ const ACQUISITION_UNIVERSES = [
   "magic-the-gathering", "yu-gi-oh", "lorcana", "other-tcg",
 ];
 
-const EXISTING_INVENTORY_AUDIT_ONLY_UNIVERSES = ["pokemon"];
+const INSTACOMP_AI_AUDIT_ONLY_UNIVERSES = ["pokemon"];
 
 const SPORT_ALIASES = new Map([
   ["baseball", "baseball"], ["mlb", "baseball"],
@@ -84,8 +84,8 @@ function readiness(row) {
 
 function phase1Status({ year, universe, defer }) {
   const inYearRange = year != null && year >= START_YEAR && year <= END_YEAR;
-  if (inYearRange && EXISTING_INVENTORY_AUDIT_ONLY_UNIVERSES.includes(universe)) {
-    return "AUDIT_ONLY_EXISTING_INVENTORY";
+  if (inYearRange && INSTACOMP_AI_AUDIT_ONLY_UNIVERSES.includes(universe)) {
+    return "AUDIT_ONLY_INSTACOMP_AI_DATABASE";
   }
   if (inYearRange && ACQUISITION_UNIVERSES.includes(universe) && !defer) {
     return "IN_SCOPE_MAINSTREAM_2000_PLUS";
@@ -114,7 +114,7 @@ function main() {
   });
 
   const mainstream = enriched.filter((row) => row.phase1Status === "IN_SCOPE_MAINSTREAM_2000_PLUS");
-  const existingInventoryAuditOnly = enriched.filter((row) => row.phase1Status === "AUDIT_ONLY_EXISTING_INVENTORY");
+  const instaCompAiAuditOnly = enriched.filter((row) => row.phase1Status === "AUDIT_ONLY_INSTACOMP_AI_DATABASE");
   const deferred = enriched.filter((row) => row.phase1Status === "DEFERRED_ODDBALL_OR_ONE_OFF");
   const coverage = [];
 
@@ -144,13 +144,13 @@ function main() {
     startYear: START_YEAR,
     endYear: END_YEAR,
     acquisitionUniverses: ACQUISITION_UNIVERSES,
-    existingInventoryAuditOnlyUniverses: EXISTING_INVENTORY_AUDIT_ONLY_UNIVERSES,
+    instaCompAiAuditOnlyUniverses: INSTACOMP_AI_AUDIT_ONLY_UNIVERSES,
     exactMasterSetsAllYears: masterSets.length,
     inScopeExactSets: mainstream.length,
     inScopeSetsWithChecklistRows: mainstream.filter((row) => Number(row.checklistRowsMaximum || 0) > 0).length,
     inScopeSetsWithMultipleSources: mainstream.filter((row) => Number(row.sourceCount || 0) > 1).length,
     inScopeSetIndexOnly: mainstream.filter((row) => row.readiness === "SET_INDEX_ONLY").length,
-    existingInventoryAuditOnlyRecordsFound: existingInventoryAuditOnly.length,
+    instaCompAiAuditOnlyRecordsFound: instaCompAiAuditOnly.length,
     deferredOddballOrOneOff: deferred.length,
     unresolvedSourceItems: unresolvedSourceItems.length,
     emptyYearUniverseCells: coverage.filter((row) => row.coverageStatus === "NO_SETS_FOUND").length,
@@ -158,15 +158,15 @@ function main() {
   };
 
   writeFileSync(resolve(OUT, "manifest.json"), `${JSON.stringify({
-    schema: "tcos.mainstream2000PlusCoverage.v2",
+    schema: "tcos.mainstream2000PlusCoverage.v3",
     generatedAt: new Date().toISOString(),
-    scopeRule: "Years 2000-current, mainstream sports/non-sport/entertainment and major TCG releases still needing acquisition. Pokemon is existing inventory and is audit/update-only, not an acquisition gap universe.",
+    scopeRule: "Years 2000-current, mainstream sports/non-sport/entertainment and major TCG releases still needing acquisition. Pokemon is already stored in InstaComp AI's database and is audit/update-only, not an acquisition gap universe.",
     completenessRule: "A set is not considered checklist-ready unless checklistRowsMaximum is greater than zero. Multi-source corroboration is tracked separately.",
-    existingInventoryRule: "Pokemon records encountered by public collectors are isolated for reconciliation and may not replace the existing TCOS Pokemon inventory.",
+    instaCompAiDatabaseRule: "Pokemon records encountered by public collectors are isolated for reconciliation and may not replace InstaComp AI's existing Pokemon database.",
     totals,
   }, null, 2)}\n`);
   writeFileSync(resolve(OUT, "mainstream-sets.json"), `${JSON.stringify(mainstream, null, 2)}\n`);
-  writeFileSync(resolve(OUT, "existing-inventory-audit-only.json"), `${JSON.stringify(existingInventoryAuditOnly, null, 2)}\n`);
+  writeFileSync(resolve(OUT, "instacomp-ai-pokemon-audit-only.json"), `${JSON.stringify(instaCompAiAuditOnly, null, 2)}\n`);
   writeFileSync(resolve(OUT, "deferred-sets.json"), `${JSON.stringify(deferred, null, 2)}\n`);
   writeFileSync(resolve(OUT, "coverage-by-year-universe.json"), `${JSON.stringify(coverage, null, 2)}\n`);
 
@@ -175,9 +175,9 @@ function main() {
   for (const row of mainstream) setCsv.push(setHeaders.map((header) => csvCell(row[header])).join(","));
   writeFileSync(resolve(OUT, "mainstream-sets.csv"), `${setCsv.join("\n")}\n`);
 
-  const auditOnlyCsv = [setHeaders.map(csvCell).join(",")];
-  for (const row of existingInventoryAuditOnly) auditOnlyCsv.push(setHeaders.map((header) => csvCell(row[header])).join(","));
-  writeFileSync(resolve(OUT, "existing-inventory-audit-only.csv"), `${auditOnlyCsv.join("\n")}\n`);
+  const instaCompAiAuditCsv = [setHeaders.map(csvCell).join(",")];
+  for (const row of instaCompAiAuditOnly) instaCompAiAuditCsv.push(setHeaders.map((header) => csvCell(row[header])).join(","));
+  writeFileSync(resolve(OUT, "instacomp-ai-pokemon-audit-only.csv"), `${instaCompAiAuditCsv.join("\n")}\n`);
 
   const coverageHeaders = ["year", "universe", "exactSets", "setsWithChecklistRows", "setsWithMultipleSources", "setIndexOnly", "coverageStatus", "manufacturers"];
   const coverageCsv = [coverageHeaders.map(csvCell).join(",")];
@@ -190,9 +190,9 @@ function main() {
     "",
     `Generated: ${new Date().toISOString()}`,
     "",
-    "## Existing inventory exclusion",
+    "## InstaComp AI database exclusion",
     "",
-    "Pokemon is already present in TCOS and is excluded from acquisition gap counts. Public Pokemon records are retained only for update, correction, duplicate, and schema reconciliation.",
+    "Pokemon sets are already present in InstaComp AI's database and are excluded from new-source acquisition gap counts. Public Pokemon records are retained only for missing-release, correction, duplicate, checklist-completeness, and schema reconciliation against InstaComp AI.",
     "",
     "## Totals",
     "",
