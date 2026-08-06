@@ -54,12 +54,41 @@ export async function POST(req: NextRequest) {
       isRelic: optionalBoolean(body.isRelic),
       parallel: text(body.parallel, 180),
       variation: text(body.variation, 180),
+      // OCR remains bounded, untrusted collectible evidence. It is used only to
+      // match candidate field values already present in the Checklist Registry.
+      ocrText: text(body.ocrText, 12_000),
     });
+
+    const match = decision.status === "exact_match" ? decision.match : null;
+    const lockedFields = match
+      ? {
+          sport: match.sport || null,
+          league: match.league || null,
+          year: match.year || null,
+          manufacturer: match.manufacturer || null,
+          brand: match.brand || null,
+          setName: match.setName || match.product || null,
+          player: match.player || null,
+          team: match.team || null,
+          cardNumber: match.cardNumber || null,
+          parallel: match.parallel || "Base",
+          variation: match.variation || null,
+          serialRun: match.serialRun || null,
+          isAuto: match.isAuto,
+          isRelic: match.isRelic,
+        }
+      : null;
 
     return NextResponse.json({
       ok: true,
       checklistFirst: true,
       ...decision,
+      registryIdentityId: match?.identityId || null,
+      identityId: match?.identityId || null,
+      registryFingerprintSha256: match?.fingerprintSha256 || null,
+      fingerprintSha256: match?.fingerprintSha256 || null,
+      candidateCount: decision.candidates.length,
+      lockedFields,
       identificationPath:
         decision.status === "exact_match"
           ? "checklist_only"
