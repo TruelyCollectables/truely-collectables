@@ -69,6 +69,11 @@ import {
   buildInstaCompEvidenceIdentityDecision,
   resolveChecklistRegistry,
 } from "../../../../lib/instacomp-learning-server";
+import {
+  analyzeWithInstaCompAiLocal,
+  hasConfiguredInstaCompAiLocal,
+  instaCompAiLocalScanToAi,
+} from "../../../../lib/instacomp-ai-local";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -3924,59 +3929,49 @@ function authorizedEphemeralBenchmark(req: NextRequest) {
 }
 
 async function identifyCardWithConfiguredProviderFailover(params: {
-  frontDataUrl: string;
-  backDataUrl?: string;
-  detailImages: InstaCompDetailImage[];
-  externalOcr: ExternalOcrResult | null;
-}) {
-  const backupRank: Record<InstaCompAiCouncilProviderKind, number> = {
-    gemini: 0,
-    groq: 1,
-    openai_compatible: 2,
-    ollama: 3,
-    openai: 4,
-  };
-  const backupPlan = buildAiCouncilProviderPlan()
-    .filter((config) => config.configured && config.kind !== "openai")
-    .sort((left, right) => backupRank[left.kind] - backupRank[right.kind]);
+      frontImage: File;
+      backImage?: File | null;
+      frontDataUrl: string;
+      backDataUrl?: string;
+      detailImages: InstaCompDetailImage[];
+      externalOcr: ExternalOcrResult | null;
+    }) {
+      return runInstaCompPrimaryAiFailover<InstaCompAiResult>([
+        {
+          provider: "instacomp_internal",
+          family: "instacomp_internal",
+          configured: hasConfiguredInstaCompAiLocal(),
+          run: async () => {
+            const scan = await analyzeWithInstaCompAiLocal({
+              front: params.frontImage,
+              back: params.backImage || null,
+              timeoutMs: 150_000,
+            });
+            const ai = instaCompAiLocalScanToAi(scan);
+            if (!ai) {
+              throw new Error(
+                `InstaComp internal engine returned ${scan.status} without usable identity evidence.`,
+              );
+            }
+            return ai;
+          },
+        },
+        {
+          provider: "openai_emergency",
+          family: "openai",
+          configured: Boolean(OPENAI_API_KEY),
+          run: () =>
+            identifyCardWithOpenAI(
+              params.frontDataUrl,
+              params.backDataUrl,
+              params.detailImages.slice(0, 8),
+              params.externalOcr,
+            ),
+        },
+      ]);
+    }
 
-  return runInstaCompPrimaryAiFailover<InstaCompAiResult>([
-    {
-      provider: "openai_primary",
-      family: "openai",
-      configured: Boolean(OPENAI_API_KEY),
-      run: () =>
-        identifyCardWithOpenAI(
-          params.frontDataUrl,
-          params.backDataUrl,
-          params.detailImages.slice(0, 8),
-          params.externalOcr,
-        ),
-    },
-    ...backupPlan.map((config) => ({
-      provider: config.provider,
-      family: config.family,
-      configured: config.configured,
-      run: async () => {
-        const outcome = await runAiCouncilReader({
-          config,
-          frontDataUrl: params.frontDataUrl,
-          backDataUrl: params.backDataUrl,
-          detailImages: params.detailImages,
-          externalOcr: params.externalOcr,
-        });
-        if (!outcome.reader) {
-          throw new Error(
-            outcome.attempt.message || `${config.label} did not return a reader result.`,
-          );
-        }
-        return outcome.reader.ai;
-      },
-    })),
-  ]);
-}
-
-export async function POST(req: NextRequest) {
+    export async function POST(req: NextRequest) {
   let persistentContext: PersistentJobScanContext | null = null;
   let requestedAiCouncilTier: string | null = null;
   let aiCouncilPolicy: ReturnType<typeof resolveInstaCompCouncilPolicy> | null = null;
@@ -4141,21 +4136,12 @@ export async function POST(req: NextRequest) {
       ...detailImages,
     ];
     const externalOcr = await getBestExternalOcr(externalOcrImages);
-    const preflightSerialOcrPromise = shouldPreflightSerialVision({
-      externalOcr,
-      requestedTier: requestedAiCouncilTier,
-    })
-      ? optionalInstaCompProviderResult(
-          detectSerialNumberWithOpenAI(
-            frontDataUrl,
-            backDataUrl,
-            detailImages.slice(0, 16),
-            externalOcr,
-          ),
-        )
-      : null;
+    // OpenAI serial vision is emergency-only; never preflight it before InstaComp.
+    const preflightSerialOcrPromise = null;
 
     const primaryAiResult = await identifyCardWithConfiguredProviderFailover({
+      frontImage,
+      backImage: backImageForScan,
       frontDataUrl,
       backDataUrl,
       detailImages,
@@ -4168,7 +4154,7 @@ export async function POST(req: NextRequest) {
     const serialOcr =
       (preflightSerialOcrPromise
         ? await preflightSerialOcrPromise
-        : shouldRunSerialVision({
+        : primaryAiResult.family === "openai" && shouldRunSerialVision({
               ai: baseAi,
               externalOcr,
               requestedTier: requestedAiCouncilTier,
@@ -4214,7 +4200,9 @@ export async function POST(req: NextRequest) {
     // model guess happened to match a checklist row.
     const consensusEscalation = baselineConsensusEscalation;
     const aiCouncilRaw = await runInstaCompAiCouncil({
-      runSecondaryVision: consensusEscalation.runSecondaryVision,
+      runSecondaryVision:
+      primaryAiResult.family !== "instacomp_internal" &&
+      consensusEscalation.runSecondaryVision,
       requestedTier: requestedAiCouncilTier,
       frontDataUrl,
       backDataUrl,
