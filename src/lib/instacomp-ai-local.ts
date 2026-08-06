@@ -237,11 +237,39 @@ export function instaCompAiLocalScanToAi(
 export async function analyzeWithInstaCompAiLocal(params: {
   front: Blob;
   back?: Blob | null;
+  printedEvidence?: {
+    provider?: string;
+    text?: string;
+    serialNumber?: string | null;
+    checkedImages?: number;
+    conflicts?: string[];
+  } | null;
   timeoutMs?: number;
 }): Promise<InstaCompAiLocalScan> {
   const body = new FormData();
   body.append("front", params.front, "front.jpg");
   if (params.back) body.append("back", params.back, "back.jpg");
+  if (params.printedEvidence?.text) {
+    body.append(
+      "printed_evidence_json",
+      JSON.stringify({
+        provider: text(params.printedEvidence.provider)?.slice(0, 120) || null,
+        text: String(params.printedEvidence.text).slice(0, 12_000),
+        serialNumber:
+          text(params.printedEvidence.serialNumber)?.slice(0, 80) || null,
+        checkedImages: Math.max(
+          0,
+          Math.min(Number(params.printedEvidence.checkedImages) || 0, 64),
+        ),
+        conflicts: Array.isArray(params.printedEvidence.conflicts)
+          ? params.printedEvidence.conflicts
+              .map((value) => text(value)?.slice(0, 160))
+              .filter(Boolean)
+              .slice(0, 20)
+          : [],
+      }),
+    );
+  }
   const response = await fetch(`${baseUrl()}/v1/scans/analyze`, {
     method: "POST",
     headers: requestHeaders(),

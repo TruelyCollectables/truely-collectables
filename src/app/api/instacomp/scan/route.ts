@@ -3945,6 +3945,7 @@ async function identifyCardWithConfiguredProviderFailover(params: {
             const scan = await analyzeWithInstaCompAiLocal({
               front: params.frontImage,
               back: params.backImage || null,
+              printedEvidence: params.externalOcr,
               timeoutMs: 150_000,
             });
             const ai = instaCompAiLocalScanToAi(scan);
