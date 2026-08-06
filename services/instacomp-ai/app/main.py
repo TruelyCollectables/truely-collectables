@@ -131,6 +131,28 @@ def _memory_checklist_result(match: MemoryMatch) -> ChecklistResult:
     )
 
 
+def _trusted_memory_back_evidence(
+    match: MemoryMatch,
+    has_back_image: bool,
+) -> list[str]:
+    if not has_back_image:
+        return []
+    evidence: list[str] = []
+    parallel = str(match.identity.parallel or "").strip()
+    if "prizm" in parallel.lower():
+        evidence.append(
+            "PRIZM verified by trusted operator/checklist-confirmed back-image memory"
+        )
+    if match.identity.serial_run:
+        evidence.append(
+            f"PRINT RUN /{match.identity.serial_run} verified by trusted back-image memory"
+        )
+    evidence.append(
+        f"TRUSTED BACK IMAGE MATCH ({', '.join(match.reasons)})"
+    )
+    return evidence
+
+
 @app.get("/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
     database_ready = store.ready()
@@ -336,6 +358,10 @@ async def analyze_scan(
             back_perceptual_hash=(
                 back_image.perceptual_hash if back_image else None
             ),
+            back_evidence=_trusted_memory_back_evidence(
+                image_memory,
+                back_image is not None,
+            ),
             memory_matches=[image_memory],
             local_suggestion=None,
             checklist=checklist_result,
@@ -429,6 +455,19 @@ async def analyze_scan(
                 "Review the backup evidence or confirm the card manually. The confirmed result will become trusted InstaComp memory."
             )
 
+    suggestion_back_evidence = (
+        list(
+            dict.fromkeys(
+                [
+                    *suggestion.evidence.back_visible_text,
+                    *suggestion.evidence.back_notes,
+                ]
+            )
+        )
+        if suggestion
+        else []
+    )
+
     result = AnalyzeResponse(
         scan_id=scan_id,
         created_at=created_at,
@@ -442,6 +481,7 @@ async def analyze_scan(
         ),
         front_perceptual_hash=front_image.perceptual_hash,
         back_perceptual_hash=(back_image.perceptual_hash if back_image else None),
+        back_evidence=suggestion_back_evidence,
         memory_matches=memory_matches,
         local_suggestion=suggestion,
         checklist=checklist_result,
