@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 import httpx
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 
 from .backup_routes import build_backup_router
@@ -30,6 +30,10 @@ from .models import (
     MemoryMatch,
 )
 from .ollama import OllamaReader
+from .printed_evidence import (
+    identity_from_printed_evidence,
+    parse_printed_evidence,
+)
 from .settings_routes import build_settings_router
 from .storage import MemoryStore
 
@@ -284,6 +288,7 @@ def _save_scan(
 async def analyze_scan(
     front: UploadFile = File(...),
     back: UploadFile | None = File(default=None),
+    printed_evidence_json: str | None = Form(default=None),
 ) -> AnalyzeResponse:
     front_content = await front.read()
     back_content = await back.read() if back else None
@@ -315,6 +320,9 @@ async def analyze_scan(
         front_image.sha256,
         back_image.sha256 if back_image else None,
     )
+    printed_evidence = parse_printed_evidence(printed_evidence_json)
+    printed_identity = identity_from_printed_evidence(printed_evidence)
+    printed_text = printed_evidence.text if printed_evidence else None
 
     # PRIMARY ENGINE: exact and near-visual trusted InstaComp memory. This path
     # does not call Ollama or OpenAI.
@@ -378,8 +386,78 @@ async def analyze_scan(
             ),
         )
 
-    # BACKUP READER: Ollama is called only for a card the internal visual memory
-    # did not know. Its suggestion is evidence, not trusted identity.
+    # PRIMARY ENGINE STEP TWO: bounded printed text and the Checklist
+    # Registry. A checklist-known card does not need Ollama or OpenAI.
+    printed_registry = (
+        await checklist_gateway.match(printed_identity, printed_text)
+        if printed_identity.card_number
+        else ChecklistResult(
+            outcome=ChecklistOutcome.INPUT_INCOMPLETE,
+            reasons=["Printed evidence did not contain a labeled card number."],
+        )
+    )
+    if (
+        printed_registry.outcome == ChecklistOutcome.EXACT_MATCH
+        and printed_registry.identity
+        and printed_registry.identity_id
+    ):
+        trusted_identity = printed_registry.identity
+        status = "trusted_memory_match"
+        _save_scan(
+            scan_id=scan_id,
+            created_at=created_at,
+            front_image=front_image,
+            back_image=back_image,
+            combined_hash=combined_hash,
+            suggestion=None,
+            checklist_result=printed_registry,
+            status=status,
+        )
+        store.create_lesson(
+            LessonCreate(
+                scan_id=scan_id,
+                state=LearningState.CHECKLIST_CONFIRMED,
+                identity=trusted_identity,
+                verification_source=f"registry:{printed_registry.identity_id}",
+                notes=(
+                    "Resolved by bounded printed evidence and the Checklist "
+                    "Registry before Ollama."
+                ),
+            )
+        )
+        return AnalyzeResponse(
+            scan_id=scan_id,
+            created_at=created_at,
+            status=status,
+            front_sha256=front_image.sha256,
+            back_sha256=back_image.sha256 if back_image else None,
+            image_pair_sha256=combined_hash,
+            front_reference_sha256=front_image.reference_sha256,
+            back_reference_sha256=(
+                back_image.reference_sha256 if back_image else None
+            ),
+            front_perceptual_hash=front_image.perceptual_hash,
+            back_perceptual_hash=(
+                back_image.perceptual_hash if back_image else None
+            ),
+            back_evidence=[],
+            memory_matches=[],
+            local_suggestion=None,
+            checklist=printed_registry,
+            trusted_identity=trusted_identity,
+            match_source="checklist_registry",
+            visual_match_score=None,
+            canonical_filename=canonical_filename(trusted_identity),
+            pricing_allowed=True,
+            learning_allowed=True,
+            next_action=(
+                "Checklist identity resolved internally from printed card "
+                "evidence. Continue to verified comps."
+            ),
+        )
+
+    # BACKUP READER: Ollama is called only when trusted image memory and
+    # bounded OCR/Checklist Registry resolution did not identify the card.
     suggestion = None
     model_error = None
     try:
@@ -416,7 +494,10 @@ async def analyze_scan(
             else "Known card identified from internal text memory; Registry verification is required for pricing."
         )
     else:
-        checklist_result = await checklist_gateway.match(proposed_identity)
+        checklist_result = await checklist_gateway.match(
+            proposed_identity,
+            printed_text,
+        )
         if (
             checklist_result.outcome == ChecklistOutcome.EXACT_MATCH
             and checklist_result.identity

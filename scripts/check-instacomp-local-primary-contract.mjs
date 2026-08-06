@@ -120,6 +120,29 @@ if (storage.includes("identity.serial_number,")) {
 }
 
 requireText(
+  route,
+  "printedEvidence: params.externalOcr",
+  "The website must forward bounded printed evidence to InstaComp.",
+);
+requireText(
+  client,
+  '"printed_evidence_json"',
+  "The local client must carry bounded printed evidence with the card.",
+);
+requireText(
+  service,
+  "printed_registry = (",
+  "The local engine must query the Checklist Registry before Ollama.",
+);
+if (service.indexOf("printed_registry = (") >= service.indexOf("reader.analyze")) {
+  throw new Error("OCR/Checklist Registry resolution must run before Ollama backup.");
+}
+requireText(
+  service,
+  'match_source="checklist_registry"',
+  "OCR-resolved cards must record Checklist Registry provenance.",
+);
+requireText(
   client,
   "internalScanId: safeScanId(scan.scan_id)",
   "The website must retain the internal scan receipt for later teaching.",
