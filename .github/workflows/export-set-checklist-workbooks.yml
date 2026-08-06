@@ -23,6 +23,10 @@ on:
         description: Parallel workbook writer processes
         required: true
         default: "4"
+  pull_request:
+    paths:
+      - "scripts/export-set-checklist-workbooks.py"
+      - ".github/workflows/export-set-checklist-workbooks.yml"
   push:
     branches:
       - "feature/universal-sports-checklist-universe-20260805"
