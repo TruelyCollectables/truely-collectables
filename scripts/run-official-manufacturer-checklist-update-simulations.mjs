@@ -21,7 +21,10 @@ assert(
   policy.policy === "new_release_updates_official_manufacturer_only",
   "New-release update policy must be manufacturer-only.",
 );
-assert(Array.isArray(policy.manufacturers) && policy.manufacturers.length >= 8, "Expected at least eight configured manufacturer families.");
+assert(
+  Array.isArray(policy.manufacturers) && policy.manufacturers.length >= 8,
+  "Expected at least eight configured manufacturer families.",
+);
 
 const ids = new Set(policy.manufacturers.map((row) => row.id));
 for (const required of [
@@ -37,7 +40,9 @@ for (const required of [
   assert(ids.has(required), `Missing manufacturer policy: ${required}`);
 }
 
-const universes = new Set(policy.manufacturers.flatMap((row) => row.universes || []));
+const universes = new Set(
+  policy.manufacturers.flatMap((row) => row.universes || []),
+);
 for (const required of [
   "baseball",
   "hockey",
@@ -56,7 +61,12 @@ for (const manufacturer of policy.manufacturers) {
   assert(manufacturer.name, `${manufacturer.id} has no display name.`);
   assert(manufacturer.seedPath, `${manufacturer.id} has no seed path.`);
   assert(
-    Array.isArray(manufacturer.officialHosts) && manufacturer.officialHosts.length > 0,
+    Array.isArray(manufacturer.startUrls) && manufacturer.startUrls.length > 0,
+    `${manufacturer.id} has no official discovery entrypoint.`,
+  );
+  assert(
+    Array.isArray(manufacturer.officialHosts) &&
+      manufacturer.officialHosts.length > 0,
     `${manufacturer.id} has no official host allowlist.`,
   );
   assert(
@@ -65,11 +75,26 @@ for (const manufacturer of policy.manufacturers) {
   );
 }
 
-assert(/cron:\s*"17 \*\/6 \* \* \*"/.test(workflow), "Official manufacturer updater must run every six hours.");
-assert(workflow.includes("environment: Production"), "Scheduled apply job must use the protected Production environment.");
-assert(workflow.includes("CHECKLIST_DISCOVERY_AUTO_IMPORT"), "Workflow is missing the explicit apply/validate gate.");
-assert(workflow.includes("discover-official-checklists.ts"), "Workflow must run official manufacturer discovery first.");
-assert(workflow.includes("discover-and-import-checklists.ts"), "Workflow must run the Registry updater.");
+assert(
+  /cron:\s*"17 11 \* \* \*"/.test(workflow),
+  "Official manufacturer updater must run once every 24 hours.",
+);
+assert(
+  workflow.includes("environment: Production"),
+  "Scheduled apply job must use the protected Production environment.",
+);
+assert(
+  workflow.includes("CHECKLIST_DISCOVERY_AUTO_IMPORT"),
+  "Workflow is missing the explicit apply/validate gate.",
+);
+assert(
+  workflow.includes("discover-official-checklists.ts"),
+  "Workflow must run official manufacturer discovery first.",
+);
+assert(
+  workflow.includes("discover-and-import-checklists.ts"),
+  "Workflow must run the Registry updater.",
+);
 
 for (const required of [
   'authority: "official_manufacturer"',
@@ -87,15 +112,11 @@ for (const required of [
 }
 
 for (const required of [
-  'id: "topps"',
-  'id: "panini"',
-  'id: "upper-deck"',
-  'id: "leaf"',
-  'id: "pokemon"',
-  'id: "konami-yugioh"',
-  'id: "wizards-magic"',
-  'id: "ravensburger-lorcana"',
+  "tcos.officialManufacturerChecklistPolicy.v1",
+  "officialHosts",
+  "crawlHosts",
   "Redirected outside official host allowlist",
+  "CHECKLIST_DISCOVERY_MANUFACTURERS",
 ]) {
   assert(discovery.includes(required), `Discovery is missing required contract: ${required}`);
 }
@@ -120,8 +141,10 @@ for (const forbidden of forbiddenAutomaticSources) {
 
 assert(
   documentation.includes("Public aggregators") &&
-    documentation.includes("are not permitted to create or replace a live Checklist Registry version"),
-  "Documentation must explicitly block public aggregators from live automatic updates.",
+    documentation.includes(
+      "are not permitted to create or replace a live Checklist Registry version",
+    ),
+  "Documentation must block public aggregators from live automatic updates.",
 );
 assert(
   documentation.includes("same versioned `checklist_*` Registry"),
@@ -135,7 +158,7 @@ console.log(
       schema: "tcos.checklist.officialManufacturerUpdateSimulation.v1",
       manufacturers: policy.manufacturers.length,
       universes: [...universes].sort(),
-      schedule: "every_6_hours",
+      schedule: "every_24_hours",
       liveSourcePolicy: "official_manufacturer_only",
       unsupportedBehavior: "quarantine_without_replacing_live_version",
     },
