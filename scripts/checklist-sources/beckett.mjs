@@ -20,7 +20,23 @@ import {
 
 const ORIGIN = "https://www.beckett.com";
 const CATEGORY = `${ORIGIN}/news/category/checklists-new/`;
+const REFERENCE_CATEGORY = `${ORIGIN}/news/category/sports-card-reference/`;
 const MAX_ARCHIVE_PAGES = Number(process.env.BECKETT_MAX_PAGES || 100);
+const DELAY_MS = Number(process.env.PUBLIC_SOURCE_DELAY_MS || 150);
+const CALENDAR_SEEDS = [
+  `${ORIGIN}/news/sports-card-release-calendar-dates/`,
+  `${ORIGIN}/news/2026-baseball-card-release-dates-checklists-and-set-information/`,
+  `${ORIGIN}/news/2026-football-cards-release-dates-checklists-and-set-information/`,
+  `${ORIGIN}/news/2026-basketball-card-release-dates-checklists-and-set-information/`,
+  `${ORIGIN}/news/2025-26-hockey-cards-release-dates-checklists-and-set-information/`,
+  `${ORIGIN}/news/2026-soccer-card-release-dates-checklists-and-set-information/`,
+  `${ORIGIN}/news/2026-non-sports-cards-release-dates-checklists-and-set-information/`,
+  `${ORIGIN}/news/2026-tcg-release-dates-checklists-and-set-information/`,
+];
+
+function pause() {
+  return DELAY_MS > 0 ? new Promise((resolve) => setTimeout(resolve, DELAY_MS)) : Promise.resolve();
+}
 
 function articleUrl(value) {
   const normalized = normalizeUrl(value, ORIGIN);
@@ -39,13 +55,13 @@ function categoriesFromHtml(html) {
   return values.filter(Boolean);
 }
 
-async function discover() {
+async function discoverArchive(category, stage, pageLimit = MAX_ARCHIVE_PAGES) {
   const urls = new Set();
-  const discoveryFailures = [];
+  const failures = [];
   let emptyPages = 0;
 
-  for (let page = 1; page <= MAX_ARCHIVE_PAGES && urls.size < MAX_ITEMS; page++) {
-    const url = page === 1 ? CATEGORY : `${CATEGORY}page/${page}/`;
+  for (let page = 1; page <= pageLimit && urls.size < MAX_ITEMS; page++) {
+    const url = page === 1 ? category : `${category}page/${page}/`;
     try {
       const { text: html, finalUrl } = await fetchText(url);
       let found = 0;
@@ -59,10 +75,39 @@ async function discover() {
       emptyPages = found === 0 ? emptyPages + 1 : 0;
       if (page > 5 && emptyPages >= 4) break;
     } catch (error) {
-      discoveryFailures.push({ stage: "archive", url, error: String(error) });
+      failures.push({ stage, url, error: String(error) });
       emptyPages += 1;
       if (page > 5 && emptyPages >= 4) break;
     }
+    await pause();
+  }
+
+  return { urls, failures };
+}
+
+async function discover() {
+  const urls = new Set();
+  const discoveryFailures = [];
+
+  const checklistArchive = await discoverArchive(CATEGORY, "checklist-archive");
+  checklistArchive.urls.forEach((url) => urls.add(url));
+  discoveryFailures.push(...checklistArchive.failures);
+
+  const referenceArchive = await discoverArchive(REFERENCE_CATEGORY, "release-reference-archive", Math.min(MAX_ARCHIVE_PAGES, 30));
+  referenceArchive.urls.forEach((url) => urls.add(url));
+  discoveryFailures.push(...referenceArchive.failures);
+
+  for (const calendar of CALENDAR_SEEDS) {
+    try {
+      const { text: html, finalUrl } = await fetchText(calendar);
+      for (const link of hrefs(html, finalUrl)) {
+        const article = articleUrl(link);
+        if (article) urls.add(article);
+      }
+    } catch (error) {
+      discoveryFailures.push({ stage: "release-calendar", url: calendar, error: String(error) });
+    }
+    await pause();
   }
 
   return { urls, discoveryFailures };
@@ -97,6 +142,7 @@ async function main() {
     } catch (error) {
       failures.push({ url, error: String(error) });
     }
+    await pause();
   }
 
   finishSource({ items, failures, discoveryFailures, discovered: urls.size });
