@@ -34,7 +34,6 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
-          # Export the pure OCR enrichment helper for permanent regressions.
           server_path = Path('src/lib/instacomp-checklist-first-server.ts')
           server = server_path.read_text()
           server = server.replace(
@@ -49,9 +48,10 @@ jobs:
           )
           if 'export function enrichInstaCompChecklistInputFromOcr' not in server:
               raise SystemExit('OCR enrichment export patch failed')
+          if server.count('const supabase = serviceClient();') != 1:
+              raise SystemExit('Supabase client must be scoped to exactly one lookup call')
           server_path.write_text(server)
 
-          # Send the bounded OCR receipt with the same front/back card request.
           client_path = Path('src/lib/instacomp-ai-local.ts')
           client = client_path.read_text()
           old_signature = '''export async function analyzeWithInstaCompAiLocal(params: {
@@ -105,7 +105,6 @@ jobs:
               raise SystemExit('local client body anchor missing')
           client_path.write_text(client.replace(old_body, new_body, 1))
 
-          # The website already completed bounded OCR. Forward it to InstaComp.
           route_path = Path('src/app/api/instacomp/scan/route.ts')
           route = route_path.read_text()
           old_route = '''              front: params.frontImage,
@@ -119,7 +118,6 @@ jobs:
               raise SystemExit('website local-call anchor missing')
           route_path.write_text(route.replace(old_route, new_route, 1))
 
-          # Internal service: exact image memory -> OCR/Registry -> Ollama backup.
           main_path = Path('services/instacomp-ai/app/main.py')
           main = main_path.read_text()
           main = main.replace(
@@ -256,7 +254,6 @@ jobs:
           )
           main_path.write_text(main)
 
-          # Permanent focused workflow includes the pure OCR/Registry regression.
           workflow_path = Path('.github/workflows/instacomp-local-primary-contract.yml')
           workflow = workflow_path.read_text()
           test_anchor = '''      - name: Internal architecture contract
@@ -265,13 +262,15 @@ jobs:
           test_replacement = '''      - name: Internal architecture contract
                   run: node scripts/check-instacomp-local-primary-contract.mjs
                 - name: OCR to Registry primary regressions
+                  env:
+                    NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+                    SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key
                   run: node --import tsx scripts/run-instacomp-ocr-registry-primary-regressions.ts
           '''
           if test_anchor not in workflow:
               raise SystemExit('permanent workflow test anchor missing')
           workflow_path.write_text(workflow.replace(test_anchor, test_replacement, 1))
 
-          # Permanent static contract prevents an accidental return to model-first.
           contract_path = Path('scripts/check-instacomp-local-primary-contract.mjs')
           contract = contract_path.read_text()
           marker = '''requireText(
@@ -322,11 +321,14 @@ jobs:
           python -m compileall app tests
           pytest -q
           cd ../..
+          NEXT_PUBLIC_SUPABASE_URL=https://example.supabase.co \
+          SUPABASE_SERVICE_ROLE_KEY=placeholder-service-role-key \
           node --import tsx scripts/run-instacomp-ocr-registry-primary-regressions.ts
           node scripts/check-instacomp-local-primary-contract.mjs
           npx eslint src/app/api/instacomp/scan/route.ts src/app/api/instacomp/checklist-lookup/route.ts src/app/api/instacomp/internal-readiness/route.ts src/app/api/account/seller/inventory/instacomp-card-edit/route.ts src/lib/instacomp-ai-local.ts src/lib/instacomp-checklist-first.ts src/lib/instacomp-checklist-first-server.ts
           npx tsc --noEmit
           npm run build
+          git checkout -- public/instacomp-release.json
       - name: Commit verified OCR Registry path
         run: |
           git config user.name "github-actions[bot]"
