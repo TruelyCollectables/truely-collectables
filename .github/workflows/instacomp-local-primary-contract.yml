@@ -7,16 +7,20 @@ on:
       - "src/lib/instacomp-ai-local.ts"
       - "src/lib/instacomp-ai-provider-failover.ts"
       - "src/lib/instacomp-checklist-first-server.ts"
+      - "src/lib/instacomp-identity-guard.ts"
       - "src/app/api/instacomp/scan/route.ts"
       - "src/app/api/instacomp/internal-readiness/route.ts"
       - "src/app/api/account/seller/inventory/instacomp-card-edit/route.ts"
       - "scripts/check-instacomp-local-primary-contract.mjs"
       - "scripts/check-instacomp-provider-fallback.mjs"
+      - "scripts/check-instacomp-no-external-reader-plan.mjs"
       - "scripts/fix-instacomp-only-migration-contract.py"
       - "scripts/patch-instacomp-ocr-registry-primary.py"
       - "scripts/patch-instacomp-only.py"
+      - "scripts/patch-instacomp-velocity-hard-gates.py"
       - "scripts/run-instacomp-internal-fail-closed-regressions.ts"
       - "scripts/run-instacomp-ocr-registry-primary-regressions.ts"
+      - "scripts/run-instacomp-prizm-surface-regressions.ts"
       - ".github/workflows/instacomp-local-primary-contract.yml"
 
 permissions:
@@ -50,6 +54,8 @@ jobs:
         run: python scripts/patch-instacomp-only.py
       - name: Fix exact migration-order contract
         run: python scripts/fix-instacomp-only-migration-contract.py
+      - name: Apply hard reader and Prizm surface gates
+        run: python scripts/patch-instacomp-velocity-hard-gates.py
       - name: Internal fail-closed regressions
         run: node --import tsx scripts/run-instacomp-internal-fail-closed-regressions.ts
       - name: OCR to Registry primary regressions
@@ -57,10 +63,14 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
           SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key
         run: node --import tsx scripts/run-instacomp-ocr-registry-primary-regressions.ts
+      - name: Prizm surface regressions
+        run: node --import tsx scripts/run-instacomp-prizm-surface-regressions.ts
       - name: Internal architecture contract
         run: node scripts/check-instacomp-local-primary-contract.mjs
       - name: InstaComp-only identity gate
         run: node scripts/check-instacomp-provider-fallback.mjs
+      - name: No external reader execution plan
+        run: node scripts/check-instacomp-no-external-reader-plan.mjs
       - name: Mac engine tests
         working-directory: services/instacomp-ai
         run: |
@@ -75,8 +85,10 @@ jobs:
           src/lib/instacomp-ai-local.ts
           src/lib/instacomp-ai-provider-failover.ts
           src/lib/instacomp-checklist-first-server.ts
+          src/lib/instacomp-identity-guard.ts
           scripts/run-instacomp-internal-fail-closed-regressions.ts
           scripts/run-instacomp-ocr-registry-primary-regressions.ts
+          scripts/run-instacomp-prizm-surface-regressions.ts
       - name: TypeScript
         run: npx tsc --noEmit
       - name: Production build
@@ -98,21 +110,27 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add \
             services/instacomp-ai/app/main.py \
+            services/instacomp-ai/app/ollama.py \
             services/instacomp-ai/app/storage.py \
+            services/instacomp-ai/tests/test_prizm_surface_parallel.py \
             services/instacomp-ai/tests/test_storage_migration.py \
             src/app/api/instacomp/internal-readiness/route.ts \
             src/app/api/instacomp/scan/route.ts \
             src/lib/instacomp-ai-local.ts \
             src/lib/instacomp-ai-provider-failover.ts \
             src/lib/instacomp-checklist-first-server.ts \
+            src/lib/instacomp-identity-guard.ts \
             scripts/check-instacomp-local-primary-contract.mjs \
             scripts/check-instacomp-provider-fallback.mjs \
+            scripts/check-instacomp-no-external-reader-plan.mjs \
             scripts/fix-instacomp-only-migration-contract.py \
             scripts/patch-instacomp-only.py \
-            scripts/run-instacomp-internal-fail-closed-regressions.ts
+            scripts/patch-instacomp-velocity-hard-gates.py \
+            scripts/run-instacomp-internal-fail-closed-regressions.ts \
+            scripts/run-instacomp-prizm-surface-regressions.ts
           if git diff --cached --quiet; then
             echo "Runtime patch already committed."
           else
-            git commit -m "Apply InstaComp-only runtime repair"
+            git commit -m "Apply InstaComp reader and Prizm surface repair"
             git push origin HEAD:${{ github.head_ref }}
           fi
