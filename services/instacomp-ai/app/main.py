@@ -49,7 +49,7 @@ app = FastAPI(
     version=settings.version,
     description=(
         "Private InstaComp internal memory engine with Checklist Registry locking, "
-        "Ollama backup vision, and no direct OpenAI dependency."
+        "deterministic review receipts, and no external identity dependency."
     ),
 )
 
@@ -160,18 +160,15 @@ def _trusted_memory_back_evidence(
 @app.get("/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
     database_ready = store.ready()
-    ollama_ready = await reader.health()
     checklist_ready = await checklist_gateway.health()
-    # Ollama is a backup reader. Its outage must not mark the internal memory
-    # engine unhealthy.
     return HealthResponse(
         ok=database_ready and checklist_ready,
         app=settings.app_name,
         codename=settings.codename,
         version=settings.version,
         database="ready" if database_ready else "error",
-        ollama="ready" if ollama_ready else "unavailable",
-        ollama_model=settings.ollama_model,
+        ollama="unchecked",
+        ollama_model="disabled_for_identity_scans",
         checklist="ready" if checklist_ready else "not_configured",
     )
 
@@ -456,20 +453,15 @@ async def analyze_scan(
             ),
         )
 
-    # BACKUP READER: Ollama is called only when trusted image memory and
-    # bounded OCR/Checklist Registry resolution did not identify the card.
+    # CHECKLIST-ONLY REVIEW PATH: unresolved cards are preserved as complete
+    # scan receipts. No Ollama or external identity reader is called here.
     suggestion = None
-    model_error = None
-    try:
-        suggestion = await reader.analyze(
-            front_image.content,
-            back_image.content if back_image else None,
-        )
-    except (httpx.HTTPError, ValueError) as exc:
-        model_error = str(exc)
-
-    proposed_identity = suggestion.identity if suggestion else CardIdentity()
-    memory_matches = store.search(proposed_identity)
+    proposed_identity = printed_identity
+    memory_matches = (
+        store.search(proposed_identity)
+        if any(proposed_identity.model_dump().values())
+        else []
+    )
     trusted_text_match = next(
         (
             match
@@ -494,47 +486,19 @@ async def analyze_scan(
             else "Known card identified from internal text memory; Registry verification is required for pricing."
         )
     else:
-        checklist_result = await checklist_gateway.match(
-            proposed_identity,
-            printed_text,
-        )
-        if (
-            checklist_result.outcome == ChecklistOutcome.EXACT_MATCH
-            and checklist_result.identity
-            and checklist_result.identity_id
-        ):
-            trusted_identity = checklist_result.identity
-            pricing_allowed = True
-            status = "trusted_memory_match"
-            match_source = "checklist_registry"
-            next_action = (
-                "Exact Registry identity locked. Teach InstaComp and continue to verified comps."
-            )
-        elif model_error:
-            trusted_identity = None
-            pricing_allowed = False
-            status = "model_unavailable"
-            match_source = "none"
-            next_action = (
-                "InstaComp AI could not identify this unknown card because the local Ollama reader "
-                "was unavailable. No external identity provider was called. Restore the local "
-                "reader and retry, or send the card to private manual review."
-            )
-        elif checklist_result.outcome == ChecklistOutcome.NOT_CONFIGURED:
-            trusted_identity = None
-            pricing_allowed = False
+        checklist_result = printed_registry
+        trusted_identity = None
+        pricing_allowed = False
+        match_source = "none"
+        if checklist_result.outcome == ChecklistOutcome.NOT_CONFIGURED:
             status = "needs_checklist"
-            match_source = "ollama_backup" if suggestion else "none"
             next_action = (
-                "Ollama supplied backup evidence, but the Checklist Registry is not connected."
+                "Checklist Registry is not connected. Preserve this scan for private manual review."
             )
         else:
-            trusted_identity = None
-            pricing_allowed = False
             status = "needs_review"
-            match_source = "ollama_backup" if suggestion else "none"
             next_action = (
-                "Review the backup evidence or confirm the card manually. The confirmed result will become trusted InstaComp memory."
+                "InstaComp preserved the front/back scan and checklist receipt, but one exact identity was not proven. No external identity provider was called. Review or correct the card privately."
             )
 
     suggestion_back_evidence = (

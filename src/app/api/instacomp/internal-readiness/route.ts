@@ -172,8 +172,9 @@ export async function GET() {
 
     const internalMemoryReady = health.database === "ready";
     const checklistReady = health.checklist === "ready";
-    const localModelReady = health.ollama === "ready";
-    const ok = internalMemoryReady && checklistReady && localModelReady;
+    // InstaComp identity scans are checklist-only. Ollama is not part of readiness.
+    const localModelReady = internalMemoryReady && checklistReady;
+    const ok = localModelReady;
     return readinessResponse(
       {
         ok,
