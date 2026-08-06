@@ -58,13 +58,15 @@ else:
 route_path = Path("src/app/api/instacomp/scan/route.ts")
 route = route_path.read_text()
 untyped_serial = "    const serialOcr = null;\n"
-typed_serial = "    const serialOcr: ExternalOcrResult | null = null;\n"
+typed_serial = (
+    "    const serialOcr = null as ExternalOcrResult | null;\n"
+)
 
 if typed_serial in route:
-    print("Disabled serial reader is already explicitly typed")
+    print("Disabled serial reader is already type-safe")
 elif untyped_serial in route:
     route_path.write_text(route.replace(untyped_serial, typed_serial, 1))
-    print("Disabled serial reader explicitly typed")
+    print("Disabled serial reader made type-safe")
 else:
     raise SystemExit("Disabled serial reader declaration anchor missing")
 
@@ -74,15 +76,19 @@ for gate_path in [
     Path("scripts/check-instacomp-local-primary-contract.mjs"),
 ]:
     gate = gate_path.read_text()
-    if "const serialOcr: ExternalOcrResult | null = null;" in gate:
+    expected = "const serialOcr = null as ExternalOcrResult | null;"
+    if expected in gate:
         continue
-    if "const serialOcr = null;" not in gate:
-        raise SystemExit(f"Typed serial-reader gate anchor missing: {gate_path}")
-    gate_path.write_text(
-        gate.replace(
-            "const serialOcr = null;",
-            "const serialOcr: ExternalOcrResult | null = null;",
-        )
-    )
+    replaced = False
+    for prior in [
+        "const serialOcr = null;",
+        "const serialOcr: ExternalOcrResult | null = null;",
+    ]:
+        if prior in gate:
+            gate = gate.replace(prior, expected)
+            replaced = True
+    if not replaced:
+        raise SystemExit(f"Type-safe serial-reader gate anchor missing: {gate_path}")
+    gate_path.write_text(gate)
 
-print("Typed disabled-serial-reader gates applied")
+print("Type-safe disabled-serial-reader gates applied")
