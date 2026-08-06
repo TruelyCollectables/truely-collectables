@@ -27,24 +27,13 @@ on:
       - "scripts/run-checklist-recovery.mjs"
       - "scripts/merge-recovery-catalog.mjs"
       - ".github/workflows/exhaustive-checklist-recovery.yml"
-  push:
-    branches:
-      - "feature/universal-sports-checklist-universe-20260805"
-    paths:
-      - "data/checklist-recovery-targets.json"
-      - "data/checklist-recovery-modern-gap-keys.txt"
-      - "scripts/build-checklist-recovery-targets.mjs"
-      - "scripts/recover-missing-checklists.mjs"
-      - "scripts/run-checklist-recovery.mjs"
-      - "scripts/merge-recovery-catalog.mjs"
-      - ".github/workflows/exhaustive-checklist-recovery.yml"
 
 permissions:
-  actions: read
+  actions: write
   contents: read
 
 concurrency:
-  group: exhaustive-checklist-recovery-${{ github.ref }}
+  group: exhaustive-checklist-recovery-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -80,9 +69,9 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .checklist-recovery-state
-          key: checklist-recovery-${{ github.ref_name }}-${{ github.run_id }}
+          key: checklist-recovery-${{ github.event.pull_request.head.ref || github.ref_name }}-${{ github.run_id }}
           restore-keys: |
-            checklist-recovery-${{ github.ref_name }}-
+            checklist-recovery-${{ github.event.pull_request.head.ref || github.ref_name }}-
 
       - name: Download run #50 base master catalog
         run: |
@@ -176,7 +165,7 @@ jobs:
             echo '```' >> "${GITHUB_STEP_SUMMARY}"
           fi
           echo "" >> "${GITHUB_STEP_SUMMARY}"
-          echo "Freeze protection: atomic checkpoints every five minutes, signal-safe shutdown, stale-progress watchdog, cache restore, and scheduled resume every six hours." >> "${GITHUB_STEP_SUMMARY}"
+          echo "Freeze protection: atomic checkpoints every five minutes, signal-safe shutdown, stale-progress watchdog, cache restore, and automatic resumed runs." >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Package recovered source evidence and updated database
         if: always()
@@ -214,4 +203,26 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: .checklist-recovery-state
-          key: checklist-recovery-${{ github.ref_name }}-${{ github.run_id }}
+          key: checklist-recovery-${{ github.event.pull_request.head.ref || github.ref_name }}-${{ github.run_id }}
+
+      - name: Queue the next recovery pass while targets remain
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          progress=.checklist-recovery-state/progress.json
+          if [ ! -f "${progress}" ]; then
+            exit 0
+          fi
+          pending="$(jq -r '.totals.pending // 0' "${progress}")"
+          if [ "${pending}" -le 0 ]; then
+            exit 0
+          fi
+          target_ref="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
+          gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/exhaustive-checklist-recovery.yml/dispatches" \
+            -f "ref=${target_ref}" \
+            -f "inputs[source_run_id]=${SOURCE_RUN_ID}" \
+            -f "inputs[max_targets]=${CHECKLIST_RECOVERY_MAX_TARGETS}" \
+            -f "inputs[enable_google]=${CHECKLIST_ENABLE_GOOGLE}"
+          echo "Queued another recovery pass for ${pending} pending targets." >> "${GITHUB_STEP_SUMMARY}"
