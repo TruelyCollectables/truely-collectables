@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
+from .images import perceptual_hash_distance
 from .models import CardIdentity, LearningState, LessonCreate, LessonRecord, MemoryMatch
 
 TRUSTED_STATES = {LearningState.OPERATOR_CONFIRMED, LearningState.CHECKLIST_CONFIRMED}
@@ -17,16 +18,35 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def normalize(value: str | None) -> str:
-    return " ".join((value or "").strip().lower().split())
+def normalize(value: object) -> str:
+    return " ".join(str(value or "").strip().lower().split())
 
 
 def identity_fingerprint(identity: CardIdentity) -> str:
-    canonical = "|".join(normalize(value) for value in [
-        identity.sport, identity.year, identity.manufacturer, identity.brand,
-        identity.set_name, identity.subset, identity.player, identity.card_number,
-        identity.parallel, identity.variation, identity.serial_number,
-    ])
+    # Copy numbers are deliberately excluded. The print run identifies the card
+    # configuration, while 17/99 and 44/99 remain the same learned design.
+    canonical = "|".join(
+        normalize(value)
+        for value in [
+            identity.sport,
+            identity.year,
+            identity.manufacturer,
+            identity.brand,
+            identity.set_name,
+            identity.subset,
+            identity.player,
+            identity.card_number,
+            identity.parallel,
+            identity.variation,
+            identity.serial_run,
+            identity.rookie,
+            identity.autograph,
+            identity.inscription,
+            identity.inscription_text,
+            identity.memorabilia,
+            identity.memorabilia_type,
+        ]
+    )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
@@ -47,27 +67,59 @@ class MemoryStore:
     def initialize(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connection() as db:
-            db.executescript("""
+            db.executescript(
+                """
                 PRAGMA journal_mode=WAL;
                 PRAGMA foreign_keys=ON;
                 CREATE TABLE IF NOT EXISTS scans (
-                    scan_id TEXT PRIMARY KEY, created_at TEXT NOT NULL,
-                    front_sha256 TEXT NOT NULL, back_sha256 TEXT,
-                    image_pair_sha256 TEXT NOT NULL, local_suggestion_json TEXT,
-                    checklist_json TEXT NOT NULL, status TEXT NOT NULL
+                    scan_id TEXT PRIMARY KEY,
+                    created_at TEXT NOT NULL,
+                    front_sha256 TEXT NOT NULL,
+                    back_sha256 TEXT,
+                    image_pair_sha256 TEXT NOT NULL,
+                    front_reference_sha256 TEXT,
+                    back_reference_sha256 TEXT,
+                    front_perceptual_hash TEXT,
+                    back_perceptual_hash TEXT,
+                    local_suggestion_json TEXT,
+                    checklist_json TEXT NOT NULL,
+                    status TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS scans_pair_hash_idx ON scans(image_pair_sha256);
+                CREATE INDEX IF NOT EXISTS scans_front_phash_idx ON scans(front_perceptual_hash);
                 CREATE TABLE IF NOT EXISTS lessons (
-                    lesson_id TEXT PRIMARY KEY, scan_id TEXT NOT NULL,
-                    state TEXT NOT NULL, identity_json TEXT NOT NULL,
-                    rejected_identity_json TEXT, verification_source TEXT NOT NULL,
-                    operator_id TEXT, notes TEXT, identity_fingerprint TEXT NOT NULL,
-                    trusted INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL,
+                    lesson_id TEXT PRIMARY KEY,
+                    scan_id TEXT NOT NULL,
+                    state TEXT NOT NULL,
+                    identity_json TEXT NOT NULL,
+                    rejected_identity_json TEXT,
+                    verification_source TEXT NOT NULL,
+                    operator_id TEXT,
+                    notes TEXT,
+                    identity_fingerprint TEXT NOT NULL,
+                    trusted INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
                     FOREIGN KEY(scan_id) REFERENCES scans(scan_id)
                 );
                 CREATE INDEX IF NOT EXISTS lessons_fingerprint_idx ON lessons(identity_fingerprint);
                 CREATE INDEX IF NOT EXISTS lessons_trusted_idx ON lessons(trusted, state);
-            """)
+                """
+            )
+            existing = {
+                row["name"] for row in db.execute("PRAGMA table_info(scans)").fetchall()
+            }
+            for column in [
+                "front_reference_sha256",
+                "back_reference_sha256",
+                "front_perceptual_hash",
+                "back_perceptual_hash",
+            ]:
+                if column not in existing:
+                    db.execute(f"ALTER TABLE scans ADD COLUMN {column} TEXT")
+            db.execute(
+                "CREATE INDEX IF NOT EXISTS scans_front_phash_idx "
+                "ON scans(front_perceptual_hash)"
+            )
 
     def ready(self) -> bool:
         try:
@@ -78,21 +130,55 @@ class MemoryStore:
         except sqlite3.Error:
             return False
 
-    def save_scan(self, *, scan_id: str, created_at: datetime, front_sha256: str,
-                  back_sha256: str | None, image_pair_sha256: str,
-                  local_suggestion: dict | None, checklist: dict, status: str) -> None:
+    def save_scan(
+        self,
+        *,
+        scan_id: str,
+        created_at: datetime,
+        front_sha256: str,
+        back_sha256: str | None,
+        image_pair_sha256: str,
+        front_reference_sha256: str | None,
+        back_reference_sha256: str | None,
+        front_perceptual_hash: str | None,
+        back_perceptual_hash: str | None,
+        local_suggestion: dict | None,
+        checklist: dict,
+        status: str,
+    ) -> None:
         with self.connection() as db:
-            db.execute("""
-                INSERT INTO scans (scan_id, created_at, front_sha256, back_sha256,
-                image_pair_sha256, local_suggestion_json, checklist_json, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (scan_id, created_at.isoformat(), front_sha256, back_sha256,
-                  image_pair_sha256, json.dumps(local_suggestion) if local_suggestion else None,
-                  json.dumps(checklist), status))
+            db.execute(
+                """
+                INSERT INTO scans (
+                    scan_id, created_at, front_sha256, back_sha256,
+                    image_pair_sha256, front_reference_sha256,
+                    back_reference_sha256, front_perceptual_hash,
+                    back_perceptual_hash, local_suggestion_json,
+                    checklist_json, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    scan_id,
+                    created_at.isoformat(),
+                    front_sha256,
+                    back_sha256,
+                    image_pair_sha256,
+                    front_reference_sha256,
+                    back_reference_sha256,
+                    front_perceptual_hash,
+                    back_perceptual_hash,
+                    json.dumps(local_suggestion) if local_suggestion else None,
+                    json.dumps(checklist),
+                    status,
+                ),
+            )
 
     def scan_exists(self, scan_id: str) -> bool:
         with self.connection() as db:
-            return db.execute("SELECT 1 FROM scans WHERE scan_id = ?", (scan_id,)).fetchone() is not None
+            return (
+                db.execute("SELECT 1 FROM scans WHERE scan_id = ?", (scan_id,)).fetchone()
+                is not None
+            )
 
     def get_scan(self, scan_id: str) -> dict | None:
         with self.connection() as db:
@@ -108,6 +194,10 @@ class MemoryStore:
             "front_sha256": row["front_sha256"],
             "back_sha256": row["back_sha256"],
             "image_pair_sha256": row["image_pair_sha256"],
+            "front_reference_sha256": row["front_reference_sha256"],
+            "back_reference_sha256": row["back_reference_sha256"],
+            "front_perceptual_hash": row["front_perceptual_hash"],
+            "back_perceptual_hash": row["back_perceptual_hash"],
             "local_suggestion": (
                 json.loads(row["local_suggestion_json"])
                 if row["local_suggestion_json"]
@@ -121,31 +211,143 @@ class MemoryStore:
         if not self.scan_exists(request.scan_id):
             raise ValueError("Unknown scan_id")
         lesson = LessonRecord(
-            lesson_id=str(uuid4()), scan_id=request.scan_id, state=request.state,
-            identity=request.identity, verification_source=request.verification_source,
-            operator_id=request.operator_id, notes=request.notes,
+            lesson_id=str(uuid4()),
+            scan_id=request.scan_id,
+            state=request.state,
+            identity=request.identity,
+            verification_source=request.verification_source,
+            operator_id=request.operator_id,
+            notes=request.notes,
             rejected_identity=request.rejected_identity,
             identity_fingerprint=identity_fingerprint(request.identity),
-            created_at=utc_now(), trusted=request.state in TRUSTED_STATES,
+            created_at=utc_now(),
+            trusted=request.state in TRUSTED_STATES,
         )
         with self.connection() as db:
-            db.execute("""
-                INSERT INTO lessons (lesson_id, scan_id, state, identity_json,
-                rejected_identity_json, verification_source, operator_id, notes,
-                identity_fingerprint, trusted, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (lesson.lesson_id, lesson.scan_id, lesson.state.value,
-                  lesson.identity.model_dump_json(),
-                  lesson.rejected_identity.model_dump_json() if lesson.rejected_identity else None,
-                  lesson.verification_source, lesson.operator_id, lesson.notes,
-                  lesson.identity_fingerprint, int(lesson.trusted), lesson.created_at.isoformat()))
+            db.execute(
+                """
+                INSERT INTO lessons (
+                    lesson_id, scan_id, state, identity_json,
+                    rejected_identity_json, verification_source, operator_id, notes,
+                    identity_fingerprint, trusted, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    lesson.lesson_id,
+                    lesson.scan_id,
+                    lesson.state.value,
+                    lesson.identity.model_dump_json(),
+                    (
+                        lesson.rejected_identity.model_dump_json()
+                        if lesson.rejected_identity
+                        else None
+                    ),
+                    lesson.verification_source,
+                    lesson.operator_id,
+                    lesson.notes,
+                    lesson.identity_fingerprint,
+                    int(lesson.trusted),
+                    lesson.created_at.isoformat(),
+                ),
+            )
         return lesson
+
+    @staticmethod
+    def _memory_match(row: sqlite3.Row, score: float, reasons: list[str]) -> MemoryMatch:
+        return MemoryMatch(
+            lesson_id=row["lesson_id"],
+            identity=CardIdentity.model_validate_json(row["identity_json"]),
+            score=max(0.0, min(1.0, round(score, 4))),
+            verification_state=LearningState(row["state"]),
+            reasons=reasons,
+        )
+
+    def find_trusted_image_match(
+        self,
+        *,
+        image_pair_sha256: str,
+        front_perceptual_hash: str,
+        back_perceptual_hash: str | None,
+    ) -> MemoryMatch | None:
+        with self.connection() as db:
+            exact = db.execute(
+                """
+                SELECT l.*
+                FROM lessons l
+                JOIN scans s ON s.scan_id = l.scan_id
+                WHERE l.trusted = 1 AND s.image_pair_sha256 = ?
+                ORDER BY l.created_at DESC
+                LIMIT 1
+                """,
+                (image_pair_sha256,),
+            ).fetchone()
+            if exact:
+                return self._memory_match(exact, 1.0, ["exact_image_pair"])
+
+            rows = db.execute(
+                """
+                SELECT l.*, s.front_perceptual_hash, s.back_perceptual_hash
+                FROM lessons l
+                JOIN scans s ON s.scan_id = l.scan_id
+                WHERE l.trusted = 1 AND s.front_perceptual_hash IS NOT NULL
+                ORDER BY l.created_at DESC
+                LIMIT 2000
+                """
+            ).fetchall()
+
+        best: tuple[float, sqlite3.Row, list[str]] | None = None
+        for row in rows:
+            front_distance = perceptual_hash_distance(
+                front_perceptual_hash,
+                row["front_perceptual_hash"],
+            )
+            if front_distance is None or front_distance > 8:
+                continue
+
+            reasons = [f"front_visual_distance:{front_distance}"]
+            distances = [front_distance]
+            if back_perceptual_hash:
+                back_distance = perceptual_hash_distance(
+                    back_perceptual_hash,
+                    row["back_perceptual_hash"],
+                )
+                if back_distance is None or back_distance > 8:
+                    continue
+                distances.append(back_distance)
+                reasons.append(f"back_visual_distance:{back_distance}")
+            elif front_distance > 4:
+                continue
+
+            score = 1.0 - (sum(distances) / len(distances)) / 64.0
+            if score < 0.875:
+                continue
+            reasons.append("trusted_visual_memory")
+            if best is None or score > best[0]:
+                best = (score, row, reasons)
+
+        return self._memory_match(best[1], best[0], best[2]) if best else None
 
     def search(self, identity: CardIdentity, limit: int = 10) -> list[MemoryMatch]:
         requested = identity.model_dump()
         with self.connection() as db:
-            rows = db.execute("SELECT * FROM lessons WHERE trusted = 1 ORDER BY created_at DESC LIMIT 500").fetchall()
-        weights = {"player": .24, "year": .12, "set_name": .18, "card_number": .20,
-                   "parallel": .12, "brand": .06, "manufacturer": .04, "sport": .04}
+            rows = db.execute(
+                "SELECT * FROM lessons WHERE trusted = 1 "
+                "ORDER BY created_at DESC LIMIT 1000"
+            ).fetchall()
+        weights = {
+            "player": 0.22,
+            "year": 0.10,
+            "set_name": 0.16,
+            "card_number": 0.18,
+            "parallel": 0.10,
+            "brand": 0.05,
+            "manufacturer": 0.04,
+            "sport": 0.03,
+            "serial_run": 0.04,
+            "autograph": 0.03,
+            "inscription": 0.02,
+            "memorabilia": 0.03,
+        }
         matches: list[MemoryMatch] = []
         for row in rows:
             candidate = CardIdentity.model_validate_json(row["identity_json"])
@@ -159,8 +361,8 @@ class MemoryStore:
                 if target == normalize(getattr(candidate, field)):
                     score += weight
                     evidence.append(f"{field}_exact")
-            if possible and score / possible >= .5:
-                matches.append(MemoryMatch(lesson_id=row["lesson_id"], identity=candidate,
-                    score=round(score / possible, 4), verification_state=LearningState(row["state"]),
-                    reasons=evidence))
+            if possible and score / possible >= 0.5:
+                matches.append(
+                    self._memory_match(row, score / possible, evidence)
+                )
         return sorted(matches, key=lambda item: item.score, reverse=True)[:limit]
