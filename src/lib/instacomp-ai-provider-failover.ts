@@ -61,18 +61,6 @@ function isInternalCandidate(candidate: InstaCompAiProviderCandidate<unknown>) {
   );
 }
 
-/**
- * OpenAI is an emergency teacher, not an infrastructure fallback.
- * It may run only when the Mac engine completed the request and explicitly
- * reported that its local Ollama backup was unavailable for this unknown card.
- */
-export function isInstaCompInternalEmergencyEligible(error: unknown) {
-  const text = errorText(error).toLowerCase();
-  return /internal engine returned model_unavailable without usable identity evidence/.test(
-    text,
-  );
-}
-
 function internalEngineError(params: {
   code: string;
   message: string;
@@ -119,7 +107,7 @@ export async function runInstaCompPrimaryAiFailover<T>(
         throw internalEngineError({
           code: "INSTACOMP_INTERNAL_ENGINE_NOT_CONFIGURED",
           message:
-            "InstaComp internal engine is not configured for Production. The scan was stopped before OpenAI emergency fallback. Configure INSTACOMP_AI_LOCAL_URL with the secure Mac service URL.",
+            "InstaComp AI is not configured for Production. Configure INSTACOMP_AI_LOCAL_URL with the secure Mac service URL.",
           attempts,
         });
       }
@@ -167,11 +155,19 @@ export async function runInstaCompPrimaryAiFailover<T>(
         message: sanitized,
       });
 
-      if (internalCandidate && !isInstaCompInternalEmergencyEligible(error)) {
+      if (internalCandidate) {
+        const unavailable = [
+          "internal_engine_unreachable",
+          "timeout",
+          "cancelled",
+        ].includes(sanitized);
         throw internalEngineError({
-          code: "INSTACOMP_INTERNAL_ENGINE_OFFLINE",
-          message:
-            "InstaComp internal engine could not complete the scan. The scan was stopped before OpenAI emergency fallback. Check the Mac service and its secure tunnel, then retry.",
+          code: unavailable
+            ? "INSTACOMP_INTERNAL_ENGINE_OFFLINE"
+            : "INSTACOMP_INTERNAL_ENGINE_SCAN_FAILED",
+          message: unavailable
+            ? "InstaComp AI could not be reached. Check the Mac service and its secure tunnel, then retry."
+            : "InstaComp AI did not return usable identity evidence. No external identity provider was called. Review the Mac service logs and retry.",
           attempts,
         });
       }

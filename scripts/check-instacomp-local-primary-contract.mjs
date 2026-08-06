@@ -23,29 +23,26 @@ const models = read("services/instacomp-ai/app/models.py");
 const ollama = read("services/instacomp-ai/app/ollama.py");
 
 const internalProvider = route.indexOf('provider: "instacomp_internal"');
-const emergencyProvider = route.indexOf('provider: "openai_emergency"');
-if (internalProvider < 0 || emergencyProvider < 0 || internalProvider >= emergencyProvider) {
-  throw new Error(
-    "Website provider order must be InstaComp internal first and OpenAI emergency second.",
-  );
+if (internalProvider < 0) {
+  throw new Error("Website must use the InstaComp internal identity reader.");
 }
-if (route.includes('provider: "openai_primary"')) {
-  throw new Error("OpenAI may not be configured as the primary card reader.");
+if (route.includes('provider: "openai_emergency"')) {
+  throw new Error("OpenAI emergency may not be an identity reader.");
 }
 requireText(
   route,
-  "const preflightSerialOcrPromise = null;",
-  "OpenAI serial vision must not preflight before InstaComp.",
+  "const serialOcr = null as InstaCompSerialOcrResult | null;",
+  "External serial identity reading must remain disabled.",
 );
 requireText(
   route,
-  'primaryAiResult.family === "openai" && shouldRunSerialVision',
-  "OpenAI serial vision must be limited to the emergency OpenAI path.",
+  "runSecondaryVision: false",
+  "External AI council execution must remain disabled.",
 );
 requireText(
   route,
-  'primaryAiResult.family !== "instacomp_internal"',
-  "Known internal matches must not start the external AI council.",
+  'requestedTier: "basic"',
+  "The external AI council must remain on its zero-reader tier.",
 );
 
 const visualMemory = service.indexOf("find_trusted_image_match");
@@ -113,6 +110,21 @@ requireText(
   "identity.serial_run",
   "The print run must be part of the learned identity fingerprint.",
 );
+const scanColumnMigration = storage.indexOf(
+  'db.execute(f"ALTER TABLE scans ADD COLUMN {column} TEXT")',
+);
+const phashIndexCreation = storage.indexOf(
+  '"CREATE INDEX IF NOT EXISTS scans_front_phash_idx "',
+);
+if (
+  scanColumnMigration < 0 ||
+  phashIndexCreation < 0 ||
+  phashIndexCreation <= scanColumnMigration
+) {
+  throw new Error(
+    "Legacy scan columns must be added before the perceptual-hash index is created.",
+  );
+}
 if (storage.includes("identity.serial_number,")) {
   throw new Error(
     "The individual copy number may not be part of the learned identity fingerprint.",
@@ -193,10 +205,26 @@ requireText(
   "checklistReady",
   "Production readiness must include the Checklist Registry.",
 );
+requireText(
+  readinessRoute,
+  "localModelReady",
+  "Production readiness must include the InstaComp local model.",
+);
+if (readinessRoute.includes("openAiEmergencyConfigured")) {
+  throw new Error("Production readiness may not advertise OpenAI emergency.");
+}
+if (readinessRoute.includes("ollamaBackupReady")) {
+  throw new Error(
+    "Production readiness must expose the component as InstaComp local model readiness.",
+  );
+}
+requireText(
+  readinessRoute,
+  'architecture: ["instacomp_ai"]',
+  "Production readiness must advertise one InstaComp AI engine.",
+);
 if (readinessRoute.includes("INSTACOMP_AI_LOCAL_URL:")) {
   throw new Error("The public readiness response may not expose the internal URL.");
 }
 
-console.log(
-  "InstaComp internal memory -> Checklist Registry -> Ollama backup -> OpenAI emergency contract passed.",
-);
+console.log("InstaComp AI-only identity contract passed.");
