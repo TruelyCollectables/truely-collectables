@@ -4,7 +4,7 @@ Last verified: 2026-08-05
 
 Purpose: identify collectors and developers who have publicly shared checklist spreadsheets, templates, source files, or collection databases and may be willing to grant TCOS permission to normalize their data into the Checklist Registry.
 
-## Rights boundary
+## Rights and trust boundary
 
 A public Reddit post, Google Sheet, Drive file, Dropbox file, or GitHub repository is a contact lead, not automatic permission for commercial Registry ingestion. Before importing a contributed dataset, retain a written permission receipt covering normalization, commercial use, attribution, corrections, and redistribution of derived factual records. Do not import card images unless the contributor separately owns or licenses those images.
 
