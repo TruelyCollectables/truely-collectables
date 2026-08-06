@@ -7,6 +7,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from .config import settings
 from .local_settings import LocalSettingsManager, LocalSettingsUpdate
+from .sentinel_routes import build_sentinel_router
 
 
 RestartLauncher = Callable[[], None]
@@ -31,6 +32,18 @@ def build_settings_router(
 ) -> APIRouter:
     router = APIRouter()
     settings_manager = manager or LocalSettingsManager(settings)
+
+    # InstaComp AI owns Checklist Sentinel as an internal service process. The
+    # existing settings router is loaded by app.main on every startup, so
+    # mounting Sentinel here keeps scheduling, checkpoints, and APIs inside the
+    # InstaComp AI service without a separate ChatGPT task or external cron.
+    router.include_router(
+        build_sentinel_router(
+            require_api_key,
+            settings.resolve_local_path(settings.database_path),
+            settings.service_root,
+        )
+    )
 
     @router.get(
         "/v1/settings/local",

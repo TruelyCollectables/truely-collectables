@@ -1,0 +1,71 @@
+{
+  "schema": "instacomp.ai.checklist-sentinel-target-aliases.v1",
+  "targets": [
+    {
+      "target_key": "baseball|2009|topps|allen-ginter",
+      "sport": "baseball",
+      "year": 2009,
+      "season": "2009",
+      "manufacturer": "Topps",
+      "product": "Allen & Ginter",
+      "scope": "exact-gap-alias",
+      "priority": 9,
+      "alias_of": "baseball|2009|topps|allen-038-ginter"
+    },
+    {
+      "target_key": "baseball|2022|leaf|stitches-slabs-and-memorabilia",
+      "sport": "baseball",
+      "year": 2022,
+      "season": "2022",
+      "manufacturer": "Leaf",
+      "product": "Stitches, Slabs & Memorabilia",
+      "scope": "exact-gap-alias",
+      "priority": 9,
+      "alias_of": "baseball|2022|leaf|stitches-038-slabs-and-memorabilia"
+    },
+    {
+      "target_key": "basketball|2022|leaf|stitches-slabs-and-memorabilia",
+      "sport": "basketball",
+      "year": 2022,
+      "season": "2022",
+      "manufacturer": "Leaf",
+      "product": "Stitches, Slabs & Memorabilia",
+      "scope": "exact-gap-alias",
+      "priority": 9,
+      "alias_of": "basketball|2022|leaf|stitches-038-slabs-and-memorabilia"
+    },
+    {
+      "target_key": "football|2010|panini|plates-and-patches",
+      "sport": "football",
+      "year": 2010,
+      "season": "2010",
+      "manufacturer": "Panini",
+      "product": "Plates & Patches",
+      "scope": "exact-gap-alias",
+      "priority": 9,
+      "alias_of": "football|2010|panini|plates-038-patches"
+    },
+    {
+      "target_key": "football|2011|panini|plates-and-patches",
+      "sport": "football",
+      "year": 2011,
+      "season": "2011",
+      "manufacturer": "Panini",
+      "product": "Plates & Patches",
+      "scope": "exact-gap-alias",
+      "priority": 9,
+      "alias_of": "football|2011|panini|plates-038-patches"
+    },
+    {
+      "target_key": "football|2011|panini|rookies-and-stars-longevity",
+      "sport": "football",
+      "year": 2011,
+      "season": "2011",
+      "manufacturer": "Panini",
+      "product": "Rookies & Stars Longevity",
+      "scope": "exact-gap-alias",
+      "priority": 9,
+      "alias_of": "football|2011|panini|rookies-038-stars-longevity"
+    }
+  ]
+}
