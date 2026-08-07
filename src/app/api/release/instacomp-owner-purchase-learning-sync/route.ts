@@ -6,40 +6,44 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-const EXPECTED_ORDERS = new Map([
-  ["0801f6d8f7d5c6d75f480895169ad81d632d93f18b38c27df4cc380323090821", 23.37],
-  ["5a5991524fa9acfd8dbb462cfaa9c8a1e0a057bd1977e7dd784060d323895bdb", 17.14],
-  ["5ea3dc93db0c1b5b1a6178b1975c4de1bc0a1dd207a5ea7834f52e7188f4b1c9", 19.48],
-  ["08973dda32e6ce2be4b8ebb7936f87092f86a17ab9fcb970c04c385c0b6932ab", 44.05],
-  ["50dd91cb3343e85e0054443bd824f3eebd221475152f75b7d2e4c0d37a94a155", 4.77],
-  ["e9cbb7d47e9788d139901c151ceb7ba828f8a42b857825304b82e5f71a38705a", 11.26],
-  ["a040a23340a41ebdef6191fc640dec1d40569832f078b4a987dcade38a73ba8e", 23.95],
-  ["759794aaf7e3e0071ce3a1fc270f3758714103558796f0f062971069834d5f9c", 5.46],
-  ["b138931b1a42b8f943f4a1796fd81fdbe5d03b90242f37409a945ff47e635888", 14.74],
-  ["968a2b0db00d023c7d7c70f9ddfc73f9141f1faec14faa6e16001a7efe403706", 23.37],
-  ["87d248edf449251b855bf20ed9f140397b81edc37ec6b4a55b88b7fb5c90782c", 20.13],
-  ["01806de13bb3b1334c73152afde1cffc7fa85000d06da6ac682b468f8bcd5e1f", 2.53],
-  ["82e9bfa02f28ebe12ea29d79e41a82dba7605ce707fded0511b1b6223631b818", 99.51],
-  ["accf4909164619d8f8a9e8741c247b98cbf3150b7ad9aadc2c77498035ba4d78", 3.13],
-  ["42905016278441b82ae38caeb568d254221e6ac054e7d29ea0a53a264ac5f91d", 8.26],
-  ["44d641deb737ffe158b4e57b55eb5604db1c0135c253f7f8adcd100952c08691", 3.4],
-  ["59beb36cb3b94fb6674310d10761ab2411e70c35cc574f5c0428c5e4264c4dd2", 4.08],
-  ["38acc32838f76f84706094296e51eec59fcf2d40f7e5fb4c91c270d0e22d7be5", 34.87],
-  ["6da3952584541d60f62be91cf5e3347cacaea8de23a316582a14d4934299c0bf", 12.86],
-  ["7cca87655edb6c06add807f09e0a6c5349133af97c890e97ae3c137d175fc13d", 33.57],
-  ["293065c9c01f1a22b7c59234f9a75ac3f88b372ecda458eacf5ab255f906aff9", 32.38],
-  ["b36036a4b340d1393282bba568e75886ff8af085fe8ff7e7b59db7566c1130d9", 20.56],
-  ["19ad41fce4ef315dcd02e6a1ba202015a1382790f1a12386b88e8d888aa228fc", 61.83],
-  ["b13eedb8abea93f56a3c49a72d472d9ccec8159c127fb40db9ef8792a98bc263", 0.31],
-  ["53f65eb404ebf78f26cff6a213fdb2166b2c6b072f91582928d9be3966b6862c", 3.51],
-]);
-
 const EXPECTED_POSITIONS = 28;
 const EXPECTED_ALL_IN_TOTAL = 528.52;
-const TRADING_API_VERSION = "1209";
-const EBAY_BASE_SCOPE = "https://api.ebay.com/oauth/api_scope";
 const RECEIPT_SCHEMA = "tcos.instacomp.ownerPurchaseLearningReceipt.v1";
 const EVENT_SCHEMA = "tcos.instacomp-ai.ownerPurchaseLearningEvent.v1";
+
+// Derived from the user-confirmed 2026-08-07 eBay Purchase History PDF.
+// Listing IDs are stored only as SHA-256 fingerprints; plaintext eBay item IDs
+// and order numbers are intentionally not committed to source control.
+const VERIFIED_PURCHASES = [
+  { itemHash: "7c9bc2f04c8433be8aba0005c578fcec7ef4b2dcf187a43d73b39dc8792a6041", purchasedOn: "2026-08-06", allIn: 23.37, quantity: 1 },
+  { itemHash: "3a5b418f5ff5f7c1833308c7e6c3770e0ebc72b16a1eb4c7a731fd7f36a4a776", purchasedOn: "2026-08-06", allIn: 17.14, quantity: 12 },
+  { itemHash: "95371a1774febe210cb95305d7dfcc27ff831a8f5d6a03f6751692e4b2e4e7c4", purchasedOn: "2026-08-06", allIn: 19.48, quantity: 1 },
+  { itemHash: "025fdc0ea2d1d9af4a2634519ad6d2129ce4a09450d2347da37f6f5f42b88273", purchasedOn: "2026-08-06", allIn: 7.49, quantity: 11 },
+  { itemHash: "c8b8d356442710d703b857f0b8c98fcf9fa9215a24d6edfd72dbec856299ed29", purchasedOn: "2026-08-06", allIn: 12.07, quantity: 15 },
+  { itemHash: "a5a543fca991236ed7ea69744b72b8de2ce653ffe570e29fb299dde910140274", purchasedOn: "2026-08-06", allIn: 18.92, quantity: 10 },
+  { itemHash: "8f8221ac2626874ef1dee4043fa4c45ce11d02beb9d6a37af84db62121b531a0", purchasedOn: "2026-08-06", allIn: 5.57, quantity: 10 },
+  { itemHash: "bd0d617047547e9bcef682138ab17e1923134a5c442ccf0fbad8aec6588b4787", purchasedOn: "2026-08-04", allIn: 4.77, quantity: 2 },
+  { itemHash: "32adc7535eff97493aa7db77f0f3a18bd3f5aeb6893a026c5325684bcce4321c", purchasedOn: "2026-08-03", allIn: 11.26, quantity: 17 },
+  { itemHash: "0a589081122a19a68db69eada98a8032b3462142b4c6c9e7f5e1e0af2b699a54", purchasedOn: "2026-08-02", allIn: 23.95, quantity: 1 },
+  { itemHash: "849060f656f4f59993491f043b9e7991761e116a7b75f717ac47b148b444728e", purchasedOn: "2026-08-02", allIn: 5.46, quantity: 1 },
+  { itemHash: "3b5b2c0f633a77dc03858ef3fcc6cd47a46fba2795b3243f5a49ea879df5b2bc", purchasedOn: "2026-08-02", allIn: 14.74, quantity: 5 },
+  { itemHash: "ad98a317b7af89bb91a37a91ae7e5e5d2c0bd961697761530e3eea5f93af99d7", purchasedOn: "2026-08-02", allIn: 23.37, quantity: 1 },
+  { itemHash: "351b5504e54c3f62cbaf53e2db859016e216085f6e48ea8566c0f61233657214", purchasedOn: "2026-08-02", allIn: 20.13, quantity: 1 },
+  { itemHash: "d60ca29726e6201e8180afa9a22caba059bad15c4d0d8048fe33900bc5eb5a3c", purchasedOn: "2026-08-02", allIn: 2.53, quantity: 1 },
+  { itemHash: "0e8d41cc30b42ecd586ffc0ffedfcb621bd0b702fe8053916137022d8145f0de", purchasedOn: "2026-08-02", allIn: 99.51, quantity: 5 },
+  { itemHash: "26d20ea61ac044b640735f2766218ef7a93c1f18e09927d8c7a66b0989fa49b9", purchasedOn: "2026-07-30", allIn: 3.13, quantity: 1 },
+  { itemHash: "7d61958b260745a7a5db451a6116d045ceec5cd2fe5096435feb49c4c246f272", purchasedOn: "2026-07-29", allIn: 8.26, quantity: 1 },
+  { itemHash: "b83d59930515472fc9d709276256f6b40bf0f8222d4dc83d8b5f16cf5b653b28", purchasedOn: "2026-07-28", allIn: 3.40, quantity: 1 },
+  { itemHash: "e3a1898fcd0346916e59abb5a78e577ea4866f1b3ffb34eccd53775c6e35a416", purchasedOn: "2026-07-25", allIn: 4.08, quantity: 1 },
+  { itemHash: "1d084a340a9b92c92d48ae6f86fe4c92af4f196ed688eb2f718f2d68577d1c6a", purchasedOn: "2026-07-25", allIn: 34.87, quantity: 1 },
+  { itemHash: "8b73d3de7595c53bf5e1b77ee9dcd3c43e0ec2441b95564b47f7f37dc0edbba7", purchasedOn: "2026-07-25", allIn: 12.86, quantity: 5 },
+  { itemHash: "eca051cfb73b6bb26c147bbdf6e0df51ed594e4a242bd1c1643e3bbe8c36ba4f", purchasedOn: "2026-07-23", allIn: 33.57, quantity: 92 },
+  { itemHash: "3ecf91f8de937142f5795692f0492145bbd2c4b81e64c6edab3a6182f056fd1a", purchasedOn: "2026-07-23", allIn: 32.38, quantity: 20 },
+  { itemHash: "340764461ca21f5e7324e4ddbae04f0d50f047415e5d28601092624c107b7ddf", purchasedOn: "2026-07-21", allIn: 20.56, quantity: 1 },
+  { itemHash: "8bb12ee382702834b62c6effe0b4a5ac8b7ad6ba2e8c948277bbad02756a7906", purchasedOn: "2026-07-20", allIn: 61.83, quantity: 100 },
+  { itemHash: "15d705819e1efd7cf8351e5f157d298c1d8df42b23b7c8bea99cf6f3478dbf81", purchasedOn: "2026-07-19", allIn: 0.31, quantity: 1 },
+  { itemHash: "b930c249cb82d681fec76edf478eb4259565e84c1b756a5c50ad920dbeeb7f34", purchasedOn: "2026-07-19", allIn: 3.51, quantity: 1 },
+] as const;
 
 type PurchaseLot = {
   id: string;
@@ -55,33 +59,19 @@ type PurchaseLot = {
 
 type PurchaseInbox = {
   id: string;
-  external_order_id: string | null;
   external_listing_id: string | null;
   title: string | null;
   purchase_lot_id: string | null;
+  purchased_at: string | null;
+  quantity: number | null;
+  total_paid: number | null;
   metadata: Record<string, unknown> | null;
-};
-
-type BuyerLine = {
-  orderLineItemId: string | null;
-  transactionId: string | null;
-  itemId: string;
-  title: string;
-  ebayQuantity: number;
-  rawSubtotal: number;
-};
-
-type BuyerOrder = {
-  orderId: string;
-  orderHash: string;
-  purchaseDate: string;
-  lines: BuyerLine[];
 };
 
 type LearningTarget = {
   lot: PurchaseLot;
-  line: BuyerLine;
-  orderHash: string;
+  title: string;
+  itemHash: string;
   allIn: number;
   quantity: number;
 };
@@ -110,14 +100,6 @@ function sha(value: unknown) {
   return createHash("sha256").update(String(value || "").trim()).digest("hex");
 }
 
-function normalize(value: unknown) {
-  return String(value || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 function dateOnly(value: unknown) {
   const parsed = new Date(String(value || ""));
   return Number.isFinite(parsed.getTime()) ? parsed.toISOString().slice(0, 10) : "";
@@ -130,222 +112,26 @@ function itemIdFromUrl(value: unknown) {
   );
 }
 
-function candidateOrderIds(metadata: unknown) {
-  const row = record(metadata);
+function candidateItemIds(lot: PurchaseLot) {
+  const metadata = record(lot.metadata);
   return [
-    row.external_order_id,
-    row.order_number,
-    row.ebay_order_id,
-    row.order_id,
-    row.receipt_order_id,
+    metadata.ebay_item_id,
+    metadata.external_listing_id,
+    metadata.ebay_legacy_item_id,
+    itemIdFromUrl(lot.source_url),
   ]
-    .map((value) => String(value || "").trim())
-    .filter(Boolean);
+    .map((value) => text(value))
+    .filter((value): value is string => Boolean(value));
 }
 
-function escapedTagName(tag: string) {
-  return tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function decodeXml(value: string) {
-  return String(value || "")
-    .replace(/^<!\[CDATA\[([\s\S]*)\]\]>$/, "$1")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&amp;/g, "&")
-    .trim();
-}
-
-function xmlValue(source: string, tag: string) {
-  const escapedTag = escapedTagName(tag);
-  const match = String(source || "").match(
-    new RegExp(`<${escapedTag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${escapedTag}>`, "i"),
+function candidateTitle(lot: PurchaseLot, inbox: PurchaseInbox | null) {
+  const metadata = record(lot.metadata);
+  return (
+    text(inbox?.title) ||
+    text(metadata.source_listing_title) ||
+    text(metadata.purchase_title) ||
+    text(metadata.original_title)
   );
-  return match ? decodeXml(match[1]) : null;
-}
-
-function xmlBlocks(source: string, tag: string) {
-  const escapedTag = escapedTagName(tag);
-  return Array.from(
-    String(source || "").matchAll(
-      new RegExp(`<${escapedTag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${escapedTag}>`, "gi"),
-    ),
-    (match) => match[1],
-  );
-}
-
-function allocateMoney(total: number, weights: number[]) {
-  const totalCents = Math.max(0, Math.round(roundMoney(total) * 100));
-  if (!weights.length) return [];
-  const normalized = weights.map((weight) =>
-    Number.isFinite(Number(weight)) && Number(weight) > 0 ? Number(weight) : 0,
-  );
-  const sum = normalized.reduce((current, value) => current + value, 0);
-  const effective = sum > 0 ? normalized : normalized.map(() => 1);
-  const effectiveSum = effective.reduce((current, value) => current + value, 0);
-  let remaining = totalCents;
-  return effective.map((weight, index) => {
-    const cents =
-      index === effective.length - 1
-        ? remaining
-        : Math.min(remaining, Math.floor((totalCents * weight) / effectiveSum));
-    remaining -= cents;
-    return cents / 100;
-  });
-}
-
-function quantityFromTitle(title: string, ebayQuantity: number) {
-  const patterns = [
-    /\blot\s+of\s+(\d+)\b/i,
-    /\((\d+)\s*cards?\)/i,
-    /\b(\d+)\s*[- ]?card\s+lot\b/i,
-    /\b(\d+)\s+different\s+card\s+lot\b/i,
-    /\b(\d+)\s*cards?\b/i,
-  ];
-  let lotSize = 1;
-  for (const pattern of patterns) {
-    const match = title.match(pattern);
-    if (match?.[1]) {
-      const parsed = Number(match[1]);
-      if (Number.isInteger(parsed) && parsed > 0 && parsed <= 10000) {
-        lotSize = parsed;
-        break;
-      }
-    }
-  }
-  if (lotSize === 1 && /\bfive\s+posters\b/i.test(title)) lotSize = 5;
-  const lower = title.toLowerCase();
-  if (
-    lotSize === 1 &&
-    lower.includes("rc lot") &&
-    lower.includes("net marvels") &&
-    lower.includes("rated rookie")
-  ) {
-    lotSize = 2;
-  }
-  return Math.max(1, lotSize * Math.max(1, Number(ebayQuantity || 1)));
-}
-
-function parseOrderBlock(orderBlock: string): BuyerOrder {
-  const orderId = xmlValue(orderBlock, "OrderID") || "";
-  const orderSummary = orderBlock.split(/<TransactionArray(?:\s[^>]*)?>/i)[0] || orderBlock;
-  const lines = xmlBlocks(orderBlock, "Transaction")
-    .map((transaction): BuyerLine => {
-      const item = xmlBlocks(transaction, "Item")[0] || transaction;
-      const itemId = xmlValue(item, "ItemID") || "";
-      const title = xmlValue(item, "Title") || `eBay item ${itemId || "purchase"}`;
-      const quantity = Math.max(1, Number(xmlValue(transaction, "QuantityPurchased") || 1));
-      const unitPrice = money(xmlValue(transaction, "TransactionPrice"));
-      return {
-        orderLineItemId: xmlValue(transaction, "OrderLineItemID"),
-        transactionId: xmlValue(transaction, "TransactionID"),
-        itemId,
-        title,
-        ebayQuantity: quantity,
-        rawSubtotal: roundMoney(unitPrice * quantity),
-      };
-    })
-    .filter((line) => Boolean(line.itemId));
-  const purchaseDate =
-    xmlValue(orderSummary, "PaidTime") ||
-    xmlValue(orderSummary, "CreatedTime") ||
-    new Date().toISOString();
-  return { orderId, orderHash: sha(orderId), purchaseDate, lines };
-}
-
-async function getEbayBuyerToken(supabase: any) {
-  const { data: tokenRows, error: tokenError } = await supabase
-    .from("ebay_tokens")
-    .select("refresh_token,created_at")
-    .order("created_at", { ascending: false })
-    .limit(5);
-  if (tokenError) throw new Error(tokenError.message);
-  const tokenRow = ((tokenRows || []) as Array<{ refresh_token?: string | null }>).find(
-    (row) => String(row.refresh_token || "").trim(),
-  );
-  if (!tokenRow?.refresh_token) {
-    throw new Error("No connected eBay refresh token is available.");
-  }
-
-  const clientId = String(process.env.EBAY_CLIENT_ID || "").trim();
-  const clientSecret = String(
-    process.env.EBAY_CLIENT_SECRET || process.env.EBAY_CLIENT_SECRET_KEY || "",
-  ).trim();
-  if (!clientId || !clientSecret) {
-    throw new Error("Production eBay client credentials are missing.");
-  }
-
-  const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
-  const response = await fetch("https://api.ebay.com/identity/v1/oauth2/token", {
-    method: "POST",
-    headers: {
-      Authorization: `Basic ${credentials}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({
-      grant_type: "refresh_token",
-      refresh_token: tokenRow.refresh_token,
-      scope: EBAY_BASE_SCOPE,
-    }),
-    cache: "no-store",
-  });
-  const payload = (await response.json()) as {
-    access_token?: string;
-    error?: string;
-    error_description?: string;
-  };
-  if (!response.ok || !payload.access_token) {
-    throw new Error(
-      payload.error_description || payload.error || `eBay refresh failed (${response.status}).`,
-    );
-  }
-  return payload.access_token;
-}
-
-async function fetchBuyerOrders(accessToken: string) {
-  const now = new Date();
-  const from = new Date(now.getTime() - 30 * 86_400_000);
-  const orders: BuyerOrder[] = [];
-  for (let page = 1; page <= 10; page += 1) {
-    const body = `<?xml version="1.0" encoding="utf-8"?>
-<GetOrdersRequest xmlns="urn:ebay:apis:eBLBaseComponents">
-  <Version>${TRADING_API_VERSION}</Version>
-  <DetailLevel>ReturnAll</DetailLevel>
-  <CreateTimeFrom>${from.toISOString()}</CreateTimeFrom>
-  <CreateTimeTo>${now.toISOString()}</CreateTimeTo>
-  <OrderRole>Buyer</OrderRole>
-  <OrderStatus>All</OrderStatus>
-  <Pagination><EntriesPerPage>100</EntriesPerPage><PageNumber>${page}</PageNumber></Pagination>
-</GetOrdersRequest>`;
-    const response = await fetch("https://api.ebay.com/ws/api.dll", {
-      method: "POST",
-      headers: {
-        "Content-Type": "text/xml; charset=utf-8",
-        "X-EBAY-API-CALL-NAME": "GetOrders",
-        "X-EBAY-API-SITEID": "0",
-        "X-EBAY-API-COMPATIBILITY-LEVEL": TRADING_API_VERSION,
-        "X-EBAY-API-IAF-TOKEN": accessToken,
-      },
-      body,
-      cache: "no-store",
-    });
-    const xml = await response.text();
-    if (!response.ok) throw new Error(`eBay GetOrders failed with HTTP ${response.status}.`);
-    const ack = xmlValue(xml, "Ack");
-    if (ack !== "Success" && ack !== "Warning") {
-      throw new Error(
-        xmlValue(xml, "LongMessage") ||
-          xmlValue(xml, "ShortMessage") ||
-          "eBay GetOrders failed.",
-      );
-    }
-    for (const block of xmlBlocks(xml, "Order")) orders.push(parseOrderBlock(block));
-    const totalPages = Math.max(1, Number(xmlValue(xml, "TotalNumberOfPages") || 1));
-    if (page >= totalPages) break;
-  }
-  return orders;
 }
 
 function bearerToken(request: Request) {
@@ -445,12 +231,7 @@ async function postTrustedBuyEvent(params: {
 }
 
 async function deriveTargets(supabase: any) {
-  const [accessToken, inboxRead, lotRead] = await Promise.all([
-    getEbayBuyerToken(supabase),
-    supabase
-      .from("tcos_mi_purchase_inbox")
-      .select("id,external_order_id,external_listing_id,title,purchase_lot_id,metadata")
-      .limit(5000),
+  const [lotRead, inboxRead] = await Promise.all([
     supabase
       .from("tcos_mi_purchase_lots")
       .select(
@@ -458,132 +239,116 @@ async function deriveTargets(supabase: any) {
       )
       .order("purchase_number", { ascending: false })
       .limit(5000),
+    supabase
+      .from("tcos_mi_purchase_inbox")
+      .select(
+        "id,external_listing_id,title,purchase_lot_id,purchased_at,quantity,total_paid,metadata",
+      )
+      .limit(5000),
   ]);
-  if (inboxRead.error) throw new Error(`Purchase Inbox read failed: ${inboxRead.error.message}`);
   if (lotRead.error) throw new Error(`Purchase Ledger read failed: ${lotRead.error.message}`);
+  if (inboxRead.error) throw new Error(`Purchase Inbox read failed: ${inboxRead.error.message}`);
 
-  const buyerOrders = await fetchBuyerOrders(accessToken);
-  const matchedOrders = buyerOrders.filter((order) => EXPECTED_ORDERS.has(order.orderHash));
-  const coveredOrderHashes = new Set(matchedOrders.map((order) => order.orderHash));
-  if (coveredOrderHashes.size !== EXPECTED_ORDERS.size) {
-    throw new Error(
-      `Owner-purchase source gate found only ${coveredOrderHashes.size}/${EXPECTED_ORDERS.size} verified eBay orders.`,
-    );
+  const lots = (lotRead.data || []) as PurchaseLot[];
+  const inboxRows = (inboxRead.data || []) as PurchaseInbox[];
+  const inboxByItemHash = new Map<string, PurchaseInbox>();
+  const inboxByLotId = new Map<string, PurchaseInbox>();
+
+  for (const row of inboxRows) {
+    const listingId = text(row.external_listing_id);
+    if (listingId) inboxByItemHash.set(sha(listingId), row);
+    if (row.purchase_lot_id) inboxByLotId.set(String(row.purchase_lot_id), row);
   }
 
-  const existingInbox = (inboxRead.data || []) as PurchaseInbox[];
-  const existingLots = (lotRead.data || []) as PurchaseLot[];
   const targets: LearningTarget[] = [];
   const usedLotIds = new Set<string>();
+  const diagnostics: Array<Record<string, unknown>> = [];
 
-  for (const order of matchedOrders.sort((a, b) =>
-    String(a.purchaseDate).localeCompare(String(b.purchaseDate)),
-  )) {
-    const authoritativeOrderTotal = Number(EXPECTED_ORDERS.get(order.orderHash));
-    const lineAllocations = allocateMoney(
-      authoritativeOrderTotal,
-      order.lines.map((line) => line.rawSubtotal),
+  for (const expected of VERIFIED_PURCHASES) {
+    const inbox = inboxByItemHash.get(expected.itemHash) || null;
+
+    let candidates = lots.filter((lot) =>
+      candidateItemIds(lot).some((itemId) => sha(itemId) === expected.itemHash),
     );
-    if (
-      roundMoney(lineAllocations.reduce((sum, value) => sum + value, 0)) !==
-      authoritativeOrderTotal
-    ) {
-      throw new Error(`Allocation failure for eBay order ${order.orderHash.slice(0, 10)}.`);
+
+    if (!candidates.length && inbox?.purchase_lot_id) {
+      candidates = lots.filter(
+        (lot) => String(lot.id) === String(inbox.purchase_lot_id),
+      );
     }
 
-    for (let index = 0; index < order.lines.length; index += 1) {
-      const line = order.lines[index];
-      const allIn = lineAllocations[index];
-      const expandedQuantity = quantityFromTitle(line.title, line.ebayQuantity);
-      const keyMatch = (row: PurchaseInbox) => {
-        const metadata = record(row.metadata);
-        const sameOrder = String(row.external_order_id || "").trim() === order.orderId;
-        const sameItem = String(row.external_listing_id || "").trim() === line.itemId;
-        const sameLine =
-          String(metadata.receipt_order_line_item_id || "").trim() ===
-            String(line.orderLineItemId || "").trim() && Boolean(line.orderLineItemId);
-        const sameTransaction =
-          String(metadata.receipt_transaction_id || "").trim() ===
-            String(line.transactionId || "").trim() && Boolean(line.transactionId);
-        return sameLine || sameTransaction || (sameOrder && sameItem);
-      };
-
-      const inbox = existingInbox.find(keyMatch) || null;
-      let lot: PurchaseLot | null = null;
-      if (inbox?.purchase_lot_id) {
-        lot =
-          existingLots.find(
-            (candidate) => String(candidate.id) === String(inbox.purchase_lot_id),
-          ) || null;
-      }
-      if (!lot) {
-        lot =
-          existingLots.find((candidate) => {
-            const metadata = record(candidate.metadata);
-            const orderIdMatch = candidateOrderIds(metadata).includes(order.orderId);
-            const itemIdMatch =
-              String(
-                metadata.ebay_item_id ||
-                  metadata.external_listing_id ||
-                  metadata.ebay_legacy_item_id ||
-                  "",
-              ).trim() === line.itemId || itemIdFromUrl(candidate.source_url) === line.itemId;
-            const titleMatch =
-              normalize(metadata.source_listing_title || metadata.purchase_title) ===
-              normalize(line.title);
-            const dateMatch = dateOnly(candidate.purchased_at) === dateOnly(order.purchaseDate);
-            const totalMatch =
-              Math.abs(Number(candidate.total_acquisition_cost || 0) - allIn) <= 0.02;
-            return (
-              (orderIdMatch && itemIdMatch) ||
-              (itemIdMatch && dateMatch && totalMatch) ||
-              (titleMatch && dateMatch && totalMatch)
-            );
-          }) || null;
-      }
-
-      if (!lot) {
-        throw new Error(`Verified eBay line ${line.itemId} has no canonical Purchase Ledger position.`);
-      }
-      if (usedLotIds.has(lot.id)) {
-        throw new Error(`Canonical Purchase Ledger position ${lot.id} matched more than one eBay line.`);
-      }
-      if (Math.abs(Number(lot.total_acquisition_cost || 0) - allIn) > 0.02) {
-        throw new Error(
-          `Purchase #${lot.purchase_number || "?"} ALL-IN cost no longer matches its verified eBay receipt.`,
+    if (!candidates.length && inbox) {
+      candidates = lots.filter((lot) => {
+        const title = candidateTitle(lot, inbox);
+        return (
+          dateOnly(lot.purchased_at) === expected.purchasedOn &&
+          Math.abs(money(lot.total_acquisition_cost) - expected.allIn) <= 0.02 &&
+          Number(lot.quantity_purchased || 0) === expected.quantity &&
+          Boolean(title && text(inbox.title) && title === text(inbox.title))
         );
-      }
-      if (Number(lot.quantity_purchased || 0) !== expandedQuantity) {
-        throw new Error(
-          `Purchase #${lot.purchase_number || "?"} quantity no longer matches its verified eBay receipt.`,
-        );
-      }
-
-      usedLotIds.add(lot.id);
-      targets.push({
-        lot,
-        line,
-        orderHash: order.orderHash,
-        allIn,
-        quantity: expandedQuantity,
       });
     }
+
+    candidates = candidates.filter(
+      (lot) =>
+        dateOnly(lot.purchased_at) === expected.purchasedOn &&
+        Math.abs(money(lot.total_acquisition_cost) - expected.allIn) <= 0.02 &&
+        Number(lot.quantity_purchased || 0) === expected.quantity,
+    );
+
+    if (candidates.length !== 1) {
+      diagnostics.push({
+        itemHashPrefix: expected.itemHash.slice(0, 12),
+        purchasedOn: expected.purchasedOn,
+        allIn: expected.allIn,
+        quantity: expected.quantity,
+        candidateCount: candidates.length,
+        inboxMatched: Boolean(inbox),
+      });
+      continue;
+    }
+
+    const lot = candidates[0];
+    if (usedLotIds.has(lot.id)) {
+      diagnostics.push({
+        itemHashPrefix: expected.itemHash.slice(0, 12),
+        error: "canonical_lot_reused",
+        purchaseNumber: lot.purchase_number,
+      });
+      continue;
+    }
+
+    const linkedInbox = inbox || inboxByLotId.get(lot.id) || null;
+    const title = candidateTitle(lot, linkedInbox);
+    if (!title) {
+      diagnostics.push({
+        itemHashPrefix: expected.itemHash.slice(0, 12),
+        error: "missing_source_title",
+        purchaseNumber: lot.purchase_number,
+      });
+      continue;
+    }
+
+    usedLotIds.add(lot.id);
+    targets.push({
+      lot,
+      title,
+      itemHash: expected.itemHash,
+      allIn: expected.allIn,
+      quantity: expected.quantity,
+    });
   }
 
   const allInTotal = money(
-    targets.reduce((sum, target) => sum + Number(target.lot.total_acquisition_cost || 0), 0),
+    targets.reduce((sum, target) => sum + money(target.lot.total_acquisition_cost), 0),
   );
-  if (
-    targets.length !== EXPECTED_POSITIONS ||
-    usedLotIds.size !== EXPECTED_POSITIONS ||
-    allInTotal !== EXPECTED_ALL_IN_TOTAL
-  ) {
-    throw new Error(
-      `Owner-purchase truth gate failed: ${targets.length}/${EXPECTED_POSITIONS} positions, ${usedLotIds.size}/${EXPECTED_POSITIONS} unique lots, $${allInTotal.toFixed(2)}/$${EXPECTED_ALL_IN_TOTAL.toFixed(2)} ALL-IN.`,
-    );
-  }
+  const truthGatePassed =
+    diagnostics.length === 0 &&
+    targets.length === EXPECTED_POSITIONS &&
+    usedLotIds.size === EXPECTED_POSITIONS &&
+    allInTotal === EXPECTED_ALL_IN_TOTAL;
 
-  return { targets, matchedOrders: coveredOrderHashes.size, allInTotal };
+  return { targets, diagnostics, allInTotal, truthGatePassed };
 }
 
 export async function POST(request: Request) {
@@ -610,9 +375,31 @@ export async function POST(request: Request) {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    const { targets, matchedOrders, allInTotal } = await deriveTargets(supabase);
-    const alreadySynced = targets.filter(({ lot }) => isSynced(record(lot.metadata))).length;
-    const inFlight = targets.filter(({ lot }) => isInFlight(record(lot.metadata)));
+    const { targets, diagnostics, allInTotal, truthGatePassed } =
+      await deriveTargets(supabase);
+
+    if (!truthGatePassed) {
+      return Response.json(
+        {
+          success: false,
+          truthGatePassed: false,
+          error: "Owner-confirmed eBay PDF rows no longer reconcile 28/28 to the canonical Purchase Ledger.",
+          expectedPositions: EXPECTED_POSITIONS,
+          matchedPositions: targets.length,
+          expectedAllInTotal: EXPECTED_ALL_IN_TOTAL,
+          allInTotal,
+          diagnostics,
+        },
+        { status: 409, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
+    const alreadySynced = targets.filter(({ lot }) =>
+      isSynced(record(lot.metadata)),
+    ).length;
+    const inFlight = targets.filter(({ lot }) =>
+      isInFlight(record(lot.metadata)),
+    );
 
     if (mode === "inspect") {
       return Response.json(
@@ -621,8 +408,9 @@ export async function POST(request: Request) {
           truthGatePassed: true,
           schema: "tcos.instacomp.ownerPurchaseLearningSync.v1",
           mode,
-          matchedOrders,
+          source: "user_confirmed_ebay_purchase_history_pdf_20260807",
           eligible: targets.length,
+          units: targets.reduce((sum, target) => sum + target.quantity, 0),
           allInTotal,
           alreadySynced,
           pending: targets.length - alreadySynced - inFlight.length,
@@ -630,7 +418,7 @@ export async function POST(request: Request) {
           verified: alreadySynced,
           purchaseTruth: "owner_confirmed_100_percent",
           identityBoundary:
-            "Purchase, listing title, quantity, date, and ALL-IN cost are trusted. Exact visual/checklist identity remains gated until Registry evidence exists.",
+            "Purchase listing, date, quantity, and ALL-IN cost are trusted. Exact visual/checklist identity stays Registry-gated.",
           checkedAt: new Date().toISOString(),
         },
         { headers: { "Cache-Control": "no-store" } },
@@ -657,7 +445,7 @@ export async function POST(request: Request) {
     let sent = 0;
 
     for (const target of targets) {
-      const { lot, line, orderHash, allIn, quantity } = target;
+      const { lot, title, itemHash, allIn, quantity } = target;
       const metadata = record(lot.metadata);
       if (isSynced(metadata)) continue;
 
@@ -668,9 +456,9 @@ export async function POST(request: Request) {
         status: "sending",
         eventType: "BUY",
         candidateKey,
-        verificationSource: "owner_confirmed_ebay_purchase_history",
+        verificationSource: "owner_confirmed_ebay_purchase_history_pdf",
         purchaseTruthConfidence: 1,
-        sourceOrderHashSha256: orderHash,
+        sourceItemHashSha256: itemHash,
         startedAt,
       };
 
@@ -696,17 +484,16 @@ export async function POST(request: Request) {
         candidateKey,
         payload: {
           schema_version: EVENT_SCHEMA,
-          source: "owner_confirmed_ebay_purchase_history",
+          source: "owner_confirmed_ebay_purchase_history_pdf",
           verificationSource: "owner_confirmed_purchase_ledger_reconciliation",
           ownerConfirmed: true,
           purchaseTruth: true,
           truthConfidence: 1,
           purchaseLotId: lot.id,
           purchaseNumber: Number(lot.purchase_number || 0),
-          title: line.title,
+          title,
           marketplace: "eBay",
-          ebayItemId: line.itemId,
-          sourceOrderHashSha256: orderHash,
+          sourceItemHashSha256: itemHash,
           purchasedAt: lot.purchased_at,
           quantity,
           allInTotal: allIn,
@@ -718,7 +505,7 @@ export async function POST(request: Request) {
             : "pending_exact_registry_identity",
           exactRegistryIdentityTrainingAllowed: false,
           note:
-            "Trusted owner purchase example. Do not convert this receipt/listing title into visual exact-card identity truth without Registry-backed image evidence.",
+            "Trusted owner purchase example. Do not convert eBay receipt/title evidence into visual exact-card identity truth without Registry-backed image evidence.",
         },
       });
 
@@ -750,11 +537,12 @@ export async function POST(request: Request) {
       .from("tcos_mi_purchase_lots")
       .select("id,metadata")
       .in("id", targetIds);
-    if (verifyError) throw new Error(`Learning verification read failed: ${verifyError.message}`);
+    if (verifyError) {
+      throw new Error(`Learning verification read failed: ${verifyError.message}`);
+    }
     const verified = (verifyRows || []).filter((row: any) =>
       isSynced(record(row.metadata)),
     ).length;
-
     if (verified !== EXPECTED_POSITIONS) {
       throw new Error(
         `Learning verification failed closed: expected ${EXPECTED_POSITIONS} synced purchases, found ${verified}.`,
@@ -767,8 +555,9 @@ export async function POST(request: Request) {
         truthGatePassed: true,
         schema: "tcos.instacomp.ownerPurchaseLearningSync.v1",
         mode,
-        matchedOrders,
+        source: "user_confirmed_ebay_purchase_history_pdf_20260807",
         eligible: targets.length,
+        units: targets.reduce((sum, target) => sum + target.quantity, 0),
         allInTotal,
         sent,
         alreadySynced: targets.length - sent,
