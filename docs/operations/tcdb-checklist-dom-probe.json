@@ -1,0 +1,17 @@
+{
+  "checkedAt": "2026-08-07T12:19:57.540Z",
+  "status": 403,
+  "finalUrl": "https://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine",
+  "contentType": "text/html; charset=UTF-8",
+  "bytes": 5654,
+  "counts": {
+    "tr": 0,
+    "td": 0,
+    "li": 0,
+    "viewCardHref": 0,
+    "totalCardsText": 0,
+    "playerNeedle": 0
+  },
+  "sampleCardHrefs": [],
+  "aroundFirstPlayer": null
+}
