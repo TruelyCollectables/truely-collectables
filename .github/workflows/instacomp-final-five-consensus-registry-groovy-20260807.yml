@@ -107,7 +107,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          changed="$(git diff --name-only | sort)"
+          changed="$(
+            {
+              git diff --name-only
+              git ls-files --others --exclude-standard
+            } | sort -u
+          )"
           expected="$(printf '%s\n' \
             'scripts/run-instacomp-final-identity-consensus-simulations.ts' \
             'services/instacomp-ai/app/local_vision.py' \
@@ -117,6 +122,7 @@ jobs:
             'src/lib/instacomp-ai-local.ts' \
             'src/lib/instacomp-consensus.ts' \
             'src/lib/instacomp-learning-server.ts' | sort)"
+          printf 'changed files:\n%s\n' "$changed"
           test "$changed" = "$expected"
           git config user.name 'github-actions[bot]'
           git config user.email '4189828+github-actions[bot]@users.noreply.github.com'
