@@ -24,6 +24,10 @@ assert(source.includes("STABLE_ROUNDS"), "Verifier must require multiple stable 
 assert(source.includes("STABLE_ROUNDS = Math.max(2"), "Verifier must require at least two healthy read rounds.");
 assert(source.includes("isTransientReadError"), "Verifier must classify retryable read failures.");
 assert(source.includes("retryBoundedRead"), "Verifier must retry only bounded reads through an explicit helper.");
+assert(source.includes("retryDelay"), "Verifier must use one bounded backoff policy.");
+assert(source.includes('kind: "thrown"'), "Verifier must capture thrown transport failures.");
+assert(source.includes('kind: "returned"'), "Verifier must capture returned transient failures.");
+assert(source.includes("thrownTransportErrorsCovered: true"), "Verifier proof must confirm thrown transport errors are covered.");
 assert(source.includes("transientOnly: true"), "Verifier proof must state that only transient errors retry.");
 assert(source.includes('db.rpc("tcos_apply_checklist_import_plan"'), "Verifier must probe the transactional writer RPC.");
 assert(source.includes("contract_probe_must_fail"), "Verifier RPC must intentionally fail before persistence.");
@@ -39,6 +43,7 @@ console.log(JSON.stringify({
   readOnlyTableChecks: true,
   boundedReads: true,
   transientReadRetries: true,
+  thrownTransportRetries: true,
   minimumStableRounds: 2,
   exactCountsAbsent: true,
   writerPreWriteGuardProbe: true,
