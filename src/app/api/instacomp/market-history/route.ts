@@ -25,9 +25,13 @@ function safeEqual(left: string, right: string) {
 }
 
 function authorized(request: NextRequest) {
-  const expected = getInstaCompServiceToken();
-  const provided = String(request.headers.get("x-tcos-instacomp-service-token") || "").trim();
-  return Boolean(expected && provided && safeEqual(expected, provided));
+  const serviceExpected = getInstaCompServiceToken();
+  const serviceProvided = String(request.headers.get("x-tcos-instacomp-service-token") || "").trim();
+  if (serviceExpected && serviceProvided && safeEqual(serviceExpected, serviceProvided)) return true;
+
+  const macExpected = String(process.env.INSTACOMP_AI_LOCAL_KEY || "").trim();
+  const macProvided = String(request.headers.get("x-instacomp-ai-key") || "").trim();
+  return Boolean(macExpected && macProvided && safeEqual(macExpected, macProvided));
 }
 
 type TargetListing = {
