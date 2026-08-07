@@ -1,0 +1,127 @@
+name: Ingest Mainstream Checklists 2000 Plus
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/ingest-mainstream-checklist-backlog.yml"
+      - "scripts/ingest-mainstream-checklist-backlog.mjs"
+      - "scripts/mainstream-checklist/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/ingest-mainstream-checklist-backlog.yml"
+      - "scripts/ingest-mainstream-checklist-backlog.mjs"
+      - "scripts/mainstream-checklist/**"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Validate sources or apply clean imports to the Checklist Registry
+        required: true
+        type: choice
+        options:
+          - validate
+          - apply
+        default: apply
+  schedule:
+    - cron: "41 8 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instacomp-mainstream-checklist-backlog-2000-plus
+  cancel-in-progress: false
+
+jobs:
+  self-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Verify backlog manifest and parser contract
+        env:
+          MAINSTREAM_CHECKLIST_SELF_TEST: "true"
+        run: node --import tsx scripts/ingest-mainstream-checklist-backlog.mjs
+
+  ingest:
+    if: github.event_name != 'pull_request'
+    needs: self-test
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        batch: [0, 1, 2, 3, 4, 5, 6, 7]
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      MAINSTREAM_CHECKLIST_APPLY: ${{ github.event_name == 'push' || github.event_name == 'schedule' || inputs.mode == 'apply' }}
+      MAINSTREAM_CHECKLIST_BATCH_INDEX: ${{ matrix.batch }}
+      MAINSTREAM_CHECKLIST_BATCH_COUNT: "8"
+      MAINSTREAM_CHECKLIST_WORKERS: "3"
+      MAINSTREAM_CHECKLIST_OUTPUT: .checklist-discovery/mainstream-backlog-batch-${{ matrix.batch }}.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deterministic source extractors
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends poppler-utils
+          python -m pip install --disable-pip-version-check --no-cache-dir openpyxl==3.1.5 xlrd==2.0.1
+          pdftotext -v
+      - run: npm ci
+      - name: Download, archive, normalize, validate and import backlog batch
+        run: node --import tsx scripts/ingest-mainstream-checklist-backlog.mjs
+      - name: Upload sanitized batch receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mainstream-checklist-backlog-batch-${{ matrix.batch }}-${{ github.run_id }}
+          path: .checklist-discovery/mainstream-backlog-batch-${{ matrix.batch }}.json
+          if-no-files-found: warn
+          retention-days: 90
+
+  reconcile:
+    if: always() && github.event_name != 'pull_request'
+    needs: [self-test, ingest]
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 30
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      MAINSTREAM_CHECKLIST_RECONCILE_ONLY: "true"
+      MAINSTREAM_CHECKLIST_OUTPUT: .checklist-discovery/mainstream-backlog-reconciliation.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Reconcile all 327 source targets against private storage and the source catalog
+        run: node --import tsx scripts/ingest-mainstream-checklist-backlog.mjs
+      - name: Upload reconciliation receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mainstream-checklist-backlog-reconciliation-${{ github.run_id }}
+          path: .checklist-discovery/mainstream-backlog-reconciliation.json
+          if-no-files-found: error
+          retention-days: 90

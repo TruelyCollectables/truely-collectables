@@ -29,11 +29,21 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
 
-      - name: Apply checklist-only review contract
-        run: python scripts/apply-instacomp-500-repair.py
+      - name: Apply or recognize the current unresolved-scan contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -q 'ok=database_ready and checklist_ready and ollama_ready' services/instacomp-ai/app/main.py \
+            && grep -q 'suggestion = await reader.analyze(' services/instacomp-ai/app/main.py \
+            && grep -q 'suggestion_registry = await checklist_gateway.match(' services/instacomp-ai/app/main.py \
+            && grep -q 'internalChecklistOutcome' src/lib/instacomp-ai-local.ts; then
+            echo "Current Ollama-evidence and Registry-authority contract is already present."
+          else
+            python scripts/apply-instacomp-500-repair.py
+          fi
 
       - name: Install Python dependencies
         run: |
