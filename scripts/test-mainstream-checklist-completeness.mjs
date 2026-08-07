@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import {
   declaredCardFloor,
   directPageHasChecklistDownload,
@@ -7,12 +9,15 @@ import {
 import {
   isReaderRequest,
 } from "./mainstream-checklist/reader-retry-prepatch.mjs";
-import * as registryTools from "./mainstream-checklist/registry-tools.mjs";
 
 function assert(condition, message, detail = null) {
   if (!condition) throw new Error(`${message}${detail ? `: ${JSON.stringify(detail)}` : ""}`);
 }
 
+const registrySource = readFileSync(
+  new URL("./mainstream-checklist/registry-tools.mjs", import.meta.url),
+  "utf8",
+);
 for (const name of [
   "dbClient",
   "buildPlan",
@@ -23,9 +28,19 @@ for (const name of [
   "upsertCatalog",
   "persistPlan",
 ]) {
-  assert(typeof registryTools[name] === "function", `Registry helper export is missing: ${name}`);
+  assert(
+    new RegExp(`export\\s+(?:async\\s+)?function\\s+${name}\\s*\\(`).test(registrySource),
+    `Registry helper export is missing: ${name}`,
+  );
 }
-assert(registryTools.ARCHIVE_BUCKET === "tcos-checklist-universal-archive", "Registry archive bucket contract drifted");
+assert(
+  /export\s+const\s+ARCHIVE_BUCKET\s*=\s*["']tcos-checklist-universal-archive["']/.test(registrySource),
+  "Registry archive bucket contract drifted",
+);
+assert(
+  /buildChecklistIdentityFingerprint/.test(registrySource) && /buildChecklistSourceStorageReceipt/.test(registrySource),
+  "Registry identity/storage helper imports were lost",
+);
 
 const complete = [
   "## Bowman Base",
