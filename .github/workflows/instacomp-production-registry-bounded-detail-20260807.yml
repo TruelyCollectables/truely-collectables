@@ -8,6 +8,14 @@ on:
       - "scripts/patch-instacomp-production-registry-bounded-detail.py"
       - "scripts/test-instacomp-production-registry-bounded-detail.mjs"
       - ".github/workflows/instacomp-production-registry-bounded-detail-20260807.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "scripts/patch-instacomp-production-registry-bounded-detail.py"
+      - "scripts/test-instacomp-production-registry-bounded-detail.mjs"
+      - ".github/workflows/instacomp-production-registry-bounded-detail-20260807.yml"
+      - "src/lib/instacomp-learning-server.ts"
   workflow_dispatch:
 
 permissions:
