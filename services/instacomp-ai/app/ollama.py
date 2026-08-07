@@ -4,6 +4,7 @@ import ast
 import base64
 import io
 import json
+import math
 import re
 
 import httpx
@@ -371,26 +372,104 @@ def normalize_identity_payload(payload: object) -> dict:
     return root
 
 
+def _finite_float(value: object, default: float = 0.0) -> float:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return default
+    return numeric if math.isfinite(numeric) else default
+
+
+def _compact_ocr(observations: list, limit: int = 40) -> list[dict]:
+    compact: list[dict] = []
+    seen: set[str] = set()
+    for observation in observations:
+        text = re.sub(r"\s+", " ", str(observation.text or "")).strip()
+        if not text:
+            continue
+        key = text.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        compact.append(
+            {
+                "text": text[:120],
+                "confidence": round(_finite_float(observation.confidence), 3),
+            }
+        )
+        if len(compact) >= limit:
+            break
+    return compact
+
+
+def _compact_colors(colors) -> dict:
+    ranked = sorted(
+        (
+            (str(name), _finite_float(score))
+            for name, score in colors.proportions.items()
+        ),
+        key=lambda item: item[1],
+        reverse=True,
+    )[:8]
+    return {
+        "dominant_colors": list(colors.dominant_colors[:8]),
+        "proportions": {name: round(score, 4) for name, score in ranked},
+        "mean_saturation": round(_finite_float(colors.mean_saturation), 4),
+        "mean_brightness": round(_finite_float(colors.mean_brightness), 4),
+        "metallic_score": round(_finite_float(colors.metallic_score), 4),
+    }
+
+
+def _compact_pattern(pattern) -> dict:
+    ranked = sorted(
+        (
+            (str(name), _finite_float(score))
+            for name, score in pattern.scores.items()
+        ),
+        key=lambda item: item[1],
+        reverse=True,
+    )[:8]
+    return {
+        "label": pattern.label,
+        "confidence": round(_finite_float(pattern.confidence), 4),
+        "scores": {name: round(score, 4) for name, score in ranked},
+        "geometry": list(pattern.geometry[:12]),
+        "line_count": int(pattern.line_count),
+        "polygon_count": int(pattern.polygon_count),
+        "edge_density": round(_finite_float(pattern.edge_density), 4),
+        "dominant_angle": (
+            round(_finite_float(pattern.dominant_angle), 2)
+            if pattern.dominant_angle is not None
+            else None
+        ),
+        "angle_concentration": round(_finite_float(pattern.angle_concentration), 4),
+        "angle_entropy": round(_finite_float(pattern.angle_entropy), 4),
+    }
+
+
+def _compact_side(side) -> dict:
+    return {
+        "ocr": _compact_ocr(side.ocr),
+        "colors": _compact_colors(side.colors),
+        "pattern": _compact_pattern(side.pattern),
+        "errors": list(side.errors[:8]),
+    }
+
+
 def local_vision_prompt_payload(local_vision: LocalVisionEvidence | None) -> dict | None:
+    """Return a bounded reasoning digest while preserving full evidence in storage.
+
+    Bounding boxes and every raw OpenCV metric belong in the scan/training record,
+    not in the Ollama prompt. Sending the full evidence object can exceed Qwen's
+    configured context and make Ollama reject the request with HTTP 400.
+    """
     if local_vision is None:
         return None
     return {
         "identity_hints": local_vision.identity_hints.model_dump(mode="json"),
-        "serial": local_vision.serial.model_dump(mode="json"),
-        "front": {
-            "ocr": [value.model_dump(mode="json") for value in local_vision.front.ocr[:100]],
-            "colors": local_vision.front.colors.model_dump(mode="json"),
-            "pattern": local_vision.front.pattern.model_dump(mode="json"),
-        },
-        "back": (
-            {
-                "ocr": [value.model_dump(mode="json") for value in local_vision.back.ocr[:100]],
-                "colors": local_vision.back.colors.model_dump(mode="json"),
-                "pattern": local_vision.back.pattern.model_dump(mode="json"),
-            }
-            if local_vision.back
-            else None
-        ),
+        "serial": local_vision.serial.model_dump(mode="json", exclude={"box"}),
+        "front": _compact_side(local_vision.front),
+        "back": _compact_side(local_vision.back) if local_vision.back else None,
     }
 
 
@@ -452,14 +531,24 @@ class OllamaReader:
         if back:
             prepared_images.append(prepare_ollama_image(back))
         images = [base64.b64encode(image).decode("ascii") for image in prepared_images]
+        evidence_digest = local_vision_prompt_payload(local_vision)
         prompt = (
             SYSTEM_PROMPT
-            + "\nReturn only a JSON object matching this JSON schema exactly. "
-            + "Use null or empty arrays for unknown values.\n"
-            + json.dumps(OLLAMA_OUTPUT_SCHEMA, separators=(",", ":"))
-            + "\nDeterministic local evidence (trust exact OCR boxes, serial parsing, and measured geometry over visual guessing):\n"
-            + json.dumps(local_vision_prompt_payload(local_vision), separators=(",", ":"), ensure_ascii=False)
+            + "\nReturn only one JSON object matching the requested structured-output schema. "
+            + "Use null or empty arrays for unknown values."
         )
+        if evidence_digest is not None:
+            prompt += (
+                "\nDeterministic local evidence digest. Full OCR boxes and raw measurements "
+                "remain stored for training; this bounded digest is for reasoning only. "
+                "Trust serial parsing, OCR text, colors, and measured geometry over visual guessing:\n"
+                + json.dumps(
+                    evidence_digest,
+                    separators=(",", ":"),
+                    ensure_ascii=False,
+                    allow_nan=False,
+                )
+            )
         payload = {
             "model": self.settings.ollama_model,
             "messages": [
@@ -514,5 +603,11 @@ class OllamaReader:
                 "prepared_image_count": len(prepared_images),
                 "prepared_image_bytes": [len(image) for image in prepared_images],
                 "deterministic_local_evidence": local_vision is not None,
+                "prompt_chars": len(prompt),
+                "evidence_digest_chars": (
+                    len(json.dumps(evidence_digest, ensure_ascii=False, allow_nan=False))
+                    if evidence_digest is not None
+                    else 0
+                ),
             },
         )

@@ -125,6 +125,12 @@ def canonical_filename(identity: CardIdentity | None) -> str | None:
     return "-".join(part for part in parts if part) or None
 
 
+def _safe_ollama_error_detail(value: object, limit: int = 240) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    text = re.sub(r"[^A-Za-z0-9 .,:;_\-/()\[\]{}'\"=]+", "?", text)
+    return text[:limit]
+
+
 def _merge_identity(primary: CardIdentity, fallback: CardIdentity) -> CardIdentity:
     values = primary.model_dump()
     for field, value in fallback.model_dump().items():
@@ -525,7 +531,10 @@ async def analyze_scan(
         )
     except httpx.HTTPStatusError as exc:
         model_error_code = f"ollama_http_{exc.response.status_code}"
-        model_error = model_error_code
+        detail = _safe_ollama_error_detail(exc.response.text)
+        model_error = (
+            f"{model_error_code}:{detail}" if detail else model_error_code
+        )
     except httpx.TimeoutException:
         model_error_code = "ollama_timeout"
         model_error = model_error_code
@@ -591,7 +600,7 @@ async def analyze_scan(
         match_source = "none"
         if model_error:
             status = "model_unavailable"
-            error_receipt = f"local_model_error:{model_error_code or 'unknown'}"
+            error_receipt = f"local_model_error:{model_error or model_error_code or 'unknown'}"
             checklist_result = checklist_result.model_copy(
                 update={
                     "reasons": list(dict.fromkeys([*checklist_result.reasons, error_receipt]))
