@@ -27,12 +27,11 @@ function deliveredCost(listing: Record<string, unknown>) {
   return Number(parts.reduce<number>((sum, value) => sum + (value || 0), 0).toFixed(2));
 }
 
-async function listingFromClone(request: NextRequest) {
+async function listingFromClone(request: Request) {
   const form = await request.formData();
   const raw = form.get("listingJson");
   if (typeof raw !== "string") return null;
-  const parsed = JSON.parse(raw) as Record<string, unknown>;
-  return parsed;
+  return JSON.parse(raw) as Record<string, unknown>;
 }
 
 export async function POST(request: NextRequest) {
