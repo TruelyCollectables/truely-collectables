@@ -24,7 +24,7 @@ env:
   EXPECTED_MAC_FINGERPRINT: dfc2dc241f61cd615b0811c68f7b843dd44c19e22fd29adc7d839ee1e62289cb
   SCANNER_REPAIR_COMMIT: 2249ce075d32c0cac9e074d8e4e5656830d05b79
   EVIDENCE_DIR: evidence/instacomp-final-production-acceptance-v3-20260807
-  TEMP_DIR: ${{ runner.temp }}/instacomp-final-production-acceptance-v3-20260807
+  TEMP_DIR: /tmp/instacomp-final-production-acceptance-v3-20260807
 
 jobs:
   certify:
