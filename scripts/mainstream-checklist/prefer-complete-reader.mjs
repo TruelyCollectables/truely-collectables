@@ -65,7 +65,10 @@ function observedCardLines(body) {
     const number = match[1].toUpperCase();
     if (/^(?:19|20)\d{2}$/.test(number)) continue;
     const subject = match[2].toLowerCase();
-    if (/(?:cards per pack|packs per box|boxes per case|release date|product configuration|insertion ratio|estimated odds|parallel cards?)/i.test(subject)) continue;
+    if (
+      /^cards?\.?$/i.test(subject) ||
+      /(?:cards per pack|packs per box|boxes per case|release date|product configuration|insertion ratio|estimated odds|parallel cards?)/i.test(subject)
+    ) continue;
     seen.add(`${number}\u0001${subject}`);
   }
   return seen.size;
