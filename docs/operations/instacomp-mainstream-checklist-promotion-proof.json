@@ -1,6 +1,6 @@
 {
   "schema": "tcos.checklist.mainstreamBacklogPromotionProof.v2",
-  "checkedAt": "2026-08-07T11:49:34.189Z",
+  "checkedAt": "2026-08-07T11:51:11.461Z",
   "expectedSources": 327,
   "expectedPromotedSources": 319,
   "expectedAttachmentOnly": 8,
