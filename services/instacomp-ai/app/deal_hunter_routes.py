@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from .config import settings
 from .deal_hunter import DealHunterScheduler
 from .deal_hunter_store import DealHunterStore
+from .deal_hunter_targeted import ALLOWED_TARGET_LANES, run_targeted_lane
 
 
 _store = DealHunterStore(settings.resolve_local_path(settings.database_path))
@@ -45,6 +46,21 @@ def build_deal_hunter_router(require_api_key) -> APIRouter:
     @router.post("/run", dependencies=[Depends(require_api_key)])
     async def run_deal_hunter_now():
         return await _scheduler.run_now(trigger="manual")
+
+    @router.post("/run-targeted", dependencies=[Depends(require_api_key)])
+    async def run_deal_hunter_targeted(
+        lane: str = Query(...),
+        force: bool = Query(default=False),
+        limit: int = Query(default=10, ge=1, le=20),
+    ):
+        if lane not in ALLOWED_TARGET_LANES:
+            raise HTTPException(status_code=400, detail="Unknown Deal Hunter lane")
+        return await run_targeted_lane(
+            _scheduler,
+            lane=lane,
+            force=force,
+            limit=limit,
+        )
 
     @router.get("/runs", dependencies=[Depends(require_api_key)])
     async def deal_hunter_runs(limit: int = Query(default=20, ge=1, le=200)):
