@@ -29,6 +29,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/patch-instacomp-ocr-registry-and-five-card-truth.py')
+          source = path.read_text(encoding='utf-8')
+          old = '    updated, count = re.subn(pattern, replacement, source, count=1, flags=re.S)\n'
+          new = '    compiled = re.compile(pattern, re.S)\n    updated, count = compiled.subn(lambda _match: replacement, source, count=1)\n'
+          if old in source:
+              path.write_text(source.replace(old, new, 1), encoding='utf-8')
+          PY
           if grep -q 'loadRegistryRowsBounded' src/lib/instacomp-checklist-first-server.ts; then
             echo 'runtime already patched'
           else
@@ -71,6 +80,7 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add \
+            scripts/patch-instacomp-ocr-registry-and-five-card-truth.py \
             services/instacomp-ai/app/local_vision.py \
             services/instacomp-ai/app/ollama.py \
             src/lib/instacomp-checklist-first-server.ts
