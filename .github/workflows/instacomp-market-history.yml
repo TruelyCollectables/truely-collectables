@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "src/lib/instacomp-market-history.ts"
+      - "src/app/api/instacomp/market-history/route.ts"
       - "scripts/run-instacomp-market-history-simulations.ts"
       - "supabase/migrations/20260807_instacomp_exact_card_market_history.sql"
       - "services/instacomp-ai/app/deal_hunter_learning.py"
@@ -15,6 +16,7 @@ on:
       - agent/instacomp-deal-hunter-decision-learning
     paths:
       - "src/lib/instacomp-market-history.ts"
+      - "src/app/api/instacomp/market-history/route.ts"
       - "scripts/run-instacomp-market-history-simulations.ts"
       - "supabase/migrations/20260807_instacomp_exact_card_market_history.sql"
       - "services/instacomp-ai/app/deal_hunter_learning.py"
@@ -41,6 +43,8 @@ jobs:
       - name: Exact-card market history simulation
         run: node --import tsx scripts/run-instacomp-market-history-simulations.ts
       - name: Deal Hunter decision-learning tests
+        env:
+          PYTHONPATH: services/instacomp-ai
         run: python -m unittest services/instacomp-ai/tests/test_deal_hunter_decision_learning.py
       - name: SQL append-only contract
         run: |
