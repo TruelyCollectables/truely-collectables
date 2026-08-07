@@ -7,6 +7,7 @@ on:
       - ".github/workflows/instacomp-local-learning-stack-20260806.yml"
       - "scripts/fix-instacomp-local-learning-patcher.py"
       - "scripts/fix-instacomp-local-learning-runtime.py"
+      - "scripts/fix-instacomp-legacy-training-receipts.py"
       - "scripts/patch-instacomp-local-learning-stack.py"
       - "scripts/patch-instacomp-training-dataset-format.py"
       - "services/instacomp-ai/**"
@@ -40,10 +41,12 @@ jobs:
           python3 scripts/patch-instacomp-local-learning-stack.py
           python3 scripts/patch-instacomp-training-dataset-format.py
           python3 scripts/fix-instacomp-local-learning-runtime.py
+          python3 scripts/fix-instacomp-legacy-training-receipts.py
           git diff --check
           grep -q 'class LocalVisionEvidence' services/instacomp-ai/app/models.py
           grep -q 'training_examples' services/instacomp-ai/app/storage.py
           grep -q 'local_vision: dict | None = None' services/instacomp-ai/app/storage.py
+          grep -q 'legacy_scan_checklist_receipt_missing' services/instacomp-ai/app/training.py
           grep -q 'analyze_local_vision' services/instacomp-ai/app/main.py
           grep -q 'deterministic_local_evidence' services/instacomp-ai/app/ollama.py
           grep -q 'opencv-python-headless' services/instacomp-ai/requirements.txt
