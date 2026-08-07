@@ -30,6 +30,41 @@ const BATCH_INDEX = Math.max(0, Number(process.env.MAINSTREAM_CHECKLIST_BATCH_IN
 const BATCH_COUNT = Math.max(1, Number(process.env.MAINSTREAM_CHECKLIST_BATCH_COUNT || 1));
 const WORKERS = Math.max(1, Math.min(6, Number(process.env.MAINSTREAM_CHECKLIST_WORKERS || 3)));
 
+const REGISTRY_ARCHIVE_MIME_TYPES = new Set([
+  "text/csv",
+  "text/tab-separated-values",
+  "text/html",
+  "application/json",
+  "application/xml",
+  "text/xml",
+  "application/pdf",
+  "application/zip",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+]);
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function registrySource(downloaded) {
+  if (REGISTRY_ARCHIVE_MIME_TYPES.has(downloaded.source.mimeType)) {
+    return downloaded.source;
+  }
+  const bytes = Buffer.from(`<pre>${escapeHtml(downloaded.text)}</pre>`, "utf8");
+  return {
+    ...downloaded.source,
+    bytes,
+    mimeType: "text/html",
+    filename: `${downloaded.source.filename}.normalized.html`,
+    derivedNormalizedSource: true,
+  };
+}
+
 function writeReceipt(value) {
   mkdirSync(dirname(OUTPUT), { recursive: true });
   writeFileSync(OUTPUT, `${JSON.stringify(value, null, 2)}\n`, "utf8");
@@ -38,6 +73,8 @@ function writeReceipt(value) {
 
 async function processEntry(db, entry) {
   const checkedAt = new Date().toISOString();
+  let downloaded = null;
+  let archive = null;
   const baseMetadata = {
     backlogSchema: "tcos.instacomp.mainstreamChecklistBacklog.v1",
     backlogId: entry.id,
@@ -46,8 +83,8 @@ async function processEntry(db, entry) {
     sourceName: entry.sourceName,
   };
   try {
-    const downloaded = await downloadAndParse(entry);
-    const archive = await uploadArchive(db, downloaded.source);
+    downloaded = await downloadAndParse(entry);
+    archive = await uploadArchive(db, downloaded.source);
     if (downloaded.landingPage) await uploadArchive(db, downloaded.landingPage);
 
     const { data: existing, error: existingError } = await db
@@ -120,7 +157,8 @@ async function processEntry(db, entry) {
       };
     }
 
-    const plan = buildPlan(entry, downloaded.parsed, downloaded.source, checkedAt);
+    const registryArtifact = registrySource(downloaded);
+    const plan = buildPlan(entry, downloaded.parsed, registryArtifact, checkedAt);
     const complexity = assertPlanComplexity(plan);
     const errors = plan.validation.issues.filter((issue) => issue.severity === "error");
     const common = {
@@ -145,6 +183,8 @@ async function processEntry(db, entry) {
         finalUrl: downloaded.source.finalUrl,
         sourceMimeType: downloaded.source.mimeType,
         sourceSizeBytes: downloaded.source.bytes.byteLength,
+        registrySourceMimeType: registryArtifact.mimeType,
+        registrySourceDerived: registryArtifact.derivedNormalizedSource === true,
         extractedTextBytes: Buffer.byteLength(downloaded.text, "utf8"),
         planBytes: complexity.serializedBytes,
       },
@@ -171,7 +211,7 @@ async function processEntry(db, entry) {
       };
     }
 
-    const persistence = await persistPlan(db, plan, downloaded.source.bytes);
+    const persistence = await persistPlan(db, plan, registryArtifact.bytes);
     await upsertCatalog(db, {
       ...common,
       status: "imported",
@@ -186,24 +226,34 @@ async function processEntry(db, entry) {
     };
   } catch (caught) {
     const message = caught instanceof Error ? caught.message : String(caught);
+    const status = archive ? "quarantined" : "failed";
     await upsertCatalog(db, {
       manufacturer: entry.release.manufacturer,
       sport: entry.release.sport,
       source_url: entry.sourceUrl,
+      source_sha256: archive?.digest || null,
       release_name: entry.release.canonicalName,
-      status: "failed",
+      status,
       last_seen_at: checkedAt,
       last_checked_at: checkedAt,
       issue_summary: [
         {
-          code: "mainstream_backlog_ingest_failure",
+          code: archive
+            ? "mainstream_backlog_normalization_quarantined"
+            : "mainstream_backlog_ingest_failure",
           severity: "error",
           message: message.slice(0, 500),
         },
       ],
-      metadata: baseMetadata,
+      metadata: {
+        ...baseMetadata,
+        rawArchived: Boolean(archive),
+        archiveBucket: archive ? ARCHIVE_BUCKET : null,
+        archiveObjectPath: archive?.objectPath || null,
+        selectedUrl: downloaded?.source?.selectedUrl || null,
+      },
     });
-    return { id: entry.id, sourceUrl: entry.sourceUrl, status: "failed", message };
+    return { id: entry.id, sourceUrl: entry.sourceUrl, status, message };
   }
 }
 
