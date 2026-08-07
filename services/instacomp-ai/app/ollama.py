@@ -153,6 +153,29 @@ def normalize_prizm_surface_parallel(
 
 def normalize_identity_payload(payload: dict) -> dict:
     identity = dict(payload.get("identity") or {})
+    # Vision models frequently emit visible numeric fields such as year and
+    # card number as JSON numbers. CardIdentity intentionally stores these as
+    # strings, so normalize them before Pydantic validation instead of
+    # misclassifying a valid model answer as model_unavailable.
+    for field in [
+        "sport",
+        "league",
+        "year",
+        "manufacturer",
+        "brand",
+        "set_name",
+        "subset",
+        "player",
+        "team",
+        "card_number",
+        "parallel",
+        "variation",
+        "serial_number",
+        "inscription_text",
+        "memorabilia_type",
+    ]:
+        value = identity.get(field)
+        identity[field] = str(value).strip() or None if value is not None else None
     serial_number = str(identity.get("serial_number") or "").strip()
     serial_run = identity.get("serial_run")
     if not serial_run and serial_number:
