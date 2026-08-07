@@ -1,0 +1,66 @@
+name: Deploy InstaComp Registry Resolver 20260807
+
+on:
+  push:
+    branches:
+      - ops/deploy-instacomp-registry-resolver-20260807
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+jobs:
+  deploy-production:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Verify repaired Registry resolver is in source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 574d4bd6114ce4ce90f1444fce1ed5e37d8ad47d HEAD
+          grep -q 'loadRegistryRowsBounded' src/lib/instacomp-checklist-first-server.ts
+          grep -q 'registryYearStart' src/lib/instacomp-checklist-first-server.ts
+          grep -q 'hard_fields = {"year", "manufacturer", "card_number"}' services/instacomp-ai/app/ollama.py
+          echo "source_commit=$(git rev-parse HEAD)"
+      - name: Install and typecheck
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npx tsc --noEmit
+      - name: Build and deploy Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          npx --yes vercel@56.2.0 pull --yes --environment=production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          npx --yes vercel@56.2.0 build --prod --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          npx --yes vercel@56.2.0 deploy --prebuilt --prod --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" | tee /tmp/vercel-deploy-url.txt
+      - name: Verify Production readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          sleep 8
+          curl --silent --show-error --fail --retry 5 --retry-delay 3 --retry-all-errors \
+            "https://truelycollectables.com/api/instacomp/internal-readiness?ts=$(date +%s)" \
+            | tee /tmp/instacomp-production-readiness.json
+          node - <<'NODE'
+          const fs = require('fs');
+          const body = JSON.parse(fs.readFileSync('/tmp/instacomp-production-readiness.json','utf8'));
+          const required = ['ok','configured','reachable','internalMemoryReady','checklistReady','localModelReady'];
+          const bad = required.filter((key) => body[key] !== true);
+          if (bad.length) throw new Error(`Production readiness failed: ${bad.join(', ')}`);
+          console.log('Production InstaComp readiness: PASS');
+          NODE
