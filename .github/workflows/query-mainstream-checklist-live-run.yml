@@ -1,5 +1,6 @@
 name: Query Mainstream Checklist Live Run
 
+# Operational refresh after the systemic checklist ingestion repair.
 on:
   push:
     branches: [main]
