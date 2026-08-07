@@ -82,11 +82,7 @@ if [[ ! -x "$python_bin" ]]; then
   exit 2
 fi
 
-"$python_bin" -m pytest -q \
-  "$service_root/tests/test_ocr_registry_hard_facts.py" \
-  "$service_root/tests/test_local_vision.py" \
-  "$service_root/tests/test_ollama.py" \
-  "$service_root/tests/test_runtime_identity.py"
+"$python_bin" -m pytest -q "$service_root/tests"
 
 fingerprint="$(cd "$service_root" && "$python_bin" - <<'PY'
 from app.runtime_identity import runtime_source_fingerprint
