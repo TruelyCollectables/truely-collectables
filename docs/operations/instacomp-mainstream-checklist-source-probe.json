@@ -1,0 +1,2850 @@
+{
+  "checkedAt": "2026-08-07T13:51:15.783Z",
+  "results": [
+    {
+      "id": "SR-0245",
+      "canonicalName": "2024 Bowman Draft baseball",
+      "sourceUrl": "https://www.beckett.com/news/2024-bowman-draft-baseball-cards/",
+      "selectedUrl": "https://www.beckett.com/news/2024-bowman-draft-baseball-cards/",
+      "finalUrl": "https://www.beckett.com/news/2024-bowman-draft-baseball-cards/",
+      "mimeType": "text/plain",
+      "cards": 1168,
+      "parallels": 145,
+      "errors": [
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #BDC-1 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #BDC-2 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #BDC-8 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #BDC-13 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #BDC-18 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #BDC-28 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #BDC-40 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #BDC-58 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #BDC-67 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #BDC-95 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Etched in Glass Variations #BDC-18 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Etched in Glass Variations #BDC-20 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Prospectors Special Edition Die-Cut Variations #BDC-20 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Etched in Glass Variations #BDC-58 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Image Variations #BDC-58 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Prospectors Special Edition Die-Cut Variations #BDC-58 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Etched in Glass Variations #BDC-67 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Image Variations #BDC-67 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Prospectors Special Edition Die-Cut Variations #BDC-67 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Etched in Glass Variations #BDC-2 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Image Variations #BDC-2 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Prospectors Special Edition Die-Cut Variations #BDC-2 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Etched in Glass Variations #BDC-55 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Image Variations #BDC-55 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Prospectors Special Edition Die-Cut Variations #BDC-55 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Etched in Glass Variations #BDC-1 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Image Variations #BDC-1 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Prospectors Special Edition Die-Cut Variations #BDC-1 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Etched in Glass Variations #BDC-86 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Image Variations #BDC-86 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Prospectors Special Edition Die-Cut Variations #BDC-86 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Etched in Glass Variations #BDC-8 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Image Variations #BDC-8 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Prospectors Special Edition Die-Cut Variations #BDC-8 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Etched in Glass Variations #BDC-13 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Image Variations #BDC-13 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Prospectors Special Edition Die-Cut Variations #BDC-13 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Etched in Glass Variations #BDC-24 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Prospectors Special Edition Die-Cut Variations #BDC-24 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Etched in Glass Variations #BDC-72 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Etched in Glass Variations #BDC-98 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Etched in Glass Variations #BDC-28 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Prospectors Special Edition Die-Cut Variations #BDC-28 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Etched in Glass Variations #BDC-56 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Image Variations #BDC-56 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Prospectors Special Edition Die-Cut Variations #BDC-56 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Etched in Glass Variations #BDC-16 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Etched in Glass Variations #BDC-22 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Image Variations #BDC-22 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Prospectors Special Edition Die-Cut Variations #BDC-22 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Etched in Glass Variations #BDC-40 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Prospectors Special Edition Die-Cut Variations #BDC-40 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Etched in Glass Variations #BDC-73 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Etched in Glass Variations #BDC-62 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Prospectors Special Edition Die-Cut Variations #BDC-62 maps to conflicting subjects."
+        }
+      ],
+      "warnings": [],
+      "sample": [
+        {
+          "setName": "Bowman Base",
+          "cardNumber": "200",
+          "players": [
+            "cards."
+          ]
+        },
+        {
+          "setName": "_Parallels_:",
+          "cardNumber": "BD-1",
+          "players": [
+            "Travis Bazzana, Cleveland Guardians"
+          ]
+        },
+        {
+          "setName": "_Parallels_:",
+          "cardNumber": "BD-2",
+          "players": [
+            "Hagen Smith, Chicago White Sox"
+          ]
+        },
+        {
+          "setName": "_Parallels_:",
+          "cardNumber": "BD-3",
+          "players": [
+            "Josh Hartle, Pittsburgh Pirates"
+          ]
+        },
+        {
+          "setName": "_Parallels_:",
+          "cardNumber": "BD-4",
+          "players": [
+            "Thayron Liranzo, Detroit Tigers"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "SR-0250",
+      "canonicalName": "2024 Topps Allen And Ginter baseball",
+      "sourceUrl": "https://www.beckett.com/news/2024-topps-allen-ginter-baseball-cards/",
+      "selectedUrl": "https://www.beckett.com/news/2024-topps-allen-ginter-baseball-cards/",
+      "finalUrl": "https://www.beckett.com/news/2024-topps-allen-ginter-baseball-cards/",
+      "mimeType": "text/plain",
+      "cards": 356,
+      "parallels": 5,
+      "errors": [
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Freddie Freeman Rookie Card Rankings and Other ... #27 maps to conflicting subjects."
+        }
+      ],
+      "warnings": [],
+      "sample": [
+        {
+          "setName": "Base Set",
+          "cardNumber": "350",
+          "players": [
+            "cards."
+          ]
+        },
+        {
+          "setName": "(RC) notes players with with the “RC” badge who appear in base sets from previous years.",
+          "cardNumber": "1",
+          "players": [
+            "Julio Rodríguez, Seattle Mariners"
+          ]
+        },
+        {
+          "setName": "(RC) notes players with with the “RC” badge who appear in base sets from previous years.",
+          "cardNumber": "2",
+          "players": [
+            "Endy Rodríguez, Pittsburgh Pirates"
+          ]
+        },
+        {
+          "setName": "(RC) notes players with with the “RC” badge who appear in base sets from previous years.",
+          "cardNumber": "3",
+          "players": [
+            "Hunter Goodman, Colorado Rockies"
+          ]
+        },
+        {
+          "setName": "(RC) notes players with with the “RC” badge who appear in base sets from previous years.",
+          "cardNumber": "4",
+          "players": [
+            "Henry Davis, Pittsburgh Pirates"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "SR-0355",
+      "canonicalName": "2024 Score football",
+      "sourceUrl": "https://www.beckett.com/news/2024-score-football-cards/",
+      "selectedUrl": "https://www.beckett.com/news/2024-score-football-cards/",
+      "finalUrl": "https://www.beckett.com/news/2024-score-football-cards/",
+      "mimeType": "text/plain",
+      "cards": 2325,
+      "parallels": 17,
+      "errors": [
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "2024 Score Football Checklist - Autographs - Double Trouble #10 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "2024 Score Football Checklist - Autographs - It’s Good! Graphs #38 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #1 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #2 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #3 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #4 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #5 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #6 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #7 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #8 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #9 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #10 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #1 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #2 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #3 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #4 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #5 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #6 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #7 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #8 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #9 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #10 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #11 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #12 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #13 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #14 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #15 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #16 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #17 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #18 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #19 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #20 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #21 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #22 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #23 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #24 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #25 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #1 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #2 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #3 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #4 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #5 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #7 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #8 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #9 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #10 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #11 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #12 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #13 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #1 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #2 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #3 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #4 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #5 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #6 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #7 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #8 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #9 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #10 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #1 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #2 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #3 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #4 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #5 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #6 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #7 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #8 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #9 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #10 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #11 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #12 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #13 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #14 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #15 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #16 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #17 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #18 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #21 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #22 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #23 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #24 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #25 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #26 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #27 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #28 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #29 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #30 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #1 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #2 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #3 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #4 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #5 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #6 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #7 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #8 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #9 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #11 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #12 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #13 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #14 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #15 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "2024 Score Football Checklist - Inserts - Intergalactic #10 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #1 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #2 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #3 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #4 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #5 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #6 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #7 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #8 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #9 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #10 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #11 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #12 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #13 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #14 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #15 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #1 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #2 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #3 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #4 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #5 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #6 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #7 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #8 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #9 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #10 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #11 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #12 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #13 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #14 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #15 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #16 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #17 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #18 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #19 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #20 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #1 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #3 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #4 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #5 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #7 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #8 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #10 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #11 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #12 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #13 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #14 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #15 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #16 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #17 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #18 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #19 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #20 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #1 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #4 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #5 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #6 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #7 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #8 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #9 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #10 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #12 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #14 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #15 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #16 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #17 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #18 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #19 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #20 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #21 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #22 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #23 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #24 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #25 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #1 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #2 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #3 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #4 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #5 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #6 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #7 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #8 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #9 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #10 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #11 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #12 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #13 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #14 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #15 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "2024 Score Football Checklist - Inserts - Showtime #20 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "2024 Score Football Checklist - Inserts - Step Ahead #20 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #1 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #3 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #4 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #5 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #6 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #7 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #9 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #10 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #11 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #12 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #13 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #14 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #15 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #16 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #17 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #18 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #19 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #20 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #21 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #22 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #23 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #24 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #25 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #26 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #27 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #28 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #29 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #30 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #31 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "_Parallels_: #32 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "2024 Score Football Checklist - Inserts - Top 100 #100 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Autographs - Double Trouble #10 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Autographs - It’s Good! Graphs #38 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Inserts - Intergalactic #10 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Inserts - Showtime #20 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Inserts - Step Ahead #20 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Inserts - Top 100 #100 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #9 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #7 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #2 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #3 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #1 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #15 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #24 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #25 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #3 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #19 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #27 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #4 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #9 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #4 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #16 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #23 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #9 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #4 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #5 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #4 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #10 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #6 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #22 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #12 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #11 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #6 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #6 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #20 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #13 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #8 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #15 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #3 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #15 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #18 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #1 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #15 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #9 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #9 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #13 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #14 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #5 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #2 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #16 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #8 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #10 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #1 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #12 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #9 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #18 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #8 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #10 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #8 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #17 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #4 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #4 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #2 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #2 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #13 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #6 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #11 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #2 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #14 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #8 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #8 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #22 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #3 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #6 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #12 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #7 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #1 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #3 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #14 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #48 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #12 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #1 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #12 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #13 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #17 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #5 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #25 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #13 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #1 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #16 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #22 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #25 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #8 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #13 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #14 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #16 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #14 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #3 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #7 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #15 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #1 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #25 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #7 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #9 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #11 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #9 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #2 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #6 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #15 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #10 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #15 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #2 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #17 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #2 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #16 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #1 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #5 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #10 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #10 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #5 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #23 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #10 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #4 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #7 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #19 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #17 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #12 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #13 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #20 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #15 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #16 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #1 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #9 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #14 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #18 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #1 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #17 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #50 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #6 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #10 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #5 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #7 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #19 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #11 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #4 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #13 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #19 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #5 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #4 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #6 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #8 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #11 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #20 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #9 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #9 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #20 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #7 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #11 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #7 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #6 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #11 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #5 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #14 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #4 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #8 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #10 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #17 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #20 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #1 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #21 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #2 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #12 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #8 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #29 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #2 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #5 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #19 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #3 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #30 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #21 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #13 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #6 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #3 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #11 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #12 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #4 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #7 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #9 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #24 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #23 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #15 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #5 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #1 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #5 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #23 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #2 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #24 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #35 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #42 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #1 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #10 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #19 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #8 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #20 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #11 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #26 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #3 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #22 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures 235 Cameron Heyward #10 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures 235 Cameron Heyward #10 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #1 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #18 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #27 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #16 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #12 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #2 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #7 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #12 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #7 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #24 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #10 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #8 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #16 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #17 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #13 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #3 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #18 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #20 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #28 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #4 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #14 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #15 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #19 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #35 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #78 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #79 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #5 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #18 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #28 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #32 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #3 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #18 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #29 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #21 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #7 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #30 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #12 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #3 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #2 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #44 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #5 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #7 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #14 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #31 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Rookies Signatures #25 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #10 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Base Signatures #21 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #4 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #7 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #3 maps to conflicting subjects."
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "severity": "error",
+          "message": "Hot Rookies #5 maps to conflicting subjects."
+        }
+      ],
+      "warnings": [],
+      "sample": [
+        {
+          "setName": "Base Set",
+          "cardNumber": "406",
+          "players": [
+            "cards."
+          ]
+        },
+        {
+          "setName": "_Parallels_:",
+          "cardNumber": "1",
+          "players": [
+            "Budda Baker, Arizona Cardinals"
+          ]
+        },
+        {
+          "setName": "_Parallels_:",
+          "cardNumber": "2",
+          "players": [
+            "James Conner, Arizona Cardinals"
+          ]
+        },
+        {
+          "setName": "_Parallels_:",
+          "cardNumber": "3",
+          "players": [
+            "Trey McBride, Arizona Cardinals"
+          ]
+        },
+        {
+          "setName": "_Parallels_:",
+          "cardNumber": "4",
+          "players": [
+            "Rondale Moore, Atlanta Falcons"
+          ]
+        }
+      ]
+    }
+  ]
+}
