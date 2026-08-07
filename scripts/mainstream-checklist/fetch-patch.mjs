@@ -1,8 +1,9 @@
 const nativeFetch = globalThis.fetch.bind(globalThis);
 
 // Exact public replacements for legacy URLs that repeatedly fail from GitHub
-// runners. These are reference fallbacks only; they still pass through the same
-// parser, conflict checks, minimum-row contract, archive and Registry validation.
+// runners or return a dynamic shell without deterministic checklist rows. These
+// remain reference fallbacks only: every row still passes the normal parser,
+// conflict checks, minimum-row contract, archive and Registry validation.
 const VERIFIED_SOURCE_FALLBACKS = new Map([
   ["https://www.sportscardradio.com/2011-panini-gridiron-gear-football-checklist/", "https://www.tcdb.com/ViewSet.cfm/sid/59899/2011-Panini-Gridiron-Gear"],
   ["https://www.sportscardradio.com/2010-11-upper-deck-black-diamond-hockey-checklist/", "https://www.cardboardconnection.com/2010-11-upper-deck-black-diamond-hockey"],
@@ -36,6 +37,18 @@ const VERIFIED_SOURCE_FALLBACKS = new Map([
   ["https://www.sportscardradio.com/2010-panini-plates-a-patches-football-box-checklist/", "https://www.tcdb.com/ViewSet.cfm/sid/48165/2010-Panini-Plates-%26-Patches"],
   ["https://www.sportscardradio.com/2011-playoff-prime-cuts-baseball-checklist/", "https://www.tcdb.com/ViewSet.cfm/sid/72871/2011-Panini-Prime-Cuts"],
   ["https://www.sportscardradio.com/2011-panini-crown-royale-football-checklist/", "https://www.tcdb.com/ViewSet.cfm/sid/59550/2011-Panini-Crown-Royale"],
+
+  ["https://www.beckett.com/baseball/2000/sp-authentic/", "https://www.tcdb.com/ViewSet.cfm/sid/1407/2000-SP-Authentic"],
+  ["https://www.beckett.com/baseball/2001/sp-authentic/", "https://www.tcdb.com/ViewSet.cfm/sid/1478/2001-SP-Authentic"],
+  ["https://www.beckett.com/baseball/2002/sp-authentic/", "https://www.tcdb.com/ViewSet.cfm/sid/1559/2002-SP-Authentic"],
+  ["https://www.beckett.com/baseball/2003/sp-authentic/", "https://www.tcdb.com/ViewSet.cfm/sid/1637/2003-SP-Authentic"],
+  ["https://www.beckett.com/baseball/2005/sp-authentic/", "https://www.baseballcardpedia.com/index.php/2005_SP_Authentic"],
+  ["https://www.beckett.com/baseball/2006/sp-authentic/", "https://www.tcdb.com/ViewSet.cfm/sid/1927/2006-SP-Authentic"],
+  ["https://www.keymancollectibles.com/baseballcards/upperdeck/2004spbaseballcardchecklist.htm", "https://www.tcdb.com/ViewSet.cfm/sid/1722/2004-SP-Authentic"],
+  ["https://www.keymancollectibles.com/baseballcards/upperdeck/2007spbaseballcardchecklist.htm", "https://www.tcdb.com/ViewSet.cfm/sid/6587/2007-SP-Authentic"],
+  ["https://www.beckett.com/football/2011/upper-deck/", "https://www.tcdb.com/ViewSet.cfm/sid/56581/2011-Upper-Deck"],
+  ["https://www.beckett.com/wrestling/2011/topps-wwe/", "https://www.tcdb.com/ViewSet.cfm/sid/58098/2011-Topps-WWE"],
+  ["https://gogts.net/2024-donruss-nfl-football-cards-checklist/", "https://www.tcdb.com/ViewSet.cfm/sid/462124/2024-Donruss"],
 ]);
 
 function requestUrl(input) {
@@ -66,6 +79,12 @@ function headingRow(level, body) {
   return `<tr data-tcos-heading="${level}"><td>## ${body}</td></tr>`;
 }
 
+function checklistHeadingBody(body) {
+  const text = stripTags(body);
+  if (/^cards$/i.test(text)) return "Base Set Checklist";
+  return body;
+}
+
 export function transformChecklistHtml(html) {
   let value = String(html || "");
 
@@ -76,7 +95,7 @@ export function transformChecklistHtml(html) {
 
   value = value.replace(
     /<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>/gi,
-    (whole, level, body) => headingRow(level, body),
+    (whole, level, body) => headingRow(level, checklistHeadingBody(body)),
   );
 
   value = value.replace(/<tr\b([^>]*)>([\s\S]*?)<\/tr>/gi, (whole, attributes, row) => {
@@ -95,6 +114,7 @@ export function transformReaderText(text) {
     .split(/\r?\n/)
     .map((line) => {
       const normalized = line.replace(/^\s*#{1,6}\s+/, "## ");
+      if (/^##\s+Cards\s*$/i.test(normalized)) return "## Base Set Checklist";
       if (normalized.startsWith("## ")) return normalized;
       return isSectionLabel(normalized) && !normalized.includes("|")
         ? `## ${normalized.trim()}`
@@ -174,9 +194,20 @@ async function tryDirect(url, init) {
 
 globalThis.fetch = async function patchedChecklistFetch(input, init = {}) {
   const originalUrl = requestUrl(input);
+  const fallbackUrl = VERIFIED_SOURCE_FALLBACKS.get(originalUrl);
+
+  // For explicitly verified replacements, use the deterministic public source
+  // first. This also repairs sources that return HTTP 200 but only expose a
+  // client-rendered shell with no row-level checklist data.
+  if (fallbackUrl) {
+    const fallbackDirect = await tryDirect(fallbackUrl, init);
+    if (fallbackDirect) return fallbackDirect;
+    const fallbackReader = await tryReader(fallbackUrl, init);
+    if (fallbackReader) return fallbackReader;
+  }
+
   let directResponse = null;
   let directError = null;
-
   try {
     directResponse = await nativeFetch(input, init);
     if (directResponse.ok) return transformedResponse(directResponse);
@@ -186,14 +217,6 @@ globalThis.fetch = async function patchedChecklistFetch(input, init = {}) {
 
   const reader = await tryReader(originalUrl, init);
   if (reader) return reader;
-
-  const fallbackUrl = VERIFIED_SOURCE_FALLBACKS.get(originalUrl);
-  if (fallbackUrl) {
-    const fallbackDirect = await tryDirect(fallbackUrl, init);
-    if (fallbackDirect) return fallbackDirect;
-    const fallbackReader = await tryReader(fallbackUrl, init);
-    if (fallbackReader) return fallbackReader;
-  }
 
   if (directResponse) return directResponse;
   throw directError || new Error(`Checklist source fetch failed: ${originalUrl}`);
