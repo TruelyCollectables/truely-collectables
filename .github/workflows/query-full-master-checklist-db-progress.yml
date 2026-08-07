@@ -1,0 +1,116 @@
+name: Query Full Master Checklist DB Progress
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/query-full-master-checklist-db-progress.yml"
+
+permissions:
+  contents: write
+
+env:
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+jobs:
+  query:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Resolve protected Production Supabase credentials
+        run: bash scripts/resolve-mainstream-checklist-production-env.sh
+      - name: Query current full master archive progress
+        shell: bash
+        env:
+          STATUS_BRANCH: ops/mainstream-checklist-status
+          STATUS_PATH: docs/operations/instacomp-full-master-db-progress.json
+        run: |
+          set -euo pipefail
+          set -a
+          source "$PRODUCTION_ENV_PATH"
+          set +a
+          export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
+          node --input-type=module > "$RUNNER_TEMP/full-master-progress.json" <<'NODE'
+          import { createClient } from '@supabase/supabase-js';
+          const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
+          const rows = [];
+          for (let from = 0; ; from += 1000) {
+            const { data, error } = await db
+              .from('checklist_source_catalog')
+              .select('source_url,status,validation_counts,issue_summary,metadata,last_checked_at')
+              .contains('metadata', { masterArchiveRunId: '31100986894' })
+              .range(from, from + 999);
+            if (error) throw new Error(error.message);
+            rows.push(...(data || []));
+            if (!data || data.length < 1000) break;
+          }
+          const statusCounts = {};
+          const issueCounts = {};
+          const exactKeys = new Map();
+          let cards = 0;
+          let identities = 0;
+          for (const row of rows) {
+            statusCounts[row.status] = (statusCounts[row.status] || 0) + 1;
+            const key = row.metadata?.masterArchiveExactSetKey;
+            if (key) {
+              const prior = exactKeys.get(key);
+              if (!prior || ['imported','unchanged'].includes(row.status)) exactKeys.set(key, row);
+            }
+            if (['imported','unchanged'].includes(row.status)) {
+              cards += Number(row.validation_counts?.cards || 0);
+              identities += Number(row.validation_counts?.identities || 0);
+            }
+            for (const issue of row.issue_summary || []) if (issue?.code) issueCounts[issue.code] = (issueCounts[issue.code] || 0) + 1;
+          }
+          let promotedExactSets = 0;
+          let quarantinedExactSets = 0;
+          const recentFailures = [];
+          for (const [exactSetKey, row] of exactKeys) {
+            if (['imported','unchanged'].includes(row.status)) promotedExactSets += 1;
+            else if (row.status === 'quarantined') {
+              quarantinedExactSets += 1;
+              if (recentFailures.length < 100) recentFailures.push({ exactSetKey, issues: (row.issue_summary || []).slice(0,3), checkedAt: row.last_checked_at });
+            }
+          }
+          console.log(JSON.stringify({
+            schema:'tcos.checklist.fullMasterDbProgress.v1',
+            checkedAt:new Date().toISOString(),
+            expectedArchiveBearingSets:5268,
+            catalogRows:rows.length,
+            exactSetsSeen:exactKeys.size,
+            promotedExactSets,
+            quarantinedExactSets,
+            remainingUnseen:Math.max(0,5268-exactKeys.size),
+            statusCounts,
+            promotedTotals:{cards,identities},
+            issueCounts:Object.fromEntries(Object.entries(issueCounts).sort((a,b)=>b[1]-a[1])),
+            recentFailures,
+          }, null, 2));
+          NODE
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin "$STATUS_BRANCH"
+          git checkout -B "$STATUS_BRANCH" "origin/$STATUS_BRANCH"
+          mkdir -p "$(dirname "$STATUS_PATH")"
+          cp "$RUNNER_TEMP/full-master-progress.json" "$STATUS_PATH"
+          git add "$STATUS_PATH"
+          if ! git diff --cached --quiet; then
+            git commit -m "Query full master checklist DB progress [skip ci]"
+            git push origin "HEAD:$STATUS_BRANCH"
+          fi
+      - name: Remove protected Production files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/mainstream-checklist-ingestion" .env.local .env.production.local
