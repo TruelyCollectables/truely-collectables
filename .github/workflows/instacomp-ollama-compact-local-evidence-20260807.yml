@@ -1,0 +1,64 @@
+name: InstaComp Ollama Compact Local Evidence 20260807
+
+on:
+  push:
+    branches:
+      - fix/instacomp-ollama-compact-local-evidence-20260807
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/instacomp-ollama-compact-local-evidence-20260807
+          fetch-depth: 0
+
+      - name: Apply compact evidence repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -q 'def _compact_ocr' services/instacomp-ai/app/ollama.py; then
+            echo 'runtime already contains compact evidence repair'
+          else
+            python3 scripts/patch-instacomp-ollama-compact-local-evidence.py
+          fi
+          git diff --check
+          grep -q 'def _compact_ocr' services/instacomp-ai/app/ollama.py
+          grep -q 'Full OCR boxes and raw measurements' services/instacomp-ai/app/ollama.py
+          grep -q 'prompt_chars' services/instacomp-ai/app/ollama.py
+          grep -q 'def _safe_ollama_error_detail' services/instacomp-ai/app/main.py
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: services/instacomp-ai/requirements.txt
+
+      - name: Install and certify complete service
+        working-directory: services/instacomp-ai
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements.txt
+          python -m compileall app tests scripts
+          PYTHONPATH=. pytest -q tests/test_ollama_compact_local_evidence.py
+          PYTHONPATH=. pytest -q
+
+      - name: Persist tested runtime files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add services/instacomp-ai/app/ollama.py services/instacomp-ai/app/main.py
+          if git diff --cached --quiet; then
+            echo 'No generated runtime changes to persist.'
+            exit 0
+          fi
+          git commit -m 'Compact Ollama local evidence payload'
+          git push origin HEAD:fix/instacomp-ollama-compact-local-evidence-20260807
