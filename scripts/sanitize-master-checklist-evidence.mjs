@@ -3,6 +3,20 @@ import { dirname, resolve } from "node:path";
 
 const corpusRoot = resolve(process.cwd(), process.env.MASTER_CHECKLIST_CORPUS_ROOT || ".master-checklist-corpus");
 const auditOutput = resolve(process.cwd(), process.env.MASTER_CHECKLIST_EVIDENCE_AUDIT_OUTPUT || ".checklist-discovery/master-archive-evidence-audit.json");
+const EXPECTED_SET_COUNT = 5643;
+const EXPECTED_ARCHIVE_BEARING = 5268;
+const EXPECTED_SOURCE_RUN = "31100986894";
+
+const GENERIC_ALIAS_NOISE = new Set(["trading", "cards", "card", "checklist", "is", "live"]);
+const SPORT_ALIAS_NOISE = {
+  baseball: new Set(["baseball", "mlb"]),
+  basketball: new Set(["basketball", "nba", "wnba"]),
+  football: new Set(["football", "nfl"]),
+  hockey: new Set(["hockey", "nhl"]),
+  soccer: new Set(["soccer", "epl"]),
+  mma: new Set(["mma", "ufc"]),
+  wrestling: new Set(["wrestling", "wwe", "aew"]),
+};
 
 function readJson(path) {
   return JSON.parse(readFileSync(path, "utf8"));
@@ -33,15 +47,51 @@ function compactEvidence(exactSetKey, candidate, file) {
   };
 }
 
+function aliasCore(set) {
+  const noise = new Set([
+    ...GENERIC_ALIAS_NOISE,
+    ...(SPORT_ALIAS_NOISE[String(set.sport || "").toLowerCase()] || []),
+  ]);
+  return String(set.product || "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .match(/[a-z0-9]+/g)?.filter((token) => !noise.has(token)).join("-") || "";
+}
+
+function canonicalAliasMember(a, b) {
+  const score = (set) => [
+    Number(set.checklistRowsMaximum || 0),
+    Number(set.sourceCount || 0),
+    Number(set.itemCount || 0),
+    -String(set.product || "").length,
+  ];
+  const left = score(a);
+  const right = score(b);
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) return right[index] - left[index];
+  }
+  return String(a.exactSetKey).localeCompare(String(b.exactSetKey));
+}
+
+function dedupeCandidates(candidates) {
+  const byUrl = new Map();
+  for (const candidate of candidates) {
+    const key = String(candidate.sourceUrl || `${candidate.source || ""}:${candidate.id || candidate.archivePath || ""}`);
+    const prior = byUrl.get(key);
+    if (!prior || Number(candidate.checklistRows || 0) > Number(prior.checklistRows || 0)) byUrl.set(key, candidate);
+  }
+  return [...byUrl.values()];
+}
+
 const manifestPath = resolve(corpusRoot, "manifest.json");
 const manifest = readJson(manifestPath);
-if (!Array.isArray(manifest.sets) || manifest.sets.length !== 5643) {
-  throw new Error(`Frozen corpus expected 5,643 audited sets, found ${manifest.sets?.length ?? "invalid"}.`);
+if (!Array.isArray(manifest.sets) || manifest.sets.length !== EXPECTED_SET_COUNT) {
+  throw new Error(`Frozen corpus expected ${EXPECTED_SET_COUNT.toLocaleString()} audited sets, found ${manifest.sets?.length ?? "invalid"}.`);
 }
-if (Number(manifest.counts?.import || 0) !== 5268) {
-  throw new Error(`Frozen corpus expected 5,268 archive-bearing sets, found ${manifest.counts?.import ?? "invalid"}.`);
+if (Number(manifest.counts?.import || 0) !== EXPECTED_ARCHIVE_BEARING) {
+  throw new Error(`Frozen corpus expected ${EXPECTED_ARCHIVE_BEARING.toLocaleString()} archive-bearing sets, found ${manifest.counts?.import ?? "invalid"}.`);
 }
-if (String(manifest.sourceRunId || "") !== "31100986894") {
+if (String(manifest.sourceRunId || "") !== EXPECTED_SOURCE_RUN) {
   throw new Error(`Frozen corpus source run changed: ${manifest.sourceRunId || "missing"}.`);
 }
 
@@ -93,12 +143,12 @@ for (const [sha256, rows] of shaEvidence) {
 
 if (unsafeOriginalCollisions.length) {
   writeJson(auditOutput, {
-    schema: "tcos.checklist.masterArchiveEvidenceAudit.v1",
+    schema: "tcos.checklist.masterArchiveEvidenceAudit.v2",
     checkedAt: new Date().toISOString(),
     ok: false,
     reason: "cross_set_sha_has_multiple_direct_originals",
     auditedSets: manifest.sets.length,
-    archiveBearingSets: Number(manifest.counts.import),
+    archiveBearingSetsOriginal: Number(manifest.counts.import),
     evidenceFileCount,
     duplicateReferenceFiles,
     crossSetCollisionCount: crossSetCollisions.length,
@@ -114,7 +164,6 @@ if (!knownContamination.length) {
 
 let blockedFiles = 0;
 let affectedCandidates = 0;
-let affectedSets = 0;
 const affectedSetKeys = new Set();
 const blockedSamples = [];
 
@@ -133,58 +182,128 @@ for (const set of manifest.sets) {
     candidate.blockedDuplicateEvidenceCount = blocked.length;
   }
 }
-affectedSets = affectedSetKeys.size;
 
-for (let batchIndex = 0; batchIndex < Number(manifest.batchCount || 16); batchIndex += 1) {
-  const path = resolve(corpusRoot, `batch-${batchIndex}.json`);
-  const batch = readJson(path);
-  let batchBlocked = 0;
-  for (const set of batch.sets || []) {
-    for (const candidate of set.candidates || []) {
-      const before = candidate.files || [];
-      const blocked = before.filter((file) => Boolean(file.duplicateOf));
-      batchBlocked += blocked.length;
-      candidate.files = before.filter((file) => !file.duplicateOf);
-      if (blocked.length) candidate.blockedDuplicateEvidenceCount = blocked.length;
-    }
-  }
-  writeJson(path, batch);
-  const reloaded = readJson(path);
-  const leftovers = (reloaded.sets || []).flatMap((set) =>
-    (set.candidates || []).flatMap((candidate) =>
-      (candidate.files || []).filter((file) => file.duplicateOf),
-    ),
-  );
-  if (leftovers.length) throw new Error(`Batch ${batchIndex} still contains ${leftovers.length} duplicate evidence references after sanitization.`);
-  if (batchBlocked < 0) throw new Error("Unreachable batch evidence count guard.");
+// The master crawl sometimes split one physical release into two exact-set keys
+// solely because one source title added league/sport/generic words such as NBA,
+// NHL, UFC, Trading Cards, Checklist, or "is LIVE!". Those words cannot define
+// a different physical release. Collapse only groups whose product names become
+// exactly identical after removing that controlled non-identity vocabulary.
+const aliasBuckets = new Map();
+for (const set of manifest.sets) {
+  if (set.disposition !== "import") continue;
+  const core = aliasCore(set);
+  if (!core) continue;
+  const key = [String(set.sport || "").toLowerCase(), String(set.season || "").toLowerCase(), String(set.manufacturer || "").toLowerCase(), core].join("|");
+  const rows = aliasBuckets.get(key) || [];
+  rows.push(set);
+  aliasBuckets.set(key, rows);
 }
 
+const aliasGroups = [];
+let aliasResolvedCount = 0;
+for (const [aliasKey, members] of aliasBuckets) {
+  if (members.length < 2) continue;
+  const ordered = [...members].sort(canonicalAliasMember);
+  const canonical = ordered[0];
+  const aliases = ordered.slice(1);
+  canonical.aliasExactSetKeys = [...new Set([...(canonical.aliasExactSetKeys || []), ...aliases.map((set) => set.exactSetKey)])].sort();
+  const mergedCandidates = [];
+  for (const member of ordered) {
+    for (const candidate of member.candidates || []) {
+      mergedCandidates.push({
+        ...candidate,
+        aliasSourceExactSetKey: member.exactSetKey,
+      });
+    }
+  }
+  canonical.candidates = dedupeCandidates(mergedCandidates);
+  canonical.sourceCount = new Set(canonical.candidates.map((candidate) => candidate.source).filter(Boolean)).size;
+  canonical.itemCount = canonical.candidates.length;
+  canonical.checklistRowsMaximum = Math.max(...ordered.map((set) => Number(set.checklistRowsMaximum || 0)));
+
+  for (const alias of aliases) {
+    alias.disposition = "alias_of";
+    alias.aliasOfExactSetKey = canonical.exactSetKey;
+    alias.aliasOriginalCandidateCount = (alias.candidates || []).length;
+    alias.candidates = [];
+    aliasResolvedCount += 1;
+  }
+  aliasGroups.push({
+    aliasKey,
+    canonicalExactSetKey: canonical.exactSetKey,
+    canonicalProduct: canonical.product,
+    memberExactSetKeys: ordered.map((set) => set.exactSetKey),
+    memberProducts: ordered.map((set) => set.product),
+    memberChecklistRowsMaximum: ordered.map((set) => Number(set.checklistRowsMaximum || 0)),
+    mergedCandidateCount: canonical.candidates.length,
+  });
+}
+
+const dispositionCounts = {};
+for (const set of manifest.sets) dispositionCounts[set.disposition] = (dispositionCounts[set.disposition] || 0) + 1;
+manifest.archiveBearingSetsOriginal = EXPECTED_ARCHIVE_BEARING;
+manifest.counts = dispositionCounts;
+manifest.evidenceSanitization = {
+  schema: "tcos.checklist.masterArchiveEvidenceSanitization.v2",
+  duplicateReferencesBlocked: blockedFiles,
+  deterministicAliasesResolved: aliasResolvedCount,
+};
+
+// Rebuild all batches from the sanitized authoritative manifest. This safely
+// moves merged alias candidates into the canonical set even when the original
+// exact-set keys hashed into different batch files.
+const batchCount = Number(manifest.batchCount || 16);
+const batches = Array.from({ length: batchCount }, () => []);
+for (let position = 0; position < manifest.sets.length; position += 1) {
+  const set = manifest.sets[position];
+  const batchIndex = Number.isInteger(set.batch) ? set.batch : position % batchCount;
+  if (batchIndex < 0 || batchIndex >= batchCount) throw new Error(`Invalid batch ${batchIndex} for ${set.exactSetKey}.`);
+  set.batch = batchIndex;
+  batches[batchIndex].push(set);
+}
+for (let batchIndex = 0; batchIndex < batchCount; batchIndex += 1) {
+  writeJson(resolve(corpusRoot, `batch-${batchIndex}.json`), {
+    schema: "tcos.checklist.masterArchiveBatch.v1",
+    index: batchIndex,
+    count: batchCount,
+    sets: batches[batchIndex],
+  });
+}
 writeJson(manifestPath, manifest);
-const manifestLeftovers = manifest.sets.flatMap((set) =>
+
+const leftovers = manifest.sets.flatMap((set) =>
   (set.candidates || []).flatMap((candidate) =>
     (candidate.files || []).filter((file) => file.duplicateOf),
   ),
 );
-if (manifestLeftovers.length) throw new Error(`Sanitized manifest still contains ${manifestLeftovers.length} duplicate evidence references.`);
+if (leftovers.length) throw new Error(`Sanitized manifest still contains ${leftovers.length} duplicate evidence references.`);
+for (const set of manifest.sets.filter((row) => row.disposition === "alias_of")) {
+  if (!set.aliasOfExactSetKey || (set.candidates || []).length) throw new Error(`Alias set ${set.exactSetKey} was not fully collapsed.`);
+}
 
 const audit = {
-  schema: "tcos.checklist.masterArchiveEvidenceAudit.v1",
+  schema: "tcos.checklist.masterArchiveEvidenceAudit.v2",
   checkedAt: new Date().toISOString(),
   ok: true,
   sourceRunId: manifest.sourceRunId,
   auditedSets: manifest.sets.length,
-  archiveBearingSets: Number(manifest.counts.import),
+  archiveBearingSetsOriginal: EXPECTED_ARCHIVE_BEARING,
+  canonicalImportSets: Number(dispositionCounts.import || 0),
+  aliasResolvedCount,
+  aliasGroupCount: aliasGroups.length,
+  dispositionCounts,
   candidateCount,
   evidenceFileCount,
   uniqueEvidenceShaCount: shaEvidence.size,
   duplicateReferenceFiles,
   blockedDuplicateEvidenceFiles: blockedFiles,
   affectedCandidates,
-  affectedSets,
+  affectedSets: affectedSetKeys.size,
   crossSetCollisionCount: crossSetCollisions.length,
   unsafeOriginalCollisionCount: unsafeOriginalCollisions.length,
   knownContaminationBlocked: knownContamination.length,
-  policy: "All archive files carrying duplicateOf are removed from runnable candidate manifests. The importer must use direct candidate-owned evidence or live-source revalidation instead.",
+  policy: "All duplicateOf archive evidence is blocked. Noise-only release aliases are collapsed to one canonical exact set with source candidates merged. Import then uses only direct candidate-owned evidence or live-source revalidation.",
+  aliasGroups,
   crossSetCollisions,
   blockedSamples,
 };
