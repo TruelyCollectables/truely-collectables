@@ -128,10 +128,18 @@ jobs:
       - name: Deploy exact current-main acceptance revision to Production
         shell: bash
         run: |
-          set -euo pipefail
-          output="$(npx vercel@56.2.0 deploy --prod --yes --force --no-color --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1)"
-          printf '%s\n' "$output"
-          url="$(printf '%s\n' "$output" | grep -Eo 'https://[A-Za-z0-9.-]+\.vercel\.app' | tail -n 1)"
+          set -uo pipefail
+          log="$RUNNER_TEMP/instacomp-final-acceptance/test-deploy.log"
+          touch "$RUNNER_TEMP/instacomp-final-acceptance/test-deploy-attempted"
+          set +e
+          npx vercel@56.2.0 deploy --prod --yes --force --no-color --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            echo "Vercel acceptance deployment failed with exit status $status" >&2
+            exit "$status"
+          fi
+          url="$(grep -Eo 'https://[A-Za-z0-9.-]+\.vercel\.app' "$log" | tail -n 1)"
           test -n "$url"
           printf '%s\n' "$url" > "$RUNNER_TEMP/instacomp-final-acceptance/test-deploy-url"
           touch "$RUNNER_TEMP/instacomp-final-acceptance/test-deployed"
@@ -265,15 +273,6 @@ jobs:
           export INSTACOMP_ACCEPTANCE_SERVICE_TOKEN="$token"
           node scripts/ops/.instacomp-final-acceptance.mjs "$EVIDENCE_DIR/receipt-pass-2.json"
 
-      - name: Upload final acceptance evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: instacomp-final-production-acceptance-20260807
-          path: evidence/instacomp-final-production-acceptance-20260807
-          if-no-files-found: warn
-          retention-days: 90
-
       - name: Remove temporary Production scanner credential
         if: always()
         shell: bash
@@ -287,14 +286,22 @@ jobs:
         if: always()
         shell: bash
         run: |
-          set -euo pipefail
-          if [ -f "$RUNNER_TEMP/instacomp-final-acceptance/test-deployed" ]; then
+          set -uo pipefail
+          if [ -f "$RUNNER_TEMP/instacomp-final-acceptance/secret-provisioned" ]; then
             rm -f scripts/ops/.instacomp-final-acceptance.mjs
-            output="$(npx vercel@56.2.0 deploy --prod --yes --force --no-color --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1)"
-            printf '%s\n' "$output"
-            url="$(printf '%s\n' "$output" | grep -Eo 'https://[A-Za-z0-9.-]+\.vercel\.app' | tail -n 1)"
+            log="$RUNNER_TEMP/instacomp-final-acceptance/clean-deploy.log"
+            set +e
+            npx vercel@56.2.0 deploy --prod --yes --force --no-color --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee "$log"
+            status=${PIPESTATUS[0]}
+            set -e
+            if [ "$status" -ne 0 ]; then
+              echo "Vercel clean redeployment failed with exit status $status" >&2
+              exit "$status"
+            fi
+            url="$(grep -Eo 'https://[A-Za-z0-9.-]+\.vercel\.app' "$log" | tail -n 1)"
             test -n "$url"
             printf '%s\n' "$url" > "$EVIDENCE_DIR/clean-deploy-url.txt"
+            touch "$RUNNER_TEMP/instacomp-final-acceptance/clean-deployed"
           fi
 
       - name: Prove clean Production readiness and credential removal
@@ -302,13 +309,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ ! -f "$RUNNER_TEMP/instacomp-final-acceptance/test-deployed" ]; then exit 0; fi
+          if [ ! -f "$RUNNER_TEMP/instacomp-final-acceptance/clean-deployed" ]; then
+            echo "Clean Production deployment was not completed." >&2
+            exit 2
+          fi
           for attempt in $(seq 1 18); do
             code="$(curl -sS --max-time 30 -o "$RUNNER_TEMP/instacomp-final-acceptance/clean-readiness.json" -w '%{http_code}' -H 'Cache-Control: no-cache' "$PRODUCTION_ORIGIN/api/instacomp/internal-readiness?clean=$attempt&ts=$(date +%s)")"
             [ "$code" = "200" ] && break
             sleep 5
           done
           test "$code" = "200"
+          cat "$RUNNER_TEMP/instacomp-final-acceptance/clean-readiness.json"
           node - "$RUNNER_TEMP/instacomp-final-acceptance/clean-readiness.json" "$EXPECTED_MAC_FINGERPRINT" <<'NODE'
           const fs=require('node:fs');const b=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));if(b.ok!==true||b.runtimeSourceFingerprint!==process.argv[3])throw new Error('Clean Production readiness/fingerprint failed');
           NODE
@@ -323,6 +334,15 @@ jobs:
           cat > "$EVIDENCE_DIR/clean-production.json" <<EOF
           {"ready":true,"runtimeSourceFingerprint":"$EXPECTED_MAC_FINGERPRINT","temporaryCredentialRemoved":true,"removedCredentialHttpStatus":$auth_code}
           EOF
+
+      - name: Upload final acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-final-production-acceptance-20260807
+          path: evidence/instacomp-final-production-acceptance-20260807
+          if-no-files-found: warn
+          retention-days: 90
 
       - name: Remove local temporary files
         if: always()
