@@ -1,0 +1,94 @@
+name: Diagnose Registry Preflight Hang
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/diagnose-registry-preflight-hang-pr.yml"
+
+permissions:
+  contents: read
+
+env:
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Resolve protected Production Supabase credentials
+        run: bash scripts/resolve-mainstream-checklist-production-env.sh
+      - name: Run strictly read-only timed REST probes
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source "$PRODUCTION_ENV_PATH"
+          set +a
+          export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
+          node --input-type=module <<'NODE'
+          const base = String(process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '');
+          const key = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '');
+          if (!base || !key) throw new Error('Missing Production Supabase credentials.');
+          const tables = [
+            'checklist_source_catalog',
+            'checklist_releases',
+            'checklist_source_files',
+            'checklist_versions',
+            'checklist_sets',
+            'checklist_cards',
+            'checklist_card_identities',
+          ];
+          const results = [];
+          for (const table of tables) {
+            const started = Date.now();
+            let result = { table, ok: false, status: null, elapsedMs: null, body: null, error: null };
+            try {
+              const response = await fetch(`${base}/rest/v1/${table}?select=*&limit=1`, {
+                method: 'GET',
+                headers: {
+                  apikey: key,
+                  Authorization: `Bearer ${key}`,
+                  Accept: 'application/json',
+                  'X-Client-Info': 'tcos-registry-readonly-timed-diagnostic-v1',
+                },
+                signal: AbortSignal.timeout(12_000),
+              });
+              const text = await response.text();
+              result = {
+                table,
+                ok: response.ok,
+                status: response.status,
+                elapsedMs: Date.now() - started,
+                body: text.slice(0, 500),
+                error: null,
+              };
+            } catch (error) {
+              result.error = String(error?.name || 'Error') + ': ' + String(error?.message || error);
+              result.elapsedMs = Date.now() - started;
+            }
+            results.push(result);
+            console.log(JSON.stringify(result));
+          }
+          console.log(JSON.stringify({
+            schema: 'tcos.checklist.registryTimedReadDiagnostic.v1',
+            checkedAt: new Date().toISOString(),
+            allHealthy: results.every((x) => x.ok),
+            results,
+          }, null, 2));
+          NODE
+      - name: Remove protected Production files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/mainstream-checklist-ingestion" .env.local .env.production.local
