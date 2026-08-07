@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 const originalFetch = globalThis.fetch.bind(globalThis);
-const MAX_ATTEMPTS = Math.max(2, Math.min(10, Number(process.env.MASTER_CHECKLIST_CATALOG_RETRY_ATTEMPTS || 7)));
+const MAX_ATTEMPTS = Math.max(2, Math.min(10, Number(process.env.MASTER_CHECKLIST_CATALOG_RETRY_ATTEMPTS || 8)));
 const BASE_DELAY_MS = Math.max(1, Math.min(10_000, Number(process.env.MASTER_CHECKLIST_CATALOG_RETRY_BASE_MS || 750)));
 const OUTPUT = resolve(process.cwd(), process.env.MASTER_CHECKLIST_OUTPUT || ".checklist-discovery/master-archive-batch-unknown.json");
 const startedAt = new Date().toISOString();
@@ -45,26 +45,31 @@ function record(kind, attempt, detail) {
   });
 }
 
+function fatalCatalogTransport(kind, detail) {
+  record(kind, MAX_ATTEMPTS, detail);
+  process.exit(74);
+}
+
 globalThis.fetch = async function checklistCatalogRetryFetch(input, init) {
   if (!isCatalogRequest(input)) return originalFetch(input, init);
 
-  let lastError = null;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
     try {
       const response = await originalFetch(retryInput(input), init);
-      if (!isRetryableStatus(response.status) || attempt === MAX_ATTEMPTS) return response;
+      if (!isRetryableStatus(response.status)) return response;
+      if (attempt === MAX_ATTEMPTS) fatalCatalogTransport("http-exhausted", `HTTP ${response.status}`);
       record("http", attempt, `HTTP ${response.status}`);
     } catch (error) {
-      lastError = error;
-      record("network", attempt, error instanceof Error ? error.message : String(error));
-      if (attempt === MAX_ATTEMPTS) throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      if (attempt === MAX_ATTEMPTS) fatalCatalogTransport("network-exhausted", message);
+      record("network", attempt, message);
     }
 
     const delay = Math.min(15_000, BASE_DELAY_MS * 2 ** (attempt - 1));
     await sleep(delay);
   }
 
-  throw lastError || new Error("Checklist catalog request exhausted retries.");
+  fatalCatalogTransport("unexpected-exhaustion", "Checklist catalog request left retry loop unexpectedly.");
 };
 
 process.on("exit", (code) => {
