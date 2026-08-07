@@ -1,0 +1,202 @@
+import fs from "node:fs";
+import path from "node:path";
+
+const expectedMain = process.env.EXPECTED_MAIN_SHA;
+const productionEnvFile = process.env.PRODUCTION_ENV_FILE;
+const accessToken = process.env.GH_SUPABASE_ACCESS_TOKEN;
+const evidenceDir = process.env.EVIDENCE_DIR || ".audit/deal-hunter-market-history-prod-proof";
+
+if (!expectedMain) throw new Error("EXPECTED_MAIN_SHA is required.");
+if (!productionEnvFile || !fs.existsSync(productionEnvFile)) {
+  throw new Error("Pulled Production environment file is unavailable.");
+}
+if (!accessToken) throw new Error("SUPABASE_ACCESS_TOKEN is unavailable.");
+
+fs.mkdirSync(evidenceDir, { recursive: true });
+
+function parseEnv(file) {
+  const out = {};
+  for (const raw of fs.readFileSync(file, "utf8").split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const i = line.indexOf("=");
+    if (i < 1) continue;
+    const key = line.slice(0, i).trim();
+    let value = line.slice(i + 1).trim();
+    if (value.startsWith('"') && value.endsWith('"')) {
+      try { value = JSON.parse(value); } catch { value = value.slice(1, -1); }
+    } else if (value.startsWith("'") && value.endsWith("'")) {
+      value = value.slice(1, -1);
+    }
+    out[key] = value;
+  }
+  return out;
+}
+
+function stripOuterTransaction(sql) {
+  let body = sql.trim();
+  const hasBegin = /^begin\s*;/i.test(body);
+  const hasCommit = /commit\s*;\s*$/i.test(body);
+  if (hasBegin !== hasCommit) throw new Error("Migration has incomplete transaction wrapper.");
+  if (hasBegin) {
+    body = body.replace(/^begin\s*;/i, "").replace(/commit\s*;\s*$/i, "").trim();
+  }
+  if (/create\s+(?:unique\s+)?index\s+concurrently/i.test(body)) {
+    throw new Error("Concurrent index creation is not allowed in this atomic proof.");
+  }
+  return body;
+}
+
+const env = parseEnv(productionEnvFile);
+const supabaseUrl = String(env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
+if (!/^https:\/\//.test(supabaseUrl)) throw new Error("Production Supabase URL missing.");
+const projectRef = new URL(supabaseUrl).hostname.split(".")[0];
+const endpoint = `https://api.supabase.com/v1/projects/${projectRef}/database/query`;
+
+async function query(sql, readOnly = false) {
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ query: sql, parameters: [], read_only: readOnly }),
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`Supabase query HTTP ${response.status}: ${text.slice(0, 1000)}`);
+  }
+  return text ? JSON.parse(text) : [];
+}
+
+const migrations = [
+  "20260806_instacomp_mac_deal_hunter_scheduler.sql",
+  "20260807_instacomp_exact_card_market_history.sql",
+];
+const migrationSql = migrations.map((name) => {
+  const file = path.join("supabase", "migrations", name);
+  return `\n-- ${name}\n${stripOuterTransaction(fs.readFileSync(file, "utf8"))}\n`;
+}).join("\n");
+
+await query(`begin;\n${migrationSql}\ncommit;`, false);
+
+const contractRows = await query(`
+select json_build_object(
+  'runs', to_regclass('public.tcos_deal_hunter_runs') is not null,
+  'candidates', to_regclass('public.tcos_deal_hunter_candidates') is not null,
+  'identities', to_regclass('public.tcos_card_market_identities') is not null,
+  'observations', to_regclass('public.tcos_card_market_observations') is not null,
+  'updateTrigger', exists (
+    select 1 from pg_trigger
+    where tgrelid = 'public.tcos_card_market_observations'::regclass
+      and tgname = 'tcos_card_market_observations_no_update'
+      and not tgisinternal
+  ),
+  'deleteTrigger', exists (
+    select 1 from pg_trigger
+    where tgrelid = 'public.tcos_card_market_observations'::regclass
+      and tgname = 'tcos_card_market_observations_no_delete'
+      and not tgisinternal
+  )
+) contract;
+`, true);
+const contract = contractRows?.[0]?.contract || {};
+if (Object.values(contract).some((value) => value !== true)) {
+  throw new Error(`Production contract incomplete: ${JSON.stringify(contract)}`);
+}
+
+const testIdentity = "00000000-0000-4000-8000-000000081407";
+await query(`
+begin;
+do $$
+declare
+  ask_count integer;
+  sold_count integer;
+  blocked_update boolean := false;
+  blocked_delete boolean := false;
+begin
+  insert into public.tcos_card_market_identities (
+    registry_identity_id, registry_fingerprint_sha256, identity_json,
+    verification_source, first_seen_at, last_seen_at
+  ) values (
+    '${testIdentity}', repeat('a', 64),
+    '{"player":"PRODUCTION_ROLLBACK_PROOF","cardNumber":"TEST"}'::jsonb,
+    'production_rollback_proof', now(), now()
+  );
+
+  insert into public.tcos_card_market_observations (
+    registry_identity_id, observation_fingerprint, observation_kind,
+    marketplace, provider_source, listing_item_id, listing_url, title,
+    item_price, shipping_price, buyer_fees, tax, delivered_price,
+    currency, observed_at, source_payload
+  ) values
+  ('${testIdentity}', repeat('b',64), 'ASK', 'Proof', 'rollback', 'ask-proof',
+   'https://example.invalid/ask', 'Rollback-only ASK', 7, 6, 0.52, 1.11, 14.63,
+   'USD', now(), '{"rollback":true}'::jsonb),
+  ('${testIdentity}', repeat('c',64), 'SOLD', 'Proof', 'rollback', 'sold-proof',
+   'https://example.invalid/sold', 'Rollback-only SOLD', 10, 0, null, null, 10,
+   'USD', now(), '{"rollback":true}'::jsonb);
+
+  insert into public.tcos_card_market_observations (
+    registry_identity_id, observation_fingerprint, observation_kind,
+    marketplace, title, delivered_price, currency, observed_at
+  ) values (
+    '${testIdentity}', repeat('b',64), 'ASK', 'Proof', 'Duplicate ASK', 99, 'USD', now()
+  ) on conflict (observation_fingerprint) do nothing;
+
+  select count(*) into ask_count from public.tcos_card_market_observations
+    where registry_identity_id='${testIdentity}' and observation_kind='ASK';
+  select count(*) into sold_count from public.tcos_card_market_observations
+    where registry_identity_id='${testIdentity}' and observation_kind='SOLD';
+  if ask_count <> 1 or sold_count <> 1 then
+    raise exception 'ASK/SOLD separation or fingerprint dedupe failed';
+  end if;
+
+  begin
+    update public.tcos_card_market_observations
+      set delivered_price = 999
+      where registry_identity_id='${testIdentity}' and observation_kind='ASK';
+  exception when others then
+    if position('append-only' in SQLERRM) > 0 then blocked_update := true; else raise; end if;
+  end;
+  if not blocked_update then raise exception 'Append-only UPDATE guard did not fire'; end if;
+
+  begin
+    delete from public.tcos_card_market_observations
+      where registry_identity_id='${testIdentity}' and observation_kind='SOLD';
+  exception when others then
+    if position('append-only' in SQLERRM) > 0 then blocked_delete := true; else raise; end if;
+  end;
+  if not blocked_delete then raise exception 'Append-only DELETE guard did not fire'; end if;
+end
+$$;
+rollback;
+`, false);
+
+const residueRows = await query(`
+select json_build_object(
+  'identityRows', (select count(*) from public.tcos_card_market_identities where registry_identity_id='${testIdentity}'),
+  'observationRows', (select count(*) from public.tcos_card_market_observations where registry_identity_id='${testIdentity}')
+) residue;
+`, true);
+const residue = residueRows?.[0]?.residue || {};
+if (Number(residue.identityRows || 0) !== 0 || Number(residue.observationRows || 0) !== 0) {
+  throw new Error(`Rollback proof left Production residue: ${JSON.stringify(residue)}`);
+}
+
+const receipt = {
+  ok: true,
+  expectedMain,
+  migrations,
+  contract,
+  rollbackProof: {
+    askSoldSeparated: true,
+    duplicateFingerprintSuppressed: true,
+    updateBlocked: true,
+    deleteBlocked: true,
+    syntheticResidue: residue,
+  },
+  completedAt: new Date().toISOString(),
+};
+fs.writeFileSync(path.join(evidenceDir, "production-db-proof.json"), JSON.stringify(receipt, null, 2));
+console.log(JSON.stringify(receipt, null, 2));
