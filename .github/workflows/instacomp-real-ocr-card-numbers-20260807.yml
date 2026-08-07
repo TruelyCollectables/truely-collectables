@@ -51,7 +51,7 @@ jobs:
         run: |
           set -euo pipefail
           git diff --check
-          grep -Fq 'NO(?:\\.(?!\\w)|\\b)' services/instacomp-ai/app/local_vision.py
+          grep -Fq 'NO(?:\.(?!\w)|\b)' services/instacomp-ai/app/local_vision.py
           grep -Fq 'max_dy = 0.34 if upper_back_label else 0.16' services/instacomp-ai/app/local_vision.py
           grep -Fq 'cy < 0.50 or candidate.confidence < 0.60' services/instacomp-ai/app/local_vision.py
           grep -Fq 'test_real_sonia_notre_dame_text_cannot_become_tre_card_number' services/instacomp-ai/tests/test_ocr_registry_hard_facts.py
