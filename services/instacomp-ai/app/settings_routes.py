@@ -6,6 +6,7 @@ from collections.abc import Callable
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from .config import settings
+from .deal_hunter_routes import build_deal_hunter_router
 from .local_settings import LocalSettingsManager, LocalSettingsUpdate
 from .runtime_identity import RUNTIME_IDENTITY_FILES, runtime_source_fingerprint
 from .sentinel_routes import build_sentinel_router
@@ -45,6 +46,11 @@ def build_settings_router(
             settings.service_root,
         )
     )
+
+    # Deal Hunter is owned by the same always-on Mac service. It keeps its own
+    # durable scheduler state while using InstaComp's exact front/back identity
+    # path and canonical Registry truth.
+    router.include_router(build_deal_hunter_router(require_api_key))
 
     @router.get("/v1/runtime-identity")
     async def runtime_identity():
