@@ -33,9 +33,6 @@ permissions:
   actions: read
 
 concurrency:
-  # Share the production lock with the old 327-gap workflow. The full archive is
-  # now the primary corpus; the 327 manifest runs later in this same workflow as
-  # a gap-repair layer instead of competing for Registry writes.
   group: instacomp-mainstream-checklist-backlog-2000-plus-${{ github.event_name == 'pull_request' && format('pr-full-{0}', github.event.pull_request.number) || 'production' }}
   cancel-in-progress: true
 
@@ -116,7 +113,6 @@ jobs:
           test -s .master-checklist-corpus/extract-files.txt
           mkdir -p .master-checklist-extracted
           tar -xzf "$archive" -C .master-checklist-extracted -T .master-checklist-corpus/extract-files.txt
-          test -f .master-checklist-extracted/.card-checklist-master-archive/manifest.json || true
           du -sh .master-checklist-extracted .master-checklist-corpus
           tar -czf master-checklist-curated-corpus.tar.gz .master-checklist-extracted .master-checklist-corpus
       - name: Upload curated full-corpus working set
@@ -134,6 +130,7 @@ jobs:
         with:
           name: master-checklist-corpus-manifest-${{ github.run_id }}
           path: .master-checklist-corpus
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 14
 
@@ -225,6 +222,7 @@ jobs:
         with:
           name: master-checklist-batch-${{ matrix.batch }}-${{ github.run_id }}
           path: .checklist-discovery/master-archive-batch-${{ matrix.batch }}.json
+          include-hidden-files: true
           if-no-files-found: warn
           retention-days: 90
       - name: Remove protected Production files
@@ -271,6 +269,7 @@ jobs:
         with:
           name: sentinel-registry-drain-${{ github.run_id }}
           path: .checklist-discovery/sentinel-registry-drain.json
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 90
       - name: Remove protected Production files
@@ -332,6 +331,7 @@ jobs:
         with:
           name: master-gap-repair-${{ matrix.batch }}-${{ github.run_id }}
           path: .checklist-discovery/gap-repair-batch-${{ matrix.batch }}.json
+          include-hidden-files: true
           if-no-files-found: warn
           retention-days: 90
       - name: Remove protected Production files
@@ -367,7 +367,6 @@ jobs:
       - name: Resolve protected Production Supabase credentials
         run: bash scripts/resolve-mainstream-checklist-production-env.sh
       - name: Prove every archive-bearing exact set was promoted
-        id: master
         continue-on-error: true
         shell: bash
         run: |
@@ -387,7 +386,6 @@ jobs:
           export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
           node scripts/classify-mainstream-checklist-exceptions.mjs
       - name: Prove the researched 327-gap repair layer
-        id: gaps
         continue-on-error: true
         shell: bash
         run: |
@@ -399,7 +397,6 @@ jobs:
           mkdir -p .checklist-discovery
           node scripts/assert-mainstream-checklist-production-complete.mjs | tee .checklist-discovery/gap-promotion-proof.json
       - name: Build one full-corpus production receipt
-        id: proof
         shell: bash
         run: |
           set -euo pipefail
@@ -409,7 +406,6 @@ jobs:
           test -s "$master"
           test -s "$gaps"
           test -s "$sentinel"
-          mkdir -p .checklist-discovery
           jq -n \
             --slurpfile master "$master" \
             --slurpfile gaps "$gaps" \
@@ -417,20 +413,8 @@ jobs:
             --arg checkedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --arg runId "$GITHUB_RUN_ID" \
             --arg sourceSha "$GITHUB_SHA" \
-            '{
-              schema:"tcos.checklist.fullCorpusProductionProof.v1",
-              checkedAt:$checkedAt,
-              workflowRunId:$runId,
-              sourceSha:$sourceSha,
-              master:$master[0],
-              gapRepair:$gaps[0],
-              sentinel:$sentinel[0],
-              complete:(
-                ($master[0].complete == true) and
-                ($gaps[0].complete == true) and
-                (((($sentinel[0].statuses.quarantined // 0) + ($sentinel[0].statuses.source_missing // 0) + ($sentinel[0].statuses.sha_mismatch // 0) + ($sentinel[0].statuses.unresolved_metadata // 0))) == 0)
-              )
-            }' > .checklist-discovery/full-corpus-production-proof.json
+            '{schema:"tcos.checklist.fullCorpusProductionProof.v1",checkedAt:$checkedAt,workflowRunId:$runId,sourceSha:$sourceSha,master:$master[0],gapRepair:$gaps[0],sentinel:$sentinel[0],complete:(($master[0].complete == true) and ($gaps[0].complete == true) and (((($sentinel[0].statuses.quarantined // 0) + ($sentinel[0].statuses.source_missing // 0) + ($sentinel[0].statuses.sha_mismatch // 0) + ($sentinel[0].statuses.unresolved_metadata // 0))) == 0))}' \
+            > .checklist-discovery/full-corpus-production-proof.json
           cat .checklist-discovery/full-corpus-production-proof.json
       - name: Persist durable sanitized proof
         if: always()
@@ -463,6 +447,7 @@ jobs:
             .checklist-discovery/gap-promotion-proof.json
             .checklist-discovery/full-corpus-production-proof.json
             .sentinel-drain/sentinel-registry-drain.json
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 90
       - name: Fail closed unless the complete corpus proves clean
