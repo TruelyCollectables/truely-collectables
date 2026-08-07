@@ -1,0 +1,14 @@
+{
+  "schema": "tcos.checklist.fullMasterLiveRun.v1",
+  "workflow": "Ingest Full Master Checklist Archive",
+  "runId": "31190974894",
+  "runNumber": "3",
+  "runAttempt": "1",
+  "status": "in_progress",
+  "conclusion": null,
+  "event": "push",
+  "sourceSha": "e2fefefd6aece92b61465c19b641bc43678ac763",
+  "branch": "main",
+  "createdAt": "2026-08-07T15:06:39Z",
+  "updatedAt": "2026-08-07T15:07:22Z"
+}
