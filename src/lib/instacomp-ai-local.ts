@@ -106,6 +106,10 @@ export type InstaCompAiResultWithInternalReceipt = InstaCompAiResult & {
   internalChecklistCandidateCount: number;
   internalChecklistReasons: string[];
   internalChecklistSourceReceipts: string[];
+  internalChecklistIdentityId: string | null;
+  internalChecklistFingerprintSha256: string | null;
+  internalDeterministicIdentity: Record<string, unknown> | null;
+  internalDeterministicEvidence: string[];
   internalMatchSource: string | null;
   internalCanonicalFilename: string | null;
   internalLearningAllowed: boolean;
@@ -166,6 +170,54 @@ function boolean(value: unknown) {
   return value === true;
 }
 
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function checklistReceiptValue(scan: InstaCompAiLocalScan, prefix: string) {
+  const receipts = textList(scan.checklist?.source_receipts);
+  const value = receipts.find((receipt) => receipt.startsWith(prefix));
+  return value ? text(value.slice(prefix.length)) : null;
+}
+
+function deterministicIdentity(scan: InstaCompAiLocalScan) {
+  const localVision = record(scan.local_vision);
+  const hints = record(localVision.identity_hints);
+  const identity: Record<string, unknown> = {
+    player: text(hints.player),
+    year: text(hints.year),
+    brand: text(hints.manufacturer ?? hints.brand),
+    setName: text(hints.set_name ?? hints.setName),
+    cardNumber: text(hints.card_number ?? hints.cardNumber),
+    parallel: text(hints.parallel),
+    serialNumber: text(hints.serial_number ?? hints.serialNumber),
+    team: text(hints.team),
+    sport: text(hints.sport),
+    isRookie: hints.rookie === true ? true : null,
+    isAuto: hints.autograph === true ? true : null,
+    isRelic: hints.memorabilia === true ? true : null,
+  };
+  const compact = Object.fromEntries(
+    Object.entries(identity).filter(([, value]) => value !== null && value !== ""),
+  );
+  return Object.keys(compact).length ? compact : null;
+}
+
+function deterministicEvidence(scan: InstaCompAiLocalScan) {
+  const localVision = record(scan.local_vision);
+  const front = record(localVision.front);
+  const pattern = record(front.pattern);
+  const hints = deterministicIdentity(scan);
+  return [
+    hints ? "Apple Vision/OpenCV deterministic identity hints present" : null,
+    text(pattern.label) && text(pattern.label) !== "unknown"
+      ? `OpenCV front pattern: ${text(pattern.label)}`
+      : null,
+  ].filter((value): value is string => Boolean(value));
+}
+
 function confidence(value: unknown) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return 0;
@@ -217,6 +269,10 @@ export function instaCompAiLocalScanToAi(
       ),
       internalChecklistReasons: checklistReasons,
       internalChecklistSourceReceipts: checklistReceipts,
+      internalChecklistIdentityId: text(scan.checklist?.identity_id),
+      internalChecklistFingerprintSha256: checklistReceiptValue(scan, "registry_fingerprint:"),
+      internalDeterministicIdentity: deterministicIdentity(scan),
+      internalDeterministicEvidence: deterministicEvidence(scan),
       internalMatchSource: text(scan.match_source),
       internalCanonicalFilename: text(scan.canonical_filename),
       internalLearningAllowed: false,
@@ -296,6 +352,10 @@ export function instaCompAiLocalScanToAi(
     internalChecklistSourceReceipts: textList(
       scan.checklist?.source_receipts,
     ),
+    internalChecklistIdentityId: text(scan.checklist?.identity_id),
+    internalChecklistFingerprintSha256: checklistReceiptValue(scan, "registry_fingerprint:"),
+    internalDeterministicIdentity: deterministicIdentity(scan),
+    internalDeterministicEvidence: deterministicEvidence(scan),
     internalMatchSource: text(source),
     internalCanonicalFilename: text(scan.canonical_filename),
     internalLearningAllowed: scan.learning_allowed === true,

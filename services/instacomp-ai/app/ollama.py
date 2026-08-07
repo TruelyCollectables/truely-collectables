@@ -479,7 +479,7 @@ def merge_local_vision_payload(payload: dict, local_vision: LocalVisionEvidence 
     root = dict(payload)
     identity = dict(root.get("identity") or {})
     hints = local_vision.identity_hints.model_dump(mode="json")
-    hard_fields = {"year", "manufacturer", "card_number"}
+    hard_fields = {"year", "manufacturer", "set_name", "card_number"}
     for field, value in hints.items():
         if value in {None, ""}:
             continue

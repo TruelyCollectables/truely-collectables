@@ -746,7 +746,7 @@ function readerEvidenceText(reader: InstaCompConsensusReaderFinding) {
 function hasUnresolvedVisibleSurfaceRisk(value: string) {
   const clauses = String(value || "").split(/[.;]/g);
   const finishCue =
-    /\b(speckle(?:d)?|sparkle|glitter|rainbow|holo(?:graphic)?|foil|acetate|clear[-\s]*stock|transparent|translucent|outburst|refractor|prizm|prism|shimmer|wave|pulsar|mojo|mosaic|laser|black\s+and\s+white)\b/i;
+    /\b(speckle(?:d)?|sparkle|glitter|rainbow|holo(?:graphic)?|foil|acetate|clear[-\s]*stock|transparent|translucent|outburst|refractor|shimmer|wave|pulsar|mojo|mosaic|laser|black\s+and\s+white)\b/i;
   const colorContext =
     /\b(black|blue|gold|green|orange|pink|purple|red|silver|white)\b(?:\s+\w+){0,3}\s+\b(border|background|frame|finish|foil|parallel)\b/i;
   const negation = /\b(no|not|without|none|absent|neither)\b/i;
@@ -783,19 +783,23 @@ function catalogTextFieldMatchesReader(
     return Boolean(catalogYear && readerYear && catalogYear === readerYear);
   }
   if (field === "setName") {
+    const registrySetName = catalogRegistrySetName(catalogIdentity);
+    const catalogSetValues = [catalogValue, registrySetName].filter(Boolean);
+    // semanticTokens intentionally strips generic words such as "base". Handle
+    // the logical Base set explicitly so Base vs Base cannot become an empty-token
+    // false conflict while still refusing Base vs a named insert/subset.
+    if (isGenericBase(readerValue)) {
+      return catalogSetValues.some((value) => isGenericBase(value));
+    }
+    if (catalogSetValues.some((value) => isGenericBase(value))) {
+      return false;
+    }
     const readerTokens = semanticTokens(readerValue);
-    const catalogTokens = new Set(
-      semanticTokens(
-        [catalogValue, catalogRegistrySetName(catalogIdentity)]
-          .filter(Boolean)
-          .join(" "),
-      ),
-    );
-    const logicalSetTokens = logicalRegistrySetTokens(catalogIdentity);
+    const catalogTokens = new Set(semanticTokens(catalogSetValues.join(" ")));
     return (
-        readerTokens.length > 0 &&
-        readerTokens.every((token) => catalogTokens.has(token))
-      );
+      readerTokens.length > 0 &&
+      readerTokens.every((token) => catalogTokens.has(token))
+    );
   }
   if (field === "player") {
     return (

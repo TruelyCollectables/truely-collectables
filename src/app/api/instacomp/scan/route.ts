@@ -68,11 +68,13 @@ import {
   buildChecklistRegistryReviewEvidence,
   buildInstaCompEvidenceIdentityDecision,
   resolveChecklistRegistry,
+  revalidateChecklistRegistryReceipt,
 } from "../../../../lib/instacomp-learning-server";
 import {
   analyzeWithInstaCompAiLocal,
   hasConfiguredInstaCompAiLocal,
   instaCompAiLocalScanToAi,
+  type InstaCompAiResultWithInternalReceipt,
 } from "../../../../lib/instacomp-ai-local";
 
 export const runtime = "nodejs";
@@ -2149,6 +2151,23 @@ function buildInstaCompConsensusReaders(params: {
     }),
   ];
 
+  const internal = params.baseAi as InstaCompAiResultWithInternalReceipt;
+  const deterministicIdentity = internal.internalDeterministicIdentity || null;
+  if (deterministicIdentity && Object.keys(deterministicIdentity).length) {
+    readers.push({
+      readerId: "instacomp_local_deterministic",
+      label: "Apple Vision/OpenCV deterministic evidence",
+      kind: "ocr_printed_evidence",
+      family: "instacomp_local_deterministic",
+      identity: deterministicIdentity as InstaCompConsensusIdentity,
+      confidence: 0.99,
+      weight: 1.25,
+      evidence: internal.internalDeterministicEvidence.length
+        ? internal.internalDeterministicEvidence
+        : ["Apple Vision/OpenCV deterministic identity hints"],
+    });
+  }
+
   if (params.serialOcr?.serialNumber) {
     readers.push({
       readerId: "serial_vision",
@@ -4029,6 +4048,9 @@ async function identifyCardWithConfiguredProviderFailover(params: {
       requestedTier: requestedAiCouncilTier || INSTACOMP_AI_COUNCIL_TIER,
       actorType: actor.type,
       environment: process.env.NODE_ENV,
+      // Authenticated local-first scans may explicitly choose the basic lane.
+      // Exact identity still requires deterministic evidence + current Registry truth.
+      allowBasic: true,
     });
     requestedAiCouncilTier = aiCouncilPolicy.effectiveTier;
 
@@ -4186,8 +4208,9 @@ async function identifyCardWithConfiguredProviderFailover(params: {
     // model guess happened to match a checklist row.
     const consensusEscalation = baselineConsensusEscalation;
     const aiCouncilRaw = await runInstaCompAiCouncil({
-      runSecondaryVision: false,
-      requestedTier: "basic",
+      runSecondaryVision:
+        requestedAiCouncilTier !== "basic" && consensusEscalation.runSecondaryVision,
+      requestedTier: requestedAiCouncilTier,
       frontDataUrl,
       backDataUrl,
       detailImages,
@@ -4234,9 +4257,17 @@ async function identifyCardWithConfiguredProviderFailover(params: {
       ...(listingIdentityHint.year ? { year: listingIdentityHint.year } : {}),
       ...(listingIdentityHint.cardNumber ? { cardNumber: listingIdentityHint.cardNumber } : {}),
     };
-    const checklistResolution = await resolveChecklistRegistry(registryProbeAi, {
-      evidenceTrusted: evidenceConsensus.trustedForIdentity,
+    const internalReceipt = primaryAiResult.value as InstaCompAiResultWithInternalReceipt;
+    const receiptResolution = await revalidateChecklistRegistryReceipt({
+      ai: registryProbeAi,
+      identityId: internalReceipt.internalChecklistIdentityId,
+      fingerprintSha256: internalReceipt.internalChecklistFingerprintSha256,
     });
+    const checklistResolution =
+      receiptResolution ||
+      (await resolveChecklistRegistry(registryProbeAi, {
+        evidenceTrusted: evidenceConsensus.trustedForIdentity,
+      }));
     const registryMatch =
       checklistResolution.status === "internal_exact_match"
         ? checklistResolution.match
