@@ -1,6 +1,12 @@
 name: Apply Deal Hunter Market History Integration
 
 on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "scripts/patch-deal-hunter-market-history.py"
+      - ".github/workflows/apply-deal-hunter-market-history.yml"
   push:
     branches:
       - agent/mac-deal-hunter-scheduler
@@ -48,6 +54,7 @@ jobs:
           print('Deal Hunter market-history integration contract passed.')
           PY
       - name: Commit generated integration
+        if: github.event_name == 'push'
         run: |
           if git diff --quiet -- services/instacomp-ai/app/deal_hunter.py; then
             echo "No generated change found."
