@@ -30,6 +30,24 @@ jobs:
       - run: npm ci
       - name: Resolve protected Production Supabase credentials
         run: bash scripts/resolve-mainstream-checklist-production-env.sh
+      - name: Read Supabase project and REST service health
+        shell: bash
+        run: |
+          set -euo pipefail
+          auth="Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN"
+          echo '--- project metadata ---'
+          curl --silent --show-error --max-time 15 \
+            --header "$auth" \
+            "https://api.supabase.com/v1/projects/$RESOLVED_SUPABASE_PROJECT_REF" \
+            | jq '{ref,name,status,region,inserted_at}'
+          echo '--- REST service health ---'
+          status=$(curl --silent --show-error --max-time 15 \
+            --output "$RUNNER_TEMP/rest-health.json" \
+            --write-out '%{http_code}' \
+            --header "$auth" \
+            "https://api.supabase.com/v1/projects/$RESOLVED_SUPABASE_PROJECT_REF/health?services=rest&timeout_ms=5000" || true)
+          echo "management_health_http=$status"
+          jq . "$RUNNER_TEMP/rest-health.json" 2>/dev/null || cat "$RUNNER_TEMP/rest-health.json" || true
       - name: Run strictly read-only timed REST probes
         shell: bash
         run: |
@@ -62,7 +80,7 @@ jobs:
                   apikey: key,
                   Authorization: `Bearer ${key}`,
                   Accept: 'application/json',
-                  'X-Client-Info': 'tcos-registry-readonly-timed-diagnostic-v1',
+                  'X-Client-Info': 'tcos-registry-readonly-timed-diagnostic-v2',
                 },
                 signal: AbortSignal.timeout(12_000),
               });
@@ -83,7 +101,7 @@ jobs:
             console.log(JSON.stringify(result));
           }
           console.log(JSON.stringify({
-            schema: 'tcos.checklist.registryTimedReadDiagnostic.v1',
+            schema: 'tcos.checklist.registryTimedReadDiagnostic.v2',
             checkedAt: new Date().toISOString(),
             allHealthy: results.every((x) => x.ok),
             results,
@@ -91,4 +109,4 @@ jobs:
           NODE
       - name: Remove protected Production files
         if: always()
-        run: rm -rf "$RUNNER_TEMP/mainstream-checklist-ingestion" .env.local .env.production.local
+        run: rm -rf "$RUNNER_TEMP/mainstream-checklist-ingestion" .env.local .env.production.local "$RUNNER_TEMP/rest-health.json"
