@@ -78,11 +78,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsS --max-time 90 -X POST \
+          http_status="$(curl -sS --max-time 90 -X POST \
             -H "Authorization: Bearer $VERCEL_TOKEN" \
-            "$SITE_URL/api/release/instacomp-owner-purchase-learning-sync?mode=inspect" \
-            > owner-purchase-learning-before.json
+            -o owner-purchase-learning-before.json \
+            -w '%{http_code}' \
+            "$SITE_URL/api/release/instacomp-owner-purchase-learning-sync?mode=inspect")"
           cat owner-purchase-learning-before.json
+          if [ "$http_status" != "200" ]; then
+            echo "Inspect endpoint returned HTTP $http_status"
+            exit 1
+          fi
           node - <<'NODE'
           const p=require('./owner-purchase-learning-before.json');
           if(!p.success) throw new Error(JSON.stringify(p));
@@ -95,11 +100,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsS --max-time 300 -X POST \
+          http_status="$(curl -sS --max-time 300 -X POST \
             -H "Authorization: Bearer $VERCEL_TOKEN" \
-            "$SITE_URL/api/release/instacomp-owner-purchase-learning-sync?mode=sync" \
-            > owner-purchase-learning-sync.json
+            -o owner-purchase-learning-sync.json \
+            -w '%{http_code}' \
+            "$SITE_URL/api/release/instacomp-owner-purchase-learning-sync?mode=sync")"
           cat owner-purchase-learning-sync.json
+          if [ "$http_status" != "200" ]; then
+            echo "Learning sync endpoint returned HTTP $http_status"
+            exit 1
+          fi
           node - <<'NODE'
           const p=require('./owner-purchase-learning-sync.json');
           if(!p.success) throw new Error(JSON.stringify(p));
@@ -112,11 +122,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsS --max-time 120 -X POST \
+          http_status="$(curl -sS --max-time 120 -X POST \
             -H "Authorization: Bearer $VERCEL_TOKEN" \
-            "$SITE_URL/api/release/instacomp-owner-purchase-learning-sync?mode=sync" \
-            > owner-purchase-learning-second-pass.json
+            -o owner-purchase-learning-second-pass.json \
+            -w '%{http_code}' \
+            "$SITE_URL/api/release/instacomp-owner-purchase-learning-sync?mode=sync")"
           cat owner-purchase-learning-second-pass.json
+          if [ "$http_status" != "200" ]; then
+            echo "Second learning sync endpoint returned HTTP $http_status"
+            exit 1
+          fi
           node - <<'NODE'
           const p=require('./owner-purchase-learning-second-pass.json');
           if(!p.success) throw new Error(JSON.stringify(p));
