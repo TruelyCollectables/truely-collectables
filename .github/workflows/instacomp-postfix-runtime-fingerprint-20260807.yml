@@ -1,0 +1,40 @@
+name: InstaComp Postfix Runtime Fingerprint 20260807
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-postfix-runtime-fingerprint-20260807.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fingerprint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/instacomp-postfix-runtime-fingerprint-20260807
+      - name: Compute exact Mac runtime fingerprint
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from hashlib import sha256
+          from pathlib import Path
+          root = Path('services/instacomp-ai')
+          digest = sha256()
+          for relative in ('app/local_vision.py', 'app/ollama.py'):
+              digest.update(relative.encode('utf-8'))
+              digest.update(b'\0')
+              digest.update((root / relative).read_bytes())
+              digest.update(b'\0')
+          print(f'EXPECTED_MAC_RUNTIME_FINGERPRINT={digest.hexdigest()}')
+          PY
+          test "$(git rev-parse HEAD)" = "2249ce075d32c0cac9e074d8e4e5656830d05b79" || {
+            echo "Fingerprint branch no longer points to merged scanner repair." >&2
+            exit 2
+          }
