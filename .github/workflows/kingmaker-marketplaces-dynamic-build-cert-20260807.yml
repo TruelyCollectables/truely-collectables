@@ -35,27 +35,31 @@ jobs:
           cache: npm
       - name: Install
         run: npm ci
-      - name: Load exact Vercel Production environment
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Pull exact Vercel Production project state
         shell: bash
         run: |
           set -euo pipefail
           test -n "${VERCEL_TOKEN:-}"
           npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
-          npx --yes vercel@56.2.0 env pull .env.local --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
-          test -s .env.local
-      - name: TypeScript
-        run: npx tsc --noEmit
-      - name: Production build
+          npx --yes vercel@56.2.0 pull --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+      - name: Vercel Production build
         shell: bash
         run: |
           set -euo pipefail
-          npm run build 2>&1 | tee /tmp/kingmaker-build.log
-          grep -Eq '^[[:space:]]*├[[:space:]]+ƒ /kingmaker/marketplaces|^[[:space:]]*└[[:space:]]+ƒ /kingmaker/marketplaces' /tmp/kingmaker-build.log
-          if grep -Fq 'Failed to build /kingmaker/marketplaces/page' /tmp/kingmaker-build.log; then
+          npx --yes vercel@56.2.0 build --prod --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee /tmp/kingmaker-vercel-build.log
+          if grep -Fq 'Failed to build /kingmaker/marketplaces/page' /tmp/kingmaker-vercel-build.log; then
             echo 'KINGMAKER marketplaces still timed out during static generation.' >&2
             exit 1
           fi
-          echo 'KINGMAKER marketplaces is dynamic and Production build completed.'
-      - name: Remove local Production environment
+          if grep -Fq 'Export encountered an error on /kingmaker/marketplaces/page' /tmp/kingmaker-vercel-build.log; then
+            echo 'KINGMAKER marketplaces still failed static export.' >&2
+            exit 1
+          fi
+          grep -Eq '^[[:space:]]*├[[:space:]]+ƒ /kingmaker/marketplaces|^[[:space:]]*└[[:space:]]+ƒ /kingmaker/marketplaces' /tmp/kingmaker-vercel-build.log
+          echo 'KINGMAKER marketplaces is dynamic and Vercel Production build completed.'
+      - name: Remove local Vercel state
         if: always()
-        run: rm -f .env.local .env.production.local
+        shell: bash
+        run: rm -rf .vercel .env.local .env.production.local
