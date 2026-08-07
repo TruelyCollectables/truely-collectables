@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { runRegistryReadWithRetry } from "./checklist-registry-read-retry.mjs";
 
 const url = String(process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
 const key = String(process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
@@ -6,8 +7,11 @@ if (!url || !key) throw new Error("Production Supabase URL and service-role key 
 
 const db = createClient(url, key, {
   auth: { persistSession: false, autoRefreshToken: false },
-  global: { headers: { "X-Client-Info": "tcos-checklist-registry-contract-probe-v2" } },
+  global: { headers: { "X-Client-Info": "tcos-checklist-registry-contract-probe-v3" } },
 });
+
+const readRetryAttempts = process.env.CHECKLIST_REGISTRY_READ_RETRY_ATTEMPTS || "6";
+const readRetryBaseMs = process.env.CHECKLIST_REGISTRY_READ_RETRY_BASE_MS || "750";
 
 const requiredTables = [
   "checklist_source_catalog",
@@ -22,18 +26,31 @@ const requiredTables = [
 const tableChecks = [];
 for (const table of requiredTables) {
   // One bounded row read proves PostgREST/table access without asking Production
-  // to count or scan a large Registry table.
-  const { error } = await db
-    .from(table)
-    .select("*")
-    .limit(1);
-  if (error) throw new Error(`Registry table ${table} is not readable: ${error.message}`);
-  tableChecks.push({ table, readable: true, boundedRead: true });
+  // to count or scan a large Registry table. Only transient read failures may be
+  // retried; missing tables, permissions, and all other contract failures remain
+  // immediate hard failures.
+  const result = await runRegistryReadWithRetry(
+    () => db.from(table).select("*").limit(1),
+    { attempts: readRetryAttempts, baseMs: readRetryBaseMs },
+  );
+  if (result.error) {
+    const retryState = result.exhausted ? " after bounded transient retries" : "";
+    throw new Error(`Registry table ${table} is not readable${retryState}: ${result.error.message}`);
+  }
+  tableChecks.push({
+    table,
+    readable: true,
+    boundedRead: true,
+    attemptsUsed: result.attemptsUsed,
+    transientRetryUsed: result.retried,
+  });
 }
 
 // This call is intentionally rejected by the writer's FIRST pre-write guard.
 // It proves the exact Production RPC exists and is executing the expected
 // fail-closed contract without inserting/updating/deleting any Registry row.
+// The RPC itself is deliberately NOT retried: only idempotent table reads get
+// transport/schema-cache retry treatment in this verifier.
 const invalidPlan = {
   schema: "tcos.checklist.import-plan.v1",
   validation: { status: "contract_probe_must_fail" },
@@ -65,14 +82,20 @@ if (!/Checklist import plan requires validation before persistence/i.test(rpcMes
 }
 
 console.log(JSON.stringify({
-  schema: "tcos.checklist.productionRegistryContract.v2",
+  schema: "tcos.checklist.productionRegistryContract.v3",
   checkedAt: new Date().toISOString(),
   ok: true,
+  readRetryPolicy: {
+    attempts: Number.parseInt(readRetryAttempts, 10),
+    baseMs: Number.parseInt(readRetryBaseMs, 10),
+    scope: "bounded_table_reads_only",
+  },
   tables: tableChecks,
   writer: {
     function: "tcos_apply_checklist_import_plan",
     exists: true,
     preWriteGuardVerified: true,
     expectedFailure: "Checklist import plan requires validation before persistence",
+    retried: false,
   },
 }, null, 2));
