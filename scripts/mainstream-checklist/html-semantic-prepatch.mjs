@@ -44,7 +44,7 @@ function isGenericChild(value) {
 
 function isChecklistParent(value) {
   return /^(?:base(?: set| cards)?|autographs?|signatures?|inserts?|parallels?|relics?|memorabilia|variations?|short prints?|sps?|rookies?|prospects?|gimmicks?)(?:\s+checklist)?$/i.test(value) ||
-    /\b(?:checklist|autograph|signature|insert|relic|memorabilia|parallel|variation|short print|rookie|prospect|gimmick)\b/i.test(value);
+    /\b(?:checklists?|autographs?|signatures?|inserts?|relics?|memorabilia|parallels?|variations?|short prints?|rookies?|prospects?|gimmicks?)\b/i.test(value);
 }
 
 function rewriteHeadingHierarchy(html) {
