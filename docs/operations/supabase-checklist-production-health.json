@@ -1,19 +1,44 @@
 {
-  "schema": "tcos.supabase.checklistProductionHealth.v1",
-  "checkedAt": "2026-08-07T18:11:23Z",
+  "schema": "tcos.supabase.checklistProductionHealth.v2",
+  "checkedAt": "2026-08-07T18:14:02Z",
   "managementProject": {
     "httpCode": "200",
     "data": {
-      "status": "ACTIVE_HEALTHY",
+      "status": "RESTARTING",
       "region": "us-west-2",
       "error": null
     },
     "transportError": null
   },
   "serviceHealth": {
-    "httpCode": "400",
-    "services": [],
-    "error": "timeout_ms: Invalid input: expected number, received string",
+    "httpCode": "200",
+    "services": [
+      {
+        "name": "db",
+        "healthy": true,
+        "status": "ACTIVE_HEALTHY",
+        "error": null
+      },
+      {
+        "name": "rest",
+        "healthy": null,
+        "status": "UNHEALTHY",
+        "error": "Failed to retrieve project's rest service health"
+      },
+      {
+        "name": "storage",
+        "healthy": null,
+        "status": "UNHEALTHY",
+        "error": "Storage is not healthy"
+      },
+      {
+        "name": "auth",
+        "healthy": null,
+        "status": "UNHEALTHY",
+        "error": "{\"type\":\"https://developers.cloudflare.com/support/troubleshooting/http-status-codes/cloudflare-5xx-errors/error-521/\",\"title\":\"Error 521: Web server is down\",\"status\":521,\"detail\":\"Cloudflare attempted to connect to the origin web server, but the connection was refused. The origin is down, blocking"
+      }
+    ],
+    "error": null,
     "transportError": null
   },
   "readOnlyDatabaseQuery": {
@@ -22,10 +47,11 @@
       {
         "health": {
           "max_connections": 60,
-          "total_connections": 18,
-          "active_connections": 8,
-          "idle_connections": 3,
-          "waiting_connections": 15,
+          "total_connections": 16,
+          "active_connections": 7,
+          "idle_connections": 2,
+          "idle_in_transaction_connections": 0,
+          "waiting_connections": 14,
           "waiting_locks": 5,
           "checklist_catalog_readable": true,
           "top_applications": [
@@ -40,29 +66,170 @@
               "connections": 6
             },
             {
+              "application_name": "pg_net 0.20.3",
+              "state": "idle",
+              "connections": 1
+            },
+            {
               "application_name": "postgrest",
-              "state": "active",
+              "state": "idle",
               "connections": 1
             },
             {
               "application_name": "pg_cron scheduler",
               "state": "<null>",
               "connections": 1
+            }
+          ],
+          "blocked_sessions": [
+            {
+              "blocked_pid": 394465,
+              "blocked_application": "mgmt-api",
+              "blocked_user": "postgres",
+              "blocked_state": "active",
+              "blocked_wait_type": "Lock",
+              "blocked_wait_event": "relation",
+              "blocked_age_seconds": 57.7,
+              "blocker_pid": 394401,
+              "blocker_application": "mgmt-api",
+              "blocker_user": "postgres",
+              "blocker_state": "active",
+              "blocker_wait_type": "<null>",
+              "blocker_wait_event": "<null>",
+              "blocker_age_seconds": 181.6,
+              "blocked_query_hash": "aa9c0f544799ee579dfc02f0245c3afa",
+              "blocker_query_hash": "aa9c0f544799ee579dfc02f0245c3afa"
             },
             {
-              "application_name": "postgres_exporter",
-              "state": "idle",
-              "connections": 1
+              "blocked_pid": 394467,
+              "blocked_application": "mgmt-api",
+              "blocked_user": "postgres",
+              "blocked_state": "active",
+              "blocked_wait_type": "Lock",
+              "blocked_wait_event": "relation",
+              "blocked_age_seconds": 57.7,
+              "blocker_pid": 394401,
+              "blocker_application": "mgmt-api",
+              "blocker_user": "postgres",
+              "blocker_state": "active",
+              "blocker_wait_type": "<null>",
+              "blocker_wait_event": "<null>",
+              "blocker_age_seconds": 181.6,
+              "blocked_query_hash": "aa9c0f544799ee579dfc02f0245c3afa",
+              "blocker_query_hash": "aa9c0f544799ee579dfc02f0245c3afa"
             },
             {
-              "application_name": "postgrest",
-              "state": "idle",
-              "connections": 1
+              "blocked_pid": 394466,
+              "blocked_application": "mgmt-api",
+              "blocked_user": "postgres",
+              "blocked_state": "active",
+              "blocked_wait_type": "Lock",
+              "blocked_wait_event": "relation",
+              "blocked_age_seconds": 57.7,
+              "blocker_pid": 394401,
+              "blocker_application": "mgmt-api",
+              "blocker_user": "postgres",
+              "blocker_state": "active",
+              "blocker_wait_type": "<null>",
+              "blocker_wait_event": "<null>",
+              "blocker_age_seconds": 181.6,
+              "blocked_query_hash": "aa9c0f544799ee579dfc02f0245c3afa",
+              "blocker_query_hash": "aa9c0f544799ee579dfc02f0245c3afa"
             },
             {
-              "application_name": "pg_net 0.20.3",
-              "state": "idle",
-              "connections": 1
+              "blocked_pid": 394469,
+              "blocked_application": "mgmt-api",
+              "blocked_user": "postgres",
+              "blocked_state": "active",
+              "blocked_wait_type": "Lock",
+              "blocked_wait_event": "relation",
+              "blocked_age_seconds": 54.6,
+              "blocker_pid": 394401,
+              "blocker_application": "mgmt-api",
+              "blocker_user": "postgres",
+              "blocker_state": "active",
+              "blocker_wait_type": "<null>",
+              "blocker_wait_event": "<null>",
+              "blocker_age_seconds": 181.6,
+              "blocked_query_hash": "aa9c0f544799ee579dfc02f0245c3afa",
+              "blocker_query_hash": "aa9c0f544799ee579dfc02f0245c3afa"
+            },
+            {
+              "blocked_pid": 394492,
+              "blocked_application": "mgmt-api",
+              "blocked_user": "postgres",
+              "blocked_state": "active",
+              "blocked_wait_type": "Lock",
+              "blocked_wait_event": "relation",
+              "blocked_age_seconds": 7.6,
+              "blocker_pid": 394401,
+              "blocker_application": "mgmt-api",
+              "blocker_user": "postgres",
+              "blocker_state": "active",
+              "blocker_wait_type": "<null>",
+              "blocker_wait_event": "<null>",
+              "blocker_age_seconds": 181.6,
+              "blocked_query_hash": "aa9c0f544799ee579dfc02f0245c3afa",
+              "blocker_query_hash": "aa9c0f544799ee579dfc02f0245c3afa"
+            }
+          ],
+          "ungranted_lock_types": [
+            {
+              "locktype": "relation",
+              "mode": "ShareLock",
+              "lock_count": 5
+            }
+          ],
+          "long_transactions": [
+            {
+              "pid": 394401,
+              "application_name": "mgmt-api",
+              "user_name": "postgres",
+              "state": "active",
+              "wait_event_type": "<null>",
+              "wait_event": "<null>",
+              "transaction_age_seconds": 181.6,
+              "query_hash": "aa9c0f544799ee579dfc02f0245c3afa"
+            },
+            {
+              "pid": 394465,
+              "application_name": "mgmt-api",
+              "user_name": "postgres",
+              "state": "active",
+              "wait_event_type": "Lock",
+              "wait_event": "relation",
+              "transaction_age_seconds": 57.7,
+              "query_hash": "aa9c0f544799ee579dfc02f0245c3afa"
+            },
+            {
+              "pid": 394467,
+              "application_name": "mgmt-api",
+              "user_name": "postgres",
+              "state": "active",
+              "wait_event_type": "Lock",
+              "wait_event": "relation",
+              "transaction_age_seconds": 57.7,
+              "query_hash": "aa9c0f544799ee579dfc02f0245c3afa"
+            },
+            {
+              "pid": 394466,
+              "application_name": "mgmt-api",
+              "user_name": "postgres",
+              "state": "active",
+              "wait_event_type": "Lock",
+              "wait_event": "relation",
+              "transaction_age_seconds": 57.7,
+              "query_hash": "aa9c0f544799ee579dfc02f0245c3afa"
+            },
+            {
+              "pid": 394469,
+              "application_name": "mgmt-api",
+              "user_name": "postgres",
+              "state": "active",
+              "wait_event_type": "Lock",
+              "wait_event": "relation",
+              "transaction_age_seconds": 54.6,
+              "query_hash": "aa9c0f544799ee579dfc02f0245c3afa"
             }
           ]
         }
