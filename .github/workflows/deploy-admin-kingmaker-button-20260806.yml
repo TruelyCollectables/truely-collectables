@@ -1,0 +1,76 @@
+name: Deploy Admin Kingmaker Button 20260806
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/app/admin/layout.tsx"
+      - ".github/workflows/deploy-admin-kingmaker-button-20260806.yml"
+  push:
+    branches: [main]
+    paths:
+      - "src/app/admin/layout.tsx"
+      - ".github/workflows/deploy-admin-kingmaker-button-20260806.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-admin-kingmaker-button-20260806-${{ github.event_name }}
+  cancel-in-progress: false
+
+env:
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install and verify source
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          grep -q 'href="/kingmaker"' src/app/admin/layout.tsx
+          grep -q 'OPEN KINGMAKER' src/app/admin/layout.tsx
+          ./node_modules/.bin/tsc --noEmit
+
+      - name: Link project and build Production output
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx vercel@56.2.0 pull --yes --environment=production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx vercel@56.2.0 build --prod --token "$VERCEL_TOKEN"
+          grep -R -q 'OPEN KINGMAKER' .vercel/output
+
+      - name: Deploy merged main to Production
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 deploy --prebuilt --prod --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" | tee /tmp/admin-kingmaker-deploy.txt
+          curl -fsS "https://truelycollectables.com/api/instacomp/internal-readiness?ts=$(date +%s)" -o /tmp/readiness.json
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const readiness = JSON.parse(fs.readFileSync('/tmp/readiness.json', 'utf8'));
+          if (readiness.ok !== true || readiness.reachable !== true) {
+            throw new Error(`Production readiness failed: ${JSON.stringify(readiness)}`);
+          }
+          console.log(JSON.stringify({
+            status: 'passed',
+            sourceContainsButton: true,
+            productionReachable: true,
+            href: '/kingmaker',
+          }, null, 2));
+          NODE
