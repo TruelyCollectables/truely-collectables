@@ -1,19 +1,31 @@
 {
   "schema": "tcos.checklist.mainstreamBacklogPromotionProof.v2",
-  "checkedAt": "2026-08-07T12:06:15.710Z",
+  "checkedAt": "2026-08-07T12:33:49.420Z",
   "expectedSources": 327,
   "expectedPromotedSources": 319,
   "expectedAttachmentOnly": 8,
   "catalogRows": 327,
   "counts": {
-    "imported": 40,
+    "imported": 33,
     "unchanged": 0,
     "attachments": 8,
-    "cards": 5118,
-    "identities": 5783
+    "cards": 3907,
+    "identities": 4571
   },
   "complete": false,
   "failures": [
+    {
+      "id": "SR-0001",
+      "code": "confirmed_checklist_not_promoted",
+      "status": "quarantined",
+      "issues": [
+        {
+          "code": "mainstream_backlog_normalization_quarantined",
+          "message": "Checklist Registry transaction failed: canceling statement due to statement timeout",
+          "severity": "error"
+        }
+      ]
+    },
     {
       "id": "SR-0006",
       "code": "confirmed_checklist_not_promoted",
@@ -191,7 +203,7 @@
       "issues": [
         {
           "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "message": "Checklist Registry transaction failed: canceling statement due to statement timeout",
           "severity": "error"
         }
       ]
@@ -305,7 +317,7 @@
       "issues": [
         {
           "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "message": "Checklist Registry transaction failed: canceling statement due to statement timeout",
           "severity": "error"
         }
       ]
@@ -316,13 +328,8 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "reference_parallel_rows_not_deterministic",
-          "message": "No deterministic parallel rows were parsed from this source.",
-          "severity": "warning"
-        },
-        {
-          "code": "reference_checklist_insufficient_rows",
-          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
+          "code": "mainstream_backlog_normalization_quarantined",
+          "message": "Could not update checklist source catalog: canceling statement due to statement timeout",
           "severity": "error"
         }
       ]
@@ -435,13 +442,8 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "reference_parallel_rows_not_deterministic",
-          "message": "No deterministic parallel rows were parsed from this source.",
-          "severity": "warning"
-        },
-        {
-          "code": "reference_checklist_insufficient_rows",
-          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
+          "code": "mainstream_backlog_normalization_quarantined",
+          "message": "Could not update checklist source catalog: canceling statement due to statement timeout",
           "severity": "error"
         }
       ]
@@ -453,7 +455,7 @@
       "issues": [
         {
           "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "message": "Checklist Registry transaction failed: canceling statement due to statement timeout",
           "severity": "error"
         }
       ]
@@ -498,13 +500,8 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "reference_parallel_rows_not_deterministic",
-          "message": "No deterministic parallel rows were parsed from this source.",
-          "severity": "warning"
-        },
-        {
-          "code": "reference_checklist_insufficient_rows",
-          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
+          "code": "mainstream_backlog_normalization_quarantined",
+          "message": "Checklist Registry transaction failed: canceling statement due to statement timeout",
           "severity": "error"
         }
       ]
@@ -652,7 +649,7 @@
       "issues": [
         {
           "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "message": "Checklist Registry transaction failed: canceling statement due to statement timeout",
           "severity": "error"
         }
       ]
@@ -664,7 +661,7 @@
       "issues": [
         {
           "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "message": "Checklist Registry transaction failed: canceling statement due to statement timeout",
           "severity": "error"
         }
       ]
@@ -693,7 +690,7 @@
       "issues": [
         {
           "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "message": "Checklist Registry transaction failed: canceling statement due to statement timeout",
           "severity": "error"
         }
       ]
@@ -783,7 +780,7 @@
       "issues": [
         {
           "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "message": "Checklist Registry transaction failed: canceling statement due to statement timeout",
           "severity": "error"
         }
       ]
@@ -795,7 +792,7 @@
       "issues": [
         {
           "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "message": "Checklist Registry transaction failed: canceling statement due to statement timeout",
           "severity": "error"
         }
       ]
@@ -869,6 +866,18 @@
       ]
     },
     {
+      "id": "SR-0061",
+      "code": "confirmed_checklist_not_promoted",
+      "status": "quarantined",
+      "issues": [
+        {
+          "code": "mainstream_backlog_normalization_quarantined",
+          "message": "Checklist Registry transaction failed: canceling statement due to statement timeout",
+          "severity": "error"
+        }
+      ]
+    },
+    {
       "id": "SR-0062",
       "code": "confirmed_checklist_not_promoted",
       "status": "quarantined",
@@ -891,13 +900,8 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "reference_parallel_rows_not_deterministic",
-          "message": "No deterministic parallel rows were parsed from this source.",
-          "severity": "warning"
-        },
-        {
-          "code": "reference_checklist_insufficient_rows",
-          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
+          "code": "mainstream_backlog_normalization_quarantined",
+          "message": "Could not update checklist source catalog: canceling statement due to statement timeout",
           "severity": "error"
         }
       ]
@@ -913,13 +917,8 @@
           "severity": "warning"
         },
         {
-          "code": "reference_card_number_subject_conflict",
-          "message": "Base Set #UH47 maps to conflicting subjects.",
-          "severity": "error"
-        },
-        {
-          "code": "reference_card_number_subject_conflict",
-          "message": "Base Set #UH48 maps to conflicting subjects.",
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -948,7 +947,7 @@
       "issues": [
         {
           "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "message": "Checklist Registry transaction failed: canceling statement due to statement timeout",
           "severity": "error"
         }
       ]
@@ -1045,7 +1044,7 @@
       "issues": [
         {
           "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "message": "Checklist Registry transaction failed: canceling statement due to statement timeout",
           "severity": "error"
         }
       ]
@@ -1209,13 +1208,8 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "reference_parallel_rows_not_deterministic",
-          "message": "No deterministic parallel rows were parsed from this source.",
-          "severity": "warning"
-        },
-        {
-          "code": "reference_checklist_insufficient_rows",
-          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
+          "code": "mainstream_backlog_normalization_quarantined",
+          "message": "Checklist Registry transaction failed: canceling statement due to statement timeout",
           "severity": "error"
         }
       ]
@@ -1336,18 +1330,6 @@
       "issues": [
         {
           "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
-          "severity": "error"
-        }
-      ]
-    },
-    {
-      "id": "SR-0094",
-      "code": "confirmed_checklist_not_promoted",
-      "status": "quarantined",
-      "issues": [
-        {
-          "code": "mainstream_backlog_normalization_quarantined",
           "message": "Checklist Registry transaction failed: canceling statement due to statement timeout",
           "severity": "error"
         }
@@ -1360,7 +1342,7 @@
       "issues": [
         {
           "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: duplicate key value violates unique constraint \"checklist_brands_manufacturer_id_slug_key\"",
+          "message": "Checklist Registry transaction failed: canceling statement due to statement timeout",
           "severity": "error"
         }
       ]
@@ -1617,23 +1599,6 @@
     },
     {
       "id": "SR-0114",
-      "code": "confirmed_checklist_not_promoted",
-      "status": "quarantined",
-      "issues": [
-        {
-          "code": "reference_parallel_rows_not_deterministic",
-          "message": "No deterministic parallel rows were parsed from this source.",
-          "severity": "warning"
-        },
-        {
-          "code": "reference_checklist_insufficient_rows",
-          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
-          "severity": "error"
-        }
-      ]
-    },
-    {
-      "id": "SR-0115",
       "code": "confirmed_checklist_not_promoted",
       "status": "quarantined",
       "issues": [
