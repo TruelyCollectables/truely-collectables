@@ -36,3 +36,5 @@ jobs:
             exit 1
           fi
           echo "Superseded checklist run $run_id cancel request accepted/already terminal (HTTP $code)."
+
+# Cancellation retrigger marker: 2026-08-07T15:41Z
