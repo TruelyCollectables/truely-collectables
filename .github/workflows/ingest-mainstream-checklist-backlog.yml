@@ -9,6 +9,8 @@ on:
       - "scripts/ingest-mainstream-checklist-backlog.mjs"
       - "scripts/mainstream-checklist/**"
       - "scripts/test-mainstream-checklist-fetch-patch.mjs"
+      - "scripts/test-mainstream-checklist-parser-v2.mjs"
+      - "scripts/assert-mainstream-checklist-production-complete.mjs"
       - "scripts/resolve-mainstream-checklist-production-env.sh"
       - "scripts/bootstrap-mainstream-checklist-schema.sh"
       - "scripts/repair-mainstream-checklist-schema.sh"
@@ -21,6 +23,8 @@ on:
       - "scripts/ingest-mainstream-checklist-backlog.mjs"
       - "scripts/mainstream-checklist/**"
       - "scripts/test-mainstream-checklist-fetch-patch.mjs"
+      - "scripts/test-mainstream-checklist-parser-v2.mjs"
+      - "scripts/assert-mainstream-checklist-production-complete.mjs"
       - "scripts/resolve-mainstream-checklist-production-env.sh"
       - "scripts/bootstrap-mainstream-checklist-schema.sh"
       - "scripts/repair-mainstream-checklist-schema.sh"
@@ -94,10 +98,14 @@ jobs:
           NODE
       - name: Verify source fallback and section ordering
         run: node scripts/test-mainstream-checklist-fetch-patch.mjs
-      - name: Verify parser contract
-        env:
-          MAINSTREAM_CHECKLIST_SELF_TEST: "true"
-        run: node --import ./scripts/mainstream-checklist/fetch-patch.mjs --import tsx scripts/ingest-mainstream-checklist-backlog.mjs
+      - name: Verify parser scope, nested sections, and duplicate suppression
+        run: node scripts/test-mainstream-checklist-parser-v2.mjs
+      - name: Verify Registry writer identity conflict contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(grep -c 'on conflict (identity_schema, fingerprint_sha256) do nothing;' supabase/migrations/20260731161500_checklist_registry_transactional_writer.sql)" -eq 1
+          ! grep -q 'where active do nothing' scripts/repair-mainstream-checklist-schema.sh
 
   bootstrap-production-schema:
     if: github.event_name != 'pull_request'
@@ -116,7 +124,7 @@ jobs:
         run: bash scripts/resolve-mainstream-checklist-production-env.sh
       - name: Install and verify Checklist Registry production schema
         run: bash scripts/bootstrap-mainstream-checklist-schema.sh
-      - name: Repair Registry writer uniqueness and bounded timeout
+      - name: Repair Registry writer uniqueness and identity conflict target
         run: bash scripts/repair-mainstream-checklist-schema.sh
       - name: Remove protected Production files
         if: always()
@@ -221,12 +229,27 @@ jobs:
           test -n "${RESOLVED_SUPABASE_SERVICE_ROLE_KEY:-}"
           export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
           node --import ./scripts/mainstream-checklist/fetch-patch.mjs --import tsx scripts/ingest-mainstream-checklist-backlog.mjs
-      - name: Upload reconciliation receipt
+      - name: Prove every confirmed standalone checklist is promoted
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source "$PRODUCTION_ENV_PATH"
+          set +a
+          test -n "${RESOLVED_SUPABASE_SERVICE_ROLE_KEY:-}"
+          export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
+          mkdir -p .checklist-discovery
+          node scripts/assert-mainstream-checklist-production-complete.mjs \
+            | tee .checklist-discovery/mainstream-backlog-promotion-proof.json
+      - name: Upload reconciliation and promotion proof
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: mainstream-checklist-backlog-reconciliation-${{ github.run_id }}
-          path: .checklist-discovery/mainstream-backlog-reconciliation.json
+          path: |
+            .checklist-discovery/mainstream-backlog-reconciliation.json
+            .checklist-discovery/mainstream-backlog-promotion-proof.json
           if-no-files-found: error
           retention-days: 90
       - name: Persist sanitized reconciliation receipt to status branch
@@ -235,9 +258,11 @@ jobs:
         env:
           STATUS_BRANCH: ops/mainstream-checklist-status
           STATUS_PATH: docs/operations/instacomp-mainstream-checklist-reconciliation.json
+          PROMOTION_PATH: docs/operations/instacomp-mainstream-checklist-promotion-proof.json
         run: |
           set -euo pipefail
           receipt=.checklist-discovery/mainstream-backlog-reconciliation.json
+          promotion=.checklist-discovery/mainstream-backlog-promotion-proof.json
           mkdir -p /tmp/mainstream-checklist-status
           if [[ -s "$receipt" ]]; then
             jq \
@@ -266,7 +291,10 @@ jobs:
           git checkout -B "$STATUS_BRANCH" "origin/$STATUS_BRANCH"
           mkdir -p "$(dirname "$STATUS_PATH")"
           cp /tmp/mainstream-checklist-status/reconciliation.json "$STATUS_PATH"
-          git add "$STATUS_PATH"
+          if [[ -s "$promotion" ]]; then
+            cp "$promotion" "$PROMOTION_PATH"
+          fi
+          git add "$STATUS_PATH" "$PROMOTION_PATH" 2>/dev/null || git add "$STATUS_PATH"
           if git diff --cached --quiet; then
             echo "Status receipt is unchanged."
           else
