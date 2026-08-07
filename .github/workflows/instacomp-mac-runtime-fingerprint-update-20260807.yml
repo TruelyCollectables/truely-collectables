@@ -46,9 +46,9 @@ jobs:
         working-directory: services/instacomp-ai
         run: python -m pip install -r requirements.txt
 
-      - name: Test fingerprint and OCR hard facts
+      - name: Run complete Mac service test suite
         working-directory: services/instacomp-ai
-        run: python -m pytest -q tests/test_runtime_identity.py tests/test_ocr_registry_hard_facts.py tests/test_local_vision.py tests/test_ollama.py
+        run: python -m pytest -q
 
       - name: Python compile
         working-directory: services/instacomp-ai
