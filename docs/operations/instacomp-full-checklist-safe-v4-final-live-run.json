@@ -1,16 +1,16 @@
 {
   "schema": "tcos.checklist.safeV4FinalLiveRun.v1",
-  "checkedAt": "2026-08-07T17:53:32Z",
+  "checkedAt": "2026-08-07T18:27:55Z",
   "safeV4Final": {
     "workflow": "Ingest Full Master Checklist Archive Safe v4 Final",
-    "runId": "31204289426",
-    "runNumber": "9",
+    "runId": "31206822590",
+    "runNumber": "12",
     "status": "queued",
     "conclusion": null,
     "event": "push",
-    "sourceSha": "53ac47d684317ad8bc44d658dfbd777dd566afd1",
+    "sourceSha": "84dd1afa2996aed7098a5b64f19b09b9c91e3661",
     "branch": "main",
-    "createdAt": "2026-08-07T17:52:07Z",
-    "updatedAt": "2026-08-07T17:52:43Z"
+    "createdAt": "2026-08-07T18:24:47Z",
+    "updatedAt": "2026-08-07T18:27:44Z"
   }
 }
