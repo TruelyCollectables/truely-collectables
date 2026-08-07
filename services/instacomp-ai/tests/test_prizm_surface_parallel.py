@@ -1,3 +1,4 @@
+from app.models import CardIdentity
 from app.ollama import normalize_identity_payload
 
 
@@ -73,3 +74,31 @@ def test_generic_blue_prizm_with_velocity_geometry_becomes_velocity():
     normalized = normalize_identity_payload(payload)
 
     assert normalized["identity"]["parallel"] == "Blue Velocity Prizm"
+
+
+def test_numeric_year_and_card_number_are_normalized_before_validation():
+    payload = {
+        "identity": {
+            "year": 2025,
+            "manufacturer": "Panini",
+            "brand": "Prizm",
+            "set_name": "Prizm WNBA",
+            "player": "Sonia Citron",
+            "card_number": 122,
+            "parallel": "Base",
+            "rookie": True,
+        },
+        "evidence": {
+            "front_visible_text": ["SONIA CITRON"],
+            "back_visible_text": ["122"],
+        },
+        "confidence": 0.97,
+        "explanation": "Visible front and back evidence.",
+    }
+
+    normalized = normalize_identity_payload(payload)
+    identity = CardIdentity.model_validate(normalized["identity"])
+
+    assert identity.year == "2025"
+    assert identity.card_number == "122"
+    assert identity.player == "Sonia Citron"
