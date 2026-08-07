@@ -121,9 +121,12 @@ export default function ChecklistSentinelAdminPage() {
   }, []);
 
   useEffect(() => {
-    void load();
+    const initialLoad = window.setTimeout(() => void load(), 0);
     const timer = window.setInterval(() => void load(), 5 * 60 * 1000);
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearTimeout(initialLoad);
+      window.clearInterval(timer);
+    };
   }, [load]);
 
   async function action(actionName: "run" | "refresh-targets") {
