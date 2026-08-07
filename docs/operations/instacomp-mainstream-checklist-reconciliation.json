@@ -1,13 +1,24 @@
 {
   "schema": "tcos.checklist.mainstreamBacklogReconciliation.v1",
-  "checkedAt": "2026-08-07T12:02:56Z",
-  "complete": false,
-  "error": "Reconciliation receipt was not produced.",
+  "checkedAt": "2026-08-07T12:06:02.557Z",
+  "expectedSources": 327,
+  "catalogRows": 327,
+  "rawArchived": 327,
+  "statuses": {
+    "quarantined": 287,
+    "imported": 40
+  },
+  "normalizedTotals": {
+    "cards": 79862,
+    "identities": 92355
+  },
+  "missing": [],
+  "complete": true,
   "workflowEvidence": {
-    "runId": "31175721463",
+    "runId": "31176477071",
     "runAttempt": "1",
     "workflow": "Ingest Mainstream Checklists 2000 Plus",
     "event": "push",
-    "sourceSha": "7026c60a21c2442055377863f6852ce20c6b49d2"
+    "sourceSha": "ceae02e247ec41c37988f5ed159a7890ac89397e"
   }
 }
