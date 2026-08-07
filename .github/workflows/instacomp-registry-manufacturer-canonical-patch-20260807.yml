@@ -1,0 +1,54 @@
+name: InstaComp Registry Manufacturer Canonical Patch 20260807
+
+on:
+  push:
+    branches:
+      - fix/instacomp-registry-recovery-hard-facts-20260807
+    paths:
+      - "scripts/ops/patch-instacomp-registry-manufacturer-canonical-20260807.py"
+      - ".github/workflows/instacomp-registry-manufacturer-canonical-patch-20260807.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/instacomp-registry-recovery-hard-facts-20260807
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Apply exact manufacturer canonicalization repair
+        run: python scripts/ops/patch-instacomp-registry-manufacturer-canonical-20260807.py
+      - name: Install
+        run: npm ci
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Diff safety
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          changed="$(git diff --name-only)"
+          test "$changed" = "src/app/api/instacomp/scan/route.ts"
+          grep -Fq 'registryMatch.manufacturer ||' src/app/api/instacomp/scan/route.ts
+      - name: Commit certified repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- src/app/api/instacomp/scan/route.ts; then
+            echo 'No source change to commit.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/app/api/instacomp/scan/route.ts
+          git commit -m 'Prefer Registry manufacturer in InstaComp canonical identity'
+          git push origin HEAD:fix/instacomp-registry-recovery-hard-facts-20260807
