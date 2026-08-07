@@ -12,7 +12,8 @@ SERVER = ROOT / "src" / "lib" / "instacomp-checklist-first-server.ts"
 
 def sub_once(path: Path, pattern: str, replacement: str) -> None:
     source = path.read_text(encoding="utf-8")
-    updated, count = re.subn(pattern, replacement, source, count=1, flags=re.S)
+    compiled = re.compile(pattern, re.S)
+    updated, count = compiled.subn(lambda _match: replacement, source, count=1)
     if count != 1:
         raise SystemExit(f"{path}: expected one replacement for {pattern[:100]!r}, found {count}")
     path.write_text(updated, encoding="utf-8")
