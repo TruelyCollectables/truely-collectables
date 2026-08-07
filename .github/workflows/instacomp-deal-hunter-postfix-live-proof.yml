@@ -101,3 +101,15 @@ jobs:
           if(!p.latestIdentity || !p.latestIdentity.registryIdentityId || Number(p.latestIdentity.observationCount||0)<=0) throw new Error('Canonical history readback failed: '+JSON.stringify(p.latestIdentity));
           console.log(JSON.stringify({before,after:p.totalObservationCount,newRows:p.observationCountSince,latestIdentity:p.latestIdentity},null,2));
           NODE
+      - name: Inspect Ivan Demidov Deal Hunter results
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 90 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$SITE_URL/api/release/instacomp-deal-hunter-demidov-status" > demidov.json
+          cat demidov.json
+          node - <<'NODE'
+          const p=require('./demidov.json');
+          if(!p.success) throw new Error(JSON.stringify(p));
+          if(Number(p.ivanCandidateCount||0)<=0) throw new Error('Physical Mac has no evaluated Ivan Demidov candidates in its durable candidate store.');
+          console.log(JSON.stringify({ivanCandidateCount:p.ivanCandidateCount,trustedIvanHistoryCount:p.trustedIvanHistoryCount,candidates:p.candidates},null,2));
+          NODE
