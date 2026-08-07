@@ -1,0 +1,70 @@
+name: Record Mainstream Checklist Live Run
+
+on:
+  workflow_run:
+    workflows:
+      - "Ingest Mainstream Checklists 2000 Plus"
+    types:
+      - requested
+      - in_progress
+      - completed
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: record-mainstream-checklist-live-run
+  cancel-in-progress: true
+
+jobs:
+  record:
+    if: github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.event != 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Persist live ingestion state
+        shell: bash
+        env:
+          STATUS_BRANCH: ops/mainstream-checklist-status
+          STATUS_PATH: docs/operations/instacomp-mainstream-checklist-live-run.json
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_NUMBER: ${{ github.event.workflow_run.run_number }}
+          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          RUN_STATUS: ${{ github.event.workflow_run.status }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_EVENT: ${{ github.event.workflow_run.event }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          RUN_CREATED_AT: ${{ github.event.workflow_run.created_at }}
+          RUN_UPDATED_AT: ${{ github.event.workflow_run.updated_at }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin "$STATUS_BRANCH"
+          git checkout -B "$STATUS_BRANCH" "origin/$STATUS_BRANCH"
+          mkdir -p "$(dirname "$STATUS_PATH")"
+          jq -n \
+            --arg workflow "Ingest Mainstream Checklists 2000 Plus" \
+            --arg runId "$RUN_ID" \
+            --arg runNumber "$RUN_NUMBER" \
+            --arg runAttempt "$RUN_ATTEMPT" \
+            --arg status "$RUN_STATUS" \
+            --arg conclusion "$RUN_CONCLUSION" \
+            --arg event "$RUN_EVENT" \
+            --arg sourceSha "$RUN_SHA" \
+            --arg branch "$RUN_BRANCH" \
+            --arg createdAt "$RUN_CREATED_AT" \
+            --arg updatedAt "$RUN_UPDATED_AT" \
+            '{schema:"tcos.checklist.mainstreamLiveRun.v1",workflow:$workflow,runId:$runId,runNumber:$runNumber,runAttempt:$runAttempt,status:$status,conclusion:($conclusion|select(length>0)?),event:$event,sourceSha:$sourceSha,branch:$branch,createdAt:$createdAt,updatedAt:$updatedAt}' \
+            > "$STATUS_PATH"
+          git add "$STATUS_PATH"
+          if git diff --cached --quiet; then
+            echo "Live run state is unchanged."
+          else
+            git commit -m "Record mainstream checklist live run [skip ci]"
+            git push origin "HEAD:$STATUS_BRANCH"
+          fi
