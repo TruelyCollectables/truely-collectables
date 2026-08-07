@@ -53,15 +53,25 @@ for (const forbidden of [
 }
 
 const mac = read("services/instacomp-ai/app/main.py");
-requireText(
-  mac,
-  "suggestion = None",
-  "The regression fixture expects the Mac neutral-review path to remain visible.",
-);
-requireText(
+for (const required of [
+  "suggestion = await reader.analyze(",
+  "suggestion_registry = await checklist_gateway.match(",
+  "suggestion_registry.identity_id",
+  'receipt.startswith("registry_fingerprint:")',
+  'match_source = "ollama_backup"',
+  'status = "model_unavailable"',
+  "pricing_allowed = False",
+]) {
+  requireText(
+    mac,
+    required,
+    `Mac first-time evidence fallback is missing: ${required}`,
+  );
+}
+forbidText(
   mac,
   "No Ollama or external identity reader is called here",
-  "The regression fixture must document the original first-time-card deadlock.",
+  "The original first-time-card deadlock must not be restored.",
 );
 
 const intake = read(
@@ -80,4 +90,4 @@ requireText(
   "Pending retries must use the repaired exact route.",
 );
 
-console.log("First-time card identity deadlock contract passed.");
+console.log("First-time card identity deadlock repair contract passed.");
