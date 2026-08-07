@@ -73,12 +73,13 @@ if source.count(identity_target) != 1:
 PY
 run_query writer-conflict-target-reinstall "$writer_source"
 
-# Large but fully validated mainstream releases can take longer than the project
-# default statement timeout. Give only this atomic writer a bounded 45-second
-# window; validation and all fail-closed Registry rules remain unchanged.
+# Large but fully validated mainstream releases need more than the project's
+# default API-role timeout, but the Supabase client API is capped at 60 seconds.
+# Install a 55-second statement budget plus a 30-second lock wait for this atomic
+# writer only; validation and fail-closed Registry rules remain unchanged.
 run_query \
   writer-bounded-timeout \
   supabase/migrations/20260807124500_checklist_registry_writer_timeout.sql
 
 sleep 5
-echo "Checklist Registry uniqueness contracts, current writer, and bounded import timeout are ready."
+echo "Checklist Registry uniqueness contracts, current writer, and bounded statement/lock timeouts are ready."
