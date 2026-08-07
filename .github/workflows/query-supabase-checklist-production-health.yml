@@ -1,0 +1,120 @@
+name: Query Supabase Checklist Production Health
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/query-supabase-checklist-production-health.yml"
+
+permissions:
+  contents: write
+
+env:
+  SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  PROJECT_REF: rfdzsoykhnngzdnvzlhz
+  STATUS_BRANCH: ops/mainstream-checklist-status
+  STATUS_PATH: docs/operations/supabase-checklist-production-health.json
+
+jobs:
+  query:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Query Supabase management-plane and direct database health
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          mkdir -p "$RUNNER_TEMP/supabase-health"
+          api="https://api.supabase.com/v1/projects/$PROJECT_REF"
+          auth=(--header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" --header "Accept: application/json")
+
+          request_json() {
+            local method="$1" url="$2" output="$3" data="${4:-}"
+            local code
+            if [[ -n "$data" ]]; then
+              code="$(curl --silent --show-error --max-time 25 --request "$method" "${auth[@]}" --header "Content-Type: application/json" --data "$data" --output "$output.body" --write-out '%{http_code}' "$url" || true)"
+            else
+              code="$(curl --silent --show-error --max-time 25 --request "$method" "${auth[@]}" --output "$output.body" --write-out '%{http_code}' "$url" || true)"
+            fi
+            printf '%s' "${code:-000}" > "$output.code"
+          }
+
+          request_json GET "$api" "$RUNNER_TEMP/supabase-health/project"
+          request_json GET "$api/health?services=db&services=rest&services=storage&services=auth&timeout_ms=5000" "$RUNNER_TEMP/supabase-health/services"
+
+          sql="select json_build_object(
+            'max_connections', current_setting('max_connections')::int,
+            'total_connections', (select count(*)::int from pg_stat_activity),
+            'active_connections', (select count(*)::int from pg_stat_activity where state = 'active'),
+            'idle_connections', (select count(*)::int from pg_stat_activity where state = 'idle'),
+            'waiting_connections', (select count(*)::int from pg_stat_activity where wait_event is not null),
+            'waiting_locks', (select count(*)::int from pg_locks where not granted),
+            'checklist_catalog_readable', (select exists(select 1 from public.checklist_source_catalog limit 1)),
+            'top_applications', (
+              select coalesce(json_agg(row_to_json(t)), '[]'::json)
+              from (
+                select coalesce(nullif(application_name,''), '<empty>') as application_name,
+                       coalesce(state, '<null>') as state,
+                       count(*)::int as connections
+                from pg_stat_activity
+                group by 1,2
+                order by connections desc
+                limit 30
+              ) t
+            )
+          ) as health;"
+          body="$(jq -n --arg query "$sql" '{query:$query}')"
+          request_json POST "$api/database/query/read-only" "$RUNNER_TEMP/supabase-health/sql" "$body"
+
+          checked_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          project_code="$(cat "$RUNNER_TEMP/supabase-health/project.code")"
+          services_code="$(cat "$RUNNER_TEMP/supabase-health/services.code")"
+          sql_code="$(cat "$RUNNER_TEMP/supabase-health/sql.code")"
+
+          project='null'
+          if jq -e . "$RUNNER_TEMP/supabase-health/project.body" >/dev/null 2>&1; then
+            project="$(jq '{status:(.status // null), region:(.region // null)}' "$RUNNER_TEMP/supabase-health/project.body")"
+          fi
+          services='null'
+          if jq -e . "$RUNNER_TEMP/supabase-health/services.body" >/dev/null 2>&1; then
+            services="$(jq '[.[]? | {name:(.name // null), healthy:(.healthy // null), status:(.status // null), error:(if .error then (.error|tostring|.[0:300]) else null end)}]' "$RUNNER_TEMP/supabase-health/services.body")"
+          fi
+          sql_result='null'
+          if jq -e . "$RUNNER_TEMP/supabase-health/sql.body" >/dev/null 2>&1; then
+            sql_result="$(jq '.' "$RUNNER_TEMP/supabase-health/sql.body")"
+          fi
+
+          jq -n \
+            --arg checkedAt "$checked_at" \
+            --arg projectCode "$project_code" \
+            --arg servicesCode "$services_code" \
+            --arg sqlCode "$sql_code" \
+            --argjson project "$project" \
+            --argjson services "$services" \
+            --argjson sqlResult "$sql_result" \
+            '{
+              schema:"tcos.supabase.checklistProductionHealth.v1",
+              checkedAt:$checkedAt,
+              managementProject:{httpCode:$projectCode, data:$project},
+              serviceHealth:{httpCode:$servicesCode, services:$services},
+              readOnlyDatabaseQuery:{httpCode:$sqlCode, result:$sqlResult}
+            }' | tee "$RUNNER_TEMP/supabase-health/report.json"
+      - name: Publish sanitized health report
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin "$STATUS_BRANCH"
+          git checkout -B "$STATUS_BRANCH" "origin/$STATUS_BRANCH"
+          mkdir -p "$(dirname "$STATUS_PATH")"
+          cp "$RUNNER_TEMP/supabase-health/report.json" "$STATUS_PATH"
+          git add "$STATUS_PATH"
+          if ! git diff --cached --quiet; then
+            git commit -m "Query Supabase checklist Production health [skip ci]"
+            git push origin "HEAD:$STATUS_BRANCH"
+          fi
