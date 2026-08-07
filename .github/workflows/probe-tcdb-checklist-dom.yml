@@ -39,7 +39,7 @@ jobs:
             try {
               const response = await fetch(candidate.url, {
                 headers: {
-                  'User-Agent': 'TCOS-TCDB-DOM-Probe/1.1',
+                  'User-Agent': 'TCOS-TCDB-DOM-Probe/1.2',
                   'Accept': candidate.mode === 'direct' ? 'text/html,application/xhtml+xml,*/*;q=0.1' : 'text/plain,text/markdown,*/*;q=0.1',
                 },
                 redirect: 'follow',
@@ -47,6 +47,7 @@ jobs:
               });
               const body = await response.text();
               const plain = body.replace(/\s+/g, ' ');
+              const at = body.search(/Donovan McNabb/i);
               results.push({
                 mode: candidate.mode,
                 status: response.status,
@@ -54,10 +55,11 @@ jobs:
                 contentType: response.headers.get('content-type'),
                 bytes: Buffer.byteLength(body),
                 hasTotal155: /Total Cards:?\s*155/i.test(body),
-                hasDonovanMcNabb: /Donovan McNabb/i.test(body),
+                hasDonovanMcNabb: at >= 0,
                 cardLineLikeCount: (body.match(/(?:^|\n)\s*(?:[-*+]\s+)?1(?:\s*\||\s+)Donovan McNabb/gi) || []).length,
                 pipeRows: (body.match(/\|/g) || []).length,
-                sample: plain.slice(0, 1800),
+                sample: plain.slice(0, 900),
+                aroundPlayer: at >= 0 ? body.slice(Math.max(0, at - 900), Math.min(body.length, at + 1300)).replace(/\r/g, '') : null,
               });
             } catch (error) {
               results.push({ mode: candidate.mode, error: error instanceof Error ? error.message : String(error) });
@@ -74,6 +76,6 @@ jobs:
           cp "$RUNNER_TEMP/tcdb-probe/probe.json" "$STATUS_PATH"
           git add "$STATUS_PATH"
           if ! git diff --cached --quiet; then
-            git commit -m "Probe TCDB checklist reader paths [skip ci]"
+            git commit -m "Probe TCDB reader card rows [skip ci]"
             git push origin "HEAD:$STATUS_BRANCH"
           fi
