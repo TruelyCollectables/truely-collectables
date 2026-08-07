@@ -1,34 +1,67 @@
 const nativeFetch = globalThis.fetch.bind(globalThis);
 
-const BROWSER_USER_AGENT =
-  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 " +
-  "(KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36";
-
 function requestUrl(input) {
   if (typeof input === "string") return input;
   if (input instanceof URL) return input.toString();
   return input?.url || String(input || "");
 }
 
-function requestInit(init = {}) {
-  const headers = new Headers(init.headers || {});
-  headers.set("User-Agent", BROWSER_USER_AGENT);
-  headers.set("Accept-Language", "en-US,en;q=0.9");
-  return { ...init, headers };
+function stripTags(value) {
+  return String(value || "")
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isSectionLabel(value) {
+  const text = stripTags(value);
+  if (!text || text.length > 180 || /^#?\s*[A-Z]{0,10}-?\d{1,4}\b/.test(text)) {
+    return false;
+  }
+  return /(?:checklist|base set|base cards|autographs?|signatures?|relics?|memorabilia|patches?|inserts?|parallels?|variations?|short prints?|rookies?|prospects?)/i.test(text);
+}
+
+function headingRow(level, body) {
+  return `<tr data-tcos-heading="${level}"><td>## ${body}</td></tr>`;
 }
 
 export function transformChecklistHtml(html) {
-  return String(html || "").replace(
-    /<h([1-6])\b([^>]*)>([\s\S]*?)<\/h\1>/gi,
-    (whole, level, attributes, body) =>
-      `<tr data-tcos-heading="${level}"><td>## ${body}</td></tr>`,
+  let value = String(html || "");
+
+  value = value.replace(
+    /<(?:p|div|section)\b[^>]*>\s*<(?:strong|b)\b[^>]*>([\s\S]*?)<\/(?:strong|b)>\s*<\/(?:p|div|section)>/gi,
+    (whole, body) => (isSectionLabel(body) ? headingRow(3, body) : whole),
   );
+
+  value = value.replace(
+    /<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>/gi,
+    (whole, level, body) => headingRow(level, body),
+  );
+
+  value = value.replace(/<tr\b([^>]*)>([\s\S]*?)<\/tr>/gi, (whole, attributes, row) => {
+    const cells = [...row.matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi)];
+    if (cells.length !== 1 || !isSectionLabel(cells[0][1])) return whole;
+    const text = stripTags(cells[0][1]);
+    if (text.startsWith("## ")) return whole;
+    return headingRow(4, cells[0][1]);
+  });
+
+  return value;
 }
 
 export function transformReaderText(text) {
   return String(text || "")
     .split(/\r?\n/)
-    .map((line) => line.replace(/^\s*#{1,6}\s+/, "## "))
+    .map((line) => {
+      const normalized = line.replace(/^\s*#{1,6}\s+/, "## ");
+      if (normalized.startsWith("## ")) return normalized;
+      return isSectionLabel(normalized) && !normalized.includes("|")
+        ? `## ${normalized.trim()}`
+        : normalized;
+    })
     .join("\n");
 }
 
@@ -69,14 +102,23 @@ async function transformedResponse(response, { reader = false } = {}) {
   });
 }
 
+function proxyInit(init = {}) {
+  const headers = new Headers(init.headers || {});
+  headers.set("Accept", "text/plain,text/markdown;q=0.9,*/*;q=0.1");
+  return {
+    ...init,
+    headers,
+    signal: AbortSignal.timeout(90_000),
+  };
+}
+
 globalThis.fetch = async function patchedChecklistFetch(input, init = {}) {
   const originalUrl = requestUrl(input);
-  const options = requestInit(init);
   let directResponse = null;
   let directError = null;
 
   try {
-    directResponse = await nativeFetch(input, options);
+    directResponse = await nativeFetch(input, init);
     if (directResponse.ok) {
       return transformedResponse(directResponse);
     }
@@ -87,7 +129,7 @@ globalThis.fetch = async function patchedChecklistFetch(input, init = {}) {
   const readerUrl = proxyUrl(originalUrl);
   if (readerUrl) {
     try {
-      const readerResponse = await nativeFetch(readerUrl, options);
+      const readerResponse = await nativeFetch(readerUrl, proxyInit(init));
       if (readerResponse.ok) {
         return transformedResponse(readerResponse, { reader: true });
       }
