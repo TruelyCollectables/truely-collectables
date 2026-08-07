@@ -12,6 +12,21 @@ export type InstaCompRegistryTruth = {
 
 export type ExactMarketObservationKind = "ASK" | "SOLD" | "PURCHASE" | "OWN_SALE";
 
+export type ExactMarketTargetListing = {
+  title: string;
+  marketplace: string;
+  listingUrl: string;
+  listingItemId?: string | null;
+  itemPrice?: number | null;
+  shippingPrice?: number | null;
+  buyerFees?: number | null;
+  tax?: number | null;
+  deliveredPrice?: number | null;
+  currency?: string | null;
+  conditionText?: string | null;
+  observedAt?: string | null;
+};
+
 export type ExactMarketObservation = {
   registry_identity_id: string;
   observation_fingerprint: string;
@@ -67,7 +82,9 @@ export function listingItemIdFromUrl(value: string | null | undefined) {
 }
 
 function observationFingerprint(parts: Array<string | number | null | undefined>) {
-  return createHash("sha256").update(parts.map((part) => String(part ?? "").trim()).join("|")).digest("hex");
+  return createHash("sha256")
+    .update(parts.map((part) => String(part ?? "").trim()).join("|"))
+    .digest("hex");
 }
 
 function deliveredPrice(comp: InstaCompComp) {
@@ -88,7 +105,9 @@ export function buildExactMarketObservation(params: {
 }): ExactMarketObservation {
   const { comp, kind, registryIdentityId } = params;
   const listingId = listingItemIdFromUrl(comp.url);
-  const effectiveAt = dateValue(kind === "SOLD" ? comp.soldAt || comp.observedAt : comp.listedAt || comp.observedAt);
+  const effectiveAt = dateValue(
+    kind === "SOLD" ? comp.soldAt || comp.observedAt : comp.listedAt || comp.observedAt,
+  );
   const itemPrice = money(comp.itemPrice);
   const shippingPrice = money(comp.shippingPrice);
   const delivered = deliveredPrice(comp);
@@ -96,8 +115,16 @@ export function buildExactMarketObservation(params: {
   return {
     registry_identity_id: registryIdentityId,
     observation_fingerprint: observationFingerprint([
-      registryIdentityId, kind, marketplace, comp.source, listingId || comp.url,
-      itemPrice, shippingPrice, delivered, comp.currency || "USD", effectiveAt,
+      registryIdentityId,
+      kind,
+      marketplace,
+      comp.source,
+      listingId || comp.url,
+      itemPrice,
+      shippingPrice,
+      delivered,
+      comp.currency || "USD",
+      effectiveAt,
     ]),
     observation_kind: kind,
     marketplace,
@@ -120,23 +147,84 @@ export function buildExactMarketObservation(params: {
   };
 }
 
+export function buildDealHunterTargetObservation(params: {
+  registryIdentityId: string;
+  target: ExactMarketTargetListing;
+  observedAt: string;
+  scanId?: string | null;
+}): ExactMarketObservation {
+  const target = params.target;
+  const itemPrice = money(target.itemPrice);
+  const shipping = money(target.shippingPrice);
+  const buyerFees = money(target.buyerFees);
+  const tax = money(target.tax);
+  const explicitDelivered = money(target.deliveredPrice);
+  const delivered = explicitDelivered ?? Number(
+    ((itemPrice || 0) + (shipping || 0) + (buyerFees || 0) + (tax || 0)).toFixed(2),
+  );
+  const marketplace = String(target.marketplace || "Unknown").trim() || "Unknown";
+  const listingId = String(target.listingItemId || "").trim() || listingItemIdFromUrl(target.listingUrl);
+  const observedAt = dateValue(target.observedAt || params.observedAt) || new Date().toISOString();
+  return {
+    registry_identity_id: params.registryIdentityId,
+    observation_fingerprint: observationFingerprint([
+      params.registryIdentityId,
+      "ASK",
+      marketplace,
+      "deal_hunter_target",
+      listingId || target.listingUrl,
+      itemPrice,
+      shipping,
+      buyerFees,
+      tax,
+      delivered,
+      target.currency || "USD",
+    ]),
+    observation_kind: "ASK",
+    marketplace,
+    provider_source: "deal_hunter_target",
+    listing_item_id: listingId,
+    listing_url: target.listingUrl,
+    title: target.title,
+    item_price: itemPrice,
+    shipping_price: shipping,
+    buyer_fees: buyerFees,
+    tax,
+    delivered_price: delivered,
+    currency: String(target.currency || "USD").trim() || "USD",
+    condition_text: String(target.conditionText || "").trim() || null,
+    match_score: 1,
+    effective_at: observedAt,
+    observed_at: observedAt,
+    scan_id: params.scanId || null,
+    source_payload: target as unknown as Record<string, unknown>,
+  };
+}
+
 function median(values: number[]) {
   if (!values.length) return null;
   const sorted = [...values].sort((a, b) => a - b);
   const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 ? sorted[middle] : Number(((sorted[middle - 1] + sorted[middle]) / 2).toFixed(2));
+  return sorted.length % 2
+    ? sorted[middle]
+    : Number(((sorted[middle - 1] + sorted[middle]) / 2).toFixed(2));
 }
 
 export function calculateExactCardMarketTrend(
   observations: Array<Pick<ExactMarketObservation, "observation_kind" | "delivered_price" | "effective_at" | "observed_at">>,
 ) {
-  const sold = observations.filter((row) => row.observation_kind === "SOLD" && row.delivered_price !== null)
-    .sort((a, b) => String(a.effective_at || a.observed_at).localeCompare(String(b.effective_at || b.observed_at)));
-  const asks = observations.filter((row) => row.observation_kind === "ASK" && row.delivered_price !== null)
+  const sold = observations
+    .filter((row) => row.observation_kind === "SOLD" && row.delivered_price !== null)
+    .sort((a, b) =>
+      String(a.effective_at || a.observed_at).localeCompare(String(b.effective_at || b.observed_at)),
+    );
+  const asks = observations
+    .filter((row) => row.observation_kind === "ASK" && row.delivered_price !== null)
     .sort((a, b) => String(a.observed_at).localeCompare(String(b.observed_at)));
   const soldValues = sold.map((row) => Number(row.delivered_price));
   const askValues = asks.map((row) => Number(row.delivered_price));
-  let direction: "RISING" | "FALLING" | "STABLE" | "INSUFFICIENT_SOLD_HISTORY" = "INSUFFICIENT_SOLD_HISTORY";
+  let direction: "RISING" | "FALLING" | "STABLE" | "INSUFFICIENT_SOLD_HISTORY" =
+    "INSUFFICIENT_SOLD_HISTORY";
   let percentChange: number | null = null;
   let earlyMedian: number | null = null;
   let recentMedian: number | null = null;
@@ -169,39 +257,76 @@ export async function persistExactCardMarketHistory(params: {
   ai: InstaCompAiResult;
   sold: InstaCompComp[];
   active: InstaCompComp[];
+  targetListing?: ExactMarketTargetListing | null;
   scanId?: string | null;
   observedAt?: string;
 }) {
   const identityId = String(params.registry?.identityId || "").trim();
   const fingerprint = String(params.registry?.fingerprintSha256 || "").trim();
   if (!params.registry?.matched || !identityId || !fingerprint) {
-    return { status: "blocked" as const, reason: "Canonical Checklist Registry identity ID and fingerprint are required before market history can be trusted.", inserted: 0, duplicates: 0 };
+    return {
+      status: "blocked" as const,
+      reason: "Canonical Checklist Registry identity ID and fingerprint are required before market history can be trusted.",
+      inserted: 0,
+      duplicates: 0,
+    };
   }
   const url = String(process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
-  const key = String(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "").trim();
-  if (!url || !key) return { status: "skipped" as const, reason: "Supabase is not configured.", inserted: 0, duplicates: 0 };
+  const key = String(
+    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
+  ).trim();
+  if (!url || !key) {
+    return { status: "skipped" as const, reason: "Supabase is not configured.", inserted: 0, duplicates: 0 };
+  }
   const supabase = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
-  const { data: existingIdentity, error: identityReadError } = await supabase.from("tcos_card_market_identities").select("registry_fingerprint_sha256").eq("registry_identity_id", identityId).maybeSingle();
+  const { data: existingIdentity, error: identityReadError } = await supabase
+    .from("tcos_card_market_identities")
+    .select("registry_fingerprint_sha256")
+    .eq("registry_identity_id", identityId)
+    .maybeSingle();
   if (identityReadError) throw new Error(`Market identity read failed: ${identityReadError.message}`);
-  if (existingIdentity?.registry_fingerprint_sha256 && existingIdentity.registry_fingerprint_sha256 !== fingerprint) {
+  if (
+    existingIdentity?.registry_fingerprint_sha256 &&
+    existingIdentity.registry_fingerprint_sha256 !== fingerprint
+  ) {
     throw new Error("Registry identity fingerprint changed; market history write was blocked.");
   }
   const now = dateValue(params.observedAt) || new Date().toISOString();
-  const { error: identityWriteError } = await supabase.from("tcos_card_market_identities").upsert({
-    registry_identity_id: identityId,
-    registry_fingerprint_sha256: fingerprint,
-    identity_json: params.ai,
-    verification_source: "checklist_registry",
-    last_seen_at: now,
-  }, { onConflict: "registry_identity_id" });
+  const { error: identityWriteError } = await supabase.from("tcos_card_market_identities").upsert(
+    {
+      registry_identity_id: identityId,
+      registry_fingerprint_sha256: fingerprint,
+      identity_json: params.ai,
+      verification_source: "checklist_registry",
+      last_seen_at: now,
+    },
+    { onConflict: "registry_identity_id" },
+  );
   if (identityWriteError) throw new Error(`Market identity write failed: ${identityWriteError.message}`);
   const rows = [
-    ...params.sold.map((comp) => buildExactMarketObservation({ registryIdentityId: identityId, kind: "SOLD", comp, observedAt: now, scanId: params.scanId })),
-    ...params.active.map((comp) => buildExactMarketObservation({ registryIdentityId: identityId, kind: "ASK", comp, observedAt: now, scanId: params.scanId })),
+    ...(params.targetListing
+      ? [buildDealHunterTargetObservation({
+          registryIdentityId: identityId,
+          target: params.targetListing,
+          observedAt: now,
+          scanId: params.scanId,
+        })]
+      : []),
+    ...params.sold.map((comp) =>
+      buildExactMarketObservation({ registryIdentityId: identityId, kind: "SOLD", comp, observedAt: now, scanId: params.scanId }),
+    ),
+    ...params.active.map((comp) =>
+      buildExactMarketObservation({ registryIdentityId: identityId, kind: "ASK", comp, observedAt: now, scanId: params.scanId }),
+    ),
   ];
-  if (!rows.length) return { status: "saved" as const, reason: "Identity retained; no exact market rows were available.", inserted: 0, duplicates: 0 };
+  if (!rows.length) {
+    return { status: "saved" as const, reason: "Identity retained; no exact market rows were available.", inserted: 0, duplicates: 0 };
+  }
   const fingerprints = rows.map((row) => row.observation_fingerprint);
-  const { data: existingRows, error: existingError } = await supabase.from("tcos_card_market_observations").select("observation_fingerprint").in("observation_fingerprint", fingerprints);
+  const { data: existingRows, error: existingError } = await supabase
+    .from("tcos_card_market_observations")
+    .select("observation_fingerprint")
+    .in("observation_fingerprint", fingerprints);
   if (existingError) throw new Error(`Market observation dedupe failed: ${existingError.message}`);
   const existing = new Set((existingRows || []).map((row) => String(row.observation_fingerprint)));
   const fresh = rows.filter((row) => !existing.has(row.observation_fingerprint));
@@ -209,17 +334,38 @@ export async function persistExactCardMarketHistory(params: {
     const { error: insertError } = await supabase.from("tcos_card_market_observations").insert(fresh);
     if (insertError) throw new Error(`Market observation insert failed: ${insertError.message}`);
   }
-  return { status: "saved" as const, reason: "Exact-card market history retained against the canonical Registry identity.", inserted: fresh.length, duplicates: rows.length - fresh.length, registryIdentityId: identityId, registryFingerprintSha256: fingerprint };
+  return {
+    status: "saved" as const,
+    reason: "Exact-card market history retained against the canonical Registry identity.",
+    inserted: fresh.length,
+    duplicates: rows.length - fresh.length,
+    registryIdentityId: identityId,
+    registryFingerprintSha256: fingerprint,
+  };
 }
 
 export async function loadExactCardMarketHistory(registryIdentityId: string) {
   const url = String(process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
-  const key = String(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "").trim();
+  const key = String(
+    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
+  ).trim();
   if (!url || !key) throw new Error("Supabase is not configured.");
   const supabase = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
-  const { data: identity, error: identityError } = await supabase.from("tcos_card_market_identities").select("*").eq("registry_identity_id", registryIdentityId).maybeSingle();
+  const { data: identity, error: identityError } = await supabase
+    .from("tcos_card_market_identities")
+    .select("*")
+    .eq("registry_identity_id", registryIdentityId)
+    .maybeSingle();
   if (identityError) throw new Error(identityError.message);
-  const { data: observations, error: observationsError } = await supabase.from("tcos_card_market_observations").select("*").eq("registry_identity_id", registryIdentityId).order("observed_at", { ascending: true });
+  const { data: observations, error: observationsError } = await supabase
+    .from("tcos_card_market_observations")
+    .select("*")
+    .eq("registry_identity_id", registryIdentityId)
+    .order("observed_at", { ascending: true });
   if (observationsError) throw new Error(observationsError.message);
-  return { identity, observations: observations || [], trend: calculateExactCardMarketTrend((observations || []) as ExactMarketObservation[]) };
+  return {
+    identity,
+    observations: observations || [],
+    trend: calculateExactCardMarketTrend((observations || []) as ExactMarketObservation[]),
+  };
 }
