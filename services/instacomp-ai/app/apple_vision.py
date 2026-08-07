@@ -108,12 +108,34 @@ class AppleVisionOCR:
             ):
                 return
             self.bin_dir.mkdir(parents=True, exist_ok=True)
-            xcrun = shutil.which("xcrun") or "/usr/bin/xcrun"
-            temporary_binary = self.binary_path.with_suffix(".partial")
-            temporary_digest = self.digest_path.with_suffix(".partial")
+            swiftc = shutil.which("swiftc")
+            xcrun = shutil.which("xcrun")
+            if not swiftc and xcrun:
+                probe = subprocess.run(
+                    [xcrun, "--find", "swiftc"],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+                candidate = probe.stdout.strip()
+                if probe.returncode == 0 and candidate and Path(candidate).is_file():
+                    swiftc = candidate
+            if not swiftc:
+                raise RuntimeError(
+                    "swiftc was not found. Install the Apple command-line developer tools."
+                )
+
+            temporary_binary = self.binary_path.with_name(
+                self.binary_path.name + ".partial"
+            )
+            temporary_digest = self.digest_path.with_name(
+                self.digest_path.name + ".partial"
+            )
+            temporary_binary.unlink(missing_ok=True)
+            temporary_digest.unlink(missing_ok=True)
             command = [
-                xcrun,
-                "swiftc",
+                swiftc,
                 str(self.source_path),
                 "-O",
                 "-framework",
@@ -132,11 +154,15 @@ class AppleVisionOCR:
                 text=True,
                 timeout=120,
             )
-            if completed.returncode != 0:
+            if completed.returncode != 0 or not temporary_binary.is_file():
                 temporary_binary.unlink(missing_ok=True)
                 raise RuntimeError(
                     "swiftc failed: "
-                    + (completed.stderr or completed.stdout or "unknown error")[-2000:]
+                    + (
+                        completed.stderr
+                        or completed.stdout
+                        or f"compiler exited {completed.returncode} without an output binary"
+                    )[-4000:]
                 )
             temporary_binary.chmod(0o755)
             temporary_digest.write_text(source_digest + "\n", encoding="utf-8")
