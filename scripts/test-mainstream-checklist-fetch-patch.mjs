@@ -7,6 +7,7 @@ import {
   transformReaderSemanticText,
 } from "./mainstream-checklist/html-semantic-prepatch.mjs";
 import {
+  extractPageIndexes,
   extractReaderCardRows,
   extractTotalCards,
 } from "./mainstream-checklist/tcdb-reader-complete.mjs";
@@ -123,6 +124,24 @@ if (
   throw new Error(`TCDB reader card rows were not decoded: ${JSON.stringify(tcdbRows)}`);
 }
 
+const tcdbReaderWithoutCount = [
+  "Title: 2001 Fleer Genuine Football Checklist",
+  "* [1](https://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine#)",
+  "* [2](https://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine?PageIndex=2)",
+  "* [›](https://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine?PageIndex=2)",
+  "[](https://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine)[1](https://www.tcdb.com/ViewCard.cfm/sid/4466/cid/983398/2001-Fleer-Genuine-1-Donovan-McNabb?PageIndex=1)[Donovan McNabb](https://www.tcdb.com/Person.cfm/pid/11613/Donovan-McNabb)[Philadelphia Eagles](https://www.tcdb.com/Team.cfm/tid/202/Philadelphia-Eagles)",
+].join("\n");
+if (extractTotalCards(tcdbReaderWithoutCount, { required: false }) !== null) {
+  throw new Error("TCDB reader missing count label should be allowed for pagination fallback.");
+}
+const pageIndexes = extractPageIndexes(
+  tcdbReaderWithoutCount,
+  "https://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine",
+);
+if (JSON.stringify(pageIndexes) !== JSON.stringify([1, 2])) {
+  throw new Error(`TCDB reader PageIndex closure was not decoded: ${JSON.stringify(pageIndexes)}`);
+}
+
 console.log(
   JSON.stringify({
     status: "passed",
@@ -135,5 +154,6 @@ console.log(
     deepChecklistHierarchyPreserved: true,
     numericProductProseGuarded: true,
     tcdbReaderRowsDecoded: true,
+    tcdbPaginationFallbackDecoded: true,
   }),
 );
