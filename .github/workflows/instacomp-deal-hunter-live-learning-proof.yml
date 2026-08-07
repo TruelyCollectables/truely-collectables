@@ -1,0 +1,166 @@
+name: InstaComp Deal Hunter Live Learning Proof
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/app/api/release/instacomp-deal-hunter-learning-self-test/route.ts"
+      - ".github/workflows/instacomp-deal-hunter-live-learning-proof.yml"
+  push:
+    branches: [main]
+    paths:
+      - "src/app/api/release/instacomp-deal-hunter-learning-self-test/route.ts"
+      - ".github/workflows/instacomp-deal-hunter-live-learning-proof.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: TypeScript compile
+        run: npx tsc --noEmit --pretty false
+      - name: Security contract
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const route = fs.readFileSync('src/app/api/release/instacomp-deal-hunter-learning-self-test/route.ts','utf8');
+          for (const marker of [
+            'verifyVercelToken',
+            'INSTACOMP_AI_LOCAL_KEY',
+            'SUPABASE_SERVICE_ROLE_KEY',
+            '/v1/deal-hunter/run',
+            'loadExactCardMarketHistory',
+            'requireNewHistory',
+          ]) if (!route.includes(marker)) throw new Error(`Missing live-proof contract: ${marker}`);
+          console.log('Live learning proof security contract passed.');
+          NODE
+
+  live-production:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SITE_URL: https://truelycollectables.com
+      EVIDENCE_DIR: .audit/instacomp-deal-hunter-live-learning-proof
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Resolve Production coordinates
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          mkdir -p "$EVIDENCE_DIR" .vercel "$RUNNER_TEMP/instacomp-learning-proof"
+          npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/instacomp-learning-proof/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          echo "PRODUCTION_ENV_FILE=$RUNNER_TEMP/instacomp-learning-proof/production.env" >> "$GITHUB_ENV"
+
+      - name: Apply market-history permission hardening idempotently
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('fs');
+          const envText = fs.readFileSync(process.env.PRODUCTION_ENV_FILE,'utf8');
+          const m = envText.match(/^NEXT_PUBLIC_SUPABASE_URL=(?:"([^"]+)"|'([^']+)'|([^\r\n]+))/m);
+          const url = (m?.[1] || m?.[2] || m?.[3] || '').trim();
+          if (!url) throw new Error('Production Supabase URL missing.');
+          const projectRef = new URL(url).hostname.split('.')[0];
+          const sql = fs.readFileSync('supabase/migrations/20260807190000_instacomp_exact_card_market_history_permissions.sql','utf8');
+          const endpoint = `https://api.supabase.com/v1/projects/${projectRef}/database/query`;
+          const sleep = ms => new Promise(r => setTimeout(r, ms));
+          async function main() {
+            let last;
+            for (let attempt=1; attempt<=8; attempt++) {
+              const res = await fetch(endpoint, {method:'POST',headers:{Authorization:`Bearer ${process.env.SUPABASE_ACCESS_TOKEN}`,'Content-Type':'application/json'},body:JSON.stringify({query:sql,parameters:[],read_only:false})});
+              const text = await res.text();
+              if (res.ok) { console.log('Permission hardening applied/verified.'); return; }
+              last = new Error(`Supabase HTTP ${res.status}: ${text.slice(0,600)}`);
+              if (![429,500,502,503,504,524,544].includes(res.status)) throw last;
+              await sleep(attempt*2000);
+            }
+            throw last;
+          }
+          main();
+          NODE
+
+      - name: Wait for protected self-test to reach Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="$SITE_URL/api/release/instacomp-deal-hunter-learning-self-test?pass=1"
+          for attempt in $(seq 1 90); do
+            code="$(curl -sS -o "$RUNNER_TEMP/probe.json" -w '%{http_code}' --max-time 20 -X POST "$endpoint" || true)"
+            if [ "$code" = "401" ]; then
+              echo "Protected Production self-test route is live."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Protected Production self-test route did not become live." >&2
+          cat "$RUNNER_TEMP/probe.json" 2>/dev/null || true
+          exit 1
+
+      - name: Physical Mac learning pass 1 — require trusted write
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 305 -X POST \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "$SITE_URL/api/release/instacomp-deal-hunter-learning-self-test?pass=1" \
+            > "$EVIDENCE_DIR/pass1.json"
+          node - "$EVIDENCE_DIR/pass1.json" <<'NODE'
+          const fs=require('fs'); const p=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+          if (p.success!==true) throw new Error(JSON.stringify(p));
+          if (p.run?.status!=='completed') throw new Error('Pass 1 Mac run did not complete.');
+          if (!(Number(p.productionHistory?.delta)>0)) throw new Error('Pass 1 produced no new trusted history.');
+          if (p.productionHistory?.historyReadable!==true) throw new Error('Pass 1 history is not readable.');
+          console.log(JSON.stringify({pass:1,run:p.run,history:p.productionHistory},null,2));
+          NODE
+
+      - name: Physical Mac learning pass 2 — require retained reuse
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 305 -X POST \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "$SITE_URL/api/release/instacomp-deal-hunter-learning-self-test?pass=2" \
+            > "$EVIDENCE_DIR/pass2.json"
+          node - "$EVIDENCE_DIR/pass2.json" <<'NODE'
+          const fs=require('fs'); const p=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+          if (p.success!==true) throw new Error(JSON.stringify(p));
+          if (p.run?.status!=='completed') throw new Error('Pass 2 Mac run did not complete.');
+          if (p.productionHistory?.historyReadable!==true) throw new Error('Pass 2 could not reuse retained exact-card history.');
+          if (!(Number(p.productionHistory?.observationCountForIdentity)>0)) throw new Error('Pass 2 retained history is empty.');
+          console.log(JSON.stringify({pass:2,run:p.run,history:p.productionHistory},null,2));
+          NODE
+
+      - name: Upload sanitized proof receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-deal-hunter-live-learning-proof
+          path: .audit/instacomp-deal-hunter-live-learning-proof
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Remove pulled Production environment
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/instacomp-learning-proof/production.env"
