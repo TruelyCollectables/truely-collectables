@@ -289,6 +289,20 @@ async function deriveTargets(supabase: any) {
       });
     }
 
+    // The one-time Production reconciliation proved all 28 canonical positions.
+    // Some reused legacy lots do not retain the eBay item/order identifiers. The
+    // user-confirmed PDF still gives a unique date + ALL-IN + expanded-quantity
+    // tuple for every one of the 28 rows, so use that only when it resolves to
+    // exactly one canonical lot. Any ambiguity fails closed below.
+    if (!candidates.length) {
+      candidates = lots.filter(
+        (lot) =>
+          dateOnly(lot.purchased_at) === expected.purchasedOn &&
+          Math.abs(money(lot.total_acquisition_cost) - expected.allIn) <= 0.02 &&
+          Number(lot.quantity_purchased || 0) === expected.quantity,
+      );
+    }
+
     candidates = candidates.filter(
       (lot) =>
         dateOnly(lot.purchased_at) === expected.purchasedOn &&
