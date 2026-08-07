@@ -1,0 +1,87 @@
+name: InstaComp Ivan Demidov Targeted Live Proof
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/lib/deal-hunter-postfix-live-proof.marker'
+
+permissions:
+  contents: read
+
+jobs:
+  prove:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+      SITE_URL: https://truelycollectables.com
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fail closed on proof-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          mapfile -t changed < <(git diff --name-only origin/main...HEAD | sort)
+          test "${#changed[@]}" -eq 1
+          test "${changed[0]}" = 'src/lib/deal-hunter-postfix-live-proof.marker'
+
+      - name: Deploy exact current main to Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .vercel
+          npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          git fetch origin main
+          git checkout --detach origin/main
+          npx vercel@56.2.0 --prod --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Capture Ivan baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 90 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$SITE_URL/api/release/instacomp-deal-hunter-demidov-status" > pre.json
+          node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("pre.json","utf8"));if(!p.success)throw new Error(JSON.stringify(p));fs.appendFileSync(process.env.GITHUB_ENV,`PROOF_STARTED=${new Date().toISOString()}\nPRE_TRUSTED_IVAN=${Number(p.trustedIvanHistoryCount||0)}\n`);console.log(JSON.stringify({ivanCandidateCount:p.ivanCandidateCount,trustedIvanHistoryCount:p.trustedIvanHistoryCount},null,2));'
+
+      - name: Trigger targeted physical Mac Ivan run
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl -sS --max-time 290 -o targeted.json -w '%{http_code}' -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$SITE_URL/api/release/instacomp-deal-hunter-targeted-self-test?lane=ivan_demidov&limit=10" || true)"
+          echo "targeted_self_test_http=$code"
+          test -s targeted.json && cat targeted.json || true
+          if [ "$code" = 200 ]; then
+            node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("targeted.json","utf8"));if(!p.success||p.lane!=="ivan_demidov"||p.run?.trigger!=="manual_targeted"||p.run?.status!=="completed")throw new Error(JSON.stringify(p));if(Number(p.run.discoveryCount||0)<=0||Number(p.run.evaluatedCount||0)<=0)throw new Error("Targeted run did not discover/evaluate Ivan candidates: "+JSON.stringify(p.run));fs.appendFileSync(process.env.GITHUB_ENV,`TARGET_RUN_ID=${p.run.runId}\n`);'
+          fi
+
+      - name: Poll durable targeted run if request timed out
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${TARGET_RUN_ID:-}" ]; then exit 0; fi
+          run_id=''
+          for i in $(seq 1 45); do
+            code="$(curl -sS --max-time 45 -o status.json -w '%{http_code}' -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$SITE_URL/api/release/instacomp-deal-hunter-learning-self-test?mode=status" || true)"
+            if [ "$code" = 200 ]; then
+              run_id="$(node -e 'const p=require("./status.json");const started=Date.parse(process.env.PROOF_STARTED||"");const runs=(p.runs||[]).filter(r=>r.trigger==="manual_targeted"&&Date.parse(r.startedAt||"")>=started-2000);const done=runs.find(r=>r.status==="completed");process.stdout.write(done?.runId||"");')"
+              if [ -n "$run_id" ]; then
+                echo "TARGET_RUN_ID=$run_id" >> "$GITHUB_ENV"
+                break
+              fi
+            fi
+            sleep 20
+          done
+          test -n "$run_id"
+
+      - name: Prove fresh Ivan candidates and trusted history
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 90 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$SITE_URL/api/release/instacomp-deal-hunter-demidov-status" > post.json
+          cat post.json
+          node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("post.json","utf8"));if(!p.success)throw new Error(JSON.stringify(p));const runId=process.env.TARGET_RUN_ID;const fresh=(p.candidates||[]).filter(c=>c.runId===runId);if(fresh.length<=0)throw new Error(`No Ivan candidates from targeted run ${runId}`);const trusted=fresh.filter(c=>c.trustedHistory?.registryIdentityId);if(trusted.length<=0)throw new Error(`Targeted Ivan run ${runId} produced no Registry-backed trusted Ivan history: ${JSON.stringify(fresh)}`);console.log(JSON.stringify({runId,freshCandidates:fresh.length,trustedFreshCandidates:trusted.length,trusted:trusted.map(c=>({title:c.title,listingItemId:c.listingItemId,itemPrice:c.itemPrice,deliveredCost:c.deliveredCost,dealLabel:c.dealLabel,status:c.status,identity:c.identity,trustedHistory:c.trustedHistory}))},null,2));'
