@@ -49,7 +49,7 @@ permissions:
 
 concurrency:
   group: instacomp-mainstream-checklist-backlog-2000-plus
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   VERCEL_SCOPE: truelycollectables-projects
