@@ -6,6 +6,7 @@ on:
     paths:
       - ".github/workflows/instacomp-local-learning-stack-20260806.yml"
       - "scripts/patch-instacomp-local-learning-stack.py"
+      - "scripts/patch-instacomp-training-dataset-format.py"
       - "services/instacomp-ai/**"
 
 permissions:
@@ -34,12 +35,14 @@ jobs:
           set -euo pipefail
           test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
           python3 scripts/patch-instacomp-local-learning-stack.py
+          python3 scripts/patch-instacomp-training-dataset-format.py
           git diff --check
           grep -q 'class LocalVisionEvidence' services/instacomp-ai/app/models.py
           grep -q 'training_examples' services/instacomp-ai/app/storage.py
           grep -q 'analyze_local_vision' services/instacomp-ai/app/main.py
           grep -q 'deterministic_local_evidence' services/instacomp-ai/app/ollama.py
           grep -q 'opencv-python-headless' services/instacomp-ai/requirements.txt
+          grep -q '"type": "image"' services/instacomp-ai/app/training.py
 
       - uses: actions/setup-python@v5
         with:
@@ -67,6 +70,7 @@ jobs:
             services/instacomp-ai/app/models.py \
             services/instacomp-ai/app/ollama.py \
             services/instacomp-ai/app/storage.py \
+            services/instacomp-ai/app/training.py \
             services/instacomp-ai/requirements.txt
           if ! git diff --cached --quiet; then
             git commit -m "Install private OCR vision and training runtime [skip ci]"
