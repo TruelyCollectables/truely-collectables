@@ -104,6 +104,30 @@ jobs:
           })().catch((error) => { console.error(error); process.exit(1); });
           NODE
 
+      - name: Remove obsolete broad Auth enumeration from proof setup
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("scripts/ops/run-instacomp-frozen-five-production-proof.ts")
+          source = path.read_text(encoding="utf-8")
+          old = "  const staleAccountsDeleted = await cleanStaleTestAccounts(admin);"
+          new = "  const staleAccountsDeleted = 0;"
+          if source.count(old) != 1:
+              raise SystemExit("Frozen proof setup contract changed; refusing runtime patch")
+          source = source.replace(old, new, 1)
+          path.write_text(source, encoding="utf-8")
+          PY
+          git diff --check
+          test "$(git diff --numstat -- scripts/ops/run-instacomp-frozen-five-production-proof.ts | awk '{print $1 ":" $2}')" = "1:1"
+          grep -Fq 'const staleAccountsDeleted = 0;' scripts/ops/run-instacomp-frozen-five-production-proof.ts
+          grep -Fq 'imageTruthArtifactId: 8994498762' scripts/ops/run-instacomp-frozen-five-production-proof.ts
+          grep -Fq 'registryCandidateArtifactId: 8993929571' scripts/ops/run-instacomp-frozen-five-production-proof.ts
+          grep -Fq 'exactRegistryIdentity: actual.registryIdentityId === truth.registryIdentityId' scripts/ops/run-instacomp-frozen-five-production-proof.ts
+          grep -Fq 'receipt.testedCards === 5 && receipt.passedCards === 5' scripts/ops/run-instacomp-frozen-five-production-proof.ts
+
       - name: Typecheck frozen proof harness
         shell: bash
         run: |
