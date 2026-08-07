@@ -460,6 +460,7 @@ async def analyze_scan(
     # authority, and pricing stays blocked without its identity ID and fingerprint.
     suggestion = None
     model_error = None
+    model_error_code = None
     suggestion_registry = printed_registry
     try:
         suggestion = await reader.analyze(
@@ -482,8 +483,18 @@ async def analyze_scan(
             suggestion.identity,
             suggestion_text,
         )
-    except (httpx.HTTPError, ValueError) as exc:
-        model_error = str(exc)
+    except httpx.HTTPStatusError as exc:
+        model_error_code = f"ollama_http_{exc.response.status_code}"
+        model_error = model_error_code
+    except httpx.TimeoutException:
+        model_error_code = "ollama_timeout"
+        model_error = model_error_code
+    except httpx.HTTPError as exc:
+        model_error_code = f"ollama_transport_{type(exc).__name__.lower()}"
+        model_error = model_error_code
+    except (TypeError, ValueError, KeyError) as exc:
+        model_error_code = f"ollama_parse_{type(exc).__name__.lower()}"
+        model_error = model_error_code
 
     proposed_identity = suggestion.identity if suggestion else printed_identity
     memory_matches = (
@@ -540,9 +551,16 @@ async def analyze_scan(
         match_source = "none"
         if model_error:
             status = "model_unavailable"
+            error_receipt = f"local_model_error:{model_error_code or 'unknown'}"
+            checklist_result = checklist_result.model_copy(
+                update={
+                    "reasons": list(dict.fromkeys([*checklist_result.reasons, error_receipt]))
+                }
+            )
             next_action = (
-                "The local Ollama evidence reader was unavailable. Keep identity and "
-                "pricing blocked, repair the local model, and retry."
+                "The local Ollama evidence reader did not produce a usable result "
+                f"({model_error_code or 'unknown'}). Keep identity and pricing blocked, "
+                "repair the local reader, and retry."
             )
         elif checklist_result.outcome == ChecklistOutcome.NOT_CONFIGURED:
             status = "needs_checklist"

@@ -151,72 +151,134 @@ def normalize_prizm_surface_parallel(
     return normalized
 
 
-def normalize_identity_payload(payload: dict) -> dict:
-    identity = dict(payload.get("identity") or {})
-    # Vision models frequently emit visible numeric fields such as year and
-    # card number as JSON numbers. CardIdentity intentionally stores these as
-    # strings, so normalize them before Pydantic validation instead of
-    # misclassifying a valid model answer as model_unavailable.
-    for field in [
-        "sport",
-        "league",
-        "year",
-        "manufacturer",
-        "brand",
-        "set_name",
-        "subset",
-        "player",
-        "team",
-        "card_number",
-        "parallel",
-        "variation",
-        "serial_number",
-        "inscription_text",
-        "memorabilia_type",
-    ]:
-        value = identity.get(field)
-        identity[field] = str(value).strip() or None if value is not None else None
-    serial_number = str(identity.get("serial_number") or "").strip()
-    serial_run = identity.get("serial_run")
+TEXT_IDENTITY_FIELDS = [
+    "sport", "league", "year", "manufacturer", "brand", "set_name",
+    "subset", "player", "team", "card_number", "parallel", "variation",
+    "serial_number", "inscription_text", "memorabilia_type",
+]
+
+IDENTITY_ALIASES = {
+    "setName": "set_name", "cardNumber": "card_number",
+    "serialNumber": "serial_number", "serialRun": "serial_run",
+    "inscriptionText": "inscription_text", "memorabiliaType": "memorabilia_type",
+    "isRookie": "rookie", "isAuto": "autograph", "isAutograph": "autograph",
+    "isInscribed": "inscription", "isRelic": "memorabilia",
+}
+
+EVIDENCE_ALIASES = {
+    "visibleText": "visible_text", "frontVisibleText": "front_visible_text",
+    "backVisibleText": "back_visible_text", "foilOrPattern": "foil_or_pattern",
+    "frontNotes": "front_notes", "backNotes": "back_notes",
+}
+
+
+def _as_mapping(value: object) -> dict:
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _as_optional_text(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _as_optional_bool(value: object) -> bool | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and value in {0, 1}:
+        return bool(value)
+    text = str(value).strip().lower()
+    if text in {"true", "yes", "y", "1", "present"}:
+        return True
+    if text in {"false", "no", "n", "0", "none", "null", "absent", ""}:
+        return False
+    return None
+
+
+def _as_text_list(value: object) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, dict):
+        items = list(value.values())
+    elif isinstance(value, (list, tuple, set)):
+        items = list(value)
+    else:
+        items = [value]
+    normalized: list[str] = []
+    for item in items:
+        if isinstance(item, (list, tuple, set)):
+            normalized.extend(_as_text_list(item))
+            continue
+        text = str(item).strip()
+        if text and text not in normalized:
+            normalized.append(text)
+    return normalized
+
+
+def normalize_confidence(value: object) -> float:
+    if value is None or isinstance(value, (dict, list, tuple, set)):
+        return 0.0
+    text = str(value).strip()
+    percent = text.endswith("%")
+    if percent:
+        text = text[:-1].strip()
+    try:
+        confidence = float(text or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    if percent or confidence > 1:
+        confidence /= 100
+    return max(0.0, min(confidence, 1.0))
+
+
+def normalize_identity_payload(payload: object) -> dict:
+    root = _as_mapping(payload)
+    identity_source = _as_mapping(root.get("identity")) or root
+    for alias, canonical in IDENTITY_ALIASES.items():
+        if canonical not in identity_source and alias in identity_source:
+            identity_source[canonical] = identity_source.get(alias)
+
+    identity: dict = {
+        field: _as_optional_text(identity_source.get(field))
+        for field in TEXT_IDENTITY_FIELDS
+    }
+    serial_number = identity.get("serial_number") or ""
+    serial_run = identity_source.get("serial_run")
     if not serial_run and serial_number:
         match = re.search(r"/\s*(\d{1,6})\b", serial_number)
         if match:
             serial_run = int(match.group(1))
-    if serial_run is not None:
-        try:
-            identity["serial_run"] = int(serial_run)
-        except (TypeError, ValueError):
-            identity["serial_run"] = None
-    identity["inscription_text"] = (
-        str(identity.get("inscription_text") or "").strip() or None
-    )
-    identity["memorabilia_type"] = (
-        str(identity.get("memorabilia_type") or "").strip() or None
-    )
-    evidence = dict(payload.get("evidence") or {})
-    for field in [
-        "visible_text",
-        "front_visible_text",
-        "back_visible_text",
-        "colors",
-        "foil_or_pattern",
-        "front_notes",
-        "back_notes",
-        "uncertainty",
-    ]:
-        value = evidence.get(field)
-        evidence[field] = [
-            str(item).strip()
-            for item in (value if isinstance(value, list) else [])
-            if str(item).strip()
+    try:
+        identity["serial_run"] = int(serial_run) if serial_run is not None else None
+    except (TypeError, ValueError):
+        identity["serial_run"] = None
+    for field in ["rookie", "autograph", "inscription", "memorabilia"]:
+        identity[field] = _as_optional_bool(identity_source.get(field))
+
+    evidence_source = _as_mapping(root.get("evidence"))
+    for alias, canonical in EVIDENCE_ALIASES.items():
+        if canonical not in evidence_source and alias in evidence_source:
+            evidence_source[canonical] = evidence_source.get(alias)
+    evidence = {
+        field: _as_text_list(evidence_source.get(field))
+        for field in [
+            "visible_text", "front_visible_text", "back_visible_text", "logos",
+            "colors", "foil_or_pattern", "front_notes", "back_notes", "uncertainty",
         ]
-    payload["evidence"] = evidence
-    payload["identity"] = normalize_prizm_surface_parallel(
-        identity,
-        evidence,
-        str(payload.get("explanation") or ""),
+    }
+
+    root["evidence"] = evidence
+    root["identity"] = normalize_prizm_surface_parallel(
+        identity, evidence, str(root.get("explanation") or "")
     )
-    return payload
+    root["confidence"] = normalize_confidence(root.get("confidence"))
+    root["explanation"] = str(
+        root.get("explanation") or "Local backup visual evidence only."
+    ).strip()
+    return root
 
 
 class OllamaReader:
@@ -262,10 +324,7 @@ class OllamaReader:
         parsed = normalize_identity_payload(
             extract_json(str(envelope.get("response") or ""))
         )
-        confidence = float(parsed.get("confidence") or 0)
-        if confidence > 1:
-            confidence /= 100
-        confidence = max(0.0, min(confidence, 1.0))
+        confidence = normalize_confidence(parsed.get("confidence"))
         return ModelSuggestion(
             provider="instacomp_ollama_backup",
             model=self.settings.ollama_model,
