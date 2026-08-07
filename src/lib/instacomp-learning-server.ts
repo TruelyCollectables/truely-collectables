@@ -661,7 +661,10 @@ export function buildChecklistRegistryCatalogEvidence(
     product: match.product,
     player: match.player,
     year: match.year,
-    setName: match.product || match.setName,
+    // Identity consensus is against the logical checklist set (Base, Groovy,
+    // inserts/subsets), not the release/product display title. Keep product
+    // separately for search/display while the Registry referee votes the set.
+    setName: match.setName,
     registrySetName: match.setName,
     cardNumber: match.cardNumber,
     parallel: match.parallel,
@@ -1463,6 +1466,105 @@ export async function resolveChecklistRegistry(
     externalLookupAttempted: false,
   };
 }
+
+export async function revalidateChecklistRegistryReceipt(params: {
+  ai: Record<string, any>;
+  identityId?: string | null;
+  fingerprintSha256?: string | null;
+}): Promise<ChecklistRegistryLookupResult | null> {
+  const identityId = String(params.identityId || "").trim();
+  const fingerprintSha256 = String(params.fingerprintSha256 || "").trim().toLowerCase();
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(identityId) ||
+    !/^[0-9a-f]{64}$/.test(fingerprintSha256)
+  ) {
+    return null;
+  }
+
+  const supabase = serviceClient();
+  const identityResult = await supabase
+    .from("checklist_card_identities")
+    .select(
+      "id,card_id,fingerprint_sha256,canonical_key,variation,autograph_status,memorabilia_status,configuration_exclusivity,metadata,parallel:checklist_parallels(name,serial_run)",
+    )
+    .eq("id", identityId)
+    .maybeSingle();
+  if (identityResult.error || !identityResult.data) return null;
+  const identity = identityResult.data as any;
+  if (String(identity.fingerprint_sha256 || "").toLowerCase() !== fingerprintSha256) {
+    return null;
+  }
+
+  const cardResult = await supabase
+    .from("checklist_cards")
+    .select(
+      "id,release_id,version_id,set_id,card_number,normalized_card_number,variation,autograph_status,memorabilia_status",
+    )
+    .eq("id", identity.card_id)
+    .maybeSingle();
+  if (cardResult.error || !cardResult.data) return null;
+  const card = cardResult.data as any;
+
+  const [versionResult, setResult, releaseResult, playerResult, teamResult] = await Promise.all([
+    supabase.from("checklist_versions").select("id,is_active,status").eq("id", card.version_id).maybeSingle(),
+    supabase.from("checklist_sets").select("id,name,normalized_name,release_id,version_id").eq("id", card.set_id).maybeSingle(),
+    supabase
+      .from("checklist_releases")
+      .select(
+        "id,product_name,release_year,season,manufacturer:checklist_manufacturers(name),brand:checklist_brands(name),sport:checklist_sports(name),league:checklist_leagues(name)",
+      )
+      .eq("id", card.release_id)
+      .maybeSingle(),
+    supabase
+      .from("checklist_card_players")
+      .select("card_id,display_order,player:checklist_players(canonical_name)")
+      .eq("card_id", card.id),
+    supabase
+      .from("checklist_card_teams")
+      .select("card_id,display_order,team:checklist_teams(canonical_name)")
+      .eq("card_id", card.id),
+  ]);
+  if (
+    versionResult.error || setResult.error || releaseResult.error ||
+    playerResult.error || teamResult.error ||
+    !versionResult.data || !setResult.data || !releaseResult.data
+  ) {
+    return null;
+  }
+  const version = versionResult.data as any;
+  if (version.is_active !== true || String(version.status || "") !== "live") return null;
+
+  const row = {
+    ...card,
+    version,
+    set: setResult.data,
+    release: releaseResult.data,
+    players: playerResult.data || [],
+    teams: teamResult.data || [],
+    identities: [identity],
+  };
+  const match = chooseRegistryMatch(params.ai, [row]);
+  if (
+    !match ||
+    match.identityId !== identityId ||
+    match.fingerprintSha256.toLowerCase() !== fingerprintSha256
+  ) {
+    return null;
+  }
+  return {
+    status: "internal_exact_match",
+    match,
+    reasons: ["current_registry_revalidated_exact_mac_identity_receipt_against_visible_evidence"],
+    candidateCount: 1,
+    coveredReleaseIds: [String(card.release_id)],
+    coveredVersionIds: [String(card.version_id)],
+    coveredSetIds: [String(card.set_id)],
+    sourceTier: "internal",
+    externalLookupEligible: false,
+    externalLookupAttempted: false,
+  };
+}
+
 export async function findChecklistRegistryMatch(ai: Record<string, any>) {
   const resolution = await resolveChecklistRegistry(ai, {
     evidenceTrusted: true,

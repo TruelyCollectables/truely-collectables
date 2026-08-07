@@ -241,3 +241,34 @@ def test_notre_without_real_number_label_fails_closed():
     )
     identity = build_identity_hints(front=front, back=back, serial=SerialEvidence())
     assert identity.card_number is None
+
+
+def test_real_groovy_prominent_front_title_becomes_set_hint():
+    def real_obs(text: str, *, side: str, x: float, y: float, width: float, height: float, confidence: float = 1.0):
+        return OCRObservation(
+            text=text,
+            confidence=confidence,
+            box=OCRBox(x=x, y=y, width=width, height=height),
+            side=side,
+            source="archived_production_apple_vision",
+        )
+
+    front = side(
+        "front",
+        [
+            real_obs("GROOVY", side="front", x=0.244, y=0.203, width=0.497, height=0.096, confidence=1.0),
+            real_obs("SONIA CITRON", side="front", x=0.28, y=0.10, width=0.38, height=0.052, confidence=1.0),
+            real_obs("WASHINGTON MYSTICS", side="front", x=0.31, y=0.06, width=0.30, height=0.030, confidence=1.0),
+        ],
+    )
+    back = side(
+        "back",
+        [
+            real_obs("No. 13", side="back", x=0.75, y=0.80, width=0.12, height=0.04, confidence=1.0),
+            real_obs("2025 PANINI - WNBA PRIZM BASKETBALL", side="back", x=0.54, y=0.15, width=0.48, height=0.03, confidence=1.0),
+        ],
+    )
+    identity = build_identity_hints(front=front, back=back, serial=SerialEvidence())
+    assert identity.set_name == "GROOVY"
+    assert identity.card_number == "13"
+    assert identity.manufacturer == "Panini"

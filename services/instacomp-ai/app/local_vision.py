@@ -63,6 +63,14 @@ PLAYER_STOPWORDS = {
     "ice",
 }
 
+SET_TITLE_STOPWORDS = {
+    "panini", "topps", "bowman", "upper", "deck", "leaf", "donruss", "fleer", "score",
+    "prizm", "prism", "select", "optic", "mosaic", "wnba", "nba", "nfl", "nhl", "mlb",
+    "basketball", "baseball", "football", "hockey", "rookie", "official", "trading", "card",
+    "cards", "copyright", "concourse", "premier", "courtside",
+}
+
+
 SERIAL_EXACT_RE = re.compile(r"(?<!\d)(\d{1,5})\s*/\s*(\d{1,6})(?!\d)")
 SERIAL_OF_RE = re.compile(r"(?<!\d)(\d{1,5})\s+(?:OF|of)\s+(\d{1,6})(?!\d)")
 SERIAL_DENOMINATOR_RE = re.compile(r"(?:^|\s)/\s*(\d{1,6})(?!\d)")
@@ -518,6 +526,46 @@ def _player_hint(observations: Iterable[OCRObservation]) -> str | None:
     return max(candidates, default=(0.0, None), key=lambda value: value[0])[1]
 
 
+def _set_name_hint(observations: Iterable[OCRObservation]) -> str | None:
+    values = [value for value in observations if value.side == "front"]
+    player = _player_hint(values)
+    player_key = re.sub(r"[^a-z0-9]+", " ", str(player or "").lower()).strip()
+    candidates: list[tuple[float, str]] = []
+    for observation in values:
+        if observation.confidence < 0.82:
+            continue
+        cleaned = re.sub(r"[^A-Za-z0-9 &'\-]+", " ", str(observation.text or ""))
+        cleaned = " ".join(cleaned.split()).strip(" -")
+        words = cleaned.split()
+        if not 1 <= len(words) <= 4:
+            continue
+        normalized = re.sub(r"[^a-z0-9]+", " ", cleaned.lower()).strip()
+        if not normalized or normalized == player_key:
+            continue
+        tokens = [token for token in normalized.split() if token]
+        if not tokens or all(token in SET_TITLE_STOPWORDS for token in tokens):
+            continue
+        if any(needle == normalized for needle in MANUFACTURERS):
+            continue
+        if normalized.isdigit() or YEAR_RE.fullmatch(normalized):
+            continue
+        width = float(observation.box.width or 0)
+        height = float(observation.box.height or 0)
+        if width < 0.14 or height < 0.045:
+            continue
+        cy = observation.box.y + observation.box.height / 2
+        score = float(observation.confidence) + min(0.8, height * 6.0) + min(0.45, width * 0.5)
+        if cleaned.upper() == cleaned and any(char.isalpha() for char in cleaned):
+            score += 0.15
+        if 0.12 <= cy <= 0.75:
+            score += 0.10
+        candidates.append((score, cleaned))
+    if not candidates:
+        return None
+    score, value = max(candidates, key=lambda item: item[0])
+    return value if score >= 1.45 else None
+
+
 def _parallel_hint(
     *,
     front: SideVisionEvidence,
@@ -550,6 +598,7 @@ def build_identity_hints(
         year=_year_hint(observations),
         manufacturer=_manufacturer_hint(text),
         player=_player_hint(observations),
+        set_name=_set_name_hint(front.ocr),
         card_number=_card_number_hint(observations),
         parallel=_parallel_hint(front=front, back=back),
         serial_number=exact_serial,
