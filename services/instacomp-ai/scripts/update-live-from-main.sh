@@ -85,7 +85,8 @@ fi
 "$python_bin" -m pytest -q \
   "$service_root/tests/test_ocr_registry_hard_facts.py" \
   "$service_root/tests/test_local_vision.py" \
-  "$service_root/tests/test_ollama.py"
+  "$service_root/tests/test_ollama.py" \
+  "$service_root/tests/test_runtime_identity.py"
 
 fingerprint="$(cd "$service_root" && "$python_bin" - <<'PY'
 from app.runtime_identity import runtime_source_fingerprint
@@ -95,7 +96,8 @@ PY
 
 port="${INSTACOMP_AI_PORT:-8787}"
 health="$(curl --fail --silent --show-error --max-time 20 "http://127.0.0.1:${port}/health")"
-HEALTH_JSON="$health" EXPECTED_FINGERPRINT="$fingerprint" UPDATED_COMMIT="$updated" BEFORE_COMMIT="$before" RECEIPT_PATH="$receipt_dir/$timestamp.json" \
+runtime_identity="$(curl --fail --silent --show-error --max-time 20 "http://127.0.0.1:${port}/v1/runtime-identity")"
+HEALTH_JSON="$health" RUNTIME_IDENTITY_JSON="$runtime_identity" EXPECTED_FINGERPRINT="$fingerprint" UPDATED_COMMIT="$updated" BEFORE_COMMIT="$before" RECEIPT_PATH="$receipt_dir/$timestamp.json" \
   "$python_bin" - <<'PY'
 import json
 import os
@@ -103,8 +105,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 health = json.loads(os.environ["HEALTH_JSON"])
+runtime_identity = json.loads(os.environ["RUNTIME_IDENTITY_JSON"])
 expected = os.environ["EXPECTED_FINGERPRINT"]
-actual = str(health.get("runtime_source_fingerprint") or "")
+actual = str(runtime_identity.get("runtime_source_fingerprint") or "")
 if health.get("ok") is not True:
     raise SystemExit("Updated Mac health is not ready")
 if actual != expected:
@@ -115,6 +118,7 @@ receipt = {
     "beforeCommit": os.environ["BEFORE_COMMIT"],
     "updatedCommit": os.environ["UPDATED_COMMIT"],
     "runtimeSourceFingerprint": actual,
+    "runtimeIdentity": runtime_identity,
     "health": {
         "ok": health.get("ok"),
         "app": health.get("app"),
