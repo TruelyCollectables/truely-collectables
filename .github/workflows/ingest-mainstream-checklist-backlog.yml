@@ -1,6 +1,13 @@
 name: Ingest Mainstream Checklists 2000 Plus
 
 on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/ingest-mainstream-checklist-backlog.yml"
+      - "scripts/ingest-mainstream-checklist-backlog.mjs"
+      - "scripts/mainstream-checklist/**"
   push:
     branches:
       - main
@@ -45,6 +52,7 @@ jobs:
         run: node --import tsx scripts/ingest-mainstream-checklist-backlog.mjs
 
   ingest:
+    if: github.event_name != 'pull_request'
     needs: self-test
     runs-on: ubuntu-24.04
     environment: Production
@@ -90,7 +98,7 @@ jobs:
           retention-days: 90
 
   reconcile:
-    if: always()
+    if: always() && github.event_name != 'pull_request'
     needs: [self-test, ingest]
     runs-on: ubuntu-24.04
     environment: Production
