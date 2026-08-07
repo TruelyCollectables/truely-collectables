@@ -464,7 +464,7 @@ function visibleParallelNoteTokens(value: unknown) {
 function hasVisibleParallelSurfaceRisk(value: unknown) {
   const clauses = String(value || "").split(/[.;]/g);
   const finishCue =
-    /\b(speckle(?:d)?|sparkle|glitter|rainbow|holo(?:graphic)?|foil|acetate|clear[-\s]*stock|transparent|translucent|outburst|refractor|prizm|prism|shimmer|wave|pulsar|mojo|mosaic|laser|black\s+and\s+white)\b/i;
+    /\b(speckle(?:d)?|sparkle|glitter|rainbow|holo(?:graphic)?|foil|acetate|clear[-\s]*stock|transparent|translucent|outburst|refractor|shimmer|wave|pulsar|mojo|mosaic|laser|black\s+and\s+white)\b/i;
   const colorContext =
     /\b(black|blue|gold|green|orange|pink|purple|red|silver|white)\b(?:\s+\w+){0,3}\s+\b(border|background|frame|finish|foil|parallel)\b/i;
   const negation = /\b(no|not|without|none|absent|neither)\b/i;
@@ -499,7 +499,8 @@ function setNameSupportsParallelSignature(
 
 function targetParallelProfile(ai: Record<string, any>, setContext: unknown) {
   const setTokens = new Set(meaningfulTokens(setContext));
-  const explicitBase = isBaseParallel(ai.parallel);
+  const normalizedParallel = normalizedText(ai.parallel);
+  const explicitBase = Boolean(normalizedParallel) && isBaseParallel(ai.parallel);
   const directTokens = explicitBase
     ? []
     : checklistParallelTokens(ai.parallel).filter(
@@ -508,7 +509,7 @@ function targetParallelProfile(ai: Record<string, any>, setContext: unknown) {
           !GENERIC_PARALLEL_EVIDENCE_TOKENS.has(token),
       );
   const noteTokens = visibleParallelNoteTokens(ai.notes);
-  const signatureTokens = noteTokens.length ? noteTokens : directTokens;
+  const signatureTokens = directTokens.length ? directTokens : noteTokens;
   const signature = [...new Set(signatureTokens)].sort().join(" ");
   const baseLike =
     explicitBase ||

@@ -6,7 +6,7 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   exit 2
 fi
 
-for command in git bash curl; do
+for command in git bash curl python3 npx; do
   command -v "$command" >/dev/null 2>&1 || {
     echo "Missing required command: $command" >&2
     exit 2
@@ -17,6 +17,10 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 service_root="$(cd "$script_dir/.." && pwd)"
 repo_root="$(git -C "$service_root" rev-parse --show-toplevel 2>/dev/null || true)"
 expected_service_root="$repo_root/services/instacomp-ai"
+env_file="$service_root/.env"
+site_url="${INSTACOMP_SENTINEL_SITE_URL:-https://truelycollectables.com}"
+tunnel_hostname="${INSTACOMP_SENTINEL_TUNNEL_HOSTNAME:-instacomp.truelycollectables.com}"
+tunnel_url="https://${tunnel_hostname}"
 
 if [[ -z "$repo_root" || "$service_root" != "$expected_service_root" ]]; then
   echo "Refusing update: InstaComp service is not running from the expected repository layout." >&2
@@ -44,6 +48,130 @@ if [[ -n "$(git -C "$repo_root" status --porcelain --untracked-files=no)" ]]; th
   git -C "$repo_root" status --short --untracked-files=no >&2
   exit 2
 fi
+
+read_env_value() {
+  python3 - "$1" "$2" <<'PY'
+import json
+import pathlib
+import shlex
+import sys
+
+path = pathlib.Path(sys.argv[1])
+name = sys.argv[2]
+if not path.is_file():
+    raise SystemExit(0)
+for raw in path.read_text("utf-8").splitlines():
+    line = raw.strip()
+    if not line or line.startswith("#") or "=" not in line:
+        continue
+    key, value = line.split("=", 1)
+    if key.strip() != name:
+        continue
+    value = value.strip()
+    try:
+        if value.startswith('"'):
+            print(json.loads(value))
+        elif value.startswith("'"):
+            print(shlex.split(value)[0] if value else "")
+        else:
+            print(value)
+    except Exception:
+        print(value.strip('"\''))
+    break
+PY
+}
+
+set_vercel_env() {
+  local name="$1"
+  local value="$2"
+  local environment="$3"
+  local sensitivity="$4"
+  if [[ "$sensitivity" == "sensitive" ]]; then
+    printf '%s' "$value" | npx vercel env add "$name" "$environment" --force --sensitive >/dev/null
+  else
+    printf '%s' "$value" | npx vercel env add "$name" "$environment" --force >/dev/null
+  fi
+}
+
+repair_vercel_root_directory() {
+  local project_link="$repo_root/.vercel/project.json"
+  local project_id=""
+  local org_id=""
+  local project_before="$receipt_dir/$timestamp-vercel-project-before.json"
+  local project_after="$receipt_dir/$timestamp-vercel-project-after.json"
+  local endpoint=""
+
+  [[ -f "$project_link" ]] || {
+    echo "Refusing Vercel root repair: $project_link is missing. Run 'npx vercel link' from the repository root first." >&2
+    return 2
+  }
+
+  read -r project_id org_id < <(
+    python3 - "$project_link" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+payload = json.loads(path.read_text("utf-8"))
+project_id = str(payload.get("projectId") or "").strip()
+org_id = str(payload.get("orgId") or "").strip()
+if not project_id or not org_id:
+    raise SystemExit(2)
+print(project_id, org_id)
+PY
+  )
+
+  [[ "$project_id" == prj_* && ( "$org_id" == team_* || "$org_id" == user_* ) ]] || {
+    echo "Refusing Vercel root repair: linked project identifiers are missing or malformed." >&2
+    return 2
+  }
+
+  endpoint="/v9/projects/${project_id}?teamId=${org_id}"
+  npx vercel api "$endpoint" > "$project_before"
+
+  local root_check_status=0
+  ROOT_CHECK_FILE="$project_before" python3 - <<'PY' || root_check_status=$?
+import json
+import os
+import pathlib
+
+payload = json.loads(pathlib.Path(os.environ["ROOT_CHECK_FILE"]).read_text("utf-8"))
+root = payload.get("rootDirectory")
+if root in (None, ""):
+    raise SystemExit(0)
+text = str(root).strip()
+if text in {".", "./"} or text.rstrip("/") in {".", "./"}:
+    raise SystemExit(10)
+raise SystemExit(20)
+PY
+  case "$root_check_status" in
+    0)
+      echo "PASS  Vercel Root Directory already points at the repository root."
+      return 0
+      ;;
+    10)
+      echo "Repairing invalid Vercel Root Directory './' to the supported empty repository root."
+      ;;
+    *)
+      echo "Refusing automatic Vercel root repair: Root Directory is not an empty root or the known './' misconfiguration." >&2
+      return 2
+      ;;
+  esac
+
+  npx vercel api "$endpoint" -X PATCH -F rootDirectory= > "$project_after"
+  ROOT_CHECK_FILE="$project_after" python3 - <<'PY'
+import json
+import os
+import pathlib
+
+payload = json.loads(pathlib.Path(os.environ["ROOT_CHECK_FILE"]).read_text("utf-8"))
+root = payload.get("rootDirectory")
+if root not in (None, ""):
+    raise SystemExit(f"Vercel Root Directory repair did not clear the invalid value: {root!r}")
+PY
+  echo "PASS  Vercel Root Directory repaired to repository root."
+}
 
 before="$(git -C "$repo_root" rev-parse HEAD)"
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -84,6 +212,17 @@ fi
 
 "$python_bin" -m pytest -q "$service_root/tests"
 
+local_key="$(read_env_value "$env_file" INSTACOMP_AI_API_KEY)"
+archive_token="$(read_env_value "$env_file" INSTACOMP_AI_SENTINEL_ARCHIVE_TOKEN)"
+if [[ ! "$local_key" =~ ^[0-9a-fA-F]{64}$ ]]; then
+  echo "Refusing key repair: INSTACOMP_AI_API_KEY is missing or is not a 256-bit hex key. Run install-sentinel-control.sh once to create it safely." >&2
+  exit 2
+fi
+if [[ ! "$archive_token" =~ ^[0-9a-fA-F]{64}$ ]]; then
+  echo "Refusing key repair: INSTACOMP_AI_SENTINEL_ARCHIVE_TOKEN is missing or invalid. Run install-sentinel-control.sh once to create it safely." >&2
+  exit 2
+fi
+
 fingerprint="$(cd "$service_root" && "$python_bin" - <<'PY'
 from app.runtime_identity import runtime_source_fingerprint
 print(runtime_source_fingerprint())
@@ -93,7 +232,8 @@ PY
 port="${INSTACOMP_AI_PORT:-8787}"
 health="$(curl --fail --silent --show-error --max-time 20 "http://127.0.0.1:${port}/health")"
 runtime_identity="$(curl --fail --silent --show-error --max-time 20 "http://127.0.0.1:${port}/v1/runtime-identity")"
-HEALTH_JSON="$health" RUNTIME_IDENTITY_JSON="$runtime_identity" EXPECTED_FINGERPRINT="$fingerprint" UPDATED_COMMIT="$updated" BEFORE_COMMIT="$before" RECEIPT_PATH="$receipt_dir/$timestamp.json" \
+local_sentinel_status="$(curl --fail --silent --show-error --max-time 20 -H "X-InstaComp-AI-Key: $local_key" "http://127.0.0.1:${port}/v1/checklist-sentinel/status")"
+HEALTH_JSON="$health" RUNTIME_IDENTITY_JSON="$runtime_identity" SENTINEL_STATUS_JSON="$local_sentinel_status" EXPECTED_FINGERPRINT="$fingerprint" UPDATED_COMMIT="$updated" BEFORE_COMMIT="$before" RECEIPT_PATH="$receipt_dir/$timestamp.json" \
   "$python_bin" - <<'PY'
 import json
 import os
@@ -102,14 +242,17 @@ from pathlib import Path
 
 health = json.loads(os.environ["HEALTH_JSON"])
 runtime_identity = json.loads(os.environ["RUNTIME_IDENTITY_JSON"])
+sentinel_status = json.loads(os.environ["SENTINEL_STATUS_JSON"])
 expected = os.environ["EXPECTED_FINGERPRINT"]
 actual = str(runtime_identity.get("runtime_source_fingerprint") or "")
 if health.get("ok") is not True:
     raise SystemExit("Updated Mac health is not ready")
 if actual != expected:
     raise SystemExit(f"Runtime fingerprint mismatch: expected {expected}, got {actual or 'missing'}")
+if sentinel_status.get("name") != "InstaComp AI Checklist Sentinel™":
+    raise SystemExit("Local Sentinel rejected the configured InstaComp AI key")
 receipt = {
-    "schema": "tcos.instacomp.macRuntimeUpdate.v1",
+    "schema": "tcos.instacomp.macRuntimeUpdate.v2",
     "completedAt": datetime.now(timezone.utc).isoformat(),
     "beforeCommit": os.environ["BEFORE_COMMIT"],
     "updatedCommit": os.environ["UPDATED_COMMIT"],
@@ -123,11 +266,55 @@ receipt = {
         "checklist": health.get("checklist"),
         "ollama": health.get("ollama"),
     },
+    "sentinelKeyAcceptedLocally": True,
+    "sentinelKeyAcceptedThroughProduction": False,
 }
 path = Path(os.environ["RECEIPT_PATH"])
 path.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
 print(json.dumps(receipt, indent=2))
 PY
 
+echo "Synchronizing the existing Mac key to Vercel Production without rotating it."
+set_vercel_env INSTACOMP_AI_LOCAL_URL "$tunnel_url" production plain
+set_vercel_env INSTACOMP_AI_LOCAL_KEY "$local_key" production sensitive
+set_vercel_env INSTACOMP_SENTINEL_ARCHIVE_TOKEN "$archive_token" production sensitive
+repair_vercel_root_directory
+npx vercel --prod --yes --cwd "$repo_root"
+
+proxy_status_file="$service_root/data/runtime-updates/$timestamp-production-sentinel.json"
+proxy_status_url="${site_url}/api/instacomp/checklist-sentinel?view=status&ts=$(date +%s)"
+for ((attempt=1; attempt<=30; attempt++)); do
+  if curl --fail --silent --show-error --max-time 30 \
+    -H "x-instacomp-sentinel-archive-token: $archive_token" \
+    "$proxy_status_url" > "$proxy_status_file" 2>/dev/null && \
+    PROXY_STATUS_FILE="$proxy_status_file" RECEIPT_PATH="$receipt_dir/$timestamp.json" "$python_bin" - <<'PY'
+import json
+import os
+from pathlib import Path
+
+proxy_path = Path(os.environ["PROXY_STATUS_FILE"])
+receipt_path = Path(os.environ["RECEIPT_PATH"])
+payload = json.loads(proxy_path.read_text("utf-8"))
+data = payload.get("data") if isinstance(payload, dict) else None
+if payload.get("ok") is not True or not isinstance(data, dict):
+    raise SystemExit(1)
+if data.get("name") != "InstaComp AI Checklist Sentinel™":
+    raise SystemExit(1)
+receipt = json.loads(receipt_path.read_text("utf-8"))
+receipt["sentinelKeyAcceptedThroughProduction"] = True
+receipt_path.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+PY
+  then
+    break
+  fi
+  [[ "$attempt" -lt 30 ]] || {
+    echo "Production still cannot authenticate to the Mac with the synchronized InstaComp AI key." >&2
+    exit 2
+  }
+  sleep 3
+done
+
+echo "PASS  Mac key accepted locally and through the Production Sentinel proxy."
+
 trap - ERR
-echo "InstaComp Mac runtime updated and fingerprint-verified at $updated."
+echo "InstaComp Mac runtime updated, key-synchronized, and fingerprint-verified at $updated."

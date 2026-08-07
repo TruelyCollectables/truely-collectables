@@ -1,0 +1,103 @@
+name: InstaComp Deal Hunter Postfix Live Proof
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/lib/deal-hunter-postfix-live-proof.marker'
+
+permissions:
+  contents: read
+
+jobs:
+  prove:
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+      SITE_URL: https://truelycollectables.com
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fail closed on proof-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          mapfile -t changed < <(git diff --name-only origin/main...HEAD | sort)
+          test "${#changed[@]}" -eq 1
+          test "${changed[0]}" = 'src/lib/deal-hunter-postfix-live-proof.marker'
+      - name: Deploy exact current main to Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .vercel
+          npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          git fetch origin main
+          git checkout --detach origin/main
+          npx vercel@56.2.0 --prod --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+      - name: Capture pre-run Mac status and history count
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 60 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$SITE_URL/api/release/instacomp-deal-hunter-learning-self-test?mode=status" > pre-status.json
+          curl -fsS --max-time 60 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$SITE_URL/api/release/instacomp-deal-hunter-history-status?since=2026-08-07T00:00:00Z" > pre-history.json
+          node - <<'NODE'
+          const fs=require('fs');
+          const s=JSON.parse(fs.readFileSync('pre-status.json','utf8'));
+          const h=JSON.parse(fs.readFileSync('pre-history.json','utf8'));
+          if(!s.success || !s.physicalMacHealthy || !s.scheduler?.enabled || !s.scheduler?.evaluationKeyConfigured) throw new Error(JSON.stringify(s));
+          if(!h.success) throw new Error(JSON.stringify(h));
+          fs.appendFileSync(process.env.GITHUB_ENV,`PRE_COMPLETED=${s.scheduler.lastCompletedAt||''}\nPRE_HISTORY=${h.totalObservationCount||0}\nPROOF_STARTED=${new Date().toISOString()}\n`);
+          console.log(JSON.stringify({scheduler:s.scheduler,preHistory:h.totalObservationCount},null,2));
+          NODE
+      - name: Trigger physical Mac Deal Hunter
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl -sS --max-time 285 -o trigger.json -w '%{http_code}' -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$SITE_URL/api/release/instacomp-deal-hunter-learning-self-test?pass=1" || true)"
+          echo "self-test trigger HTTP=$code"
+          test -s trigger.json && cat trigger.json || true
+          # A 500/timeout is acceptable here only because the route may hit its bounded wait
+          # while the physical Mac continues the durable run. Final proof is status+history below.
+      - name: Poll durable physical Mac completion
+        shell: bash
+        run: |
+          set -euo pipefail
+          completed=''
+          for i in $(seq 1 40); do
+            code="$(curl -sS --max-time 45 -o status.json -w '%{http_code}' -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$SITE_URL/api/release/instacomp-deal-hunter-learning-self-test?mode=status" || true)"
+            if [ "$code" = 200 ]; then
+              completed="$(node -e "const p=require('./status.json'); process.stdout.write(String(p.scheduler?.lastCompletedAt||''))")"
+              running="$(node -e "const p=require('./status.json'); process.stdout.write(String(Boolean(p.scheduler?.running)))")"
+              echo "poll $i running=$running lastCompletedAt=$completed"
+              if [ -n "$completed" ] && [ "$completed" != "$PRE_COMPLETED" ] && [ "$running" = false ]; then break; fi
+            fi
+            sleep 20
+          done
+          test -n "$completed"
+          test "$completed" != "$PRE_COMPLETED"
+          node - <<'NODE'
+          const p=require('./status.json');
+          const runs=Array.isArray(p.runs)?p.runs:[];
+          const manual=runs.find(r=>r.trigger==='manual' && r.status==='completed');
+          if(!manual) throw new Error('No completed manual run receipt: '+JSON.stringify(p));
+          if(Number(manual.evaluatedCount||0)<=0) throw new Error('Manual run evaluated zero candidates: '+JSON.stringify(manual));
+          console.log(JSON.stringify({manualRun:manual},null,2));
+          NODE
+      - name: Prove trusted Production history increased
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 60 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$SITE_URL/api/release/instacomp-deal-hunter-history-status?since=$PROOF_STARTED" > post-history.json
+          cat post-history.json
+          node - <<'NODE'
+          const p=require('./post-history.json');
+          const before=Number(process.env.PRE_HISTORY||0);
+          if(!p.success) throw new Error(JSON.stringify(p));
+          if(Number(p.totalObservationCount||0)<=before) throw new Error(`Trusted history did not increase: before=${before} after=${p.totalObservationCount}`);
+          if(Number(p.observationCountSince||0)<=0) throw new Error('No trusted observations were written during the post-fix physical Mac run.');
+          if(!p.latestIdentity || !p.latestIdentity.registryIdentityId || Number(p.latestIdentity.observationCount||0)<=0) throw new Error('Canonical history readback failed: '+JSON.stringify(p.latestIdentity));
+          console.log(JSON.stringify({before,after:p.totalObservationCount,newRows:p.observationCountSince,latestIdentity:p.latestIdentity},null,2));
+          NODE

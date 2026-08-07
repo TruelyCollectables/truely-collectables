@@ -7,6 +7,7 @@ on:
       - "services/instacomp-ai/app/sentinel*.py"
       - "services/instacomp-ai/app/settings_routes.py"
       - "services/instacomp-ai/scripts/install-sentinel-control.sh"
+      - "services/instacomp-ai/scripts/update-live-from-main.sh"
       - "services/instacomp-ai/.env.example"
       - "services/instacomp-ai/data/sentinel-target-keys.txt"
       - "data/checklist-recovery-modern-gap-keys.txt"
@@ -15,6 +16,7 @@ on:
       - "services/instacomp-ai/CHECKLIST_SENTINEL.md"
       - "src/lib/instacomp-sentinel-auth.ts"
       - "src/app/api/instacomp/checklist-sentinel/**"
+      - "src/app/admin/page.tsx"
       - "src/app/admin/instacomp/checklist-sentinel/**"
       - "src/app/components/AdminInstaCompMobileShortcut.tsx"
       - "scripts/run-instacomp-sentinel-control-audit.mjs"
@@ -25,6 +27,7 @@ on:
       - "services/instacomp-ai/app/sentinel*.py"
       - "services/instacomp-ai/app/settings_routes.py"
       - "services/instacomp-ai/scripts/install-sentinel-control.sh"
+      - "services/instacomp-ai/scripts/update-live-from-main.sh"
       - "services/instacomp-ai/.env.example"
       - "services/instacomp-ai/data/sentinel-target-keys.txt"
       - "data/checklist-recovery-modern-gap-keys.txt"
@@ -33,6 +36,7 @@ on:
       - "services/instacomp-ai/CHECKLIST_SENTINEL.md"
       - "src/lib/instacomp-sentinel-auth.ts"
       - "src/app/api/instacomp/checklist-sentinel/**"
+      - "src/app/admin/page.tsx"
       - "src/app/admin/instacomp/checklist-sentinel/**"
       - "src/app/components/AdminInstaCompMobileShortcut.tsx"
       - "scripts/run-instacomp-sentinel-control-audit.mjs"
@@ -54,8 +58,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Verify one-command macOS installer syntax
-        run: bash -n services/instacomp-ai/scripts/install-sentinel-control.sh
+      - name: Verify macOS Sentinel scripts syntax
+        run: |
+          bash -n services/instacomp-ai/scripts/install-sentinel-control.sh
+          bash -n services/instacomp-ai/scripts/update-live-from-main.sh
 
       - uses: actions/setup-python@v5
         with:
@@ -141,6 +147,7 @@ jobs:
           src/lib/instacomp-sentinel-auth.ts
           src/app/api/instacomp/checklist-sentinel/route.ts
           src/app/api/instacomp/checklist-sentinel/import/route.ts
+          src/app/admin/page.tsx
           src/app/admin/instacomp/checklist-sentinel/page.tsx
           src/app/components/AdminInstaCompMobileShortcut.tsx
 

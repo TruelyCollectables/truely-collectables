@@ -2,12 +2,14 @@ import { readFile } from "node:fs/promises";
 
 const files = {
   installer: "services/instacomp-ai/scripts/install-sentinel-control.sh",
+  updater: "services/instacomp-ai/scripts/update-live-from-main.sh",
   sentinel: "services/instacomp-ai/app/sentinel.py",
   relay: "services/instacomp-ai/app/sentinel_routes.py",
   archiveAuth: "src/lib/instacomp-sentinel-auth.ts",
   importRoute: "src/app/api/instacomp/checklist-sentinel/import/route.ts",
   proxy: "src/app/api/instacomp/checklist-sentinel/route.ts",
   dashboard: "src/app/admin/instacomp/checklist-sentinel/page.tsx",
+  adminPage: "src/app/admin/page.tsx",
   quickTools: "src/app/components/AdminInstaCompMobileShortcut.tsx",
   env: "services/instacomp-ai/.env.example",
 };
@@ -42,6 +44,20 @@ assert(!contents.installer.includes("INSTACOMP_SERVICE_TOKEN"), "Installer must 
 assert(!contents.installer.includes("env add \"$name\" \"$environment\" --force --sensitive --yes"), "Installer must not pass unsupported --yes to vercel env add.");
 assert(contents.installer.includes(String.raw`--url http:\/\/127\.0\.0\.1:8787`), "Installer must remove only the obsolete quick tunnel.");
 assert(!contents.installer.includes("pkill cloudflared"), "Installer must never kill every cloudflared process.");
+
+assert(contents.updater.includes("INSTACOMP_AI_API_KEY"), "Mac updater must read the active local InstaComp AI key.");
+assert(contents.updater.includes("INSTACOMP_AI_LOCAL_KEY"), "Mac updater must synchronize the active key to Vercel Production.");
+assert(contents.updater.includes("INSTACOMP_AI_LOCAL_URL"), "Mac updater must synchronize the permanent tunnel URL.");
+assert(contents.updater.includes("INSTACOMP_SENTINEL_ARCHIVE_TOKEN"), "Mac updater must preserve and synchronize the Sentinel archive token.");
+assert(contents.updater.includes("repair_vercel_root_directory"), "Mac updater must repair the known invalid Vercel repository-root setting before deployment.");
+assert(contents.updater.includes('npx vercel api "$endpoint"'), "Mac updater must inspect the linked Vercel project through authenticated CLI API access.");
+assert(contents.updater.includes("-X PATCH -F rootDirectory="), "Mac updater must clear only the known invalid Vercel repository-root value through the project API.");
+assert(contents.updater.includes("Refusing automatic Vercel root repair"), "Mac updater must fail closed for unexpected non-root Vercel directory settings.");
+assert(contents.updater.includes('npx vercel --prod --yes --cwd "$repo_root"'), "Mac updater must redeploy Production explicitly from the repository root after key synchronization.");
+assert(contents.updater.includes("x-instacomp-sentinel-archive-token"), "Mac updater must verify the Production Sentinel proxy end to end.");
+assert(contents.updater.includes("sentinelKeyAcceptedThroughProduction"), "Mac updater receipt must prove the synchronized key was accepted through Production.");
+assert(contents.updater.includes("Refusing key repair"), "Mac updater must fail closed instead of silently rotating a missing or malformed key.");
+assert(!contents.updater.includes("openssl rand"), "Routine Mac updates must never rotate the InstaComp AI key.");
 
 assert(contents.sentinel.includes('"INSTACOMP_AI_SENTINEL_MAX_TARGETS_PER_RUN", 75'), "Sentinel safe batch cap must remain 75 targets.");
 
@@ -91,6 +107,8 @@ assert(contents.dashboard.includes("registry_import_configured"), "Dashboard mus
 assert(!contents.dashboard.includes("INSTACOMP_AI_LOCAL_KEY"), "Browser code must never contain the Mac key.");
 assert(!contents.dashboard.includes("instacomp.truelycollectables.com"), "Browser code must not call the tunnel directly.");
 
+assert(contents.adminPage.includes('href="/admin/instacomp/checklist-sentinel"'), "Main Admin page must have a direct Checklist Sentinel link.");
+assert(contents.adminPage.includes("Open Checklist Sentinel"), "Main Admin page must visibly label the Checklist Sentinel link.");
 assert(contents.quickTools.includes("/admin/instacomp/checklist-sentinel"), "Admin quick tools must link to Sentinel.");
 assert(contents.env.includes("INSTACOMP_AI_SENTINEL_INTERVAL_SECONDS=86400"), "Documented cadence must be 24 hours.");
 assert(contents.env.includes("INSTACOMP_AI_SENTINEL_CHECKPOINT_SECONDS=300"), "Documented checkpoint must be five minutes.");
@@ -99,8 +117,11 @@ assert(contents.env.includes("Keep the large multipart transfer on localhost"), 
 
 console.log("✓ Named tunnel and both LaunchAgents are installer-owned");
 console.log("✓ Dedicated Mac and archive secrets are generated locally and synchronized once");
+console.log("✓ Routine Mac updates re-sync the existing key without rotating it and prove Production accepts it");
+console.log("✓ Known invalid Vercel './' root settings are repaired narrowly before Production deploys");
 console.log("✓ No unrelated Vercel service credential is read or rotated");
 console.log("✓ Sentinel safe batch cap remains 75 and pending backlog auto-drains only when due");
+console.log("✓ Main Admin page and quick tools both link directly to Checklist Sentinel");
 console.log("✓ Dashboard reports overall checklist search progress with a 20-minute timestamped refresh");
 console.log("✓ Large files stay off the Vercel request body");
 console.log("✓ Source URL, redirects, DNS, byte count, duplicate bytes, and SHA-256 fail closed");
