@@ -148,4 +148,12 @@ jobs:
         run: npx tsc --noEmit
 
       - name: Production build
+        env:
+          # CI-only inert values satisfy module initialization without exposing
+          # Production Supabase credentials to pull-request code. Any accidental
+          # build-time data request fails closed against localhost and is handled
+          # by routes such as sitemap that intentionally tolerate unavailable data.
+          NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:9"
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: "ci-sentinel-anon-placeholder"
+          SUPABASE_SERVICE_ROLE_KEY: "ci-sentinel-service-role-placeholder"
         run: npm run build
