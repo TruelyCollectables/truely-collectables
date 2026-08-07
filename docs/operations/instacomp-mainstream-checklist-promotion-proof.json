@@ -1,14 +1,14 @@
 {
-  "schema": "tcos.checklist.mainstreamBacklogPromotionProof.v1",
-  "checkedAt": "2026-08-07T11:24:14.798Z",
+  "schema": "tcos.checklist.mainstreamBacklogPromotionProof.v2",
+  "checkedAt": "2026-08-07T11:49:34.189Z",
   "expectedSources": 327,
-  "expectedPromotedSources": 322,
-  "expectedAttachmentOnly": 5,
+  "expectedPromotedSources": 319,
+  "expectedAttachmentOnly": 8,
   "catalogRows": 327,
   "counts": {
     "imported": 0,
     "unchanged": 0,
-    "attachments": 5,
+    "attachments": 8,
     "cards": 0,
     "identities": 0
   },
@@ -44,13 +44,8 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "reference_parallel_rows_not_deterministic",
-          "message": "No deterministic parallel rows were parsed from this source.",
-          "severity": "warning"
-        },
-        {
-          "code": "reference_card_number_subject_conflict",
-          "message": "Base Set #407 maps to conflicting subjects.",
+          "code": "mainstream_backlog_normalization_quarantined",
+          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
           "severity": "error"
         }
       ]
@@ -112,8 +107,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -255,8 +255,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -410,8 +415,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -422,8 +432,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -434,8 +449,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -446,8 +466,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -458,8 +483,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -511,8 +541,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -523,8 +558,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -535,8 +575,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -547,8 +592,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -559,8 +609,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -571,8 +626,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -583,8 +643,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -607,8 +672,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -619,8 +689,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -723,8 +798,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -735,8 +815,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -793,8 +878,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -868,26 +958,19 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
     },
     {
       "id": "SR-0063",
-      "code": "confirmed_checklist_not_promoted",
-      "status": "quarantined",
-      "issues": [
-        {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
-          "severity": "error"
-        }
-      ]
-    },
-    {
-      "id": "SR-0064",
       "code": "confirmed_checklist_not_promoted",
       "status": "quarantined",
       "issues": [
@@ -904,13 +987,40 @@
       ]
     },
     {
+      "id": "SR-0064",
+      "code": "confirmed_checklist_not_promoted",
+      "status": "quarantined",
+      "issues": [
+        {
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "message": "Base Set #UH47 maps to conflicting subjects.",
+          "severity": "error"
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "message": "Base Set #UH48 maps to conflicting subjects.",
+          "severity": "error"
+        }
+      ]
+    },
+    {
       "id": "SR-0066",
       "code": "confirmed_checklist_not_promoted",
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -933,8 +1043,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -945,8 +1060,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -974,8 +1094,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -1015,8 +1140,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -1044,8 +1174,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -1056,8 +1191,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -1068,8 +1208,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -1080,8 +1225,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -1092,8 +1242,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -1138,8 +1293,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -1150,8 +1310,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 1 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -1162,8 +1327,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -1174,8 +1344,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -1292,8 +1467,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -1321,8 +1501,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -1333,8 +1518,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -1345,8 +1535,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -1374,8 +1569,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -1386,8 +1586,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -1398,8 +1603,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
