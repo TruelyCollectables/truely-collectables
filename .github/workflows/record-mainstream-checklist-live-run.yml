@@ -59,8 +59,10 @@ jobs:
             --arg branch "$RUN_BRANCH" \
             --arg createdAt "$RUN_CREATED_AT" \
             --arg updatedAt "$RUN_UPDATED_AT" \
-            '{schema:"tcos.checklist.mainstreamLiveRun.v1",workflow:$workflow,runId:$runId,runNumber:$runNumber,runAttempt:$runAttempt,status:$status,conclusion:($conclusion|select(length>0)?),event:$event,sourceSha:$sourceSha,branch:$branch,createdAt:$createdAt,updatedAt:$updatedAt}' \
+            '{schema:"tcos.checklist.mainstreamLiveRun.v1",workflow:$workflow,runId:$runId,runNumber:$runNumber,runAttempt:$runAttempt,status:$status,conclusion:(if ($conclusion|length)>0 then $conclusion else null end),event:$event,sourceSha:$sourceSha,branch:$branch,createdAt:$createdAt,updatedAt:$updatedAt}' \
             > "$STATUS_PATH"
+          test -s "$STATUS_PATH"
+          jq -e '.runId and .sourceSha and .status' "$STATUS_PATH" >/dev/null
           git add "$STATUS_PATH"
           if git diff --cached --quiet; then
             echo "Live run state is unchanged."
