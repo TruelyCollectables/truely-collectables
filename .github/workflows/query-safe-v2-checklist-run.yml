@@ -50,3 +50,5 @@ jobs:
             git commit -m "Query safe-v2 checklist live run [skip ci]"
             git push origin "HEAD:$STATUS_BRANCH"
           fi
+
+# Observer refresh marker: 2026-08-07T15:39Z
