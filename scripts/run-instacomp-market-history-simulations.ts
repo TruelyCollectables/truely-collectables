@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { buildExactMarketObservation, calculateExactCardMarketTrend, listingItemIdFromUrl } from "../src/lib/instacomp-market-history";
+import { buildExactMarketObservation, calculateExactCardMarketTrend, listingItemIdFromUrl, persistExactCardMarketHistory } from "../src/lib/instacomp-market-history";
 import type { InstaCompComp } from "../src/lib/instacomp";
 
 function comp(overrides: Partial<InstaCompComp> = {}): InstaCompComp {
@@ -57,5 +57,18 @@ assert.equal(trend.asksUsedAsSoldValue, false);
 const insufficient = calculateExactCardMarketTrend([{ observation_kind: "ASK", delivered_price: 100, effective_at: null, observed_at: "2026-08-01T00:00:00Z" }]);
 assert.equal(insufficient.direction, "INSUFFICIENT_SOLD_HISTORY");
 assert.equal(insufficient.soldMedianAllTime, null);
+
+const blocked = await persistExactCardMarketHistory({
+  registry: { matched: false, identityId: null, fingerprintSha256: null },
+  ai: {
+    player: "Sonia Citron", year: "2025", brand: "Panini", setName: "Prizm WNBA", cardNumber: "122",
+    parallel: "Silver", serialNumber: null, team: "Washington Mystics", sport: "Basketball",
+    isRookie: true, isAuto: false, isRelic: false, conditionGuess: null, confidence: 0.99, notes: null,
+  },
+  sold: [comp()],
+  active: [],
+});
+assert.equal(blocked.status, "blocked");
+assert.equal(blocked.inserted, 0);
 
 console.log("InstaComp exact-card market-history simulations passed.");
