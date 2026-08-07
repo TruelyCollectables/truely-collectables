@@ -4,16 +4,22 @@ import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
 } from "../../../../lib/account-auth";
+import {
+  analyzeWithInstaCompAiLocal,
+  type InstaCompAiLocalScan,
+} from "../../../../lib/instacomp-ai-local";
 import type { InstaCompChecklistCandidate } from "../../../../lib/instacomp-checklist-first";
 import { resolveInstaCompChecklistFirstFromRegistry } from "../../../../lib/instacomp-checklist-first-server";
 import { resolveChecklistParallelFromVision } from "../../../../lib/instacomp-checklist-parallel-vision";
+import {
+  readInstaCompCoreVisualEvidence,
+  type InstaCompCoreVisualEvidence,
+} from "../../../../lib/instacomp-core-visual-evidence";
 import { normalizeInstaCompSideImages } from "../../../../lib/instacomp-image-orientation";
 import { persistNormalizedInstaCompImagePair } from "../../../../lib/instacomp-normalized-image-storage";
 import { assertSafeInstaCompRemoteImageUrl } from "../../../../lib/instacomp-provider-safety";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
-import { getInstaCompServiceToken } from "../../../../lib/tcos-profit-hunter-secrets";
-import { POST as runInstaCompScan } from "../../instacomp/scan/route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,6 +37,13 @@ type ImageRow = {
   is_primary: boolean | null;
 };
 
+type MacReceipt = {
+  scanId: string | null;
+  status: string | null;
+  checklistOutcome: string | null;
+  error: string | null;
+};
+
 function record(value: unknown): JsonRecord {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as JsonRecord)
@@ -38,7 +51,10 @@ function record(value: unknown): JsonRecord {
 }
 
 function text(value: unknown, maximum = 2_000) {
-  const cleaned = String(value ?? "").replace(/\s+/g, " ").trim();
+  const cleaned = String(value ?? "")
+    .normalize("NFKC")
+    .replace(/\s+/g, " ")
+    .trim();
   return cleaned ? cleaned.slice(0, maximum) : null;
 }
 
@@ -85,6 +101,7 @@ function selectedPair(rows: ImageRow[]) {
       if (left.primary !== right.primary) return left.primary ? -1 : 1;
       return left.order - right.order;
     });
+
   const front =
     images.find((image) => /\bfront\b/i.test(image.alt || "")) ||
     images.find((image) => image.primary) ||
@@ -98,6 +115,7 @@ function selectedPair(rows: ImageRow[]) {
     images.find((image) => !image.primary && image.url !== front?.url) ||
     images.find((image) => image.url !== front?.url) ||
     null;
+
   return { front, back, count: images.length };
 }
 
@@ -106,7 +124,7 @@ async function downloadImage(url: string, side: "front" | "back") {
     redirect: "error",
     cache: "no-store",
     signal: AbortSignal.timeout(30_000),
-    headers: { "User-Agent": "TCOS-InstaComp-ExactParallel/1.0" },
+    headers: { "User-Agent": "TCOS-InstaComp-FirstTimeIdentity/1.0" },
   });
   if (!response.ok) {
     throw new Error(`${side} image returned HTTP ${response.status}.`);
@@ -126,46 +144,64 @@ async function digest(file: File) {
     .digest("hex");
 }
 
-function titleYear(value: string) {
-  return value.match(/\b((?:19|20)\d{2})\b/)?.[1] || null;
-}
+const PRODUCT_FAMILY_PATTERNS = [
+  ["prizm", /\bprizm\b/i],
+  ["select", /\bselect\b/i],
+  ["optic", /\boptic\b/i],
+  ["mosaic", /\bmosaic\b/i],
+  ["donruss", /\bdonruss\b/i],
+  ["chronicles", /\bchronicles\b/i],
+  ["contenders", /\bcontenders\b/i],
+  ["revolution", /\brevolution\b/i],
+  ["origins", /\borigins\b/i],
+  ["immaculate", /\bimmaculate\b/i],
+  ["flawless", /\bflawless\b/i],
+  ["national treasures", /\bnational\s+treasures\b/i],
+  ["topps chrome", /\btopps\s+chrome\b/i],
+  ["bowman chrome", /\bbowman\s+chrome\b/i],
+  ["bowman", /\bbowman\b/i],
+  ["upper deck", /\bupper\s+deck\b/i],
+  ["o-pee-chee", /\bo[ -]?pee[ -]?chee\b/i],
+  ["finest", /\bfinest\b/i],
+  ["stadium club", /\bstadium\s+club\b/i],
+] as const;
 
-function titleCardNumber(value: string) {
-  return (
-    value.match(
-      /(?:#|card\s*(?:no\.?|number)?\s*[:#.-]?)\s*([a-z]{0,6}-?\d{1,5}[a-z]{0,3})\b/i,
-    )?.[1] || null
+function productFamilies(value: unknown) {
+  const source = String(value ?? "");
+  return PRODUCT_FAMILY_PATTERNS.filter(([, pattern]) => pattern.test(source)).map(
+    ([family]) => family,
   );
 }
 
-function titleManufacturer(value: string) {
-  const names = [
-    "Panini",
-    "Bowman",
-    "Topps",
-    "Upper Deck",
-    "Donruss",
-    "Leaf",
-    "Fleer",
-    "Score",
-    "SkyBox",
-    "Pacific",
-  ];
-  const matches = names.filter((name) =>
-    new RegExp(`\\b${name.replace(" ", "\\s+")}\\b`, "i").test(value),
+function filterCandidatesByProduct(
+  candidates: InstaCompChecklistCandidate[],
+  core: InstaCompCoreVisualEvidence,
+) {
+  const requestedFamilies = Array.from(
+    new Set(productFamilies([core.product, core.setName].filter(Boolean).join(" "))),
   );
-  return matches.length === 1 ? matches[0] : null;
-}
+  if (!requestedFamilies.length) {
+    return { candidates, requestedFamilies, filterApplied: false };
+  }
 
-function titlePlayer(value: string, cardNumber: string | null) {
-  if (!cardNumber) return null;
-  const escaped = cardNumber.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return (
-    new RegExp(
-      `#${escaped}\\s+(.+?)(?=\\s+(?:Base|Silver|Blue|Red|Green|Gold|Orange|Purple|Pink|Black|White|Cracked|Velocity|Wave|Auto|Autograph|Rookie|RC)\\b|$)`,
-      "i",
-    ).exec(value)?.[1]?.trim() || null
-  );
+  const filtered = candidates.filter((candidate) => {
+    const candidateText = [
+      candidate.product,
+      candidate.setName,
+      candidate.brand,
+      candidate.manufacturer,
+    ]
+      .filter(Boolean)
+      .join(" ");
+    const candidateFamilies = productFamilies(candidateText);
+    return requestedFamilies.every((family) => candidateFamilies.includes(family));
+  });
+
+  return {
+    candidates: filtered.length ? filtered : candidates,
+    requestedFamilies,
+    filterApplied: filtered.length > 0,
+  };
 }
 
 function cleanSetName(candidate: InstaCompChecklistCandidate) {
@@ -177,19 +213,16 @@ function cleanSetName(candidate: InstaCompChecklistCandidate) {
 
 function canonicalTitle(params: {
   candidate: InstaCompChecklistCandidate;
-  ai: JsonRecord;
-  currentTitle: string;
+  core: InstaCompCoreVisualEvidence;
 }) {
-  const rookie =
-    params.ai.isRookie === true || /\b(?:RC|Rookie)\b/i.test(params.currentTitle);
   return [
-    params.candidate.year,
-    params.candidate.manufacturer,
-    cleanSetName(params.candidate),
+    params.candidate.year || params.core.year,
+    params.candidate.manufacturer || params.core.manufacturer,
+    cleanSetName(params.candidate) || params.core.setName || params.core.product,
     params.candidate.cardNumber ? `#${params.candidate.cardNumber}` : null,
-    params.candidate.player,
+    params.candidate.player || params.core.player,
     params.candidate.parallel || "Base",
-    rookie ? "RC" : null,
+    params.core.rookie === true ? "RC" : null,
   ]
     .filter(Boolean)
     .join(" ")
@@ -197,60 +230,120 @@ function canonicalTitle(params: {
     .trim();
 }
 
-function reviewTitle(params: {
-  ai: JsonRecord;
-  currentTitle: string;
-  year: string | null;
-  manufacturer: string | null;
-  cardNumber: string | null;
-  player: string | null;
-}) {
-  if (!/^(?:InstaComp scan pending|Untitled card)$/i.test(params.currentTitle)) {
-    return params.currentTitle;
+function reviewTitle(core: InstaCompCoreVisualEvidence, currentTitle: string) {
+  if (currentTitle && !/^(?:InstaComp scan pending|Untitled card)$/i.test(currentTitle)) {
+    return currentTitle;
   }
-  const setName = text(params.ai.setName || params.ai.set, 180);
-  return [
-    params.year,
-    params.manufacturer,
-    setName,
-    params.cardNumber ? `#${params.cardNumber}` : null,
-    params.player,
-    "Parallel Review Required",
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .replace(/\s+/g, " ")
-    .trim() || "InstaComp card — identity review required";
+  return (
+    [
+      core.year,
+      core.manufacturer,
+      core.setName || core.product,
+      core.cardNumber ? `#${core.cardNumber}` : null,
+      core.player,
+      "Identity Review Required",
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim() || "InstaComp card — identity review required"
+  );
 }
 
-function candidateAi(candidate: InstaCompChecklistCandidate, ai: JsonRecord) {
+function candidateAi(
+  candidate: InstaCompChecklistCandidate,
+  core: InstaCompCoreVisualEvidence,
+  parallelDecision: Awaited<ReturnType<typeof resolveChecklistParallelFromVision>>,
+) {
   const exactParallel = candidate.parallel || "Base";
   const storedParallel = normalized(exactParallel) === "base" ? null : exactParallel;
   return {
-    ...ai,
-    year: candidate.year,
-    manufacturer: candidate.manufacturer,
-    brand: candidate.brand || candidate.manufacturer,
-    setName: candidate.setName || candidate.product || null,
-    cardNumber: candidate.cardNumber,
-    card_number: candidate.cardNumber,
-    player: candidate.player,
-    playerName: candidate.player,
+    year: candidate.year || core.year,
+    manufacturer: candidate.manufacturer || core.manufacturer,
+    brand: candidate.brand || candidate.manufacturer || core.manufacturer,
+    product: candidate.product || core.product,
+    setName: candidate.setName || candidate.product || core.setName || core.product,
+    cardNumber: candidate.cardNumber || core.cardNumber,
+    card_number: candidate.cardNumber || core.cardNumber,
+    player: candidate.player || core.player,
+    playerName: candidate.player || core.player,
     parallel: storedParallel,
     parallelName: storedParallel,
     checklistParallel: exactParallel,
     variation: candidate.variation || null,
     serialNumber:
-      text(record(ai.parallelVisualFeatures).serialStampText, 120) ||
+      parallelDecision.features.serialStampText ||
       (candidate.serialRun ? `/${candidate.serialRun}` : null),
     printRun: candidate.serialRun ? `/${candidate.serialRun}` : null,
+    isRookie: core.rookie === true,
     isAuto: candidate.isAuto,
     isRelic: candidate.isRelic,
-    team: candidate.team || null,
-    sport: candidate.sport || null,
+    team: candidate.team || core.team,
+    sport: candidate.sport || core.sport,
+    league: candidate.league || core.league,
+    frontVisibleText: core.frontVisibleText,
+    backVisibleText: core.backVisibleText,
+    coreVisualConfidence: core.confidence,
+    parallelVisualFeatures: parallelDecision.features,
     checklistIdentityId: candidate.identityId,
     checklistFingerprintSha256: candidate.fingerprintSha256 || null,
   };
+}
+
+async function archiveWithMacBestEffort(params: {
+  frontFile: File;
+  backFile: File;
+  core: InstaCompCoreVisualEvidence;
+  serialNumber: string | null;
+}): Promise<MacReceipt> {
+  const printedText = [
+    params.core.year ? `YEAR: ${params.core.year}` : null,
+    params.core.manufacturer
+      ? `MANUFACTURER: ${params.core.manufacturer}`
+      : null,
+    params.core.product ? `PRODUCT: ${params.core.product}` : null,
+    params.core.setName ? `SET: ${params.core.setName}` : null,
+    params.core.player ? `PLAYER: ${params.core.player}` : null,
+    params.core.cardNumber ? `CARD NO: ${params.core.cardNumber}` : null,
+    params.core.team ? `TEAM: ${params.core.team}` : null,
+    params.core.league ? `LEAGUE: ${params.core.league}` : null,
+    ...params.core.frontVisibleText.map((value) => `FRONT: ${value}`),
+    ...params.core.backVisibleText.map((value) => `BACK: ${value}`),
+  ]
+    .filter(Boolean)
+    .join("\n")
+    .slice(0, 12_000);
+
+  try {
+    const scan: InstaCompAiLocalScan = await analyzeWithInstaCompAiLocal({
+      front: params.frontFile,
+      back: params.backFile,
+      printedEvidence: {
+        provider: "kingmaker_core_visual_evidence",
+        text: printedText,
+        serialNumber: params.serialNumber,
+        checkedImages: 2,
+        conflicts: [],
+      },
+      timeoutMs: 60_000,
+    });
+    return {
+      scanId: text(scan.scan_id, 100),
+      status: text(scan.status, 100),
+      checklistOutcome: text(scan.checklist?.outcome, 120),
+      error: null,
+    };
+  } catch (error) {
+    return {
+      scanId: null,
+      status: null,
+      checklistOutcome: null,
+      error: text(
+        error instanceof Error ? error.message : "Mac archive failed.",
+        500,
+      ),
+    };
+  }
 }
 
 async function saveFailure(params: {
@@ -292,7 +385,7 @@ async function saveFailure(params: {
       .eq("store_id", params.storeId)
       .eq("status", "draft");
   } catch {
-    // Preserve and return the original failure.
+    // Preserve the original error.
   }
 }
 
@@ -367,13 +460,15 @@ export async function POST(request: NextRequest) {
     ) {
       return NextResponse.json(
         {
-          success: false,
-          error:
-            "This seller-corrected identity is locked. Explicit replacement approval is required.",
-          code: "MANUAL_IDENTITY_LOCKED",
+          success: true,
+          identityComplete: previousInstaComp.identityComplete === true,
+          title: item.title,
           stage: "manual_lock",
+          locked: true,
+          message:
+            "Seller correction remains locked. Explicit replacement approval is required to rescan it.",
         },
-        { status: 409 },
+        { headers: { "Cache-Control": "no-store" } },
       );
     }
 
@@ -420,13 +515,12 @@ export async function POST(request: NextRequest) {
     const normalizedSides = await normalizeInstaCompSideImages({
       frontImage: frontFile,
       backImage: backFile,
-      // Fresh scanner uploads receive the whole-card frame once. Stored cards
-      // are re-oriented without nesting another frame on every retry.
       addScanFrame: multipart,
     });
-    if (!normalizedSides.backFile) {
+    if (!normalizedSides.backFile || !normalizedSides.backDataUrl) {
       throw new Error("Back orientation normalization returned no image.");
     }
+
     const [frontSha256, backSha256] = await Promise.all([
       digest(normalizedSides.frontFile),
       digest(normalizedSides.backFile),
@@ -455,86 +549,53 @@ export async function POST(request: NextRequest) {
       previousBackImageUrl: pair.back.url,
     });
 
-    const serviceToken = getInstaCompServiceToken();
-    if (!serviceToken) {
-      throw new Error("The internal InstaComp service credential is missing.");
-    }
-    const scanForm = new FormData();
-    scanForm.set("frontImage", normalizedSides.frontFile);
-    scanForm.set("backImage", normalizedSides.backFile);
-    scanForm.set("aiCouncilTier", "adaptive");
-    const scanRequest = new NextRequest("http://localhost/api/instacomp/scan", {
-      method: "POST",
-      headers: { "x-tcos-instacomp-service-token": serviceToken },
-      body: scanForm,
+    const core = await readInstaCompCoreVisualEvidence({
+      frontDataUrl: normalizedSides.frontDataUrl,
+      backDataUrl: normalizedSides.backDataUrl,
     });
-    const scanResponse = await runInstaCompScan(scanRequest);
-    const scanPayload = await scanResponse.json().catch(() => ({}));
-    if (!scanResponse.ok || scanPayload?.ok !== true || !scanPayload?.ai) {
-      const scanError =
-        text(scanPayload?.error, 1_000) || "Identity scan failed.";
-      const scanCode =
-        text(scanPayload?.code, 120) || `HTTP_${scanResponse.status}`;
-      await saveFailure({
-        supabase,
-        storeId,
-        inventoryItemId,
-        error: scanError,
-        code: scanCode,
-        stage: "identity_scan",
-      });
-      return NextResponse.json(
-        {
-          success: false,
-          error: scanError,
-          code: scanCode,
-          stage: "identity_scan",
-          imageOrientation: normalizedSides.orientation,
-          normalizedImages: storedImages,
-          imagesPreserved: true,
-        },
-        { status: scanResponse.status || 500 },
-      );
-    }
+    const coreMissing = [
+      ["year", core.year],
+      ["manufacturer", core.manufacturer],
+      ["player", core.player],
+      ["card_number", core.cardNumber],
+    ]
+      .filter(([, fieldValue]) => !fieldValue)
+      .map(([field]) => field);
 
-    const ai = record(scanPayload.ai);
-    const currentTitle = String(item.title || "");
-    const cardNumber =
-      text(ai.cardNumber || ai.card_number, 80) ||
-      titleCardNumber(currentTitle);
-    const year = text(ai.year, 20) || titleYear(currentTitle);
-    const manufacturer =
-      text(ai.manufacturer || ai.brand, 120) ||
-      titleManufacturer(currentTitle);
-    const player =
-      text(ai.player || ai.playerName, 180) ||
-      titlePlayer(currentTitle, cardNumber);
+    const broadDecision = coreMissing.length
+      ? {
+          status: "input_incomplete" as const,
+          aiRequired: true,
+          match: null,
+          candidates: [] as InstaCompChecklistCandidate[],
+          reasons: coreMissing.map((field) => `missing_${field}`),
+        }
+      : await resolveInstaCompChecklistFirstFromRegistry({
+          year: core.year,
+          manufacturer: core.manufacturer,
+          cardNumber: core.cardNumber,
+          player: core.player,
+          serialNumber: null,
+          isAuto: null,
+          isRelic: null,
+          parallel: null,
+          variation: null,
+          ocrText: [
+            core.product,
+            core.setName,
+            ...core.frontVisibleText,
+            ...core.backVisibleText,
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .slice(0, 12_000),
+        });
 
-    const broadDecision = await resolveInstaCompChecklistFirstFromRegistry({
-      year,
-      manufacturer,
-      cardNumber,
-      player,
-      serialNumber: null,
-      isAuto: null,
-      isRelic: null,
-      parallel: null,
-      variation: null,
-      ocrText: [
-        currentTitle,
-        text(ai.notes, 2_000),
-        text(ai.frontText || ai.frontVisibleText, 2_000),
-        text(ai.backText || ai.backVisibleText || ai.backEvidence, 2_000),
-        ...normalizedSides.orientation.frontEvidenceText,
-        ...normalizedSides.orientation.backEvidenceText,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .slice(0, 12_000),
-    });
-    const candidates = broadDecision.match
+    const rawCandidates = broadDecision.match
       ? [broadDecision.match]
       : broadDecision.candidates;
+    const productFilter = filterCandidatesByProduct(rawCandidates, core);
+    const candidates = productFilter.candidates;
     const parallelDecision = await resolveChecklistParallelFromVision({
       frontDataUrl: normalizedSides.frontDataUrl,
       backDataUrl: normalizedSides.backDataUrl,
@@ -545,48 +606,62 @@ export async function POST(request: NextRequest) {
         candidate.identityId === parallelDecision.selectedIdentityId,
     );
     const identityComplete = Boolean(selected);
-    const aiWithFeatures = {
-      ...ai,
-      parallelVisualFeatures: parallelDecision.features,
-    };
     const resolvedAi = selected
-      ? candidateAi(selected, aiWithFeatures)
-      : aiWithFeatures;
-    const nextTitle = selected
-      ? canonicalTitle({ candidate: selected, ai, currentTitle })
-      : reviewTitle({
-          ai,
-          currentTitle,
-          year,
-          manufacturer,
-          cardNumber,
-          player,
-        });
+      ? candidateAi(selected, core, parallelDecision)
+      : {
+          year: core.year,
+          manufacturer: core.manufacturer,
+          brand: core.manufacturer,
+          product: core.product,
+          setName: core.setName || core.product,
+          player: core.player,
+          cardNumber: core.cardNumber,
+          team: core.team,
+          sport: core.sport,
+          league: core.league,
+          isRookie: core.rookie === true,
+          frontVisibleText: core.frontVisibleText,
+          backVisibleText: core.backVisibleText,
+          coreVisualConfidence: core.confidence,
+          parallelVisualFeatures: parallelDecision.features,
+        };
+
+    const macReceipt = await archiveWithMacBestEffort({
+      frontFile: normalizedSides.frontFile,
+      backFile: normalizedSides.backFile,
+      core,
+      serialNumber: parallelDecision.features.serialStampText,
+    });
+
     const checkedAt = new Date().toISOString();
     const collectibleAsset = record(metadata.collectible_asset);
     const selectedParallel = selected?.parallel || null;
     const selectedIsBase = normalized(selectedParallel) === "base";
+    const nextTitle = selected
+      ? canonicalTitle({ candidate: selected, core })
+      : reviewTitle(core, String(item.title || ""));
+
     const nextMetadata = {
       ...metadata,
       collectible_asset: {
         ...collectibleAsset,
         parallel_name:
-          selected && !selectedIsBase
-            ? selectedParallel
-            : selected
-              ? null
-              : null,
+          selected && !selectedIsBase ? selectedParallel : null,
         exact_serial_number:
           parallelDecision.features.serialStampText || null,
         serial_run: parallelDecision.features.serialRun || null,
+        rookie: core.rookie === true,
       },
       instacomp: {
         ...previousInstaComp,
-        source: text(previousInstaComp.source, 120) || "kingmaker_exact_parallel",
-        schema: "truely.instacompInventoryIdentity.v5",
-        scanId: scanPayload.scanId || null,
+        source:
+          text(previousInstaComp.source, 120) ||
+          "kingmaker_first_time_visual_checklist",
+        schema: "truely.instacompInventoryIdentity.v6",
+        scanId: macReceipt.scanId,
+        macReceipt,
         ai: resolvedAi,
-        review: scanPayload.review || null,
+        coreVisualEvidence: core,
         imageOrientation: normalizedSides.orientation,
         imageOrientationPersisted: true,
         imagePersistenceVerified: storedImages.verified === true,
@@ -601,15 +676,17 @@ export async function POST(request: NextRequest) {
           candidateIdentityIds: candidates.map(
             (candidate) => candidate.identityId,
           ),
+          productFamilies: productFilter.requestedFamilies,
+          productFilterApplied: productFilter.filterApplied,
         },
         parallelDecision,
         parallelVisualFeatures: parallelDecision.features,
         identitySource: selected
-          ? "checklist_plus_exact_visual_features"
-          : "checklist_parallel_review_required",
+          ? "first_time_visual_core_plus_checklist_plus_surface"
+          : "first_time_visual_review_required",
         identityComplete,
         identityRuleApplied: selected
-          ? "core_identity_then_color_pattern_serial_match"
+          ? "year_product_player_card_then_color_pattern_serial"
           : null,
         hasBackImage: true,
         humanVerified: false,
@@ -621,12 +698,18 @@ export async function POST(request: NextRequest) {
           ? "identity_complete_pricing_pending"
           : "blocked_identity_review_required",
         pricingReason: identityComplete
-          ? "Year, set, player, card number, color, pattern, and serial evidence resolved one checklist identity."
-          : "The exact parallel is not proven. No Base or look-alike parallel was substituted.",
+          ? "One exact checklist identity survived core, product, color, pattern, and serial checks."
+          : "The card was preserved, but one exact checklist identity did not survive every evidence gate.",
         lastStatus: identityComplete
           ? "identity_complete"
           : "review_required",
-        lastStage: identityComplete ? "complete" : "parallel_review",
+        lastStage: identityComplete
+          ? "complete"
+          : coreMissing.length
+            ? "core_identity"
+            : candidates.length
+              ? "parallel_review"
+              : "checklist_lookup",
         lastError: null,
         lastErrorCode: null,
         scannedAt: checkedAt,
@@ -645,45 +728,61 @@ export async function POST(request: NextRequest) {
       .eq("status", "draft");
     if (updateError) throw updateError;
 
-    return NextResponse.json({
-      success: true,
-      stage: identityComplete ? "complete" : "parallel_review",
-      identityComplete,
-      inventoryItemId,
-      title: nextTitle,
-      scanId: scanPayload.scanId || null,
-      ai: resolvedAi,
-      review: scanPayload.review || null,
-      imageOrientation: normalizedSides.orientation,
-      normalizedImages: storedImages,
-      checklistDecision: broadDecision,
-      parallelDecision,
-      pricingStatus: identityComplete
-        ? "identity_complete_pricing_pending"
-        : "blocked_identity_review_required",
-      nothingPublished: true,
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        stage: identityComplete
+          ? "complete"
+          : coreMissing.length
+            ? "core_identity"
+            : candidates.length
+              ? "parallel_review"
+              : "checklist_lookup",
+        identityComplete,
+        title: nextTitle,
+        ai: resolvedAi,
+        coreVisualEvidence: core,
+        checklistDecision: {
+          ...broadDecision,
+          candidates,
+          productFamilies: productFilter.requestedFamilies,
+          productFilterApplied: productFilter.filterApplied,
+        },
+        parallelDecision,
+        macReceipt,
+        imageOrientation: normalizedSides.orientation,
+        normalizedImages: storedImages,
+        pricingStatus: identityComplete
+          ? "identity_complete_pricing_pending"
+          : "blocked_identity_review_required",
+        nothingPublished: true,
+      },
+      {
+        status: identityComplete ? 200 : 202,
+        headers: { "Cache-Control": "no-store" },
+      },
+    );
   } catch (error) {
-    const failureMessage =
+    const failure =
       error instanceof Error
         ? error.message
-        : "Exact front-and-back identity scan failed.";
+        : "First-time visual checklist scan failed.";
     await saveFailure({
       supabase,
       storeId,
       inventoryItemId,
-      error: failureMessage,
-      code: "INSTACOMP_EXACT_SCAN_FAILED",
-      stage: "exact_pipeline",
+      error: failure,
+      code: "INSTACOMP_FIRST_TIME_SCAN_FAILED",
+      stage: "automatic_pipeline",
     });
     return NextResponse.json(
       {
         success: false,
-        error: failureMessage,
-        code: "INSTACOMP_EXACT_SCAN_FAILED",
-        stage: "exact_pipeline",
+        error: failure,
+        code: "INSTACOMP_FIRST_TIME_SCAN_FAILED",
+        stage: "automatic_pipeline",
       },
-      { status: 500 },
+      { status: 500, headers: { "Cache-Control": "no-store" } },
     );
   }
 }
