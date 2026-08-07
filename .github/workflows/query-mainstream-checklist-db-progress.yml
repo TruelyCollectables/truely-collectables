@@ -1,0 +1,135 @@
+name: Query Mainstream Checklist DB Progress
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/query-mainstream-checklist-db-progress.yml"
+
+permissions:
+  contents: write
+
+env:
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+jobs:
+  query:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Resolve protected Production Supabase credentials
+        run: bash scripts/resolve-mainstream-checklist-production-env.sh
+      - name: Query current checklist catalog progress
+        shell: bash
+        env:
+          STATUS_BRANCH: ops/mainstream-checklist-status
+          STATUS_PATH: docs/operations/instacomp-mainstream-checklist-db-progress.json
+        run: |
+          set -euo pipefail
+          set -a
+          source "$PRODUCTION_ENV_PATH"
+          set +a
+          export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
+          mkdir -p "$RUNNER_TEMP/mainstream-progress"
+          node --input-type=module > "$RUNNER_TEMP/mainstream-progress/progress.json" <<'NODE'
+          import { createClient } from '@supabase/supabase-js';
+          import { loadMainstreamChecklistManifest } from './scripts/mainstream-checklist/manifest.mjs';
+          import { isVerifiedNonPromotable } from './scripts/mainstream-checklist/verified-exceptions.mjs';
+
+          const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
+            auth: { persistSession: false, autoRefreshToken: false },
+          });
+          const manifest = loadMainstreamChecklistManifest();
+          const byUrl = new Map(manifest.entries.map((entry) => [entry.sourceUrl, entry]));
+          const rows = [];
+          const urls = manifest.entries.map((entry) => entry.sourceUrl);
+          for (let i = 0; i < urls.length; i += 100) {
+            const { data, error } = await db
+              .from('checklist_source_catalog')
+              .select('source_url,status,last_checked_at,validation_counts,issue_summary,metadata')
+              .in('source_url', urls.slice(i, i + 100));
+            if (error) throw new Error(error.message);
+            rows.push(...(data || []));
+          }
+
+          const statusCounts = {};
+          const issueCounts = {};
+          let rawArchived = 0;
+          let promotedFinite = 0;
+          let classifiedExceptions = 0;
+          let cards = 0;
+          let identities = 0;
+          const recent = [];
+          const remaining = [];
+
+          for (const row of rows) {
+            const entry = byUrl.get(row.source_url);
+            statusCounts[row.status] = (statusCounts[row.status] || 0) + 1;
+            if (row.metadata?.rawArchived === true) rawArchived += 1;
+            const exception = entry && (entry.disposition === 'attachment_only' || isVerifiedNonPromotable(entry));
+            if (exception && row.status === 'quarantined') classifiedExceptions += 1;
+            if (!exception && ['imported','unchanged'].includes(row.status)) {
+              promotedFinite += 1;
+              cards += Number(row.validation_counts?.cards || 0);
+              identities += Number(row.validation_counts?.identities || 0);
+            }
+            for (const issue of row.issue_summary || []) {
+              if (!issue?.code) continue;
+              issueCounts[issue.code] = (issueCounts[issue.code] || 0) + 1;
+            }
+            if (row.last_checked_at) recent.push({ id: entry?.id || null, status: row.status, checkedAt: row.last_checked_at });
+            if (!exception && !['imported','unchanged'].includes(row.status)) {
+              remaining.push({
+                id: entry?.id || null,
+                status: row.status,
+                cards: Number(row.validation_counts?.cards || 0),
+                identities: Number(row.validation_counts?.identities || 0),
+                issues: (row.issue_summary || []).slice(0, 3).map((issue) => ({ code: issue.code, message: issue.message })),
+              });
+            }
+          }
+
+          recent.sort((a,b) => String(b.checkedAt).localeCompare(String(a.checkedAt)));
+          const sortedIssueCounts = Object.fromEntries(Object.entries(issueCounts).sort((a,b) => b[1]-a[1]));
+          console.log(JSON.stringify({
+            schema: 'tcos.checklist.mainstreamDbProgress.v1',
+            checkedAt: new Date().toISOString(),
+            catalogRows: rows.length,
+            rawArchived,
+            expectedPromotedFinite: 319,
+            promotedFinite,
+            remainingFinite: 319 - promotedFinite,
+            expectedExceptions: 8,
+            classifiedExceptions,
+            statusCounts,
+            promotedTotals: { cards, identities },
+            issueCounts: sortedIssueCounts,
+            recent: recent.slice(0, 30),
+            remaining: remaining.slice(0, 120),
+          }, null, 2));
+          NODE
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin "$STATUS_BRANCH"
+          git checkout -B "$STATUS_BRANCH" "origin/$STATUS_BRANCH"
+          mkdir -p "$(dirname "$STATUS_PATH")"
+          cp "$RUNNER_TEMP/mainstream-progress/progress.json" "$STATUS_PATH"
+          git add "$STATUS_PATH"
+          if ! git diff --cached --quiet; then
+            git commit -m "Query mainstream checklist DB progress [skip ci]"
+            git push origin "HEAD:$STATUS_BRANCH"
+          fi
