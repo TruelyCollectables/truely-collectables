@@ -7,11 +7,11 @@ const accessToken = process.env.GH_SUPABASE_ACCESS_TOKEN;
 const evidenceDir = process.env.EVIDENCE_DIR || ".audit/deal-hunter-market-history-prod-proof";
 
 if (!expectedMain) throw new Error("EXPECTED_MAIN_SHA is required.");
-if (!productionEnvFile || !fs.existsSync(productionEnvFile)) {
-  throw new Error("Pulled Production environment file is unavailable.");
-}
+if (!productionEnvFile || !fs.existsSync(productionEnvFile)) throw new Error("Pulled Production environment file is unavailable.");
 if (!accessToken) throw new Error("SUPABASE_ACCESS_TOKEN is unavailable.");
 fs.mkdirSync(evidenceDir, { recursive: true });
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function parseEnv(file) {
   const out = {};
@@ -46,33 +46,68 @@ if (!/^https:\/\//.test(supabaseUrl)) throw new Error("Production Supabase URL m
 const projectRef = new URL(supabaseUrl).hostname.split(".")[0];
 const endpoint = `https://api.supabase.com/v1/projects/${projectRef}/database/query`;
 
-async function query(sql, readOnly = false, label = "query") {
-  const started = Date.now();
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ query: sql, parameters: [], read_only: readOnly }),
-  });
-  const text = await response.text();
-  const elapsedMs = Date.now() - started;
-  if (!response.ok) throw new Error(`${label} failed: Supabase HTTP ${response.status} after ${elapsedMs}ms: ${text.slice(0, 1000)}`);
-  return text ? JSON.parse(text) : [];
+function isTransient(status, text) {
+  return status === 524 || status === 544 || status === 429 || status >= 500 || /timeout|temporar|connection terminated/i.test(text);
 }
 
-async function tableExists(name) {
-  const rows = await query(`select to_regclass('public.${name}') is not null as present;`, true, `preflight ${name}`);
-  return rows?.[0]?.present === true;
+async function query(sql, readOnly = false, label = "query", maxAttempts = 5) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const started = Date.now();
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ query: sql, parameters: [], read_only: readOnly }),
+      });
+      const text = await response.text();
+      const elapsedMs = Date.now() - started;
+      if (response.ok) return text ? JSON.parse(text) : [];
+      const error = new Error(`${label} attempt ${attempt}/${maxAttempts}: Supabase HTTP ${response.status} after ${elapsedMs}ms: ${text.slice(0, 1000)}`);
+      if (!isTransient(response.status, text) || attempt === maxAttempts) throw error;
+      lastError = error;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if (attempt === maxAttempts || !/timeout|fetch failed|connection|HTTP (?:429|5\d\d)/i.test(lastError.message)) throw lastError;
+    }
+    await sleep(Math.min(10000, attempt * 2000));
+  }
+  throw lastError || new Error(`${label} failed.`);
+}
+
+async function tableState(requiredTables, label) {
+  const fields = requiredTables.map((table) => `'${table}', to_regclass('public.${table}') is not null`).join(",\n");
+  const rows = await query(`select json_build_object(${fields}) state;`, true, `${label} schema preflight`);
+  return rows?.[0]?.state || {};
 }
 
 async function applyMigrationIfNeeded({ name, requiredTables }) {
-  const states = await Promise.all(requiredTables.map((table) => tableExists(table)));
-  if (states.every(Boolean)) return { name, applied: false, reason: "already_present" };
-  if (states.some(Boolean)) throw new Error(`${name} is partially present in Production; refusing blind reapply: ${JSON.stringify(Object.fromEntries(requiredTables.map((table, i) => [table, states[i]])))}`);
+  let state = await tableState(requiredTables, name);
+  const values = requiredTables.map((table) => state[table] === true);
+  if (values.every(Boolean)) return { name, applied: false, reason: "already_present" };
+  if (values.some(Boolean)) throw new Error(`${name} is partially present in Production; refusing blind reapply: ${JSON.stringify(state)}`);
+
   const file = path.join("supabase", "migrations", name);
   const sql = stripOuterTransaction(fs.readFileSync(file, "utf8"));
-  await query(`begin;\n${sql}\ncommit;`, false, `migration ${name}`);
-  const after = await Promise.all(requiredTables.map((table) => tableExists(table)));
-  if (!after.every(Boolean)) throw new Error(`${name} returned success but required tables are still missing.`);
+  try {
+    await query(`begin;\n${sql}\ncommit;`, false, `migration ${name}`, 1);
+  } catch (error) {
+    // A control-plane timeout is ambiguous: the database can commit before the HTTP
+    // response dies. Re-read schema before deciding whether anything should run again.
+    if (!/timeout|connection|HTTP (?:524|544|5\d\d)/i.test(String(error))) throw error;
+    await sleep(3000);
+    state = await tableState(requiredTables, `${name} ambiguous-result reconciliation`);
+    if (requiredTables.every((table) => state[table] === true)) {
+      return { name, applied: true, reason: "applied_despite_ambiguous_control_plane_timeout" };
+    }
+    if (requiredTables.some((table) => state[table] === true)) {
+      throw new Error(`${name} timed out and left partial schema; refusing retry: ${JSON.stringify(state)}`);
+    }
+    throw error;
+  }
+
+  state = await tableState(requiredTables, `${name} post-migration`);
+  if (!requiredTables.every((table) => state[table] === true)) throw new Error(`${name} returned success but required tables are missing: ${JSON.stringify(state)}`);
   return { name, applied: true, reason: "missing_then_applied" };
 }
 
