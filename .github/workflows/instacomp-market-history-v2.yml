@@ -8,6 +8,7 @@ on:
       - "src/app/api/instacomp/market-history/route.ts"
       - "scripts/run-instacomp-market-history-simulations.ts"
       - "supabase/migrations/20260807_instacomp_exact_card_market_history.sql"
+      - "supabase/migrations/20260807190000_instacomp_exact_card_market_history_permissions.sql"
       - "services/instacomp-ai/app/deal_hunter_learning.py"
       - "services/instacomp-ai/app/training_routes.py"
       - "services/instacomp-ai/tests/test_deal_hunter_decision_learning.py"
@@ -19,6 +20,7 @@ on:
       - "src/app/api/instacomp/market-history/route.ts"
       - "scripts/run-instacomp-market-history-simulations.ts"
       - "supabase/migrations/20260807_instacomp_exact_card_market_history.sql"
+      - "supabase/migrations/20260807190000_instacomp_exact_card_market_history_permissions.sql"
       - "services/instacomp-ai/app/deal_hunter_learning.py"
       - "services/instacomp-ai/app/training_routes.py"
       - "services/instacomp-ai/tests/test_deal_hunter_decision_learning.py"
@@ -46,19 +48,29 @@ jobs:
         env:
           PYTHONPATH: services/instacomp-ai
         run: python -m unittest services/instacomp-ai/tests/test_deal_hunter_decision_learning.py
-      - name: Append-only SQL contract
+      - name: Append-only and permissions SQL contract
         run: |
           python - <<'PY'
           from pathlib import Path
-          sql = Path('supabase/migrations/20260807_instacomp_exact_card_market_history.sql').read_text()
-          required = [
+          history = Path('supabase/migrations/20260807_instacomp_exact_card_market_history.sql').read_text()
+          permissions = Path('supabase/migrations/20260807190000_instacomp_exact_card_market_history_permissions.sql').read_text()
+          history_required = [
             'tcos_card_market_identities', 'tcos_card_market_observations',
             "observation_kind in ('ASK', 'SOLD', 'PURCHASE', 'OWN_SALE')",
             'tcos_card_market_observations_no_update',
             'tcos_card_market_observations_no_delete', 'append-only'
           ]
-          missing = [x for x in required if x not in sql]
+          permission_required = [
+            'alter table public.tcos_card_market_identities enable row level security',
+            'alter table public.tcos_card_market_observations enable row level security',
+            'revoke all on public.tcos_card_market_identities from anon, authenticated',
+            'revoke all on public.tcos_card_market_observations from anon, authenticated',
+            'grant all on public.tcos_card_market_identities to service_role',
+            'grant all on public.tcos_card_market_observations to service_role',
+          ]
+          missing = [x for x in history_required if x not in history]
+          missing += [x for x in permission_required if x not in permissions]
           if missing:
             raise SystemExit(f'Missing SQL contracts: {missing}')
-          print('Append-only SQL contract passed.')
+          print('Append-only and service-role permissions SQL contract passed.')
           PY
