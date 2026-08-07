@@ -13,77 +13,120 @@ permissions:
 jobs:
   patch-test-commit:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
-      - name: Apply fail-closed listing hint bridge
+
+      - name: Apply controlled Registry lookup hints
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
-          core = Path('src/app/api/instacomp/deal-hunter/evaluate/core.ts')
-          s = core.read_text()
-          old = '    internalForm.set("aiCouncilTier", "basic");\n'
-          new = '    internalForm.set("aiCouncilTier", "basic");\n    const listingTitleHint = text(listing.title, 1000);\n    if (listingTitleHint) internalForm.set("listingTitleHint", listingTitleHint);\n'
-          if 'listingTitleHint' not in s:
-              if old not in s: raise SystemExit('core insertion anchor not found')
-              s = s.replace(old, new, 1)
-              core.write_text(s)
-
-          scan = Path('src/app/api/instacomp/scan/route.ts')
-          s = scan.read_text()
-          if 'extractUntrustedListingIdentityHint' not in s:
-              anchor = 'async function identifyCardWithConfiguredProviderFailover(params: {\n'
-              helper = '''function extractUntrustedListingIdentityHint(value: unknown) {\n  const title = String(value || "").trim().slice(0, 1000);\n  if (!title) return { title: null, year: null, cardNumber: null };\n  const year = title.match(/\\b((?:19|20)\\d{2})(?:[-/]\\d{2,4})?\\b/)?.[1] || null;\n  const cardNumber =\n    title.match(/(?:\\bcard\\s*)?#\\s*([A-Za-z0-9][A-Za-z0-9.-]{0,24})\\b/i)?.[1] || null;\n  return { title, year, cardNumber };\n}\n\n'''
-              if anchor not in s: raise SystemExit('scan helper anchor not found')
-              s = s.replace(anchor, helper + anchor, 1)
-              old = '  let operatorSerialNumberOverride: string | null | undefined = undefined;\n  let imageOrientation:'
-              new = '  let operatorSerialNumberOverride: string | null | undefined = undefined;\n  let listingTitleHint: string | null = null;\n  let imageOrientation:'
-              if old not in s: raise SystemExit('scan variable anchor not found')
-              s = s.replace(old, new, 1)
-              old = '      const submittedOperatorSerialNumberOverride = formData.get(\n        "operatorSerialNumberOverride",\n      );\n\n      frontImage = submittedFront instanceof File ? submittedFront : null;'
-              new = '      const submittedOperatorSerialNumberOverride = formData.get(\n        "operatorSerialNumberOverride",\n      );\n      const submittedListingTitleHint = formData.get("listingTitleHint");\n\n      frontImage = submittedFront instanceof File ? submittedFront : null;'
-              if old not in s: raise SystemExit('scan form anchor not found')
-              s = s.replace(old, new, 1)
-              old = '      requestedAiCouncilTier =\n        typeof submittedAiCouncilTier === "string" ? submittedAiCouncilTier : null;\n      operatorSerialNumberOverride = normalizeOperatorSerialNumberOverride('
-              new = '      requestedAiCouncilTier =\n        typeof submittedAiCouncilTier === "string" ? submittedAiCouncilTier : null;\n      listingTitleHint =\n        typeof submittedListingTitleHint === "string"\n          ? submittedListingTitleHint.slice(0, 1000)\n          : null;\n      operatorSerialNumberOverride = normalizeOperatorSerialNumberOverride('
-              if old not in s: raise SystemExit('scan assignment anchor not found')
-              s = s.replace(old, new, 1)
-              old = '    const evidenceAi = applyInstaCompConsensusToAi(guardedAi, evidenceConsensus);\n    const checklistResolution = await resolveChecklistRegistry(evidenceAi, {\n      evidenceTrusted: evidenceConsensus.trustedForIdentity,\n    });'
-              new = '''    const evidenceAi = applyInstaCompConsensusToAi(guardedAi, evidenceConsensus);\n    // Marketplace title facts are untrusted lookup coordinates only; they never vote in consensus.\n    const listingIdentityHint = extractUntrustedListingIdentityHint(listingTitleHint);\n    const registryProbeAi = {\n      ...evidenceAi,\n      ...(listingIdentityHint.year ? { year: listingIdentityHint.year } : {}),\n      ...(listingIdentityHint.cardNumber ? { cardNumber: listingIdentityHint.cardNumber } : {}),\n    };\n    const checklistResolution = await resolveChecklistRegistry(registryProbeAi, {\n      evidenceTrusted: evidenceConsensus.trustedForIdentity,\n    });'''
-              if old not in s: raise SystemExit('registry probe anchor not found')
-              s = s.replace(old, new, 1)
-              old = '        operatorSerialNumberOverride:\n          operatorSerialNumberOverride === undefined\n            ? null\n            : operatorSerialNumberOverride,\n        textExcerpt:'
-              new = '''        operatorSerialNumberOverride:\n          operatorSerialNumberOverride === undefined\n            ? null\n            : operatorSerialNumberOverride,\n        untrustedListingIdentityHint: {\n          supplied: Boolean(listingIdentityHint.title),\n          year: listingIdentityHint.year,\n          cardNumber: listingIdentityHint.cardNumber,\n          trustedForIdentity: false,\n        },\n        textExcerpt:'''
-              if old not in s: raise SystemExit('diagnostics anchor not found')
-              s = s.replace(old, new, 1)
-              scan.write_text(s)
+          p=Path('src/app/api/instacomp/scan/route.ts')
+          s=p.read_text()
+          old='''function extractUntrustedListingIdentityHint(value: unknown) {
+  const title = String(value || "").trim().slice(0, 1000);
+  if (!title) return { title: null, year: null, cardNumber: null };
+  const year = title.match(/\\b((?:19|20)\\d{2})(?:[-/]\\d{2,4})?\\b/)?.[1] || null;
+  const cardNumber =
+    title.match(/(?:\\bcard\\s*)?#\\s*([A-Za-z0-9][A-Za-z0-9.-]{0,24})\\b/i)?.[1] || null;
+  return { title, year, cardNumber };
+}
+'''
+          new='''function extractUntrustedListingIdentityHint(value: unknown) {
+  const title = String(value || "").trim().slice(0, 1000);
+  if (!title) return { title: null, year: null, cardNumber: null, brand: null, setName: null };
+  const season =
+    title.match(/\\b((?:19|20)\\d{2}[-/](?:\\d{2}|(?:19|20)\\d{2}))\\b/)?.[1] ||
+    title.match(/\\b((?:19|20)\\d{2})\\b/)?.[1] || null;
+  const cardNumber =
+    title.match(/(?:\\bcard\\s*)?#\\s*([A-Za-z0-9][A-Za-z0-9.-]{0,24})\\b/i)?.[1] || null;
+  const productRules: Array<{ pattern: RegExp; brand: string; setName: string }> = [
+    { pattern: /\\bO-?Pee-?Chee\\s+Platinum\\b/i, brand: "O-Pee-Chee", setName: "O-Pee-Chee Platinum" },
+    { pattern: /\\bNational\\s+Hockey\\s+Card\\s+Day\\b/i, brand: "Upper Deck", setName: "National Hockey Card Day" },
+    { pattern: /\\bParkhurst\\b/i, brand: "Upper Deck", setName: "Parkhurst" },
+    { pattern: /\\bSPx\\b/i, brand: "Upper Deck", setName: "SPx" },
+    { pattern: /\\bFlair\\b/i, brand: "Upper Deck", setName: "Flair" },
+    { pattern: /\\bTopps\\s+Now\\b/i, brand: "Topps", setName: "Topps Now" },
+    { pattern: /\\bPrizm\\b/i, brand: "Panini", setName: "Prizm" },
+    { pattern: /\\bBowman\\s+Draft\\b/i, brand: "Topps", setName: "Bowman Draft" },
+    { pattern: /\\bBowman\\b/i, brand: "Topps", setName: "Bowman" },
+  ];
+  const product = productRules.find((rule) => rule.pattern.test(title)) || null;
+  const brand = product?.brand || (/\\bUpper\\s+Deck\\b/i.test(title) ? "Upper Deck" : null);
+  return { title, year: season, cardNumber, brand, setName: product?.setName || null };
+}
+'''
+          if old not in s: raise SystemExit('v1 hint helper anchor not found')
+          s=s.replace(old,new,1)
+          old2='''    const registryProbeAi = {
+      ...evidenceAi,
+      ...(listingIdentityHint.year ? { year: listingIdentityHint.year } : {}),
+      ...(listingIdentityHint.cardNumber ? { cardNumber: listingIdentityHint.cardNumber } : {}),
+    };'''
+          new2='''    const registryProbeAi = {
+      ...evidenceAi,
+      ...(listingIdentityHint.year ? { year: listingIdentityHint.year } : {}),
+      ...(listingIdentityHint.brand ? { brand: listingIdentityHint.brand } : {}),
+      ...(listingIdentityHint.setName ? { setName: listingIdentityHint.setName } : {}),
+      ...(listingIdentityHint.cardNumber ? { cardNumber: listingIdentityHint.cardNumber } : {}),
+    };'''
+          if old2 not in s: raise SystemExit('registry probe anchor not found')
+          s=s.replace(old2,new2,1)
+          old3='''        untrustedListingIdentityHint: {
+          supplied: Boolean(listingIdentityHint.title),
+          year: listingIdentityHint.year,
+          cardNumber: listingIdentityHint.cardNumber,
+          trustedForIdentity: false,
+        },'''
+          new3='''        untrustedListingIdentityHint: {
+          supplied: Boolean(listingIdentityHint.title),
+          year: listingIdentityHint.year,
+          brand: listingIdentityHint.brand,
+          setName: listingIdentityHint.setName,
+          cardNumber: listingIdentityHint.cardNumber,
+          trustedForIdentity: false,
+        },'''
+          if old3 not in s: raise SystemExit('diagnostics anchor not found')
+          s=s.replace(old3,new3,1)
+          p.write_text(s)
           PY
-      - name: Assert title hint contract
+
+      - name: Assert controlled title hint contract
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           import re
           cases=[
-            ('Panini 2025 Prizm WNBA Sonia Citron #148 RC Rookie Washington Mystics',('2025','148')),
-            ('Paige Bueckers 2025 Prizm WNBA Base Variation Rookie Card #147 Dallas Wings',('2025','147')),
-            ('2025-26 Upper Deck Parkhurst - Rookies Ivan Demidov #236 (RC)',('2025','236')),
-            ('2025 Bowman Draft - Chrome Franklin Arias #BDC-13 Sky Blue Refractor (RC)',('2025','BDC-13')),
+            ('2025-26 Upper Deck Parkhurst - Rookies Ivan Demidov #236 (RC)',('2025-26','Upper Deck','Parkhurst','236')),
+            ('Upper Deck 2025-26 Flair Ivan Demidov #190 Rookie Montreal Canadiens NHL',('2025-26','Upper Deck','Flair','190')),
+            ('O-Pee-Chee Platinum Marquee Rookie Ivan Demidov #232 Canadiens NHL 2025-26',('2025-26','O-Pee-Chee','O-Pee-Chee Platinum','232')),
+            ('2026 Upper Deck National Hockey Card Day Ivan Demidov RC #NHCD-31 Rookie Card',('2026','Upper Deck','National Hockey Card Day','NHCD-31')),
+            ('2025-26 NHL TOPPS NOW Sticker #87 - Ivan Demidov',('2025-26','Topps','Topps Now','87')),
+            ('Panini 2025 Prizm WNBA Sonia Citron #148 RC Rookie',('2025','Panini','Prizm','148')),
+            ('2025 Bowman Draft - Chrome Franklin Arias #BDC-13 Sky Blue Refractor',('2025','Topps','Bowman Draft','BDC-13')),
           ]
-          for title, expected in cases:
-            y=re.search(r'\b((?:19|20)\d{2})(?:[-/]\d{2,4})?\b',title)
-            c=re.search(r'(?:\bcard\s*)?#\s*([A-Za-z0-9][A-Za-z0-9.-]{0,24})\b',title,re.I)
-            got=(y.group(1) if y else None,c.group(1) if c else None)
-            assert got==expected,(title,got,expected)
-          print('listing hint extraction: 4/4 passed')
+          def parse(t):
+            m=re.search(r'\\b((?:19|20)\\d{2}[-/](?:\\d{2}|(?:19|20)\\d{2}))\\b',t) or re.search(r'\\b((?:19|20)\\d{2})\\b',t)
+            c=re.search(r'(?:\\bcard\\s*)?#\\s*([A-Za-z0-9][A-Za-z0-9.-]{0,24})\\b',t,re.I)
+            rules=[(r'O-?Pee-?Chee\\s+Platinum','O-Pee-Chee','O-Pee-Chee Platinum'),(r'National\\s+Hockey\\s+Card\\s+Day','Upper Deck','National Hockey Card Day'),(r'Parkhurst','Upper Deck','Parkhurst'),(r'SPx','Upper Deck','SPx'),(r'Flair','Upper Deck','Flair'),(r'Topps\\s+Now','Topps','Topps Now'),(r'Prizm','Panini','Prizm'),(r'Bowman\\s+Draft','Topps','Bowman Draft'),(r'Bowman','Topps','Bowman')]
+            product=next(((b,s) for p,b,s in rules if re.search(p,t,re.I)),None)
+            brand,setn=product if product else (('Upper Deck',None) if re.search(r'Upper\\s+Deck',t,re.I) else (None,None))
+            return (m.group(1) if m else None,brand,setn,c.group(1) if c else None)
+          for title,expected in cases:
+            got=parse(title); assert got==expected,(title,got,expected)
+          print('controlled listing Registry coordinates: 7/7 passed')
           PY
+          grep -q 'listingIdentityHint.brand' src/app/api/instacomp/scan/route.ts
+          grep -q 'listingIdentityHint.setName' src/app/api/instacomp/scan/route.ts
           grep -q 'trustedForIdentity: false' src/app/api/instacomp/scan/route.ts
-          grep -q 'resolveChecklistRegistry(registryProbeAi' src/app/api/instacomp/scan/route.ts
-      - name: Install, compile, and build
+
+      - name: Install compile and production build
         env:
           NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder
@@ -92,13 +135,14 @@ jobs:
           npm ci
           npx tsc --noEmit
           npm run build
-      - name: Commit generated patch
+
+      - name: Commit generated source patch
         shell: bash
         run: |
           set -euo pipefail
           git config user.name 'TruelyCollectables CI'
           git config user.email 'actions@users.noreply.github.com'
-          git add src/app/api/instacomp/deal-hunter/evaluate/core.ts src/app/api/instacomp/scan/route.ts
+          git add src/app/api/instacomp/scan/route.ts
           if git diff --cached --quiet; then exit 0; fi
-          git commit -m 'Fix Deal Hunter Registry listing hint bridge'
+          git commit -m 'Fix Deal Hunter Registry set hint bridge'
           git push origin HEAD:${{ github.event.pull_request.head.ref }}
