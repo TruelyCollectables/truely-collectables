@@ -1,9 +1,6 @@
 name: InstaComp Mac Runtime Fingerprint Update 20260807
 
 on:
-  push:
-    branches:
-      - fix/instacomp-mac-runtime-fingerprint-update-20260807
   pull_request:
     branches:
       - main
@@ -13,8 +10,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: instacomp-mac-runtime-fingerprint-update-20260807
-  cancel-in-progress: true
+  group: instacomp-mac-runtime-fingerprint-update-20260807-pr
+  cancel-in-progress: false
 
 jobs:
   certify:
