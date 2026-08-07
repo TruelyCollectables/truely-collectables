@@ -55,14 +55,10 @@ run_query \
   writer-identity-uniqueness-repair \
   supabase/migrations/20260807111500_checklist_identity_uniqueness_repair.sql
 
-# Reinstall the immutable transactional writer unchanged after both conflict
-# targets have been proven in production.
-writer_source="$work_dir/transactional-writer.sql"
-curl --silent --show-error --fail --location \
-  --retry 5 --retry-delay 2 --retry-all-errors \
-  --output "$writer_source" \
-  "https://raw.githubusercontent.com/TruelyCollectables/truely-collectables/61656f2624523aa197b3676bbb5b29ef5ba191c4/supabase/migrations/20260731161500_checklist_registry_transactional_writer.sql"
-
+# Reinstall the transactional writer from the exact source in this checkout. Do
+# not pull a historical raw-GitHub copy here: that can silently reinstall stale
+# function semantics after a production repair.
+writer_source="supabase/migrations/20260731161500_checklist_registry_transactional_writer.sql"
 python3 - "$writer_source" <<'PY'
 from pathlib import Path
 import sys
@@ -75,8 +71,14 @@ if source.count(release_target) != 1:
 if source.count(identity_target) != 1:
     raise SystemExit("Transactional writer does not contain the expected identity conflict target.")
 PY
-
 run_query writer-conflict-target-reinstall "$writer_source"
 
+# Large but fully validated mainstream releases can take longer than the project
+# default statement timeout. Give only this atomic writer a bounded 45-second
+# window; validation and all fail-closed Registry rules remain unchanged.
+run_query \
+  writer-bounded-timeout \
+  supabase/migrations/20260807124500_checklist_registry_writer_timeout.sql
+
 sleep 5
-echo "Checklist Registry release-source and identity uniqueness contracts are repaired and the writer is ready."
+echo "Checklist Registry uniqueness contracts, current writer, and bounded import timeout are ready."
