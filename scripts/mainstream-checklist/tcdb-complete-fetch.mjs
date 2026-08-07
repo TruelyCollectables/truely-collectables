@@ -55,8 +55,9 @@ function tcdbInfo(urlValue) {
   try {
     const url = new URL(urlValue);
     if (!/(?:^|\.)tcdb\.com$/i.test(url.hostname)) return null;
-    if (!/\/(?:ViewSet|Checklist)\.cfm$/i.test(url.pathname)) return null;
-    const match = url.pathname.match(/\/(?:ViewSet|Checklist)\.cfm\/sid\/(\d+)(?:\/([^?#]+))?/i);
+    const match = url.pathname.match(
+      /\/(?:ViewSet|ViewAllSet|Checklist)\.cfm\/sid\/(\d+)(?:\/([^?#]+))?/i,
+    );
     if (!match) return null;
     const sid = match[1];
     const slug = match[2] || "set";
@@ -93,6 +94,18 @@ function extractTotalCards(html) {
   const total = Number(match[1].replace(/,/g, ""));
   if (!Number.isInteger(total) || total < 1 || total > 50_000) {
     throw new Error(`Invalid TCDB Total Cards count: ${match[1]}`);
+  }
+  return total;
+}
+
+function declaredRelatedSetCount(html) {
+  const plain = text(html);
+  let total = 0;
+  for (const match of plain.matchAll(/\b(?:Insert|Parallel) Sets\s*\(([0-9][0-9,]*)\)/gi)) {
+    total += Number(match[1].replace(/,/g, ""));
+  }
+  if (!Number.isInteger(total) || total < 0 || total > MAX_CHILD_SETS) {
+    throw new Error(`Invalid TCDB related-set count: ${total}`);
   }
   return total;
 }
@@ -262,13 +275,19 @@ async function fetchCompleteTcdbProduct(info, init) {
   let childSections = [];
   try {
     const insertsHtml = await fetchHtml(info.insertsUrl, init);
+    const declaredChildren = declaredRelatedSetCount(insertsHtml);
     const children = extractChildChecklistLinks(insertsHtml, info.insertsUrl, info.sid);
+    if (children.length !== declaredChildren) {
+      throw new Error(
+        `TCDB related-set completeness check failed for ${info.insertsUrl}: enumerated ${children.length} of declared ${declaredChildren} child sets.`,
+      );
+    }
     childSections = await mapLimit(children, 3, (child) =>
       fetchCompleteChecklist(child.checklistUrl, child.label, init),
     );
   } catch (error) {
-    // A product with no Inserts page is a valid base-only release. Any Inserts
-    // page that exists but exposes child links is handled fail-closed above.
+    // A product with no Inserts page is a valid base-only release. If the page
+    // exists, any incomplete child enumeration is a hard failure.
     const message = error instanceof Error ? error.message : String(error);
     if (!/TCDB 404|TCDB 410/i.test(message)) throw error;
   }
