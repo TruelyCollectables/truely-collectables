@@ -61,6 +61,29 @@ function normalizedPlayer(value: unknown) {
     .join(" ");
 }
 
+function normalizedParallel(value: unknown) {
+  const normalized = normalizedText(value);
+  if (!normalized) return "";
+
+  // Panini commonly exposes the same physical Ice parallel with different
+  // reader/catalog wording. Keep this intentionally narrow: only aliases that
+  // explicitly carry the Prizm/Prizms marker collapse to the Registry's
+  // canonical "Prizms Ice" spelling. Do not fuzzy-match generic colors or
+  // generic "cracked ice" text from unrelated products.
+  if (
+    normalized === "prizms ice" ||
+    normalized === "prizm ice" ||
+    normalized === "ice prizm" ||
+    normalized === "cracked ice prizm" ||
+    normalized === "white cracked ice prizm" ||
+    normalized === "prizms cracked ice"
+  ) {
+    return "prizms ice";
+  }
+
+  return normalized;
+}
+
 function yearStart(value: unknown) {
   return normalizedText(value).match(/\b((?:18|19|20)\d{2})\b/)?.[1] || "";
 }
@@ -92,6 +115,11 @@ function manufacturerMatches(
 function optionalTextMatches(input: unknown, candidate: unknown) {
   const target = normalizedText(input);
   return !target || target === normalizedText(candidate);
+}
+
+function optionalParallelMatches(input: unknown, candidate: unknown) {
+  const target = normalizedParallel(input);
+  return !target || target === normalizedParallel(candidate);
 }
 
 export function resolveInstaCompChecklistFirst(params: {
@@ -143,7 +171,7 @@ export function resolveInstaCompChecklistFirst(params: {
       (input.isAuto == null || candidate.isAuto === input.isAuto) &&
       (input.isRelic == null || candidate.isRelic === input.isRelic) &&
       (requestedRun == null || candidate.serialRun === requestedRun) &&
-      optionalTextMatches(input.parallel, candidate.parallel) &&
+      optionalParallelMatches(input.parallel, candidate.parallel) &&
       optionalTextMatches(input.variation, candidate.variation),
   );
 
