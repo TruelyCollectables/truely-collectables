@@ -43,9 +43,11 @@ jobs:
           else
             python3 scripts/patch-instacomp-ocr-registry-and-five-card-truth.py
           fi
+          python3 scripts/patch-instacomp-registry-year-helper.py
           git diff --check
           grep -q 'def _year_hint(observations' services/instacomp-ai/app/local_vision.py
           grep -q 'loadRegistryRowsBounded' src/lib/instacomp-checklist-first-server.ts
+          grep -q 'registryYearStart' src/lib/instacomp-checklist-first-server.ts
           grep -q 'hard_fields = {"year", "manufacturer", "card_number"}' services/instacomp-ai/app/ollama.py
       - uses: actions/setup-python@v5
         with:
