@@ -1,0 +1,95 @@
+name: Ivan Main Certified Repair 20260807
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'scripts/ops/patch-deal-hunter-ivan-registry-hints-20260807.py'
+      - '.github/workflows/ivan-main-certified-repair-20260807.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Apply deterministic Ivan Registry repair
+        run: python3 scripts/ops/patch-deal-hunter-ivan-registry-hints-20260807.py
+
+      - name: Verify controlled listing coordinates
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import re
+          cases=[
+            ('2025-26 Upper Deck Parkhurst - Rookies Ivan Demidov #236 (RC)',('2025-26','Upper Deck','Parkhurst','236')),
+            ('Upper Deck 2025-26 Flair Ivan Demidov #190 Rookie Montreal Canadiens NHL',('2025-26','Upper Deck','Flair','190')),
+            ('O-Pee-Chee Platinum Marquee Rookie Ivan Demidov #232 Canadiens NHL 2025-26',('2025-26','O-Pee-Chee','O-Pee-Chee Platinum','232')),
+            ('2026 Upper Deck National Hockey Card Day Ivan Demidov RC #NHCD-31 Rookie Card',('2026','Upper Deck','National Hockey Card Day','NHCD-31')),
+            ('2025-26 NHL TOPPS NOW Sticker #87 - Ivan Demidov',('2025-26','Topps','Topps Now','87')),
+            ('Panini 2025 Prizm WNBA Sonia Citron #148 RC Rookie',('2025','Panini','Prizm','148')),
+            ('2025 Bowman Draft - Chrome Franklin Arias #BDC-13 Sky Blue Refractor',('2025','Topps','Bowman Draft','BDC-13')),
+          ]
+          def parse(t):
+            m=re.search(r'\b((?:19|20)\d{2}[-/](?:\d{2}|(?:19|20)\d{2}))\b',t) or re.search(r'\b((?:19|20)\d{2})\b',t)
+            c=re.search(r'(?:\bcard\s*)?#\s*([A-Za-z0-9][A-Za-z0-9.-]{0,24})\b',t,re.I)
+            rules=[(r'O-?Pee-?Chee\s+Platinum','O-Pee-Chee','O-Pee-Chee Platinum'),(r'National\s+Hockey\s+Card\s+Day','Upper Deck','National Hockey Card Day'),(r'Parkhurst','Upper Deck','Parkhurst'),(r'SPx','Upper Deck','SPx'),(r'Flair','Upper Deck','Flair'),(r'Topps\s+Now','Topps','Topps Now'),(r'Prizm','Panini','Prizm'),(r'Bowman\s+Draft','Topps','Bowman Draft'),(r'Bowman','Topps','Bowman')]
+            product=next(((b,s) for p,b,s in rules if re.search(p,t,re.I)),None)
+            brand,setn=product if product else (('Upper Deck',None) if re.search(r'Upper\s+Deck',t,re.I) else (None,None))
+            return (m.group(1) if m else None,brand,setn,c.group(1) if c else None)
+          for title,expected in cases:
+            got=parse(title); assert got==expected,(title,got,expected)
+          print('controlled Registry coordinates: 7/7 PASS')
+          PY
+          grep -q 'listingIdentityHint.brand' src/app/api/instacomp/scan/route.ts
+          grep -q 'listingIdentityHint.setName' src/app/api/instacomp/scan/route.ts
+          grep -q 'trustedForIdentity: false' src/app/api/instacomp/scan/route.ts
+          git diff --check
+
+      - name: Mac service tests
+        working-directory: services/instacomp-ai
+        run: |
+          python -m pip install -r requirements.txt
+          PYTHONPATH=. pytest -q
+          python -m compileall -q app
+
+      - name: TypeScript and production build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder
+          SUPABASE_SERVICE_ROLE_KEY: ci-service-placeholder
+        run: |
+          npm ci
+          npx tsc --noEmit
+          npm run build
+
+      - name: Commit certified scanner repair to main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/app/api/instacomp/scan/route.ts
+          if git diff --cached --quiet; then
+            echo 'No scanner change to commit.'
+            exit 0
+          fi
+          git commit -m 'Fix Ivan Deal Hunter Registry lookup hints'
+          git push origin HEAD:main
