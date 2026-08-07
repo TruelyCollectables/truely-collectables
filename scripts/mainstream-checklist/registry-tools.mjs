@@ -31,8 +31,24 @@ function inferSetType(name) {
   return "other";
 }
 
+function effectiveAuthority(entry, source) {
+  if (entry.authority !== "official_manufacturer") return entry.authority;
+  const selected = String(source.selectedUrl || source.finalUrl || entry.sourceUrl);
+  const hostname = new URL(selected).hostname.toLowerCase();
+  if (
+    hostname.endsWith("topps.com") ||
+    hostname.endsWith("upperdeck.com") ||
+    hostname.endsWith("cdn.shopify.com")
+  ) {
+    return "official_manufacturer";
+  }
+  return "approved_reference_dataset";
+}
+
 export function buildPlan(entry, parsed, source, retrievedAt) {
   const release = entry.release;
+  const authority = effectiveAuthority(entry, source);
+  const evidenceUrl = String(source.selectedUrl || source.finalUrl || entry.sourceUrl);
   const releaseSlug = slug(
     `${release.season || release.releaseYear}-${release.manufacturer}-${release.product}-${release.sport}`,
   );
@@ -150,25 +166,15 @@ export function buildPlan(entry, parsed, source, retrievedAt) {
   }
 
   const issues = [...parsed.warnings, ...parsed.errors];
-  if (entry.authority === "official_manufacturer") {
-    const hostname = new URL(entry.sourceUrl).hostname.toLowerCase();
-    if (!hostname.endsWith("topps.com") && !hostname.endsWith("upperdeck.com")) {
-      issues.push({
-        code: "reference_official_domain_mismatch",
-        severity: "error",
-        message: `Official manufacturer source used unexpected domain ${hostname}.`,
-      });
-    }
-  }
   const errors = issues.filter((issue) => issue.severity === "error");
   return {
     schema: "tcos.checklist.importPlan.v1",
     adapterId: "mainstream-reference-checklist-v1",
     adapterVersion: "1.0.0",
     source: {
-      sourceUrl: entry.sourceUrl,
+      sourceUrl: evidenceUrl,
       retrievedAt,
-      authority: entry.authority,
+      authority,
       redistributionAllowed: Boolean(entry.redistributionAllowed),
       privateArchiveRequired: true,
       normalizedFactsInternalOnly: true,
