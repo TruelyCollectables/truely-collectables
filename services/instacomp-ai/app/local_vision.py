@@ -597,8 +597,12 @@ def build_identity_hints(
     return CardIdentity(
         year=_year_hint(observations),
         manufacturer=_manufacturer_hint(text),
-        player=_player_hint(observations),
-        set_name=_set_name_hint(front.ocr),
+        # Player and logical set/insert names are not deterministic OCR facts.
+        # Team names, damaged player text, and partial insert titles can be large
+        # front-card typography; let Qwen/Registry resolve them instead of
+        # allowing raw OCR to overwrite a checklist-verifiable identity.
+        player=None,
+        set_name=None,
         card_number=_card_number_hint(observations),
         parallel=_parallel_hint(front=front, back=back),
         serial_number=exact_serial,

@@ -103,7 +103,7 @@ function manufacturerMatches(
   const target = normalizedText(input.manufacturer);
   if (!target) return false;
 
-  return [candidate.manufacturer, candidate.brand, candidate.setName]
+  return [candidate.manufacturer, candidate.brand, candidate.product, candidate.setName]
     .map(normalizedText)
     .filter(Boolean)
     .some(

@@ -243,7 +243,7 @@ def test_notre_without_real_number_label_fails_closed():
     assert identity.card_number is None
 
 
-def test_real_groovy_prominent_front_title_becomes_set_hint():
+def test_real_groovy_and_team_text_are_not_promoted_to_hard_identity_hints():
     def real_obs(text: str, *, side: str, x: float, y: float, width: float, height: float, confidence: float = 1.0):
         return OCRObservation(
             text=text,
@@ -269,6 +269,7 @@ def test_real_groovy_prominent_front_title_becomes_set_hint():
         ],
     )
     identity = build_identity_hints(front=front, back=back, serial=SerialEvidence())
-    assert identity.set_name == "GROOVY"
+    assert identity.set_name is None
+    assert identity.player is None
     assert identity.card_number == "13"
     assert identity.manufacturer == "Panini"

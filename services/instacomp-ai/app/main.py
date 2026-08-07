@@ -375,7 +375,13 @@ async def analyze_scan(
     )
     if image_memory and memory_registry_verified and memory_registry_result:
         # Memory is only a retrieval hint. Current Registry truth supplies the
-        # canonical identity; rejected/stale memory falls through to fresh vision.
+        # canonical identity, while fresh Apple Vision/OpenCV still runs as an
+        # independent witness for the physical images on every accepted memory hit.
+        local_vision = await analyze_local_vision(
+            front_image.content,
+            back_image.content if back_image else None,
+            settings,
+        )
         trusted_identity = memory_registry_result.identity
         checklist_result = memory_registry_result
         pricing_allowed = True
@@ -387,7 +393,7 @@ async def analyze_scan(
             back_image=back_image,
             combined_hash=combined_hash,
             suggestion=None,
-            local_vision=None,
+            local_vision=local_vision,
             checklist_result=checklist_result,
             status=status,
         )
@@ -412,7 +418,7 @@ async def analyze_scan(
             ),
             memory_matches=[image_memory],
             local_suggestion=None,
-            local_vision=None,
+            local_vision=local_vision,
             checklist=checklist_result,
             trusted_identity=trusted_identity,
             match_source=_memory_source(image_memory),

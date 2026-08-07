@@ -6,6 +6,7 @@ from pathlib import Path
 from .config import settings
 
 RUNTIME_IDENTITY_FILES = (
+    "app/main.py",
     "app/local_vision.py",
     "app/ollama.py",
 )

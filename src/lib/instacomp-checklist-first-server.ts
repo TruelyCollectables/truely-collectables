@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
   resolveInstaCompChecklistFirst,
@@ -72,28 +71,6 @@ function firstTeam(card: any) {
   );
 }
 
-function candidateFingerprint(candidate: Omit<InstaCompChecklistCandidate, "fingerprintSha256">) {
-  const canonical = [
-    candidate.identityId,
-    candidate.year,
-    candidate.manufacturer,
-    candidate.brand,
-    candidate.setName,
-    candidate.cardNumber,
-    candidate.player,
-    candidate.serialRun,
-    candidate.isAuto,
-    candidate.isRelic,
-    candidate.parallel,
-    candidate.variation,
-    candidate.team,
-    candidate.sport,
-  ]
-    .map((value) => normalizedText(value))
-    .join("|");
-  return createHash("sha256").update(canonical).digest("hex");
-}
-
 function toCandidates(rows: any[]): InstaCompChecklistCandidate[] {
   const candidates: InstaCompChecklistCandidate[] = [];
 
@@ -109,7 +86,8 @@ function toCandidates(rows: any[]): InstaCompChecklistCandidate[] {
         year: release.release_year || release.season || null,
         manufacturer: release.manufacturer?.name || null,
         brand: release.brand?.name || null,
-        setName: release.product_name || card.set?.name || null,
+        product: release.product_name || null,
+        setName: card.set?.name || release.product_name || null,
         cardNumber: card.card_number || null,
         player: player || null,
         serialRun:
@@ -129,9 +107,10 @@ function toCandidates(rows: any[]): InstaCompChecklistCandidate[] {
         team: firstTeam(card),
         sport: release.sport?.name || null,
       } satisfies Omit<InstaCompChecklistCandidate, "fingerprintSha256">;
+      const fingerprintSha256 = String(identity.fingerprint_sha256 || "").trim() || null;
       candidates.push({
         ...candidate,
-        fingerprintSha256: candidateFingerprint(candidate),
+        fingerprintSha256,
       });
     }
   }
@@ -336,7 +315,7 @@ async function loadRegistryRowsBounded(
     supabase
       .from("checklist_card_identities")
       .select(
-        "id,card_id,variation,autograph_status,memorabilia_status,parallel:checklist_parallels(name,serial_run)",
+        "id,card_id,fingerprint_sha256,variation,autograph_status,memorabilia_status,parallel:checklist_parallels(name,serial_run)",
       )
       .in("card_id", cardIds),
   ]);
