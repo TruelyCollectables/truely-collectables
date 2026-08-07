@@ -1,0 +1,137 @@
+name: InstaComp Final Five Root Causes V2 20260807
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/ops/patch-instacomp-final-five-root-causes-v2-20260807.py"
+      - ".github/workflows/instacomp-final-five-root-causes-v2-20260807.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instacomp-final-five-root-causes-v2-20260807
+  cancel-in-progress: true
+
+jobs:
+  patch-and-certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/instacomp-final-five-root-causes-v2-20260807
+          fetch-depth: 0
+
+      - name: Apply final root-cause repair
+        run: python scripts/ops/patch-instacomp-final-five-root-causes-v2-20260807.py
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install Mac service dependencies
+        working-directory: services/instacomp-ai
+        run: python -m pip install -q -r requirements.txt
+
+      - name: Frozen-five deterministic and runtime regressions
+        working-directory: services/instacomp-ai
+        run: |
+          python -m pytest -q tests/test_ocr_registry_hard_facts.py tests/test_runtime_identity.py
+
+      - name: Full Mac service suite and compile
+        working-directory: services/instacomp-ai
+        run: |
+          python -m pytest -q
+          python -m compileall -q app
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install web dependencies
+        run: npm ci
+
+      - name: Registry and consensus simulations
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx tsx scripts/run-instacomp-final-identity-consensus-simulations.ts
+          npx tsx -e '
+            import assert from "node:assert/strict";
+            import { resolveInstaCompChecklistFirst } from "./src/lib/instacomp-checklist-first";
+            const fp="112f66efaa6b13de4f33e18f632a5c364c8bd2895b610d157a538748c858ba32";
+            const result=resolveInstaCompChecklistFirst({input:{year:"2025",manufacturer:"Panini",cardNumber:"116",player:"Dominique Malonga",parallel:"Prizms Ice"},candidates:[{identityId:"bde0577b-72e8-4e59-8287-89aaf2f9e7e2",fingerprintSha256:fp,year:"2025",manufacturer:"Panini",brand:"Panini",product:"2025 Panini Prizm WNBA",setName:"Base",cardNumber:"116",player:"Dominique Malonga",isAuto:false,isRelic:false,parallel:"Prizms Ice"}]});
+            assert.equal(result.status,"exact_match");
+            assert.equal(result.match?.setName,"Base");
+            assert.equal(result.match?.product,"2025 Panini Prizm WNBA");
+            assert.equal(result.match?.fingerprintSha256,fp);
+            console.log("PASS checklist-first preserves logical set + stored Registry fingerprint");
+          '
+
+      - name: Full TypeScript compile
+        run: npx tsc --noEmit
+
+      - name: Source safety contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          grep -Fq 'fingerprintSha256 = String(identity.fingerprint_sha256 || "").trim() || null' src/lib/instacomp-checklist-first-server.ts
+          grep -Fq 'setName: card.set?.name || release.product_name || null' src/lib/instacomp-checklist-first-server.ts
+          grep -Fq 'product: release.product_name || null' src/lib/instacomp-checklist-first-server.ts
+          grep -Fq 'fingerprint_sha256,variation' src/lib/instacomp-checklist-first-server.ts
+          if grep -Fq 'candidateFingerprint(' src/lib/instacomp-checklist-first-server.ts; then
+            echo 'Checklist-first still recomputes Registry fingerprints.' >&2
+            exit 2
+          fi
+          grep -Fq 'local_vision = await analyze_local_vision(' services/instacomp-ai/app/main.py
+          grep -Fq 'local_vision=local_vision' services/instacomp-ai/app/main.py
+          grep -Fq 'player=None' services/instacomp-ai/app/local_vision.py
+          grep -Fq 'set_name=None' services/instacomp-ai/app/local_vision.py
+          grep -Fq 'hard_fields = {"year", "manufacturer", "card_number"}' services/instacomp-ai/app/ollama.py
+          grep -Fq '"app/main.py"' services/instacomp-ai/app/runtime_identity.py
+          grep -Fq 'backup_dir/main.py' services/instacomp-ai/scripts/update-live-from-main.sh
+          grep -Fq 'applyInstaCompRegistryFastLane' src/app/api/instacomp/scan/route.ts
+          grep -Fq 'hasFreshLocalDeterministicWitness' src/app/api/instacomp/scan/route.ts
+          grep -Fq 'const registrySetName = registryMatch?.setName || registryMatch?.product || null;' src/app/api/instacomp/scan/route.ts
+          grep -Fq 'consensusEscalation: finalConsensusEscalation' src/app/api/instacomp/scan/route.ts
+          grep -Fq 'speedLane: finalConsensusEscalation.speedLane' src/app/api/instacomp/scan/route.ts
+
+      - name: Commit certified permanent files only
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed="$( { git diff --name-only; git ls-files --others --exclude-standard; } | sort -u )"
+          expected="$(printf '%s\n' \
+            'scripts/run-instacomp-final-identity-consensus-simulations.ts' \
+            'services/instacomp-ai/app/local_vision.py' \
+            'services/instacomp-ai/app/main.py' \
+            'services/instacomp-ai/app/ollama.py' \
+            'services/instacomp-ai/app/runtime_identity.py' \
+            'services/instacomp-ai/scripts/update-live-from-main.sh' \
+            'services/instacomp-ai/tests/test_ocr_registry_hard_facts.py' \
+            'services/instacomp-ai/tests/test_runtime_identity.py' \
+            'src/app/api/instacomp/scan/route.ts' \
+            'src/lib/instacomp-checklist-first-server.ts' \
+            'src/lib/instacomp-checklist-first.ts' | sort)"
+          test "$changed" = "$expected"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            scripts/run-instacomp-final-identity-consensus-simulations.ts \
+            services/instacomp-ai/app/local_vision.py \
+            services/instacomp-ai/app/main.py \
+            services/instacomp-ai/app/ollama.py \
+            services/instacomp-ai/app/runtime_identity.py \
+            services/instacomp-ai/scripts/update-live-from-main.sh \
+            services/instacomp-ai/tests/test_ocr_registry_hard_facts.py \
+            services/instacomp-ai/tests/test_runtime_identity.py \
+            src/app/api/instacomp/scan/route.ts \
+            src/lib/instacomp-checklist-first-server.ts \
+            src/lib/instacomp-checklist-first.ts
+          git commit -m 'Fix final InstaComp frozen-five root causes v2'
+          git push origin HEAD:fix/instacomp-final-five-root-causes-v2-20260807
