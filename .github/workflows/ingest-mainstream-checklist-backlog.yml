@@ -10,6 +10,7 @@ on:
       - "scripts/mainstream-checklist/**"
       - "scripts/test-mainstream-checklist-fetch-patch.mjs"
       - "scripts/test-mainstream-checklist-parser-v2.mjs"
+      - "scripts/test-mainstream-checklist-completeness.mjs"
       - "scripts/assert-mainstream-checklist-production-complete.mjs"
       - "scripts/classify-mainstream-checklist-exceptions.mjs"
       - "scripts/resolve-mainstream-checklist-production-env.sh"
@@ -25,6 +26,7 @@ on:
       - "scripts/mainstream-checklist/**"
       - "scripts/test-mainstream-checklist-fetch-patch.mjs"
       - "scripts/test-mainstream-checklist-parser-v2.mjs"
+      - "scripts/test-mainstream-checklist-completeness.mjs"
       - "scripts/assert-mainstream-checklist-production-complete.mjs"
       - "scripts/classify-mainstream-checklist-exceptions.mjs"
       - "scripts/resolve-mainstream-checklist-production-env.sh"
@@ -48,7 +50,9 @@ permissions:
   contents: write
 
 concurrency:
-  group: instacomp-mainstream-checklist-backlog-2000-plus
+  # PR self-tests must never cancel a live Production ingestion. Production runs
+  # remain newest-run-wins; each PR gets its own isolated lock.
+  group: instacomp-mainstream-checklist-backlog-2000-plus-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'production' }}
   cancel-in-progress: true
 
 env:
@@ -76,6 +80,9 @@ jobs:
           bash -n scripts/repair-mainstream-checklist-schema.sh
           node --check scripts/mainstream-checklist/html-semantic-prepatch.mjs
           node --check scripts/mainstream-checklist/tcdb-complete-fetch.mjs
+          node --check scripts/mainstream-checklist/tcdb-reader-complete.mjs
+          node --check scripts/mainstream-checklist/reader-retry-prepatch.mjs
+          node --check scripts/mainstream-checklist/prefer-complete-reader.mjs
           node --check scripts/mainstream-checklist/remaining-source-fallbacks.mjs
           node --check scripts/mainstream-checklist/verified-exceptions.mjs
           node --check scripts/classify-mainstream-checklist-exceptions.mjs
@@ -117,6 +124,8 @@ jobs:
           NODE
       - name: Verify source fallback, hierarchy, and section ordering
         run: node scripts/test-mainstream-checklist-fetch-patch.mjs
+      - name: Verify declared checklist completeness gates
+        run: node scripts/test-mainstream-checklist-completeness.mjs
       - name: Verify parser scope, nested sections, and duplicate suppression
         run: node scripts/test-mainstream-checklist-parser-v2.mjs
       - name: Verify Registry writer identity conflict contract
@@ -164,14 +173,16 @@ jobs:
     timeout-minutes: 180
     strategy:
       fail-fast: false
-      max-parallel: 4
+      # Keep reader traffic below public rate limits; each batch also runs only
+      # two source workers. Completeness is more important than raw throughput.
+      max-parallel: 2
       matrix:
         batch: [0, 1, 2, 3, 4, 5, 6, 7]
     env:
       MAINSTREAM_CHECKLIST_APPLY: ${{ github.event_name == 'push' || github.event_name == 'schedule' || inputs.mode == 'apply' }}
       MAINSTREAM_CHECKLIST_BATCH_INDEX: ${{ matrix.batch }}
       MAINSTREAM_CHECKLIST_BATCH_COUNT: "8"
-      MAINSTREAM_CHECKLIST_WORKERS: "3"
+      MAINSTREAM_CHECKLIST_WORKERS: "2"
       MAINSTREAM_CHECKLIST_OUTPUT: .checklist-discovery/mainstream-backlog-batch-${{ matrix.batch }}.json
     steps:
       - uses: actions/checkout@v4
@@ -203,7 +214,9 @@ jobs:
           node \
             --import ./scripts/mainstream-checklist/html-semantic-prepatch.mjs \
             --import ./scripts/mainstream-checklist/tcdb-complete-fetch.mjs \
+            --import ./scripts/mainstream-checklist/reader-retry-prepatch.mjs \
             --import ./scripts/mainstream-checklist/remaining-source-fallbacks.mjs \
+            --import ./scripts/mainstream-checklist/prefer-complete-reader.mjs \
             --import ./scripts/mainstream-checklist/fetch-patch.mjs \
             --import tsx \
             scripts/ingest-mainstream-checklist-backlog.mjs
@@ -266,7 +279,9 @@ jobs:
           node \
             --import ./scripts/mainstream-checklist/html-semantic-prepatch.mjs \
             --import ./scripts/mainstream-checklist/tcdb-complete-fetch.mjs \
+            --import ./scripts/mainstream-checklist/reader-retry-prepatch.mjs \
             --import ./scripts/mainstream-checklist/remaining-source-fallbacks.mjs \
+            --import ./scripts/mainstream-checklist/prefer-complete-reader.mjs \
             --import ./scripts/mainstream-checklist/fetch-patch.mjs \
             --import tsx \
             scripts/ingest-mainstream-checklist-backlog.mjs
