@@ -1,0 +1,119 @@
+name: InstaComp Five Card Image Truth 20260807
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+jobs:
+  capture:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/instacomp-five-card-image-truth-20260807
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Capture exact Production image pairs
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          mkdir -p .vercel "$RUNNER_TEMP/instacomp-five-card-image-truth" evidence/instacomp-five-card-image-truth-20260807
+          npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/instacomp-five-card-image-truth/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          PROD_ENV="$RUNNER_TEMP/instacomp-five-card-image-truth/production.env" node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import { createClient } from '@supabase/supabase-js';
+
+          // Exact five acceptance cards from the latest Production live diagnostic receipt.
+          const ids = [
+            'ef0e06a3-a6de-4242-8c52-52b420185850',
+            '0916fe9d-2837-4d91-add4-73e7216705cd',
+            '66f9ad9e-43fb-4b2b-b79c-ac99fa082de0',
+            'f7d73af4-7299-4ed6-b663-39206f2576ee',
+            'e9335a9d-3cc1-48d3-92db-7be7468714a9',
+          ];
+          const parsed = {};
+          for (const raw of fs.readFileSync(process.env.PROD_ENV, 'utf8').split(/\r?\n/)) {
+            const line = raw.trim();
+            if (!line || line.startsWith('#')) continue;
+            const i = line.indexOf('=');
+            if (i < 1) continue;
+            const key = line.slice(0, i).trim();
+            let value = line.slice(i + 1).trim();
+            if (value.startsWith('"') && value.endsWith('"')) { try { value = JSON.parse(value); } catch { value = value.slice(1,-1); } }
+            else if (value.startsWith("'") && value.endsWith("'")) value = value.slice(1,-1);
+            parsed[key] = value;
+          }
+          const url = String(parsed.NEXT_PUBLIC_SUPABASE_URL || '');
+          if (!url) throw new Error('Missing Production Supabase URL');
+          const projectRef = new URL(url).hostname.split('.')[0];
+          const keysResponse = await fetch(`https://api.supabase.com/v1/projects/${projectRef}/api-keys?reveal=true`, { headers: { Authorization: `Bearer ${process.env.GH_SUPABASE_ACCESS_TOKEN}` } });
+          if (!keysResponse.ok) throw new Error(`Supabase key lookup failed: ${keysResponse.status}`);
+          const keys = await keysResponse.json();
+          const serviceRole = keys.find((key) => key?.name === 'service_role' && /^eyJ/.test(String(key?.api_key || ''))) || keys.find((key) => key?.secret_jwt_template?.role === 'service_role' && /^eyJ/.test(String(key?.api_key || '')));
+          if (!serviceRole?.api_key) throw new Error('Legacy service_role JWT not found');
+          console.log('::add-mask::' + serviceRole.api_key);
+          const db = createClient(url, serviceRole.api_key, { auth: { persistSession: false, autoRefreshToken: false } });
+          const [itemsResult, imagesResult] = await Promise.all([
+            db.from('inventory_items').select('id,title,status,metadata').in('id', ids),
+            db.from('inventory_images').select('inventory_item_id,image_url,alt_text,sort_order,is_primary').in('inventory_item_id', ids).order('sort_order', { ascending: true }),
+          ]);
+          if (itemsResult.error) throw itemsResult.error;
+          if (imagesResult.error) throw imagesResult.error;
+          const items = new Map((itemsResult.data || []).map((row) => [String(row.id), row]));
+          const grouped = new Map();
+          for (const row of imagesResult.data || []) {
+            const key = String(row.inventory_item_id);
+            const bucket = grouped.get(key) || [];
+            bucket.push(row);
+            grouped.set(key, bucket);
+          }
+          function choose(rows) {
+            const ordered = rows.map((row) => ({...row,url:String(row.image_url||''),alt:String(row.alt_text||''),order:Number(row.sort_order||0),primary:row.is_primary===true})).filter((row)=>row.url).sort((a,b)=>a.primary!==b.primary?(a.primary?-1:1):a.order-b.order);
+            const front = ordered.find((row)=>/\bfront\b/i.test(row.alt)) || ordered.find((row)=>row.primary) || ordered[0];
+            const back = ordered.find((row)=>/\bback\b/i.test(row.alt)&&row.url!==front?.url) || ordered.find((row)=>!row.primary&&row.url!==front?.url) || ordered.find((row)=>row.url!==front?.url);
+            return {front,back};
+          }
+          const outDir = 'evidence/instacomp-five-card-image-truth-20260807';
+          const receipt = {schema:'tcos.instacomp.fiveCardImageTruth.v1',capturedAt:new Date().toISOString(),cards:[]};
+          for (const [index,id] of ids.entries()) {
+            const item = items.get(id);
+            if (!item) throw new Error(`Missing inventory item ${id}`);
+            const {front,back} = choose(grouped.get(id)||[]);
+            if (!front?.url || !back?.url) throw new Error(`Missing image pair ${id}`);
+            for (const [side,row] of [['front',front],['back',back]]) {
+              const response = await fetch(row.url, { signal: AbortSignal.timeout(30000), headers:{'User-Agent':'TCOS-InstaComp-Image-Truth/1.0'} });
+              if (!response.ok) throw new Error(`${id} ${side} HTTP ${response.status}`);
+              const contentType = response.headers.get('content-type') || 'image/jpeg';
+              const ext = contentType.includes('png') ? 'png' : contentType.includes('webp') ? 'webp' : 'jpg';
+              const file = `${String(index+1).padStart(2,'0')}-${id}-${side}.${ext}`;
+              fs.writeFileSync(path.join(outDir,file), Buffer.from(await response.arrayBuffer()));
+              row.capturedFile = file;
+            }
+            const meta = item.metadata && typeof item.metadata === 'object' ? item.metadata : {};
+            const instacomp = meta.instacomp && typeof meta.instacomp === 'object' ? meta.instacomp : {};
+            receipt.cards.push({position:index+1,inventoryItemId:id,title:item.title,status:item.status,frontFile:front.capturedFile,backFile:back.capturedFile,frontAlt:front.alt||null,backAlt:back.alt||null,manualIdentityLocked:instacomp.manualIdentityLocked===true,humanVerified:instacomp.humanVerified===true,identityComplete:instacomp.identityComplete===true,trustedForIdentity:instacomp.trustedForIdentity===true,storedAi:instacomp.ai||null});
+          }
+          fs.writeFileSync(path.join(outDir,'receipt.json'), JSON.stringify(receipt,null,2));
+          console.log(JSON.stringify(receipt,null,2));
+          NODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-five-card-image-truth-20260807
+          path: evidence/instacomp-five-card-image-truth-20260807
+          if-no-files-found: error
+          retention-days: 30
