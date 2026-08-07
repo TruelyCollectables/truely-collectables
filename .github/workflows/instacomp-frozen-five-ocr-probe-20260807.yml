@@ -1,0 +1,151 @@
+name: InstaComp Frozen Five OCR Probe 20260807
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/app/api/release/instacomp-frozen-five-ocr-probe/route.ts"
+      - ".github/workflows/instacomp-frozen-five-ocr-probe-20260807.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instacomp-frozen-five-ocr-probe-20260807
+  cancel-in-progress: true
+
+env:
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  ORIGIN: https://truelycollectables.com
+  EVIDENCE_DIR: evidence/instacomp-frozen-five-ocr-probe-20260807
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/instacomp-frozen-five-ocr-probe-20260807
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Compile temporary diagnostic route
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npx tsc --noEmit
+          git diff --check
+          mkdir -p "$EVIDENCE_DIR" "$RUNNER_TEMP/instacomp-ocr-probe"
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Provision isolated diagnostic credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          secret_file="$RUNNER_TEMP/instacomp-ocr-probe/token"
+          openssl rand -hex 32 > "$secret_file"
+          chmod 600 "$secret_file"
+          secret="$(cat "$secret_file")"
+          echo "::add-mask::$secret"
+          npx --yes vercel@56.2.0 env add INSTACOMP_DIAGNOSTIC_TOKEN production --force --sensitive --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" < "$secret_file" >/dev/null
+          touch "$RUNNER_TEMP/instacomp-ocr-probe/token-provisioned"
+
+      - name: Deploy temporary token-protected diagnostic route
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$EVIDENCE_DIR/diagnostic-deploy.log"
+          npx --yes vercel@56.2.0 deploy --prod --yes --force --no-color --cwd "$GITHUB_WORKSPACE" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee "$log"
+          grep -Fq '/api/release/instacomp-frozen-five-ocr-probe' "$log"
+          touch "$RUNNER_TEMP/instacomp-ocr-probe/diagnostic-deployed"
+
+      - name: Fetch sanitized frozen-five Mac OCR archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          token="$(cat "$RUNNER_TEMP/instacomp-ocr-probe/token")"
+          echo "::add-mask::$token"
+          out="$EVIDENCE_DIR/ocr-probe.json"
+          code=""
+          for attempt in $(seq 1 12); do
+            code="$(curl -sS --max-time 120 -o "$out" -w '%{http_code}' -H "x-tcos-instacomp-diagnostic-token: $token" -H 'Cache-Control: no-cache' "$ORIGIN/api/release/instacomp-frozen-five-ocr-probe?attempt=$attempt&ts=$(date +%s)")"
+            if [ "$code" = "200" ] && node -e 'const fs=require("node:fs");const b=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));if(b.ok!==true||!Array.isArray(b.archives)||b.archives.length<1)process.exit(1);' "$out"; then
+              break
+            fi
+            sleep 5
+          done
+          echo "probe_http=$code"
+          test "$code" = "200"
+          node -e '
+            const fs=require("node:fs");const b=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+            if(b.ok!==true||!Array.isArray(b.archives)||b.archives.length<1)throw new Error("No Mac archives returned");
+            const summary=b.archives.map(a=>({scanId:a.scanId,status:a.status,identityHints:a.localVision?.identityHints||null,backOcr:(a.localVision?.back?.ocr||[]).map(o=>({text:o.text,confidence:o.confidence,box:o.box,source:o.source}))}));
+            console.log(JSON.stringify(summary,null,2));
+          ' "$out"
+
+      - name: Remove isolated diagnostic credential
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          if [ ! -f "$RUNNER_TEMP/instacomp-ocr-probe/token-provisioned" ]; then exit 0; fi
+          removed=0
+          for attempt in 1 2 3; do
+            if npx --yes vercel@56.2.0 env rm INSTACOMP_DIAGNOSTIC_TOKEN production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null 2>&1; then
+              removed=1; break
+            fi
+            sleep 3
+          done
+          test "$removed" = "1"
+          touch "$RUNNER_TEMP/instacomp-ocr-probe/token-removed"
+
+      - name: Restore clean current main to Production
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          if [ ! -f "$RUNNER_TEMP/instacomp-ocr-probe/diagnostic-deployed" ]; then exit 0; fi
+          test -f "$RUNNER_TEMP/instacomp-ocr-probe/token-removed" || { echo 'Refusing cleanup deploy until diagnostic token removal is proven.' >&2; exit 2; }
+          git fetch origin main
+          git checkout -B clean-main origin/main
+          test ! -e src/app/api/release/instacomp-frozen-five-ocr-probe/route.ts
+          log="$EVIDENCE_DIR/clean-main-deploy.log"
+          set +e
+          npx --yes vercel@56.2.0 deploy --prod --yes --force --no-color --cwd "$GITHUB_WORKSPACE" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          set -e
+          test "$status" = "0"
+          touch "$RUNNER_TEMP/instacomp-ocr-probe/clean-restored"
+
+      - name: Prove temporary diagnostic route is gone
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f "$RUNNER_TEMP/instacomp-ocr-probe/diagnostic-deployed" ]; then exit 0; fi
+          test -f "$RUNNER_TEMP/instacomp-ocr-probe/clean-restored"
+          code="$(curl -sS --max-time 30 -o "$EVIDENCE_DIR/removed-route-response.txt" -w '%{http_code}' -H 'Cache-Control: no-cache' "$ORIGIN/api/release/instacomp-frozen-five-ocr-probe?clean=1&ts=$(date +%s)")"
+          echo "removed_route_http=$code"
+          test "$code" = "404"
+
+      - name: Upload OCR diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-frozen-five-ocr-probe-20260807
+          path: evidence/instacomp-frozen-five-ocr-probe-20260807
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Remove local secrets
+        if: always()
+        shell: bash
+        run: rm -rf "$RUNNER_TEMP/instacomp-ocr-probe"
