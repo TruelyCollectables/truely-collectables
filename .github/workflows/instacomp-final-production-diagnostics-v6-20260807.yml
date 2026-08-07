@@ -41,10 +41,19 @@ jobs:
           set -euo pipefail
           test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
           git fetch origin main
-          test "$(git rev-parse origin/main)" = "$FINAL_REPAIR_COMMIT"
+          git cat-file -e "${FINAL_REPAIR_COMMIT}^{commit}"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git merge --no-edit "$FINAL_REPAIR_COMMIT"
+          git merge-base --is-ancestor "$FINAL_REPAIR_COMMIT" HEAD
+          scanner_drift="$(git diff --name-only "$FINAL_REPAIR_COMMIT"...HEAD -- \
+            services/instacomp-ai/app/local_vision.py \
+            services/instacomp-ai/app/ollama.py \
+            src/app/api/instacomp/scan/route.ts \
+            src/lib/instacomp-ai-local.ts \
+            src/lib/instacomp-consensus.ts \
+            src/lib/instacomp-learning-server.ts)"
+          test -z "$scanner_drift"
           fp="$(python - <<'PY'
           from hashlib import sha256
           from pathlib import Path
@@ -58,7 +67,8 @@ jobs:
           test "$fp" = "$CERTIFIED_MAC_FINGERPRINT"
           echo "EXPECTED_MAC_FINGERPRINT=$fp" >> "$GITHUB_ENV"
           mkdir -p "$EVIDENCE_DIR" "$TEMP_DIR"
-          printf '{"main":"%s","macFingerprint":"%s","mode":"diagnostics_only_no_scanner_source_change"}\n' "$FINAL_REPAIR_COMMIT" "$fp" > "$EVIDENCE_DIR/source-lock.json"
+          printf '{"certifiedSource":"%s","currentMainObserved":"%s","macFingerprint":"%s","mode":"diagnostics_only_no_scanner_source_change"}\n' \
+            "$FINAL_REPAIR_COMMIT" "$(git rev-parse origin/main)" "$fp" > "$EVIDENCE_DIR/source-lock.json"
 
       - name: Exact Production Mac preflight
         shell: bash
