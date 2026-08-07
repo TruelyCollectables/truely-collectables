@@ -8,8 +8,11 @@ on:
       - ".github/workflows/ingest-mainstream-checklist-backlog.yml"
       - "scripts/ingest-mainstream-checklist-backlog.mjs"
       - "scripts/mainstream-checklist/**"
+      - "scripts/test-mainstream-checklist-fetch-patch.mjs"
       - "scripts/resolve-mainstream-checklist-production-env.sh"
       - "scripts/bootstrap-mainstream-checklist-schema.sh"
+      - "scripts/repair-mainstream-checklist-schema.sh"
+      - "supabase/migrations/20260807033000_checklist_registry_writer_repair.sql"
   push:
     branches:
       - main
@@ -17,8 +20,11 @@ on:
       - ".github/workflows/ingest-mainstream-checklist-backlog.yml"
       - "scripts/ingest-mainstream-checklist-backlog.mjs"
       - "scripts/mainstream-checklist/**"
+      - "scripts/test-mainstream-checklist-fetch-patch.mjs"
       - "scripts/resolve-mainstream-checklist-production-env.sh"
       - "scripts/bootstrap-mainstream-checklist-schema.sh"
+      - "scripts/repair-mainstream-checklist-schema.sh"
+      - "supabase/migrations/20260807033000_checklist_registry_writer_repair.sql"
   workflow_dispatch:
     inputs:
       mode:
@@ -61,6 +67,7 @@ jobs:
         run: |
           bash -n scripts/resolve-mainstream-checklist-production-env.sh
           bash -n scripts/bootstrap-mainstream-checklist-schema.sh
+          bash -n scripts/repair-mainstream-checklist-schema.sh
       - name: Verify compressed backlog manifest
         shell: bash
         run: |
@@ -85,10 +92,12 @@ jobs:
           }
           console.log(JSON.stringify({ entries: manifest.entries.length, dispositions }));
           NODE
+      - name: Verify source fallback and section ordering
+        run: node scripts/test-mainstream-checklist-fetch-patch.mjs
       - name: Verify parser contract
         env:
           MAINSTREAM_CHECKLIST_SELF_TEST: "true"
-        run: node --import tsx scripts/ingest-mainstream-checklist-backlog.mjs
+        run: node --import ./scripts/mainstream-checklist/fetch-patch.mjs --import tsx scripts/ingest-mainstream-checklist-backlog.mjs
 
   bootstrap-production-schema:
     if: github.event_name != 'pull_request'
@@ -107,6 +116,8 @@ jobs:
         run: bash scripts/resolve-mainstream-checklist-production-env.sh
       - name: Install and verify Checklist Registry production schema
         run: bash scripts/bootstrap-mainstream-checklist-schema.sh
+      - name: Repair Registry writer uniqueness and bounded timeout
+        run: bash scripts/repair-mainstream-checklist-schema.sh
       - name: Remove protected Production files
         if: always()
         shell: bash
@@ -114,6 +125,7 @@ jobs:
           rm -rf \
             "$RUNNER_TEMP/mainstream-checklist-ingestion" \
             "$RUNNER_TEMP/mainstream-checklist-schema" \
+            "$RUNNER_TEMP/mainstream-checklist-writer-repair" \
             .env.local \
             .env.production.local
 
@@ -161,7 +173,7 @@ jobs:
           set +a
           test -n "${RESOLVED_SUPABASE_SERVICE_ROLE_KEY:-}"
           export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
-          node --import tsx scripts/ingest-mainstream-checklist-backlog.mjs
+          node --import ./scripts/mainstream-checklist/fetch-patch.mjs --import tsx scripts/ingest-mainstream-checklist-backlog.mjs
       - name: Upload sanitized batch receipt
         if: always()
         uses: actions/upload-artifact@v4
@@ -208,7 +220,7 @@ jobs:
           set +a
           test -n "${RESOLVED_SUPABASE_SERVICE_ROLE_KEY:-}"
           export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
-          node --import tsx scripts/ingest-mainstream-checklist-backlog.mjs
+          node --import ./scripts/mainstream-checklist/fetch-patch.mjs --import tsx scripts/ingest-mainstream-checklist-backlog.mjs
       - name: Upload reconciliation receipt
         if: always()
         uses: actions/upload-artifact@v4
