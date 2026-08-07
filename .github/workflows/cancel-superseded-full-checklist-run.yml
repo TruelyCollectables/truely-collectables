@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Cancel only superseded run 31190974894
+      - name: Cancel only failed safe-v2 run 31193001695
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -25,7 +25,7 @@ jobs:
           STATUS_PATH: docs/operations/instacomp-superseded-run-cancel.json
         run: |
           set -euo pipefail
-          run_id=31190974894
+          run_id=31193001695
           url="https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$run_id/cancel"
           code="$(curl --silent --show-error \
             --request POST \
@@ -55,8 +55,8 @@ jobs:
           cp "$RUNNER_TEMP/cancel.json" "$STATUS_PATH"
           git add "$STATUS_PATH"
           if ! git diff --cached --quiet; then
-            git commit -m "Record superseded checklist run cancellation [skip ci]"
+            git commit -m "Record failed safe-v2 checklist run cancellation [skip ci]"
             git push origin "HEAD:$STATUS_BRANCH"
           fi
 
-# Cancellation receipt marker: 2026-08-07T15:42Z
+# Cancellation target: safe-v2 attempt 31193001695
