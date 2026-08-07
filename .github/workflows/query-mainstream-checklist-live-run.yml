@@ -1,0 +1,67 @@
+name: Query Mainstream Checklist Live Run
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/query-mainstream-checklist-live-run.yml"
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  query:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Query latest production ingestion run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STATUS_BRANCH: ops/mainstream-checklist-status
+          STATUS_PATH: docs/operations/instacomp-mainstream-checklist-live-run.json
+        run: |
+          set -euo pipefail
+          api="https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/ingest-mainstream-checklist-backlog.yml/runs?branch=main&per_page=20"
+          response="$RUNNER_TEMP/mainstream-runs.json"
+          curl --silent --show-error --fail \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            --output "$response" \
+            "$api"
+          jq -e '
+            [.workflow_runs[] | select(.event != "pull_request")][0]
+            | {
+                schema:"tcos.checklist.mainstreamLiveRun.v1",
+                workflow:.name,
+                runId:(.id|tostring),
+                runNumber:(.run_number|tostring),
+                runAttempt:(.run_attempt|tostring),
+                status:.status,
+                conclusion:.conclusion,
+                event:.event,
+                sourceSha:.head_sha,
+                branch:.head_branch,
+                createdAt:.created_at,
+                updatedAt:.updated_at
+              }
+          ' "$response" > "$RUNNER_TEMP/live-run.json"
+          test -s "$RUNNER_TEMP/live-run.json"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin "$STATUS_BRANCH"
+          git checkout -B "$STATUS_BRANCH" "origin/$STATUS_BRANCH"
+          mkdir -p "$(dirname "$STATUS_PATH")"
+          cp "$RUNNER_TEMP/live-run.json" "$STATUS_PATH"
+          git add "$STATUS_PATH"
+          if git diff --cached --quiet; then
+            echo "Latest run state is unchanged."
+          else
+            git commit -m "Query mainstream checklist live run [skip ci]"
+            git push origin "HEAD:$STATUS_BRANCH"
+          fi
