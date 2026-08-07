@@ -1,13 +1,39 @@
 {
-  "schema": "tcos.checklist.safeV3LiveRun.v1",
-  "workflow": "Ingest Full Master Checklist Archive Safe v3",
-  "runId": "31195102966",
-  "runNumber": "2",
-  "status": "pending",
-  "conclusion": null,
-  "event": "push",
-  "sourceSha": "9f6bfc6da63c7f5892a4cb7ba20b13364d2da90f",
-  "branch": "main",
-  "createdAt": "2026-08-07T15:56:19Z",
-  "updatedAt": "2026-08-07T15:56:20Z"
+  "schema": "tcos.checklist.safeV3LiveRun.v2",
+  "checkedAt": "2026-08-07T16:01:46Z",
+  "safeV3": {
+    "workflow": "Ingest Full Master Checklist Archive Safe v3",
+    "runId": "31195102966",
+    "runNumber": "2",
+    "status": "queued",
+    "conclusion": null,
+    "event": "push",
+    "sourceSha": "9f6bfc6da63c7f5892a4cb7ba20b13364d2da90f",
+    "branch": "main",
+    "createdAt": "2026-08-07T15:56:19Z",
+    "updatedAt": "2026-08-07T16:01:00Z"
+  },
+  "supersededV2": {
+    "workflow": "Ingest Full Master Checklist Archive Safe v2",
+    "runId": "31193001695",
+    "runNumber": "2",
+    "status": "completed",
+    "conclusion": "cancelled",
+    "event": "push",
+    "sourceSha": "f464e240dd3cb740eefe3a4b9ca89deb5ad71851",
+    "branch": "main",
+    "createdAt": "2026-08-07T15:31:04Z",
+    "updatedAt": "2026-08-07T16:01:00Z"
+  },
+  "cancelRun": {
+    "workflow": "Cancel Superseded Full Checklist Run",
+    "runId": "31195240026",
+    "runNumber": "5",
+    "status": "completed",
+    "conclusion": "success",
+    "event": "push",
+    "sourceSha": "31722ab2e6ecd1078dc4d9580f0f7c438cf17863",
+    "createdAt": "2026-08-07T15:57:57Z",
+    "updatedAt": "2026-08-07T16:01:05Z"
+  }
 }
