@@ -24,7 +24,11 @@ assert(source.includes(".limit(1)"), "Verifier table probes must be bounded to o
 assert(!source.includes('count: "exact"'), "Verifier must never request exact Production table counts.");
 assert(!source.includes("head: true"), "Verifier must use an ordinary bounded row read, not a count-oriented HEAD query.");
 assert(source.includes("runRegistryReadWithRetry"), "Verifier must use the bounded read-only retry helper.");
-assert(source.includes('db.rpc("tcos_apply_checklist_import_plan"'), "Verifier must probe the transactional writer RPC.");
+assert(source.includes("CHECKLIST_REGISTRY_READ_TIMEOUT_MS"), "Verifier must expose a bounded per-read timeout.");
+assert(source.includes("CHECKLIST_REGISTRY_WRITER_PROBE_TIMEOUT_MS"), "Verifier must expose a bounded one-shot writer-probe timeout.");
+assert(source.includes(".abortSignal(AbortSignal.timeout(readAttemptTimeoutMs))"), "Every bounded Registry read must abort a hung fetch.");
+assert(source.includes(".abortSignal(AbortSignal.timeout(writerProbeTimeoutMs))"), "The one-shot writer probe must abort a hung fetch.");
+assert(source.includes('rpc("tcos_apply_checklist_import_plan"'), "Verifier must probe the transactional writer RPC.");
 assert(source.includes("contract_probe_must_fail"), "Verifier RPC must intentionally fail before persistence.");
 assert(source.includes("Checklist import plan requires validation before persistence"), "Verifier must require the exact pre-write guard.");
 assert(source.includes("The RPC itself is deliberately NOT retried"), "Writer contract probe must remain non-retried.");
@@ -37,6 +41,11 @@ assert.equal(
   isRetryableRegistryReadError({ code: "PGRST002", message: "Could not query the database for the schema cache. Retrying." }),
   true,
   "Observed Production PGRST002 schema-cache startup failure must be retryable.",
+);
+assert.equal(
+  isRetryableRegistryReadError({ name: "TimeoutError", message: "The operation was aborted due to timeout" }),
+  true,
+  "A hard per-attempt network timeout must remain a retryable read failure.",
 );
 assert.equal(
   isRetryableRegistryReadError({ code: "PGRST205", message: "Could not find the table 'public.missing' in the schema cache" }),
@@ -100,7 +109,10 @@ console.log(JSON.stringify({
   status: "passed",
   readOnlyTableChecks: true,
   boundedReads: true,
+  perAttemptNetworkTimeout: true,
+  writerProbeNetworkTimeout: true,
   transientSchemaCacheRetry: true,
+  timeoutRetry: true,
   permanentContractFailuresRetry: false,
   retryExhaustionFailClosed: true,
   exactCountsAbsent: true,
