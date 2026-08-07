@@ -1,9 +1,6 @@
 name: InstaComp Five Card Production Truth Gate 20260807
 
 on:
-  push:
-    branches:
-      - ops/instacomp-five-card-production-truth-gate-20260807
   pull_request:
     branches:
       - main
@@ -17,7 +14,7 @@ permissions:
 
 concurrency:
   group: instacomp-five-card-production-truth-gate-20260807
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   VERCEL_SCOPE: truelycollectables-projects
