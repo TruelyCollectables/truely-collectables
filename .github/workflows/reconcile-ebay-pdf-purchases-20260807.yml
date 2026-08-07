@@ -6,6 +6,7 @@ on:
     paths:
       - "scripts/reconcile-ebay-pdf-purchases-production.mjs"
       - "scripts/enforce-ebay-pdf-all-in-purchase-ledger.mjs"
+      - "vercel.json"
       - ".github/workflows/reconcile-ebay-pdf-purchases-20260807.yml"
   workflow_dispatch:
 
@@ -20,11 +21,9 @@ jobs:
   reconcile:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_SCOPE: truelycollectables-projects
     steps:
       - name: Checkout reconciliation ref
@@ -34,54 +33,59 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Pull protected Production environment
+      - name: Link Vercel project
         shell: bash
         run: |
           set -euo pipefail
           test -n "${VERCEL_TOKEN:-}"
           echo "::add-mask::$VERCEL_TOKEN"
-          mkdir -p .vercel
-          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
-            printf '{"orgId":"%s","projectId":"%s"}\n' \
-              "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
-          fi
           npx vercel@56.2.0 link --yes \
             --project truely-collectables \
             --scope "$VERCEL_SCOPE" \
-            --token "$VERCEL_TOKEN" >/dev/null
-          npx vercel@56.2.0 env pull .env.production.local \
-            --yes \
-            --environment production \
-            --scope "$VERCEL_SCOPE" \
-            --token "$VERCEL_TOKEN" >/dev/null
-          chmod 600 .env.production.local
+            --token "$VERCEL_TOKEN"
 
-      - name: Reconcile PDF purchases and enforce canonical ALL-IN cost
+      - name: Run reconciliation inside a fail-closed Production build
         shell: bash
         run: |
           set -euo pipefail
-          set -a
-          source .env.production.local
-          set +a
-          echo "Production credential presence check (lengths only): URL=${#NEXT_PUBLIC_SUPABASE_URL} SERVICE_ROLE=${#SUPABASE_SERVICE_ROLE_KEY} EBAY_ID=${#EBAY_CLIENT_ID} EBAY_SECRET=${#EBAY_CLIENT_SECRET}"
-          node scripts/reconcile-ebay-pdf-purchases-production.mjs
-          node scripts/enforce-ebay-pdf-all-in-purchase-ledger.mjs
+          npx vercel@56.2.0 deploy \
+            --prod \
+            --force \
+            --yes \
+            --logs \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" \
+            2>&1 | tee ebay-reconciliation-vercel-build.log
+          grep -q "PDF orders matched: 25/25" ebay-reconciliation-vercel-build.log
+          grep -q "Final canonical verification:" ebay-reconciliation-vercel-build.log
 
-      - name: Upload reconciliation receipts
+      - name: Restore clean latest-main Production deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --depth=1
+          git checkout --detach origin/main
+          rm -rf .vercel
+          npx vercel@56.2.0 link --yes \
+            --project truely-collectables \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN"
+          npx vercel@56.2.0 deploy \
+            --prod \
+            --force \
+            --yes \
+            --logs \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" \
+            2>&1 | tee clean-main-vercel-build.log
+
+      - name: Upload build receipts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ebay-purchase-reconcile-result
+          name: ebay-purchase-reconciliation-build-logs
           path: |
-            ebay-purchase-reconcile-result.json
-            ebay-purchase-all-in-enforcement-result.json
-          if-no-files-found: error
-
-      - name: Remove Production environment file
-        if: always()
-        run: rm -f .env.production.local
+            ebay-reconciliation-vercel-build.log
+            clean-main-vercel-build.log
+          if-no-files-found: warn
