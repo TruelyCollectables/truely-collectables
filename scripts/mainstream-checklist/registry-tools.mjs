@@ -1,25 +1,40 @@
-import { createClient } from "@supabase/supabase-js";
+import { createHash } from "node:crypto";
 
-import { buildChecklistIdentityFingerprint } from "../../src/lib/checklist-registry/identity.ts";
-import {
-  buildChecklistSourceStorageReceipt,
-  CHECKLIST_SOURCE_BUCKET,
-} from "../../src/lib/checklist-registry/storage.ts";
-import { normalized, sha256, slug } from "./source-tools.mjs";
+export const ARCHIVE_BUCKET = "instacomp-checklist-source-archive";
+export const ARCHIVE_PREFIX = "mainstream-2000-plus";
+export const CHECKLIST_SOURCE_BUCKET = "instacomp-checklist-sources";
+export const MAX_SOURCE_BYTES = 50 * 1024 * 1024;
 
-export const ARCHIVE_BUCKET = "tcos-checklist-universal-archive";
-const ARCHIVE_PREFIX = "backlog/mainstream-2000-plus";
-const MAX_SOURCE_BYTES = 50 * 1024 * 1024;
+export function sha256(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
 
-export function dbClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    throw new Error("Mainstream checklist ingestion requires Supabase service-role access.");
-  }
-  return createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+function normalized(value) {
+  return String(value || "")
+    .normalize("NFKC")
+    .replace(/[®™]/g, "")
+    .replace(/[‐‑‒–—―]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function slug(value) {
+  return normalized(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function sourceKey(prefix, values) {
+  return `${prefix}-${sha256(values.join("\u0001")).slice(0, 24)}`;
+}
+
+function normalizeName(value) {
+  return normalized(value).toLowerCase().replace(/[^a-z0-9/]+/g, " ").trim();
+}
+
+function normalizeCardNumber(value) {
+  return normalized(value).toLowerCase().replace(/[^a-z0-9/]+/g, "");
 }
 
 function inferSetType(name) {
@@ -31,192 +46,163 @@ function inferSetType(name) {
   return "other";
 }
 
-function effectiveAuthority(entry, source) {
-  if (entry.authority !== "official_manufacturer") return entry.authority;
-  const selected = String(source.selectedUrl || source.finalUrl || entry.sourceUrl);
-  const hostname = new URL(selected).hostname.toLowerCase();
-  if (
-    hostname.endsWith("topps.com") ||
-    hostname.endsWith("upperdeck.com") ||
-    hostname.endsWith("cdn.shopify.com")
-  ) {
-    return "official_manufacturer";
-  }
-  return "approved_reference_dataset";
-}
-
-export function buildPlan(entry, parsed, source, retrievedAt) {
-  const release = entry.release;
-  const authority = effectiveAuthority(entry, source);
-  const evidenceUrl = String(source.selectedUrl || source.finalUrl || entry.sourceUrl);
-  const releaseSlug = slug(
-    `${release.season || release.releaseYear}-${release.manufacturer}-${release.product}-${release.sport}`,
-  );
-  const storage = buildChecklistSourceStorageReceipt({
-    manufacturerSlug: release.manufacturer,
-    releaseSlug,
-    originalFilename: source.filename,
-    mimeType: source.mimeType,
-    content: source.bytes,
-  });
-
-  const setNames = [...new Set(parsed.cards.map((card) => card.setName))];
-  const sets = setNames.map((name, index) => ({
-    sourceKey: `set-${index + 1}-${slug(name)}`,
+export function buildImportPlan(entry, source, archive, parsed, { sourceUrl = null } = {}) {
+  const release = entry.release || {};
+  const canonicalName = normalized(release.canonicalName || `${release.releaseYear || release.season || ""} ${release.product || ""}`);
+  const releaseSlug = slug(canonicalName);
+  const setNames = [...new Set(parsed.cards.map((card) => normalized(card.setName || "Base Set")))];
+  const sets = setNames.map((name) => ({
+    sourceKey: sourceKey("set", [canonicalName, name]),
     name,
-    normalizedName: normalized(name).toLowerCase(),
+    normalizedName: normalizeName(name),
     setType: inferSetType(name),
   }));
-  const setByName = new Map(sets.map((set) => [set.name, set]));
-  const cards = parsed.cards.map((card, index) => ({
-    sourceKey: `card-${index + 1}-${slug(card.setName)}-${slug(card.cardNumber)}`,
-    setSourceKey: setByName.get(card.setName).sourceKey,
-    cardNumber: card.cardNumber,
-    players: card.players,
-    teams: card.teams,
-    rookieDesignation: card.rookieDesignation,
-    firstBowmanDesignation: card.firstBowmanDesignation,
-    autographStatus: card.autographStatus,
-    memorabiliaStatus: card.memorabiliaStatus,
-    variation: card.variation,
-    sourceNotes: card.sourceNotes,
-  }));
+  const setKeyByName = new Map(sets.map((set) => [set.name, set.sourceKey]));
 
-  const cardBySet = new Map();
-  for (const card of cards) {
-    const list = cardBySet.get(card.setSourceKey) || [];
-    list.push(card);
-    cardBySet.set(card.setSourceKey, list);
-  }
+  const cards = parsed.cards.map((card) => {
+    const players = [...new Set((card.players || []).map(normalized).filter(Boolean))];
+    const teams = [...new Set((card.teams || []).map(normalized).filter(Boolean))];
+    const setName = normalized(card.setName || "Base Set");
+    const cardNumber = normalized(card.cardNumber);
+    const variation = card.variation ? normalized(card.variation) : null;
+    const sourceKeyValue = sourceKey("card", [
+      canonicalName,
+      setName,
+      cardNumber,
+      players.join("+"),
+      teams.join("+"),
+      variation || "",
+    ]);
+    return {
+      sourceKey: sourceKeyValue,
+      setSourceKey: setKeyByName.get(setName),
+      cardNumber,
+      players,
+      teams,
+      rookieDesignation: card.rookieDesignation ?? null,
+      firstBowmanDesignation: card.firstBowmanDesignation ?? null,
+      autographStatus: card.autographStatus || "non-auto",
+      memorabiliaStatus: card.memorabiliaStatus || "non-memorabilia",
+      variation,
+      sourceNotes: card.sourceNotes || null,
+    };
+  });
 
-  const parallelRows = parsed.parallels
-    .map((parallel, index) => {
-      const set =
-        setByName.get(parallel.setName) ||
-        sets.find((value) => value.setType === "base") ||
-        sets[0];
-      if (!set) return null;
-      return {
-        sourceKey: `parallel-${index + 1}-${slug(set.name)}-${slug(parallel.name)}`,
-        setSourceKey: set.sourceKey,
-        name: parallel.name,
-        serialRun: parallel.serialRun,
-        configurationExclusivity: parallel.configurationExclusivity,
-        appliesToAllCards: Boolean(parallel.appliesToAllCards),
-      };
-    })
-    .filter(Boolean);
+  const parallelRows = parsed.parallels || [];
+  const parallels = parallelRows.map((parallel) => {
+    const setName = normalized(parallel.setName || "Base Set");
+    const name = normalized(parallel.name);
+    return {
+      sourceKey: sourceKey("parallel", [canonicalName, setName, name, parallel.serialRun || ""]),
+      setSourceKey: setKeyByName.get(setName) || setKeyByName.get("Base Set") || sets[0]?.sourceKey,
+      name,
+      serialRun: parallel.serialRun ?? null,
+      configurationExclusivity: parallel.configurationExclusivity || null,
+      appliesToAllCards: Boolean(parallel.appliesToAllCards),
+    };
+  });
+
+  const parallelKeyBySetAndName = new Map(
+    parallels.map((parallel) => [
+      `${parallel.setSourceKey}\u0001${normalizeName(parallel.name)}`,
+      parallel.sourceKey,
+    ]),
+  );
 
   const identities = [];
   for (const card of cards) {
-    const set = sets.find((value) => value.sourceKey === card.setSourceKey);
-    identities.push({
-      cardSourceKey: card.sourceKey,
-      parallelSourceKey: null,
-      fingerprint: buildChecklistIdentityFingerprint({
-        releaseYear: release.releaseYear,
-        season: release.season,
-        manufacturer: release.manufacturer,
-        brand: release.brand,
-        product: release.product,
-        sport: release.sport,
-        league: release.league,
-        setName: set.name,
-        cardNumber: card.cardNumber,
-        players: card.players,
-        teams: card.teams,
-        parallel: null,
-        variation: card.variation,
-        serialRun: null,
-        autographStatus: card.autographStatus,
-        memorabiliaStatus: card.memorabiliaStatus,
-        configurationExclusivity: null,
-      }),
-    });
-  }
-
-  for (const parallel of parallelRows) {
-    if (!parallel.appliesToAllCards) continue;
-    for (const card of cardBySet.get(parallel.setSourceKey) || []) {
-      const set = sets.find((value) => value.sourceKey === card.setSourceKey);
-      identities.push({
-        cardSourceKey: card.sourceKey,
-        parallelSourceKey: parallel.sourceKey,
-        fingerprint: buildChecklistIdentityFingerprint({
-          releaseYear: release.releaseYear,
-          season: release.season,
-          manufacturer: release.manufacturer,
-          brand: release.brand,
-          product: release.product,
-          sport: release.sport,
-          league: release.league,
-          setName: set.name,
-          cardNumber: card.cardNumber,
-          players: card.players,
-          teams: card.teams,
-          parallel: parallel.name,
-          variation: card.variation,
-          serialRun: parallel.serialRun,
+    const set = sets.find((row) => row.sourceKey === card.setSourceKey);
+    const related = parallels.filter(
+      (parallel) => parallel.setSourceKey === card.setSourceKey && parallel.appliesToAllCards,
+    );
+    const choices = [null, ...related];
+    for (const parallel of choices) {
+      const fingerprint = {
+        schema: "tcos.checklist.identity.v1",
+        normalized: {
+          release: canonicalName.toLowerCase(),
+          set: set?.normalizedName || "base set",
+          cardNumber: normalizeCardNumber(card.cardNumber),
+          players: [...card.players].map(normalizeName).sort(),
+          teams: [...card.teams].map(normalizeName).sort(),
+          parallel: parallel ? normalizeName(parallel.name) : null,
+          serialRun: parallel?.serialRun ? String(parallel.serialRun) : null,
           autographStatus: card.autographStatus,
           memorabiliaStatus: card.memorabiliaStatus,
-          configurationExclusivity: parallel.configurationExclusivity,
-        }),
+          variation: card.variation ? normalizeName(card.variation) : null,
+          configurationExclusivity: parallel?.configurationExclusivity || null,
+        },
+      };
+      const canonicalKey = JSON.stringify(fingerprint.normalized);
+      fingerprint.canonicalKey = canonicalKey;
+      fingerprint.fingerprintSha256 = sha256(`${fingerprint.schema}\u0000${canonicalKey}`);
+      identities.push({
+        cardSourceKey: card.sourceKey,
+        parallelSourceKey: parallel
+          ? parallelKeyBySetAndName.get(`${parallel.setSourceKey}\u0001${normalizeName(parallel.name)}`)
+          : null,
+        fingerprint,
       });
     }
   }
 
   const issues = [...parsed.warnings, ...parsed.errors];
   const errors = issues.filter((issue) => issue.severity === "error");
+  const selectedSourceUrl = sourceUrl || source.selectedUrl || entry.sourceUrl;
   return {
     schema: "tcos.checklist.importPlan.v1",
-    adapterId: "mainstream-reference-checklist-v1",
-    adapterVersion: "1.0.0",
-    source: {
-      sourceUrl: evidenceUrl,
-      retrievedAt,
-      authority,
-      redistributionAllowed: Boolean(entry.redistributionAllowed),
-      privateArchiveRequired: true,
-      normalizedFactsInternalOnly: true,
-      storage,
-    },
+    adapterId: "mainstream-backlog-v1",
+    adapterVersion: "2026.08.07.2",
     release: {
       manufacturer: release.manufacturer,
-      brand: release.brand,
-      product: release.product,
-      releaseYear: release.releaseYear,
-      season: release.season,
+      brand: release.brand || release.manufacturer,
       sport: release.sport,
-      league: release.league,
+      league: release.league || null,
+      product: release.product,
+      releaseYear: release.releaseYear || null,
+      season: release.season || null,
+      canonicalName,
       releaseSlug,
+    },
+    source: {
+      sourceUrl: selectedSourceUrl,
+      authority: entry.authority || "reference_source",
+      retrievedAt: new Date().toISOString(),
+      redistributionAllowed: false,
+      privateArchiveRequired: true,
+      normalizedFactsInternalOnly: true,
+      storage: {
+        bucket: CHECKLIST_SOURCE_BUCKET,
+        objectPath: `${releaseSlug}/${archive.digest}-${source.filename}`,
+        originalFilename: source.filename,
+        mimeType: source.mimeType,
+        sizeBytes: source.bytes.byteLength,
+        sha256: archive.digest,
+      },
     },
     sets,
     cards,
-    parallels: parallelRows.map(({ appliesToAllCards, ...parallel }) => parallel),
+    parallels,
     identities,
     validation: {
-      status: errors.length ? "validation_required" : "passed",
+      status: errors.length ? "failed" : "passed",
       issues,
-      counts: {
-        sets: sets.length,
-        cards: cards.length,
-        parallels: parallelRows.length,
-        identities: identities.length,
-      },
     },
   };
 }
 
 export function assertPlanComplexity(plan) {
-  const counts = plan.validation.counts;
-  const serializedBytes = Buffer.byteLength(JSON.stringify(plan), "utf8");
+  const sets = plan.sets?.length || 0;
+  const cards = plan.cards?.length || 0;
+  const parallels = plan.parallels?.length || 0;
+  const identities = plan.identities?.length || 0;
+  const serializedBytes = Buffer.byteLength(JSON.stringify(plan));
   const violations = [];
-  if (counts.sets > 10_000) violations.push(`sets ${counts.sets}/10000`);
-  if (counts.cards > 100_000) violations.push(`cards ${counts.cards}/100000`);
-  if (counts.parallels > 50_000) violations.push(`parallels ${counts.parallels}/50000`);
-  if (counts.identities > 250_000) violations.push(`identities ${counts.identities}/250000`);
-  if (plan.validation.issues.length > 20_000) violations.push("too many validation issues");
-  if (serializedBytes > 64 * 1024 * 1024) violations.push("plan exceeds 64 MiB");
+  if (sets > 2_500) violations.push(`sets=${sets}`);
+  if (cards > 10_000) violations.push(`cards=${cards}`);
+  if (parallels > 2_500) violations.push(`parallels=${parallels}`);
+  if (identities > 100_000) violations.push(`identities=${identities}`);
+  if (serializedBytes > 20 * 1024 * 1024) violations.push(`serializedBytes=${serializedBytes}`);
   if (violations.length) {
     throw new Error(`Checklist import complexity limit exceeded: ${violations.join(", ")}.`);
   }
@@ -285,11 +271,28 @@ export function limitedIssues(values) {
   }));
 }
 
+function transientCatalogError(message) {
+  return /(?:statement timeout|lock timeout|deadlock|serialization|too many requests|upstream|gateway|temporar|connection|fetch failed|timeout)/i.test(
+    String(message || ""),
+  );
+}
+
+function retryDelay(attempt) {
+  return Math.min(8_000, 500 * 2 ** (attempt - 1));
+}
+
 export async function upsertCatalog(db, values) {
-  const { error } = await db
-    .from("checklist_source_catalog")
-    .upsert(values, { onConflict: "source_url" });
-  if (error) throw new Error(`Could not update checklist source catalog: ${error.message}`);
+  let lastError = null;
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    const { error } = await db
+      .from("checklist_source_catalog")
+      .upsert(values, { onConflict: "source_url" });
+    if (!error) return;
+    lastError = error;
+    if (!transientCatalogError(error.message) || attempt === 5) break;
+    await new Promise((resolve) => setTimeout(resolve, retryDelay(attempt)));
+  }
+  throw new Error(`Could not update checklist source catalog: ${lastError?.message || "unknown error"}`);
 }
 
 export async function persistPlan(db, plan, bytes) {
