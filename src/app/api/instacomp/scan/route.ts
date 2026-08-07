@@ -22,6 +22,7 @@ import {
 } from "../../../../lib/instacomp-market-evidence";
 import {
   applyInstaCompConsensusToAi,
+  applyInstaCompRegistryFastLane,
   buildInstaCompMultiScannerConsensus,
   buildInstaCompReaderFindingFromAi,
   decideInstaCompCompSearch,
@@ -4278,11 +4279,25 @@ async function identifyCardWithConfiguredProviderFailover(params: {
     const catalogReferee = registryMatch
       ? catalogEvidenceToConsensusReferee(catalogEvidence)
       : null;
+    const hasFreshLocalDeterministicWitness = consensusReaders.some(
+      (reader) => reader.family === "instacomp_local_deterministic",
+    );
+    const finalConsensusEscalation = registryMatch
+      ? requestedAiCouncilTier === "basic" && hasFreshLocalDeterministicWitness
+        ? applyInstaCompRegistryFastLane(
+            { ...consensusEscalation, runSecondaryVision: false },
+            registryMatch.identityId,
+          )
+        : applyInstaCompRegistryFastLane(
+            consensusEscalation,
+            registryMatch.identityId,
+          )
+      : consensusEscalation;
     const consensus = buildInstaCompMultiScannerConsensus({
       readers: consensusReaders,
       baseIdentity: evidenceAi,
       catalogReferee,
-      escalation: consensusEscalation,
+      escalation: finalConsensusEscalation,
     });
     const consensusAi = applyInstaCompConsensusToAi(evidenceAi, consensus);
     const identityDecision = buildInstaCompEvidenceIdentityDecision({
@@ -4291,24 +4306,7 @@ async function identifyCardWithConfiguredProviderFailover(params: {
       hasBackImage: Boolean(backDataUrl),
       threshold: 0.95,
     });
-    const registrySetIsGeneric = [
-      "",
-      "base",
-      "base card",
-      "standard",
-      "regular",
-    ].includes(
-      String(registryMatch?.setName || "")
-        .trim()
-        .toLowerCase(),
-    );
-    const registrySetName = registryMatch
-      ? registrySetIsGeneric
-        ? registryMatch.product || registryMatch.setName
-        : [registryMatch.product, registryMatch.setName]
-            .filter(Boolean)
-            .join(" - ")
-      : null;
+    const registrySetName = registryMatch?.setName || registryMatch?.product || null;
     const ai: InstaCompAiResult = registryMatch
       ? {
           ...consensusAi,
@@ -4460,7 +4458,7 @@ async function identifyCardWithConfiguredProviderFailover(params: {
       ai,
       review: scanReview,
       consensus,
-      consensusEscalation,
+      consensusEscalation: finalConsensusEscalation,
       identityDecision,
       compSearchDecision,
       catalogEvidence,
@@ -4478,15 +4476,15 @@ async function identifyCardWithConfiguredProviderFailover(params: {
         provider: externalOcr?.provider || null,
         checkedImages: externalOcr?.checkedImages || 0,
         conflicts: externalOcr?.conflicts || [],
-        speedLane: consensusEscalation.speedLane,
-        councilMode: consensusEscalation.councilMode,
-        consensusRiskTier: consensusEscalation.riskTier,
-        scannerPlan: consensusEscalation.scannerPlan,
+        speedLane: finalConsensusEscalation.speedLane,
+        councilMode: finalConsensusEscalation.councilMode,
+        consensusRiskTier: finalConsensusEscalation.riskTier,
+        scannerPlan: finalConsensusEscalation.scannerPlan,
         primaryAiProvider: primaryAiResult.provider,
         primaryAiFamily: primaryAiResult.family,
         primaryAiAttempts: primaryAiResult.attempts,
         secondaryVisionRan: aiCouncil.completedReaders > 0,
-        secondaryVisionReasons: consensusEscalation.reasons,
+        secondaryVisionReasons: finalConsensusEscalation.reasons,
         aiCouncil,
         aiCouncilPolicy,
         extractedSerialNumber: externalOcr?.serialNumber || null,

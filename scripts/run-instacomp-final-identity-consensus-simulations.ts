@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { buildInstaCompMultiScannerConsensus } from "../src/lib/instacomp-consensus";
+import { applyInstaCompRegistryFastLane, buildInstaCompMultiScannerConsensus } from "../src/lib/instacomp-consensus";
 import { buildChecklistRegistryCatalogEvidence, buildInstaCompEvidenceIdentityDecision } from "../src/lib/instacomp-learning-server";
 import { catalogEvidenceToConsensusReferee } from "../src/lib/instacomp-curated-checklist";
 import { instaCompAiLocalScanToAi } from "../src/lib/instacomp-ai-local";
@@ -30,6 +30,13 @@ const iceMatch = {
 };
 const iceCatalog = buildChecklistRegistryCatalogEvidence(iceMatch);
 const iceReferee = catalogEvidenceToConsensusReferee(iceCatalog);
+const basicEscalation = applyInstaCompRegistryFastLane(
+  { schema: "tcos.instacomp.consensusEscalation.v1", speedLane: "escalated_multi_ai", councilMode: "full_council", riskTier: "high", runSecondaryVision: false, reasons: ["printed_variant_signal_needs_second_reader"], scannerPlan: ["primary_ai_vision"], explanation: "basic tier disabled paid secondary" },
+  iceMatch.identityId,
+);
+assert.equal(basicEscalation.runSecondaryVision, false);
+assert.equal(basicEscalation.speedLane, "fast_lane");
+
 const iceConsensus = buildInstaCompMultiScannerConsensus({
   readers: [
     {
@@ -53,7 +60,7 @@ const iceConsensus = buildInstaCompMultiScannerConsensus({
   ],
   baseIdentity: { player: "Dominique Malonga", year: "2025", brand: "Panini", setName: "Base", cardNumber: "116", parallel: "Prizms Ice", sport: "Basketball", isAuto: false, isRelic: false },
   catalogReferee: iceReferee,
-  escalation: { schema: "tcos.instacomp.consensusEscalation.v1", speedLane: "fast_lane", councilMode: "fast_lane_council", riskTier: "low", runSecondaryVision: false, reasons: [], scannerPlan: [], explanation: "test" },
+  escalation: basicEscalation,
 });
 console.log("ICE_CONSENSUS_DEBUG=" + JSON.stringify(iceConsensus, null, 2));
 assert.equal(iceConsensus.trustedForIdentity, true);
