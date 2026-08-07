@@ -36,20 +36,35 @@ function isTransientReadError(error) {
   return /schema cache|retrying|timed? out|timeout|too many connections|connection.*database|fetch failed|network|gateway|temporar|connection reset|socket|5\d\d/i.test(message);
 }
 
+function retryDelay(attempt) {
+  return Math.min(15_000, BASE_DELAY_MS * 2 ** (attempt - 1));
+}
+
 async function retryBoundedRead(label, operation) {
   const failures = [];
   for (let attempt = 1; attempt <= MAX_READ_ATTEMPTS; attempt += 1) {
-    const result = await operation();
+    let result;
+    try {
+      result = await operation();
+    } catch (error) {
+      const message = messageOf(error);
+      failures.push({ attempt, kind: "thrown", message: message.slice(0, 300) });
+      if (!isTransientReadError(error) || attempt === MAX_READ_ATTEMPTS) {
+        throw new Error(`${label} threw after ${attempt} attempt(s): ${message || "unknown error"}`);
+      }
+      await sleep(retryDelay(attempt));
+      continue;
+    }
+
     if (!result?.error) return { result, attempt, failures };
 
     const message = messageOf(result.error);
-    failures.push({ attempt, message: message.slice(0, 300) });
+    failures.push({ attempt, kind: "returned", message: message.slice(0, 300) });
     if (!isTransientReadError(result.error) || attempt === MAX_READ_ATTEMPTS) {
       throw new Error(`${label} failed after ${attempt} attempt(s): ${message || "unknown error"}`);
     }
 
-    const delay = Math.min(15_000, BASE_DELAY_MS * 2 ** (attempt - 1));
-    await sleep(delay);
+    await sleep(retryDelay(attempt));
   }
   throw new Error(`${label} exhausted bounded retries.`);
 }
@@ -98,15 +113,29 @@ let rpcVerified = false;
 let rpcAttempt = 0;
 for (let attempt = 1; attempt <= MAX_READ_ATTEMPTS; attempt += 1) {
   rpcAttempt = attempt;
-  const { data: rpcData, error: rpcError } = await db.rpc("tcos_apply_checklist_import_plan", {
-    p_plan: invalidPlan,
-    p_original_filename: "contract-probe.txt",
-    p_mime_type: "text/plain",
-    p_size_bytes: 0,
-    p_sha256: "0".repeat(64),
-    p_storage_bucket: "contract-probe",
-    p_storage_object_path: "contract-probe",
-  });
+  let rpcData;
+  let rpcError;
+  try {
+    const rpcResult = await db.rpc("tcos_apply_checklist_import_plan", {
+      p_plan: invalidPlan,
+      p_original_filename: "contract-probe.txt",
+      p_mime_type: "text/plain",
+      p_size_bytes: 0,
+      p_sha256: "0".repeat(64),
+      p_storage_bucket: "contract-probe",
+      p_storage_object_path: "contract-probe",
+    });
+    rpcData = rpcResult.data;
+    rpcError = rpcResult.error;
+  } catch (error) {
+    const message = messageOf(error);
+    rpcFailures.push({ attempt, kind: "thrown", message: message.slice(0, 300) });
+    if (!isTransientReadError(error) || attempt === MAX_READ_ATTEMPTS) {
+      throw new Error(`Registry writer contract probe threw after ${attempt} attempt(s): ${message || "unknown error"}`);
+    }
+    await sleep(retryDelay(attempt));
+    continue;
+  }
 
   if (rpcData) throw new Error("Registry writer contract probe unexpectedly returned data instead of failing closed.");
   const rpcMessage = messageOf(rpcError);
@@ -115,12 +144,11 @@ for (let attempt = 1; attempt <= MAX_READ_ATTEMPTS; attempt += 1) {
     break;
   }
 
-  rpcFailures.push({ attempt, message: rpcMessage.slice(0, 300) });
+  rpcFailures.push({ attempt, kind: "returned", message: rpcMessage.slice(0, 300) });
   if (!isTransientReadError(rpcError) || attempt === MAX_READ_ATTEMPTS) {
     throw new Error(`Registry writer contract probe failed at the wrong guard after ${attempt} attempt(s): ${rpcMessage || "no error returned"}`);
   }
-  const delay = Math.min(15_000, BASE_DELAY_MS * 2 ** (attempt - 1));
-  await sleep(delay);
+  await sleep(retryDelay(attempt));
 }
 
 if (!rpcVerified) throw new Error("Registry writer pre-write guard was not verified.");
@@ -134,6 +162,7 @@ console.log(JSON.stringify({
     stableRoundsRequired: STABLE_ROUNDS,
     stableRoundsCompleted: stableRounds.length,
     transientOnly: true,
+    thrownTransportErrorsCovered: true,
   },
   stableRounds,
   writer: {
