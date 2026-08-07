@@ -1,0 +1,91 @@
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+
+const originalFetch = globalThis.fetch.bind(globalThis);
+const MAX_ATTEMPTS = Math.max(2, Math.min(10, Number(process.env.MASTER_CHECKLIST_CATALOG_RETRY_ATTEMPTS || 7)));
+const BASE_DELAY_MS = Math.max(1, Math.min(10_000, Number(process.env.MASTER_CHECKLIST_CATALOG_RETRY_BASE_MS || 750)));
+const OUTPUT = resolve(process.cwd(), process.env.MASTER_CHECKLIST_OUTPUT || ".checklist-discovery/master-archive-batch-unknown.json");
+const startedAt = new Date().toISOString();
+const retryEvents = [];
+
+function sleep(ms) {
+  return new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
+}
+
+function urlString(input) {
+  if (typeof input === "string") return input;
+  if (input instanceof URL) return input.toString();
+  return input?.url || "";
+}
+
+function isCatalogRequest(input) {
+  try {
+    const url = new URL(urlString(input));
+    return url.pathname.includes("/rest/v1/checklist_source_catalog");
+  } catch {
+    return false;
+  }
+}
+
+function isRetryableStatus(status) {
+  return [408, 425, 429, 500, 502, 503, 504].includes(Number(status));
+}
+
+function retryInput(input) {
+  if (typeof Request !== "undefined" && input instanceof Request) return input.clone();
+  return input;
+}
+
+function record(kind, attempt, detail) {
+  retryEvents.push({
+    at: new Date().toISOString(),
+    kind,
+    attempt,
+    detail: String(detail || "").slice(0, 300),
+  });
+}
+
+globalThis.fetch = async function checklistCatalogRetryFetch(input, init) {
+  if (!isCatalogRequest(input)) return originalFetch(input, init);
+
+  let lastError = null;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await originalFetch(retryInput(input), init);
+      if (!isRetryableStatus(response.status) || attempt === MAX_ATTEMPTS) return response;
+      record("http", attempt, `HTTP ${response.status}`);
+    } catch (error) {
+      lastError = error;
+      record("network", attempt, error instanceof Error ? error.message : String(error));
+      if (attempt === MAX_ATTEMPTS) throw error;
+    }
+
+    const delay = Math.min(15_000, BASE_DELAY_MS * 2 ** (attempt - 1));
+    await sleep(delay);
+  }
+
+  throw lastError || new Error("Checklist catalog request exhausted retries.");
+};
+
+process.on("exit", (code) => {
+  if (!code || existsSync(OUTPUT)) return;
+  try {
+    mkdirSync(dirname(OUTPUT), { recursive: true });
+    writeFileSync(
+      OUTPUT,
+      `${JSON.stringify({
+        schema: "tcos.checklist.masterArchiveBatchFailure.v1",
+        status: "failed_before_complete_receipt",
+        startedAt,
+        failedAt: new Date().toISOString(),
+        exitCode: code,
+        batchIndex: Number(process.env.MASTER_CHECKLIST_BATCH_INDEX || -1),
+        masterRunId: "31100986894",
+        retryEvents: retryEvents.slice(-50),
+      }, null, 2)}\n`,
+      "utf8",
+    );
+  } catch {
+    // Never mask the original process failure.
+  }
+});
