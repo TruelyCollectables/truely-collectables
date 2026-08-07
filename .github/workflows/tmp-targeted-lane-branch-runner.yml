@@ -1,0 +1,65 @@
+name: Temporary Targeted Lane Branch Runner
+
+on:
+  push:
+    branches:
+      - fix/deal-hunter-targeted-lane-20260807
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/deal-hunter-targeted-lane-20260807
+          fetch-depth: 0
+
+      - name: Apply reviewed targeted-lane patch script
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import textwrap
+
+          harness = Path('.github/workflows/instacomp-deal-hunter-targeted-lane-repair.yml').read_text()
+          marker = "          python - <<'PY'\n"
+          start = harness.index(marker) + len(marker)
+          end = harness.index("\n          PY\n", start)
+          script = textwrap.dedent(harness[start:end])
+          exec(compile(script, 'targeted-lane-repair', 'exec'), {})
+          PY
+
+      - name: Compile and test targeted lane behavior
+        working-directory: services/instacomp-ai
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile app/deal_hunter.py app/deal_hunter_routes.py
+          PYTHONPATH=. pytest -q tests/test_deal_hunter_scheduler.py
+
+      - name: Assert protected targeted lane contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F 'lane: str | None = None' services/instacomp-ai/app/deal_hunter.py
+          grep -F 'force=true requires an explicit lane' services/instacomp-ai/app/deal_hunter_routes.py
+          grep -F 'if lane is not None and key != lane:' services/instacomp-ai/app/deal_hunter.py
+          grep -F 'if force' services/instacomp-ai/app/deal_hunter.py
+
+      - name: Commit generated runtime patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add services/instacomp-ai/app/deal_hunter.py services/instacomp-ai/app/deal_hunter_routes.py services/instacomp-ai/tests/test_deal_hunter_scheduler.py
+          if git diff --cached --quiet; then
+            echo 'No runtime changes generated'
+            exit 1
+          fi
+          git commit -m 'Add protected targeted Deal Hunter lane runs'
+          git push origin HEAD:fix/deal-hunter-targeted-lane-20260807
