@@ -7,6 +7,8 @@ import {
 
 const path = "scripts/verify-checklist-registry-production.mjs";
 const source = readFileSync(path, "utf8");
+const writerSource = readFileSync("supabase/migrations/20260731161500_checklist_registry_transactional_writer.sql", "utf8");
+const importerSource = readFileSync("scripts/mainstream-checklist/registry-tools.mjs", "utf8");
 
 for (const table of [
   "checklist_source_catalog",
@@ -34,6 +36,14 @@ assert(!/\.insert\s*\(/.test(source), "Verifier must not insert rows.");
 assert(!/\.update\s*\(/.test(source), "Verifier must not update rows.");
 assert(!/\.delete\s*\(/.test(source), "Verifier must not delete rows.");
 assert(!/\.upsert\s*\(/.test(source), "Verifier must not upsert rows.");
+
+const productionSchema = writerSource.match(/p_plan->>'schema'\s*<>\s*'([^']+)'/)?.[1];
+const verifierSchema = source.match(/const invalidPlan = \{[\s\S]*?schema:\s*"([^"]+)"/)?.[1];
+const importerSchema = importerSource.match(/schema:\s*"(tcos\.checklist\.importPlan\.v1)"/)?.[1];
+assert.equal(productionSchema, "tcos.checklist.importPlan.v1", "Production writer schema contract changed unexpectedly.");
+assert.equal(verifierSchema, productionSchema, "Verifier probe schema must exactly match the Production writer schema guard.");
+assert.equal(importerSchema, productionSchema, "Real importer schema must exactly match the Production writer schema guard.");
+assert(!source.includes("tcos.checklist.import-plan.v1"), "Obsolete hyphenated verifier schema must never return.");
 
 assert.equal(
   isRetryableRegistryReadError({ code: "PGRST002", message: "Could not query the database for the schema cache. Retrying." }),
@@ -138,5 +148,6 @@ console.log(JSON.stringify({
   exactCountsAbsent: true,
   writerPreWriteGuardProbe: true,
   writerProbeRetried: false,
+  productionVerifierImporterSchemaAligned: true,
   directMutationsAbsent: true,
 }));
