@@ -1,9 +1,8 @@
 name: InstaComp Registry Visible Evidence Recovery 20260807
 
 on:
-  push:
-    branches:
-      - fix/instacomp-registry-recovery-hard-facts-20260807
+  pull_request:
+    branches: [main]
     paths:
       - "scripts/ops/patch-instacomp-registry-visible-evidence-recovery-20260807.py"
       - "scripts/test-instacomp-registry-visible-evidence-recovery.ts"
@@ -12,6 +11,10 @@ on:
 
 permissions:
   contents: write
+
+concurrency:
+  group: instacomp-registry-visible-evidence-recovery-20260807
+  cancel-in-progress: true
 
 jobs:
   patch-and-certify:
