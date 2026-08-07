@@ -7,6 +7,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from .config import settings
 from .local_settings import LocalSettingsManager, LocalSettingsUpdate
+from .runtime_identity import RUNTIME_IDENTITY_FILES, runtime_source_fingerprint
 from .sentinel_routes import build_sentinel_router
 
 
@@ -44,6 +45,15 @@ def build_settings_router(
             settings.service_root,
         )
     )
+
+    @router.get("/v1/runtime-identity")
+    async def runtime_identity():
+        return {
+            "schema_version": "tcos.instacomp-ai.runtime-identity.v1",
+            "runtime_source_fingerprint": runtime_source_fingerprint(),
+            "tracked_files": list(RUNTIME_IDENTITY_FILES),
+            "version": settings.version,
+        }
 
     @router.get(
         "/v1/settings/local",
