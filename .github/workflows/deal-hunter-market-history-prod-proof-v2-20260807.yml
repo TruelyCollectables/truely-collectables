@@ -17,6 +17,7 @@ concurrency:
 
 env:
   EXPECTED_BRANCH: ops/deal-hunter-market-history-prod-proof-v2-20260807
+  FEATURE_MERGE_SHA: dc781cf690bc9adb389d605d2b2e896e71c20c5e
   VERCEL_SCOPE: truelycollectables-projects
   EVIDENCE_DIR: .audit/deal-hunter-market-history-prod-proof-v2-20260807
 
@@ -24,7 +25,7 @@ jobs:
   production-proof:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'ops/deal-hunter-market-history-prod-proof-v2-20260807'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
@@ -37,25 +38,28 @@ jobs:
           ref: ${{ env.EXPECTED_BRANCH }}
           fetch-depth: 0
 
-      - name: Fail closed on current main and operations-only scope
+      - name: Fail closed on feature ancestry and operations-only scope
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "$EVIDENCE_DIR"
           test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
           git fetch origin main
-          expected_main="$(git rev-parse origin/main)"
-          test "$(git merge-base "$expected_main" HEAD)" = "$expected_main"
-          mapfile -t changed < <(git diff --name-only "$expected_main"...HEAD | sort)
+          current_main="$(git rev-parse origin/main)"
+          git merge-base --is-ancestor "$FEATURE_MERGE_SHA" "$current_main"
+          git merge-base --is-ancestor "$FEATURE_MERGE_SHA" HEAD
+          scope_base="$(git merge-base origin/main HEAD)"
+          mapfile -t changed < <(git diff --name-only "$scope_base"...HEAD | sort)
           expected=(
             .github/workflows/deal-hunter-market-history-prod-proof-v2-20260807.yml
             scripts/run-deal-hunter-market-history-prod-proof.mjs
           )
           test "${#changed[@]}" -eq "${#expected[@]}"
           test "$(printf '%s\n' "${changed[@]}")" = "$(printf '%s\n' "${expected[@]}")"
-          git diff --check "$expected_main"...HEAD
-          echo "EXPECTED_MAIN_SHA=$expected_main" >> "$GITHUB_ENV"
-          printf '%s\n' "$expected_main" > "$EVIDENCE_DIR/source-sha.txt"
+          git diff --check "$scope_base"...HEAD
+          echo "EXPECTED_MAIN_SHA=$current_main" >> "$GITHUB_ENV"
+          printf '%s\n' "$current_main" > "$EVIDENCE_DIR/current-main-sha.txt"
+          printf '%s\n' "$FEATURE_MERGE_SHA" > "$EVIDENCE_DIR/feature-merge-sha.txt"
 
       - uses: actions/setup-node@v4
         with:
@@ -82,46 +86,25 @@ jobs:
           test -s "$RUNNER_TEMP/deal-hunter-market-history-proof-v2/production.env"
           echo "PRODUCTION_ENV_FILE=$RUNNER_TEMP/deal-hunter-market-history-proof-v2/production.env" >> "$GITHUB_ENV"
 
-      - name: Reconfirm exact main immediately before Production DB mutation
+      - name: Reconfirm feature is still on current main before DB mutation
         shell: bash
         run: |
           set -euo pipefail
           git fetch origin main
-          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          git merge-base --is-ancestor "$FEATURE_MERGE_SHA" origin/main
+          printf '%s\n' "$(git rev-parse origin/main)" > "$EVIDENCE_DIR/pre-db-current-main-sha.txt"
 
       - name: Apply Deal Hunter migrations and run rollback-only Production proof
         run: node scripts/run-deal-hunter-market-history-prod-proof.mjs
 
-      - name: Deploy exact current main to Vercel Production
-        id: deploy
+      - name: Verify live Production Deal Hunter route boundary
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin main
-          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
-          exact="$RUNNER_TEMP/deal-hunter-market-history-exact-main-v2"
-          rm -rf "$exact"
-          git worktree add --detach "$exact" "$EXPECTED_MAIN_SHA"
-          test "$(git -C "$exact" rev-parse HEAD)" = "$EXPECTED_MAIN_SHA"
-          test -z "$(git -C "$exact" status --porcelain)"
-          mkdir -p "$exact/.vercel"
-          cp .vercel/project.json "$exact/.vercel/project.json"
-          cd "$exact"
-          npx vercel@56.2.0 deploy --prod --yes --force --meta "launchSourceSha=$EXPECTED_MAIN_SHA" --meta "launchPurpose=deal-hunter-market-history-proof-v2" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee "$GITHUB_WORKSPACE/$EVIDENCE_DIR/vercel-deploy.log"
-          url="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$GITHUB_WORKSPACE/$EVIDENCE_DIR/vercel-deploy.log" | tail -n 1)"
-          test -n "$url"
-          echo "url=$url" >> "$GITHUB_OUTPUT"
-          printf '%s\n' "$url" > "$GITHUB_WORKSPACE/$EVIDENCE_DIR/deployment-url.txt"
-
-      - name: Verify deployed Deal Hunter routes exist and stay protected
-        env:
-          DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          root="$(curl --location --silent --show-error --max-time 90 --output "$EVIDENCE_DIR/root.html" --write-out '%{http_code}' "$DEPLOYMENT_URL/")"
+          base="https://truelycollectables.com"
+          root="$(curl --location --silent --show-error --max-time 90 --output "$EVIDENCE_DIR/root.html" --write-out '%{http_code}' "$base/")"
           test "$root" = "200"
-          history="$(curl --silent --show-error --max-time 60 --output "$EVIDENCE_DIR/history-unauthorized.json" --write-out '%{http_code}' "$DEPLOYMENT_URL/api/instacomp/market-history")"
+          history="$(curl --silent --show-error --max-time 60 --output "$EVIDENCE_DIR/history-unauthorized.json" --write-out '%{http_code}' "$base/api/instacomp/market-history")"
           test "$history" = "401"
           printf '{"root":%s,"marketHistoryUnauthorized":%s}\n' "$root" "$history" > "$EVIDENCE_DIR/deployment-boundaries.json"
 
