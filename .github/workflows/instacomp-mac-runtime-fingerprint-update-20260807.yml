@@ -1,0 +1,61 @@
+name: InstaComp Mac Runtime Fingerprint Update 20260807
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instacomp-mac-runtime-fingerprint-update-20260807-pr
+  cancel-in-progress: false
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/instacomp-mac-runtime-fingerprint-update-20260807
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Shell and source-contract safety
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n services/instacomp-ai/scripts/update-live-from-main.sh
+          grep -q '"/v1/runtime-identity"' services/instacomp-ai/app/settings_routes.py
+          grep -q 'runtime_source_fingerprint' services/instacomp-ai/app/settings_routes.py
+          grep -q 'runtimeSourceFingerprint' src/app/api/instacomp/internal-readiness/route.ts
+          grep -q 'app/local_vision.py' services/instacomp-ai/app/runtime_identity.py
+          grep -q 'app/ollama.py' services/instacomp-ai/app/runtime_identity.py
+          git diff --check
+
+      - name: Install Mac service test dependencies
+        working-directory: services/instacomp-ai
+        run: python -m pip install -r requirements.txt
+
+      - name: Run complete Mac service test suite
+        working-directory: services/instacomp-ai
+        run: python -m pytest -q
+
+      - name: Python compile
+        working-directory: services/instacomp-ai
+        run: python -m compileall -q app
+
+      - name: Install web dependencies
+        run: npm ci
+
+      - name: TypeScript compile
+        run: npx tsc --noEmit

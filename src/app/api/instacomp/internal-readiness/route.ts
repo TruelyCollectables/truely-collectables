@@ -119,6 +119,25 @@ async function resolveConfiguredHostname(baseUrl: string) {
   }
 }
 
+async function fetchRuntimeIdentity(baseUrl: string, headers: Headers) {
+  try {
+    const response = await fetch(`${baseUrl}/v1/runtime-identity`, {
+      headers,
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | Record<string, unknown>
+      | null;
+    if (!response.ok || !payload) return null;
+    const fingerprint = String(payload.runtime_source_fingerprint || "").trim();
+    return fingerprint || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function GET() {
   const baseUrl = configuredLocalUrl();
   if (!baseUrl) {
@@ -131,6 +150,7 @@ export async function GET() {
         internalMemoryReady: false,
         checklistReady: false,
         localModelReady: false,
+        runtimeSourceFingerprint: null,
         architecture: ["instacomp_ai"],
         reason: "internal_engine_url_not_configured",
       },
@@ -163,6 +183,7 @@ export async function GET() {
           internalMemoryReady: false,
           checklistReady: false,
           localModelReady: false,
+          runtimeSourceFingerprint: null,
           architecture: ["instacomp_ai"],
           reason: `internal_health_http_${response.status}`,
         },
@@ -170,6 +191,7 @@ export async function GET() {
       );
     }
 
+    const runtimeSourceFingerprint = await fetchRuntimeIdentity(baseUrl, headers);
     const internalMemoryReady = health.database === "ready";
     const checklistReady = health.checklist === "ready";
     // InstaComp identity scans are checklist-only. Ollama is not part of readiness.
@@ -186,6 +208,7 @@ export async function GET() {
         localModelReady,
         app: typeof health.app === "string" ? health.app : "InstaComp AI",
         version: typeof health.version === "string" ? health.version : null,
+        runtimeSourceFingerprint,
         architecture: ["instacomp_ai"],
         reason: ok ? null : "internal_engine_not_fully_ready",
       },
@@ -202,6 +225,7 @@ export async function GET() {
         internalMemoryReady: false,
         checklistReady: false,
         localModelReady: false,
+        runtimeSourceFingerprint: null,
         architecture: ["instacomp_ai"],
         ...failure,
       },
