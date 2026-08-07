@@ -45,7 +45,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsS --max-time 90 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$SITE_URL/api/release/instacomp-deal-hunter-demidov-status" > pre.json
+          code="$(curl -sS --max-time 90 -o pre.json -w '%{http_code}' -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$SITE_URL/api/release/instacomp-deal-hunter-demidov-status" || true)"
+          echo "ivan_baseline_http=$code"
+          test -s pre.json && cat pre.json || true
+          test "$code" = 200
           node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("pre.json","utf8"));if(!p.success)throw new Error(JSON.stringify(p));fs.appendFileSync(process.env.GITHUB_ENV,`PROOF_STARTED=${new Date().toISOString()}\nPRE_TRUSTED_IVAN=${Number(p.trustedIvanHistoryCount||0)}\n`);console.log(JSON.stringify({ivanCandidateCount:p.ivanCandidateCount,trustedIvanHistoryCount:p.trustedIvanHistoryCount},null,2));'
 
       - name: Trigger targeted physical Mac Ivan run
@@ -57,6 +60,8 @@ jobs:
           test -s targeted.json && cat targeted.json || true
           if [ "$code" = 200 ]; then
             node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("targeted.json","utf8"));if(!p.success||p.lane!=="ivan_demidov"||p.run?.trigger!=="manual_targeted"||p.run?.status!=="completed")throw new Error(JSON.stringify(p));if(Number(p.run.discoveryCount||0)<=0||Number(p.run.evaluatedCount||0)<=0)throw new Error("Targeted run did not discover/evaluate Ivan candidates: "+JSON.stringify(p.run));fs.appendFileSync(process.env.GITHUB_ENV,`TARGET_RUN_ID=${p.run.runId}\n`);'
+          elif [ "$code" != 000 ] && [ "$code" -lt 500 ]; then
+            exit 1
           fi
 
       - name: Poll durable targeted run if request timed out
@@ -82,6 +87,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsS --max-time 90 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$SITE_URL/api/release/instacomp-deal-hunter-demidov-status" > post.json
-          cat post.json
+          code="$(curl -sS --max-time 90 -o post.json -w '%{http_code}' -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$SITE_URL/api/release/instacomp-deal-hunter-demidov-status" || true)"
+          echo "ivan_post_http=$code"
+          test -s post.json && cat post.json || true
+          test "$code" = 200
           node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("post.json","utf8"));if(!p.success)throw new Error(JSON.stringify(p));const runId=process.env.TARGET_RUN_ID;const fresh=(p.candidates||[]).filter(c=>c.runId===runId);if(fresh.length<=0)throw new Error(`No Ivan candidates from targeted run ${runId}`);const trusted=fresh.filter(c=>c.trustedHistory?.registryIdentityId);if(trusted.length<=0)throw new Error(`Targeted Ivan run ${runId} produced no Registry-backed trusted Ivan history: ${JSON.stringify(fresh)}`);console.log(JSON.stringify({runId,freshCandidates:fresh.length,trustedFreshCandidates:trusted.length,trusted:trusted.map(c=>({title:c.title,listingItemId:c.listingItemId,itemPrice:c.itemPrice,deliveredCost:c.deliveredCost,dealLabel:c.dealLabel,status:c.status,identity:c.identity,trustedHistory:c.trustedHistory}))},null,2));'
