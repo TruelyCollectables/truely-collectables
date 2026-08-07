@@ -7,6 +7,7 @@ on:
       - "scripts/ops/patch-instacomp-final-five-consensus-registry-groovy-20260807.py"
       - "scripts/ops/fix-instacomp-final-groovy-regression-fixture-20260807.py"
       - "scripts/ops/fix-instacomp-registry-logical-set-identity-20260807.py"
+      - "scripts/ops/fix-instacomp-catalog-base-set-comparator-20260807.py"
       - "scripts/ops/instrument-instacomp-final-consensus-simulation-20260807.py"
       - ".github/workflows/instacomp-final-five-consensus-registry-groovy-20260807.yml"
   workflow_dispatch:
@@ -36,6 +37,9 @@ jobs:
 
       - name: Use logical Registry set identity
         run: python scripts/ops/fix-instacomp-registry-logical-set-identity-20260807.py
+
+      - name: Preserve Base checklist set equality
+        run: python scripts/ops/fix-instacomp-catalog-base-set-comparator-20260807.py
 
       - name: Instrument Ice consensus simulation
         run: python scripts/ops/instrument-instacomp-final-consensus-simulation-20260807.py
@@ -82,6 +86,7 @@ jobs:
           grep -Fq 'internalChecklistIdentityId' src/lib/instacomp-ai-local.ts
           grep -Fq 'revalidateChecklistRegistryReceipt' src/lib/instacomp-learning-server.ts
           grep -Fq 'setName: match.setName,' src/lib/instacomp-learning-server.ts
+          grep -Fq 'if (isGenericBase(readerValue))' src/lib/instacomp-consensus.ts
           grep -Fq 'family: "instacomp_local_deterministic"' src/app/api/instacomp/scan/route.ts
           grep -Fq 'requestedTier: requestedAiCouncilTier' src/app/api/instacomp/scan/route.ts
           if grep -Fq 'requestedTier: "basic"' src/app/api/instacomp/scan/route.ts; then
