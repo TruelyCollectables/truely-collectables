@@ -74,6 +74,24 @@ function observedCardLines(body) {
   return seen.size;
 }
 
+function directPageHasChecklistDownload(body) {
+  const html = String(body || "");
+  const fileLink = /href\s*=\s*["'][^"']+\.(?:xlsx?|csv|tsv|pdf)(?:[?#][^"']*)?["']/i.test(html);
+  const checklistLink = /href\s*=\s*["'][^"']+["'][^>]*>[\s\S]{0,220}?(?:download|spreadsheet|excel|xlsx|xls|csv|pdf|checklist)/i.test(html);
+  return fileLink || checklistLink;
+}
+
+function rebuiltResponse(response, body, contentType = null) {
+  const headers = new Headers(response.headers);
+  headers.delete("content-length");
+  if (contentType) headers.set("content-type", contentType);
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 async function validatedReaderResponse(response, urlValue) {
   if (!response.ok) return response;
   const body = await response.text();
@@ -129,23 +147,41 @@ async function fetchReader(urlValue, init = {}) {
   throw lastError || new Error(`Reader fetch failed: ${urlValue}`);
 }
 
+async function verifiedDirectFallback(input, init, urlValue, readerError) {
+  const response = await nativeFetch(input, init);
+  if (!response.ok) return response;
+  const mime = String(response.headers.get("content-type") || "").toLowerCase();
+  if (!mime.includes("text/html") && !mime.includes("application/xhtml+xml")) {
+    return response;
+  }
+  const body = await response.text();
+  if (!directPageHasChecklistDownload(body)) {
+    throw new Error(
+      `Editorial checklist reader failed and direct page has no verifiable checklist download: ${urlValue}. Reader error: ${readerError instanceof Error ? readerError.message : String(readerError || "unknown")}`,
+    );
+  }
+  return rebuiltResponse(response, body, "text/html; charset=utf-8");
+}
+
 globalThis.fetch = async function preferCompleteReaderFetch(input, init = {}) {
   const urlValue = requestUrl(input);
   if (!shouldPreferReader(urlValue)) return nativeFetch(input, init);
 
+  let readerError = null;
   try {
     const reader = await fetchReader(urlValue, init);
     if (reader.ok) return reader;
-  } catch {
-    // Fall through to the original public page. The downstream parser remains
-    // fail-closed if that direct representation is incomplete or unusable.
+    readerError = new Error(`Reader returned HTTP ${reader.status}`);
+  } catch (error) {
+    readerError = error;
   }
-  return nativeFetch(input, init);
+  return verifiedDirectFallback(input, init, urlValue, readerError);
 };
 
 export {
   READER_FIRST_RULES,
   declaredCardFloor,
+  directPageHasChecklistDownload,
   observedCardLines,
   shouldPreferReader,
 };
