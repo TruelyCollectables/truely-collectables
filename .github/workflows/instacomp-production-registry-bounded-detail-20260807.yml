@@ -1,0 +1,58 @@
+name: InstaComp Production Registry Bounded Detail 20260807
+
+on:
+  push:
+    branches:
+      - fix/instacomp-production-registry-bounded-detail-20260807
+    paths:
+      - "scripts/patch-instacomp-production-registry-bounded-detail.py"
+      - "scripts/test-instacomp-production-registry-bounded-detail.mjs"
+      - ".github/workflows/instacomp-production-registry-bounded-detail-20260807.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instacomp-production-registry-bounded-detail-20260807
+  cancel-in-progress: true
+
+jobs:
+  patch-test-commit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/instacomp-production-registry-bounded-detail-20260807
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Apply bounded Registry resolver patch
+        run: python scripts/patch-instacomp-production-registry-bounded-detail.py
+      - name: Verify bounded source contract
+        run: node scripts/test-instacomp-production-registry-bounded-detail.mjs
+      - name: Install dependencies
+        run: npm ci
+      - name: TypeScript compile
+        run: npx tsc --noEmit
+      - name: Diff safety
+        run: |
+          set -euo pipefail
+          git diff --check
+          changed="$(git diff --name-only)"
+          echo "$changed"
+          test "$changed" = "src/lib/instacomp-learning-server.ts"
+      - name: Commit tested resolver
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/instacomp-learning-server.ts
+          git commit -m "Bound Production Registry detail lookup"
+          git push origin HEAD:fix/instacomp-production-registry-bounded-detail-20260807
