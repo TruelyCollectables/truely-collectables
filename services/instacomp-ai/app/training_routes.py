@@ -1,12 +1,34 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
+from .deal_hunter_learning import (
+    candidate_policy_receipt,
+    decision_learning_manifest,
+    initialize_decision_learning,
+    load_decision_lessons,
+    record_decision_learning_event,
+)
 from .storage import MemoryStore
 from .training import export_training_dataset, training_readiness
+
+
+ALLOWED_DEAL_HUNTER_FEEDBACK = {
+    "BUY",
+    "PASS",
+    "TOO_MUCH",
+    "TOO_MUCH_SHIPPING",
+    "PASS_TOO_MUCH_SHIPPING",
+    "WRONG_IDENTITY",
+    "WRONG_PARALLEL",
+    "HIDDEN_GEM",
+    "NOT_AVAILABLE",
+    "BAD_CONDITION",
+    "VARIANT_PRICE_WRONG",
+}
 
 
 def build_training_router(
@@ -16,6 +38,12 @@ def build_training_router(
     image_store_path: Path,
     training_export_path: Path,
 ) -> APIRouter:
+    # Deal Hunter decision lessons share the same durable local SQLite file as
+    # InstaComp's learning stack, but remain in separate tables from card-identity
+    # lessons/training examples. This keeps marketplace feedback from becoming
+    # visual identity truth.
+    initialize_decision_learning(store.path)
+
     router = APIRouter(
         prefix="/v1/training",
         tags=["training"],
@@ -24,7 +52,15 @@ def build_training_router(
 
     @router.get("/readiness")
     async def readiness():
-        return training_readiness(store.list_training_examples(trusted_only=True))
+        result = training_readiness(store.list_training_examples(trusted_only=True))
+        decision_lessons = load_decision_lessons(store.path)
+        result["deal_hunter_decision_learning"] = {
+            "policy": decision_learning_manifest(),
+            "persisted_trusted_lessons": len(decision_lessons),
+            "feedback_storage": "deal_hunter_learning_events",
+            "identity_training_separated": True,
+        }
+        return result
 
     @router.get("/examples")
     async def examples(
@@ -39,6 +75,65 @@ def build_training_router(
             "schema_version": "tcos.instacomp-ai.training-examples.v1",
             "count": len(rows),
             "examples": [row.model_dump(mode="json") for row in rows],
+        }
+
+    @router.get("/deal-hunter/lessons")
+    async def deal_hunter_lessons():
+        lessons = load_decision_lessons(store.path)
+        return {
+            "schema_version": "tcos.instacomp-ai.deal-hunter-lessons.v1",
+            "policy": decision_learning_manifest(),
+            "count": len(lessons),
+            "lessons": lessons,
+        }
+
+    @router.post("/deal-hunter/policy-receipt")
+    async def deal_hunter_policy_receipt(
+        listing: dict[str, Any] = Body(...),
+    ):
+        return candidate_policy_receipt(listing)
+
+    @router.post("/deal-hunter/feedback")
+    async def deal_hunter_feedback(
+        body: dict[str, Any] = Body(...),
+    ):
+        event_type = str(body.get("eventType") or body.get("event_type") or "").strip().upper()
+        if event_type not in ALLOWED_DEAL_HUNTER_FEEDBACK:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "eventType must be one of: "
+                    + ", ".join(sorted(ALLOWED_DEAL_HUNTER_FEEDBACK))
+                ),
+            )
+        candidate_key = str(
+            body.get("candidateKey") or body.get("candidate_key") or ""
+        ).strip() or None
+        payload = body.get("payload")
+        if payload is None:
+            payload = {
+                key: value
+                for key, value in body.items()
+                if key not in {"eventType", "event_type", "candidateKey", "candidate_key"}
+            }
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="payload must be an object")
+
+        record_decision_learning_event(
+            store.path,
+            event_type=event_type,
+            candidate_key=candidate_key,
+            payload=payload,
+            trusted=True,
+        )
+        return {
+            "ok": True,
+            "schema_version": "tcos.instacomp-ai.deal-hunter-feedback.v1",
+            "event_type": event_type,
+            "candidate_key": candidate_key,
+            "trusted": True,
+            "identity_training_mutated": False,
+            "note": "Operator Deal Hunter feedback was retained in decision-learning storage only.",
         }
 
     @router.post("/export")
