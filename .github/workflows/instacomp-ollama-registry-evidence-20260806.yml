@@ -6,7 +6,7 @@ on:
     paths:
       - "scripts/patch-instacomp-ollama-registry-evidence.py"
       - "services/instacomp-ai/app/main.py"
-      - "services/instacomp-ai/tests/test_ollama_registry_fallback_contract.py"
+      - "services/instacomp-ai/tests/**"
       - ".github/workflows/instacomp-ollama-registry-evidence-20260806.yml"
 
 permissions:
@@ -43,13 +43,12 @@ jobs:
           cache-dependency-path: services/instacomp-ai/requirements.txt
 
       - name: Compile and test Mac service
-        working-directory: services/instacomp-ai
         shell: bash
         run: |
           set -euo pipefail
-          pip install -r requirements.txt
-          python -m compileall app tests
-          pytest -q
+          pip install -r services/instacomp-ai/requirements.txt
+          python -m compileall services/instacomp-ai/app services/instacomp-ai/tests
+          PYTHONPATH=services/instacomp-ai pytest -q services/instacomp-ai/tests
 
       - name: Persist repaired runtime file
         shell: bash
