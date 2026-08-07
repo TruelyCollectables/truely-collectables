@@ -1,0 +1,64 @@
+name: InstaComp Ollama Parser and Error Codes 20260806
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/patch-instacomp-ollama-parser-and-error-codes.py"
+      - "services/instacomp-ai/app/ollama.py"
+      - "services/instacomp-ai/app/main.py"
+      - "services/instacomp-ai/tests/test_ollama_parser_resilience.py"
+      - ".github/workflows/instacomp-ollama-parser-and-error-codes-20260806.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instacomp-ollama-parser-and-error-codes-20260806
+  cancel-in-progress: false
+
+jobs:
+  apply-and-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/instacomp-ollama-parser-and-error-codes-20260806
+          fetch-depth: 0
+
+      - name: Apply runtime patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-instacomp-ollama-parser-and-error-codes.py
+          grep -q 'normalize_confidence' services/instacomp-ai/app/ollama.py
+          grep -q 'local_model_error:' services/instacomp-ai/app/main.py
+          grep -q 'ollama_http_' services/instacomp-ai/app/main.py
+          git diff --check
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/instacomp-ai/requirements.txt
+
+      - name: Compile and run all Mac service tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          pip install -r services/instacomp-ai/requirements.txt
+          python -m compileall services/instacomp-ai/app services/instacomp-ai/tests
+          PYTHONPATH=services/instacomp-ai pytest -q services/instacomp-ai/tests
+
+      - name: Persist repaired runtime files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add services/instacomp-ai/app/ollama.py services/instacomp-ai/app/main.py
+          if ! git diff --cached --quiet; then
+            git commit -m "Harden Ollama output parsing and expose safe error codes [skip ci]"
+            git push origin HEAD:fix/instacomp-ollama-parser-and-error-codes-20260806
+          fi
