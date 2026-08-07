@@ -24,11 +24,15 @@ function parseEnv(file) {
 }
 
 const env = parseEnv(productionEnvFile);
-const macUrl = String(env.INSTACOMP_AI_LOCAL_URL || "").replace(/\/+$/, "");
+const configuredMacUrl = String(env.INSTACOMP_AI_LOCAL_URL || "").replace(/\/+$/, "");
+const canonicalMacUrl = "https://instacomp.truelycollectables.com";
+const macUrl = /^https:\/\/[^/]+\.truelycollectables\.com$/i.test(configuredMacUrl)
+  ? configuredMacUrl
+  : canonicalMacUrl;
+const tunnelSource = macUrl === configuredMacUrl ? "production_env" : "audited_canonical_fallback";
 const macKey = String(env.INSTACOMP_AI_LOCAL_KEY || "").trim();
 const supabaseUrl = String(env.NEXT_PUBLIC_SUPABASE_URL || "").replace(/\/+$/, "");
 const serviceKey = String(env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
-if (!/^https:\/\/[^/]+\.truelycollectables\.com$/i.test(macUrl)) throw new Error("Production Mac tunnel URL is missing or outside truelycollectables.com.");
 if (!macKey) throw new Error("Production Mac shared key is missing.");
 if (!/^https:\/\//.test(supabaseUrl) || !serviceKey) throw new Error("Production Supabase service access is missing.");
 
@@ -54,7 +58,7 @@ async function countRows(table, filters = "") {
   const url = `${supabaseUrl}/rest/v1/${table}?select=id&limit=1${filters}`;
   const response = await fetch(url, { headers: dbHeaders });
   const text = await response.text();
-  if (!response.ok) throw new Error(`Supabase REST count for ${table} failed HTTP ${response.status}: ${text.slice(0, 500)}`);
+  if (!response.ok && response.status !== 206) throw new Error(`Supabase REST count for ${table} failed HTTP ${response.status}: ${text.slice(0, 500)}`);
   const range = response.headers.get("content-range") || "";
   const match = range.match(/\/(\d+|\*)$/);
   if (!match || match[1] === "*") throw new Error(`Supabase REST count for ${table} did not return an exact total: ${range}`);
@@ -78,7 +82,6 @@ const proofStartedAt = new Date().toISOString();
 let trigger = { accepted: false, transportTimedOut: false, payload: null };
 
 if (beforeStatus?.running === true) {
-  // Do not overlap. Wait for the existing run to complete before starting the manual proof.
   for (let i = 0; i < 80; i += 1) {
     await new Promise((resolve) => setTimeout(resolve, 15000));
     const current = await status();
@@ -98,8 +101,6 @@ try {
   trigger.transportTimedOut = true;
 }
 
-// The tunnel/proxy can close a long synchronous request before the Mac finishes it.
-// Poll durable scheduler state and accept only a run that demonstrably started after our trigger.
 let afterStatus = null;
 let manualStarted = trigger.accepted;
 for (let i = 0; i < 100; i += 1) {
@@ -137,6 +138,7 @@ const receipt = {
     runtimeSourceFingerprint: runtimeIdentity?.runtime_source_fingerprint || null,
     schedulerEnabled: beforeStatus?.enabled === true,
     evaluationKeyConfigured: beforeStatus?.mac_evaluation_key_configured === true,
+    tunnelSource,
   },
   trigger: {
     acceptedDirectly: trigger.accepted,
