@@ -22,6 +22,7 @@ env:
   GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
   PRODUCTION_ORIGIN: https://truelycollectables.com
   FINAL_REPAIR_COMMIT: 89307c8f19b631f69f9dadbe522f1d696f87f442
+  CERTIFIED_MAC_FINGERPRINT: 35104b3dcb06eaac76a02175b422d7429e843e7c25fdcf5746b94e3e77a72218
   EVIDENCE_DIR: evidence/instacomp-final-production-acceptance-v4-20260807
   TEMP_DIR: /tmp/instacomp-final-production-acceptance-v4-20260807
 
@@ -35,16 +36,22 @@ jobs:
           ref: ${{ env.EXPECTED_BRANCH }}
           fetch-depth: 0
 
-      - name: Lock synchronized source and compute exact runtime fingerprint
+      - name: Freeze main snapshot and compute exact runtime fingerprint
         shell: bash
         run: |
           set -euo pipefail
           test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
           test "$(git rev-parse HEAD)" = "$(git rev-parse origin/$EXPECTED_BRANCH)"
           git fetch origin main
-          git merge-base --is-ancestor origin/main HEAD
+          frozen_main_sha="$(git rev-parse origin/main)"
+          test -n "$frozen_main_sha"
+          echo "FROZEN_MAIN_SHA=$frozen_main_sha" >> "$GITHUB_ENV"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git merge --no-edit "$frozen_main_sha"
+          git merge-base --is-ancestor "$frozen_main_sha" HEAD
           git merge-base --is-ancestor "$FINAL_REPAIR_COMMIT" HEAD
-          changed="$(git diff --name-only origin/main...HEAD | sort)"
+          changed="$(git diff --name-only "$frozen_main_sha"...HEAD | sort)"
           expected="$(printf '%s\n' '.github/workflows/instacomp-final-production-acceptance-v4-20260807.yml' 'scripts/ops/run-instacomp-final-production-acceptance.mjs' | sort)"
           test "$changed" = "$expected"
           runner=scripts/ops/run-instacomp-final-production-acceptance.mjs
@@ -70,11 +77,13 @@ jobs:
           PY
           )"
           test "${#fp}" = "64"
+          test "$fp" = "$CERTIFIED_MAC_FINGERPRINT"
           echo "EXPECTED_MAC_FINGERPRINT=$fp" >> "$GITHUB_ENV"
+          echo "frozen_main_source=$frozen_main_sha"
           echo "acceptance_source=$(git rev-parse HEAD)"
           echo "expected_mac_fingerprint=$fp"
           mkdir -p "$EVIDENCE_DIR" "$TEMP_DIR"
-          printf '{"acceptanceSource":"%s","mainSource":"%s","expectedMacFingerprint":"%s","finalRepairCommit":"%s"}\n' "$(git rev-parse HEAD)" "$(git rev-parse origin/main)" "$fp" "$FINAL_REPAIR_COMMIT" > "$EVIDENCE_DIR/source-lock.json"
+          printf '{"acceptanceSource":"%s","mainSource":"%s","expectedMacFingerprint":"%s","finalRepairCommit":"%s"}\n' "$(git rev-parse HEAD)" "$frozen_main_sha" "$fp" "$FINAL_REPAIR_COMMIT" > "$EVIDENCE_DIR/source-lock.json"
 
       - name: Read-only preflight exact Mac and permanent Registry-safe runtime
         shell: bash
