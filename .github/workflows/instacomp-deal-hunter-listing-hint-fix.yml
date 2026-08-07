@@ -4,6 +4,7 @@ on:
   pull_request:
     branches: [main]
     paths:
+      - 'src/lib/deal-hunter-listing-hint-repair.marker'
       - '.github/workflows/instacomp-deal-hunter-listing-hint-fix.yml'
 
 permissions:
@@ -23,111 +24,81 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
-
           core = Path('src/app/api/instacomp/deal-hunter/evaluate/core.ts')
           s = core.read_text()
-          old = '''    internalForm.set("aiCouncilTier", "basic");\n'''
-          new = '''    internalForm.set("aiCouncilTier", "basic");\n    const listingTitleHint = text(listing.title, 1000);\n    if (listingTitleHint) internalForm.set("listingTitleHint", listingTitleHint);\n'''
-          if old not in s:
-              raise SystemExit('core insertion anchor not found')
-          s = s.replace(old, new, 1)
-          core.write_text(s)
+          old = '    internalForm.set("aiCouncilTier", "basic");\n'
+          new = '    internalForm.set("aiCouncilTier", "basic");\n    const listingTitleHint = text(listing.title, 1000);\n    if (listingTitleHint) internalForm.set("listingTitleHint", listingTitleHint);\n'
+          if 'listingTitleHint' not in s:
+              if old not in s: raise SystemExit('core insertion anchor not found')
+              s = s.replace(old, new, 1)
+              core.write_text(s)
 
           scan = Path('src/app/api/instacomp/scan/route.ts')
           s = scan.read_text()
-
-          anchor = '''async function identifyCardWithConfiguredProviderFailover(params: {\n'''
-          helper = r'''function extractUntrustedListingIdentityHint(value: unknown) {
-  const title = String(value || "").trim().slice(0, 1000);
-  if (!title) return { title: null, year: null, cardNumber: null };
-  const year = title.match(/\b((?:19|20)\d{2})(?:[-/]\d{2,4})?\b/)?.[1] || null;
-  const cardNumber =
-    title.match(/(?:\bcard\s*)?#\s*([A-Za-z0-9][A-Za-z0-9.-]{0,24})\b/i)?.[1] || null;
-  return { title, year, cardNumber };
-}
-
-'''
-          if anchor not in s:
-              raise SystemExit('scan helper anchor not found')
-          s = s.replace(anchor, helper + anchor, 1)
-
-          old = '''  let operatorSerialNumberOverride: string | null | undefined = undefined;\n  let imageOrientation:'''
-          new = '''  let operatorSerialNumberOverride: string | null | undefined = undefined;\n  let listingTitleHint: string | null = null;\n  let imageOrientation:'''
-          if old not in s:
-              raise SystemExit('scan variable anchor not found')
-          s = s.replace(old, new, 1)
-
-          old = '''      const submittedOperatorSerialNumberOverride = formData.get(\n        "operatorSerialNumberOverride",\n      );\n\n      frontImage = submittedFront instanceof File ? submittedFront : null;'''
-          new = '''      const submittedOperatorSerialNumberOverride = formData.get(\n        "operatorSerialNumberOverride",\n      );\n      const submittedListingTitleHint = formData.get("listingTitleHint");\n\n      frontImage = submittedFront instanceof File ? submittedFront : null;'''
-          if old not in s:
-              raise SystemExit('scan form anchor not found')
-          s = s.replace(old, new, 1)
-
-          old = '''      requestedAiCouncilTier =\n        typeof submittedAiCouncilTier === "string" ? submittedAiCouncilTier : null;\n      operatorSerialNumberOverride = normalizeOperatorSerialNumberOverride('''
-          new = '''      requestedAiCouncilTier =\n        typeof submittedAiCouncilTier === "string" ? submittedAiCouncilTier : null;\n      listingTitleHint =\n        typeof submittedListingTitleHint === "string"\n          ? submittedListingTitleHint.slice(0, 1000)\n          : null;\n      operatorSerialNumberOverride = normalizeOperatorSerialNumberOverride('''
-          if old not in s:
-              raise SystemExit('scan form assignment anchor not found')
-          s = s.replace(old, new, 1)
-
-          old = '''    const evidenceAi = applyInstaCompConsensusToAi(guardedAi, evidenceConsensus);\n    const checklistResolution = await resolveChecklistRegistry(evidenceAi, {\n      evidenceTrusted: evidenceConsensus.trustedForIdentity,\n    });'''
-          new = '''    const evidenceAi = applyInstaCompConsensusToAi(guardedAi, evidenceConsensus);\n    // Marketplace titles are discovery hints only. They may narrow the private Registry\n    // lookup, but they never enter consensus as a witness and can never confirm identity\n    // by themselves. The existing 95% image/Registry agreement gate remains authoritative.\n    const listingIdentityHint = extractUntrustedListingIdentityHint(listingTitleHint);\n    const registryProbeAi = {\n      ...evidenceAi,\n      ...(listingIdentityHint.year ? { year: listingIdentityHint.year } : {}),\n      ...(listingIdentityHint.cardNumber\n        ? { cardNumber: listingIdentityHint.cardNumber }\n        : {}),\n    };\n    const checklistResolution = await resolveChecklistRegistry(registryProbeAi, {\n      evidenceTrusted: evidenceConsensus.trustedForIdentity,\n    });'''
-          if old not in s:
-              raise SystemExit('registry probe anchor not found')
-          s = s.replace(old, new, 1)
-
-          old = '''        operatorSerialNumberOverride:\n          operatorSerialNumberOverride === undefined\n            ? null\n            : operatorSerialNumberOverride,\n        textExcerpt:'''
-          new = '''        operatorSerialNumberOverride:\n          operatorSerialNumberOverride === undefined\n            ? null\n            : operatorSerialNumberOverride,\n        untrustedListingIdentityHint: {\n          supplied: Boolean(listingIdentityHint.title),\n          year: listingIdentityHint.year,\n          cardNumber: listingIdentityHint.cardNumber,\n          trustedForIdentity: false,\n        },\n        textExcerpt:'''
-          if old not in s:
-              raise SystemExit('diagnostics anchor not found')
-          s = s.replace(old, new, 1)
-          scan.write_text(s)
+          if 'extractUntrustedListingIdentityHint' not in s:
+              anchor = 'async function identifyCardWithConfiguredProviderFailover(params: {\n'
+              helper = '''function extractUntrustedListingIdentityHint(value: unknown) {\n  const title = String(value || "").trim().slice(0, 1000);\n  if (!title) return { title: null, year: null, cardNumber: null };\n  const year = title.match(/\\b((?:19|20)\\d{2})(?:[-/]\\d{2,4})?\\b/)?.[1] || null;\n  const cardNumber =\n    title.match(/(?:\\bcard\\s*)?#\\s*([A-Za-z0-9][A-Za-z0-9.-]{0,24})\\b/i)?.[1] || null;\n  return { title, year, cardNumber };\n}\n\n'''
+              if anchor not in s: raise SystemExit('scan helper anchor not found')
+              s = s.replace(anchor, helper + anchor, 1)
+              old = '  let operatorSerialNumberOverride: string | null | undefined = undefined;\n  let imageOrientation:'
+              new = '  let operatorSerialNumberOverride: string | null | undefined = undefined;\n  let listingTitleHint: string | null = null;\n  let imageOrientation:'
+              if old not in s: raise SystemExit('scan variable anchor not found')
+              s = s.replace(old, new, 1)
+              old = '      const submittedOperatorSerialNumberOverride = formData.get(\n        "operatorSerialNumberOverride",\n      );\n\n      frontImage = submittedFront instanceof File ? submittedFront : null;'
+              new = '      const submittedOperatorSerialNumberOverride = formData.get(\n        "operatorSerialNumberOverride",\n      );\n      const submittedListingTitleHint = formData.get("listingTitleHint");\n\n      frontImage = submittedFront instanceof File ? submittedFront : null;'
+              if old not in s: raise SystemExit('scan form anchor not found')
+              s = s.replace(old, new, 1)
+              old = '      requestedAiCouncilTier =\n        typeof submittedAiCouncilTier === "string" ? submittedAiCouncilTier : null;\n      operatorSerialNumberOverride = normalizeOperatorSerialNumberOverride('
+              new = '      requestedAiCouncilTier =\n        typeof submittedAiCouncilTier === "string" ? submittedAiCouncilTier : null;\n      listingTitleHint =\n        typeof submittedListingTitleHint === "string"\n          ? submittedListingTitleHint.slice(0, 1000)\n          : null;\n      operatorSerialNumberOverride = normalizeOperatorSerialNumberOverride('
+              if old not in s: raise SystemExit('scan assignment anchor not found')
+              s = s.replace(old, new, 1)
+              old = '    const evidenceAi = applyInstaCompConsensusToAi(guardedAi, evidenceConsensus);\n    const checklistResolution = await resolveChecklistRegistry(evidenceAi, {\n      evidenceTrusted: evidenceConsensus.trustedForIdentity,\n    });'
+              new = '''    const evidenceAi = applyInstaCompConsensusToAi(guardedAi, evidenceConsensus);\n    // Marketplace title facts are untrusted lookup coordinates only; they never vote in consensus.\n    const listingIdentityHint = extractUntrustedListingIdentityHint(listingTitleHint);\n    const registryProbeAi = {\n      ...evidenceAi,\n      ...(listingIdentityHint.year ? { year: listingIdentityHint.year } : {}),\n      ...(listingIdentityHint.cardNumber ? { cardNumber: listingIdentityHint.cardNumber } : {}),\n    };\n    const checklistResolution = await resolveChecklistRegistry(registryProbeAi, {\n      evidenceTrusted: evidenceConsensus.trustedForIdentity,\n    });'''
+              if old not in s: raise SystemExit('registry probe anchor not found')
+              s = s.replace(old, new, 1)
+              old = '        operatorSerialNumberOverride:\n          operatorSerialNumberOverride === undefined\n            ? null\n            : operatorSerialNumberOverride,\n        textExcerpt:'
+              new = '''        operatorSerialNumberOverride:\n          operatorSerialNumberOverride === undefined\n            ? null\n            : operatorSerialNumberOverride,\n        untrustedListingIdentityHint: {\n          supplied: Boolean(listingIdentityHint.title),\n          year: listingIdentityHint.year,\n          cardNumber: listingIdentityHint.cardNumber,\n          trustedForIdentity: false,\n        },\n        textExcerpt:'''
+              if old not in s: raise SystemExit('diagnostics anchor not found')
+              s = s.replace(old, new, 1)
+              scan.write_text(s)
           PY
-
-      - name: Assert exact title-hint contract
+      - name: Assert title hint contract
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           import re
-          cases = {
-            'Panini 2025 Prizm WNBA Sonia Citron #148 RC Rookie Washington Mystics': ('2025','148'),
-            'Paige Bueckers 2025 Prizm WNBA Base Variation Rookie Card #147 Dallas Wings': ('2025','147'),
-            '2025-26 Upper Deck Parkhurst - Rookies Ivan Demidov #236 (RC)': ('2025','236'),
-            '2025 Bowman Draft - Chrome Franklin Arias #BDC-13 Sky Blue Refractor (RC)': ('2025','BDC-13'),
-          }
-          for title, expected in cases.items():
-            year = (re.search(r'\b((?:19|20)\d{2})(?:[-/]\d{2,4})?\b', title) or [None,None])[1]
-            m = re.search(r'(?:\bcard\s*)?#\s*([A-Za-z0-9][A-Za-z0-9.-]{0,24})\b', title, re.I)
-            card = m.group(1) if m else None
-            assert (year, card) == expected, (title, year, card, expected)
+          cases=[
+            ('Panini 2025 Prizm WNBA Sonia Citron #148 RC Rookie Washington Mystics',('2025','148')),
+            ('Paige Bueckers 2025 Prizm WNBA Base Variation Rookie Card #147 Dallas Wings',('2025','147')),
+            ('2025-26 Upper Deck Parkhurst - Rookies Ivan Demidov #236 (RC)',('2025','236')),
+            ('2025 Bowman Draft - Chrome Franklin Arias #BDC-13 Sky Blue Refractor (RC)',('2025','BDC-13')),
+          ]
+          for title, expected in cases:
+            y=re.search(r'\b((?:19|20)\d{2})(?:[-/]\d{2,4})?\b',title)
+            c=re.search(r'(?:\bcard\s*)?#\s*([A-Za-z0-9][A-Za-z0-9.-]{0,24})\b',title,re.I)
+            got=(y.group(1) if y else None,c.group(1) if c else None)
+            assert got==expected,(title,got,expected)
           print('listing hint extraction: 4/4 passed')
           PY
           grep -q 'trustedForIdentity: false' src/app/api/instacomp/scan/route.ts
-          grep -q 'listingTitleHint' src/app/api/instacomp/deal-hunter/evaluate/core.ts
           grep -q 'resolveChecklistRegistry(registryProbeAi' src/app/api/instacomp/scan/route.ts
-
-      - name: Install and compile
-        run: |
-          npm ci
-          npx tsc --noEmit
-
-      - name: Production build
+      - name: Install, compile, and build
         env:
           NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder
           SUPABASE_SERVICE_ROLE_KEY: ci-service-placeholder
-        run: npm run build
-
-      - name: Commit generated source patch
+        run: |
+          npm ci
+          npx tsc --noEmit
+          npm run build
+      - name: Commit generated patch
         shell: bash
         run: |
           set -euo pipefail
           git config user.name 'TruelyCollectables CI'
           git config user.email 'actions@users.noreply.github.com'
           git add src/app/api/instacomp/deal-hunter/evaluate/core.ts src/app/api/instacomp/scan/route.ts
-          if git diff --cached --quiet; then
-            echo 'Source patch already present.'
-            exit 0
-          fi
+          if git diff --cached --quiet; then exit 0; fi
           git commit -m 'Fix Deal Hunter Registry listing hint bridge'
           git push origin HEAD:${{ github.event.pull_request.head.ref }}
