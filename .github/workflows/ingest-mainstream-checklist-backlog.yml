@@ -11,6 +11,7 @@ on:
       - "scripts/test-mainstream-checklist-fetch-patch.mjs"
       - "scripts/test-mainstream-checklist-parser-v2.mjs"
       - "scripts/assert-mainstream-checklist-production-complete.mjs"
+      - "scripts/classify-mainstream-checklist-exceptions.mjs"
       - "scripts/resolve-mainstream-checklist-production-env.sh"
       - "scripts/bootstrap-mainstream-checklist-schema.sh"
       - "scripts/repair-mainstream-checklist-schema.sh"
@@ -25,6 +26,7 @@ on:
       - "scripts/test-mainstream-checklist-fetch-patch.mjs"
       - "scripts/test-mainstream-checklist-parser-v2.mjs"
       - "scripts/assert-mainstream-checklist-production-complete.mjs"
+      - "scripts/classify-mainstream-checklist-exceptions.mjs"
       - "scripts/resolve-mainstream-checklist-production-env.sh"
       - "scripts/bootstrap-mainstream-checklist-schema.sh"
       - "scripts/repair-mainstream-checklist-schema.sh"
@@ -74,12 +76,16 @@ jobs:
           bash -n scripts/repair-mainstream-checklist-schema.sh
           node --check scripts/mainstream-checklist/html-semantic-prepatch.mjs
           node --check scripts/mainstream-checklist/tcdb-complete-fetch.mjs
-      - name: Verify compressed backlog manifest
+          node --check scripts/mainstream-checklist/remaining-source-fallbacks.mjs
+          node --check scripts/mainstream-checklist/verified-exceptions.mjs
+          node --check scripts/classify-mainstream-checklist-exceptions.mjs
+      - name: Verify compressed backlog manifest and corrected disposition contract
         shell: bash
         run: |
           set -euo pipefail
           node --input-type=module - <<'NODE'
           import { loadMainstreamChecklistManifest } from './scripts/mainstream-checklist/manifest.mjs';
+          import { VERIFIED_NON_PROMOTABLE_IDS } from './scripts/mainstream-checklist/verified-exceptions.mjs';
           const manifest = loadMainstreamChecklistManifest();
           const dispositions = manifest.entries.reduce((counts, entry) => {
             counts[entry.disposition] = (counts[entry.disposition] || 0) + 1;
@@ -94,9 +100,20 @@ jobs:
             dispositions.merge_component !== 2 ||
             dispositions.attachment_only !== 5
           ) {
-            throw new Error(`Manifest disposition mismatch: ${JSON.stringify(dispositions)}`);
+            throw new Error(`Historical manifest disposition mismatch: ${JSON.stringify(dispositions)}`);
           }
-          console.log(JSON.stringify({ entries: manifest.entries.length, dispositions }));
+          if (VERIFIED_NON_PROMOTABLE_IDS.size !== 3) {
+            throw new Error(`Verified correction count mismatch: ${VERIFIED_NON_PROMOTABLE_IDS.size}`);
+          }
+          const corrected = {
+            standalone: dispositions.standalone - VERIFIED_NON_PROMOTABLE_IDS.size,
+            merge_component: dispositions.merge_component,
+            attachment_only: dispositions.attachment_only + VERIFIED_NON_PROMOTABLE_IDS.size,
+          };
+          if (corrected.standalone !== 317 || corrected.merge_component !== 2 || corrected.attachment_only !== 8) {
+            throw new Error(`Corrected disposition mismatch: ${JSON.stringify(corrected)}`);
+          }
+          console.log(JSON.stringify({ entries: manifest.entries.length, historical: dispositions, corrected }));
           NODE
       - name: Verify source fallback, hierarchy, and section ordering
         run: node scripts/test-mainstream-checklist-fetch-patch.mjs
@@ -186,6 +203,7 @@ jobs:
           node \
             --import ./scripts/mainstream-checklist/html-semantic-prepatch.mjs \
             --import ./scripts/mainstream-checklist/tcdb-complete-fetch.mjs \
+            --import ./scripts/mainstream-checklist/remaining-source-fallbacks.mjs \
             --import ./scripts/mainstream-checklist/fetch-patch.mjs \
             --import tsx \
             scripts/ingest-mainstream-checklist-backlog.mjs
@@ -226,6 +244,16 @@ jobs:
       - run: npm ci
       - name: Resolve protected Production Supabase credentials
         run: bash scripts/resolve-mainstream-checklist-production-env.sh
+      - name: Classify verified cancelled, repack, and no-checklist exceptions
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source "$PRODUCTION_ENV_PATH"
+          set +a
+          test -n "${RESOLVED_SUPABASE_SERVICE_ROLE_KEY:-}"
+          export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
+          node scripts/classify-mainstream-checklist-exceptions.mjs
       - name: Reconcile all 327 source targets against private storage and the source catalog
         shell: bash
         run: |
@@ -238,10 +266,11 @@ jobs:
           node \
             --import ./scripts/mainstream-checklist/html-semantic-prepatch.mjs \
             --import ./scripts/mainstream-checklist/tcdb-complete-fetch.mjs \
+            --import ./scripts/mainstream-checklist/remaining-source-fallbacks.mjs \
             --import ./scripts/mainstream-checklist/fetch-patch.mjs \
             --import tsx \
             scripts/ingest-mainstream-checklist-backlog.mjs
-      - name: Prove every confirmed standalone checklist is promoted
+      - name: Prove every confirmed finite checklist is promoted
         if: always()
         shell: bash
         run: |
