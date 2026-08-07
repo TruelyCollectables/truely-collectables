@@ -93,6 +93,86 @@ set_vercel_env() {
   fi
 }
 
+repair_vercel_root_directory() {
+  local project_link="$repo_root/.vercel/project.json"
+  local project_id=""
+  local org_id=""
+  local project_before="$receipt_dir/$timestamp-vercel-project-before.json"
+  local project_after="$receipt_dir/$timestamp-vercel-project-after.json"
+  local endpoint=""
+
+  [[ -f "$project_link" ]] || {
+    echo "Refusing Vercel root repair: $project_link is missing. Run 'npx vercel link' from the repository root first." >&2
+    return 2
+  }
+
+  read -r project_id org_id < <(
+    python3 - "$project_link" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+payload = json.loads(path.read_text("utf-8"))
+project_id = str(payload.get("projectId") or "").strip()
+org_id = str(payload.get("orgId") or "").strip()
+if not project_id or not org_id:
+    raise SystemExit(2)
+print(project_id, org_id)
+PY
+  )
+
+  [[ "$project_id" == prj_* && ( "$org_id" == team_* || "$org_id" == user_* ) ]] || {
+    echo "Refusing Vercel root repair: linked project identifiers are missing or malformed." >&2
+    return 2
+  }
+
+  endpoint="/v9/projects/${project_id}?teamId=${org_id}"
+  npx vercel api "$endpoint" > "$project_before"
+
+  local root_check_status=0
+  ROOT_CHECK_FILE="$project_before" python3 - <<'PY' || root_check_status=$?
+import json
+import os
+import pathlib
+
+payload = json.loads(pathlib.Path(os.environ["ROOT_CHECK_FILE"]).read_text("utf-8"))
+root = payload.get("rootDirectory")
+if root in (None, ""):
+    raise SystemExit(0)
+text = str(root).strip()
+if text in {".", "./"} or text.rstrip("/") in {".", "./"}:
+    raise SystemExit(10)
+raise SystemExit(20)
+PY
+  case "$root_check_status" in
+    0)
+      echo "PASS  Vercel Root Directory already points at the repository root."
+      return 0
+      ;;
+    10)
+      echo "Repairing invalid Vercel Root Directory './' to the supported empty repository root."
+      ;;
+    *)
+      echo "Refusing automatic Vercel root repair: Root Directory is not an empty root or the known './' misconfiguration." >&2
+      return 2
+      ;;
+  esac
+
+  npx vercel api "$endpoint" -X PATCH -F rootDirectory= > "$project_after"
+  ROOT_CHECK_FILE="$project_after" python3 - <<'PY'
+import json
+import os
+import pathlib
+
+payload = json.loads(pathlib.Path(os.environ["ROOT_CHECK_FILE"]).read_text("utf-8"))
+root = payload.get("rootDirectory")
+if root not in (None, ""):
+    raise SystemExit(f"Vercel Root Directory repair did not clear the invalid value: {root!r}")
+PY
+  echo "PASS  Vercel Root Directory repaired to repository root."
+}
+
 before="$(git -C "$repo_root" rev-parse HEAD)"
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 receipt_dir="$service_root/data/runtime-updates"
@@ -198,7 +278,8 @@ echo "Synchronizing the existing Mac key to Vercel Production without rotating i
 set_vercel_env INSTACOMP_AI_LOCAL_URL "$tunnel_url" production plain
 set_vercel_env INSTACOMP_AI_LOCAL_KEY "$local_key" production sensitive
 set_vercel_env INSTACOMP_SENTINEL_ARCHIVE_TOKEN "$archive_token" production sensitive
-npx vercel --prod --yes
+repair_vercel_root_directory
+npx vercel --prod --yes --cwd "$repo_root"
 
 proxy_status_file="$service_root/data/runtime-updates/$timestamp-production-sentinel.json"
 proxy_status_url="${site_url}/api/instacomp/checklist-sentinel?view=status&ts=$(date +%s)"
