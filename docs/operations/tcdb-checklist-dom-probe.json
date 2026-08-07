@@ -1,45 +1,79 @@
 {
-  "checkedAt": "2026-08-07T12:35:34.600Z",
-  "target": "https://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine",
+  "checkedAt": "2026-08-07T12:57:43.345Z",
   "results": [
     {
-      "mode": "direct",
-      "status": 403,
-      "finalUrl": "https://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine",
-      "contentType": "text/html; charset=UTF-8",
-      "bytes": 5654,
-      "hasTotal155": false,
-      "hasDonovanMcNabb": false,
-      "cardLineLikeCount": 0,
-      "pipeRows": 0,
-      "sample": "<!DOCTYPE html><html lang=\"en-US\"><head><title>Just a moment...</title><meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\"><meta http-equiv=\"X-UA-Compatible\" content=\"IE=Edge\"><meta name=\"robots\" content=\"noindex,nofollow\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta http-equiv=\"content-security-policy\" content=\"default-src &#39;none&#39;; script-src &#39;nonce-olaU06W9zzC2EAehdXKrqe&#39; &#39;unsafe-eval&#39; https://challenges.cloudflare.com; script-src-attr &#39;none&#39;; style-src &#39;unsafe-inline&#39;; img-src &#39;self&#39; https://challenges.cloudflare.com; connect-src &#39;self&#39; https://challenges.cloudflare.com; frame-src &#39;self&#39; https://challenges.cloudflare.com blob:; child-src &#39;self&#39; https://challenges.cloudflare.com blob:; worker-src blob:; form-action http: https:; base-uri &#39;self&#39;\"><style>*{box-sizing:",
-      "aroundPlayer": null
+      "label": "checklist",
+      "status": 200,
+      "bytes": 85451,
+      "pageIndexes": [
+        1,
+        2
+      ],
+      "childSetCount": 1,
+      "childSids": [
+        "4466"
+      ],
+      "countMatches": [
+        "Cards/Football/4466_62.jpg)](https://www.tcdb.com/ViewSet.cfm/sid/4466/2001-Fleer-Gen",
+        "Total Cards:** 155",
+        "Cards Options ",
+        "cards in your collection. ",
+        "CardShops.cfm)",
+        "CardShows.cfm)"
+      ],
+      "aroundNeedle": "eer-Genuine)[Checklist By First Name](https://www.tcdb.com/ChecklistByName.cfm/sid/4466/2001-Fleer-Genuine)[Checklist By Last Name](https://www.tcdb.com/ChecklistByLastName.cfm/sid/4466/2001-Fleer-Genuine)[Printable View](https://www.tcdb.com/PrintCenter.cfm?Report=PrintChecklist&SetID=4466)\n\n*   [1](https://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine#)\n*   [2](https://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine?PageIndex=2)\n*   [›](https://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine?PageIndex=2)\n*   [»](https://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine?PageIndex=2)\n\n[](https://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine)[![Image 4: Image thumbnail](https://www.tcdb.com/Images/Thumbs/Football/4466/4466_983398Thumb.jpg)](https://www.tcdb.com/ViewCard.cfm/sid/4466/cid/983398/2001-Fleer-Genuine-1-Donovan-McNabb?PageIndex=1)[![Image 5: image thumbnail](https://www.tcdb.com/Images/Thumbs/Football/4466/4466_983398Thumb3.jpg)](https://www.tcdb.com/ViewCard.cfm/sid/4466/cid/983398/2001-Fleer-Genuine-1-Donovan-McNabb?PageIndex=1)[1](https://www.tcdb.com/ViewCard.cfm/sid/4466/cid/983398/2001-Fleer-Genuine-1-Donovan-McNabb?PageIndex=1)[Donovan McNabb](https://www.tcdb.com/Person.cfm/pid/11613/Donovan-McNabb)[Philadelphia Eagles](https://www.tcdb.com/Team.cfm/tid/202/Philadelphia-Eagles)\n[](https://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine)[![Image 6: Image thumbnail](https://www.tcdb.com/Images/Thumbs/Football/4466/4466_983399RepThumb.jpg)](https://www.tcdb.com/ViewCard.cfm/sid/4466/cid/983399/2001-Fleer-Genuine-2-Daunte-Culpepper?PageIndex=1)[![Image 7: image thumbnail](https://www.tcdb.com/Images/Thumbs/Football/4466/4466_983399RepThumb3.jpg)](https://www.tcdb.com/ViewCard.cfm/sid/4466/cid/983399/2001-Fleer-Genuine-2-Daunte-Culpepper?PageIndex=1)[2](https://www.tcdb.com/ViewCard.cfm/sid/4466/cid/983399/2001-Fleer-Genuine-2-Daunte-Culpepper?PageIndex=1)[Daunte Culpepper](https://www.tcdb.com/Person.cfm/pid/9490/Daunte-Culpepper)[Minnesota Vikings](https://www.tcdb.com/Team.cfm/tid/196/Minnesota-Vikings)\n[](https://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine)[![Image 8: Image thumbnail](https://www.tcdb.com/Images/Thumbs/Football/4466/4466_983400Thumb.jpg)](https://www.tcdb.com/ViewCard.cfm/sid/4466/cid/983400/2001-Fleer-Genuine-3-Derrick-Alexander?PageIndex=1)[![Image 9: image thumbnail](https://www.tcdb.com/Images/Thumbs/Football/4466/4466_983400Thumb3.jpg)](https://www.tcdb.com/ViewCard.cfm/sid/4466/cid/983400/2001-Fleer-Genuine-3-Derrick-Alexander?PageIndex=1)[3](https://www.tcdb.com/ViewCard.cfm/sid/4466/cid/983400/2001-Fleer-Genuine-3-Derrick-Alexander?PageIndex=1)[Derrick Alexander](https://www.tcdb.com/Person.cfm/pid/18165/Derrick-Alexander)[Kansas City Chiefs](https://www.tcdb.com/Team.cfm/tid/194/Kansas-City-Chiefs)\n[](https://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine)[![Image 10: Image thumbnail](https://www.tcdb.com/Images/Thumbs/Football/4466/4466_983401RepThumb.jpg)](https://www.tcdb.com/ViewCard.cfm/sid/4466/cid/983401/2001-Fleer-Genuine-4-Jessie-Armstead?PageIndex=1)[![Image 11: image thumbnail](https://www.tcdb.com/Images/Thumbs/Football/4466/4466_983401RepThumb3.jpg)](https://www.tcdb.com/ViewCard.cfm/sid/4466/cid/983401/2001-Fleer-Genuine-4-Jessie-Armstead?PageIndex=1)[4](https://www.tcdb.com/ViewCard.cfm/sid/4466/cid/983401/2001-Fleer-Ge"
     },
     {
-      "mode": "reader-https",
+      "label": "inserts",
       "status": 200,
-      "finalUrl": "https://r.jina.ai/https://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine",
-      "contentType": "text/plain; charset=utf-8",
-      "bytes": 76649,
-      "hasTotal155": false,
-      "hasDonovanMcNabb": true,
-      "cardLineLikeCount": 0,
-      "pipeRows": 0,
-      "sample": "Title: 2001 Fleer Genuine Football Checklist URL Source: https://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine Published Time: Thu, 06 Aug 2026 05:24:08 GMT Markdown Content: [![Image 1: TCDb logo](https://www.tcdb.com/Images/TCDbLogo.gif)](https://www.tcdb.com/) [![Image 2: TCDb logo](https://www.tcdb.com/Images/TCDbLogo.gif)](https://www.tcdb.com/) * [Browse](https://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine#) [Baseball](https://www.tcdb.com/ViewAll.cfm/sp/Baseball) [Basketball](https://www.tcdb.com/ViewAll.cfm/sp/Basketball) [Boxing](https://www.tcdb.com/ViewAll.cfm/sp/Boxing) [Cricket](https://www.tcdb.com/ViewAll.cfm/sp/Cricket) [Football](https://www.tcdb.com/ViewAll.cfm/sp/Football) [Gaming](https://www.tcdb.com/ViewAll.cfm/sp/Gaming) [Golf](https://www.tcdb.com/ViewAll.cfm/sp/Golf) [Hockey](https://www.tcdb.com/ViewAll.cfm/sp/Hockey) [Misc Sports](https://ww",
-      "aroundPlayer": "](https://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine#)\n*   [2](https://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine?PageIndex=2)\n*   [›](https://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine?PageIndex=2)\n*   [»](https://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine?PageIndex=2)\n\n[](https://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine)[![Image 3: Image thumbnail](https://www.tcdb.com/Images/Thumbs/Football/4466/4466_983398Thumb.jpg)](https://www.tcdb.com/ViewCard.cfm/sid/4466/cid/983398/2001-Fleer-Genuine-1-Donovan-McNabb?PageIndex=1)[![Image 4: image thumbnail](https://www.tcdb.com/Images/Thumbs/Football/4466/4466_983398Thumb3.jpg)](https://www.tcdb.com/ViewCard.cfm/sid/4466/cid/983398/2001-Fleer-Genuine-1-Donovan-McNabb?PageIndex=1)[1](https://www.tcdb.com/ViewCard.cfm/sid/4466/cid/983398/2001-Fleer-Genuine-1-Donovan-McNabb?PageIndex=1)[Donovan McNabb](https://www.tcdb.com/Person.cfm/pid/11613/Donovan-McNabb)[Philadelphia Eagles](https://www.tcdb.com/Team.cfm/tid/202/Philadelphia-Eagles)\n[](https://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine)[![Image 5: Image thumbnail](https://www.tcdb.com/Images/Thumbs/Football/4466/4466_983399RepThumb.jpg)](https://www.tcdb.com/ViewCard.cfm/sid/4466/cid/983399/2001-Fleer-Genuine-2-Daunte-Culpepper?PageIndex=1)[![Image 6: image thumbnail](https://www.tcdb.com/Images/Thumbs/Football/4466/4466_983399RepThumb3.jpg)](https://www.tcdb.com/ViewCard.cfm/sid/4466/cid/983399/2001-Fleer-Genuine-2-Daunte-Culpepper?PageIndex=1)[2](https://www.tcdb.com/ViewCard.cfm/sid/4466/cid/983399/2001-Fleer-Genuine-2-Daunte-Culpepper?PageIndex=1)[Daunte Culpepper](https://www.tcdb.com/Person.cfm/pid/9490/Daunte-Culpepper)[Minnesota Vikings](https://www.tcdb.com/Team.cfm/tid/196/Minnesota-Vikings)\n[](https://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine)[![Image 7: Image thumbnail](https://www.tcdb.com/Images/Thumbs/Football/4466/4466_983400Thumb.jpg)](https://www.tcdb.com/ViewCard.cfm/sid/4466/cid/983400/2001-Fleer-Genuine-3-Derrick-Alexander?PageIndex=1)[![Image 8: image thumbnail](https://www.tcdb.com/Images/Thumbs/Football/4466/4466_983400Thumb3.jpg)](https://www.tcdb.com/ViewCa"
-    },
-    {
-      "mode": "reader-http",
-      "status": 200,
-      "finalUrl": "https://r.jina.ai/http://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine",
-      "contentType": "text/plain; charset=utf-8",
-      "bytes": 76497,
-      "hasTotal155": false,
-      "hasDonovanMcNabb": true,
-      "cardLineLikeCount": 0,
-      "pipeRows": 0,
-      "sample": "Title: 2001 Fleer Genuine Football Checklist URL Source: http://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine Markdown Content: [![Image 1: TCDb logo](https://www.tcdb.com/Images/TCDbLogo.gif)](https://www.tcdb.com/) [![Image 2: TCDb logo](https://www.tcdb.com/Images/TCDbLogo.gif)](https://www.tcdb.com/) * [Browse](http://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine#) [Baseball](https://www.tcdb.com/ViewAll.cfm/sp/Baseball) [Basketball](https://www.tcdb.com/ViewAll.cfm/sp/Basketball) [Boxing](https://www.tcdb.com/ViewAll.cfm/sp/Boxing) [Cricket](https://www.tcdb.com/ViewAll.cfm/sp/Cricket) [Football](https://www.tcdb.com/ViewAll.cfm/sp/Football) [Gaming](https://www.tcdb.com/ViewAll.cfm/sp/Gaming) [Golf](https://www.tcdb.com/ViewAll.cfm/sp/Golf) [Hockey](https://www.tcdb.com/ViewAll.cfm/sp/Hockey) [Misc Sports](https://www.tcdb.com/ViewAll.cfm/sp/Misc%20Sports) [MMA](h",
-      "aroundPlayer": "[1](http://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine#)\n*   [2](https://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine?PageIndex=2)\n*   [›](https://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine?PageIndex=2)\n*   [»](https://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine?PageIndex=2)\n\n[](http://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine)[![Image 3: Image thumbnail](https://www.tcdb.com/Images/Thumbs/Football/4466/4466_983398Thumb.jpg)](https://www.tcdb.com/ViewCard.cfm/sid/4466/cid/983398/2001-Fleer-Genuine-1-Donovan-McNabb?PageIndex=1)[![Image 4: image thumbnail](https://www.tcdb.com/Images/Thumbs/Football/4466/4466_983398Thumb3.jpg)](https://www.tcdb.com/ViewCard.cfm/sid/4466/cid/983398/2001-Fleer-Genuine-1-Donovan-McNabb?PageIndex=1)[1](https://www.tcdb.com/ViewCard.cfm/sid/4466/cid/983398/2001-Fleer-Genuine-1-Donovan-McNabb?PageIndex=1)[Donovan McNabb](https://www.tcdb.com/Person.cfm/pid/11613/Donovan-McNabb)[Philadelphia Eagles](https://www.tcdb.com/Team.cfm/tid/202/Philadelphia-Eagles)\n[](http://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine)[![Image 5: Image thumbnail](https://www.tcdb.com/Images/Thumbs/Football/4466/4466_983399RepThumb.jpg)](https://www.tcdb.com/ViewCard.cfm/sid/4466/cid/983399/2001-Fleer-Genuine-2-Daunte-Culpepper?PageIndex=1)[![Image 6: image thumbnail](https://www.tcdb.com/Images/Thumbs/Football/4466/4466_983399RepThumb3.jpg)](https://www.tcdb.com/ViewCard.cfm/sid/4466/cid/983399/2001-Fleer-Genuine-2-Daunte-Culpepper?PageIndex=1)[2](https://www.tcdb.com/ViewCard.cfm/sid/4466/cid/983399/2001-Fleer-Genuine-2-Daunte-Culpepper?PageIndex=1)[Daunte Culpepper](https://www.tcdb.com/Person.cfm/pid/9490/Daunte-Culpepper)[Minnesota Vikings](https://www.tcdb.com/Team.cfm/tid/196/Minnesota-Vikings)\n[](http://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine)[![Image 7: Image thumbnail](https://www.tcdb.com/Images/Thumbs/Football/4466/4466_983400Thumb.jpg)](https://www.tcdb.com/ViewCard.cfm/sid/4466/cid/983400/2001-Fleer-Genuine-3-Derrick-Alexander?PageIndex=1)[![Image 8: image thumbnail](https://www.tcdb.com/Images/Thumbs/Football/4466/4466_983400Thumb3.jpg)](https://www.tcdb.com/ViewCard"
+      "bytes": 27050,
+      "pageIndexes": [],
+      "childSetCount": 72,
+      "childSids": [
+        "59899",
+        "289645",
+        "65040",
+        "65041",
+        "65042",
+        "65043",
+        "65044",
+        "65045",
+        "65046",
+        "65047",
+        "65048",
+        "65049",
+        "65050",
+        "65051",
+        "65052",
+        "65053",
+        "65054",
+        "65055",
+        "65056",
+        "65057"
+      ],
+      "countMatches": [
+        "Insert Sets (65)",
+        "Cards/Football/289645_17551753.jpgThumb.jpg)](https://www.tcdb.com/Checklist.cfm/sid/",
+        "Cards without serial numbers were distributed as a stadium giveaway and are listed un",
+        "Cards/Football/65040_4770439.jpgThumb.jpg)](https://www.tcdb.com/Checklist.cfm/sid/65",
+        "Cards/Football/65041_4770510.jpgThumb.jpg)](https://www.tcdb.com/Checklist.cfm/sid/65",
+        "Cards/Football/65042_4770612.jpgThumb.jpg)](https://www.tcdb.com/Checklist.cfm/sid/65",
+        "Cards/Football/65043_4770623.jpgThumb.jpg)](https://www.tcdb.com/Checklist.cfm/sid/65",
+        "Cards/Football/65044_4770638.jpgThumb.jpg)](https://www.tcdb.com/Checklist.cfm/sid/65",
+        "Cards/Football/65047_4770667.jpgThumb.jpg)](https://www.tcdb.com/Checklist.cfm/sid/65",
+        "Cards/Football/65048_4770677.jpgThumb.jpg)](https://www.tcdb.com/Checklist.cfm/sid/65",
+        "Cards/Football/65049_4770726.jpgThumb.jpg)](https://www.tcdb.com/Checklist.cfm/sid/65",
+        "Cards/Football/65050_4770739.jpgThumb.jpg)](https://www.tcdb.com/Checklist.cfm/sid/65",
+        "Cards/Football/65051_4770763.jpgThumb.jpg)](https://www.tcdb.com/Checklist.cfm/sid/65",
+        "Cards/Football/65053_4770809.jpgThumb.jpg)](https://www.tcdb.com/Checklist.cfm/sid/65",
+        "Cards/Football/65057_4770893.jpgThumb.jpg)](https://www.tcdb.com/Checklist.cfm/sid/65",
+        "Cards/Football/65058_4770924.jpgThumb.jpg)](https://www.tcdb.com/Checklist.cfm/sid/65",
+        "Cards/Football/65059_4770929.jpgThumb.jpg)](https://www.tcdb.com/Checklist.cfm/sid/65",
+        "Cards/Football/65062_4771543.jpgThumb.jpg)](https://www.tcdb.com/Checklist.cfm/sid/65",
+        "Cards/Football/65063_4771591.jpgThumb.jpg)](https://www.tcdb.com/Checklist.cfm/sid/65",
+        "Cards/Football/65065_4771674.jpgThumb.jpg)](https://www.tcdb.com/Checklist.cfm/sid/65"
+      ],
+      "aroundNeedle": "Title: 2011 Panini Gridiron Gear Football - Inserts and Related Sets\n\nURL Source: https://www.tcdb.com/Inserts.cfm/sid/59899/2011-Panini-Gridiron-Gear\n\nMarkdown Content:\n1.   [](https://www.tcdb.com/)\n2.   [Football](https://www.tcdb.com/ViewAll.cfm/sp/Football)\n3.   [Sets](https://www.tcdb.com/ViewAll.cfm/sp/Football?MODE=Years)\n4.   [2011](https://www.tcdb.com/ViewAll.cfm/sp/Football/year/2011)\n5.   [Overview](https://www.tcdb.com/ViewSet.cfm/sid/59899/2011-Panini-Gridiron-Gear)\n\n### Insert Sets (65)\n\n[![Image 1: Image thumbnail](https://www.tcdb.com/Images/SampleCards/Football/289645_17551753.jpgThumb.jpg)](https://www.tcdb.com/Checklist.cfm/sid/289645/2011-Panini-Gridiron-Gear---A-Crucial-Catch-(Breast-Cancer-Awareness-Pink))[A Crucial Catch (Breast Cancer Awareness Pink)](https://www.tcdb.com/Checklist.cfm/sid/289645/2011-Panini-Gridiron-Gear---A-Crucial-Catch-(Breast-Cancer-Awareness-Pink) \"9.4% of images added\")\n\nSerial numbered to 250 except #40 (serial numbered to 50)\nCards without serial numbers were distributed as a stadium giveaway and are listed under **2011 Panini/Topps A Crucial Catch**.\n[![Image 2: Image thumbnail](https://www.tcdb.com/Images/SampleCards/Football/65040_4770439.jpgThumb.jpg)](https://www.tcdb.com/Checklist.cfm/sid/65040/2011-Panini-Gridiron-Gear---Autographs-Gold)[Autographs Gold](https://www.tcdb.com/Checklist.cfm/sid/65040/2011-Panini-Gridiron-Gear---Autographs-Gold \"11.2% of images added\")\n\nVeterans SN5 Rookies SN299\n[![Image 3: Image thumbnail](https://www.tcdb.com/Images/SampleCards/Football/65041_4770510.jpgThumb.jpg)](https://www.tcdb.com/Checklist.cfm/sid/65041/2011-Panini-Gridiron-Gear---Autographs-Platinum)[Autographs Platinum](https://www.tcdb.com/Checklist.cfm/sid/65041/2011-Panini-Gridiron-Gear---Autographs-Platinum \"1.7% of images added\")\n\nVeterans SN1 Rookies SN25\n[![Image 4: Image thumbnail](https://www.tcdb.com/Images/SampleCards/Football/65042_4770612.jpgThumb.jpg)](https://www.tcdb.com/Checklist.cfm/sid/65042/2011-Panini-Gridiron-Gear---Crash-Course)[Crash Course](https://www.tcdb.com/Checklist.cfm/sid/65042/2011-Panini-Gridiron-Gear---Crash-Course \"40.0% of images added\")\n[![Image 5: Image thumbnail](https://www.tcdb.com/Images/SampleCards/Football/65043"
     }
   ]
 }
