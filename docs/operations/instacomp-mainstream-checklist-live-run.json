@@ -1,0 +1,14 @@
+{
+  "schema": "tcos.checklist.mainstreamLiveRun.v1",
+  "workflow": "Ingest Mainstream Checklists 2000 Plus",
+  "runId": "31176722655",
+  "runNumber": "43",
+  "runAttempt": "1",
+  "status": "in_progress",
+  "conclusion": null,
+  "event": "push",
+  "sourceSha": "9eb385fd61e5d3e21cd78a32a2872b95c55095db",
+  "branch": "main",
+  "createdAt": "2026-08-07T12:05:14Z",
+  "updatedAt": "2026-08-07T12:06:26Z"
+}
