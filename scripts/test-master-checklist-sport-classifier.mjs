@@ -51,6 +51,33 @@ assert.equal(
 
 assert.equal(
   classify({
+    title: "2025 Topps Chrome Formula 1 Checklist",
+    url: "https://www.bigapplecollects.com/non-sports/checklists/2025-topps-chrome-formula-1-checklist",
+  }).sport,
+  "racing",
+  "Formula 1 under a generic non-sports path is racing, not entertainment.",
+);
+
+assert.equal(
+  classify({
+    title: "2025 Topps Dynasty F1 Checklist",
+    url: "https://www.bigapplecollects.com/non-sports/checklists/2025-topps-dynasty-f1-checklist",
+  }).sport,
+  "racing",
+  "F1 abbreviation must classify as racing.",
+);
+
+assert.equal(
+  classify({
+    title: "2024 Topps Chrome Olympics & Hopefuls Checklist",
+    url: "https://www.bigapplecollects.com/non-sports/checklists/2024-topps-chrome-olympics-and-hopefuls-checklist",
+  }).sport,
+  "multi-sport",
+  "Olympics products span sports and must stay in the sports Registry as multisport.",
+);
+
+assert.equal(
+  classify({
     title: "Panini America Releases 2014-15 NBA, NFL & NHL Sticker Collection Checklists",
     url: "https://gogts.net/panini-america-releases-2014-15-nba-nfl-nhl-sticker-collection-checklists/",
     text: "NFL 2014 Sticker Checklist NBA 2014-15 Sticker Checklist NHL 2014-15 Stickers Checklist",
@@ -99,6 +126,8 @@ console.log(JSON.stringify({
   status: "passed",
   strongSportPathsWinOverStaleSlugs: true,
   nonSportsPathDoesNotOverrideSportEvidence: true,
+  formulaOneRecoveredAsRacing: true,
+  olympicsRecoveredAsMultisport: true,
   aggregateArticleRejectedAsRelease: true,
   trueMultisportPreserved: true,
   entertainmentExcluded: true,
