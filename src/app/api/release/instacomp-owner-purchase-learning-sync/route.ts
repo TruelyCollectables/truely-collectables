@@ -33,6 +33,7 @@ const EXPECTED_ORDERS = new Map([
   ["b13eedb8abea93f56a3c49a72d472d9ccec8159c127fb40db9ef8792a98bc263", 0.31],
   ["53f65eb404ebf78f26cff6a213fdb2166b2c6b072f91582928d9be3966b6862c", 3.51],
 ]);
+
 const EXPECTED_POSITIONS = 28;
 const EXPECTED_ALL_IN_TOTAL = 528.52;
 const TRADING_API_VERSION = "1209";
@@ -79,7 +80,6 @@ type BuyerOrder = {
 
 type LearningTarget = {
   lot: PurchaseLot;
-  inbox: PurchaseInbox | null;
   line: BuyerLine;
   orderHash: string;
   allIn: number;
@@ -124,7 +124,10 @@ function dateOnly(value: unknown) {
 }
 
 function itemIdFromUrl(value: unknown) {
-  return String(value || "").match(/\/itm\/(?:[^/?]+\/)?(\d{9,15})(?:[/?]|$)/i)?.[1] || null;
+  return (
+    String(value || "").match(/\/itm\/(?:[^/?]+\/)?(\d{9,15})(?:[/?]|$)/i)?.[1] ||
+    null
+  );
 }
 
 function candidateOrderIds(metadata: unknown) {
@@ -146,7 +149,7 @@ function escapedTagName(tag: string) {
 
 function decodeXml(value: string) {
   return String(value || "")
-    .replace(/^<!\[CDATA\[([\s\S]*)\]>$/, "$1")
+    .replace(/^<!\[CDATA\[([\s\S]*)\]\]>$/, "$1")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
@@ -228,8 +231,7 @@ function quantityFromTitle(title: string, ebayQuantity: number) {
 function parseOrderBlock(orderBlock: string): BuyerOrder {
   const orderId = xmlValue(orderBlock, "OrderID") || "";
   const orderSummary = orderBlock.split(/<TransactionArray(?:\s[^>]*)?>/i)[0] || orderBlock;
-  const transactionBlocks = xmlBlocks(orderBlock, "Transaction");
-  const lines = transactionBlocks
+  const lines = xmlBlocks(orderBlock, "Transaction")
     .map((transaction): BuyerLine => {
       const item = xmlBlocks(transaction, "Item")[0] || transaction;
       const itemId = xmlValue(item, "ItemID") || "";
@@ -253,15 +255,20 @@ function parseOrderBlock(orderBlock: string): BuyerOrder {
   return { orderId, orderHash: sha(orderId), purchaseDate, lines };
 }
 
-async function getEbayBuyerToken(supabase: ReturnType<typeof createClient>) {
+async function getEbayBuyerToken(supabase: any) {
   const { data: tokenRows, error: tokenError } = await supabase
     .from("ebay_tokens")
     .select("refresh_token,created_at")
     .order("created_at", { ascending: false })
     .limit(5);
   if (tokenError) throw new Error(tokenError.message);
-  const tokenRow = (tokenRows || []).find((row) => String(row.refresh_token || "").trim());
-  if (!tokenRow?.refresh_token) throw new Error("No connected eBay refresh token is available.");
+  const tokenRow = ((tokenRows || []) as Array<{ refresh_token?: string | null }>).find(
+    (row) => String(row.refresh_token || "").trim(),
+  );
+  if (!tokenRow?.refresh_token) {
+    throw new Error("No connected eBay refresh token is available.");
+  }
+
   const clientId = String(process.env.EBAY_CLIENT_ID || "").trim();
   const clientSecret = String(
     process.env.EBAY_CLIENT_SECRET || process.env.EBAY_CLIENT_SECRET_KEY || "",
@@ -269,6 +276,7 @@ async function getEbayBuyerToken(supabase: ReturnType<typeof createClient>) {
   if (!clientId || !clientSecret) {
     throw new Error("Production eBay client credentials are missing.");
   }
+
   const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
   const response = await fetch("https://api.ebay.com/identity/v1/oauth2/token", {
     method: "POST",
@@ -278,7 +286,7 @@ async function getEbayBuyerToken(supabase: ReturnType<typeof createClient>) {
     },
     body: new URLSearchParams({
       grant_type: "refresh_token",
-      refresh_token: String(tokenRow.refresh_token),
+      refresh_token: tokenRow.refresh_token,
       scope: EBAY_BASE_SCOPE,
     }),
     cache: "no-store",
@@ -386,17 +394,17 @@ function macHeaders() {
   };
 }
 
-function receipt(metadata: Record<string, any>) {
+function learningReceipt(metadata: Record<string, any>) {
   return record(metadata.owner_purchase_learning);
 }
 
 function isSynced(metadata: Record<string, any>) {
-  const value = receipt(metadata);
+  const value = learningReceipt(metadata);
   return value.schema === RECEIPT_SCHEMA && value.status === "synced";
 }
 
 function isInFlight(metadata: Record<string, any>) {
-  const value = receipt(metadata);
+  const value = learningReceipt(metadata);
   return value.schema === RECEIPT_SCHEMA && value.status === "sending";
 }
 
@@ -434,17 +442,14 @@ async function postTrustedBuyEvent(params: {
       `Physical Mac rejected trusted BUY learning event: HTTP ${response.status} ${JSON.stringify(parsed).slice(0, 1200)}`,
     );
   }
-  return parsed;
 }
 
-async function deriveTargets(supabase: ReturnType<typeof createClient>) {
+async function deriveTargets(supabase: any) {
   const [accessToken, inboxRead, lotRead] = await Promise.all([
     getEbayBuyerToken(supabase),
     supabase
       .from("tcos_mi_purchase_inbox")
-      .select(
-        "id,external_order_id,external_listing_id,title,purchase_lot_id,metadata",
-      )
+      .select("id,external_order_id,external_listing_id,title,purchase_lot_id,metadata")
       .limit(5000),
     supabase
       .from("tcos_mi_purchase_lots")
@@ -538,14 +543,10 @@ async function deriveTargets(supabase: ReturnType<typeof createClient>) {
       }
 
       if (!lot) {
-        throw new Error(
-          `Verified eBay line ${line.itemId} has no canonical Purchase Ledger position.`,
-        );
+        throw new Error(`Verified eBay line ${line.itemId} has no canonical Purchase Ledger position.`);
       }
       if (usedLotIds.has(lot.id)) {
-        throw new Error(
-          `Canonical Purchase Ledger position ${lot.id} matched more than one verified eBay line.`,
-        );
+        throw new Error(`Canonical Purchase Ledger position ${lot.id} matched more than one eBay line.`);
       }
       if (Math.abs(Number(lot.total_acquisition_cost || 0) - allIn) > 0.02) {
         throw new Error(
@@ -561,7 +562,6 @@ async function deriveTargets(supabase: ReturnType<typeof createClient>) {
       usedLotIds.add(lot.id);
       targets.push({
         lot,
-        inbox,
         line,
         orderHash: order.orderHash,
         allIn,
@@ -784,10 +784,7 @@ export async function POST(request: Request) {
     );
   } catch (error) {
     return Response.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      },
+      { success: false, error: error instanceof Error ? error.message : String(error) },
       { status: 500, headers: { "Cache-Control": "no-store" } },
     );
   }
