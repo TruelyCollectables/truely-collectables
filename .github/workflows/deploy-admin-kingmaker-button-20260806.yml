@@ -50,8 +50,10 @@ jobs:
           set -euo pipefail
           test -n "${VERCEL_TOKEN:-}"
           npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx vercel@56.2.0 pull --yes --environment=production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
           rm -f .env.local
           npx vercel@56.2.0 env pull .env.local --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          test -s .vercel/project.json
           test -s .env.local
           grep -q '^NEXT_PUBLIC_SUPABASE_URL=' .env.local
           grep -q '^NEXT_PUBLIC_SUPABASE_ANON_KEY=' .env.local
