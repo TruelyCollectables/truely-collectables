@@ -1,0 +1,327 @@
+name: InstaComp Final Production Acceptance V5 20260807
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-final-production-acceptance-v5-20260807.yml"
+      - "scripts/ops/run-instacomp-final-production-acceptance.mjs"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instacomp-final-production-acceptance-v5-20260807
+  cancel-in-progress: true
+
+env:
+  EXPECTED_BRANCH: ops/instacomp-final-production-acceptance-v4-20260807
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  PRODUCTION_ORIGIN: https://truelycollectables.com
+  FINAL_REPAIR_COMMIT: b2668c5d67803e6c24362f5665ed5e240d45d585
+  CERTIFIED_MAC_FINGERPRINT: ab42f3632012ddffd1e45a73e5adcef1504e15ffde50b8e7f747ba7c61b9f245
+  EVIDENCE_DIR: evidence/instacomp-final-production-acceptance-v5-20260807
+  TEMP_DIR: /tmp/instacomp-final-production-acceptance-v5-20260807
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Freeze exact main and strict frozen-five source lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/$EXPECTED_BRANCH)"
+          git fetch origin main
+          frozen_main_sha="$(git rev-parse origin/main)"
+          test -n "$frozen_main_sha"
+          test "$frozen_main_sha" = "$FINAL_REPAIR_COMMIT"
+          echo "FROZEN_MAIN_SHA=$frozen_main_sha" >> "$GITHUB_ENV"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git merge --no-edit "$frozen_main_sha"
+          git merge-base --is-ancestor "$frozen_main_sha" HEAD
+          git merge-base --is-ancestor "$FINAL_REPAIR_COMMIT" HEAD
+          changed="$(git diff --name-only "$frozen_main_sha"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/instacomp-final-production-acceptance-v4-20260807.yml' \
+            '.github/workflows/instacomp-final-production-acceptance-v5-20260807.yml' \
+            'scripts/ops/run-instacomp-final-production-acceptance.mjs' | sort)"
+          test "$changed" = "$expected"
+          runner=scripts/ops/run-instacomp-final-production-acceptance.mjs
+          grep -Fq 'imageTruthArtifactId: 8994498762' "$runner"
+          grep -Fq 'registryCandidateArtifactId: 8993929571' "$runner"
+          grep -Fq 'registryIdentityId: "2a7d4ddd-e9f7-4ce2-904c-b1a17b33ae4f"' "$runner"
+          grep -Fq 'registryIdentityId: "bde0577b-72e8-4e59-8287-89aaf2f9e7e2"' "$runner"
+          grep -Fq 'registryIdentityId: "c58ffc4f-e1c7-4cd9-b6e2-599af5a29044"' "$runner"
+          grep -Fq 'registryIdentityId: "575556fe-fdd4-4083-baee-c5071ed3161f"' "$runner"
+          grep -Fq 'registryIdentityId: "70ad307e-06bb-45c2-90ea-689b6e2f302e"' "$runner"
+          grep -Fq 'receipt.testedCards === 5 && receipt.passedCards === 5' "$runner"
+          fp="$(python - <<'PY'
+          from hashlib import sha256
+          from pathlib import Path
+          root=Path('services/instacomp-ai')
+          digest=sha256()
+          for relative in ('app/local_vision.py','app/ollama.py'):
+              digest.update(relative.encode('utf-8'))
+              digest.update(b'\0')
+              digest.update((root/relative).read_bytes())
+              digest.update(b'\0')
+          print(digest.hexdigest())
+          PY
+          )"
+          test "${#fp}" = "64"
+          test "$fp" = "$CERTIFIED_MAC_FINGERPRINT"
+          echo "EXPECTED_MAC_FINGERPRINT=$fp" >> "$GITHUB_ENV"
+          mkdir -p "$EVIDENCE_DIR" "$TEMP_DIR"
+          printf '{"acceptanceSource":"%s","mainSource":"%s","expectedMacFingerprint":"%s","finalRepairCommit":"%s","strictReceiptChecks":["setName","exactRegistryFingerprint","identityConfidenceGte95"]}\n' \
+            "$(git rev-parse HEAD)" "$frozen_main_sha" "$fp" "$FINAL_REPAIR_COMMIT" > "$EVIDENCE_DIR/source-lock.json"
+
+      - name: Read-only preflight exact Mac and permanent Registry-safe runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$EVIDENCE_DIR/readiness-preflight.json"
+          code="$(curl -sS --max-time 30 -o "$out" -w '%{http_code}' -H 'Cache-Control: no-cache' "$PRODUCTION_ORIGIN/api/instacomp/internal-readiness?v5=preflight&ts=$(date +%s)")"
+          echo "readiness_http=$code"
+          cat "$out"
+          test "$code" = "200"
+          node -e 'const fs=require("node:fs");const b=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));const expected=process.argv[2];for(const k of ["ok","configured","reachable","internalMemoryReady","checklistReady","localModelReady"])if(b[k]!==true)throw new Error(`Preflight failed: ${k}=${b[k]}`);if(b.runtimeSourceFingerprint!==expected)throw new Error(`Mac fingerprint mismatch: ${b.runtimeSourceFingerprint}`);console.log(`PASS exact Mac fingerprint ${expected}`);' "$out" "$EXPECTED_MAC_FINGERPRINT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install and link Production project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          npm ci
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Resolve Production Supabase proof credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          env_file="$TEMP_DIR/production.env"
+          runtime_file="$TEMP_DIR/runtime-env.sh"
+          npx --yes vercel@56.2.0 env pull "$env_file" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          PRODUCTION_ENV_PATH="$env_file" RUNTIME_ENV_PATH="$runtime_file" GH_SUPABASE_ACCESS_TOKEN="$GH_SUPABASE_ACCESS_TOKEN" node -e 'const fs=require("node:fs");const parsed={};for(const raw of fs.readFileSync(process.env.PRODUCTION_ENV_PATH,"utf8").split(/\r?\n/)){const line=raw.trim();if(!line||line.startsWith("#"))continue;const i=line.indexOf("=");if(i<1)continue;const key=line.slice(0,i).trim();let value=line.slice(i+1).trim();if(value.startsWith("\"")&&value.endsWith("\"")){try{value=JSON.parse(value)}catch{value=value.slice(1,-1)}}else if(value.startsWith("\u0027")&&value.endsWith("\u0027"))value=value.slice(1,-1);parsed[key]=value}(async()=>{const productionUrl=String(parsed.NEXT_PUBLIC_SUPABASE_URL||"").trim();if(!productionUrl)throw new Error("Missing Production Supabase URL");const projectRef=new URL(productionUrl).hostname.split(".")[0];const r=await fetch(`https://api.supabase.com/v1/projects/${projectRef}/api-keys?reveal=true`,{headers:{Authorization:`Bearer ${process.env.GH_SUPABASE_ACCESS_TOKEN}`}});const text=await r.text();if(!r.ok)throw new Error(`Supabase key lookup HTTP ${r.status}: ${text.slice(0,300)}`);const keys=text?JSON.parse(text):[];if(!Array.isArray(keys))throw new Error("Supabase key response was not an array");const val=e=>String(e?.api_key||e?.key||e?.value||"");const modern=keys.find(e=>/^sb_secret_/i.test(val(e)));const legacy=keys.find(e=>e?.name==="service_role"&&/^eyJ/.test(val(e)))||keys.find(e=>e?.secret_jwt_template?.role==="service_role"&&/^eyJ/.test(val(e)));const serverKey=val(modern||legacy);if(!serverKey)throw new Error("No Production server key found");console.log(`::add-mask::${productionUrl}`);console.log(`::add-mask::${serverKey}`);fs.writeFileSync(process.env.RUNTIME_ENV_PATH,`export NEXT_PUBLIC_SUPABASE_URL=${JSON.stringify(productionUrl)}\nexport SUPABASE_SERVICE_ROLE_KEY=${JSON.stringify(serverKey)}\n`,{mode:0o600})})().catch(e=>{console.error(e);process.exit(1)});'
+
+      - name: Clear only stale acceptance credential and deploy clean frozen source
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          npx --yes vercel@56.2.0 env rm INSTACOMP_ACCEPTANCE_SERVICE_TOKEN production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null 2>&1
+          set -e
+          log="$EVIDENCE_DIR/pretest-clean-deploy.log"
+          npx --yes vercel@56.2.0 deploy --prod --yes --force --no-color --cwd "$GITHUB_WORKSPACE" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee "$log"
+          source_sha="$(git rev-parse HEAD)"
+          grep -Fq "InstaComp release manifest bound to $source_sha." "$log"
+
+      - name: Provision isolated acceptance credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          secret_file="$TEMP_DIR/acceptance-token"
+          openssl rand -hex 32 > "$secret_file"
+          chmod 600 "$secret_file"
+          secret="$(cat "$secret_file")"
+          echo "::add-mask::$secret"
+          npx --yes vercel@56.2.0 env add INSTACOMP_ACCEPTANCE_SERVICE_TOKEN production --force --sensitive --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" < "$secret_file" >/dev/null
+          touch "$TEMP_DIR/acceptance-token-provisioned"
+
+      - name: Deploy frozen acceptance revision with isolated credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$EVIDENCE_DIR/acceptance-deploy.log"
+          npx --yes vercel@56.2.0 deploy --prod --yes --force --no-color --cwd "$GITHUB_WORKSPACE" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee "$log"
+          source_sha="$(git rev-parse HEAD)"
+          grep -Fq "InstaComp release manifest bound to $source_sha." "$log"
+          touch "$TEMP_DIR/acceptance-deployed"
+
+      - name: Re-prove exact Mac immediately before scans
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$EVIDENCE_DIR/readiness-before-scans.json"
+          verified=0
+          for attempt in $(seq 1 18); do
+            code="$(curl -sS --max-time 30 -o "$out" -w '%{http_code}' -H 'Cache-Control: no-cache' "$PRODUCTION_ORIGIN/api/instacomp/internal-readiness?v5=before-scans&attempt=$attempt&ts=$(date +%s)")"
+            if [ "$code" = "200" ] && node -e 'const fs=require("node:fs");const b=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));const expected=process.argv[2];for(const k of ["ok","configured","reachable","internalMemoryReady","checklistReady","localModelReady"])if(b[k]!==true)process.exit(1);if(b.runtimeSourceFingerprint!==expected)process.exit(1);' "$out" "$EXPECTED_MAC_FINGERPRINT"; then verified=1; break; fi
+            sleep 5
+          done
+          test "$verified" = "1"
+          cat "$out"
+
+      - name: Frozen five Production acceptance pass 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$TEMP_DIR/runtime-env.sh"
+          token="$(cat "$TEMP_DIR/acceptance-token")"
+          echo "::add-mask::$token"
+          export INSTACOMP_ACCEPTANCE_SERVICE_TOKEN="$token"
+          node scripts/ops/run-instacomp-final-production-acceptance.mjs "$EVIDENCE_DIR/receipt-pass-1.json" pass-1
+
+      - name: Strict receipt validation pass 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - "$EVIDENCE_DIR/receipt-pass-1.json" <<'NODE'
+          const fs = require('node:fs');
+          const path = process.argv[2];
+          const receipt = JSON.parse(fs.readFileSync(path, 'utf8'));
+          const fps = {
+            '2a7d4ddd-e9f7-4ce2-904c-b1a17b33ae4f':'4366f96b6cf8b136e5ae4da70c35539d56e1793de0a42bcccbf970a892791e59',
+            'bde0577b-72e8-4e59-8287-89aaf2f9e7e2':'112f66efaa6b13de4f33e18f632a5c364c8bd2895b610d157a538748c858ba32',
+            'c58ffc4f-e1c7-4cd9-b6e2-599af5a29044':'dd4d9c92ff0cc4b985ef0b3aa29c8bcfb882ffe27021aa8809fde3c97db7a2ad',
+            '575556fe-fdd4-4083-baee-c5071ed3161f':'66531f084322d986e26c569e12a152bada033904c67b7068c00572c3efaa7d42',
+            '70ad307e-06bb-45c2-90ea-689b6e2f302e':'bdbf4845dae6d1da4d783fd23d9c387883769cd68aee3c663b144013bb891028'
+          };
+          const norm = v => String(v ?? '').trim().toLowerCase().replace(/\s+/g,' ');
+          if (receipt.status !== 'passed' || receipt.testedCards !== 5 || receipt.passedCards !== 5 || !Array.isArray(receipt.results) || receipt.results.length !== 5) throw new Error('Base frozen-five receipt was not exact 5/5');
+          for (const r of receipt.results) {
+            const expectedSet = norm(r.expected?.setName);
+            const actualSet = norm(r.actual?.setName);
+            if (!expectedSet || actualSet !== expectedSet) throw new Error(`Set/insert mismatch card ${r.position}: expected=${r.expected?.setName} actual=${r.actual?.setName}`);
+            const expectedFp = fps[r.expected?.registryIdentityId];
+            if (!expectedFp || r.actual?.registryFingerprintSha256 !== expectedFp) throw new Error(`Registry fingerprint mismatch card ${r.position}`);
+            let confidence = Number(r.actual?.identityConfidence);
+            if (!Number.isFinite(confidence)) throw new Error(`Missing identity confidence card ${r.position}`);
+            if (confidence > 1) confidence /= 100;
+            if (confidence < 0.95) throw new Error(`Identity confidence below 95% card ${r.position}: ${r.actual?.identityConfidence}`);
+          }
+          console.log('PASS strict frozen-five receipt: exact set names, exact Registry fingerprints, confidence >=95%');
+          NODE
+
+      - name: Frozen five Production acceptance pass 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$TEMP_DIR/runtime-env.sh"
+          token="$(cat "$TEMP_DIR/acceptance-token")"
+          echo "::add-mask::$token"
+          export INSTACOMP_ACCEPTANCE_SERVICE_TOKEN="$token"
+          node scripts/ops/run-instacomp-final-production-acceptance.mjs "$EVIDENCE_DIR/receipt-pass-2.json" pass-2
+
+      - name: Strict receipt validation pass 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - "$EVIDENCE_DIR/receipt-pass-2.json" <<'NODE'
+          const fs = require('node:fs');
+          const path = process.argv[2];
+          const receipt = JSON.parse(fs.readFileSync(path, 'utf8'));
+          const fps = {
+            '2a7d4ddd-e9f7-4ce2-904c-b1a17b33ae4f':'4366f96b6cf8b136e5ae4da70c35539d56e1793de0a42bcccbf970a892791e59',
+            'bde0577b-72e8-4e59-8287-89aaf2f9e7e2':'112f66efaa6b13de4f33e18f632a5c364c8bd2895b610d157a538748c858ba32',
+            'c58ffc4f-e1c7-4cd9-b6e2-599af5a29044':'dd4d9c92ff0cc4b985ef0b3aa29c8bcfb882ffe27021aa8809fde3c97db7a2ad',
+            '575556fe-fdd4-4083-baee-c5071ed3161f':'66531f084322d986e26c569e12a152bada033904c67b7068c00572c3efaa7d42',
+            '70ad307e-06bb-45c2-90ea-689b6e2f302e':'bdbf4845dae6d1da4d783fd23d9c387883769cd68aee3c663b144013bb891028'
+          };
+          const norm = v => String(v ?? '').trim().toLowerCase().replace(/\s+/g,' ');
+          if (receipt.status !== 'passed' || receipt.testedCards !== 5 || receipt.passedCards !== 5 || !Array.isArray(receipt.results) || receipt.results.length !== 5) throw new Error('Base frozen-five receipt was not exact 5/5');
+          for (const r of receipt.results) {
+            const expectedSet = norm(r.expected?.setName);
+            const actualSet = norm(r.actual?.setName);
+            if (!expectedSet || actualSet !== expectedSet) throw new Error(`Set/insert mismatch card ${r.position}: expected=${r.expected?.setName} actual=${r.actual?.setName}`);
+            const expectedFp = fps[r.expected?.registryIdentityId];
+            if (!expectedFp || r.actual?.registryFingerprintSha256 !== expectedFp) throw new Error(`Registry fingerprint mismatch card ${r.position}`);
+            let confidence = Number(r.actual?.identityConfidence);
+            if (!Number.isFinite(confidence)) throw new Error(`Missing identity confidence card ${r.position}`);
+            if (confidence > 1) confidence /= 100;
+            if (confidence < 0.95) throw new Error(`Identity confidence below 95% card ${r.position}: ${r.actual?.identityConfidence}`);
+          }
+          console.log('PASS strict frozen-five receipt: exact set names, exact Registry fingerprints, confidence >=95%');
+          NODE
+
+      - name: Remove isolated acceptance credential
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          if [ ! -f "$TEMP_DIR/acceptance-token-provisioned" ]; then exit 0; fi
+          removed=0
+          for attempt in 1 2 3; do
+            if npx --yes vercel@56.2.0 env rm INSTACOMP_ACCEPTANCE_SERVICE_TOKEN production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null 2>&1; then removed=1; break; fi
+            sleep 3
+          done
+          test "$removed" = "1"
+          touch "$TEMP_DIR/acceptance-token-removed"
+
+      - name: Redeploy tested source without acceptance credential
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          if [ ! -f "$TEMP_DIR/acceptance-token-provisioned" ]; then exit 0; fi
+          test -f "$TEMP_DIR/acceptance-token-removed" || { echo "Refusing cleanup deploy until acceptance credential removal is proven." >&2; exit 2; }
+          log="$EVIDENCE_DIR/clean-deploy.log"
+          set +e
+          npx --yes vercel@56.2.0 deploy --prod --yes --force --no-color --cwd "$GITHUB_WORKSPACE" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          set -e
+          test "$status" = "0"
+          source_sha="$(git rev-parse HEAD)"
+          grep -Fq "InstaComp release manifest bound to $source_sha." "$log"
+          touch "$TEMP_DIR/clean-deployed"
+
+      - name: Prove clean Production and dead acceptance credential
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f "$TEMP_DIR/acceptance-token-provisioned" ]; then exit 0; fi
+          test -f "$TEMP_DIR/clean-deployed"
+          out="$EVIDENCE_DIR/readiness-clean.json"
+          ready=0
+          for attempt in $(seq 1 18); do
+            code="$(curl -sS --max-time 30 -o "$out" -w '%{http_code}' -H 'Cache-Control: no-cache' "$PRODUCTION_ORIGIN/api/instacomp/internal-readiness?v5=clean&attempt=$attempt&ts=$(date +%s)")"
+            if [ "$code" = "200" ] && node -e 'const fs=require("node:fs");const b=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));if(b.ok!==true||b.runtimeSourceFingerprint!==process.argv[2])process.exit(1);' "$out" "$EXPECTED_MAC_FINGERPRINT"; then ready=1; break; fi
+            sleep 5
+          done
+          test "$ready" = "1"
+          token="$(cat "$TEMP_DIR/acceptance-token")"
+          echo "::add-mask::$token"
+          body="$EVIDENCE_DIR/removed-acceptance-token-response.json"
+          auth_code="$(curl -sS --max-time 30 -o "$body" -w '%{http_code}' -X POST -H "x-tcos-instacomp-service-token: $token" -F 'aiCouncilTier=basic' "$PRODUCTION_ORIGIN/api/instacomp/scan")"
+          echo "removed_acceptance_credential_http=$auth_code"
+          if [ "$auth_code" != "401" ] && [ "$auth_code" != "403" ]; then
+            echo "Removed acceptance credential is still accepted." >&2
+            cat "$body" >&2 || true
+            exit 2
+          fi
+          printf '{"ready":true,"runtimeSourceFingerprint":"%s","acceptanceCredentialRemoved":true,"removedAcceptanceCredentialHttpStatus":%s}\n' "$EXPECTED_MAC_FINGERPRINT" "$auth_code" > "$EVIDENCE_DIR/clean-production.json"
+
+      - name: Upload final acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-final-production-acceptance-v5-20260807
+          path: evidence/instacomp-final-production-acceptance-v5-20260807
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Remove local temporary files
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "$TEMP_DIR"
+          rm -f .env.local .env.production.local
