@@ -33,6 +33,19 @@ class Settings(BaseSettings):
     ollama_timeout_seconds: float = 120.0
     api_key: str | None = None
 
+    # Mac-owned Deal Hunter scheduler. The existing LaunchAgent keeps the
+    # InstaComp service alive; this scheduler owns discovery cadence, durable
+    # run state, exact-card evaluation, and market-history handoff.
+    deal_hunter_enabled: bool = True
+    deal_hunter_run_on_startup: bool = True
+    deal_hunter_startup_delay_seconds: int = 45
+    deal_hunter_interval_minutes: int = 60
+    deal_hunter_site_url: str = "https://truelycollectables.com"
+    deal_hunter_per_query: int = 20
+    deal_hunter_max_candidates_per_run: int = 20
+    deal_hunter_candidate_cooldown_hours: int = 6
+    deal_hunter_request_timeout_seconds: float = 300.0
+
     @property
     def service_root(self) -> Path:
         return SERVICE_ROOT
