@@ -1,7 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { createClient } from "@supabase/supabase-js";
-import { analyzeWithInstaCompAiLocal } from "../../src/lib/instacomp-ai-local";
-import { normalizeInstaCompSideImages } from "../../src/lib/instacomp-image-orientation";
+import { createAdminSessionValue } from "../../src/lib/admin-session";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -33,6 +32,9 @@ type ExpectedIdentity = {
   parallel: string;
 };
 
+const PRODUCTION_ORIGIN = "https://truelycollectables.com";
+const LIVE_SCAN_URL = `${PRODUCTION_ORIGIN}/api/instacomp/scan`;
+
 function record(value: unknown): JsonRecord {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as JsonRecord)
@@ -58,21 +60,37 @@ function normalizedCardNumber(value: unknown) {
 
 function normalizedParallel(value: unknown) {
   const clean = normalized(value);
-  if (!clean || clean === "none" || clean === "null" || clean === "base card") {
-    return "base";
-  }
-  return clean;
+  return !clean || clean === "none" || clean === "null" || clean === "base card"
+    ? "base"
+    : clean;
+}
+
+function semanticSetTokens(value: unknown) {
+  const ignored = new Set([
+    "19",
+    "20",
+    "panini",
+    "topps",
+    "bowman",
+    "upper",
+    "deck",
+    "basketball",
+    "card",
+    "cards",
+    "base",
+  ]);
+  return normalized(value)
+    .split(" ")
+    .filter((token) => token && !/^\d{4}$/.test(token) && !ignored.has(token));
 }
 
 function setMatches(expected: string, actual: string) {
-  const left = normalized(expected).split(" ").filter(Boolean);
-  const right = normalized(actual).split(" ").filter(Boolean);
+  const left = semanticSetTokens(expected);
+  const right = semanticSetTokens(actual);
   if (!left.length || !right.length) return false;
   const leftSet = new Set(left);
   const rightSet = new Set(right);
-  const leftCovered = left.every((token) => rightSet.has(token));
-  const rightCovered = right.every((token) => leftSet.has(token));
-  return leftCovered || rightCovered;
+  return left.every((token) => rightSet.has(token)) || right.every((token) => leftSet.has(token));
 }
 
 function imagePair(rows: InventoryImage[]) {
@@ -94,9 +112,7 @@ function imagePair(rows: InventoryImage[]) {
     images[0] ||
     null;
   const back =
-    images.find(
-      (image) => /\bback\b/i.test(image.alt) && image.url !== front?.url,
-    ) ||
+    images.find((image) => /\bback\b/i.test(image.alt) && image.url !== front?.url) ||
     images.find((image) => !image.primary && image.url !== front?.url) ||
     images.find((image) => image.url !== front?.url) ||
     null;
@@ -136,36 +152,34 @@ const parallelPhrases = [
   "Base",
 ];
 
+function escaped(value: string) {
+  return value.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+}
+
 function identityFromTitle(title: string): ExpectedIdentity | null {
   const year = /\b((?:19|20)\d{2})\b/.exec(title)?.[1] || "";
   const cardMatch = /#\s*([A-Za-z0-9-]+)/.exec(title);
   if (!year || !cardMatch) return null;
   const cardNumber = cardMatch[1];
   const manufacturer =
-    /\b(Upper Deck|Panini|Topps|Bowman|Leaf|Donruss|Fleer|Score|O-Pee-Chee)\b/i.exec(
-      title,
-    )?.[1] || "";
+    /\b(Upper Deck|Panini|Topps|Bowman|Leaf|Donruss|Fleer|Score|O-Pee-Chee)\b/i.exec(title)?.[1] || "";
   if (!manufacturer) return null;
 
   const beforeNumber = title.slice(0, cardMatch.index).trim();
   let setName = beforeNumber
-    .replace(new RegExp(`^.*?\\b${year}\\b`, "i"), "")
-    .replace(new RegExp(`^\\s*${manufacturer}\\s*`, "i"), "")
+    .replace(new RegExp(`^.*?\\b${escaped(year)}\\b`, "i"), "")
+    .replace(new RegExp(`^\\s*${escaped(manufacturer)}\\s*`, "i"), "")
     .trim();
   if (!setName) setName = manufacturer;
 
   const afterNumber = title.slice(cardMatch.index + cardMatch[0].length).trim();
   const qualifier = new RegExp(
-    `\\s+(?=${parallelPhrases
-      .map((phrase) => phrase.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&"))
-      .join("|")}|RC\\b|Rookie\\b|Auto(?:graph)?\\b|Relic\\b|\\d+\\s*\\/\\s*\\d+)`,
+    `\\s+(?=${parallelPhrases.map((phrase) => escaped(phrase).replace(/\\ /g, "\\s+")).join("|")}|RC\\b|Rookie\\b|Auto(?:graph)?\\b|Relic\\b|\\d+\\s*\\/\\s*\\d+)`,
     "i",
   );
   const player = afterNumber.split(qualifier)[0]?.trim() || "";
   const parallel =
-    parallelPhrases.find((phrase) =>
-      new RegExp(`\\b${phrase.replace(/\s+/g, "\\s+")}\\b`, "i").test(title),
-    ) || "";
+    parallelPhrases.find((phrase) => new RegExp(`\\b${escaped(phrase).replace(/\\ /g, "\\s+")}\\b`, "i").test(title)) || "";
   if (!player || !parallel) return null;
 
   return {
@@ -190,27 +204,12 @@ function expectedIdentity(item: InventoryItem): ExpectedIdentity | null {
   const cardNumber = text(ai.cardNumber || ai.card_number);
   const parallel = text(ai.checklistParallel || ai.parallelName || ai.parallel || "Base");
   const complete = Boolean(player && year && manufacturer && setName && cardNumber);
+
   if (complete && (instacomp.manualIdentityLocked === true || instacomp.humanVerified === true)) {
-    return {
-      source: "human_verified_metadata",
-      player,
-      year,
-      manufacturer,
-      setName,
-      cardNumber,
-      parallel,
-    };
+    return { source: "human_verified_metadata", player, year, manufacturer, setName, cardNumber, parallel };
   }
   if (complete && instacomp.identityComplete === true && instacomp.trustedForIdentity === true) {
-    return {
-      source: "trusted_metadata",
-      player,
-      year,
-      manufacturer,
-      setName,
-      cardNumber,
-      parallel,
-    };
+    return { source: "trusted_metadata", player, year, manufacturer, setName, cardNumber, parallel };
   }
   return identityFromTitle(text(item.title));
 }
@@ -219,10 +218,7 @@ function candidateScore(item: InventoryItem, expected: ExpectedIdentity) {
   const metadata = record(item.metadata);
   const instacomp = record(metadata.instacomp);
   const haystack = `${text(item.title)} ${expected.setName}`;
-  let score = 0;
-  if (expected.source === "human_verified_metadata") score += 100;
-  else if (expected.source === "trusted_metadata") score += 70;
-  else score += 30;
+  let score = expected.source === "human_verified_metadata" ? 100 : expected.source === "trusted_metadata" ? 70 : 30;
   if (/2025\s+Panini\s+Prizm\s+WNBA/i.test(haystack)) score += 60;
   if (/2025\s+Panini\s+Select\s+WNBA/i.test(haystack)) score += 55;
   if (!text(instacomp.scanId)) score += 15;
@@ -233,7 +229,7 @@ function candidateScore(item: InventoryItem, expected: ExpectedIdentity) {
 async function downloadImage(url: string, side: "front" | "back") {
   const response = await fetch(url, {
     signal: AbortSignal.timeout(30_000),
-    headers: { "User-Agent": "TCOS-InstaComp-Five-Card-Proof/1.0" },
+    headers: { "User-Agent": "TCOS-InstaComp-Five-Card-Proof/2.0" },
   });
   if (!response.ok) throw new Error(`${side} image returned HTTP ${response.status}`);
   const bytes = await response.arrayBuffer();
@@ -242,53 +238,66 @@ async function downloadImage(url: string, side: "front" | "back") {
   return new File([bytes], `${side}.${extension}`, { type });
 }
 
-function receipt(scan: JsonRecord, prefix: string) {
-  const checklist = record(scan.checklist);
-  const values = Array.isArray(checklist.source_receipts)
-    ? checklist.source_receipts.map((value) => text(value))
-    : [];
-  return values.find((value) => value.startsWith(prefix))?.slice(prefix.length) || "";
+async function liveProductionScan(params: {
+  front: File;
+  back: File;
+  adminSession: string;
+}) {
+  const body = new FormData();
+  body.append("frontImage", params.front, params.front.name);
+  body.append("backImage", params.back, params.back.name);
+  body.append("aiCouncilTier", "basic");
+
+  const response = await fetch(LIVE_SCAN_URL, {
+    method: "POST",
+    body,
+    redirect: "error",
+    signal: AbortSignal.timeout(295_000),
+    headers: {
+      Cookie: `tcos_admin_auth_v3=${params.adminSession}`,
+      Origin: PRODUCTION_ORIGIN,
+      Referer: `${PRODUCTION_ORIGIN}/admin`,
+      "Sec-Fetch-Site": "same-origin",
+      "User-Agent": "TCOS-InstaComp-Five-Card-Proof/2.0",
+    },
+  });
+  const raw = await response.text();
+  let payload: JsonRecord = {};
+  try {
+    payload = raw ? (JSON.parse(raw) as JsonRecord) : {};
+  } catch {
+    payload = { error: `Non-JSON response: ${raw.slice(0, 300)}` };
+  }
+  return { httpStatus: response.status, httpOk: response.ok, payload };
 }
 
-function actualIdentity(scan: JsonRecord, orientation: JsonRecord) {
-  const identity = record(scan.trusted_identity);
-  let parallel = text(identity.parallel) || "Base";
-  const isWnba = /\bwnba\b/i.test(
-    [text(identity.league), text(identity.set_name || identity.setName)].join(" "),
-  );
-  const claimsPrizmParallel = /\b(?:silver|green|red|blue|gold|orange|purple|pink|black|white|ice|wave|velocity|cracked\s+ice)(?:\s+prizm)?\b/i.test(
-    parallel,
-  );
-  const forcedBaseFromBack =
-    isWnba &&
-    claimsPrizmParallel &&
-    orientation.backStandalonePrizm === false &&
-    Number(orientation.backDesignationConfidence || 0) >= 0.8;
-  if (forcedBaseFromBack) parallel = "Base";
+function actualIdentity(payload: JsonRecord) {
+  const ai = record(payload.ai);
   return {
-    player: text(identity.player),
-    year: text(identity.year),
-    manufacturer: text(identity.manufacturer || identity.brand),
-    setName: text(identity.set_name || identity.setName),
-    cardNumber: text(identity.card_number || identity.cardNumber),
-    parallel,
-    forcedBaseFromBack,
+    player: text(ai.player || ai.playerName),
+    year: text(ai.year),
+    manufacturer: text(ai.manufacturer || ai.brand),
+    setName: text(ai.setName || ai.set),
+    cardNumber: text(ai.cardNumber || ai.card_number),
+    parallel: text(ai.parallel || ai.parallelName || ai.checklistParallel) || "Base",
   };
 }
 
 async function main() {
   const outputIndex = process.argv.indexOf("--output");
-  const outputPath = outputIndex >= 0 ? process.argv[outputIndex + 1] : "evidence/instacomp-five-card-proof.json";
+  const outputPath = outputIndex >= 0
+    ? process.argv[outputIndex + 1]
+    : "evidence/instacomp-five-card-proof.json";
   const supabaseUrl = text(process.env.NEXT_PUBLIC_SUPABASE_URL);
   const serviceKey = text(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY);
   if (!supabaseUrl || !serviceKey) throw new Error("Production Supabase credentials are missing.");
-  if (!text(process.env.INSTACOMP_AI_LOCAL_URL) || !text(process.env.INSTACOMP_AI_LOCAL_KEY)) {
-    throw new Error("Production InstaComp Mac service URL/key are missing.");
-  }
+  if (!text(process.env.ADMIN_SESSION_SECRET)) throw new Error("ADMIN_SESSION_SECRET is missing.");
 
+  const adminSession = await createAdminSessionValue();
   const supabase = createClient(supabaseUrl, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+
   const { data: rawItems, error: itemError } = await supabase
     .from("inventory_items")
     .select("id,title,sku,metadata,updated_at,seller_account_id,status")
@@ -306,6 +315,7 @@ async function main() {
     .in("inventory_item_id", ids)
     .order("sort_order", { ascending: true });
   if (imageError) throw imageError;
+
   const imagesByItem = new Map<string, InventoryImage[]>();
   for (const row of (rawImages || []) as InventoryImage[]) {
     const current = imagesByItem.get(row.inventory_item_id) || [];
@@ -334,7 +344,7 @@ async function main() {
     if (selected.length === 5) break;
   }
   if (selected.length !== 5) {
-    throw new Error(`Only ${selected.length} cards had a distinct front/back pair and a usable answer key; five are required.`);
+    throw new Error(`Only ${selected.length} cards had a distinct stored front/back pair and a usable answer key; five are required.`);
   }
 
   const results: JsonRecord[] = [];
@@ -344,22 +354,18 @@ async function main() {
       downloadImage(candidate.pair.frontUrl, "front"),
       downloadImage(candidate.pair.backUrl, "back"),
     ]);
-    const normalizedSides = await normalizeInstaCompSideImages({
-      frontImage: front,
-      backImage: back,
-    });
-    if (!normalizedSides.backFile) throw new Error("Normalized back image is missing.");
-    const scan = (await analyzeWithInstaCompAiLocal({
-      front: normalizedSides.frontFile,
-      back: normalizedSides.backFile,
-      timeoutMs: 210_000,
-    })) as unknown as JsonRecord;
-    const actual = actualIdentity(scan, normalizedSides.orientation as unknown as JsonRecord);
+    const scan = await liveProductionScan({ front, back, adminSession });
+    const actual = actualIdentity(scan.payload);
+    const registry = record(scan.payload.checklistRegistry);
+    const orientation = record(scan.payload.imageOrientation);
+    const identityDecision = record(scan.payload.identityDecision);
     const checks = {
-      pricingAllowed: scan.pricing_allowed === true,
-      registryIdentity: Boolean(text(record(scan.checklist).identity_id) || receipt(scan, "registry_identity:")),
-      registryFingerprint: Boolean(receipt(scan, "registry_fingerprint:")),
-      orientationCompleted: normalizedSides.orientation.status === "completed",
+      httpOk: scan.httpOk,
+      routeOk: scan.payload.ok === true,
+      registryIdentity: Boolean(text(registry.identityId)),
+      registryFingerprint: Boolean(text(registry.fingerprintSha256)),
+      identityConfirmed: identityDecision.confirmed === true || registry.identityConfirmed === true,
+      orientationCompleted: text(orientation.status) === "completed",
       player: normalized(actual.player) === normalized(candidate.expected.player),
       year: normalized(actual.year) === normalized(candidate.expected.year),
       manufacturer: normalized(actual.manufacturer) === normalized(candidate.expected.manufacturer),
@@ -375,25 +381,28 @@ async function main() {
       answerKeySource: candidate.expected.source,
       expected: candidate.expected,
       actual,
-      scanStatus: text(scan.status),
-      matchSource: text(scan.match_source),
-      orientation: normalizedSides.orientation,
+      httpStatus: scan.httpStatus,
+      routeError: text(scan.payload.error),
+      checklistStatus: text(registry.status),
+      orientation,
       checks,
       passed,
       durationMs: Date.now() - startedAt,
     };
     results.push(result);
     console.log(
-      `[${index + 1}/5] ${passed ? "PASS" : "FAIL"} ${result.title} -> ${actual.year} ${actual.manufacturer} ${actual.setName} #${actual.cardNumber} ${actual.player} ${actual.parallel}`,
+      `[${index + 1}/5] ${passed ? "PASS" : "FAIL"} ${result.title} -> HTTP ${scan.httpStatus}; ${actual.year} ${actual.manufacturer} ${actual.setName} #${actual.cardNumber} ${actual.player} ${actual.parallel}`,
     );
   }
 
   const passedCount = results.filter((result) => result.passed === true).length;
   const receiptPayload = {
-    schema: "tcos.instacomp.fiveCardProductionProof.v1",
+    schema: "tcos.instacomp.fiveCardProductionProof.v2",
     generatedAt: new Date().toISOString(),
-    readOnlyProductionDatabase: true,
+    productionRoute: LIVE_SCAN_URL,
     selectedFromOwnerDraftInventory: true,
+    inventoryWritesPerformedByProof: false,
+    normalScanReceiptPersistenceAllowed: true,
     testedCards: results.length,
     passedCards: passedCount,
     status: passedCount === 5 ? "passed" : "failed",
