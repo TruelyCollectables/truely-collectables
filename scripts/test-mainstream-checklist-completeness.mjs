@@ -7,10 +7,25 @@ import {
 import {
   isReaderRequest,
 } from "./mainstream-checklist/reader-retry-prepatch.mjs";
+import * as registryTools from "./mainstream-checklist/registry-tools.mjs";
 
 function assert(condition, message, detail = null) {
   if (!condition) throw new Error(`${message}${detail ? `: ${JSON.stringify(detail)}` : ""}`);
 }
+
+for (const name of [
+  "dbClient",
+  "buildPlan",
+  "assertPlanComplexity",
+  "ensureArchiveBucket",
+  "uploadArchive",
+  "limitedIssues",
+  "upsertCatalog",
+  "persistPlan",
+]) {
+  assert(typeof registryTools[name] === "function", `Registry helper export is missing: ${name}`);
+}
+assert(registryTools.ARCHIVE_BUCKET === "tcos-checklist-universal-archive", "Registry archive bucket contract drifted");
 
 const complete = [
   "## Bowman Base",
@@ -74,6 +89,7 @@ assert(isReaderRequest("https://r.jina.ai/https://www.tcdb.com/Checklist.cfm/sid
 
 console.log(JSON.stringify({
   status: "passed",
+  registryHelperExportsIntact: true,
   declaredFloorEnforced: true,
   truncatedEditorialSourcesRejected: true,
   directThinShellsRejected: true,
