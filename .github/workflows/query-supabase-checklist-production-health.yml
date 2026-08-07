@@ -118,3 +118,5 @@ jobs:
             git commit -m "Query Supabase checklist Production health [skip ci]"
             git push origin "HEAD:$STATUS_BRANCH"
           fi
+
+# Retrigger existing health workflow after project-specific PostgREST timeouts: 2026-08-07T18:04Z
