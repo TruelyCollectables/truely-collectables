@@ -41,8 +41,10 @@ function stripOuterTransaction(sql) {
 }
 
 const env = parseEnv(productionEnvFile);
-const supabaseUrl = String(env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
+const supabaseUrl = String(env.NEXT_PUBLIC_SUPABASE_URL || "").replace(/\/+$/, "");
+const serviceKey = String(env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
 if (!/^https:\/\//.test(supabaseUrl)) throw new Error("Production Supabase URL missing.");
+if (!serviceKey) throw new Error("Production Supabase service-role key missing.");
 const projectRef = new URL(supabaseUrl).hostname.split(".")[0];
 const endpoint = `https://api.supabase.com/v1/projects/${projectRef}/database/query`;
 
@@ -50,7 +52,7 @@ function isTransient(status, text) {
   return status === 524 || status === 544 || status === 429 || status >= 500 || /timeout|temporar|connection terminated/i.test(text);
 }
 
-async function query(sql, readOnly = false, label = "query", maxAttempts = 5) {
+async function query(sql, readOnly = false, label = "query", maxAttempts = 8) {
   let lastError = null;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const started = Date.now();
@@ -70,21 +72,31 @@ async function query(sql, readOnly = false, label = "query", maxAttempts = 5) {
       lastError = error instanceof Error ? error : new Error(String(error));
       if (attempt === maxAttempts || !/timeout|fetch failed|connection|HTTP (?:429|5\d\d)/i.test(lastError.message)) throw lastError;
     }
-    await sleep(Math.min(10000, attempt * 2000));
+    await sleep(Math.min(12000, attempt * 2000));
   }
   throw lastError || new Error(`${label} failed.`);
 }
 
-async function tableState(requiredTables, label) {
-  const fields = requiredTables.map((table) => `'${table}', to_regclass('public.${table}') is not null`).join(",\n");
-  const rows = await query(`select json_build_object(${fields}) state;`, true, `${label} schema preflight`);
-  return rows?.[0]?.state || {};
+async function restTableExists(table) {
+  const response = await fetch(`${supabaseUrl}/rest/v1/${table}?select=id&limit=1`, {
+    headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, Range: "0-0" },
+  });
+  if (response.ok || response.status === 206) return true;
+  const text = await response.text();
+  if (response.status === 404 && /PGRST205|relation|table|schema cache/i.test(text)) return false;
+  throw new Error(`Production REST preflight for ${table} failed HTTP ${response.status}: ${text.slice(0, 500)}`);
+}
+
+async function tableState(requiredTables) {
+  const state = {};
+  for (const table of requiredTables) state[table] = await restTableExists(table);
+  return state;
 }
 
 async function applyMigrationIfNeeded({ name, requiredTables }) {
-  let state = await tableState(requiredTables, name);
+  let state = await tableState(requiredTables);
   const values = requiredTables.map((table) => state[table] === true);
-  if (values.every(Boolean)) return { name, applied: false, reason: "already_present" };
+  if (values.every(Boolean)) return { name, applied: false, reason: "already_present_rest_verified" };
   if (values.some(Boolean)) throw new Error(`${name} is partially present in Production; refusing blind reapply: ${JSON.stringify(state)}`);
 
   const file = path.join("supabase", "migrations", name);
@@ -92,13 +104,11 @@ async function applyMigrationIfNeeded({ name, requiredTables }) {
   try {
     await query(`begin;\n${sql}\ncommit;`, false, `migration ${name}`, 1);
   } catch (error) {
-    // A control-plane timeout is ambiguous: the database can commit before the HTTP
-    // response dies. Re-read schema before deciding whether anything should run again.
     if (!/timeout|connection|HTTP (?:524|544|5\d\d)/i.test(String(error))) throw error;
     await sleep(3000);
-    state = await tableState(requiredTables, `${name} ambiguous-result reconciliation`);
+    state = await tableState(requiredTables);
     if (requiredTables.every((table) => state[table] === true)) {
-      return { name, applied: true, reason: "applied_despite_ambiguous_control_plane_timeout" };
+      return { name, applied: true, reason: "applied_despite_ambiguous_control_plane_timeout_rest_verified" };
     }
     if (requiredTables.some((table) => state[table] === true)) {
       throw new Error(`${name} timed out and left partial schema; refusing retry: ${JSON.stringify(state)}`);
@@ -106,9 +116,9 @@ async function applyMigrationIfNeeded({ name, requiredTables }) {
     throw error;
   }
 
-  state = await tableState(requiredTables, `${name} post-migration`);
+  state = await tableState(requiredTables);
   if (!requiredTables.every((table) => state[table] === true)) throw new Error(`${name} returned success but required tables are missing: ${JSON.stringify(state)}`);
-  return { name, applied: true, reason: "missing_then_applied" };
+  return { name, applied: true, reason: "missing_then_applied_rest_verified" };
 }
 
 const migrationResults = [];
@@ -122,7 +132,7 @@ const contractRows = await query(`select json_build_object(
   'observations', to_regclass('public.tcos_card_market_observations') is not null,
   'updateTrigger', exists (select 1 from pg_trigger where tgrelid='public.tcos_card_market_observations'::regclass and tgname='tcos_card_market_observations_no_update' and not tgisinternal),
   'deleteTrigger', exists (select 1 from pg_trigger where tgrelid='public.tcos_card_market_observations'::regclass and tgname='tcos_card_market_observations_no_delete' and not tgisinternal)
-) contract;`, true, "schema contract");
+) contract;`, true, "schema/trigger contract", 10);
 const contract = contractRows?.[0]?.contract || {};
 if (Object.values(contract).some((value) => value !== true)) throw new Error(`Production contract incomplete: ${JSON.stringify(contract)}`);
 
@@ -148,14 +158,29 @@ begin
   begin delete from public.tcos_card_market_observations where registry_identity_id='${testIdentity}' and observation_kind='SOLD'; exception when others then if position('append-only' in SQLERRM)>0 then blocked_delete:=true; else raise; end if; end;
   if not blocked_delete then raise exception 'Append-only DELETE guard did not fire'; end if;
 end $$;
-rollback;`, false, "rollback-only behavior proof");
+rollback;`, false, "rollback-only behavior proof", 10);
 
-const residueRows = await query(`select json_build_object(
- 'identityRows',(select count(*) from public.tcos_card_market_identities where registry_identity_id='${testIdentity}'),
- 'observationRows',(select count(*) from public.tcos_card_market_observations where registry_identity_id='${testIdentity}')
-) residue;`, true, "residue check");
-const residue = residueRows?.[0]?.residue || {};
-if (Number(residue.identityRows||0)!==0 || Number(residue.observationRows||0)!==0) throw new Error(`Rollback proof left Production residue: ${JSON.stringify(residue)}`);
+const residueIdentity = await restTableExists("tcos_card_market_identities");
+const residueObservation = await restTableExists("tcos_card_market_observations");
+if (!residueIdentity || !residueObservation) throw new Error("Required Production history tables disappeared after rollback proof.");
+
+async function restCount(table, filter) {
+  const response = await fetch(`${supabaseUrl}/rest/v1/${table}?select=id&limit=1&${filter}`, {
+    headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, Prefer: "count=exact", Range: "0-0" },
+  });
+  const text = await response.text();
+  if (!response.ok && response.status !== 206) throw new Error(`Residue count failed HTTP ${response.status}: ${text.slice(0, 500)}`);
+  const range = response.headers.get("content-range") || "";
+  const total = range.match(/\/(\d+)$/)?.[1];
+  if (total === undefined) throw new Error(`Residue count missing exact Content-Range: ${range}`);
+  return Number(total);
+}
+
+const residue = {
+  identityRows: await restCount("tcos_card_market_identities", `registry_identity_id=eq.${testIdentity}`),
+  observationRows: await restCount("tcos_card_market_observations", `registry_identity_id=eq.${testIdentity}`),
+};
+if (residue.identityRows !== 0 || residue.observationRows !== 0) throw new Error(`Rollback proof left Production residue: ${JSON.stringify(residue)}`);
 
 const receipt = { ok:true, expectedMain, migrationResults, contract, rollbackProof:{askSoldSeparated:true,duplicateFingerprintSuppressed:true,updateBlocked:true,deleteBlocked:true,syntheticResidue:residue}, completedAt:new Date().toISOString() };
 fs.writeFileSync(path.join(evidenceDir,"production-db-proof.json"),JSON.stringify(receipt,null,2));
