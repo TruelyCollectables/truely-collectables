@@ -7,17 +7,22 @@ on:
       - ".github/workflows/cancel-superseded-full-checklist-run.yml"
 
 permissions:
-  contents: read
+  contents: write
   actions: write
 
 jobs:
   cancel:
     runs-on: ubuntu-24.04
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Cancel only superseded run 31190974894
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          STATUS_BRANCH: ops/mainstream-checklist-status
+          STATUS_PATH: docs/operations/instacomp-superseded-run-cancel.json
         run: |
           set -euo pipefail
           run_id=31190974894
@@ -35,6 +40,23 @@ jobs:
             cat "$RUNNER_TEMP/cancel-body.txt" >&2 || true
             exit 1
           fi
-          echo "Superseded checklist run $run_id cancel request accepted/already terminal (HTTP $code)."
+          jq -n \
+            --arg runId "$run_id" \
+            --arg code "$code" \
+            --arg checkedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{schema:"tcos.checklist.supersededRunCancel.v1",runId:$runId,httpCode:$code,checkedAt:$checkedAt,accepted:($code=="202" or $code=="409")}' \
+            > "$RUNNER_TEMP/cancel.json"
+          cat "$RUNNER_TEMP/cancel.json"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin "$STATUS_BRANCH"
+          git checkout -B "$STATUS_BRANCH" "origin/$STATUS_BRANCH"
+          mkdir -p "$(dirname "$STATUS_PATH")"
+          cp "$RUNNER_TEMP/cancel.json" "$STATUS_PATH"
+          git add "$STATUS_PATH"
+          if ! git diff --cached --quiet; then
+            git commit -m "Record superseded checklist run cancellation [skip ci]"
+            git push origin "HEAD:$STATUS_BRANCH"
+          fi
 
-# Cancellation retrigger marker: 2026-08-07T15:41Z
+# Cancellation receipt marker: 2026-08-07T15:42Z
