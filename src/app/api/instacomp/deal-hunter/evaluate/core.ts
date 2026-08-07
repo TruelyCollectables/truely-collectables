@@ -373,6 +373,8 @@ export async function POST(request: NextRequest) {
     internalForm.set("frontImage", front, front.name || "front.jpg");
     internalForm.set("backImage", back, back.name || "back.jpg");
     internalForm.set("aiCouncilTier", "basic");
+    const listingTitleHint = text(listing.title, 1000);
+    if (listingTitleHint) internalForm.set("listingTitleHint", listingTitleHint);
     const internalHeaders = new Headers({ Accept: "application/json" });
     internalHeaders.set(
       "x-tcos-instacomp-service-token",
