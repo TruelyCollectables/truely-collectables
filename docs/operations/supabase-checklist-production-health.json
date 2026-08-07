@@ -1,0 +1,73 @@
+{
+  "schema": "tcos.supabase.checklistProductionHealth.v1",
+  "checkedAt": "2026-08-07T18:11:23Z",
+  "managementProject": {
+    "httpCode": "200",
+    "data": {
+      "status": "ACTIVE_HEALTHY",
+      "region": "us-west-2",
+      "error": null
+    },
+    "transportError": null
+  },
+  "serviceHealth": {
+    "httpCode": "400",
+    "services": [],
+    "error": "timeout_ms: Invalid input: expected number, received string",
+    "transportError": null
+  },
+  "readOnlyDatabaseQuery": {
+    "httpCode": "201",
+    "result": [
+      {
+        "health": {
+          "max_connections": 60,
+          "total_connections": 18,
+          "active_connections": 8,
+          "idle_connections": 3,
+          "waiting_connections": 15,
+          "waiting_locks": 5,
+          "checklist_catalog_readable": true,
+          "top_applications": [
+            {
+              "application_name": "mgmt-api",
+              "state": "active",
+              "connections": 7
+            },
+            {
+              "application_name": "<empty>",
+              "state": "<null>",
+              "connections": 6
+            },
+            {
+              "application_name": "postgrest",
+              "state": "active",
+              "connections": 1
+            },
+            {
+              "application_name": "pg_cron scheduler",
+              "state": "<null>",
+              "connections": 1
+            },
+            {
+              "application_name": "postgres_exporter",
+              "state": "idle",
+              "connections": 1
+            },
+            {
+              "application_name": "postgrest",
+              "state": "idle",
+              "connections": 1
+            },
+            {
+              "application_name": "pg_net 0.20.3",
+              "state": "idle",
+              "connections": 1
+            }
+          ]
+        }
+      }
+    ],
+    "transportError": null
+  }
+}
