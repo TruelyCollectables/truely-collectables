@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "PRODUCTION_ENV_FILE=/dev/null node scripts/reconcile-ebay-pdf-purchases-production.mjs && node scripts/enforce-ebay-pdf-all-in-purchase-ledger.mjs && npm run build",
+  "buildCommand": "node scripts/reconcile-ebay-pdf-only-production.mjs && npm run build",
   "git": {
     "deploymentEnabled": {
       "*": false,
