@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 
 const files = {
   installer: "services/instacomp-ai/scripts/install-sentinel-control.sh",
+  sentinel: "services/instacomp-ai/app/sentinel.py",
   relay: "services/instacomp-ai/app/sentinel_routes.py",
   archiveAuth: "src/lib/instacomp-sentinel-auth.ts",
   importRoute: "src/app/api/instacomp/checklist-sentinel/import/route.ts",
@@ -42,12 +43,16 @@ assert(!contents.installer.includes("env add \"$name\" \"$environment\" --force 
 assert(contents.installer.includes(String.raw`--url http:\/\/127\.0\.0\.1:8787`), "Installer must remove only the obsolete quick tunnel.");
 assert(!contents.installer.includes("pkill cloudflared"), "Installer must never kill every cloudflared process.");
 
+assert(contents.sentinel.includes('"INSTACOMP_AI_SENTINEL_MAX_TARGETS_PER_RUN", 75'), "Sentinel safe batch cap must remain 75 targets.");
+
 assert(contents.relay.includes("registry-import-relay"), "Mac relay route is missing.");
 assert(contents.relay.includes("hashlib.sha256"), "Mac relay must independently hash the local file.");
 assert(contents.relay.includes("hmac.compare_digest"), "Mac relay must compare archive credentials in constant time.");
 assert(contents.relay.includes("base64.b64decode"), "Mac relay must validate local Basic authentication.");
 assert(contents.relay.includes("x-instacomp-sentinel-archive-token"), "Mac relay must use the dedicated central archive header.");
 assert(contents.relay.includes("_MAX_RELAY_BYTES = 50_000_000"), "Mac relay must enforce the 50 MB limit.");
+assert(contents.relay.includes('trigger="pending-backlog-drain"'), "Pending checklist backlog must automatically start the next safe batch.");
+assert(contents.relay.includes("has_due_targets"), "Pending backlog drain must require actual due work before starting another batch.");
 
 assert(contents.archiveAuth.includes("timingSafeEqual"), "Central archive token comparison must be constant time.");
 assert(contents.archiveAuth.includes("INSTACOMP_SENTINEL_ARCHIVE_TOKEN"), "Central archive must use a dedicated credential.");
@@ -75,7 +80,9 @@ assert(contents.proxy.includes("INSTACOMP_AI_LOCAL_URL"), "Website proxy must us
 assert(contents.proxy.includes("localhost"), "Website proxy must reject Production localhost configuration.");
 
 assert(contents.dashboard.includes("Checklist Sentinel™"), "Dashboard branding is incorrect.");
-assert(contents.dashboard.includes("5 * 60 * 1000"), "Dashboard must refresh every five minutes.");
+assert(contents.dashboard.includes("20 * 60 * 1000"), "Dashboard progress must refresh every 20 minutes.");
+assert(contents.dashboard.includes("Progress last updated:"), "Dashboard progress must show its last-updated timestamp.");
+assert(contents.dashboard.includes("completedTargets * 100 / totalTargets"), "Dashboard must calculate overall backlog progress across the full target universe.");
 assert(contents.dashboard.includes('action("run")'), "Dashboard must expose Run Now.");
 assert(contents.dashboard.includes('action("refresh-targets")'), "Dashboard must expose target refresh.");
 assert(contents.dashboard.includes("status?.enabled &&"), "Dashboard must not claim connection health when Sentinel is disabled.");
@@ -93,6 +100,8 @@ assert(contents.env.includes("Keep the large multipart transfer on localhost"), 
 console.log("✓ Named tunnel and both LaunchAgents are installer-owned");
 console.log("✓ Dedicated Mac and archive secrets are generated locally and synchronized once");
 console.log("✓ No unrelated Vercel service credential is read or rotated");
+console.log("✓ Sentinel safe batch cap remains 75 and pending backlog auto-drains only when due");
+console.log("✓ Dashboard reports overall checklist search progress with a 20-minute timestamped refresh");
 console.log("✓ Large files stay off the Vercel request body");
 console.log("✓ Source URL, redirects, DNS, byte count, duplicate bytes, and SHA-256 fail closed");
 console.log("✓ Central source archive is private with immutable source provenance");

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
 import json
 import os
+from contextlib import suppress
 from pathlib import Path
 from typing import Any, Callable
 
@@ -25,6 +27,7 @@ from .sentinel import ChecklistSentinel
 from .sentinel_sources import targets_from_payload
 
 _MAX_RELAY_BYTES = 50_000_000
+_BACKLOG_DRAIN_POLL_SECONDS = 60.0
 
 
 def _constant_time_text_equal(left: str, right: str) -> bool:
@@ -53,6 +56,21 @@ def _archive_token_valid(
     )
 
 
+def _pending_backlog_ready(
+    status: dict[str, Any],
+    *,
+    has_due_targets: bool,
+) -> bool:
+    targets = status.get("targets") or {}
+    latest = status.get("latest_job") or {}
+    try:
+        pending = int(targets.get("pending") or 0)
+    except (TypeError, ValueError):
+        pending = 0
+    running = str(latest.get("status") or "") == "running"
+    return pending > 0 and has_due_targets and not running
+
+
 def build_sentinel_router(
     require_api_key: Callable[..., None],
     database_path: Path,
@@ -68,13 +86,52 @@ def build_sentinel_router(
         tags=["InstaComp AI Checklist Sentinel"],
         dependencies=[Depends(require_api_key)],
     )
+    backlog_drain_stop = asyncio.Event()
+    backlog_drain_task: asyncio.Task[None] | None = None
+
+    async def _drain_pending_backlog() -> None:
+        while not backlog_drain_stop.is_set():
+            try:
+                snapshot = sentinel.status()
+                has_due_targets = bool(sentinel.store.due_targets(1))
+                if _pending_backlog_ready(
+                    snapshot,
+                    has_due_targets=has_due_targets,
+                ):
+                    await sentinel.trigger(trigger="pending-backlog-drain")
+            except Exception:
+                # Fail closed: the normal 24-hour scheduler remains intact if
+                # backlog draining cannot safely inspect or start the next batch.
+                pass
+
+            try:
+                await asyncio.wait_for(
+                    backlog_drain_stop.wait(),
+                    timeout=_BACKLOG_DRAIN_POLL_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                continue
 
     @outer.on_event("startup")
     async def _start_sentinel() -> None:
+        nonlocal backlog_drain_task
         await sentinel.start()
+        backlog_drain_stop.clear()
+        if backlog_drain_task is None or backlog_drain_task.done():
+            backlog_drain_task = asyncio.create_task(
+                _drain_pending_backlog(),
+                name="instacomp-ai-checklist-sentinel-backlog-drain",
+            )
 
     @outer.on_event("shutdown")
     async def _stop_sentinel() -> None:
+        nonlocal backlog_drain_task
+        backlog_drain_stop.set()
+        if backlog_drain_task:
+            backlog_drain_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await backlog_drain_task
+            backlog_drain_task = None
         await sentinel.stop()
 
     @protected.get("/status")

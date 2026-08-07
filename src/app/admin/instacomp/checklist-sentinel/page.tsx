@@ -4,6 +4,8 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+const DASHBOARD_REFRESH_MS = 20 * 60 * 1000;
+
 type Job = {
   job_id?: string;
   trigger?: string;
@@ -122,7 +124,7 @@ export default function ChecklistSentinelAdminPage() {
 
   useEffect(() => {
     const initialLoad = window.setTimeout(() => void load(), 0);
-    const timer = window.setInterval(() => void load(), 5 * 60 * 1000);
+    const timer = window.setInterval(() => void load(), DASHBOARD_REFRESH_MS);
     return () => {
       window.clearTimeout(initialLoad);
       window.clearInterval(timer);
@@ -149,7 +151,13 @@ export default function ChecklistSentinelAdminPage() {
   }
 
   const job = status?.latest_job || null;
-  const progress = Math.max(0, Math.min(100, number(job?.progress_percent)));
+  const pendingTargets = number(status?.targets?.pending);
+  const totalTargets = number(status?.targets?.total);
+  const completedTargets = Math.max(0, totalTargets - pendingTargets);
+  const progress = totalTargets > 0
+    ? Math.max(0, Math.min(100, completedTargets * 100 / totalTargets))
+    : 0;
+  const batchProgress = Math.max(0, Math.min(100, number(job?.progress_percent)));
   const connectionHealthy = Boolean(
     status?.enabled && !status.freeze_protection?.stale,
   );
@@ -173,7 +181,7 @@ export default function ChecklistSentinelAdminPage() {
             <div className="text-xs font-black uppercase tracking-[0.24em] text-cyan-300">InstaComp AI</div>
             <h1 className="mt-2 text-3xl font-black sm:text-5xl">Checklist Sentinel™</h1>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-neutral-300">
-              The Mac owns the 24-hour checklist search. This page securely controls and reads it through Vercel and the permanent Cloudflare tunnel.
+              The Mac owns the 24-hour checklist search and automatically drains newly pending checklist targets in safe batches. This page securely controls and reads it through Vercel and the permanent Cloudflare tunnel.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -189,19 +197,21 @@ export default function ChecklistSentinelAdminPage() {
         ) : null}
 
         <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
-          <Metric label="Progress" value={`${progress.toFixed(1)}%`} />
-          <Metric label="Pending targets" value={number(status?.targets?.pending)} />
-          <Metric label="Processed" value={number(job?.processed_targets)} />
+          <Metric label="Overall progress" value={`${progress.toFixed(1)}%`} />
+          <Metric label="Pending targets" value={pendingTargets} />
+          <Metric label="Attempted targets" value={completedTargets} />
+          <Metric label="Current batch" value={`${batchProgress.toFixed(1)}%`} />
           <Metric label="Found" value={number(job?.found_count)} />
-          <Metric label="Downloaded" value={number(job?.downloaded_count)} />
           <Metric label="Archived" value={Math.max(number(job?.imported_count), archived)} />
         </section>
 
         <section className="rounded-3xl border border-white/10 bg-white/[0.03] p-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="text-xl font-black">Current run</h2>
-              <p className="mt-1 text-sm text-neutral-400">{job?.status || (loading ? "Loading…" : "No run recorded")}</p>
+              <h2 className="text-xl font-black">Checklist search backlog</h2>
+              <p className="mt-1 text-sm text-neutral-400">
+                {job?.status || (loading ? "Loading…" : "No run recorded")} · safe batch progress {batchProgress.toFixed(1)}%
+              </p>
             </div>
             <div className="flex flex-wrap gap-2">
               <button
@@ -230,8 +240,18 @@ export default function ChecklistSentinelAdminPage() {
               </button>
             </div>
           </div>
-          <div className="mt-5 h-4 overflow-hidden rounded-full bg-white/10">
+          <div className="mt-5 h-5 overflow-hidden rounded-full bg-white/10" aria-label={`Checklist search progress ${progress.toFixed(1)} percent`}>
             <div className="h-full rounded-full bg-cyan-300 transition-all" style={{ width: `${progress}%` }} />
+          </div>
+          <div className="mt-3 flex flex-col gap-1 text-sm text-neutral-300 sm:flex-row sm:items-center sm:justify-between">
+            <span className="font-bold text-cyan-200">
+              {progress.toFixed(1)}% complete · {completedTargets} of {totalTargets} targets attempted
+            </span>
+            <span>
+              Progress last updated: {updatedAt ? (
+                <time dateTime={updatedAt.toISOString()}>{updatedAt.toLocaleString()}</time>
+              ) : "Not yet"}
+            </span>
           </div>
           <div className="mt-5 grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
             <div><span className="text-neutral-500">Current target:</span><br />{job?.current_target_key || "None"}</div>
@@ -251,7 +271,7 @@ export default function ChecklistSentinelAdminPage() {
               <StatusPill ok={Boolean(status?.freeze_protection?.resume_pending_targets)}>Safe resume</StatusPill>
             </div>
             <p className="mt-5 text-sm text-neutral-400">
-              Checkpoint every {number(status?.checkpoint_seconds)} seconds. Daily schedule: {number(status?.schedule_hours)} hours.
+              Checkpoint every {number(status?.checkpoint_seconds)} seconds. Daily schedule: {number(status?.schedule_hours)} hours. Pending backlog batches automatically continue until no due pending targets remain.
             </p>
           </div>
           <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6">
@@ -267,7 +287,9 @@ export default function ChecklistSentinelAdminPage() {
         </section>
 
         <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-neutral-500">
-          <span>Dashboard refreshes every five minutes. Last read: {updatedAt ? updatedAt.toLocaleString() : "Not yet"}</span>
+          <span>
+            Progress refreshes automatically every 20 minutes. Last successful read: {updatedAt ? updatedAt.toLocaleString() : "Not yet"}
+          </span>
           <Link href="/admin" className="font-bold text-cyan-300 hover:text-cyan-200">Back to Admin</Link>
         </div>
       </div>
