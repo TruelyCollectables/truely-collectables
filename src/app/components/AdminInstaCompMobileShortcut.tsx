@@ -20,6 +20,11 @@ const adminMobileLinks = [
     icon: "🛰️",
   },
   {
+    href: "/admin/market-intel/deal-hunter",
+    label: "Deal Hunter",
+    icon: "🎯",
+  },
+  {
     href: "/admin/pending-card-import",
     label: "Card Intake",
     icon: "📸",
