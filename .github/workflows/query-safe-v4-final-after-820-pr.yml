@@ -31,7 +31,7 @@ jobs:
             --slurpfile runs "$RUNNER_TEMP/runs.json" \
             --slurpfile jobs "$RUNNER_TEMP/jobs.json" \
             '{
-              schema:"tcos.checklist.safeV4FinalPost820Observer.v1",
+              schema:"tcos.checklist.safeV4FinalPostSchemaFixObserver.v1",
               checkedAt:(now|todateiso8601),
               run:([ $runs[0].workflow_runs[] | select(.event != "pull_request") ][0] | {name,id,run_number,event,status,conclusion,head_branch,head_sha,created_at,updated_at,html_url}),
               jobs:($jobs[0].jobs | map({id,name,status,conclusion,started_at,completed_at,steps:(.steps // [] | map({name,status,conclusion,number}))}))
