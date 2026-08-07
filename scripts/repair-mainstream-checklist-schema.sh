@@ -46,29 +46,26 @@ run_query \
   writer-index-repair \
   supabase/migrations/20260807033000_checklist_registry_writer_repair.sql
 
+# Production uses the core Registry identity uniqueness contract. Reinstall the
+# immutable transactional writer unchanged rather than adding a predicate for a
+# column that is not part of checklist_card_identities.
 writer_source="$work_dir/transactional-writer.sql"
-writer_patched="$work_dir/transactional-writer-active-identity.sql"
 curl --silent --show-error --fail --location \
   --retry 5 --retry-delay 2 --retry-all-errors \
   --output "$writer_source" \
   "https://raw.githubusercontent.com/TruelyCollectables/truely-collectables/61656f2624523aa197b3676bbb5b29ef5ba191c4/supabase/migrations/20260731161500_checklist_registry_transactional_writer.sql"
 
-python3 - "$writer_source" "$writer_patched" <<'PY'
+python3 - "$writer_source" <<'PY'
 from pathlib import Path
 import sys
 
-source_path = Path(sys.argv[1])
-output_path = Path(sys.argv[2])
-source = source_path.read_text(encoding="utf-8")
-old = "on conflict (identity_schema, fingerprint_sha256) do nothing;"
-new = "on conflict (identity_schema, fingerprint_sha256) where active do nothing;"
-count = source.count(old)
-if count != 1:
-    raise SystemExit(f"Expected one identity conflict target, found {count}.")
-output_path.write_text(source.replace(old, new, 1), encoding="utf-8")
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+plain = "on conflict (identity_schema, fingerprint_sha256) do nothing;"
+if source.count(plain) != 1:
+    raise SystemExit("Transactional writer does not contain the expected identity conflict target.")
 PY
 
-run_query writer-active-identity-repair "$writer_patched"
+run_query writer-identity-conflict-repair "$writer_source"
 
 sleep 5
-echo "Checklist Registry writer indexes, active-identity conflict target, and bounded timeout are ready."
+echo "Checklist Registry writer uniqueness, identity conflict target, and bounded timeout are ready."
