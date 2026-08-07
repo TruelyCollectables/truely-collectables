@@ -63,10 +63,45 @@ function macHeaders() {
   return { "X-InstaComp-AI-Key": key, Accept: "application/json" };
 }
 
+function sanitizeRun(row: any) {
+  return {
+    runId: String(row?.run_id || "") || null,
+    trigger: String(row?.trigger || "") || null,
+    status: String(row?.status || "") || null,
+    startedAt: String(row?.started_at || "") || null,
+    completedAt: String(row?.completed_at || "") || null,
+    discoveryCount: Number(row?.discovery_count || 0),
+    evaluatedCount: Number(row?.evaluated_count || 0),
+    actionableCount: Number(row?.actionable_count || 0),
+    manualReviewCount: Number(row?.manual_review_count || 0),
+    failureCount: Number(row?.failure_count || 0),
+    error: row?.error_message ? String(row.error_message).slice(0, 600) : null,
+  };
+}
+
+async function currentMacDiagnostics(baseUrl: string, headers: Record<string, string>) {
+  const status = await jsonFetch(`${baseUrl}/v1/deal-hunter/status`, { headers }, "Deal Hunter status", 20_000);
+  const payload = await jsonFetch(`${baseUrl}/v1/deal-hunter/runs?limit=10`, { headers }, "Mac run receipts", 20_000);
+  const runs = Array.isArray(payload?.runs) ? payload.runs.map(sanitizeRun) : [];
+  return {
+    scheduler: {
+      enabled: status?.enabled === true,
+      running: status?.running === true,
+      activeRunId: String(status?.active_run_id || "") || null,
+      lastStartedAt: String(status?.last_started_at || "") || null,
+      lastCompletedAt: String(status?.last_completed_at || "") || null,
+      lastStatus: String(status?.last_status || "") || null,
+      lastError: status?.last_error ? String(status.last_error).slice(0, 600) : null,
+      evaluationKeyConfigured: status?.mac_evaluation_key_configured === true,
+    },
+    runs,
+  };
+}
+
 async function waitForCompletedManualRun(baseUrl: string, headers: Record<string, string>, startedAt: string) {
   const startedMs = Date.parse(startedAt);
-  for (let attempt = 0; attempt < 12; attempt += 1) {
-    const payload = await jsonFetch(`${baseUrl}/v1/deal-hunter/runs?limit=5`, { headers }, "Mac run receipts", 20_000);
+  for (let attempt = 0; attempt < 44; attempt += 1) {
+    const payload = await jsonFetch(`${baseUrl}/v1/deal-hunter/runs?limit=10`, { headers }, "Mac run receipts", 20_000);
     const runs = Array.isArray(payload?.runs) ? payload.runs : [];
     const run = runs.find((row: any) =>
       String(row?.trigger || "") === "manual" &&
@@ -75,7 +110,8 @@ async function waitForCompletedManualRun(baseUrl: string, headers: Record<string
     if (run && String(run.status || "") !== "running") return run;
     await new Promise((resolve) => setTimeout(resolve, 5_000));
   }
-  throw new Error("Physical Mac did not expose a completed durable manual Deal Hunter run receipt.");
+  const diagnostics = await currentMacDiagnostics(baseUrl, headers);
+  throw new Error(`Physical Mac did not complete a durable manual Deal Hunter run in the bounded window. Diagnostics=${JSON.stringify(diagnostics).slice(0, 4000)}`);
 }
 
 export async function POST(request: Request) {
@@ -84,7 +120,24 @@ export async function POST(request: Request) {
   }
 
   try {
-    const requestedPass = Number(new URL(request.url).searchParams.get("pass") || 1);
+    const url = new URL(request.url);
+    const mode = String(url.searchParams.get("mode") || "run").toLowerCase();
+    const baseUrl = macBaseUrl();
+    const headers = macHeaders();
+
+    if (mode === "status") {
+      const health = await jsonFetch(`${baseUrl}/health`, {}, "Physical Mac health", 20_000);
+      const diagnostics = await currentMacDiagnostics(baseUrl, headers);
+      return Response.json({
+        success: true,
+        schema: "truelycollectables.instacompDealHunterLearningDiagnostics.v1",
+        physicalMacHealthy: health?.ok === true,
+        ...diagnostics,
+        checkedAt: new Date().toISOString(),
+      }, { headers: { "Cache-Control": "no-store" } });
+    }
+
+    const requestedPass = Number(url.searchParams.get("pass") || 1);
     const pass = requestedPass === 2 ? 2 : 1;
     const requireNewHistory = pass === 1;
     const supabaseUrl = String(process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
@@ -96,8 +149,6 @@ export async function POST(request: Request) {
     const supabase = createClient(supabaseUrl, serviceRole, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
-    const baseUrl = macBaseUrl();
-    const headers = macHeaders();
     const startedAt = new Date().toISOString();
 
     const { count: beforeCount, error: beforeError } = await supabase
@@ -106,10 +157,22 @@ export async function POST(request: Request) {
     if (beforeError) throw new Error(`Production history pre-count failed: ${beforeError.message}`);
 
     const health = await jsonFetch(`${baseUrl}/health`, {}, "Physical Mac health", 20_000);
-    const beforeStatus = await jsonFetch(`${baseUrl}/v1/deal-hunter/status`, { headers }, "Deal Hunter status", 20_000);
+    const beforeDiagnostics = await currentMacDiagnostics(baseUrl, headers);
+    const beforeStatus = beforeDiagnostics.scheduler;
     if (health?.ok !== true) throw new Error("Physical Mac health endpoint is not ready.");
     if (beforeStatus?.enabled !== true) throw new Error("Physical Mac Deal Hunter scheduler is disabled.");
-    if (beforeStatus?.mac_evaluation_key_configured !== true) throw new Error("Physical Mac evaluation key is not configured.");
+    if (beforeStatus?.evaluationKeyConfigured !== true) throw new Error("Physical Mac evaluation key is not configured.");
+
+    if (beforeStatus.running) {
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 5_000));
+        const state = await currentMacDiagnostics(baseUrl, headers);
+        if (!state.scheduler.running) break;
+        if (attempt === 19) {
+          throw new Error(`Physical Mac already had a run active and it did not clear. Diagnostics=${JSON.stringify(state).slice(0, 4000)}`);
+        }
+      }
+    }
 
     let trigger: any = null;
     try {
@@ -117,13 +180,18 @@ export async function POST(request: Request) {
         `${baseUrl}/v1/deal-hunter/run`,
         { method: "POST", headers },
         "Physical Mac manual Deal Hunter run",
-        240_000,
+        25_000,
       );
     } catch (error) {
       if (!/timeout|abort/i.test(String(error))) throw error;
     }
 
-    const durableRun = await waitForCompletedManualRun(baseUrl, headers, startedAt);
+    let durableRun: any = null;
+    if (trigger?.accepted === true && String(trigger?.status || "") && trigger?.run_id) {
+      const receipts = await jsonFetch(`${baseUrl}/v1/deal-hunter/runs?limit=10`, { headers }, "Mac run receipts", 20_000);
+      durableRun = (Array.isArray(receipts?.runs) ? receipts.runs : []).find((row: any) => row?.run_id === trigger.run_id && String(row?.status || "") !== "running") || null;
+    }
+    if (!durableRun) durableRun = await waitForCompletedManualRun(baseUrl, headers, startedAt);
     if (String(durableRun.status || "") !== "completed") {
       throw new Error(`Physical Mac Deal Hunter run failed: ${String(durableRun.error_message || durableRun.status || "unknown")}`);
     }
@@ -160,37 +228,19 @@ export async function POST(request: Request) {
       registryIdentityId = String(latest?.registry_identity_id || "").trim();
     }
 
-    let exactHistory: Awaited<ReturnType<typeof loadExactCardMarketHistory>> | null = null;
-    if (registryIdentityId) {
-      exactHistory = await loadExactCardMarketHistory(registryIdentityId);
-      if (!exactHistory.identity || !Array.isArray(exactHistory.observations) || !exactHistory.observations.length) {
-        throw new Error("Trusted Registry identity could not be read back with its retained market history.");
-      }
-    } else {
-      throw new Error("Production contains no canonical Registry-backed market history to read back.");
+    if (!registryIdentityId) throw new Error("Production contains no canonical Registry-backed market history to read back.");
+    const exactHistory = await loadExactCardMarketHistory(registryIdentityId);
+    if (!exactHistory.identity || !Array.isArray(exactHistory.observations) || !exactHistory.observations.length) {
+      throw new Error("Trusted Registry identity could not be read back with its retained market history.");
     }
 
     return Response.json(
       {
         success: true,
-        schema: "truelycollectables.instacompDealHunterLearningSelfTest.v1",
+        schema: "truelycollectables.instacompDealHunterLearningSelfTest.v2",
         pass,
-        physicalMac: {
-          healthy: true,
-          schedulerEnabled: true,
-          evaluationKeyConfigured: true,
-        },
-        run: {
-          accepted: trigger?.accepted ?? null,
-          runId: durableRun.run_id || null,
-          status: durableRun.status,
-          discoveryCount: Number(durableRun.discovery_count || 0),
-          evaluatedCount: Number(durableRun.evaluated_count || 0),
-          actionableCount: Number(durableRun.actionable_count || 0),
-          manualReviewCount: Number(durableRun.manual_review_count || 0),
-          failureCount: Number(durableRun.failure_count || 0),
-          deferredByCooldownOrCapacity: Number(durableRun.summary_json?.deferred_by_cooldown_or_capacity || durableRun.summary?.deferred_by_cooldown_or_capacity || 0),
-        },
+        physicalMac: { healthy: true, schedulerEnabled: true, evaluationKeyConfigured: true },
+        run: sanitizeRun(durableRun),
         productionHistory: {
           before: Number(beforeCount || 0),
           after: Number(afterCount || 0),
@@ -207,10 +257,7 @@ export async function POST(request: Request) {
     );
   } catch (error) {
     return Response.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      },
+      { success: false, error: error instanceof Error ? error.message : String(error) },
       { status: 500, headers: { "Cache-Control": "no-store" } },
     );
   }
