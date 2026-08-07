@@ -48,4 +48,4 @@ jobs:
             git push origin "HEAD:$STATUS_BRANCH"
           fi
 
-# Refresh after preflight retry merge 2cac592d at 2026-08-07T17:32Z
+# Refresh after wall-clock preflight bound merge 53ac47d6 at 2026-08-07T17:46Z
