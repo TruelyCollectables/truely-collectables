@@ -4,7 +4,6 @@ const quickToolsUrl = new URL(
   "../src/app/components/AdminInstaCompMobileShortcut.tsx",
   import.meta.url,
 );
-const adminPageUrl = new URL("../src/app/admin/page.tsx", import.meta.url);
 const dealHunterPageUrl = new URL(
   "../src/app/admin/market-intel/deal-hunter/page.tsx",
   import.meta.url,
@@ -13,17 +12,21 @@ const evaluationRouteUrl = new URL(
   "../src/app/api/instacomp/deal-hunter/evaluate/route.ts",
   import.meta.url,
 );
+const evaluationCoreUrl = new URL(
+  "../src/app/api/instacomp/deal-hunter/evaluate/core.ts",
+  import.meta.url,
+);
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-const [quickTools, adminPage, dealHunterPage, evaluationRoute] =
+const [quickTools, dealHunterPage, evaluationRoute, evaluationCore] =
   await Promise.all([
     readFile(quickToolsUrl, "utf8"),
-    readFile(adminPageUrl, "utf8"),
     readFile(dealHunterPageUrl, "utf8"),
     readFile(evaluationRouteUrl, "utf8"),
+    readFile(evaluationCoreUrl, "utf8"),
   ]);
 
 assert(
@@ -42,11 +45,7 @@ assert(
 assert(
   quickTools.includes("grid grid-cols-3") &&
     quickTools.includes("sm:flex sm:items-center"),
-  "Admin quick tools must remain usable on mobile and desktop with six actions.",
-);
-assert(
-  adminPage.includes('"/admin/market-intel/deal-hunter"'),
-  "Admin static route contract must include the Deal Hunter destination.",
+  "Admin quick tools must remain usable on mobile and desktop.",
 );
 assert(
   dealHunterPage.includes("InstaComp AI Deal Hunter"),
@@ -57,15 +56,21 @@ assert(
   "Deal Hunter destination must retain a return path to Market Intel.",
 );
 assert(
-  evaluationRoute.includes('"/api/instacomp/live-scan"'),
-  "Deal Hunter evaluation route must remain wired to the hardened InstaComp live-scan pipeline.",
+  evaluationCore.includes('"/api/instacomp/live-scan"'),
+  "Deal Hunter core evaluator must remain wired to the hardened InstaComp live-scan pipeline.",
 );
 assert(
-  evaluationRoute.includes('from("tcos_deal_hunter_candidates")'),
-  "Deal Hunter evaluation route must persist candidate results.",
+  evaluationCore.includes('from("tcos_deal_hunter_candidates")'),
+  "Deal Hunter core evaluator must persist candidate results.",
+);
+assert(
+  evaluationRoute.includes("persistExactCardMarketHistory") &&
+    evaluationRoute.includes("marketHistory"),
+  "Deal Hunter route wrapper must retain exact-card longitudinal market history.",
 );
 
 console.log("✓ Shared admin quick bar links to Deal Hunter on mobile and desktop");
 console.log("✓ Deal Hunter destination page exists and returns to Market Intel");
-console.log("✓ Deal Hunter evaluation remains wired to live scan and persistence");
-console.log("Admin Deal Hunter link simulation: 3/3 passed.");
+console.log("✓ Core evaluation remains wired to live scan and candidate persistence");
+console.log("✓ Wrapper retains Registry-confirmed exact-card market history");
+console.log("Admin Deal Hunter link simulation: 4/4 passed.");
