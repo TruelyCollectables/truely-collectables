@@ -38,12 +38,13 @@ jobs:
           import path from 'node:path';
           import { createClient } from '@supabase/supabase-js';
 
+          // Exact five acceptance cards from the latest Production live diagnostic receipt.
           const ids = [
             'ef0e06a3-a6de-4242-8c52-52b420185850',
-            'bbf7f682-4ead-447d-b692-b84f68df2a0e',
-            '6434de96-8b41-4f1b-9b25-0b4f30b6b882',
-            '10b150ae-169d-4489-95b4-e289f497e28d',
-            'f66c97d0-a1ad-483c-b177-f49d386069d2',
+            '0916fe9d-2837-4d91-add4-73e7216705cd',
+            '66f9ad9e-43fb-4b2b-b79c-ac99fa082de0',
+            'f7d73af4-7299-4ed6-b663-39206f2576ee',
+            'e9335a9d-3cc1-48d3-92db-7be7468714a9',
           ];
           const parsed = {};
           for (const raw of fs.readFileSync(process.env.PROD_ENV, 'utf8').split(/\r?\n/)) {
