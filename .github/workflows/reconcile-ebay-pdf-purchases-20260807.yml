@@ -4,6 +4,7 @@ on:
   pull_request:
     branches: [main]
     paths:
+      - "scripts/reconcile-ebay-pdf-only-production.mjs"
       - "scripts/reconcile-ebay-pdf-purchases-production.mjs"
       - "scripts/enforce-ebay-pdf-all-in-purchase-ledger.mjs"
       - "vercel.json"
@@ -58,7 +59,9 @@ jobs:
             --token "$VERCEL_TOKEN" \
             2>&1 | tee ebay-reconciliation-vercel-build.log
           grep -q "PDF orders matched: 25/25" ebay-reconciliation-vercel-build.log
-          grep -q "Final canonical verification:" ebay-reconciliation-vercel-build.log
+          grep -q "PDF line items represented: 28/28" ebay-reconciliation-vercel-build.log
+          grep -q "PDF ALL-IN total represented: \$528.52" ebay-reconciliation-vercel-build.log
+          grep -q "Final canonical verification: 28/28" ebay-reconciliation-vercel-build.log
 
       - name: Restore clean latest-main Production deployment
         shell: bash
