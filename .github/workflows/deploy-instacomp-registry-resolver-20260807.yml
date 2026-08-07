@@ -43,15 +43,13 @@ jobs:
           set -euo pipefail
           npm ci
           npx tsc --noEmit
-      - name: Build and deploy Production
+      - name: Deploy Production using Vercel remote build
         shell: bash
         run: |
           set -euo pipefail
           test -n "${VERCEL_TOKEN:-}"
           npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
-          npx --yes vercel@56.2.0 pull --yes --environment=production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
-          npx --yes vercel@56.2.0 build --prod --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
-          npx --yes vercel@56.2.0 deploy --prebuilt --prod --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" | tee /tmp/vercel-deploy-url.txt
+          npx --yes vercel@56.2.0 deploy --prod --yes --force --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" | tee /tmp/vercel-deploy-url.txt
       - name: Verify Production readiness
         shell: bash
         run: |
