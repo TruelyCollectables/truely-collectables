@@ -42,13 +42,21 @@ run_query() {
     "$response_file" >/dev/null
 }
 
+# Repair historical release-source duplicates first because the writer also uses
+# an explicit ON CONFLICT target for release provenance.
 run_query \
   writer-index-repair \
   supabase/migrations/20260807033000_checklist_registry_writer_repair.sql
 
-# Production uses the core Registry identity uniqueness contract. Reinstall the
-# immutable transactional writer unchanged rather than adding a predicate for a
-# column that is not part of checklist_card_identities.
+# Production's identity table predates the final core unique constraint. Safely
+# repoint all dependent foreign keys, dedupe identities, and install/verify the
+# exact uniqueness contract required by the writer.
+run_query \
+  writer-identity-uniqueness-repair \
+  supabase/migrations/20260807111500_checklist_identity_uniqueness_repair.sql
+
+# Reinstall the immutable transactional writer unchanged after both conflict
+# targets have been proven in production.
 writer_source="$work_dir/transactional-writer.sql"
 curl --silent --show-error --fail --location \
   --retry 5 --retry-delay 2 --retry-all-errors \
@@ -60,12 +68,15 @@ from pathlib import Path
 import sys
 
 source = Path(sys.argv[1]).read_text(encoding="utf-8")
-plain = "on conflict (identity_schema, fingerprint_sha256) do nothing;"
-if source.count(plain) != 1:
+release_target = "on conflict (release_id, source_type, source_url) do update"
+identity_target = "on conflict (identity_schema, fingerprint_sha256) do nothing;"
+if source.count(release_target) != 1:
+    raise SystemExit("Transactional writer does not contain the expected release-source conflict target.")
+if source.count(identity_target) != 1:
     raise SystemExit("Transactional writer does not contain the expected identity conflict target.")
 PY
 
-run_query writer-identity-conflict-repair "$writer_source"
+run_query writer-conflict-target-reinstall "$writer_source"
 
 sleep 5
-echo "Checklist Registry writer uniqueness, identity conflict target, and bounded timeout are ready."
+echo "Checklist Registry release-source and identity uniqueness contracts are repaired and the writer is ready."
