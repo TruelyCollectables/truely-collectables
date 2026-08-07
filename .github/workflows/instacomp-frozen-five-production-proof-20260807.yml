@@ -40,7 +40,7 @@ jobs:
           node-version: '22'
           cache: npm
 
-      - name: Install and resolve exact Production database credentials
+      - name: Install and resolve exact Production proof credentials
         shell: bash
         run: |
           set -euo pipefail
@@ -55,6 +55,7 @@ jobs:
           PRODUCTION_ENV_PATH="$RUNNER_TEMP/instacomp-frozen-five-proof/production.env" \
           RUNTIME_ENV_PATH="$RUNNER_TEMP/instacomp-frozen-five-proof/runtime-env.sh" \
           node - <<'NODE'
+          const crypto = require('node:crypto');
           const fs = require('node:fs');
           const parsed = {};
           for (const raw of fs.readFileSync(process.env.PRODUCTION_ENV_PATH, 'utf8').split(/\r?\n/)) {
@@ -88,16 +89,23 @@ jobs:
               keys.find((entry) => entry?.name === 'service_role' && /^eyJ/.test(keyValue(entry))) ||
               keys.find((entry) => entry?.secret_jwt_template?.role === 'service_role' && /^eyJ/.test(keyValue(entry)));
             const serverKey = keyValue(modernSecret || legacyServiceRole);
-            const anon =
-              String(parsed.NEXT_PUBLIC_SUPABASE_ANON_KEY || '') ||
-              keyValue(keys.find((entry) => entry?.name === 'anon' && keyValue(entry)));
             if (!serverKey) throw new Error('No current Supabase secret key or legacy service_role key was found');
-            if (!anon) throw new Error('Supabase anon key was not found');
+
+            const explicitServiceToken = String(parsed.INSTACOMP_SERVICE_TOKEN || '').trim();
+            const adminSessionSecret = String(parsed.ADMIN_SESSION_SECRET || '').trim();
+            const serviceToken = explicitServiceToken || (adminSessionSecret
+              ? crypto.createHmac('sha256', adminSessionSecret)
+                  .update('TCOS Profit Hunter InstaComp service bearer v1', 'utf8')
+                  .digest('base64url')
+              : '');
+            if (!serviceToken) throw new Error('Production InstaComp service token cannot be resolved');
+
             console.log(`supabase_server_key_kind=${/^sb_secret_/i.test(serverKey) ? 'secret' : 'legacy_service_role'}`);
+            console.log(`instacomp_service_token_source=${explicitServiceToken ? 'explicit' : 'derived'}`);
             const values = {
               NEXT_PUBLIC_SUPABASE_URL: productionUrl,
-              NEXT_PUBLIC_SUPABASE_ANON_KEY: anon,
               SUPABASE_SERVICE_ROLE_KEY: serverKey,
+              INSTACOMP_SERVICE_TOKEN: serviceToken,
             };
             for (const value of Object.values(values)) console.log(`::add-mask::${value}`);
             fs.writeFileSync(
@@ -108,7 +116,7 @@ jobs:
           })().catch((error) => { console.error(error); process.exit(1); });
           NODE
 
-      - name: Remove obsolete broad Auth enumeration from proof setup
+      - name: Switch frozen proof setup to existing service-auth contract
         shell: bash
         run: |
           set -euo pipefail
@@ -117,16 +125,63 @@ jobs:
 
           path = Path("scripts/ops/run-instacomp-frozen-five-production-proof.ts")
           source = path.read_text(encoding="utf-8")
-          old = "  const staleAccountsDeleted = await cleanStaleTestAccounts(admin);"
-          new = "  const staleAccountsDeleted = 0;"
-          if source.count(old) != 1:
-              raise SystemExit("Frozen proof setup contract changed; refusing runtime patch")
-          source = source.replace(old, new, 1)
+
+          def replace_once(old: str, new: str) -> None:
+              global source
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f"Frozen proof contract changed; expected one match, got {count}: {old[:80]!r}")
+              source = source.replace(old, new, 1)
+
+          replace_once(
+              'async function callScanner(front: File, back: File, accessToken: string) {',
+              'async function callScanner(front: File, back: File, serviceToken: string) {',
+          )
+          replace_once(
+              '      Authorization: `Bearer ${accessToken}`,' ,
+              '      "x-tcos-instacomp-service-token": serviceToken,',
+          )
+          replace_once(
+              '  const anonKey = txt(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);\n  if (!supabaseUrl || !serviceKey || !anonKey) throw new Error("Production Supabase URL, service-role JWT, and anon key are required");',
+              '  const serviceToken = txt(process.env.INSTACOMP_SERVICE_TOKEN);\n  if (!supabaseUrl || !serviceKey || !serviceToken) throw new Error("Production Supabase URL, server key, and InstaComp service token are required");',
+          )
+          replace_once(
+              '  const staleAccountsDeleted = await cleanStaleTestAccounts(admin);',
+              '  const staleAccountsDeleted = 0;',
+          )
+          replace_once(
+              '    temporarySeller: { created: false, deleted: false },',
+              '    authentication: { mode: "instacomp_service_token" },',
+          )
+          replace_once(
+              '  let accountId = "";\n  try {\n    const seller = await createTestSeller(admin, supabaseUrl, anonKey);\n    accountId = seller.accountId;\n    receipt.temporarySeller.created = true;\n\n',
+              '  try {\n',
+          )
+          replace_once(
+              '      const response = await callScanner(front.file, back.file, seller.accessToken);',
+              '      const response = await callScanner(front.file, back.file, serviceToken);',
+          )
+          replace_once(
+              '''  } finally {\n    if (accountId) {\n      try {\n        await deleteTestAccount(admin, accountId);\n        receipt.temporarySeller.deleted = true;\n      } catch (error) {\n        receipt.temporarySeller.cleanupError = error instanceof Error ? error.message : String(error);\n      }\n    }\n    receipt.finishedAt = new Date().toISOString();\n    await writeFile(output, `${JSON.stringify(receipt, null, 2)}\\n`);\n  }''',
+              '''  } finally {\n    receipt.finishedAt = new Date().toISOString();\n    await writeFile(output, `${JSON.stringify(receipt, null, 2)}\\n`);\n  }''',
+          )
+          replace_once(
+              '    temporarySellerDeleted: receipt.temporarySeller.deleted,',
+              '    authenticationMode: receipt.authentication.mode,',
+          )
+          replace_once(
+              '  if (receipt.temporarySeller.deleted !== true) process.exitCode = 2;\n  else if (receipt.status !== "passed") process.exitCode = 1;',
+              '  if (receipt.status !== "passed") process.exitCode = 1;',
+          )
+
           path.write_text(source, encoding="utf-8")
           PY
           git diff --check
-          test "$(git diff --numstat -- scripts/ops/run-instacomp-frozen-five-production-proof.ts | awk '{print $1 ":" $2}')" = "1:1"
-          grep -Fq 'const staleAccountsDeleted = 0;' scripts/ops/run-instacomp-frozen-five-production-proof.ts
+          test "$(git diff --name-only)" = "scripts/ops/run-instacomp-frozen-five-production-proof.ts"
+          grep -Fq '"x-tcos-instacomp-service-token": serviceToken' scripts/ops/run-instacomp-frozen-five-production-proof.ts
+          grep -Fq 'authentication: { mode: "instacomp_service_token" }' scripts/ops/run-instacomp-frozen-five-production-proof.ts
+          ! grep -Fq 'const seller = await createTestSeller' scripts/ops/run-instacomp-frozen-five-production-proof.ts
+          ! grep -Fq 'callScanner(front.file, back.file, seller.accessToken)' scripts/ops/run-instacomp-frozen-five-production-proof.ts
           grep -Fq 'imageTruthArtifactId: 8994498762' scripts/ops/run-instacomp-frozen-five-production-proof.ts
           grep -Fq 'registryCandidateArtifactId: 8993929571' scripts/ops/run-instacomp-frozen-five-production-proof.ts
           grep -Fq 'exactRegistryIdentity: actual.registryIdentityId === truth.registryIdentityId' scripts/ops/run-instacomp-frozen-five-production-proof.ts
