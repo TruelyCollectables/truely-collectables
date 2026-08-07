@@ -1,0 +1,83 @@
+name: InstaComp Mac Runtime Fingerprint Update 20260807
+
+on:
+  push:
+    branches:
+      - fix/instacomp-mac-runtime-fingerprint-update-20260807
+    paths:
+      - "services/instacomp-ai/app/runtime_identity.py"
+      - "services/instacomp-ai/scripts/update-live-from-main.sh"
+      - "services/instacomp-ai/tests/test_runtime_identity.py"
+      - "scripts/patch-instacomp-mac-runtime-fingerprint.py"
+      - ".github/workflows/instacomp-mac-runtime-fingerprint-update-20260807.yml"
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instacomp-mac-runtime-fingerprint-update-20260807
+  cancel-in-progress: true
+
+jobs:
+  patch-test-commit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/instacomp-mac-runtime-fingerprint-update-20260807
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Patch runtime fingerprint exposure
+        run: python scripts/patch-instacomp-mac-runtime-fingerprint.py
+      - name: Shell safety
+        run: bash -n services/instacomp-ai/scripts/update-live-from-main.sh
+      - name: Install Mac service test dependencies
+        working-directory: services/instacomp-ai
+        run: python -m pip install -r requirements.txt
+      - name: Test runtime fingerprint and OCR hard facts
+        working-directory: services/instacomp-ai
+        run: python -m pytest -q tests/test_runtime_identity.py tests/test_ocr_registry_hard_facts.py
+      - name: Python compile
+        working-directory: services/instacomp-ai
+        run: python -m compileall -q app
+      - name: Install web dependencies
+        run: npm ci
+      - name: TypeScript compile
+        run: npx tsc --noEmit
+      - name: Diff safety
+        id: diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          changed="$(git diff --name-only)"
+          echo "$changed"
+          if [[ -z "$changed" ]]; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          expected="services/instacomp-ai/app/main.py
+services/instacomp-ai/app/models.py
+src/app/api/instacomp/internal-readiness/route.ts"
+          test "$changed" = "$expected"
+          echo "has_changes=true" >> "$GITHUB_OUTPUT"
+      - name: Commit tested fingerprint exposure
+        if: steps.diff.outputs.has_changes == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add services/instacomp-ai/app/main.py services/instacomp-ai/app/models.py src/app/api/instacomp/internal-readiness/route.ts
+          git commit -m "Expose exact Mac runtime source fingerprint"
+          git push origin HEAD:fix/instacomp-mac-runtime-fingerprint-update-20260807
