@@ -18,7 +18,7 @@ env:
 jobs:
   diagnose:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
@@ -27,7 +27,8 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-      - name: Install and resolve Production database credentials
+
+      - name: Install and resolve read-only Production credentials
         shell: bash
         run: |
           set -euo pipefail
@@ -36,8 +37,34 @@ jobs:
           env_file="$RUNNER_TEMP/production.env"
           runtime_file="$RUNNER_TEMP/runtime.json"
           npx --yes vercel@56.2.0 env pull "$env_file" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
-          PRODUCTION_ENV_PATH="$env_file" RUNTIME_PATH="$runtime_file" node -e 'const fs=require("node:fs");const parsed={};for(const raw of fs.readFileSync(process.env.PRODUCTION_ENV_PATH,"utf8").split(/\r?\n/)){const i=raw.indexOf("=");if(i<1)continue;const k=raw.slice(0,i).trim();let v=raw.slice(i+1).trim();if(v.startsWith("\"")&&v.endsWith("\"")){try{v=JSON.parse(v)}catch{v=v.slice(1,-1)}}else if(v.startsWith("\u0027")&&v.endsWith("\u0027"))v=v.slice(1,-1);parsed[k]=v}(async()=>{const url=String(parsed.NEXT_PUBLIC_SUPABASE_URL||"").trim();if(!url)throw new Error("Missing Production Supabase URL");const ref=new URL(url).hostname.split(".")[0];const r=await fetch(`https://api.supabase.com/v1/projects/${ref}/api-keys?reveal=true`,{headers:{Authorization:`Bearer ${process.env.GH_SUPABASE_ACCESS_TOKEN}`}});const text=await r.text();if(!r.ok)throw new Error(`Supabase key lookup HTTP ${r.status}`);const keys=JSON.parse(text);const val=e=>String(e?.api_key||e?.key||e?.value||"");const modern=keys.find(e=>/^sb_secret_/i.test(val(e)));const legacy=keys.find(e=>e?.name==="service_role"&&/^eyJ/.test(val(e)))||keys.find(e=>e?.secret_jwt_template?.role==="service_role"&&/^eyJ/.test(val(e)));const key=val(modern||legacy);if(!key)throw new Error("No server key");console.log(`::add-mask::${url}`);console.log(`::add-mask::${key}`);fs.writeFileSync(process.env.RUNTIME_PATH,JSON.stringify({url,key}))})().catch(e=>{console.error(e);process.exit(1)});'
-      - name: Query exact five recent Production scan records
+          PRODUCTION_ENV_PATH="$env_file" RUNTIME_PATH="$runtime_file" GH_SUPABASE_ACCESS_TOKEN="$GH_SUPABASE_ACCESS_TOKEN" node -e '
+            const fs=require("node:fs");
+            const parsed={};
+            for(const raw of fs.readFileSync(process.env.PRODUCTION_ENV_PATH,"utf8").split(/\r?\n/)){
+              const i=raw.indexOf("="); if(i<1) continue;
+              const k=raw.slice(0,i).trim(); let v=raw.slice(i+1).trim();
+              if(v.startsWith("\"")&&v.endsWith("\"")){try{v=JSON.parse(v)}catch{v=v.slice(1,-1)}}
+              else if(v.startsWith("\u0027")&&v.endsWith("\u0027")) v=v.slice(1,-1);
+              parsed[k]=v;
+            }
+            (async()=>{
+              const url=String(parsed.NEXT_PUBLIC_SUPABASE_URL||"").trim();
+              const localUrl=String(parsed.INSTACOMP_AI_LOCAL_URL||"").trim().replace(/\/+$/,"");
+              const localKey=String(parsed.INSTACOMP_AI_LOCAL_KEY||"").trim();
+              if(!url||!localUrl||localKey.length<32) throw new Error("Required read-only Production/Mac bridge values are missing");
+              const ref=new URL(url).hostname.split(".")[0];
+              const r=await fetch(`https://api.supabase.com/v1/projects/${ref}/api-keys?reveal=true`,{headers:{Authorization:`Bearer ${process.env.GH_SUPABASE_ACCESS_TOKEN}`}});
+              const text=await r.text(); if(!r.ok) throw new Error(`Supabase key lookup HTTP ${r.status}`);
+              const keys=JSON.parse(text); const val=e=>String(e?.api_key||e?.key||e?.value||"");
+              const modern=keys.find(e=>/^sb_secret_/i.test(val(e)));
+              const legacy=keys.find(e=>e?.name==="service_role"&&/^eyJ/.test(val(e)))||keys.find(e=>e?.secret_jwt_template?.role==="service_role"&&/^eyJ/.test(val(e)));
+              const key=val(modern||legacy); if(!key) throw new Error("No Production server key");
+              for(const secret of [url,key,localUrl,localKey]) console.log(`::add-mask::${secret}`);
+              fs.writeFileSync(process.env.RUNTIME_PATH,JSON.stringify({url,key,localUrl,localKey}),{mode:0o600});
+            })().catch(e=>{console.error(e);process.exit(1)});
+          '
+
+      - name: Locate frozen-five acceptance scans by time and identity
         shell: bash
         run: |
           set -euo pipefail
@@ -47,22 +74,47 @@ jobs:
             import { createClient } from "@supabase/supabase-js";
             const {url,key}=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/runtime.json","utf8"));
             const db=createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}});
-            const hashes=new Set([
-              "eaacec37493b419f1d397df739aedd9df218639ded876c481b2fb28b2b3eb2b1",
-              "d165d8e537a6501711e0b0b789866ac5ab053a3e09216a39108c71c6485fd955",
-              "d168765374b348074c0f194fb15d099eaafe802f543c76bccf8147f391499c02",
-              "689101749388e0113da8d8c3270e250e4275dfb043d0c16fce0bd584b0d3bdb2",
-              "eb528a8e5de90e0ddb62e92ed3b5a2239819fb1c3fc27000ea1102a5b6f19728"
-            ]);
-            const {data,error}=await db.from("instacomp_scans").select("id,created_at,front_image_sha256,back_image_sha256,raw_ai_result,raw_comp_results").order("created_at",{ascending:false}).limit(100);
+            const {data,error}=await db.from("instacomp_scans")
+              .select("id,created_at,raw_ai_result,raw_comp_results")
+              .gte("created_at","2026-08-07T19:50:00Z")
+              .order("created_at",{ascending:false})
+              .limit(80);
             if(error) throw error;
-            const picked=(data||[]).filter(r=>hashes.has(String(r.front_image_sha256||""))).slice(0,10).map(r=>{
-              const ai=r.raw_ai_result||{}; const comp=r.raw_comp_results||{}; const consensus=comp.consensus||{}; const ocr=comp.ocrDiagnostics||{}; const registry=comp.checklistRegistry||{};
-              return {id:r.id,created_at:r.created_at,front_image_sha256:r.front_image_sha256,back_image_sha256:r.back_image_sha256,ai:{player:ai.player,year:ai.year,brand:ai.brand,setName:ai.setName,cardNumber:ai.cardNumber,parallel:ai.parallel,internalScanId:ai.internalScanId,internalStatus:ai.internalStatus,internalChecklistOutcome:ai.internalChecklistOutcome,internalChecklistReasons:ai.internalChecklistReasons,internalMatchSource:ai.internalMatchSource,frontVisibleText:ai.frontVisibleText,backVisibleText:ai.backVisibleText,backEvidence:ai.backEvidence},consensus:{trustedForIdentity:consensus.trustedForIdentity,councilReadiness:consensus.councilReadiness,fieldDecisions:consensus.fieldDecisions},ocrDiagnostics:ocr,checklistRegistry:registry};
+            const wanted=/sonia citron|dominique malonga|paige bueckers|rickea jackson/i;
+            const picked=(data||[]).filter(r=>wanted.test(String(r.raw_ai_result?.player||""))).map(r=>{
+              const ai=r.raw_ai_result||{}; const comp=r.raw_comp_results||{};
+              return {id:r.id,created_at:r.created_at,ai:{player:ai.player,year:ai.year,brand:ai.brand,setName:ai.setName,cardNumber:ai.cardNumber,parallel:ai.parallel,internalScanId:ai.internalScanId,internalStatus:ai.internalStatus,internalChecklistOutcome:ai.internalChecklistOutcome,internalChecklistReasons:ai.internalChecklistReasons,internalMatchSource:ai.internalMatchSource},checklistRegistry:comp.checklistRegistry||{},identityDecision:comp.identityDecision||{},consensus:comp.consensus||{}};
             });
             fs.writeFileSync("evidence/instacomp-live-five-diagnostics-20260807/scans.json",JSON.stringify({count:picked.length,scans:picked},null,2));
-            console.log(JSON.stringify({count:picked.length,scans:picked.map(x=>({created_at:x.created_at,hash:x.front_image_sha256,ai:x.ai,registry:x.checklistRegistry,consensus:x.consensus}))},null,2));
+            console.log(JSON.stringify({count:picked.length,scans:picked.map(s=>({created_at:s.created_at,player:s.ai.player,cardNumber:s.ai.cardNumber,internalScanId:s.ai.internalScanId,internalStatus:s.ai.internalStatus}))},null,2));
+            if(!picked.some(s=>s.ai.internalScanId)) throw new Error("No recent frozen-five internal Mac scan IDs were found");
           '
+
+      - name: Fetch sanitized Mac scan archives and OCR boxes
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const runtime=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/runtime.json","utf8"));
+            const scans=JSON.parse(fs.readFileSync("evidence/instacomp-live-five-diagnostics-20260807/scans.json","utf8")).scans||[];
+            const seen=new Set(); const archives=[];
+            for(const row of scans){
+              const scanId=String(row.ai?.internalScanId||"").trim();
+              if(!scanId||seen.has(scanId)) continue; seen.add(scanId);
+              const response=await fetch(`${runtime.localUrl}/v1/scans/${encodeURIComponent(scanId)}/archive`,{headers:{"X-InstaComp-AI-Key":runtime.localKey,"Cache-Control":"no-cache"},signal:AbortSignal.timeout(30000)});
+              const raw=await response.text(); let payload={}; try{payload=raw?JSON.parse(raw):{}}catch{payload={parseError:raw.slice(0,300)}}
+              if(!response.ok){archives.push({scanId,httpStatus:response.status,error:payload});continue;}
+              const lv=payload.local_vision||{};
+              archives.push({scanId,httpStatus:response.status,status:payload.status,checklist:payload.checklist||{},localSuggestion:payload.local_suggestion?{identity:payload.local_suggestion.identity,evidence:payload.local_suggestion.evidence,confidence:payload.local_suggestion.confidence,explanation:payload.local_suggestion.explanation}:null,localVision:lv?{identityHints:lv.identity_hints||{},combinedText:lv.combined_text||"",appleVisionAvailable:lv.apple_vision_available,front:{ocr:lv.front?.ocr||[],errors:lv.front?.errors||[]},back:{ocr:lv.back?.ocr||[],errors:lv.back?.errors||[]}}:null});
+            }
+            fs.writeFileSync("evidence/instacomp-live-five-diagnostics-20260807/mac-archives.json",JSON.stringify({count:archives.length,archives},null,2));
+            for(const a of archives){
+              const all=[...(a.localVision?.front?.ocr||[]),...(a.localVision?.back?.ocr||[])];
+              console.log(JSON.stringify({scanId:a.scanId,status:a.status,identityHints:a.localVision?.identityHints||null,ocr:all.map(o=>({side:o.side,text:o.text,confidence:o.confidence,box:o.box}))},null,2));
+            }
+          '
+
       - name: Upload diagnostics
         uses: actions/upload-artifact@v4
         with:
