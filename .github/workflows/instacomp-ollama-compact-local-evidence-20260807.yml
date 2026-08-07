@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: fix/instacomp-ollama-compact-local-evidence-20260807
+          ref: ${{ github.event.pull_request.head.ref || 'fix/instacomp-ollama-compact-local-evidence-20260807' }}
           fetch-depth: 0
 
       - name: Apply compact evidence repair
@@ -36,6 +36,22 @@ jobs:
           grep -q 'prompt_chars' services/instacomp-ai/app/ollama.py
           grep -q 'def _safe_ollama_error_detail' services/instacomp-ai/app/main.py
 
+      - name: Apply marker-gated Ivan Registry repair
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          if ! git diff --name-only origin/main...HEAD | grep -qx 'src/lib/deal-hunter-registry-set-hints-v2.marker'; then
+            echo 'No Ivan repair marker; skipping.'
+            exit 0
+          fi
+          python3 scripts/ops/patch-deal-hunter-ivan-registry-hints-20260807.py
+          grep -q 'listingIdentityHint.brand' src/app/api/instacomp/scan/route.ts
+          grep -q 'listingIdentityHint.setName' src/app/api/instacomp/scan/route.ts
+          grep -q 'trustedForIdentity: false' src/app/api/instacomp/scan/route.ts
+          git diff --check
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
@@ -52,6 +68,23 @@ jobs:
           PYTHONPATH=. pytest -q tests/test_ollama_compact_local_evidence.py
           PYTHONPATH=. pytest -q
 
+      - uses: actions/setup-node@v4
+        if: github.event_name == 'pull_request'
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Certify Ivan scanner TypeScript and production build
+        if: github.event_name == 'pull_request'
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder
+          SUPABASE_SERVICE_ROLE_KEY: ci-service-placeholder
+        run: |
+          npm ci
+          npx tsc --noEmit
+          npm run build
+
       - name: Persist tested runtime files
         if: github.event_name != 'pull_request'
         shell: bash
@@ -66,3 +99,20 @@ jobs:
           fi
           git commit -m 'Compact Ollama local evidence payload'
           git push origin HEAD:fix/instacomp-ollama-compact-local-evidence-20260807
+
+      - name: Persist certified Ivan scanner repair
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          if ! git diff --name-only origin/main...HEAD | grep -qx 'src/lib/deal-hunter-registry-set-hints-v2.marker'; then exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/app/api/instacomp/scan/route.ts
+          if git diff --cached --quiet; then
+            echo 'Ivan scanner repair already committed.'
+            exit 0
+          fi
+          git commit -m 'Fix Ivan Deal Hunter Registry lookup hints'
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
