@@ -4,11 +4,11 @@
   "runId": "31176722655",
   "runNumber": "43",
   "runAttempt": "1",
-  "status": "in_progress",
-  "conclusion": null,
+  "status": "completed",
+  "conclusion": "failure",
   "event": "push",
   "sourceSha": "9eb385fd61e5d3e21cd78a32a2872b95c55095db",
   "branch": "main",
   "createdAt": "2026-08-07T12:05:14Z",
-  "updatedAt": "2026-08-07T12:32:20Z"
+  "updatedAt": "2026-08-07T12:33:54Z"
 }
