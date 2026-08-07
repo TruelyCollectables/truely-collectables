@@ -1,8 +1,11 @@
+await import("./tcdb-reader-complete.mjs");
+await import("./section-hierarchy-prepatch.mjs");
+
 const nativeFetch = globalThis.fetch.bind(globalThis);
 
 // These sources were proven to expose too few deterministic rows in production.
 // Every replacement is for the exact same release. TCDB URLs are intentionally
-// routed through tcdb-complete-fetch.mjs first, so all pages and related sets must
+// routed through the complete reader layer, so all pages and related sets must
 // pass exact declared-count reconciliation before this response can reach the parser.
 const COMPLETE_SOURCE_REPLACEMENTS = new Map([
   ["https://www.sportscardspro.com/game/baseball-cards-2003-fleer-mystique", "https://www.tcdb.com/ViewSet.cfm/sid/1623/2003-Fleer-Mystique"],
