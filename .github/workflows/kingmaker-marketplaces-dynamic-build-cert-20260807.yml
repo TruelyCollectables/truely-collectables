@@ -44,10 +44,17 @@ jobs:
           test -n "${VERCEL_TOKEN:-}"
           npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
           npx --yes vercel@56.2.0 pull --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          test -s .vercel/.env.production.local
       - name: Vercel Production build
         shell: bash
         run: |
           set -euo pipefail
+          set -a
+          source .vercel/.env.production.local
+          set +a
+          test -n "${NEXT_PUBLIC_SUPABASE_URL:-}"
+          test -n "${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}"
+          test -n "${SUPABASE_SERVICE_ROLE_KEY:-}"
           npx --yes vercel@56.2.0 build --prod --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee /tmp/kingmaker-vercel-build.log
           if grep -Fq 'Failed to build /kingmaker/marketplaces/page' /tmp/kingmaker-vercel-build.log; then
             echo 'KINGMAKER marketplaces still timed out during static generation.' >&2
