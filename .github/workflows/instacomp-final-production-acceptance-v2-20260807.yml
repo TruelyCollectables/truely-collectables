@@ -1,12 +1,6 @@
 name: InstaComp Final Production Acceptance V2 20260807
 
 on:
-  push:
-    branches:
-      - ops/instacomp-final-production-acceptance-v2-20260807
-    paths:
-      - ".github/workflows/instacomp-final-production-acceptance-v2-20260807.yml"
-      - "scripts/ops/run-instacomp-final-production-acceptance.mjs"
   pull_request:
     branches: [main]
     paths:
@@ -19,7 +13,7 @@ permissions:
 
 concurrency:
   group: instacomp-final-production-acceptance-v2-20260807
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   EXPECTED_BRANCH: ops/instacomp-final-production-acceptance-v2-20260807
