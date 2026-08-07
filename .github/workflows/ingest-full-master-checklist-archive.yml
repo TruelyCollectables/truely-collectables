@@ -1,0 +1,473 @@
+name: Ingest Full Master Checklist Archive
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/ingest-full-master-checklist-archive.yml"
+      - "scripts/master-checklist-archive/**"
+      - "scripts/ingest-master-checklist-archive.mjs"
+      - "scripts/ingest-sentinel-checklist-archive.mjs"
+      - "scripts/reconcile-master-checklist-archive.mjs"
+      - "scripts/test-master-checklist-archive.mjs"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/ingest-full-master-checklist-archive.yml"
+      - "scripts/master-checklist-archive/**"
+      - "scripts/ingest-master-checklist-archive.mjs"
+      - "scripts/ingest-sentinel-checklist-archive.mjs"
+      - "scripts/reconcile-master-checklist-archive.mjs"
+      - "scripts/test-master-checklist-archive.mjs"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Validate only or apply confirmed checklist rows to Production
+        required: true
+        type: choice
+        options: [apply, validate]
+        default: apply
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  # Share the production lock with the old 327-gap workflow. The full archive is
+  # now the primary corpus; the 327 manifest runs later in this same workflow as
+  # a gap-repair layer instead of competing for Registry writes.
+  group: instacomp-mainstream-checklist-backlog-2000-plus-${{ github.event_name == 'pull_request' && format('pr-full-{0}', github.event.pull_request.number) || 'production' }}
+  cancel-in-progress: true
+
+env:
+  MASTER_SOURCE_RUN_ID: "31100986894"
+  MASTER_ARCHIVE_ARTIFACT: sports-card-checklist-master-archive-31100986894
+  MASTER_CATALOG_ARTIFACT: sports-card-checklist-master-catalog-31100986894
+  MASTER_CHECKLIST_BATCH_COUNT: "16"
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+jobs:
+  self-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Verify full archive importer syntax
+        run: |
+          node --check scripts/master-checklist-archive/prepare-corpus.mjs
+          node --check scripts/master-checklist-archive/archive-source-tools.mjs
+          node --check scripts/ingest-master-checklist-archive.mjs
+          node --check scripts/ingest-sentinel-checklist-archive.mjs
+          node --check scripts/reconcile-master-checklist-archive.mjs
+          node --check scripts/test-master-checklist-archive.mjs
+      - name: Verify structured archive parsing does not confuse row IDs with card numbers
+        run: node scripts/test-master-checklist-archive.mjs
+
+  prepare-corpus:
+    needs: self-test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download the complete Aug 6 master catalog
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.MASTER_CATALOG_ARTIFACT }}
+          path: .master-checklist-catalog
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.MASTER_SOURCE_RUN_ID }}
+      - name: Build all 5,643 audited 2000+ sports-set batches
+        env:
+          MASTER_CHECKLIST_CATALOG_ROOT: .master-checklist-catalog
+          MASTER_CHECKLIST_CORPUS_ROOT: .master-checklist-corpus
+          MASTER_CHECKLIST_BATCH_COUNT: "16"
+        run: node scripts/master-checklist-archive/prepare-corpus.mjs
+      - name: Verify the archive scope is the full corpus, not the 327 gap subset
+        run: |
+          jq -e '.sets == 5643' .master-checklist-corpus/summary.json >/dev/null
+          jq -e '(.counts.import // 0) > 5000' .master-checklist-corpus/summary.json >/dev/null
+          cat .master-checklist-corpus/summary.json
+      - name: Download the original 2.98 GB master evidence archive
+        if: github.event_name != 'pull_request'
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.MASTER_ARCHIVE_ARTIFACT }}
+          path: .master-checklist-artifact
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.MASTER_SOURCE_RUN_ID }}
+      - name: Selectively extract saved checklist text and structured files
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive=.master-checklist-artifact/sports-card-checklist-master-archive.tar.gz
+          test -s "$archive"
+          test -s .master-checklist-corpus/extract-files.txt
+          mkdir -p .master-checklist-extracted
+          tar -xzf "$archive" -C .master-checklist-extracted -T .master-checklist-corpus/extract-files.txt
+          test -f .master-checklist-extracted/.card-checklist-master-archive/manifest.json || true
+          du -sh .master-checklist-extracted .master-checklist-corpus
+          tar -czf master-checklist-curated-corpus.tar.gz .master-checklist-extracted .master-checklist-corpus
+      - name: Upload curated full-corpus working set
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: master-checklist-curated-corpus-${{ github.run_id }}
+          path: master-checklist-curated-corpus.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+      - name: Upload PR corpus manifest
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: master-checklist-corpus-manifest-${{ github.run_id }}
+          path: .master-checklist-corpus
+          if-no-files-found: error
+          retention-days: 14
+
+  bootstrap-production-schema:
+    if: github.event_name != 'pull_request'
+    needs: self-test
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Resolve protected Production Supabase credentials
+        run: bash scripts/resolve-mainstream-checklist-production-env.sh
+      - name: Install Checklist Registry production schema
+        run: bash scripts/bootstrap-mainstream-checklist-schema.sh
+      - name: Repair uniqueness and install bounded large-checklist writer timeout
+        run: bash scripts/repair-mainstream-checklist-schema.sh
+      - name: Remove protected Production files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/mainstream-checklist-ingestion" "$RUNNER_TEMP/mainstream-checklist-schema" "$RUNNER_TEMP/mainstream-checklist-writer-repair" .env.local .env.production.local
+
+  ingest-master:
+    if: github.event_name != 'pull_request'
+    needs: [prepare-corpus, bootstrap-production-schema]
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        batch: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    env:
+      MASTER_CHECKLIST_APPLY: ${{ github.event_name == 'push' || inputs.mode == 'apply' }}
+      MASTER_CHECKLIST_BATCH_INDEX: ${{ matrix.batch }}
+      MASTER_CHECKLIST_BATCH_COUNT: "16"
+      MASTER_CHECKLIST_WORKERS: "3"
+      MASTER_CHECKLIST_CORPUS_ROOT: .master-checklist-corpus
+      MASTER_CHECKLIST_EXTRACTED_ROOT: .master-checklist-extracted
+      MASTER_CHECKLIST_OUTPUT: .checklist-discovery/master-archive-batch-${{ matrix.batch }}.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends poppler-utils
+          python -m pip install --disable-pip-version-check --no-cache-dir openpyxl==3.1.5 xlrd==2.0.1
+          npm ci
+      - name: Download curated archive working set
+        uses: actions/download-artifact@v4
+        with:
+          name: master-checklist-curated-corpus-${{ github.run_id }}
+          path: .master-checklist-bundle
+      - name: Extract curated archive working set
+        run: tar -xzf .master-checklist-bundle/master-checklist-curated-corpus.tar.gz
+      - name: Resolve protected Production Supabase credentials
+        run: bash scripts/resolve-mainstream-checklist-production-env.sh
+      - name: Normalize, validate and import full master-archive batch
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source "$PRODUCTION_ENV_PATH"
+          set +a
+          export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
+          node \
+            --import ./scripts/mainstream-checklist/html-semantic-prepatch.mjs \
+            --import ./scripts/mainstream-checklist/tcdb-complete-fetch.mjs \
+            --import ./scripts/mainstream-checklist/reader-retry-prepatch.mjs \
+            --import ./scripts/mainstream-checklist/remaining-source-fallbacks.mjs \
+            --import ./scripts/mainstream-checklist/prefer-complete-reader.mjs \
+            --import ./scripts/mainstream-checklist/fetch-patch.mjs \
+            --import tsx \
+            scripts/ingest-master-checklist-archive.mjs
+      - name: Upload sanitized master batch receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: master-checklist-batch-${{ matrix.batch }}-${{ github.run_id }}
+          path: .checklist-discovery/master-archive-batch-${{ matrix.batch }}.json
+          if-no-files-found: warn
+          retention-days: 90
+      - name: Remove protected Production files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/mainstream-checklist-ingestion" .env.local .env.production.local
+
+  drain-sentinel:
+    if: always() && github.event_name != 'pull_request'
+    needs: [ingest-master, bootstrap-production-schema]
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 180
+    env:
+      SENTINEL_REGISTRY_APPLY: ${{ github.event_name == 'push' || inputs.mode == 'apply' }}
+      SENTINEL_REGISTRY_WORKERS: "2"
+      SENTINEL_REGISTRY_OUTPUT: .checklist-discovery/sentinel-registry-drain.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends poppler-utils
+          python -m pip install --disable-pip-version-check --no-cache-dir openpyxl==3.1.5 xlrd==2.0.1
+          npm ci
+      - name: Resolve protected Production Supabase credentials
+        run: bash scripts/resolve-mainstream-checklist-production-env.sh
+      - name: Drain all pending Sentinel receipts into Registry validation/import
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source "$PRODUCTION_ENV_PATH"
+          set +a
+          export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
+          node --import tsx scripts/ingest-sentinel-checklist-archive.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sentinel-registry-drain-${{ github.run_id }}
+          path: .checklist-discovery/sentinel-registry-drain.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Remove protected Production files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/mainstream-checklist-ingestion" .env.local .env.production.local
+
+  repair-327-gaps:
+    if: always() && github.event_name != 'pull_request'
+    needs: [drain-sentinel, bootstrap-production-schema]
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        batch: [0, 1, 2, 3, 4, 5, 6, 7]
+    env:
+      MAINSTREAM_CHECKLIST_APPLY: ${{ github.event_name == 'push' || inputs.mode == 'apply' }}
+      MAINSTREAM_CHECKLIST_BATCH_INDEX: ${{ matrix.batch }}
+      MAINSTREAM_CHECKLIST_BATCH_COUNT: "8"
+      MAINSTREAM_CHECKLIST_WORKERS: "2"
+      MAINSTREAM_CHECKLIST_OUTPUT: .checklist-discovery/gap-repair-batch-${{ matrix.batch }}.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends poppler-utils
+          python -m pip install --disable-pip-version-check --no-cache-dir openpyxl==3.1.5 xlrd==2.0.1
+          npm ci
+      - name: Resolve protected Production Supabase credentials
+        run: bash scripts/resolve-mainstream-checklist-production-env.sh
+      - name: Run researched 327-source queue only as the final gap repair layer
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source "$PRODUCTION_ENV_PATH"
+          set +a
+          export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
+          node \
+            --import ./scripts/mainstream-checklist/html-semantic-prepatch.mjs \
+            --import ./scripts/mainstream-checklist/tcdb-complete-fetch.mjs \
+            --import ./scripts/mainstream-checklist/reader-retry-prepatch.mjs \
+            --import ./scripts/mainstream-checklist/remaining-source-fallbacks.mjs \
+            --import ./scripts/mainstream-checklist/prefer-complete-reader.mjs \
+            --import ./scripts/mainstream-checklist/fetch-patch.mjs \
+            --import tsx \
+            scripts/ingest-mainstream-checklist-backlog.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: master-gap-repair-${{ matrix.batch }}-${{ github.run_id }}
+          path: .checklist-discovery/gap-repair-batch-${{ matrix.batch }}.json
+          if-no-files-found: warn
+          retention-days: 90
+      - name: Remove protected Production files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/mainstream-checklist-ingestion" .env.local .env.production.local
+
+  reconcile:
+    if: always() && github.event_name != 'pull_request'
+    needs: [prepare-corpus, ingest-master, drain-sentinel, repair-327-gaps]
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Download curated corpus manifest
+        uses: actions/download-artifact@v4
+        with:
+          name: master-checklist-curated-corpus-${{ github.run_id }}
+          path: .master-checklist-bundle
+      - run: tar -xzf .master-checklist-bundle/master-checklist-curated-corpus.tar.gz .master-checklist-corpus
+      - name: Download Sentinel drain receipt
+        uses: actions/download-artifact@v4
+        with:
+          name: sentinel-registry-drain-${{ github.run_id }}
+          path: .sentinel-drain
+      - name: Resolve protected Production Supabase credentials
+        run: bash scripts/resolve-mainstream-checklist-production-env.sh
+      - name: Prove every archive-bearing exact set was promoted
+        id: master
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source "$PRODUCTION_ENV_PATH"
+          set +a
+          export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
+          node --import tsx scripts/reconcile-master-checklist-archive.mjs
+      - name: Classify verified gap exceptions
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source "$PRODUCTION_ENV_PATH"
+          set +a
+          export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
+          node scripts/classify-mainstream-checklist-exceptions.mjs
+      - name: Prove the researched 327-gap repair layer
+        id: gaps
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source "$PRODUCTION_ENV_PATH"
+          set +a
+          export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
+          mkdir -p .checklist-discovery
+          node scripts/assert-mainstream-checklist-production-complete.mjs | tee .checklist-discovery/gap-promotion-proof.json
+      - name: Build one full-corpus production receipt
+        id: proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          master=.checklist-discovery/master-archive-reconciliation.json
+          gaps=.checklist-discovery/gap-promotion-proof.json
+          sentinel=.sentinel-drain/sentinel-registry-drain.json
+          test -s "$master"
+          test -s "$gaps"
+          test -s "$sentinel"
+          mkdir -p .checklist-discovery
+          jq -n \
+            --slurpfile master "$master" \
+            --slurpfile gaps "$gaps" \
+            --slurpfile sentinel "$sentinel" \
+            --arg checkedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg runId "$GITHUB_RUN_ID" \
+            --arg sourceSha "$GITHUB_SHA" \
+            '{
+              schema:"tcos.checklist.fullCorpusProductionProof.v1",
+              checkedAt:$checkedAt,
+              workflowRunId:$runId,
+              sourceSha:$sourceSha,
+              master:$master[0],
+              gapRepair:$gaps[0],
+              sentinel:$sentinel[0],
+              complete:(
+                ($master[0].complete == true) and
+                ($gaps[0].complete == true) and
+                (((($sentinel[0].statuses.quarantined // 0) + ($sentinel[0].statuses.source_missing // 0) + ($sentinel[0].statuses.sha_mismatch // 0) + ($sentinel[0].statuses.unresolved_metadata // 0))) == 0)
+              )
+            }' > .checklist-discovery/full-corpus-production-proof.json
+          cat .checklist-discovery/full-corpus-production-proof.json
+      - name: Persist durable sanitized proof
+        if: always()
+        shell: bash
+        env:
+          STATUS_BRANCH: ops/mainstream-checklist-status
+          STATUS_PATH: docs/operations/instacomp-full-checklist-corpus-reconciliation.json
+        run: |
+          set -euo pipefail
+          proof=.checklist-discovery/full-corpus-production-proof.json
+          test -s "$proof"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin "$STATUS_BRANCH"
+          git checkout -B "$STATUS_BRANCH" "origin/$STATUS_BRANCH"
+          mkdir -p "$(dirname "$STATUS_PATH")"
+          cp "$proof" "$STATUS_PATH"
+          git add "$STATUS_PATH"
+          if ! git diff --cached --quiet; then
+            git commit -m "Record full checklist corpus reconciliation [skip ci]"
+            git push origin "HEAD:$STATUS_BRANCH"
+          fi
+      - name: Upload full-corpus reconciliation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-checklist-corpus-reconciliation-${{ github.run_id }}
+          path: |
+            .checklist-discovery/master-archive-reconciliation.json
+            .checklist-discovery/gap-promotion-proof.json
+            .checklist-discovery/full-corpus-production-proof.json
+            .sentinel-drain/sentinel-registry-drain.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Fail closed unless the complete corpus proves clean
+        shell: bash
+        run: jq -e '.complete == true' .checklist-discovery/full-corpus-production-proof.json >/dev/null
+      - name: Remove protected Production files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/mainstream-checklist-ingestion" .env.local .env.production.local
