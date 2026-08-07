@@ -26,6 +26,26 @@ const whitespace = new Request("https://example.test/api/instacomp/live-scan", {
 });
 assert.equal(isValidInstaCompServiceRequest(whitespace, `  ${expected}  `), true);
 
+const acceptance = "a".repeat(64);
+const acceptanceRequest = new Request("https://example.test/api/instacomp/scan", {
+  headers: { "x-tcos-instacomp-service-token": acceptance },
+});
+assert.equal(
+  isValidInstaCompServiceRequest(acceptanceRequest, expected, acceptance),
+  true,
+);
+assert.equal(
+  isValidInstaCompServiceRequest(valid, expected, acceptance),
+  true,
+);
+const weakAcceptance = new Request("https://example.test/api/instacomp/scan", {
+  headers: { "x-tcos-instacomp-service-token": "short" },
+});
+assert.equal(
+  isValidInstaCompServiceRequest(weakAcceptance, expected, "short"),
+  false,
+);
+
 console.log(
   "InstaComp service authentication passed: valid service token accepted; wrong, missing, and disabled credentials rejected.",
 );

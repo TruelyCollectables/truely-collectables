@@ -358,15 +358,27 @@ async def analyze_scan(
         front_perceptual_hash=front_image.perceptual_hash,
         back_perceptual_hash=(back_image.perceptual_hash if back_image else None),
     )
-    if image_memory:
-        trusted_identity = image_memory.identity
-        registry_result = await checklist_gateway.match(trusted_identity)
-        checklist_result = (
-            registry_result
-            if registry_result.outcome == ChecklistOutcome.EXACT_MATCH
-            else _memory_checklist_result(image_memory)
+    memory_registry_result = (
+        await checklist_gateway.match(image_memory.identity)
+        if image_memory
+        else None
+    )
+    memory_registry_verified = bool(
+        memory_registry_result
+        and memory_registry_result.outcome == ChecklistOutcome.EXACT_MATCH
+        and memory_registry_result.identity
+        and memory_registry_result.identity_id
+        and any(
+            receipt.startswith("registry_fingerprint:")
+            for receipt in memory_registry_result.source_receipts
         )
-        pricing_allowed = registry_result.outcome == ChecklistOutcome.EXACT_MATCH
+    )
+    if image_memory and memory_registry_verified and memory_registry_result:
+        # Memory is only a retrieval hint. Current Registry truth supplies the
+        # canonical identity; rejected/stale memory falls through to fresh vision.
+        trusted_identity = memory_registry_result.identity
+        checklist_result = memory_registry_result
+        pricing_allowed = True
         status = "trusted_memory_match"
         _save_scan(
             scan_id=scan_id,
@@ -563,6 +575,22 @@ async def analyze_scan(
         None,
     )
 
+    trusted_text_registry = (
+        await checklist_gateway.match(trusted_text_match.identity)
+        if trusted_text_match
+        else None
+    )
+    trusted_text_registry_verified = bool(
+        trusted_text_registry
+        and trusted_text_registry.outcome == ChecklistOutcome.EXACT_MATCH
+        and trusted_text_registry.identity
+        and trusted_text_registry.identity_id
+        and any(
+            receipt.startswith("registry_fingerprint:")
+            for receipt in trusted_text_registry.source_receipts
+        )
+    )
+
     if (
         suggestion
         and suggestion_registry.outcome == ChecklistOutcome.EXACT_MATCH
@@ -582,16 +610,19 @@ async def analyze_scan(
             "Local front/back evidence was locked to one exact Registry identity. "
             "Continue to verified comps."
         )
-    elif trusted_text_match:
-        trusted_identity = trusted_text_match.identity
-        checklist_result = await checklist_gateway.match(trusted_identity)
-        pricing_allowed = checklist_result.outcome == ChecklistOutcome.EXACT_MATCH
+    elif (
+        trusted_text_match
+        and trusted_text_registry_verified
+        and trusted_text_registry
+    ):
+        trusted_identity = trusted_text_registry.identity
+        checklist_result = trusted_text_registry
+        pricing_allowed = True
         status = "trusted_memory_match"
         match_source = "trusted_text_memory"
         next_action = (
-            "Known card identified from internal text memory. Continue to verified comps."
-            if pricing_allowed
-            else "Known card identified from internal text memory; Registry verification is required for pricing."
+            "Known card memory was revalidated against the current Registry. "
+            "Continue to verified comps."
         )
     else:
         checklist_result = suggestion_registry
