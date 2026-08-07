@@ -1,6 +1,12 @@
 name: KINGMAKER Marketplaces Dynamic Build Cert 20260807
 
 on:
+  push:
+    branches:
+      - fix/kingmaker-marketplaces-dynamic-build-20260807
+    paths:
+      - "src/app/kingmaker/marketplaces/page.tsx"
+      - ".github/workflows/kingmaker-marketplaces-dynamic-build-cert-20260807.yml"
   pull_request:
     branches: [main]
     paths:
