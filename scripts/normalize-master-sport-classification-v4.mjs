@@ -113,6 +113,7 @@ for (const original of multiImportSets) {
 
     if (classificationSport === "excluded_non_sport") {
       const excluded = structuredClone(original);
+      excluded.id = `${original.id}-non-sport`;
       excluded.exactSetKey = `non-sport|${rest}`;
       excluded.sport = "non-sport";
       excluded.universe = "non-sport";
@@ -128,6 +129,7 @@ for (const original of multiImportSets) {
 
     if (classificationSport === "aggregate_multi_release") {
       const aggregate = structuredClone(original);
+      aggregate.id = `${original.id}-aggregate`;
       aggregate.disposition = "aggregate_index";
       aggregate.candidates = [];
       aggregate.checklistRowsMaximum = 0;
@@ -159,6 +161,7 @@ for (const original of multiImportSets) {
     }
 
     const created = structuredClone(original);
+    created.id = `${original.id}-${classificationSport}`;
     created.exactSetKey = key;
     created.sport = classificationSport;
     created.universe = classificationSport;
