@@ -1,0 +1,64 @@
+name: InstaComp Ollama Registry Evidence 20260806
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/patch-instacomp-ollama-registry-evidence.py"
+      - "services/instacomp-ai/app/main.py"
+      - "services/instacomp-ai/tests/test_ollama_registry_fallback_contract.py"
+      - ".github/workflows/instacomp-ollama-registry-evidence-20260806.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instacomp-ollama-registry-evidence-20260806
+  cancel-in-progress: false
+
+jobs:
+  apply-and-certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/instacomp-ollama-registry-evidence-20260806
+          fetch-depth: 0
+
+      - name: Apply runtime repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-instacomp-ollama-registry-evidence.py
+          grep -q 'suggestion = await reader.analyze' services/instacomp-ai/app/main.py
+          grep -q 'match_source = "ollama_backup"' services/instacomp-ai/app/main.py
+          grep -q 'registry_fingerprint:' services/instacomp-ai/app/main.py
+          git diff --check
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/instacomp-ai/requirements.txt
+
+      - name: Compile and test Mac service
+        working-directory: services/instacomp-ai
+        shell: bash
+        run: |
+          set -euo pipefail
+          pip install -r requirements.txt
+          python -m compileall app tests
+          pytest -q
+
+      - name: Persist repaired runtime file
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add services/instacomp-ai/app/main.py
+          if ! git diff --cached --quiet; then
+            git commit -m "Restore local visual evidence before Registry lock [skip ci]"
+            git push origin HEAD:fix/instacomp-ollama-registry-evidence-20260806
+          fi
