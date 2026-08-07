@@ -28,7 +28,13 @@ function isCatalogRequest(input) {
 }
 
 function isRetryableStatus(status) {
-  return [408, 425, 429, 500, 502, 503, 504].includes(Number(status));
+  // 521 is Cloudflare's "Web server is down" response. Production emitted this
+  // exact transport failure on 2026-08-07 after the Registry transaction had
+  // completed but while the isolated source-catalog upsert was being recorded.
+  // The catalog write is keyed by source_url and intentionally idempotent, so it
+  // is safe to retry here. Do not broaden this to arbitrary 4xx/5xx responses:
+  // schema, auth, validation, and other permanent failures must still fail fast.
+  return [408, 425, 429, 500, 502, 503, 504, 521].includes(Number(status));
 }
 
 function retryInput(input) {
