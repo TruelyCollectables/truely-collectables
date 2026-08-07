@@ -1,0 +1,332 @@
+name: InstaComp Final Production Acceptance 20260807
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-final-production-acceptance-20260807.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instacomp-final-production-acceptance-20260807
+  cancel-in-progress: false
+
+env:
+  EXPECTED_BRANCH: ops/instacomp-final-production-acceptance-20260807
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  PRODUCTION_ORIGIN: https://truelycollectables.com
+  EXPECTED_MAC_FINGERPRINT: 2770182734974db303a76c5c8a440bcfb75d430b5d6281ae3eda95bf6b5d1a32
+  EVIDENCE_DIR: evidence/instacomp-final-production-acceptance-20260807
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on current-main acceptance branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/$EXPECTED_BRANCH)"
+          git fetch origin main
+          changed="$(git diff --name-only origin/main...HEAD)"
+          test "$changed" = ".github/workflows/instacomp-final-production-acceptance-20260807.yml"
+          git merge-base --is-ancestor dc781cf690bc9adb389d605d2b2e896e71c20c5e HEAD
+          if git diff --name-only dc781cf690bc9adb389d605d2b2e896e71c20c5e..HEAD -- services/instacomp-ai/app/local_vision.py services/instacomp-ai/app/ollama.py | grep -q .; then
+            echo "Mac vision source changed after the fingerprinted Mac update." >&2
+            exit 2
+          fi
+          echo "acceptance_source=$(git rev-parse HEAD)"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install and link Production project
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          mkdir -p "$RUNNER_TEMP/instacomp-final-acceptance" "$EVIDENCE_DIR"
+
+      - name: Resolve read-only Production proof database credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          env_file="$RUNNER_TEMP/instacomp-final-acceptance/production.env"
+          runtime_file="$RUNNER_TEMP/instacomp-final-acceptance/runtime-env.sh"
+          npx vercel@56.2.0 env pull "$env_file" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          PRODUCTION_ENV_PATH="$env_file" RUNTIME_ENV_PATH="$runtime_file" node - <<'NODE'
+          const fs = require('node:fs');
+          const parsed = {};
+          for (const raw of fs.readFileSync(process.env.PRODUCTION_ENV_PATH, 'utf8').split(/\r?\n/)) {
+            const line = raw.trim();
+            if (!line || line.startsWith('#')) continue;
+            const i = line.indexOf('=');
+            if (i < 1) continue;
+            const key = line.slice(0, i).trim();
+            let value = line.slice(i + 1).trim();
+            if (value.startsWith('"') && value.endsWith('"')) {
+              try { value = JSON.parse(value); } catch { value = value.slice(1, -1); }
+            } else if (value.startsWith("'") && value.endsWith("'")) value = value.slice(1, -1);
+            parsed[key] = value;
+          }
+          (async () => {
+            const productionUrl = String(parsed.NEXT_PUBLIC_SUPABASE_URL || '');
+            if (!productionUrl) throw new Error('Missing Production Supabase URL');
+            const projectRef = new URL(productionUrl).hostname.split('.')[0];
+            const response = await fetch(`https://api.supabase.com/v1/projects/${projectRef}/api-keys?reveal=true`, {
+              headers: { Authorization: `Bearer ${process.env.GH_SUPABASE_ACCESS_TOKEN}` },
+            });
+            const text = await response.text();
+            if (!response.ok) throw new Error(`Supabase key lookup HTTP ${response.status}: ${text.slice(0, 300)}`);
+            const keys = text ? JSON.parse(text) : [];
+            const value = (entry) => String(entry?.api_key || entry?.key || entry?.value || '');
+            const modern = keys.find((entry) => /^sb_secret_/i.test(value(entry)));
+            const legacy = keys.find((entry) => entry?.name === 'service_role' && /^eyJ/.test(value(entry))) ||
+              keys.find((entry) => entry?.secret_jwt_template?.role === 'service_role' && /^eyJ/.test(value(entry)));
+            const serverKey = value(modern || legacy);
+            if (!serverKey) throw new Error('No Production server key found');
+            console.log(`supabase_server_key_kind=${/^sb_secret_/i.test(serverKey) ? 'secret' : 'legacy_service_role'}`);
+            console.log(`::add-mask::${productionUrl}`);
+            console.log(`::add-mask::${serverKey}`);
+            fs.writeFileSync(process.env.RUNTIME_ENV_PATH,
+              `export NEXT_PUBLIC_SUPABASE_URL=${JSON.stringify(productionUrl)}\n` +
+              `export SUPABASE_SERVICE_ROLE_KEY=${JSON.stringify(serverKey)}\n`,
+              { mode: 0o600 });
+          })().catch((error) => { console.error(error); process.exit(1); });
+          NODE
+
+      - name: Provision temporary scoped InstaComp service credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          secret_file="$RUNNER_TEMP/instacomp-final-acceptance/service-token"
+          openssl rand -hex 32 > "$secret_file"
+          chmod 600 "$secret_file"
+          secret="$(cat "$secret_file")"
+          echo "::add-mask::$secret"
+          npx vercel@56.2.0 env add INSTACOMP_SERVICE_TOKEN production --force --sensitive --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" < "$secret_file" >/dev/null
+          touch "$RUNNER_TEMP/instacomp-final-acceptance/secret-provisioned"
+
+      - name: Deploy exact current-main acceptance revision to Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$(npx vercel@56.2.0 deploy --prod --yes --force --no-color --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1)"
+          printf '%s\n' "$output"
+          url="$(printf '%s\n' "$output" | grep -Eo 'https://[A-Za-z0-9.-]+\.vercel\.app' | tail -n 1)"
+          test -n "$url"
+          printf '%s\n' "$url" > "$RUNNER_TEMP/instacomp-final-acceptance/test-deploy-url"
+          touch "$RUNNER_TEMP/instacomp-final-acceptance/test-deployed"
+
+      - name: Prove Production bridge is on exact repaired Mac runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 18); do
+            code="$(curl -sS --max-time 30 -o "$RUNNER_TEMP/instacomp-final-acceptance/readiness.json" -w '%{http_code}' -H 'Cache-Control: no-cache' "$PRODUCTION_ORIGIN/api/instacomp/internal-readiness?ts=$(date +%s)")"
+            [ "$code" = "200" ] && break
+            sleep 5
+          done
+          test "$code" = "200"
+          cat "$RUNNER_TEMP/instacomp-final-acceptance/readiness.json"
+          node - "$RUNNER_TEMP/instacomp-final-acceptance/readiness.json" "$EXPECTED_MAC_FINGERPRINT" <<'NODE'
+          const fs = require('node:fs');
+          const body = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          const expected = process.argv[3];
+          for (const key of ['ok','configured','reachable','internalMemoryReady','checklistReady','localModelReady']) {
+            if (body[key] !== true) throw new Error(`Production readiness failed: ${key}`);
+          }
+          if (body.runtimeSourceFingerprint !== expected) {
+            throw new Error(`Mac fingerprint mismatch: ${body.runtimeSourceFingerprint || 'missing'}`);
+          }
+          NODE
+
+      - name: Build immutable five-card acceptance runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > scripts/ops/.instacomp-final-acceptance.mjs <<'NODE'
+          import { createHash } from 'node:crypto';
+          import { mkdir, writeFile } from 'node:fs/promises';
+          import { dirname } from 'node:path';
+          import { createClient } from '@supabase/supabase-js';
+
+          const ORIGIN = 'https://truelycollectables.com';
+          const SCAN_URL = `${ORIGIN}/api/instacomp/scan`;
+          const TRUTH = [
+            {position:1,inventoryItemId:'ef0e06a3-a6de-4242-8c52-52b420185850',player:'Sonia Citron',year:'2025',manufacturer:'Panini',setName:'Base',cardNumber:'122',parallel:'Base',registryIdentityId:'2a7d4ddd-e9f7-4ce2-904c-b1a17b33ae4f',frontSha256:'eaacec37493b419f1d397df739aedd9df218639ded876c481b2fb28b2b3eb2b1',backSha256:'3ecd070456e09342ed83ca88193ed2d029cd8a77ed5b2e2ae1ce443e9866978c'},
+            {position:2,inventoryItemId:'0916fe9d-2837-4d91-add4-73e7216705cd',player:'Dominique Malonga',year:'2025',manufacturer:'Panini',setName:'Base',cardNumber:'116',parallel:'Prizms Ice',registryIdentityId:'bde0577b-72e8-4e59-8287-89aaf2f9e7e2',frontSha256:'d165d8e537a6501711e0b0b789866ac5ab053a3e09216a39108c71c6485fd955',backSha256:'e3aba4b0e5f59ec6473f78e1b69bab3d8d377f1ecb72f9b13ac7dbf0d02e56cf'},
+            {position:3,inventoryItemId:'66f9ad9e-43fb-4b2b-b79c-ac99fa082de0',player:'Sonia Citron',year:'2025',manufacturer:'Panini',setName:'Groovy',cardNumber:'13',parallel:'Base',registryIdentityId:'c58ffc4f-e1c7-4cd9-b6e2-599af5a29044',frontSha256:'d168765374b348074c0f194fb15d099eaafe802f543c76bccf8147f391499c02',backSha256:'f40ca7f4862e856e47990f4296655306a89f92d2dcd0261b661a07cf82a73e24'},
+            {position:4,inventoryItemId:'f7d73af4-7299-4ed6-b663-39206f2576ee',player:'Paige Bueckers',year:'2025',manufacturer:'Panini',setName:'Base',cardNumber:'5',parallel:'Prizms Ice',registryIdentityId:'575556fe-fdd4-4083-baee-c5071ed3161f',frontSha256:'689101749388e0113da8d8c3270e250e4275dfb043d0c16fce0bd584b0d3bdb2',backSha256:'5f44fd564f69868f0cdf48c083e5198f18dc5e1d732b2fe284ca29b407e8de8c'},
+            {position:5,inventoryItemId:'e9335a9d-3cc1-48d3-92db-7be7468714a9',player:'Rickea Jackson',year:'2025',manufacturer:'Panini',setName:'Base',cardNumber:'118',parallel:'Base',registryIdentityId:'70ad307e-06bb-45c2-90ea-689b6e2f302e',frontSha256:'eb528a8e5de90e0ddb62e92ed3b5a2239819fb1c3fc27000ea1102a5b6f19728',backSha256:'28d445c8423a3bc96ca03e6294138a6980fa630825021d31e6acd115a29e329e'},
+          ];
+          const txt = (v) => String(v ?? '').replace(/\s+/g,' ').trim();
+          const rec = (v) => v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+          const norm = (v) => txt(v).normalize('NFKD').replace(/[’']/g,'').replace(/[^a-z0-9]+/gi,' ').trim().toLowerCase();
+          const normCard = (v) => norm(v).replace(/\s+/g,'');
+          const canonicalParallel = (v) => {
+            const n = norm(v);
+            if (!n || ['base','base card','none','null'].includes(n)) return 'base';
+            if (/\b(?:prizms?\s+ice|ice\s+prizm|cracked\s+ice(?:\s+prizm)?|white\s+cracked\s+ice\s+prizm)\b/.test(n)) return 'prizms ice';
+            return n;
+          };
+          const sha = (b) => createHash('sha256').update(b).digest('hex');
+          function choosePair(rows) {
+            const ordered = rows.map(r=>({url:txt(r.image_url),alt:txt(r.alt_text),order:Number(r.sort_order||0),primary:r.is_primary===true})).filter(r=>r.url).sort((a,b)=>a.primary!==b.primary?(a.primary?-1:1):a.order-b.order);
+            const front = ordered.find(r=>/\bfront\b/i.test(r.alt)) || ordered.find(r=>r.primary) || ordered[0];
+            const back = ordered.find(r=>/\bback\b/i.test(r.alt)&&r.url!==front?.url) || ordered.find(r=>!r.primary&&r.url!==front?.url) || ordered.find(r=>r.url!==front?.url);
+            if (!front?.url || !back?.url || front.url===back.url) throw new Error('Distinct front/back image pair not found');
+            return {frontUrl:front.url,backUrl:back.url};
+          }
+          async function download(url, side) {
+            const r = await fetch(url,{signal:AbortSignal.timeout(30000),headers:{'User-Agent':'TCOS-InstaComp-Final-Acceptance/1.0'}});
+            if (!r.ok) throw new Error(`${side} image HTTP ${r.status}`);
+            const type=(r.headers.get('content-type')||'image/jpeg').split(';')[0].trim();
+            const bytes=Buffer.from(await r.arrayBuffer());
+            return {bytes,file:new File([bytes],`${side}.jpg`,{type})};
+          }
+          async function scan(front,back,token) {
+            const body=new FormData();
+            body.append('frontImage',front,front.name); body.append('backImage',back,back.name); body.append('aiCouncilTier','basic');
+            const r=await fetch(SCAN_URL,{method:'POST',body,redirect:'error',signal:AbortSignal.timeout(295000),headers:{'x-tcos-instacomp-service-token':token,'User-Agent':'TCOS-InstaComp-Final-Acceptance/1.0'}});
+            const raw=await r.text(); let payload={}; try{payload=raw?JSON.parse(raw):{}}catch{payload={error:`Non-JSON response: ${raw.slice(0,500)}`}}
+            return {ok:r.ok,status:r.status,payload};
+          }
+          function actual(payload){
+            const ai=rec(payload.ai), registry=rec(payload.checklistRegistry), decision=rec(payload.identityDecision);
+            return {player:txt(ai.player),year:txt(ai.year),manufacturer:txt(ai.manufacturer||ai.brand),setName:txt(ai.setName||ai.set_name),cardNumber:txt(ai.cardNumber||ai.card_number),parallel:txt(ai.parallel)||'Base',registryIdentityId:txt(registry.identityId),registryFingerprintSha256:txt(registry.fingerprintSha256),registryStatus:txt(registry.status),registryMatched:registry.matched===true,identityConfirmed:decision.confirmed===true||registry.identityConfirmed===true,identityConfidence:decision.confidence??registry.identityConfidence??null};
+          }
+          function diagnostics(payload){
+            const ai=rec(payload.ai),registry=rec(payload.checklistRegistry),decision=rec(payload.identityDecision),ocr=rec(payload.ocrDiagnostics);
+            return {error:txt(payload.error)||null,note:txt(payload.note)||null,ai:{player:ai.player??null,year:ai.year??null,manufacturer:ai.manufacturer??ai.brand??null,setName:ai.setName??ai.set_name??null,cardNumber:ai.cardNumber??ai.card_number??null,parallel:ai.parallel??null,internalStatus:ai.internalStatus??null,internalChecklistOutcome:ai.internalChecklistOutcome??null,internalChecklistReasons:ai.internalChecklistReasons??null},checklistRegistry:{matched:registry.matched??null,identityId:registry.identityId??null,fingerprintSha256:registry.fingerprintSha256??null,status:registry.status??null,reasons:registry.reasons??null,candidateCount:registry.candidateCount??null,identityConfirmed:registry.identityConfirmed??null,identityConfidence:registry.identityConfidence??null},identityDecision:{confirmed:decision.confirmed??null,confidence:decision.confidence??null,reviewReasons:decision.reviewReasons??null,explanation:decision.explanation??null},ocrDiagnostics:{primaryAiProvider:ocr.primaryAiProvider??null,primaryAiFamily:ocr.primaryAiFamily??null,textExcerpt:txt(ocr.textExcerpt).slice(0,1200)||null,conflicts:ocr.conflicts??null}};
+          }
+          const output=process.argv[2];
+          const token=txt(process.env.INSTACOMP_ACCEPTANCE_SERVICE_TOKEN),url=txt(process.env.NEXT_PUBLIC_SUPABASE_URL),key=txt(process.env.SUPABASE_SERVICE_ROLE_KEY);
+          if(!output||!token||!url||!key) throw new Error('Acceptance output, token, Supabase URL, and server key are required');
+          await mkdir(dirname(output),{recursive:true});
+          const db=createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}});
+          const ids=TRUTH.map(x=>x.inventoryItemId);
+          const [iq,xq]=await Promise.all([db.from('inventory_items').select('id,title,status').in('id',ids),db.from('inventory_images').select('inventory_item_id,image_url,alt_text,sort_order,is_primary').in('inventory_item_id',ids).order('sort_order',{ascending:true})]);
+          if(iq.error) throw new Error(`Inventory query failed: ${iq.error.message}`); if(xq.error) throw new Error(`Image query failed: ${xq.error.message}`);
+          const items=new Map((iq.data||[]).map(r=>[String(r.id),r])),images=new Map(); for(const r of xq.data||[]){const b=images.get(r.inventory_item_id)||[];b.push(r);images.set(r.inventory_item_id,b)}
+          const receipt={schema:'tcos.instacomp.finalProductionAcceptance.v1',generatedAt:new Date().toISOString(),productionRoute:SCAN_URL,truthSource:{imageTruthArtifactId:8994498762,registryCandidateArtifactId:8993929571,answerKeyMode:'fixed_external_truth_not_inventory_title_or_metadata'},authentication:{mode:'temporary_instacomp_service_token'},testedCards:0,passedCards:0,status:'running',results:[]};
+          await writeFile(output,JSON.stringify(receipt,null,2)+'\n');
+          for(const truth of TRUTH){
+            const item=items.get(truth.inventoryItemId); if(!item) throw new Error(`Frozen inventory item disappeared: ${truth.inventoryItemId}`);
+            const pair=choosePair(images.get(truth.inventoryItemId)||[]),started=Date.now(); const [front,back]=await Promise.all([download(pair.frontUrl,'front'),download(pair.backUrl,'back')]);
+            const frontHash=sha(front.bytes),backHash=sha(back.bytes),imageChecks={frontSha256:frontHash===truth.frontSha256,backSha256:backHash===truth.backSha256};
+            if(!imageChecks.frontSha256||!imageChecks.backSha256){receipt.results.push({position:truth.position,inventoryItemId:truth.inventoryItemId,expected:truth,imageHashes:{front:frontHash,back:backHash},imageChecks,passed:false,failure:'Frozen Production image bytes changed',durationMs:Date.now()-started});receipt.testedCards=receipt.results.length;await writeFile(output,JSON.stringify(receipt,null,2)+'\n');continue;}
+            const response=await scan(front.file,back.file,token),got=actual(response.payload);
+            const checks={exactPhysicalImages:true,httpOk:response.ok,routeOk:response.payload.ok===true,player:norm(got.player)===norm(truth.player),year:norm(got.year)===norm(truth.year),manufacturer:norm(got.manufacturer)===norm(truth.manufacturer),cardNumber:normCard(got.cardNumber)===normCard(truth.cardNumber),parallel:canonicalParallel(got.parallel)===canonicalParallel(truth.parallel),exactRegistryIdentity:got.registryIdentityId===truth.registryIdentityId,registryFingerprintPresent:/^[a-f0-9]{64}$/i.test(got.registryFingerprintSha256),registryMatched:got.registryMatched,identityConfirmed:got.identityConfirmed};
+            const passed=Object.values(checks).every(Boolean); receipt.results.push({position:truth.position,inventoryItemId:truth.inventoryItemId,title:txt(item.title),inventoryStatus:item.status,expected:truth,actual:got,imageHashes:{front:frontHash,back:backHash},checks,passed,diagnostics:diagnostics(response.payload),durationMs:Date.now()-started});receipt.testedCards=receipt.results.length;receipt.passedCards=receipt.results.filter(x=>x.passed===true).length;await writeFile(output,JSON.stringify(receipt,null,2)+'\n');console.log(`[${truth.position}/5] ${passed?'PASS':'FAIL'} ${truth.player} #${truth.cardNumber} ${truth.parallel} | got=${JSON.stringify(got)}`);
+          }
+          receipt.status=receipt.testedCards===5&&receipt.passedCards===5?'passed':'failed';receipt.finishedAt=new Date().toISOString();await writeFile(output,JSON.stringify(receipt,null,2)+'\n');console.log(JSON.stringify({status:receipt.status,testedCards:receipt.testedCards,passedCards:receipt.passedCards},null,2));if(receipt.status!=='passed')process.exit(1);
+          NODE
+          grep -Fq 'imageTruthArtifactId:8994498762' scripts/ops/.instacomp-final-acceptance.mjs
+          grep -Fq 'registryCandidateArtifactId:8993929571' scripts/ops/.instacomp-final-acceptance.mjs
+          grep -Fq 'got.registryIdentityId===truth.registryIdentityId' scripts/ops/.instacomp-final-acceptance.mjs
+          grep -Fq "receipt.testedCards===5&&receipt.passedCards===5" scripts/ops/.instacomp-final-acceptance.mjs
+
+      - name: Frozen five Production acceptance pass 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/instacomp-final-acceptance/runtime-env.sh"
+          token="$(cat "$RUNNER_TEMP/instacomp-final-acceptance/service-token")"
+          echo "::add-mask::$token"
+          export INSTACOMP_ACCEPTANCE_SERVICE_TOKEN="$token"
+          node scripts/ops/.instacomp-final-acceptance.mjs "$EVIDENCE_DIR/receipt-pass-1.json"
+
+      - name: Frozen five Production acceptance pass 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/instacomp-final-acceptance/runtime-env.sh"
+          token="$(cat "$RUNNER_TEMP/instacomp-final-acceptance/service-token")"
+          echo "::add-mask::$token"
+          export INSTACOMP_ACCEPTANCE_SERVICE_TOKEN="$token"
+          node scripts/ops/.instacomp-final-acceptance.mjs "$EVIDENCE_DIR/receipt-pass-2.json"
+
+      - name: Upload final acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-final-production-acceptance-20260807
+          path: evidence/instacomp-final-production-acceptance-20260807
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Remove temporary Production scanner credential
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f "$RUNNER_TEMP/instacomp-final-acceptance/secret-provisioned" ]; then
+            npx vercel@56.2.0 env rm INSTACOMP_SERVICE_TOKEN production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          fi
+
+      - name: Redeploy same tested revision clean
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f "$RUNNER_TEMP/instacomp-final-acceptance/test-deployed" ]; then
+            rm -f scripts/ops/.instacomp-final-acceptance.mjs
+            output="$(npx vercel@56.2.0 deploy --prod --yes --force --no-color --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1)"
+            printf '%s\n' "$output"
+            url="$(printf '%s\n' "$output" | grep -Eo 'https://[A-Za-z0-9.-]+\.vercel\.app' | tail -n 1)"
+            test -n "$url"
+            printf '%s\n' "$url" > "$EVIDENCE_DIR/clean-deploy-url.txt"
+          fi
+
+      - name: Prove clean Production readiness and credential removal
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f "$RUNNER_TEMP/instacomp-final-acceptance/test-deployed" ]; then exit 0; fi
+          for attempt in $(seq 1 18); do
+            code="$(curl -sS --max-time 30 -o "$RUNNER_TEMP/instacomp-final-acceptance/clean-readiness.json" -w '%{http_code}' -H 'Cache-Control: no-cache' "$PRODUCTION_ORIGIN/api/instacomp/internal-readiness?clean=$attempt&ts=$(date +%s)")"
+            [ "$code" = "200" ] && break
+            sleep 5
+          done
+          test "$code" = "200"
+          node - "$RUNNER_TEMP/instacomp-final-acceptance/clean-readiness.json" "$EXPECTED_MAC_FINGERPRINT" <<'NODE'
+          const fs=require('node:fs');const b=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));if(b.ok!==true||b.runtimeSourceFingerprint!==process.argv[3])throw new Error('Clean Production readiness/fingerprint failed');
+          NODE
+          token="$(cat "$RUNNER_TEMP/instacomp-final-acceptance/service-token")"
+          echo "::add-mask::$token"
+          auth_code="$(curl -sS --max-time 30 -o "$RUNNER_TEMP/instacomp-final-acceptance/removed-token.json" -w '%{http_code}' -X POST -H "x-tcos-instacomp-service-token: $token" -H 'Cache-Control: no-cache' "$PRODUCTION_ORIGIN/api/instacomp/scan")"
+          if [ "$auth_code" != "401" ] && [ "$auth_code" != "403" ]; then
+            echo "Temporary scanner credential still appears accepted; HTTP $auth_code" >&2
+            cat "$RUNNER_TEMP/instacomp-final-acceptance/removed-token.json" >&2 || true
+            exit 2
+          fi
+          cat > "$EVIDENCE_DIR/clean-production.json" <<EOF
+          {"ready":true,"runtimeSourceFingerprint":"$EXPECTED_MAC_FINGERPRINT","temporaryCredentialRemoved":true,"removedCredentialHttpStatus":$auth_code}
+          EOF
+
+      - name: Remove local temporary files
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "$RUNNER_TEMP/instacomp-final-acceptance"
+          rm -f scripts/ops/.instacomp-final-acceptance.mjs .env.local .env.production.local
