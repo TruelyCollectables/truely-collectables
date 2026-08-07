@@ -1,0 +1,160 @@
+name: InstaComp Owner eBay Purchase Learning 20260807
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/app/api/release/instacomp-owner-purchase-learning-sync/route.ts"
+      - ".github/workflows/instacomp-owner-ebay-purchase-learning-20260807.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instacomp-owner-ebay-purchase-learning-20260807
+  cancel-in-progress: false
+
+jobs:
+  sync-and-prove:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+      SITE_URL: https://truelycollectables.com
+    steps:
+      - name: Checkout learning sync ref
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Validate exact learning sync source
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npx eslint src/app/api/release/instacomp-owner-purchase-learning-sync/route.ts
+          npx tsc --noEmit --pretty false
+          grep -q 'EXPECTED_POSITIONS = 28' src/app/api/release/instacomp-owner-purchase-learning-sync/route.ts
+          grep -q 'EXPECTED_ALL_IN_TOTAL = 528.52' src/app/api/release/instacomp-owner-purchase-learning-sync/route.ts
+          grep -q 'eventType: "BUY"' src/app/api/release/instacomp-owner-purchase-learning-sync/route.ts
+          grep -q 'identityTrainingMutated: false' src/app/api/release/instacomp-owner-purchase-learning-sync/route.ts
+
+      - name: Link Vercel project
+        id: link
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          echo "::add-mask::$VERCEL_TOKEN"
+          npx vercel@56.2.0 link --yes \
+            --project truely-collectables \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Deploy learning sync ref to Production
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 deploy \
+            --prod \
+            --force \
+            --yes \
+            --logs \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" \
+            2>&1 | tee owner-purchase-learning-deploy.log
+          grep -q 'Aliased.*https://truelycollectables.com' owner-purchase-learning-deploy.log
+
+      - name: Inspect reconciled purchase truth before learning
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 90 -X POST \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "$SITE_URL/api/release/instacomp-owner-purchase-learning-sync?mode=inspect" \
+            > owner-purchase-learning-before.json
+          cat owner-purchase-learning-before.json
+          node - <<'NODE'
+          const p=require('./owner-purchase-learning-before.json');
+          if(!p.success) throw new Error(JSON.stringify(p));
+          if(Number(p.eligible)!==28) throw new Error(`Expected 28 eligible purchases, got ${p.eligible}`);
+          if(Number(p.allInTotal)!==528.52) throw new Error(`Expected $528.52 ALL-IN, got ${p.allInTotal}`);
+          if(Number(p.inFlight)!==0) throw new Error(`Refusing to continue with ${p.inFlight} in-flight learning writes.`);
+          NODE
+
+      - name: Sync owner-confirmed purchases into trusted Mac learning
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 300 -X POST \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "$SITE_URL/api/release/instacomp-owner-purchase-learning-sync?mode=sync" \
+            > owner-purchase-learning-sync.json
+          cat owner-purchase-learning-sync.json
+          node - <<'NODE'
+          const p=require('./owner-purchase-learning-sync.json');
+          if(!p.success) throw new Error(JSON.stringify(p));
+          if(Number(p.eligible)!==28 || Number(p.verified)!==28) throw new Error(`Learning verification is not 28/28: ${JSON.stringify(p)}`);
+          if(Number(p.allInTotal)!==528.52) throw new Error(`Learning ALL-IN total changed: ${p.allInTotal}`);
+          if(Number(p.inFlight)!==0) throw new Error(`Learning left in-flight writes: ${p.inFlight}`);
+          NODE
+
+      - name: Prove idempotent second pass creates no duplicates
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 120 -X POST \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "$SITE_URL/api/release/instacomp-owner-purchase-learning-sync?mode=sync" \
+            > owner-purchase-learning-second-pass.json
+          cat owner-purchase-learning-second-pass.json
+          node - <<'NODE'
+          const p=require('./owner-purchase-learning-second-pass.json');
+          if(!p.success) throw new Error(JSON.stringify(p));
+          if(Number(p.sent)!==0) throw new Error(`Duplicate learning write detected: sent=${p.sent}`);
+          if(Number(p.alreadySynced)!==28 || Number(p.verified)!==28) throw new Error(`Second-pass receipt is not 28/28: ${JSON.stringify(p)}`);
+          if(Number(p.allInTotal)!==528.52) throw new Error(`Second-pass ALL-IN total changed: ${p.allInTotal}`);
+          NODE
+
+      - name: Restore clean latest-main Production deployment
+        if: always() && steps.link.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --depth=1
+          git checkout --detach origin/main
+          rm -rf .vercel
+          npx vercel@56.2.0 link --yes \
+            --project truely-collectables \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" >/dev/null
+          npx vercel@56.2.0 deploy \
+            --prod \
+            --force \
+            --yes \
+            --logs \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" \
+            2>&1 | tee owner-purchase-learning-clean-main.log
+
+      - name: Upload learning receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-owner-ebay-purchase-learning-receipts
+          path: |
+            owner-purchase-learning-before.json
+            owner-purchase-learning-sync.json
+            owner-purchase-learning-second-pass.json
+            owner-purchase-learning-deploy.log
+            owner-purchase-learning-clean-main.log
+          if-no-files-found: warn
