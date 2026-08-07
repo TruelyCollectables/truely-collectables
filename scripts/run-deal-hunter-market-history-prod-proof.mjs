@@ -42,7 +42,7 @@ function stripOuterTransaction(sql) {
     body = body.replace(/^begin\s*;/i, "").replace(/commit\s*;\s*$/i, "").trim();
   }
   if (/create\s+(?:unique\s+)?index\s+concurrently/i.test(body)) {
-    throw new Error("Concurrent index creation is not allowed in this atomic proof.");
+    throw new Error("Concurrent index creation is not allowed in this proof.");
   }
   return body;
 }
@@ -53,7 +53,8 @@ if (!/^https:\/\//.test(supabaseUrl)) throw new Error("Production Supabase URL m
 const projectRef = new URL(supabaseUrl).hostname.split(".")[0];
 const endpoint = `https://api.supabase.com/v1/projects/${projectRef}/database/query`;
 
-async function query(sql, readOnly = false) {
+async function query(sql, readOnly = false, label = "query") {
+  const started = Date.now();
   const response = await fetch(endpoint, {
     method: "POST",
     headers: {
@@ -63,22 +64,43 @@ async function query(sql, readOnly = false) {
     body: JSON.stringify({ query: sql, parameters: [], read_only: readOnly }),
   });
   const text = await response.text();
+  const elapsedMs = Date.now() - started;
   if (!response.ok) {
-    throw new Error(`Supabase query HTTP ${response.status}: ${text.slice(0, 1000)}`);
+    throw new Error(`${label} failed: Supabase HTTP ${response.status} after ${elapsedMs}ms: ${text.slice(0, 1000)}`);
   }
   return text ? JSON.parse(text) : [];
 }
 
-const migrations = [
-  "20260806_instacomp_mac_deal_hunter_scheduler.sql",
-  "20260807_instacomp_exact_card_market_history.sql",
-];
-const migrationSql = migrations.map((name) => {
-  const file = path.join("supabase", "migrations", name);
-  return `\n-- ${name}\n${stripOuterTransaction(fs.readFileSync(file, "utf8"))}\n`;
-}).join("\n");
+async function tableExists(name) {
+  const rows = await query(`select to_regclass('public.${name}') is not null as present;`, true, `preflight ${name}`);
+  return rows?.[0]?.present === true;
+}
 
-await query(`begin;\n${migrationSql}\ncommit;`, false);
+async function applyMigrationIfNeeded({ name, requiredTables }) {
+  const states = await Promise.all(requiredTables.map((table) => tableExists(table)));
+  if (states.every(Boolean)) {
+    return { name, applied: false, reason: "already_present" };
+  }
+  if (states.some(Boolean)) {
+    throw new Error(`${name} is partially present in Production; refusing blind reapply: ${JSON.stringify(Object.fromEntries(requiredTables.map((table, i) => [table, states[i]])))}`);
+  }
+  const file = path.join("supabase", "migrations", name);
+  const sql = stripOuterTransaction(fs.readFileSync(file, "utf8"));
+  await query(`begin;\n${sql}\ncommit;`, false, `migration ${name}`);
+  const after = await Promise.all(requiredTables.map((table) => tableExists(table)));
+  if (!after.every(Boolean)) throw new Error(`${name} returned success but required tables are still missing.`);
+  return { name, applied: true, reason: "missing_then_applied" };
+}
+
+const migrationResults = [];
+migrationResults.push(await applyMigrationIfNeeded({
+  name: "20260806_instacomp_mac_deal_hunter_scheduler.sql",
+  requiredTables: ["tcos_deal_hunter_runs", "tcos_deal_hunter_candidates"],
+}));
+migrationResults.push(await applyMigrationIfNeeded({
+  name: "20260807_instacomp_exact_card_market_history.sql",
+  requiredTables: ["tcos_card_market_identities", "tcos_card_market_observations"],
+}));
 
 const contractRows = await query(`
 select json_build_object(
@@ -99,15 +121,20 @@ select json_build_object(
       and not tgisinternal
   )
 ) contract;
-`, true);
+`, true, "schema contract");
 const contract = contractRows?.[0]?.contract || {};
 if (Object.values(contract).some((value) => value !== true)) {
   throw new Error(`Production contract incomplete: ${JSON.stringify(contract)}`);
 }
 
 const testIdentity = "00000000-0000-4000-8000-000000081407";
+
+// Keep the synthetic proof tiny and fully rollback-only. The trigger exceptions are
+// caught inside the DO block so the transaction itself stays usable for the later checks.
 await query(`
 begin;
+set local lock_timeout = '5s';
+set local statement_timeout = '30s';
 do $$
 declare
   ask_count integer;
@@ -171,14 +198,14 @@ begin
 end
 $$;
 rollback;
-`, false);
+`, false, "rollback-only behavior proof");
 
 const residueRows = await query(`
 select json_build_object(
   'identityRows', (select count(*) from public.tcos_card_market_identities where registry_identity_id='${testIdentity}'),
   'observationRows', (select count(*) from public.tcos_card_market_observations where registry_identity_id='${testIdentity}')
 ) residue;
-`, true);
+`, true, "residue check");
 const residue = residueRows?.[0]?.residue || {};
 if (Number(residue.identityRows || 0) !== 0 || Number(residue.observationRows || 0) !== 0) {
   throw new Error(`Rollback proof left Production residue: ${JSON.stringify(residue)}`);
@@ -187,7 +214,7 @@ if (Number(residue.identityRows || 0) !== 0 || Number(residue.observationRows ||
 const receipt = {
   ok: true,
   expectedMain,
-  migrations,
+  migrationResults,
   contract,
   rollbackProof: {
     askSoldSeparated: true,
