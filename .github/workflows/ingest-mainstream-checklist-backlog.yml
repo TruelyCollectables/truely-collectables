@@ -9,6 +9,7 @@ on:
       - "scripts/ingest-mainstream-checklist-backlog.mjs"
       - "scripts/mainstream-checklist/**"
       - "scripts/resolve-mainstream-checklist-production-env.sh"
+      - "scripts/bootstrap-mainstream-checklist-schema.sh"
   push:
     branches:
       - main
@@ -17,6 +18,7 @@ on:
       - "scripts/ingest-mainstream-checklist-backlog.mjs"
       - "scripts/mainstream-checklist/**"
       - "scripts/resolve-mainstream-checklist-production-env.sh"
+      - "scripts/bootstrap-mainstream-checklist-schema.sh"
   workflow_dispatch:
     inputs:
       mode:
@@ -55,6 +57,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Verify production helper syntax
+        run: |
+          bash -n scripts/resolve-mainstream-checklist-production-env.sh
+          bash -n scripts/bootstrap-mainstream-checklist-schema.sh
       - name: Verify compressed backlog manifest
         shell: bash
         run: |
@@ -84,9 +90,36 @@ jobs:
           MAINSTREAM_CHECKLIST_SELF_TEST: "true"
         run: node --import tsx scripts/ingest-mainstream-checklist-backlog.mjs
 
-  ingest:
+  bootstrap-production-schema:
     if: github.event_name != 'pull_request'
     needs: self-test
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Resolve protected Production Supabase credentials
+        run: bash scripts/resolve-mainstream-checklist-production-env.sh
+      - name: Install and verify Checklist Registry production schema
+        run: bash scripts/bootstrap-mainstream-checklist-schema.sh
+      - name: Remove protected Production files
+        if: always()
+        shell: bash
+        run: |
+          rm -rf \
+            "$RUNNER_TEMP/mainstream-checklist-ingestion" \
+            "$RUNNER_TEMP/mainstream-checklist-schema" \
+            .env.local \
+            .env.production.local
+
+  ingest:
+    if: github.event_name != 'pull_request'
+    needs: [self-test, bootstrap-production-schema]
     runs-on: ubuntu-24.04
     environment: Production
     timeout-minutes: 180
@@ -148,7 +181,7 @@ jobs:
 
   reconcile:
     if: always() && github.event_name != 'pull_request'
-    needs: [self-test, ingest]
+    needs: [self-test, bootstrap-production-schema, ingest]
     runs-on: ubuntu-24.04
     environment: Production
     timeout-minutes: 30
