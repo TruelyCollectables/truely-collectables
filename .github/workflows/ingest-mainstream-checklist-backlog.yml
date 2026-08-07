@@ -8,6 +8,7 @@ on:
       - ".github/workflows/ingest-mainstream-checklist-backlog.yml"
       - "scripts/ingest-mainstream-checklist-backlog.mjs"
       - "scripts/mainstream-checklist/**"
+      - "scripts/resolve-mainstream-checklist-production-env.sh"
   push:
     branches:
       - main
@@ -15,6 +16,7 @@ on:
       - ".github/workflows/ingest-mainstream-checklist-backlog.yml"
       - "scripts/ingest-mainstream-checklist-backlog.mjs"
       - "scripts/mainstream-checklist/**"
+      - "scripts/resolve-mainstream-checklist-production-env.sh"
   workflow_dispatch:
     inputs:
       mode:
@@ -35,6 +37,13 @@ concurrency:
   group: instacomp-mainstream-checklist-backlog-2000-plus
   cancel-in-progress: false
 
+env:
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
 jobs:
   self-test:
     runs-on: ubuntu-24.04
@@ -46,7 +55,31 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Verify backlog manifest and parser contract
+      - name: Verify compressed backlog manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import { loadMainstreamChecklistManifest } from './scripts/mainstream-checklist/manifest.mjs';
+          const manifest = loadMainstreamChecklistManifest();
+          const dispositions = manifest.entries.reduce((counts, entry) => {
+            counts[entry.disposition] = (counts[entry.disposition] || 0) + 1;
+            return counts;
+          }, {});
+          if (manifest.entries.length !== 327) throw new Error('Manifest row count mismatch.');
+          if (new Set(manifest.entries.map((entry) => entry.sourceUrl)).size !== 327) {
+            throw new Error('Manifest source URLs are not unique.');
+          }
+          if (
+            dispositions.standalone !== 320 ||
+            dispositions.merge_component !== 2 ||
+            dispositions.attachment_only !== 5
+          ) {
+            throw new Error(`Manifest disposition mismatch: ${JSON.stringify(dispositions)}`);
+          }
+          console.log(JSON.stringify({ entries: manifest.entries.length, dispositions }));
+          NODE
+      - name: Verify parser contract
         env:
           MAINSTREAM_CHECKLIST_SELF_TEST: "true"
         run: node --import tsx scripts/ingest-mainstream-checklist-backlog.mjs
@@ -63,8 +96,6 @@ jobs:
       matrix:
         batch: [0, 1, 2, 3, 4, 5, 6, 7]
     env:
-      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       MAINSTREAM_CHECKLIST_APPLY: ${{ github.event_name == 'push' || github.event_name == 'schedule' || inputs.mode == 'apply' }}
       MAINSTREAM_CHECKLIST_BATCH_INDEX: ${{ matrix.batch }}
       MAINSTREAM_CHECKLIST_BATCH_COUNT: "8"
@@ -86,8 +117,18 @@ jobs:
           python -m pip install --disable-pip-version-check --no-cache-dir openpyxl==3.1.5 xlrd==2.0.1
           pdftotext -v
       - run: npm ci
+      - name: Resolve protected Production Supabase credentials
+        run: bash scripts/resolve-mainstream-checklist-production-env.sh
       - name: Download, archive, normalize, validate and import backlog batch
-        run: node --import tsx scripts/ingest-mainstream-checklist-backlog.mjs
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source "$PRODUCTION_ENV_PATH"
+          set +a
+          test -n "${RESOLVED_SUPABASE_SERVICE_ROLE_KEY:-}"
+          export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
+          node --import tsx scripts/ingest-mainstream-checklist-backlog.mjs
       - name: Upload sanitized batch receipt
         if: always()
         uses: actions/upload-artifact@v4
@@ -96,6 +137,14 @@ jobs:
           path: .checklist-discovery/mainstream-backlog-batch-${{ matrix.batch }}.json
           if-no-files-found: warn
           retention-days: 90
+      - name: Remove protected Production files
+        if: always()
+        shell: bash
+        run: |
+          rm -rf \
+            "$RUNNER_TEMP/mainstream-checklist-ingestion" \
+            .env.local \
+            .env.production.local
 
   reconcile:
     if: always() && github.event_name != 'pull_request'
@@ -104,8 +153,6 @@ jobs:
     environment: Production
     timeout-minutes: 30
     env:
-      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       MAINSTREAM_CHECKLIST_RECONCILE_ONLY: "true"
       MAINSTREAM_CHECKLIST_OUTPUT: .checklist-discovery/mainstream-backlog-reconciliation.json
     steps:
@@ -117,8 +164,18 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Resolve protected Production Supabase credentials
+        run: bash scripts/resolve-mainstream-checklist-production-env.sh
       - name: Reconcile all 327 source targets against private storage and the source catalog
-        run: node --import tsx scripts/ingest-mainstream-checklist-backlog.mjs
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source "$PRODUCTION_ENV_PATH"
+          set +a
+          test -n "${RESOLVED_SUPABASE_SERVICE_ROLE_KEY:-}"
+          export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
+          node --import tsx scripts/ingest-mainstream-checklist-backlog.mjs
       - name: Upload reconciliation receipt
         if: always()
         uses: actions/upload-artifact@v4
@@ -171,3 +228,11 @@ jobs:
             git commit -m "Record mainstream checklist reconciliation [skip ci]"
             git push origin "HEAD:$STATUS_BRANCH"
           fi
+      - name: Remove protected Production files
+        if: always()
+        shell: bash
+        run: |
+          rm -rf \
+            "$RUNNER_TEMP/mainstream-checklist-ingestion" \
+            .env.local \
+            .env.production.local
