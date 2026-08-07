@@ -479,12 +479,31 @@ def merge_local_vision_payload(payload: dict, local_vision: LocalVisionEvidence 
     root = dict(payload)
     identity = dict(root.get("identity") or {})
     hints = local_vision.identity_hints.model_dump(mode="json")
+    hard_fields = {"year", "manufacturer", "card_number"}
     for field, value in hints.items():
-        if identity.get(field) in {None, ""} and value not in {None, ""}:
+        if value in {None, ""}:
+            continue
+        if field in hard_fields or identity.get(field) in {None, ""}:
             identity[field] = value
+    # Surface geometry is deterministic evidence. If it produced a parallel hint,
+    # it outranks a free-form model guess. Otherwise do not let dominant image
+    # color masquerade as a checklist parallel.
+    if hints.get("parallel"):
+        identity["parallel"] = hints["parallel"]
+    elif identity.get("parallel") and re.search(
+        r"^(?:white|black|red|blue|green|gold|orange|purple|pink|silver)\s+prizm$",
+        str(identity.get("parallel")),
+        re.I,
+    ):
+        identity["parallel"] = None
     if local_vision.serial.stamp_present and local_vision.serial.exact_stamp:
         identity["serial_number"] = local_vision.serial.exact_stamp
         identity["serial_run"] = local_vision.serial.visible_denominator
+    else:
+        # A checklist print run is not a visible physical copy stamp. Never keep a
+        # model-invented numerator/denominator when deterministic OCR saw no stamp.
+        identity["serial_number"] = None
+        identity["serial_run"] = None
     evidence = dict(root.get("evidence") or {})
     front_text = [value.text for value in local_vision.front.ocr]
     back_text = [value.text for value in local_vision.back.ocr] if local_vision.back else []

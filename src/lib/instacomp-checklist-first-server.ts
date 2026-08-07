@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
   resolveInstaCompChecklistFirst,
   type InstaCompChecklistCandidate,
@@ -32,6 +32,10 @@ function normalizedText(value: unknown) {
 
 function normalizedCardNumber(value: unknown) {
   return normalizedText(value).replace(/[\s-]/g, "");
+}
+
+function registryYearStart(value: unknown) {
+  return normalizedText(value).match(/\b((?:18|19|20)\d{2})\b/)?.[1] || "";
 }
 
 function boundedOcr(value: unknown) {
@@ -234,6 +238,141 @@ export function enrichInstaCompChecklistInputFromOcr(
   };
 }
 
+type RegistryLoad = {
+  rows: any[];
+  errorCode: string | null;
+};
+
+function queryErrorCode(error: any) {
+  return String(error?.code || "unknown");
+}
+
+async function loadRegistryRowsBounded(
+  supabase: SupabaseClient,
+  cardNumber: string,
+  input: InstaCompChecklistLookupInput,
+): Promise<RegistryLoad> {
+  // Do not expand all relationships in one PostgREST statement. That query grows
+  // multiplicatively across players, teams, and identities and has timed out in
+  // Production. Fetch the small card-ID set first, then expand only those IDs.
+  const cardResult = await supabase
+    .from("checklist_cards")
+    .select(
+      "id,release_id,version_id,set_id,card_number,normalized_card_number,variation,autograph_status,memorabilia_status",
+    )
+    .eq("normalized_card_number", cardNumber)
+    .limit(250);
+  if (cardResult.error) {
+    return { rows: [], errorCode: queryErrorCode(cardResult.error) };
+  }
+  const cards = cardResult.data || [];
+  if (!cards.length) return { rows: [], errorCode: null };
+
+  const unique = (values: unknown[]) => [
+    ...new Set(values.map((value) => String(value || "")).filter(Boolean)),
+  ];
+  const versionIds = unique(cards.map((card: any) => card.version_id));
+  const releaseIds = unique(cards.map((card: any) => card.release_id));
+
+  const [versionResult, releaseResult] = await Promise.all([
+    supabase.from("checklist_versions").select("id,is_active,status").in("id", versionIds),
+    supabase
+      .from("checklist_releases")
+      .select(
+        "id,product_name,release_year,season,manufacturer:checklist_manufacturers(name),brand:checklist_brands(name),sport:checklist_sports(name),league:checklist_leagues(name)",
+      )
+      .in("id", releaseIds),
+  ]);
+  const firstError = versionResult.error || releaseResult.error;
+  if (firstError) return { rows: [], errorCode: queryErrorCode(firstError) };
+
+  const activeVersionIds = new Set(
+    (versionResult.data || [])
+      .filter((version: any) => version.is_active === true && version.status === "live")
+      .map((version: any) => String(version.id)),
+  );
+  const releaseById = new Map(
+    (releaseResult.data || []).map((release: any) => [String(release.id), release]),
+  );
+  const requestedYear = registryYearStart(input.year);
+  const requestedManufacturer = normalizedText(input.manufacturer);
+  const eligibleCards = cards.filter((card: any) => {
+    if (!activeVersionIds.has(String(card.version_id))) return false;
+    const release: any = releaseById.get(String(card.release_id));
+    if (!release) return false;
+    if (requestedYear && registryYearStart(release.release_year || release.season) !== requestedYear) {
+      return false;
+    }
+    if (requestedManufacturer) {
+      const haystack = [
+        release.manufacturer?.name,
+        release.brand?.name,
+        release.product_name,
+      ]
+        .map(normalizedText)
+        .filter(Boolean);
+      if (!haystack.some((value) => value === requestedManufacturer || value.includes(requestedManufacturer) || requestedManufacturer.includes(value))) {
+        return false;
+      }
+    }
+    return true;
+  });
+  if (!eligibleCards.length) return { rows: [], errorCode: null };
+
+  const cardIds = unique(eligibleCards.map((card: any) => card.id));
+  const setIds = unique(eligibleCards.map((card: any) => card.set_id));
+  const [setResult, playerResult, teamResult, identityResult] = await Promise.all([
+    setIds.length
+      ? supabase.from("checklist_sets").select("id,name,normalized_name").in("id", setIds)
+      : Promise.resolve({ data: [], error: null }),
+    supabase
+      .from("checklist_card_players")
+      .select("card_id,display_order,player:checklist_players(canonical_name)")
+      .in("card_id", cardIds),
+    supabase
+      .from("checklist_card_teams")
+      .select("card_id,display_order,team:checklist_teams(canonical_name)")
+      .in("card_id", cardIds),
+    supabase
+      .from("checklist_card_identities")
+      .select(
+        "id,card_id,variation,autograph_status,memorabilia_status,parallel:checklist_parallels(name,serial_run)",
+      )
+      .in("card_id", cardIds),
+  ]);
+  const detailError =
+    setResult.error || playerResult.error || teamResult.error || identityResult.error;
+  if (detailError) return { rows: [], errorCode: queryErrorCode(detailError) };
+
+  const setById = new Map(
+    (setResult.data || []).map((set: any) => [String(set.id), set]),
+  );
+  const groupByCard = (rows: any[]) => {
+    const result = new Map<string, any[]>();
+    for (const row of rows || []) {
+      const key = String(row.card_id);
+      const bucket = result.get(key) || [];
+      bucket.push(row);
+      result.set(key, bucket);
+    }
+    return result;
+  };
+  const playersByCard = groupByCard(playerResult.data || []);
+  const teamsByCard = groupByCard(teamResult.data || []);
+  const identitiesByCard = groupByCard(identityResult.data || []);
+
+  const rows = eligibleCards.map((card: any) => ({
+    ...card,
+    version: { id: card.version_id, is_active: true, status: "live" },
+    release: releaseById.get(String(card.release_id)) || null,
+    set: setById.get(String(card.set_id)) || null,
+    players: playersByCard.get(String(card.id)) || [],
+    teams: teamsByCard.get(String(card.id)) || [],
+    identities: identitiesByCard.get(String(card.id)) || [],
+  }));
+  return { rows, errorCode: null };
+}
+
 export type InstaCompChecklistFirstServerDecision = InstaCompChecklistFirstDecision & {
   source: "checklist_registry";
   lookupAttempted: boolean;
@@ -253,43 +392,21 @@ export async function resolveInstaCompChecklistFirstFromRegistry(
   }
 
   const supabase = serviceClient();
-  const { data, error } = await supabase
-    .from("checklist_cards")
-    .select(
-      [
-        "id",
-        "card_number",
-        "normalized_card_number",
-        "variation",
-        "autograph_status",
-        "memorabilia_status",
-        "version:checklist_versions!inner(id,is_active,status)",
-        "set:checklist_sets(id,name,normalized_name)",
-        "release:checklist_releases(id,product_name,release_year,season,manufacturer:checklist_manufacturers(name),brand:checklist_brands(name),sport:checklist_sports(name),league:checklist_leagues(name))",
-        "players:checklist_card_players(display_order,player:checklist_players(canonical_name))",
-        "teams:checklist_card_teams(display_order,team:checklist_teams(canonical_name))",
-        "identities:checklist_card_identities(id,variation,autograph_status,memorabilia_status,parallel:checklist_parallels(name,serial_run))",
-      ].join(","),
-    )
-    .eq("normalized_card_number", cardNumber)
-    .eq("version.is_active", true)
-    .eq("version.status", "live")
-    .limit(500);
-
-  if (error) {
-    console.error("Checklist-first Registry lookup failed:", error);
+  const loaded = await loadRegistryRowsBounded(supabase, cardNumber, input);
+  if (loaded.errorCode) {
+    console.error("Checklist-first bounded Registry lookup failed:", loaded.errorCode);
     return {
       status: "review_required",
       aiRequired: true,
       match: null,
       candidates: [],
-      reasons: [`checklist_registry_lookup_failed:${String(error.code || "unknown")}`],
+      reasons: [`checklist_registry_lookup_failed:${loaded.errorCode}`],
       source: "checklist_registry",
       lookupAttempted: true,
     };
   }
 
-  const candidates = toCandidates(data || []);
+  const candidates = toCandidates(loaded.rows);
   const enriched = enrichInstaCompChecklistInputFromOcr(input, candidates);
   const decision = resolveInstaCompChecklistFirst({
     input: enriched.input,

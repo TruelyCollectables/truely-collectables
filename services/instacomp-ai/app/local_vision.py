@@ -351,13 +351,30 @@ def _all_text(observations: Iterable[OCRObservation]) -> str:
     return "\n".join(dict.fromkeys(value.text for value in observations if value.text))
 
 
-def _year_hint(text: str) -> str | None:
-    years = [int(value) for value in YEAR_RE.findall(text)]
-    years = [value for value in years if 1900 <= value <= 2035]
-    if not years:
+def _year_hint(observations: Iterable[OCRObservation]) -> str | None:
+    scores: dict[int, float] = {}
+    for observation in observations:
+        text = str(observation.text or "")
+        lowered = text.lower()
+        for raw in YEAR_RE.findall(text):
+            year = int(raw)
+            if not 1900 <= year <= 2035:
+                continue
+            score = max(0.05, float(observation.confidence))
+            # Product/copyright lines describe the card's release year and must
+            # outrank historical season/stat rows such as "2024 WNBA TOTALS".
+            if any(name in lowered for name in MANUFACTURERS):
+                score += 5.0
+            if any(token in lowered for token in ("prizm", "select", "basketball", "baseball", "hockey", "football")):
+                score += 2.0
+            if "licensed product" in lowered or "©" in text:
+                score += 2.0
+            if any(token in lowered for token in ("totals", "season", "ncaa", "stats")):
+                score -= 1.0
+            scores[year] = scores.get(year, 0.0) + score
+    if not scores:
         return None
-    counts = Counter(years)
-    return str(max(counts, key=lambda value: (counts[value], value)))
+    return str(max(scores, key=lambda value: (scores[value], value)))
 
 
 def _manufacturer_hint(text: str) -> str | None:
@@ -369,20 +386,56 @@ def _manufacturer_hint(text: str) -> str | None:
 
 
 def _card_number_hint(observations: Iterable[OCRObservation]) -> str | None:
+    values = list(observations)
     ordered = sorted(
-        observations,
+        values,
         key=lambda value: (
             0 if value.side == "back" else 1,
             -value.confidence,
             -value.box.height,
         ),
     )
+    # First prefer a complete labeled token such as "No. 122".
     for observation in ordered:
         for pattern in CARD_NUMBER_PATTERNS:
             match = pattern.search(observation.text)
             if match:
                 return match.group(1).strip().upper()
-    return None
+
+    # Apple Vision frequently separates the printed "No." label and the value
+    # into adjacent OCR boxes. Pair those boxes geometrically instead of asking
+    # Qwen to guess the number from the image again.
+    label_re = re.compile(r"^(?:no\.?|card(?:\s*(?:no\.?|number))?)$", re.I)
+    value_re = re.compile(r"^[A-Z]{0,4}\d+[A-Z0-9-]{0,8}$", re.I)
+    labels = [value for value in values if label_re.match(value.text.strip())]
+    candidates = [
+        value
+        for value in values
+        if value_re.match(value.text.strip())
+        and not (value.text.strip().isdigit() and 1900 <= int(value.text.strip()) <= 2035)
+    ]
+    best: tuple[float, str] | None = None
+    for label in labels:
+        lx = label.box.x + label.box.width / 2
+        ly = label.box.y + label.box.height / 2
+        for candidate in candidates:
+            if candidate.side != label.side:
+                continue
+            cx = candidate.box.x + candidate.box.width / 2
+            cy = candidate.box.y + candidate.box.height / 2
+            dx = abs(cx - lx)
+            dy = abs(cy - ly)
+            # Card-number value is normally on the same row or directly below the
+            # label. Keep the search bounded so jersey/stat numbers are ignored.
+            if dx > 0.34 or dy > 0.16:
+                continue
+            score = (2.0 - 2.5 * dy - 1.2 * dx) + candidate.confidence
+            if cx >= lx - 0.05:
+                score += 0.35
+            token = candidate.text.strip().upper()
+            if best is None or score > best[0]:
+                best = (score, token)
+    return best[1] if best else None
 
 
 def _player_hint(observations: Iterable[OCRObservation]) -> str | None:
@@ -410,22 +463,18 @@ def _parallel_hint(
     front: SideVisionEvidence,
     back: SideVisionEvidence | None,
 ) -> str | None:
-    back_text = " ".join(value.text for value in (back.ocr if back else []))
-    if "prizm" not in back_text.lower():
-        return None
-    colors = front.colors.dominant_colors
-    color = next(
-        (value for value in colors if value in {"blue", "green", "red", "gold", "orange", "purple", "pink", "black", "white", "silver"}),
-        None,
-    )
+    # Dominant image colors describe jerseys, borders, backgrounds, and photos;
+    # they are not sufficient evidence for a named parallel. Only emit a local
+    # parallel hint when measured surface geometry itself is confident.
     label = front.pattern.label
+    confidence = float(front.pattern.confidence or 0)
+    if confidence < 0.70:
+        return None
     if label == "velocity":
-        return f"{color.title() + ' ' if color else ''}Velocity Prizm"
+        return "Velocity Prizm"
     if label == "cracked_ice":
-        return f"{color.title() + ' ' if color else ''}Cracked Ice Prizm"
-    if color and front.colors.metallic_score >= 0.12:
-        return f"{color.title()} Prizm"
-    return "Silver Prizm" if "silver" in colors else None
+        return "Cracked Ice Prizm"
+    return None
 
 
 def build_identity_hints(
@@ -438,7 +487,7 @@ def build_identity_hints(
     text = _all_text(observations)
     exact_serial = serial.exact_stamp if serial.stamp_present else None
     return CardIdentity(
-        year=_year_hint(text),
+        year=_year_hint(observations),
         manufacturer=_manufacturer_hint(text),
         player=_player_hint(observations),
         card_number=_card_number_hint(observations),
