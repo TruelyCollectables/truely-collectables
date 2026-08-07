@@ -53,9 +53,8 @@ export default async function MacDealHunterPage() {
   const latest = runs[0] || null;
   const actionable = candidates.filter((row) => row.actionable === true);
   const alerts = candidates.filter((row) => row.alertworthy === true);
-  const stale = latest?.completed_at
-    ? Date.now() - new Date(latest.completed_at).getTime() > 2.5 * 60 * 60 * 1000
-    : true;
+  const hasReported = Boolean(latest?.completed_at);
+  const latestFailed = latest?.status === "failed" || Number(latest?.failure_count || 0) > 0;
   const loadError = runResult.error?.message || candidateResult.error?.message || null;
 
   return (
@@ -86,14 +85,18 @@ export default async function MacDealHunterPage() {
 
         <section
           className={`rounded-3xl border p-5 shadow-sm ${
-            stale
+            !hasReported || latestFailed
               ? "border-amber-300 bg-amber-50 text-amber-950"
               : "border-emerald-300 bg-emerald-50 text-emerald-950"
           }`}
         >
           <p className="text-xs font-black uppercase tracking-[0.16em]">Scheduler heartbeat</p>
           <h2 className="mt-1 text-2xl font-black">
-            {stale ? "Mac scheduler is stale or has not reported yet" : "Mac scheduler is reporting"}
+            {!hasReported
+              ? "Mac scheduler has not reported a completed run yet"
+              : latestFailed
+                ? "Latest Mac scheduler run reported a failure"
+                : "Mac scheduler has reported a completed run"}
           </h2>
           <p className="mt-2 font-semibold">
             Last completed: {time(latest?.completed_at)} · Status: {latest?.status || "none"}
