@@ -46,11 +46,9 @@ run_query \
   writer-index-repair \
   supabase/migrations/20260807033000_checklist_registry_writer_repair.sql
 
-# Production's Registry core contract has a real unique constraint on
-# (identity_schema, fingerprint_sha256) and no checklist_card_identities.active
-# column. Re-install the immutable transactional writer unchanged. A previous
-# repair incorrectly added `where active` to this ON CONFLICT target, which
-# compiled but failed at runtime for otherwise-valid import plans.
+# Production uses the core Registry identity uniqueness contract. Reinstall the
+# immutable transactional writer unchanged rather than adding a predicate for a
+# column that is not part of checklist_card_identities.
 writer_source="$work_dir/transactional-writer.sql"
 curl --silent --show-error --fail --location \
   --retry 5 --retry-delay 2 --retry-all-errors \
@@ -65,8 +63,6 @@ source = Path(sys.argv[1]).read_text(encoding="utf-8")
 plain = "on conflict (identity_schema, fingerprint_sha256) do nothing;"
 if source.count(plain) != 1:
     raise SystemExit("Transactional writer does not contain the expected identity conflict target.")
-if "where active do nothing" in source:
-    raise SystemExit("Transactional writer must not reference a nonexistent identity active column.")
 PY
 
 run_query writer-identity-conflict-repair "$writer_source"
