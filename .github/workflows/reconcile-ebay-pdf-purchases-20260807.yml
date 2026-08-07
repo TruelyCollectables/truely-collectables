@@ -1,9 +1,8 @@
 name: Reconcile eBay PDF Purchases 20260807
 
 on:
-  push:
-    branches:
-      - ops/reconcile-ebay-purchases-20260807
+  pull_request:
+    branches: [main]
     paths:
       - "scripts/reconcile-ebay-pdf-purchases-production.mjs"
       - ".github/workflows/reconcile-ebay-pdf-purchases-20260807.yml"
