@@ -1,0 +1,87 @@
+name: Repair Sentinel Vercel Root Live
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/repair-sentinel-vercel-root-live.yml'
+      - 'scripts/repair-sentinel-vercel-root-live.marker'
+
+permissions:
+  contents: read
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_PROJECT_ID: prj_8mJZCaMhTddaKgcFFJYPwWu0P4mk
+      VERCEL_ORG_ID: team_cDDhCqEiYlz0KJQ3ATLJH7nz
+      VERCEL_SCOPE: truelycollectables-projects
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fail closed on repair-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          mapfile -t changed < <(git diff --name-only origin/main...HEAD | sort)
+          printf '%s\n' "${changed[@]}"
+          test "${#changed[@]}" -eq 2
+          test "${changed[0]}" = '.github/workflows/repair-sentinel-vercel-root-live.yml'
+          test "${changed[1]}" = 'scripts/repair-sentinel-vercel-root-live.marker'
+          test -n "$VERCEL_TOKEN"
+
+      - name: Inspect and narrowly repair Vercel Root Directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="/v9/projects/${VERCEL_PROJECT_ID}?teamId=${VERCEL_ORG_ID}"
+          npx vercel@58.8.0 api "$endpoint" --token "$VERCEL_TOKEN" > project-before.json
+          cat project-before.json | node -e '
+            let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>{
+              const p=JSON.parse(s); const r=p.rootDirectory;
+              console.log(JSON.stringify({project:p.name,id:p.id,rootDirectory:r??null}));
+              if (r == null || r === "") process.exit(0);
+              const t=String(r).trim();
+              if (t === "." || t === "./") process.exit(10);
+              process.exit(20);
+            });
+          ' || status=$?
+          status="${status:-0}"
+          case "$status" in
+            0)
+              echo 'PASS  Vercel Root Directory already points at repository root.'
+              ;;
+            10)
+              echo "Repairing known invalid Vercel Root Directory './' to empty repository root."
+              npx vercel@58.8.0 api "$endpoint" -X PATCH -F rootDirectory= --token "$VERCEL_TOKEN" > project-after.json
+              node -e 'const p=require("./project-after.json"); if (p.rootDirectory != null && p.rootDirectory !== "") { console.error(p.rootDirectory); process.exit(1) } console.log("PASS  Vercel Root Directory repaired to repository root.")'
+              ;;
+            *)
+              echo 'Refusing repair: Vercel Root Directory is neither empty nor the known ./ misconfiguration.' >&2
+              exit 2
+              ;;
+          esac
+
+      - name: Deploy exact current main to Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git checkout --detach origin/main
+          export VERCEL_PROJECT_ID VERCEL_ORG_ID
+          deployment_url="$(npx vercel@58.8.0 --prod --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN")"
+          echo "Production deployment: $deployment_url"
+          test -n "$deployment_url"
+
+      - name: Re-read project and certify root
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="/v9/projects/${VERCEL_PROJECT_ID}?teamId=${VERCEL_ORG_ID}"
+          npx vercel@58.8.0 api "$endpoint" --token "$VERCEL_TOKEN" > project-final.json
+          node -e 'const p=require("./project-final.json"); const r=p.rootDirectory; if (r != null && r !== "") { console.error(`Unexpected Root Directory: ${r}`); process.exit(1) } console.log(JSON.stringify({pass:true,project:p.name,id:p.id,rootDirectory:r??null},null,2))'
