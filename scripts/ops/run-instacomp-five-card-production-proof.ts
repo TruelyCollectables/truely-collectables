@@ -1,6 +1,7 @@
+import { randomBytes, randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
-import { createClient } from "@supabase/supabase-js";
-import { createAdminSessionValue } from "../../src/lib/admin-session";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { FLAGSHIP_STORE_ID } from "../../src/lib/legal";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -32,8 +33,15 @@ type ExpectedIdentity = {
   parallel: string;
 };
 
+type TemporarySeller = {
+  accountId: string;
+  accessToken: string;
+  cleanup: () => Promise<void>;
+};
+
 const PRODUCTION_ORIGIN = "https://truelycollectables.com";
 const LIVE_SCAN_URL = `${PRODUCTION_ORIGIN}/api/instacomp/scan`;
+let pendingTemporarySellerCleanup: (() => Promise<void>) | null = null;
 
 function record(value: unknown): JsonRecord {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -229,7 +237,7 @@ function candidateScore(item: InventoryItem, expected: ExpectedIdentity) {
 async function downloadImage(url: string, side: "front" | "back") {
   const response = await fetch(url, {
     signal: AbortSignal.timeout(30_000),
-    headers: { "User-Agent": "TCOS-InstaComp-Five-Card-Proof/2.0" },
+    headers: { "User-Agent": "TCOS-InstaComp-Five-Card-Proof/3.0" },
   });
   if (!response.ok) throw new Error(`${side} image returned HTTP ${response.status}`);
   const bytes = await response.arrayBuffer();
@@ -241,7 +249,7 @@ async function downloadImage(url: string, side: "front" | "back") {
 async function liveProductionScan(params: {
   front: File;
   back: File;
-  adminSession: string;
+  accessToken: string;
 }) {
   const body = new FormData();
   body.append("frontImage", params.front, params.front.name);
@@ -254,11 +262,8 @@ async function liveProductionScan(params: {
     redirect: "error",
     signal: AbortSignal.timeout(295_000),
     headers: {
-      Cookie: `tcos_admin_auth_v3=${params.adminSession}`,
-      Origin: PRODUCTION_ORIGIN,
-      Referer: `${PRODUCTION_ORIGIN}/admin`,
-      "Sec-Fetch-Site": "same-origin",
-      "User-Agent": "TCOS-InstaComp-Five-Card-Proof/2.0",
+      Authorization: `Bearer ${params.accessToken}`,
+      "User-Agent": "TCOS-InstaComp-Five-Card-Proof/3.0",
     },
   });
   const raw = await response.text();
@@ -283,6 +288,86 @@ function actualIdentity(payload: JsonRecord) {
   };
 }
 
+async function deleteTemporarySeller(admin: SupabaseClient, accountId: string) {
+  const cleanupErrors: string[] = [];
+  const membership = await admin
+    .from("account_store_memberships")
+    .delete()
+    .eq("account_id", accountId);
+  if (membership.error) cleanupErrors.push(`membership: ${membership.error.message}`);
+  const profile = await admin.from("account_profiles").delete().eq("id", accountId);
+  if (profile.error) cleanupErrors.push(`profile: ${profile.error.message}`);
+  const auth = await admin.auth.admin.deleteUser(accountId);
+  if (auth.error) cleanupErrors.push(`auth: ${auth.error.message}`);
+  if (cleanupErrors.length) throw new Error(`Temporary seller cleanup failed: ${cleanupErrors.join("; ")}`);
+}
+
+async function createTemporarySeller(params: {
+  supabaseUrl: string;
+  serviceKey: string;
+  anonKey: string;
+}): Promise<TemporarySeller> {
+  const admin = createClient(params.supabaseUrl, params.serviceKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const email = `instacomp-proof-${Date.now()}-${randomUUID()}@truelycollectables.com`;
+  const password = `${randomBytes(32).toString("base64url")}Aa1!`;
+  let accountId = "";
+
+  try {
+    const created = await admin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { purpose: "instacomp_five_card_proof" },
+    });
+    if (created.error || !created.data.user) {
+      throw new Error(`Could not create temporary seller: ${created.error?.message || "no user returned"}`);
+    }
+    accountId = created.data.user.id;
+
+    const profileUpdate = await admin
+      .from("account_profiles")
+      .update({ account_status: "active" })
+      .eq("id", accountId)
+      .select("id")
+      .maybeSingle();
+    if (profileUpdate.error) throw new Error(`Could not activate temporary profile: ${profileUpdate.error.message}`);
+    if (!profileUpdate.data) {
+      const profileInsert = await admin
+        .from("account_profiles")
+        .insert({ id: accountId, account_status: "active" });
+      if (profileInsert.error) throw new Error(`Could not create temporary profile: ${profileInsert.error.message}`);
+    }
+
+    const membership = await admin.from("account_store_memberships").insert({
+      account_id: accountId,
+      store_id: FLAGSHIP_STORE_ID,
+      role: "seller",
+      status: "active",
+    });
+    if (membership.error) throw new Error(`Could not create temporary seller membership: ${membership.error.message}`);
+
+    const authClient = createClient(params.supabaseUrl, params.anonKey || params.serviceKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const signedIn = await authClient.auth.signInWithPassword({ email, password });
+    const accessToken = text(signedIn.data.session?.access_token);
+    if (signedIn.error || !accessToken) {
+      throw new Error(`Could not sign in temporary seller: ${signedIn.error?.message || "no access token returned"}`);
+    }
+
+    return {
+      accountId,
+      accessToken,
+      cleanup: async () => deleteTemporarySeller(admin, accountId),
+    };
+  } catch (error) {
+    if (accountId) await deleteTemporarySeller(admin, accountId).catch(() => undefined);
+    throw error;
+  }
+}
+
 async function main() {
   const outputIndex = process.argv.indexOf("--output");
   const outputPath = outputIndex >= 0
@@ -290,13 +375,14 @@ async function main() {
     : "evidence/instacomp-five-card-proof.json";
   const supabaseUrl = text(process.env.NEXT_PUBLIC_SUPABASE_URL);
   const serviceKey = text(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY);
+  const anonKey = text(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
   if (!supabaseUrl || !serviceKey) throw new Error("Production Supabase credentials are missing.");
-  if (!text(process.env.ADMIN_SESSION_SECRET)) throw new Error("ADMIN_SESSION_SECRET is missing.");
 
-  const adminSession = await createAdminSessionValue();
   const supabase = createClient(supabaseUrl, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+  const temporarySeller = await createTemporarySeller({ supabaseUrl, serviceKey, anonKey });
+  pendingTemporarySellerCleanup = temporarySeller.cleanup;
 
   const { data: rawItems, error: itemError } = await supabase
     .from("inventory_items")
@@ -354,7 +440,11 @@ async function main() {
       downloadImage(candidate.pair.frontUrl, "front"),
       downloadImage(candidate.pair.backUrl, "back"),
     ]);
-    const scan = await liveProductionScan({ front, back, adminSession });
+    const scan = await liveProductionScan({
+      front,
+      back,
+      accessToken: temporarySeller.accessToken,
+    });
     const actual = actualIdentity(scan.payload);
     const registry = record(scan.payload.checklistRegistry);
     const orientation = record(scan.payload.imageOrientation);
@@ -397,10 +487,12 @@ async function main() {
 
   const passedCount = results.filter((result) => result.passed === true).length;
   const receiptPayload = {
-    schema: "tcos.instacomp.fiveCardProductionProof.v2",
+    schema: "tcos.instacomp.fiveCardProductionProof.v3",
     generatedAt: new Date().toISOString(),
     productionRoute: LIVE_SCAN_URL,
     selectedFromOwnerDraftInventory: true,
+    authentication: "temporary_supabase_seller_bearer",
+    temporarySellerDeleted: false,
     inventoryWritesPerformedByProof: false,
     normalScanReceiptPersistenceAllowed: true,
     testedCards: results.length,
@@ -408,12 +500,22 @@ async function main() {
     status: passedCount === 5 ? "passed" : "failed",
     results,
   };
+
+  await pendingTemporarySellerCleanup();
+  pendingTemporarySellerCleanup = null;
+  receiptPayload.temporarySellerDeleted = true;
   await writeFile(outputPath, `${JSON.stringify(receiptPayload, null, 2)}\n`, "utf8");
-  console.log(JSON.stringify({ status: receiptPayload.status, passedCards: passedCount, testedCards: 5 }, null, 2));
+  console.log(JSON.stringify({ status: receiptPayload.status, passedCards: passedCount, testedCards: 5, temporarySellerDeleted: true }, null, 2));
   if (passedCount !== 5) process.exitCode = 1;
 }
 
-main().catch((error) => {
+main().catch(async (error) => {
+  if (pendingTemporarySellerCleanup) {
+    await pendingTemporarySellerCleanup().catch((cleanupError) => {
+      console.error(cleanupError instanceof Error ? cleanupError.message : cleanupError);
+    });
+    pendingTemporarySellerCleanup = null;
+  }
   console.error(error instanceof Error ? error.stack || error.message : error);
   process.exit(1);
 });
