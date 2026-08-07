@@ -1,5 +1,6 @@
 name: Reconcile eBay PDF Purchases 20260807
 
+# Same-repository PR only: this one-time job writes a fail-closed reconciliation receipt.
 on:
   pull_request:
     branches: [main]
