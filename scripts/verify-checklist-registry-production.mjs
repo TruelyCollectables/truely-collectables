@@ -12,6 +12,7 @@ const db = createClient(url, key, {
 
 const readRetryAttempts = process.env.CHECKLIST_REGISTRY_READ_RETRY_ATTEMPTS || "6";
 const readRetryBaseMs = process.env.CHECKLIST_REGISTRY_READ_RETRY_BASE_MS || "750";
+const readAttemptTimeoutMs = process.env.CHECKLIST_REGISTRY_READ_ATTEMPT_TIMEOUT_MS || "10000";
 
 const requiredTables = [
   "checklist_source_catalog",
@@ -28,10 +29,15 @@ for (const table of requiredTables) {
   // One bounded row read proves PostgREST/table access without asking Production
   // to count or scan a large Registry table. Only transient read failures may be
   // retried; missing tables, permissions, and all other contract failures remain
-  // immediate hard failures.
+  // immediate hard failures. Each read also receives an AbortSignal so a hung
+  // transport attempt cannot consume the entire Production workflow timeout.
   const result = await runRegistryReadWithRetry(
-    () => db.from(table).select("*").limit(1),
-    { attempts: readRetryAttempts, baseMs: readRetryBaseMs },
+    (signal) => db.from(table).select("*").limit(1).abortSignal(signal),
+    {
+      attempts: readRetryAttempts,
+      baseMs: readRetryBaseMs,
+      attemptTimeoutMs: readAttemptTimeoutMs,
+    },
   );
   if (result.error) {
     const retryState = result.exhausted ? " after bounded transient retries" : "";
@@ -43,14 +49,15 @@ for (const table of requiredTables) {
     boundedRead: true,
     attemptsUsed: result.attemptsUsed,
     transientRetryUsed: result.retried,
+    attemptTimeoutMs: result.attemptTimeoutMs,
   });
 }
 
 // This call is intentionally rejected by the writer's FIRST pre-write guard.
 // It proves the exact Production RPC exists and is executing the expected
 // fail-closed contract without inserting/updating/deleting any Registry row.
-// The RPC itself is deliberately NOT retried: only idempotent table reads get
-// transport/schema-cache retry treatment in this verifier.
+// The RPC itself is deliberately NOT retried and is not routed through the
+// read timeout helper: only idempotent table reads get retry/abort treatment.
 const invalidPlan = {
   schema: "tcos.checklist.import-plan.v1",
   validation: { status: "contract_probe_must_fail" },
@@ -88,7 +95,9 @@ console.log(JSON.stringify({
   readRetryPolicy: {
     attempts: Number.parseInt(readRetryAttempts, 10),
     baseMs: Number.parseInt(readRetryBaseMs, 10),
+    attemptTimeoutMs: Number.parseInt(readAttemptTimeoutMs, 10),
     scope: "bounded_table_reads_only",
+    abortSignalApplied: true,
   },
   tables: tableChecks,
   writer: {
