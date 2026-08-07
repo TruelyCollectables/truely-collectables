@@ -72,6 +72,7 @@ jobs:
           bash -n scripts/resolve-mainstream-checklist-production-env.sh
           bash -n scripts/bootstrap-mainstream-checklist-schema.sh
           bash -n scripts/repair-mainstream-checklist-schema.sh
+          node --check scripts/mainstream-checklist/html-semantic-prepatch.mjs
           node --check scripts/mainstream-checklist/tcdb-complete-fetch.mjs
       - name: Verify compressed backlog manifest
         shell: bash
@@ -97,7 +98,7 @@ jobs:
           }
           console.log(JSON.stringify({ entries: manifest.entries.length, dispositions }));
           NODE
-      - name: Verify source fallback and section ordering
+      - name: Verify source fallback, hierarchy, and section ordering
         run: node scripts/test-mainstream-checklist-fetch-patch.mjs
       - name: Verify parser scope, nested sections, and duplicate suppression
         run: node scripts/test-mainstream-checklist-parser-v2.mjs
@@ -182,7 +183,12 @@ jobs:
           set +a
           test -n "${RESOLVED_SUPABASE_SERVICE_ROLE_KEY:-}"
           export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
-          node --import ./scripts/mainstream-checklist/tcdb-complete-fetch.mjs --import ./scripts/mainstream-checklist/fetch-patch.mjs --import tsx scripts/ingest-mainstream-checklist-backlog.mjs
+          node \
+            --import ./scripts/mainstream-checklist/html-semantic-prepatch.mjs \
+            --import ./scripts/mainstream-checklist/tcdb-complete-fetch.mjs \
+            --import ./scripts/mainstream-checklist/fetch-patch.mjs \
+            --import tsx \
+            scripts/ingest-mainstream-checklist-backlog.mjs
       - name: Upload sanitized batch receipt
         if: always()
         uses: actions/upload-artifact@v4
@@ -229,7 +235,12 @@ jobs:
           set +a
           test -n "${RESOLVED_SUPABASE_SERVICE_ROLE_KEY:-}"
           export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
-          node --import ./scripts/mainstream-checklist/tcdb-complete-fetch.mjs --import ./scripts/mainstream-checklist/fetch-patch.mjs --import tsx scripts/ingest-mainstream-checklist-backlog.mjs
+          node \
+            --import ./scripts/mainstream-checklist/html-semantic-prepatch.mjs \
+            --import ./scripts/mainstream-checklist/tcdb-complete-fetch.mjs \
+            --import ./scripts/mainstream-checklist/fetch-patch.mjs \
+            --import tsx \
+            scripts/ingest-mainstream-checklist-backlog.mjs
       - name: Prove every confirmed standalone checklist is promoted
         if: always()
         shell: bash
