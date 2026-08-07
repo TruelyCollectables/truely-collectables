@@ -49,7 +49,11 @@ assert(contents.updater.includes("INSTACOMP_AI_API_KEY"), "Mac updater must read
 assert(contents.updater.includes("INSTACOMP_AI_LOCAL_KEY"), "Mac updater must synchronize the active key to Vercel Production.");
 assert(contents.updater.includes("INSTACOMP_AI_LOCAL_URL"), "Mac updater must synchronize the permanent tunnel URL.");
 assert(contents.updater.includes("INSTACOMP_SENTINEL_ARCHIVE_TOKEN"), "Mac updater must preserve and synchronize the Sentinel archive token.");
-assert(contents.updater.includes("npx vercel --prod --yes"), "Mac updater must redeploy Production after key synchronization.");
+assert(contents.updater.includes("repair_vercel_root_directory"), "Mac updater must repair the known invalid Vercel repository-root setting before deployment.");
+assert(contents.updater.includes('npx vercel api "$endpoint"'), "Mac updater must inspect the linked Vercel project through authenticated CLI API access.");
+assert(contents.updater.includes("-X PATCH -F rootDirectory="), "Mac updater must clear only the known invalid Vercel repository-root value through the project API.");
+assert(contents.updater.includes("Refusing automatic Vercel root repair"), "Mac updater must fail closed for unexpected non-root Vercel directory settings.");
+assert(contents.updater.includes('npx vercel --prod --yes --cwd "$repo_root"'), "Mac updater must redeploy Production explicitly from the repository root after key synchronization.");
 assert(contents.updater.includes("x-instacomp-sentinel-archive-token"), "Mac updater must verify the Production Sentinel proxy end to end.");
 assert(contents.updater.includes("sentinelKeyAcceptedThroughProduction"), "Mac updater receipt must prove the synchronized key was accepted through Production.");
 assert(contents.updater.includes("Refusing key repair"), "Mac updater must fail closed instead of silently rotating a missing or malformed key.");
@@ -114,6 +118,7 @@ assert(contents.env.includes("Keep the large multipart transfer on localhost"), 
 console.log("✓ Named tunnel and both LaunchAgents are installer-owned");
 console.log("✓ Dedicated Mac and archive secrets are generated locally and synchronized once");
 console.log("✓ Routine Mac updates re-sync the existing key without rotating it and prove Production accepts it");
+console.log("✓ Known invalid Vercel './' root settings are repaired narrowly before Production deploys");
 console.log("✓ No unrelated Vercel service credential is read or rotated");
 console.log("✓ Sentinel safe batch cap remains 75 and pending backlog auto-drains only when due");
 console.log("✓ Main Admin page and quick tools both link directly to Checklist Sentinel");
