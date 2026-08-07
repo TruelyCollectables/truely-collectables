@@ -2,37 +2,24 @@
 -- that predated the final release-source uniqueness contract.
 
 do $$
-declare
-  duplicate_group record;
-  keeper_id uuid;
 begin
-  for duplicate_group in
-    select
-      release_id,
-      source_type,
-      source_url,
-      array_agg(id order by created_at, id) as ids
+  if exists (
+    select 1
     from public.checklist_release_sources
     group by release_id, source_type, source_url
     having count(*) > 1
-  loop
-    keeper_id := duplicate_group.ids[1];
+  ) then
+    raise exception 'Duplicate checklist release-source rows require manual reconciliation before writer repair';
+  end if;
 
-    update public.checklist_release_date_revisions
-    set release_source_id = keeper_id
-    where release_source_id = any(duplicate_group.ids[2:array_length(duplicate_group.ids, 1)]);
-
-    update public.checklist_release_status_events
-    set release_source_id = keeper_id
-    where release_source_id = any(duplicate_group.ids[2:array_length(duplicate_group.ids, 1)]);
-
-    update public.checklist_source_files
-    set release_source_id = keeper_id
-    where release_source_id = any(duplicate_group.ids[2:array_length(duplicate_group.ids, 1)]);
-
-    delete from public.checklist_release_sources
-    where id = any(duplicate_group.ids[2:array_length(duplicate_group.ids, 1)]);
-  end loop;
+  if exists (
+    select 1
+    from public.checklist_card_identities
+    group by identity_schema, fingerprint_sha256
+    having count(*) > 1
+  ) then
+    raise exception 'Duplicate checklist identity fingerprints require manual reconciliation before writer repair';
+  end if;
 end;
 $$;
 
