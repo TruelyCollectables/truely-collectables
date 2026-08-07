@@ -2,7 +2,10 @@ import {
   transformChecklistHtml,
   transformReaderText,
 } from "./mainstream-checklist/fetch-patch.mjs";
-import { transformSemanticChecklistHtml } from "./mainstream-checklist/html-semantic-prepatch.mjs";
+import {
+  transformSemanticChecklistHtml,
+  transformReaderSemanticText,
+} from "./mainstream-checklist/html-semantic-prepatch.mjs";
 
 const html = [
   "<h2>Base Set Checklist</h2>",
@@ -40,6 +43,19 @@ if (
   throw new Error("Reader fallback headings were not normalized for the parser.");
 }
 
+const readerBullets = transformReaderSemanticText(
+  "## Base Set Checklist\n* 1 Alpha Player\n- 2 Beta Player\n* Rookie Autographs Checklist\n+ RA-1 Gamma Player",
+);
+if (
+  !readerBullets.includes("1 Alpha Player") ||
+  !readerBullets.includes("2 Beta Player") ||
+  !readerBullets.includes("Rookie Autographs Checklist") ||
+  !readerBullets.includes("RA-1 Gamma Player") ||
+  readerBullets.includes("* 1 Alpha Player")
+) {
+  throw new Error("Reader checklist bullets were not normalized into parser-ready rows.");
+}
+
 const semantic = transformSemanticChecklistHtml([
   "<h2>Base Set</h2>",
   "<h3>Series One</h3>",
@@ -66,6 +82,7 @@ console.log(
     oneCellSectionsPromoted: true,
     strongSectionsPromoted: true,
     readerHeadingsNormalized: true,
+    readerChecklistBulletsNormalized: true,
     nestedChecklistHierarchyPreserved: true,
     numericProductProseGuarded: true,
   }),
