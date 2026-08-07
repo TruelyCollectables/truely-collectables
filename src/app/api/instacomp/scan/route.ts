@@ -3928,6 +3928,15 @@ function authorizedEphemeralBenchmark(req: NextRequest) {
   return timingSafeEqual(Buffer.from(supplied), Buffer.from(expected));
 }
 
+function extractUntrustedListingIdentityHint(value: unknown) {
+  const title = String(value || "").trim().slice(0, 1000);
+  if (!title) return { title: null, year: null, cardNumber: null };
+  const year = title.match(/\b((?:19|20)\d{2})(?:[-/]\d{2,4})?\b/)?.[1] || null;
+  const cardNumber =
+    title.match(/(?:\bcard\s*)?#\s*([A-Za-z0-9][A-Za-z0-9.-]{0,24})\b/i)?.[1] || null;
+  return { title, year, cardNumber };
+}
+
 async function identifyCardWithConfiguredProviderFailover(params: {
       frontImage: File;
       backImage?: File | null;
@@ -3965,6 +3974,7 @@ async function identifyCardWithConfiguredProviderFailover(params: {
   let requestedAiCouncilTier: string | null = null;
   let aiCouncilPolicy: ReturnType<typeof resolveInstaCompCouncilPolicy> | null = null;
   let operatorSerialNumberOverride: string | null | undefined = undefined;
+  let listingTitleHint: string | null = null;
   let imageOrientation: Awaited<ReturnType<typeof normalizeInstaCompSideImages>>["orientation"] | null = null;
 
   try {
@@ -3995,11 +4005,16 @@ async function identifyCardWithConfiguredProviderFailover(params: {
       const submittedOperatorSerialNumberOverride = formData.get(
         "operatorSerialNumberOverride",
       );
+      const submittedListingTitleHint = formData.get("listingTitleHint");
 
       frontImage = submittedFront instanceof File ? submittedFront : null;
       backImage = submittedBack instanceof File ? submittedBack : null;
       requestedAiCouncilTier =
         typeof submittedAiCouncilTier === "string" ? submittedAiCouncilTier : null;
+      listingTitleHint =
+        typeof submittedListingTitleHint === "string"
+          ? submittedListingTitleHint.slice(0, 1000)
+          : null;
       operatorSerialNumberOverride = normalizeOperatorSerialNumberOverride(
         submittedOperatorSerialNumberOverride,
         typeof submittedOperatorSerialNumberOverride === "string",
@@ -4212,7 +4227,14 @@ async function identifyCardWithConfiguredProviderFailover(params: {
       escalation: consensusEscalation,
     });
     const evidenceAi = applyInstaCompConsensusToAi(guardedAi, evidenceConsensus);
-    const checklistResolution = await resolveChecklistRegistry(evidenceAi, {
+    // Marketplace title facts are untrusted lookup coordinates only; they never vote in consensus.
+    const listingIdentityHint = extractUntrustedListingIdentityHint(listingTitleHint);
+    const registryProbeAi = {
+      ...evidenceAi,
+      ...(listingIdentityHint.year ? { year: listingIdentityHint.year } : {}),
+      ...(listingIdentityHint.cardNumber ? { cardNumber: listingIdentityHint.cardNumber } : {}),
+    };
+    const checklistResolution = await resolveChecklistRegistry(registryProbeAi, {
       evidenceTrusted: evidenceConsensus.trustedForIdentity,
     });
     const registryMatch =
@@ -4451,6 +4473,12 @@ async function identifyCardWithConfiguredProviderFailover(params: {
           operatorSerialNumberOverride === undefined
             ? null
             : operatorSerialNumberOverride,
+        untrustedListingIdentityHint: {
+          supplied: Boolean(listingIdentityHint.title),
+          year: listingIdentityHint.year,
+          cardNumber: listingIdentityHint.cardNumber,
+          trustedForIdentity: false,
+        },
         textExcerpt: externalOcr?.text ? externalOcr.text.slice(0, 1200) : null,
       },
       searchQuery: queries.primary,
