@@ -1,0 +1,78 @@
+name: Reconcile eBay PDF Purchases 20260807
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/reconcile-ebay-pdf-purchases-production.mjs"
+      - ".github/workflows/reconcile-ebay-pdf-purchases-20260807.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reconcile-ebay-pdf-purchases-20260807
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+    steps:
+      - name: Checkout reconciliation ref
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Pull protected Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          echo "::add-mask::$VERCEL_TOKEN"
+          mkdir -p .vercel
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' \
+              "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          fi
+          npx vercel@56.2.0 link --yes \
+            --project truely-collectables \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" >/dev/null
+          npx vercel@56.2.0 env pull .env.production.local \
+            --yes \
+            --environment production \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" >/dev/null
+          chmod 600 .env.production.local
+
+      - name: Reconcile uploaded eBay purchase history into Production Purchase Ledger
+        env:
+          PRODUCTION_ENV_FILE: .env.production.local
+        run: node scripts/reconcile-ebay-pdf-purchases-production.mjs
+
+      - name: Upload reconciliation receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ebay-purchase-reconcile-result
+          path: ebay-purchase-reconcile-result.json
+          if-no-files-found: error
+
+      - name: Remove Production environment file
+        if: always()
+        run: rm -f .env.production.local
