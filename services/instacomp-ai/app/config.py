@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     port: int = 8787
     database_path: Path = Path("./data/instacomp_ai.sqlite3")
     image_store_path: Path = Path("./data/images")
+    training_export_path: Path = Path("./data/training/exports")
     backup_default_destination: Path = Path("./backups")
     backup_allowed_roots: str = ""
     local_cache_source_path: str = ""
@@ -59,6 +60,7 @@ class Settings(BaseSettings):
     def ensure_directories(self) -> None:
         self.resolve_local_path(self.database_path).parent.mkdir(parents=True, exist_ok=True)
         self.resolve_local_path(self.image_store_path).mkdir(parents=True, exist_ok=True)
+        self.resolve_local_path(self.training_export_path).mkdir(parents=True, exist_ok=True)
         self.resolve_local_path(self.backup_default_destination).mkdir(
             parents=True,
             exist_ok=True,

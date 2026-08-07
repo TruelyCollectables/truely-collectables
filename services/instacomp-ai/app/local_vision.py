@@ -515,7 +515,10 @@ def synthetic_text_image(text: str, *, width: int = 800, height: int = 1100) -> 
     from PIL import ImageDraw, ImageFont
 
     draw = ImageDraw.Draw(image)
-    font = ImageFont.load_default(size=32)
+    try:
+        font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 42)
+    except OSError:
+        font = ImageFont.load_default()
     draw.text((60, 100), text, fill="black", font=font)
     output = io.BytesIO()
     image.save(output, format="JPEG", quality=94, progressive=False)

@@ -46,6 +46,74 @@ class CardIdentity(BaseModel):
         return value
 
 
+class OCRBox(BaseModel):
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+    width: float = Field(ge=0, le=1)
+    height: float = Field(ge=0, le=1)
+
+
+class OCRObservation(BaseModel):
+    text: str
+    confidence: float = Field(ge=0, le=1)
+    box: OCRBox
+    side: Literal["front", "back", "unknown"]
+    source: str
+
+
+class ColorEvidence(BaseModel):
+    dominant_colors: list[str] = Field(default_factory=list)
+    proportions: dict[str, float] = Field(default_factory=dict)
+    mean_saturation: float = Field(default=0, ge=0, le=1)
+    mean_brightness: float = Field(default=0, ge=0, le=1)
+    metallic_score: float = Field(default=0, ge=0, le=1)
+
+
+class PatternEvidence(BaseModel):
+    label: str = "unknown"
+    confidence: float = Field(default=0, ge=0, le=1)
+    scores: dict[str, float] = Field(default_factory=dict)
+    geometry: list[str] = Field(default_factory=list)
+    line_count: int = Field(default=0, ge=0)
+    polygon_count: int = Field(default=0, ge=0)
+    edge_density: float = Field(default=0, ge=0, le=1)
+    dominant_angle: float | None = None
+    angle_concentration: float = Field(default=0, ge=0, le=1)
+    angle_entropy: float = Field(default=0, ge=0, le=1)
+
+
+class SerialEvidence(BaseModel):
+    stamp_present: bool = False
+    exact_stamp: str | None = None
+    numerator: int | None = Field(default=None, ge=0)
+    visible_denominator: int | None = Field(default=None, ge=1)
+    side: Literal["front", "back", "unknown"] | None = None
+    confidence: float = Field(default=0, ge=0, le=1)
+    source_text: str | None = None
+    box: OCRBox | None = None
+
+
+class SideVisionEvidence(BaseModel):
+    side: Literal["front", "back"]
+    width: int = Field(ge=1)
+    height: int = Field(ge=1)
+    ocr: list[OCRObservation] = Field(default_factory=list)
+    colors: ColorEvidence = Field(default_factory=ColorEvidence)
+    pattern: PatternEvidence = Field(default_factory=PatternEvidence)
+    errors: list[str] = Field(default_factory=list)
+
+
+class LocalVisionEvidence(BaseModel):
+    schema_version: Literal["tcos.instacomp-ai.local-vision.v1"] = "tcos.instacomp-ai.local-vision.v1"
+    front: SideVisionEvidence
+    back: SideVisionEvidence | None = None
+    serial: SerialEvidence = Field(default_factory=SerialEvidence)
+    identity_hints: CardIdentity = Field(default_factory=CardIdentity)
+    combined_text: str = ""
+    apple_vision_available: bool = False
+    opencv_available: bool = True
+
+
 class VisualEvidence(BaseModel):
     visible_text: list[str] = Field(default_factory=list)
     front_visible_text: list[str] = Field(default_factory=list)
@@ -114,6 +182,7 @@ class AnalyzeResponse(BaseModel):
     back_evidence: list[str] = Field(default_factory=list)
     memory_matches: list[MemoryMatch] = Field(default_factory=list)
     local_suggestion: ModelSuggestion | None = None
+    local_vision: LocalVisionEvidence | None = None
     checklist: ChecklistResult
     trusted_identity: CardIdentity | None = None
     match_source: Literal[
@@ -153,6 +222,45 @@ class LessonRecord(BaseModel):
     identity_fingerprint: str
     created_at: datetime
     trusted: bool
+    training_example_id: str | None = None
+
+
+class SerialTruth(BaseModel):
+    visible_stamp_present: bool
+    visible_exact_stamp: str | None = None
+    visible_numerator: int | None = None
+    visible_denominator: int | None = None
+    checklist_print_run: int | None = None
+    physical_copy_serial: str | None = None
+    numerator_is_card_specific: bool = True
+    denominator_is_configuration_level: bool = True
+
+
+class TrainingExample(BaseModel):
+    training_example_id: str
+    lesson_id: str
+    scan_id: str
+    state: LearningState
+    trusted: bool
+    created_at: datetime
+    verification_source: str
+    operator_id: str | None = None
+    notes: str | None = None
+    confirmed_identity: CardIdentity
+    predicted_identity: CardIdentity | None = None
+    rejected_identity: CardIdentity | None = None
+    correction_fields: list[str] = Field(default_factory=list)
+    local_suggestion: ModelSuggestion | None = None
+    local_vision: LocalVisionEvidence | None = None
+    checklist: ChecklistResult
+    registry_identity_id: str | None = None
+    registry_fingerprint_sha256: str | None = None
+    front_sha256: str
+    back_sha256: str | None = None
+    image_pair_sha256: str
+    front_perceptual_hash: str | None = None
+    back_perceptual_hash: str | None = None
+    serial_truth: SerialTruth
 
 
 class HealthResponse(BaseModel):

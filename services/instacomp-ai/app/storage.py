@@ -9,7 +9,15 @@ from pathlib import Path
 from uuid import uuid4
 
 from .images import perceptual_hash_distance
-from .models import CardIdentity, LearningState, LessonCreate, LessonRecord, MemoryMatch
+from .models import (
+    CardIdentity,
+    LearningState,
+    LessonCreate,
+    LessonRecord,
+    MemoryMatch,
+    TrainingExample,
+)
+from .training import build_training_example
 
 TRUSTED_STATES = {LearningState.OPERATOR_CONFIRMED, LearningState.CHECKLIST_CONFIRMED}
 
@@ -82,6 +90,7 @@ class MemoryStore:
                     front_perceptual_hash TEXT,
                     back_perceptual_hash TEXT,
                     local_suggestion_json TEXT,
+                    local_vision_json TEXT,
                     checklist_json TEXT NOT NULL,
                     status TEXT NOT NULL
                 );
@@ -102,6 +111,18 @@ class MemoryStore:
                 );
                 CREATE INDEX IF NOT EXISTS lessons_fingerprint_idx ON lessons(identity_fingerprint);
                 CREATE INDEX IF NOT EXISTS lessons_trusted_idx ON lessons(trusted, state);
+                CREATE TABLE IF NOT EXISTS training_examples (
+                    training_example_id TEXT PRIMARY KEY,
+                    lesson_id TEXT NOT NULL UNIQUE,
+                    scan_id TEXT NOT NULL,
+                    trusted INTEGER NOT NULL DEFAULT 0,
+                    example_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(lesson_id) REFERENCES lessons(lesson_id),
+                    FOREIGN KEY(scan_id) REFERENCES scans(scan_id)
+                );
+                CREATE INDEX IF NOT EXISTS training_examples_trusted_idx
+                ON training_examples(trusted, created_at);
                 """
             )
             existing = {
@@ -112,6 +133,7 @@ class MemoryStore:
                 "back_reference_sha256",
                 "front_perceptual_hash",
                 "back_perceptual_hash",
+                "local_vision_json",
             ]:
                 if column not in existing:
                     db.execute(f"ALTER TABLE scans ADD COLUMN {column} TEXT")
@@ -142,6 +164,7 @@ class MemoryStore:
         front_perceptual_hash: str | None = None,
         back_perceptual_hash: str | None = None,
         local_suggestion: dict | None,
+        local_vision: dict | None = None,
         checklist: dict,
         status: str,
     ) -> None:
@@ -153,8 +176,8 @@ class MemoryStore:
                     image_pair_sha256, front_reference_sha256,
                     back_reference_sha256, front_perceptual_hash,
                     back_perceptual_hash, local_suggestion_json,
-                    checklist_json, status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    local_vision_json, checklist_json, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     scan_id,
@@ -167,6 +190,7 @@ class MemoryStore:
                     front_perceptual_hash,
                     back_perceptual_hash,
                     json.dumps(local_suggestion) if local_suggestion else None,
+                    json.dumps(local_vision) if local_vision else None,
                     json.dumps(checklist),
                     status,
                 ),
@@ -202,12 +226,18 @@ class MemoryStore:
                 if row["local_suggestion_json"]
                 else None
             ),
+            "local_vision": (
+                json.loads(row["local_vision_json"])
+                if row["local_vision_json"]
+                else None
+            ),
             "checklist": json.loads(row["checklist_json"]),
             "status": row["status"],
         }
 
     def create_lesson(self, request: LessonCreate) -> LessonRecord:
-        if not self.scan_exists(request.scan_id):
+        scan = self.get_scan(request.scan_id)
+        if scan is None:
             raise ValueError("Unknown scan_id")
         lesson = LessonRecord(
             lesson_id=str(uuid4()),
@@ -221,6 +251,10 @@ class MemoryStore:
             identity_fingerprint=identity_fingerprint(request.identity),
             created_at=utc_now(),
             trusted=request.state in TRUSTED_STATES,
+        )
+        training_example = build_training_example(lesson=lesson, scan=scan)
+        lesson = lesson.model_copy(
+            update={"training_example_id": training_example.training_example_id}
         )
         with self.connection() as db:
             db.execute(
@@ -247,6 +281,22 @@ class MemoryStore:
                     lesson.identity_fingerprint,
                     int(lesson.trusted),
                     lesson.created_at.isoformat(),
+                ),
+            )
+            db.execute(
+                """
+                INSERT INTO training_examples (
+                    training_example_id, lesson_id, scan_id, trusted,
+                    example_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    training_example.training_example_id,
+                    lesson.lesson_id,
+                    lesson.scan_id,
+                    int(training_example.trusted),
+                    training_example.model_dump_json(),
+                    training_example.created_at.isoformat(),
                 ),
             )
         return lesson
@@ -369,3 +419,23 @@ class MemoryStore:
                     self._memory_match(row, score / possible, evidence)
                 )
         return sorted(matches, key=lambda item: item.score, reverse=True)[:limit]
+
+    def list_training_examples(
+        self,
+        *,
+        trusted_only: bool = True,
+        limit: int = 2000,
+    ) -> list[TrainingExample]:
+        bounded_limit = max(1, min(int(limit), 100_000))
+        sql = "SELECT example_json FROM training_examples"
+        parameters: tuple[object, ...] = ()
+        if trusted_only:
+            sql += " WHERE trusted = 1"
+        sql += " ORDER BY created_at DESC LIMIT ?"
+        parameters = (bounded_limit,)
+        with self.connection() as db:
+            rows = db.execute(sql, parameters).fetchall()
+        return [
+            TrainingExample.model_validate_json(row["example_json"])
+            for row in rows
+        ]

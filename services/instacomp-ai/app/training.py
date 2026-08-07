@@ -10,6 +10,7 @@ from uuid import uuid4
 from .images import persisted_image_path
 from .models import (
     CardIdentity,
+    ChecklistOutcome,
     ChecklistResult,
     LearningState,
     LessonRecord,
@@ -106,7 +107,25 @@ def build_training_example(
         if scan.get("local_vision")
         else None
     )
-    checklist = ChecklistResult.model_validate(scan["checklist"])
+    checklist_payload = scan.get("checklist")
+    if isinstance(checklist_payload, dict) and checklist_payload.get("outcome"):
+        checklist = ChecklistResult.model_validate(checklist_payload)
+    else:
+        checklist_confirmed = lesson.state == LearningState.CHECKLIST_CONFIRMED
+        checklist = ChecklistResult(
+            outcome=(
+                ChecklistOutcome.EXACT_MATCH
+                if checklist_confirmed
+                else ChecklistOutcome.INPUT_INCOMPLETE
+            ),
+            identity_id=None,
+            identity=lesson.identity if checklist_confirmed else None,
+            candidate_count=1 if checklist_confirmed else 0,
+            reasons=[
+                "Legacy scan did not preserve a Checklist Registry receipt."
+            ],
+            source_receipts=["legacy_scan_checklist_receipt_missing"],
+        )
     registry_identity_id, registry_fingerprint = _registry_receipts(checklist)
     predicted = lesson.rejected_identity or (
         local_suggestion.identity if local_suggestion else None
@@ -194,8 +213,22 @@ def _dataset_row(
         "id": example.training_example_id,
         "images": images,
         "messages": [
-            {"role": "user", "content": _training_prompt(example)},
-            {"role": "assistant", "content": _training_answer(example)},
+            {
+                "role": "user",
+                "content": [
+                    *[
+                        {"type": "image", "image": image_path}
+                        for image_path in images
+                    ],
+                    {"type": "text", "text": _training_prompt(example)},
+                ],
+            },
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": _training_answer(example)}
+                ],
+            },
         ],
         "metadata": {
             "scan_id": example.scan_id,
