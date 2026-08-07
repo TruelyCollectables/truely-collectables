@@ -63,16 +63,12 @@ export function writeInstaCompReleaseManifest({
   return next;
 }
 
-function runKingmakerForensicContracts() {
-  execFileSync(
-    process.execPath,
-    ["scripts/check-instacomp-text-orientation-checklist.mjs"],
-    {
-      cwd: process.cwd(),
-      stdio: "inherit",
-      env: process.env,
-    },
-  );
+function runNodeScript(path) {
+  execFileSync(process.execPath, [path], {
+    cwd: process.cwd(),
+    stdio: "inherit",
+    env: process.env,
+  });
 }
 
 function runExactParallelSimulations() {
@@ -92,7 +88,8 @@ function runExactParallelSimulations() {
 }
 
 async function main() {
-  runKingmakerForensicContracts();
+  runNodeScript("scripts/check-instacomp-text-orientation-checklist.mjs");
+  runNodeScript("scripts/check-instacomp-first-time-identity-contract.mjs");
   runExactParallelSimulations();
   const explicit = process.argv.find((argument) => /^[0-9a-f]{40}$/i.test(argument));
   const manifest = writeInstaCompReleaseManifest({ commit: explicit });
