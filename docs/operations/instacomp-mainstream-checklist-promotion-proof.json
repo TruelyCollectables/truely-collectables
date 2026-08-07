@@ -1,16 +1,16 @@
 {
   "schema": "tcos.checklist.mainstreamBacklogPromotionProof.v2",
-  "checkedAt": "2026-08-07T12:52:48.636Z",
+  "checkedAt": "2026-08-07T13:24:29.795Z",
   "expectedSources": 327,
   "expectedPromotedSources": 319,
   "expectedAttachmentOnly": 8,
   "catalogRows": 327,
   "counts": {
-    "imported": 18,
+    "imported": 65,
     "unchanged": 0,
     "attachments": 8,
-    "cards": 6036,
-    "identities": 6696
+    "cards": 12843,
+    "identities": 14792
   },
   "complete": false,
   "failures": [
@@ -161,8 +161,13 @@
           "severity": "warning"
         },
         {
-          "code": "reference_checklist_insufficient_rows",
-          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
+          "code": "reference_card_number_subject_conflict",
+          "message": "Base Set Autograph /1 #35 maps to conflicting subjects.",
+          "severity": "error"
+        },
+        {
+          "code": "reference_card_number_subject_conflict",
+          "message": "Base Set Autograph /1 #35 maps to conflicting subjects.",
           "severity": "error"
         }
       ]
@@ -191,7 +196,7 @@
       "issues": [
         {
           "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: canceling statement due to statement timeout",
+          "message": "Checklist Registry transaction failed: canceling statement due to lock timeout",
           "severity": "error"
         }
       ]
@@ -305,25 +310,13 @@
       "issues": [
         {
           "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: canceling statement due to statement timeout",
+          "message": "Checklist Registry transaction failed: canceling statement due to lock timeout",
           "severity": "error"
         }
       ]
     },
     {
       "id": "SR-0023",
-      "code": "confirmed_checklist_not_promoted",
-      "status": "quarantined",
-      "issues": [
-        {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Could not update checklist source catalog: canceling statement due to statement timeout",
-          "severity": "error"
-        }
-      ]
-    },
-    {
-      "id": "SR-0024",
       "code": "confirmed_checklist_not_promoted",
       "status": "quarantined",
       "issues": [
@@ -335,6 +328,18 @@
         {
           "code": "reference_checklist_insufficient_rows",
           "message": "Only 0 deterministic card rows were parsed; 3 are required.",
+          "severity": "error"
+        }
+      ]
+    },
+    {
+      "id": "SR-0024",
+      "code": "confirmed_checklist_not_promoted",
+      "status": "quarantined",
+      "issues": [
+        {
+          "code": "mainstream_backlog_normalization_quarantined",
+          "message": "Could not update checklist source catalog: canceling statement due to statement timeout",
           "severity": "error"
         }
       ]
@@ -430,8 +435,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Could not update checklist source catalog: canceling statement due to statement timeout",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -654,7 +664,7 @@
       "issues": [
         {
           "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: canceling statement due to statement timeout",
+          "message": "Checklist Registry transaction failed: canceling statement due to lock timeout",
           "severity": "error"
         }
       ]
@@ -683,7 +693,7 @@
       "issues": [
         {
           "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: canceling statement due to statement timeout",
+          "message": "Checklist Registry transaction failed: canceling statement due to lock timeout",
           "severity": "error"
         }
       ]
@@ -751,7 +761,7 @@
       "issues": [
         {
           "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: canceling statement due to statement timeout",
+          "message": "Checklist Registry transaction failed: canceling statement due to lock timeout",
           "severity": "error"
         }
       ]
@@ -763,7 +773,7 @@
       "issues": [
         {
           "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: canceling statement due to statement timeout",
+          "message": "Checklist Registry transaction failed: canceling statement due to lock timeout",
           "severity": "error"
         }
       ]
@@ -859,8 +869,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Could not update checklist source catalog: canceling statement due to statement timeout",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -906,7 +921,7 @@
       "issues": [
         {
           "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: canceling statement due to statement timeout",
+          "message": "Checklist Registry transaction failed: canceling statement due to lock timeout",
           "severity": "error"
         }
       ]
@@ -1003,7 +1018,7 @@
       "issues": [
         {
           "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: canceling statement due to statement timeout",
+          "message": "Checklist Registry transaction failed: canceling statement due to lock timeout",
           "severity": "error"
         }
       ]
@@ -1078,17 +1093,17 @@
     },
     {
       "id": "SR-0080",
+      "code": "raw_source_not_archived",
+      "status": "failed"
+    },
+    {
+      "id": "SR-0080",
       "code": "confirmed_checklist_not_promoted",
-      "status": "quarantined",
+      "status": "failed",
       "issues": [
         {
-          "code": "reference_parallel_rows_not_deterministic",
-          "message": "No deterministic parallel rows were parsed from this source.",
-          "severity": "warning"
-        },
-        {
-          "code": "reference_checklist_insufficient_rows",
-          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
+          "code": "mainstream_backlog_ingest_failure",
+          "message": "All source URLs failed: https://www.tcdb.com/Checklist.cfm/sid/9903/2009-Topps-National-Chicle: TCDB reader 429 Too Many Requests: https://www.tcdb.com/Inserts.cfm/sid/9903/2009-Topps-National-Chicle | https://www.sportscardspro.com/console/football-cards-2009-topps-national-chicle?sort=model-number: HTTP 403 Forbidden",
           "severity": "error"
         }
       ]
@@ -1167,8 +1182,13 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: canceling statement due to statement timeout",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
@@ -1265,7 +1285,7 @@
       "issues": [
         {
           "code": "reference_card_number_subject_conflict",
-          "message": "All-Stars #463 maps to conflicting subjects.",
+          "message": "Base Set - Short-Prints - All-Stars #463 maps to conflicting subjects.",
           "severity": "error"
         }
       ]
@@ -1277,7 +1297,19 @@
       "issues": [
         {
           "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: canceling statement due to statement timeout",
+          "message": "Checklist Registry transaction failed: canceling statement due to lock timeout",
+          "severity": "error"
+        }
+      ]
+    },
+    {
+      "id": "SR-0096",
+      "code": "confirmed_checklist_not_promoted",
+      "status": "quarantined",
+      "issues": [
+        {
+          "code": "mainstream_backlog_normalization_quarantined",
+          "message": "Checklist Registry transaction failed: canceling statement due to lock timeout",
           "severity": "error"
         }
       ]
@@ -1386,34 +1418,17 @@
     },
     {
       "id": "SR-0105",
-      "code": "confirmed_checklist_not_promoted",
-      "status": "quarantined",
-      "issues": [
-        {
-          "code": "reference_parallel_rows_not_deterministic",
-          "message": "No deterministic parallel rows were parsed from this source.",
-          "severity": "warning"
-        },
-        {
-          "code": "reference_checklist_insufficient_rows",
-          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
-          "severity": "error"
-        }
-      ]
+      "code": "raw_source_not_archived",
+      "status": "failed"
     },
     {
-      "id": "SR-0106",
+      "id": "SR-0105",
       "code": "confirmed_checklist_not_promoted",
-      "status": "quarantined",
+      "status": "failed",
       "issues": [
         {
-          "code": "reference_parallel_rows_not_deterministic",
-          "message": "No deterministic parallel rows were parsed from this source.",
-          "severity": "warning"
-        },
-        {
-          "code": "reference_checklist_insufficient_rows",
-          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
+          "code": "mainstream_backlog_ingest_failure",
+          "message": "All source URLs failed: https://www.sportscardradio.com/2010-panini-donruss-rated-rookie-rc-football-box-set/: fetch failed",
           "severity": "error"
         }
       ]
@@ -1430,7 +1445,7 @@
       "issues": [
         {
           "code": "mainstream_backlog_ingest_failure",
-          "message": "All source URLs failed: https://www.tcdb.com/Checklist.cfm/sid/10759/2010-Panini-Certified: TCDB reader 400 Bad Request: https://www.tcdb.com/Checklist.cfm/sid/61927/2010-Panini-Certified---Certified-Potential-Autographs%20%2210.3%%20of%20images%20added%22",
+          "message": "All source URLs failed: https://www.tcdb.com/Checklist.cfm/sid/10759/2010-Panini-Certified: TCDB reader 429 Too Many Requests: https://www.tcdb.com/Inserts.cfm/sid/10759/2010-Panini-Certified",
           "severity": "error"
         }
       ]
@@ -1522,88 +1537,42 @@
     },
     {
       "id": "SR-0113",
-      "code": "raw_source_not_archived",
-      "status": "failed"
-    },
-    {
-      "id": "SR-0113",
       "code": "confirmed_checklist_not_promoted",
-      "status": "failed",
+      "status": "quarantined",
       "issues": [
         {
-          "code": "mainstream_backlog_ingest_failure",
-          "message": "All source URLs failed: https://www.tcdb.com/Checklist.cfm/sid/48371/2010-Playoff-Contenders: TCDB reader 429 Too Many Requests: https://www.tcdb.com/Checklist.cfm/sid/48371/2010-Playoff-Contenders?PageIndex=2",
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
           "severity": "error"
         }
       ]
     },
     {
       "id": "SR-0114",
+      "code": "raw_source_not_archived",
+      "status": "failed"
+    },
+    {
+      "id": "SR-0114",
       "code": "confirmed_checklist_not_promoted",
-      "status": "quarantined",
+      "status": "failed",
       "issues": [
         {
-          "code": "reference_parallel_rows_not_deterministic",
-          "message": "No deterministic parallel rows were parsed from this source.",
-          "severity": "warning"
-        },
-        {
-          "code": "reference_checklist_insufficient_rows",
-          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
+          "code": "mainstream_backlog_ingest_failure",
+          "message": "All source URLs failed: https://www.sportscardradio.com/2010-topps-attax-nfl-football-checklist/: fetch failed",
           "severity": "error"
         }
       ]
     },
     {
       "id": "SR-0115",
-      "code": "confirmed_checklist_not_promoted",
-      "status": "quarantined",
-      "issues": [
-        {
-          "code": "reference_parallel_rows_not_deterministic",
-          "message": "No deterministic parallel rows were parsed from this source.",
-          "severity": "warning"
-        },
-        {
-          "code": "reference_checklist_insufficient_rows",
-          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
-          "severity": "error"
-        }
-      ]
-    },
-    {
-      "id": "SR-0116",
-      "code": "confirmed_checklist_not_promoted",
-      "status": "quarantined",
-      "issues": [
-        {
-          "code": "reference_parallel_rows_not_deterministic",
-          "message": "No deterministic parallel rows were parsed from this source.",
-          "severity": "warning"
-        },
-        {
-          "code": "reference_checklist_insufficient_rows",
-          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
-          "severity": "error"
-        }
-      ]
-    },
-    {
-      "id": "SR-0117",
-      "code": "confirmed_checklist_not_promoted",
-      "status": "quarantined",
-      "issues": [
-        {
-          "code": "reference_parallel_rows_not_deterministic",
-          "message": "No deterministic parallel rows were parsed from this source.",
-          "severity": "warning"
-        },
-        {
-          "code": "reference_checklist_insufficient_rows",
-          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
-          "severity": "error"
-        }
-      ]
+      "code": "raw_source_not_archived",
+      "status": "failed"
     }
   ]
 }
