@@ -11,7 +11,7 @@ from PIL import Image, ImageOps
 from pydantic import BaseModel, Field
 
 from .config import Settings
-from .models import CardIdentity, ModelSuggestion, VisualEvidence
+from .models import CardIdentity, LocalVisionEvidence, ModelSuggestion, VisualEvidence
 
 
 SYSTEM_PROMPT = """You are the local backup vision reader for InstaComp AI™.
@@ -28,8 +28,9 @@ Critical rules:
 - An autograph is not an inscription. Set inscription true only when handwriting contains extra words, a phrase, date, nickname, statistic, or message beyond the signature itself. Copy the visible phrase into inscription_text when readable.
 - memorabilia means a relic, patch, jersey, bat, puck, ball, or other embedded material. Put the material description in memorabilia_type when visible.
 - Autograph, inscription, memorabilia, and serial numbering may occur in any combination. Report each independently.
-- For Panini Prizm WNBA and Panini Select WNBA, the word PRIZM in back_visible_text is the printed proof that a Prizm parallel exists. If the back does not say PRIZM, return parallel Base even when the front has a colored design. Do not remove Prizm or Select from the product/set name.
-- A colored Prizm name such as Green Prizm, Silver Prizm, Blue Prizm, or Red Prizm requires visible color/finish evidence plus PRIZM in back_visible_text.
+- The word PRIZM on the back is useful positive evidence, but its absence is not proof of Base. Never force Base solely because OCR missed PRIZM.
+- Use deterministic Apple Vision OCR, OpenCV color/pattern measurements, visible serial evidence, and Checklist Registry candidates together.
+- A colored Prizm name such as Green Prizm, Silver Prizm, Blue Prizm, or Red Prizm requires visible color/finish evidence and must ultimately be locked by the Registry.
 - Blue Velocity Prizm has a directional speed pattern: dense repeating diagonal lines, slashes, chevrons, or criss-cross velocity streaks. Call it Blue Velocity Prizm, never Blue Cracked Ice.
 - Blue Cracked Ice Prizm has irregular polygonal shattered-ice or broken-glass facets. Do not call a card Cracked Ice from blue color, sparkle, or diagonal lines alone.
 - When Velocity and Cracked Ice are the two candidates, describe the observed surface geometry in foil_or_pattern and choose the name supported by that geometry.
@@ -370,6 +371,62 @@ def normalize_identity_payload(payload: object) -> dict:
     return root
 
 
+def local_vision_prompt_payload(local_vision: LocalVisionEvidence | None) -> dict | None:
+    if local_vision is None:
+        return None
+    return {
+        "identity_hints": local_vision.identity_hints.model_dump(mode="json"),
+        "serial": local_vision.serial.model_dump(mode="json"),
+        "front": {
+            "ocr": [value.model_dump(mode="json") for value in local_vision.front.ocr[:100]],
+            "colors": local_vision.front.colors.model_dump(mode="json"),
+            "pattern": local_vision.front.pattern.model_dump(mode="json"),
+        },
+        "back": (
+            {
+                "ocr": [value.model_dump(mode="json") for value in local_vision.back.ocr[:100]],
+                "colors": local_vision.back.colors.model_dump(mode="json"),
+                "pattern": local_vision.back.pattern.model_dump(mode="json"),
+            }
+            if local_vision.back
+            else None
+        ),
+    }
+
+
+def merge_local_vision_payload(payload: dict, local_vision: LocalVisionEvidence | None) -> dict:
+    if local_vision is None:
+        return payload
+    root = dict(payload)
+    identity = dict(root.get("identity") or {})
+    hints = local_vision.identity_hints.model_dump(mode="json")
+    for field, value in hints.items():
+        if identity.get(field) in {None, ""} and value not in {None, ""}:
+            identity[field] = value
+    if local_vision.serial.stamp_present and local_vision.serial.exact_stamp:
+        identity["serial_number"] = local_vision.serial.exact_stamp
+        identity["serial_run"] = local_vision.serial.visible_denominator
+    evidence = dict(root.get("evidence") or {})
+    front_text = [value.text for value in local_vision.front.ocr]
+    back_text = [value.text for value in local_vision.back.ocr] if local_vision.back else []
+    evidence["front_visible_text"] = list(dict.fromkeys([*(evidence.get("front_visible_text") or []), *front_text]))
+    evidence["back_visible_text"] = list(dict.fromkeys([*(evidence.get("back_visible_text") or []), *back_text]))
+    evidence["visible_text"] = list(dict.fromkeys([*(evidence.get("visible_text") or []), *front_text, *back_text]))
+    evidence["colors"] = list(dict.fromkeys([
+        *(evidence.get("colors") or []),
+        *local_vision.front.colors.dominant_colors,
+        *(local_vision.back.colors.dominant_colors if local_vision.back else []),
+    ]))
+    evidence["foil_or_pattern"] = list(dict.fromkeys([
+        *(evidence.get("foil_or_pattern") or []),
+        local_vision.front.pattern.label,
+        *local_vision.front.pattern.geometry,
+    ]))
+    root["identity"] = identity
+    root["evidence"] = evidence
+    return root
+
+
 class OllamaReader:
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -384,7 +441,13 @@ class OllamaReader:
         except httpx.HTTPError:
             return False
 
-    async def analyze(self, front: bytes, back: bytes | None) -> ModelSuggestion:
+    async def analyze(
+        self,
+        front: bytes,
+        back: bytes | None,
+        *,
+        local_vision: LocalVisionEvidence | None = None,
+    ) -> ModelSuggestion:
         prepared_images = [prepare_ollama_image(front)]
         if back:
             prepared_images.append(prepare_ollama_image(back))
@@ -394,6 +457,8 @@ class OllamaReader:
             + "\nReturn only a JSON object matching this JSON schema exactly. "
             + "Use null or empty arrays for unknown values.\n"
             + json.dumps(OLLAMA_OUTPUT_SCHEMA, separators=(",", ":"))
+            + "\nDeterministic local evidence (trust exact OCR boxes, serial parsing, and measured geometry over visual guessing):\n"
+            + json.dumps(local_vision_prompt_payload(local_vision), separators=(",", ":"), ensure_ascii=False)
         )
         payload = {
             "model": self.settings.ollama_model,
@@ -425,7 +490,10 @@ class OllamaReader:
             envelope = response.json()
         message = envelope.get("message") or {}
         parsed = normalize_identity_payload(
-            extract_json(str(message.get("content") or ""))
+            merge_local_vision_payload(
+                extract_json(str(message.get("content") or "")),
+                local_vision,
+            )
         )
         structured = OllamaStructuredSuggestion.model_validate(parsed)
         return ModelSuggestion(
@@ -445,5 +513,6 @@ class OllamaReader:
                 "eval_count": envelope.get("eval_count"),
                 "prepared_image_count": len(prepared_images),
                 "prepared_image_bytes": [len(image) for image in prepared_images],
+                "deterministic_local_evidence": local_vision is not None,
             },
         )

@@ -18,6 +18,7 @@ from .images import (
     persisted_image_path,
     validate_and_normalize_image,
 )
+from .local_vision import analyze_local_vision
 from .models import (
     AnalyzeResponse,
     CardIdentity,
@@ -36,10 +37,12 @@ from .printed_evidence import (
 )
 from .settings_routes import build_settings_router
 from .storage import MemoryStore
+from .training_routes import build_training_router
 
 settings.ensure_directories()
 database_path = settings.resolve_local_path(settings.database_path)
 image_store_path = settings.resolve_local_path(settings.image_store_path)
+training_export_path = settings.resolve_local_path(settings.training_export_path)
 store = MemoryStore(database_path)
 store.initialize()
 reader = OllamaReader(settings)
@@ -69,6 +72,14 @@ app.include_router(
         store,
         reader,
         checklist_gateway,
+    )
+)
+app.include_router(
+    build_training_router(
+        require_api_key,
+        store,
+        image_store_path=image_store_path,
+        training_export_path=training_export_path,
     )
 )
 
@@ -112,6 +123,14 @@ def canonical_filename(identity: CardIdentity | None) -> str | None:
     if identity.serial_run:
         parts.append(f"print-run-{identity.serial_run}")
     return "-".join(part for part in parts if part) or None
+
+
+def _merge_identity(primary: CardIdentity, fallback: CardIdentity) -> CardIdentity:
+    values = primary.model_dump()
+    for field, value in fallback.model_dump().items():
+        if values.get(field) in {None, ""} and value not in {None, ""}:
+            values[field] = value
+    return CardIdentity.model_validate(values)
 
 
 def _memory_source(match: MemoryMatch) -> str:
@@ -255,6 +274,7 @@ def _save_scan(
     back_image,
     combined_hash: str,
     suggestion,
+    local_vision,
     checklist_result: ChecklistResult,
     status: str,
 ) -> None:
@@ -272,6 +292,9 @@ def _save_scan(
         back_perceptual_hash=(back_image.perceptual_hash if back_image else None),
         local_suggestion=(
             suggestion.model_dump(mode="json") if suggestion else None
+        ),
+        local_vision=(
+            local_vision.model_dump(mode="json") if local_vision else None
         ),
         checklist=checklist_result.model_dump(mode="json"),
         status=status,
@@ -346,6 +369,7 @@ async def analyze_scan(
             back_image=back_image,
             combined_hash=combined_hash,
             suggestion=None,
+            local_vision=None,
             checklist_result=checklist_result,
             status=status,
         )
@@ -370,6 +394,7 @@ async def analyze_scan(
             ),
             memory_matches=[image_memory],
             local_suggestion=None,
+            local_vision=None,
             checklist=checklist_result,
             trusted_identity=trusted_identity,
             match_source=_memory_source(image_memory),
@@ -383,6 +408,18 @@ async def analyze_scan(
                 else "Known card identified internally; Registry verification is still required for pricing."
             ),
         )
+
+    local_vision = await analyze_local_vision(
+        front_image.content,
+        back_image.content if back_image else None,
+        settings,
+    )
+    printed_identity = _merge_identity(printed_identity, local_vision.identity_hints)
+    printed_text = "\n".join(
+        value
+        for value in [printed_text, local_vision.combined_text]
+        if value
+    ) or None
 
     # PRIMARY ENGINE STEP TWO: bounded printed text and the Checklist
     # Registry. A checklist-known card does not need Ollama or OpenAI.
@@ -408,6 +445,7 @@ async def analyze_scan(
             back_image=back_image,
             combined_hash=combined_hash,
             suggestion=None,
+            local_vision=local_vision,
             checklist_result=printed_registry,
             status=status,
         )
@@ -441,6 +479,7 @@ async def analyze_scan(
             back_evidence=[],
             memory_matches=[],
             local_suggestion=None,
+            local_vision=local_vision,
             checklist=printed_registry,
             trusted_identity=trusted_identity,
             match_source="checklist_registry",
@@ -466,6 +505,7 @@ async def analyze_scan(
         suggestion = await reader.analyze(
             front_image.content,
             back_image.content if back_image else None,
+            local_vision=local_vision,
         )
         suggestion_text = "\n".join(
             dict.fromkeys(
@@ -603,6 +643,7 @@ async def analyze_scan(
         back_evidence=suggestion_back_evidence,
         memory_matches=memory_matches,
         local_suggestion=suggestion,
+        local_vision=local_vision,
         checklist=checklist_result,
         trusted_identity=trusted_identity,
         match_source=match_source,
@@ -619,6 +660,7 @@ async def analyze_scan(
         back_image=back_image,
         combined_hash=combined_hash,
         suggestion=suggestion,
+        local_vision=local_vision,
         checklist_result=checklist_result,
         status=status,
     )

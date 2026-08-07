@@ -1,0 +1,125 @@
+name: InstaComp Local Learning Stack 20260806
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-local-learning-stack-20260806.yml"
+      - "scripts/fix-instacomp-apple-vision-compiler.py"
+      - "scripts/fix-instacomp-local-learning-patcher.py"
+      - "scripts/fix-instacomp-local-learning-runtime.py"
+      - "scripts/fix-instacomp-legacy-training-receipts.py"
+      - "scripts/patch-instacomp-local-learning-stack.py"
+      - "scripts/patch-instacomp-training-dataset-format.py"
+      - "services/instacomp-ai/**"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instacomp-local-learning-stack-20260806
+  cancel-in-progress: false
+
+env:
+  EXPECTED_BRANCH: feature/instacomp-local-learning-stack-20260806
+
+jobs:
+  apply-and-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Apply the complete runtime patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          python3 scripts/fix-instacomp-local-learning-patcher.py
+          python3 scripts/patch-instacomp-local-learning-stack.py
+          python3 scripts/patch-instacomp-training-dataset-format.py
+          python3 scripts/fix-instacomp-local-learning-runtime.py
+          python3 scripts/fix-instacomp-legacy-training-receipts.py
+          python3 scripts/fix-instacomp-apple-vision-compiler.py
+          git diff --check
+          grep -q 'class LocalVisionEvidence' services/instacomp-ai/app/models.py
+          grep -q 'training_examples' services/instacomp-ai/app/storage.py
+          grep -q 'local_vision: dict | None = None' services/instacomp-ai/app/storage.py
+          grep -q 'legacy_scan_checklist_receipt_missing' services/instacomp-ai/app/training.py
+          grep -q 'swiftc was not found' services/instacomp-ai/app/apple_vision.py
+          grep -q 'analyze_local_vision' services/instacomp-ai/app/main.py
+          grep -q 'deterministic_local_evidence' services/instacomp-ai/app/ollama.py
+          grep -q 'opencv-python-headless' services/instacomp-ai/requirements.txt
+          grep -q '"type": "image"' services/instacomp-ai/app/training.py
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/instacomp-ai/requirements.txt
+
+      - name: Install, compile, and run the complete Mac-service suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          pip install -r services/instacomp-ai/requirements.txt
+          python -m compileall services/instacomp-ai/app services/instacomp-ai/tests
+          PYTHONPATH=services/instacomp-ai pytest -q services/instacomp-ai/tests
+
+      - name: Persist generated runtime changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            services/instacomp-ai/app/apple_vision.py \
+            services/instacomp-ai/app/config.py \
+            services/instacomp-ai/app/local_vision.py \
+            services/instacomp-ai/app/main.py \
+            services/instacomp-ai/app/models.py \
+            services/instacomp-ai/app/ollama.py \
+            services/instacomp-ai/app/storage.py \
+            services/instacomp-ai/app/training.py \
+            services/instacomp-ai/requirements.txt
+          if ! git diff --cached --quiet; then
+            git commit -m "Install private OCR vision and training runtime [skip ci]"
+            git push origin "HEAD:$EXPECTED_BRANCH"
+          fi
+
+  native-apple-vision:
+    needs: apply-and-test
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Refresh branch after generated runtime commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$EXPECTED_BRANCH"
+          git reset --hard "origin/$EXPECTED_BRANCH"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/instacomp-ai/requirements.txt
+
+      - name: Compile native Apple Vision and run local-learning acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          pip install -r services/instacomp-ai/requirements.txt
+          PYTHONPATH=services/instacomp-ai pytest -q \
+            services/instacomp-ai/tests/test_apple_vision_native.py \
+            services/instacomp-ai/tests/test_local_learning_stack.py \
+            services/instacomp-ai/tests/test_ollama_structured_vision.py \
+            services/instacomp-ai/tests/test_ollama_parser_resilience.py
