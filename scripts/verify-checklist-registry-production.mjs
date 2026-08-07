@@ -59,7 +59,7 @@ for (const table of requiredTables) {
 // The RPC itself is deliberately NOT retried and is not routed through the
 // read timeout helper: only idempotent table reads get retry/abort treatment.
 const invalidPlan = {
-  schema: "tcos.checklist.import-plan.v1",
+  schema: "tcos.checklist.importPlan.v1",
   validation: { status: "contract_probe_must_fail" },
   source: {
     privateArchiveRequired: true,
