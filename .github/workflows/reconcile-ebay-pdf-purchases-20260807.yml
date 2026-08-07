@@ -1,5 +1,6 @@
 name: Reconcile eBay PDF Purchases 20260807
 
+# Retrigger after protected Production env-name diagnostic was added on main.
 on:
   pull_request:
     branches: [main]
