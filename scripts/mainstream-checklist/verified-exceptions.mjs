@@ -8,7 +8,7 @@ export const VERIFIED_NON_PROMOTABLE_SOURCES = Object.freeze([
   },
   {
     id: "SR-0231",
-    sourceUrl: "https://www.cardboardconnection.com/2019-leaf-all-american-football-vault",
+    sourceUrl: "https://www.cardboardconnection.com/2019-leaf-all-american-football-vault-cards",
     classification: "repack_without_standalone_checklist",
     reason:
       "2019 Leaf All-American Football Vault contains a sealed prior-year U.S. Army All-American box plus a four-autograph 2019 Leaf Metal All-American bonus box. It does not define a standalone finite card universe separate from its parent products.",
