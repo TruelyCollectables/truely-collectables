@@ -1,0 +1,82 @@
+name: Deploy Kingmaker Admin Button Live 20260806
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/ops-deploy-admin-kingmaker-button-live-20260806.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-kingmaker-admin-button-live-20260806
+  cancel-in-progress: false
+
+env:
+  EXPECTED_BRANCH: ops/deploy-admin-kingmaker-button-live-20260806
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+jobs:
+  deploy-and-prove:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Require exact button source and clean build contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main "$EXPECTED_BRANCH"
+          git merge-base --is-ancestor origin/main "origin/$EXPECTED_BRANCH"
+          grep -q 'href="/kingmaker"' src/app/admin/layout.tsx
+          grep -q 'OPEN KINGMAKER' src/app/admin/layout.tsx
+          npm ci
+          ./node_modules/.bin/tsc --noEmit
+
+      - name: Deploy exact branch to Vercel Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          DEPLOYMENT_URL=$(npx vercel@56.2.0 deploy --prod --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" | tee /tmp/deploy.log | tail -n 1)
+          test -n "$DEPLOYMENT_URL"
+          printf '%s\n' "$DEPLOYMENT_URL" > /tmp/deployment-url.txt
+          echo "Production deployment: $DEPLOYMENT_URL"
+
+      - name: Prove live Production readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6; do
+            if curl -fsS "https://truelycollectables.com/api/instacomp/internal-readiness?ts=$(date +%s)" -o /tmp/readiness.json; then
+              break
+            fi
+            sleep 10
+          done
+          cat /tmp/readiness.json
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const readiness = JSON.parse(fs.readFileSync('/tmp/readiness.json', 'utf8'));
+          if (readiness.ok !== true || readiness.reachable !== true || readiness.checklistReady !== true) {
+            throw new Error(`Production readiness failed: ${JSON.stringify(readiness)}`);
+          }
+          console.log(JSON.stringify({
+            status: 'passed',
+            productionDeployment: fs.readFileSync('/tmp/deployment-url.txt', 'utf8').trim(),
+            buttonSource: { text: 'OPEN KINGMAKER', href: '/kingmaker' },
+            readiness,
+          }, null, 2));
+          NODE
