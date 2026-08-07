@@ -1,8 +1,9 @@
 const nativeFetch = globalThis.fetch.bind(globalThis);
 
 const USER_AGENT =
-  "TCOS-Mainstream-Checklist-Ingest/1.2 (+private Registry automation; contact sales@truelycollectables.com)";
+  "TCOS-Mainstream-Checklist-Ingest/1.3 (+private Registry automation; contact sales@truelycollectables.com)";
 const TCDB_PAGE_SIZE = 100;
+const MAX_TCDB_PAGES = 500;
 const MAX_CHILD_SETS = 250;
 
 function requestUrl(input) {
@@ -101,15 +102,49 @@ async function fetchReaderText(url, init = {}) {
   return body;
 }
 
-function extractTotalCards(value) {
+function extractTotalCards(value, { required = true } = {}) {
   const plain = plainText(value);
-  const match = plain.match(/\bTotal Cards\s*:?\s*([0-9][0-9,]*)\b/i);
-  if (!match) throw new Error("TCDB reader did not expose a Total Cards count.");
+  const patterns = [
+    /\bTotal Cards\s*:?\s*([0-9][0-9,]*)\b/i,
+    /\bCards\s*:?\s*([0-9][0-9,]*)\b/i,
+    /\bCards\s*\(([0-9][0-9,]*)\)/i,
+  ];
+  let match = null;
+  for (const pattern of patterns) {
+    match = plain.match(pattern);
+    if (match) break;
+  }
+  if (!match) {
+    if (!required) return null;
+    throw new Error("TCDB reader did not expose a usable card-count label.");
+  }
   const total = Number(match[1].replace(/,/g, ""));
   if (!Number.isInteger(total) || total < 1 || total > 50_000) {
-    throw new Error(`Invalid TCDB Total Cards count: ${match[1]}`);
+    throw new Error(`Invalid TCDB card count: ${match[1]}`);
   }
   return total;
+}
+
+function extractPageIndexes(markdown, checklistUrl) {
+  const indexes = new Set([1]);
+  let targetSid = null;
+  try {
+    targetSid = tcdbInfo(checklistUrl)?.sid || null;
+  } catch {
+    targetSid = null;
+  }
+  for (const match of String(markdown || "").matchAll(/\((https?:\/\/(?:www\.)?tcdb\.com\/Checklist\.cfm[^)]*)\)/gi)) {
+    try {
+      const url = new URL(decodeEntities(match[1]));
+      const info = tcdbInfo(url.toString());
+      if (targetSid && info?.sid !== targetSid) continue;
+      const page = Number(url.searchParams.get("PageIndex") || 1);
+      if (Number.isInteger(page) && page >= 1 && page <= MAX_TCDB_PAGES) indexes.add(page);
+    } catch {
+      // Ignore malformed pagination links.
+    }
+  }
+  return [...indexes].sort((a, b) => a - b);
 }
 
 function declaredRelatedSetCount(value) {
@@ -209,8 +244,15 @@ function dedupeRows(rows) {
 
 async function fetchCompleteReaderChecklist(checklistUrl, baseName, init) {
   const firstText = await fetchReaderText(checklistUrl, init);
-  const totalCards = extractTotalCards(firstText);
-  const pageCount = Math.ceil(totalCards / TCDB_PAGE_SIZE);
+  const declaredTotal = extractTotalCards(firstText, { required: false });
+  const discoveredPages = extractPageIndexes(firstText, checklistUrl);
+  const pageCountFromLinks = Math.max(...discoveredPages);
+  const pageCountFromTotal = declaredTotal ? Math.ceil(declaredTotal / TCDB_PAGE_SIZE) : 1;
+  const pageCount = Math.max(pageCountFromLinks, pageCountFromTotal);
+  if (!Number.isInteger(pageCount) || pageCount < 1 || pageCount > MAX_TCDB_PAGES) {
+    throw new Error(`Invalid TCDB reader page count for ${checklistUrl}: ${pageCount}`);
+  }
+
   const pageText = [firstText];
   for (let page = 2; page <= pageCount; page += 1) {
     const pageUrl = new URL(checklistUrl);
@@ -218,11 +260,43 @@ async function fetchCompleteReaderChecklist(checklistUrl, baseName, init) {
     pageText.push(await fetchReaderText(pageUrl.toString(), init));
   }
 
-  const rows = dedupeRows(pageText.flatMap(extractReaderCardRows));
-  if (rows.length !== totalCards) {
+  const pageRows = pageText.map(extractReaderCardRows);
+  for (let index = 0; index < pageRows.length; index += 1) {
+    const count = pageRows[index].length;
+    const finalPage = index === pageRows.length - 1;
+    if (!finalPage && count !== TCDB_PAGE_SIZE) {
+      throw new Error(
+        `TCDB reader pagination completeness failed for ${checklistUrl}: page ${index + 1} parsed ${count} rows, expected ${TCDB_PAGE_SIZE}.`,
+      );
+    }
+    if (finalPage && (count < 1 || count > TCDB_PAGE_SIZE)) {
+      throw new Error(
+        `TCDB reader final-page completeness failed for ${checklistUrl}: page ${index + 1} parsed ${count} rows.`,
+      );
+    }
+  }
+
+  const finalIndexes = extractPageIndexes(pageText.at(-1), checklistUrl);
+  if (finalIndexes.some((page) => page > pageCount)) {
     throw new Error(
-      `TCDB reader completeness check failed for ${checklistUrl}: parsed ${rows.length} of declared ${totalCards} cards.`,
+      `TCDB reader pagination closure failed for ${checklistUrl}: final page exposes a later PageIndex.`,
     );
+  }
+
+  const rows = dedupeRows(pageRows.flat());
+  if (declaredTotal && rows.length !== declaredTotal) {
+    throw new Error(
+      `TCDB reader completeness check failed for ${checklistUrl}: parsed ${rows.length} of declared ${declaredTotal} cards.`,
+    );
+  }
+  if (!declaredTotal) {
+    const minimumByPages = (pageCount - 1) * TCDB_PAGE_SIZE + 1;
+    const maximumByPages = pageCount * TCDB_PAGE_SIZE;
+    if (rows.length < minimumByPages || rows.length > maximumByPages) {
+      throw new Error(
+        `TCDB reader pagination count failed for ${checklistUrl}: parsed ${rows.length} rows across ${pageCount} closed pages.`,
+      );
+    }
   }
 
   const groups = new Map();
@@ -283,9 +357,14 @@ async function fetchCompleteReaderProduct(info, init) {
     const insertsText = await fetchReaderText(info.insertsUrl, init);
     const declaredChildren = declaredRelatedSetCount(insertsText);
     const children = extractChildChecklistLinks(insertsText, info.insertsUrl, info.sid);
-    if (children.length !== declaredChildren) {
+    if (declaredChildren > 0 && children.length !== declaredChildren) {
       throw new Error(
         `TCDB reader related-set completeness check failed for ${info.insertsUrl}: enumerated ${children.length} of declared ${declaredChildren} child sets.`,
+      );
+    }
+    if (declaredChildren === 0 && children.length > 0) {
+      throw new Error(
+        `TCDB reader related-set count was unavailable for ${info.insertsUrl} while ${children.length} child checklists were visible.`,
       );
     }
     childSections = await mapLimit(children, 2, (child) =>
@@ -311,9 +390,6 @@ globalThis.fetch = async function completeTcdbReaderFetch(input, init = {}) {
   const info = tcdbInfo(requestUrl(input));
   if (!info) return nativeFetch(input, init);
 
-  // Prefer the direct complete TCDB layer when it works. GitHub-hosted runners
-  // currently receive Cloudflare 403s, so fall back to the public reader mirror
-  // and independently enforce total-card and related-set completeness.
   try {
     const direct = await nativeFetch(input, init);
     if (direct?.ok && direct.headers?.get("x-tcos-tcdb-complete")) return direct;
@@ -326,6 +402,7 @@ globalThis.fetch = async function completeTcdbReaderFetch(input, init = {}) {
 export {
   declaredRelatedSetCount,
   extractChildChecklistLinks,
+  extractPageIndexes,
   extractReaderCardRows,
   extractTotalCards,
   plainText,
