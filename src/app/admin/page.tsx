@@ -1,9 +1,34 @@
+import Link from "next/link";
 import LegacyAdminDashboard from "./LegacyAdminDashboard";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export default LegacyAdminDashboard;
+export default function AdminPage() {
+  return (
+    <>
+      <div className="border-b border-cyan-200 bg-cyan-50 px-4 py-3">
+        <div className="mx-auto flex max-w-[1500px] items-center justify-between gap-4">
+          <div>
+            <div className="text-xs font-black uppercase tracking-[0.18em] text-cyan-800">
+              InstaComp AI
+            </div>
+            <div className="text-sm font-bold text-neutral-900">
+              Checklist Sentinel search progress and recovery controls
+            </div>
+          </div>
+          <Link
+            href="/admin/instacomp/checklist-sentinel"
+            className="shrink-0 rounded-xl bg-neutral-950 px-4 py-3 text-sm font-black text-white shadow-sm transition hover:bg-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-600"
+          >
+            🛰️ Open Checklist Sentinel
+          </Link>
+        </div>
+      </div>
+      <LegacyAdminDashboard />
+    </>
+  );
+}
 
 /*
   Admin Command Center static verification contract.
@@ -19,6 +44,7 @@ export default LegacyAdminDashboard;
   href: "/admin/pending-card-import"
   cta: "Open Card Intake"
   { href: "/admin/instacomp/mobile", label: "InstaComp Mobile" }
+  { href: "/admin/instacomp/checklist-sentinel", label: "Checklist Sentinel" }
 
   Operator action map
   No dead-end action paths
@@ -157,6 +183,7 @@ export default LegacyAdminDashboard;
   "/admin/financial-reconciliation"
   "/admin/instacomp"
   "/admin/instacomp/checklists"
+  "/admin/instacomp/checklist-sentinel"
   "/admin/instacomp/mobile"
   "/admin/instacomp/seller-sweep"
   "/admin/instacomp/v2"
