@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { createClient } from "@supabase/supabase-js";
 import { FLAGSHIP_STORE_ID } from "../../src/lib/legal";
 
 type Json = Record<string, any>;
@@ -121,8 +121,6 @@ function parallelCompatible(expected: string, actual: unknown) {
   }
   if (wanted === "prizms ice") {
     if (!/\bice\b/.test(found)) return false;
-    // These modifiers identify different canonical Registry parallels and must
-    // never be silently collapsed into the unnumbered Prizms Ice printing.
     return !/\b(?:white|red|blue|green|gold|black|purple|orange|pink|silver|choice|mojo|shimmer|wave|hyper|scope|velocity)\b/.test(found);
   }
   return wanted === found;
@@ -224,52 +222,104 @@ function safeSubset(payload: Json) {
   };
 }
 
-async function createTestSeller(params: {
-  admin: SupabaseClient;
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function jsonRequestWithRetry(params: {
+  label: string;
+  url: string;
+  init: RequestInit;
+  attempts?: number;
+}) {
+  const attempts = params.attempts ?? 3;
+  let last = "unknown error";
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const response = await fetch(params.url, {
+        ...params.init,
+        signal: AbortSignal.timeout(30_000),
+      });
+      const raw = await response.text();
+      let body: Json = {};
+      if (raw) {
+        try {
+          body = JSON.parse(raw);
+        } catch {
+          body = { raw: raw.slice(0, 500) };
+        }
+      }
+      if (response.ok) return body;
+      last = `HTTP ${response.status}: ${txt(body.msg || body.message || body.error || body.raw || raw).slice(0, 500) || "empty body"}`;
+      const retryable = response.status === 408 || response.status === 429 || response.status >= 500;
+      if (!retryable) break;
+    } catch (error) {
+      last = error instanceof Error ? error.message : String(error);
+    }
+    if (attempt < attempts) await sleep(1500 * attempt);
+  }
+  throw new Error(`${params.label} failed after ${attempts} attempt(s): ${last}`);
+}
+
+async function createAuthUser(params: {
   supabaseUrl: string;
-  anonKey: string;
+  serviceKey: string;
 }) {
   const email = `${TEST_EMAIL_PREFIX}${Date.now()}-${randomUUID()}@truelycollectables.com`;
   const password = `${randomBytes(32).toString("base64url")}Aa1!`;
-  const created = await params.admin.auth.admin.createUser({
-    email,
-    password,
-    email_confirm: true,
-    user_metadata: { purpose: "instacomp_five_card_production_truth_gate" },
+  const body = await jsonRequestWithRetry({
+    label: "temporary auth user creation",
+    url: `${params.supabaseUrl}/auth/v1/admin/users`,
+    init: {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${params.serviceKey}`,
+        apikey: params.serviceKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: { purpose: "instacomp_five_card_production_truth_gate" },
+      }),
+    },
   });
-  if (created.error || !created.data.user) {
-    throw new Error(`Could not create test seller: ${created.error?.message || "no user"}`);
+  const accountId = txt(body.id || rec(body.user).id);
+  if (!/^[0-9a-f-]{36}$/i.test(accountId)) {
+    throw new Error(`Temporary auth user creation returned no UUID: ${JSON.stringify(body).slice(0, 500)}`);
   }
-  const accountId = created.data.user.id;
+  return { accountId, email, password };
+}
 
-  const profile = await params.admin
-    .from("account_profiles")
-    .upsert({ id: accountId, account_status: "active" }, { onConflict: "id" });
-  if (profile.error) throw new Error(`Profile upsert failed: ${profile.error.message}`);
-
-  const membership = await params.admin.from("account_store_memberships").insert({
-    account_id: accountId,
-    store_id: FLAGSHIP_STORE_ID,
-    role: "seller",
-    status: "active",
+async function signInTestSeller(params: {
+  supabaseUrl: string;
+  anonKey: string;
+  email: string;
+  password: string;
+}) {
+  const body = await jsonRequestWithRetry({
+    label: "temporary seller sign-in",
+    url: `${params.supabaseUrl}/auth/v1/token?grant_type=password`,
+    init: {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${params.anonKey}`,
+        apikey: params.anonKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ email: params.email, password: params.password }),
+    },
   });
-  if (membership.error) throw new Error(`Membership insert failed: ${membership.error.message}`);
-
-  const authClient = createClient(params.supabaseUrl, params.anonKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  const signedIn = await authClient.auth.signInWithPassword({ email, password });
-  const accessToken = txt(signedIn.data.session?.access_token);
-  if (signedIn.error || !accessToken) {
-    throw new Error(`Test seller sign-in failed: ${signedIn.error?.message || "no token"}`);
-  }
-  return { accountId, accessToken };
+  const accessToken = txt(body.access_token);
+  if (!accessToken) throw new Error("Temporary seller sign-in returned no access token");
+  return accessToken;
 }
 
 async function cleanupTestSeller(params: {
-  admin: SupabaseClient;
   accountId: string;
   supabaseUrl: string;
+  serviceKey: string;
   managementToken: string;
 }) {
   const projectRef = new URL(params.supabaseUrl).hostname.split(".")[0];
@@ -280,7 +330,7 @@ async function cleanupTestSeller(params: {
     `delete from public.account_store_memberships where account_id = '${safeId}'::uuid;`,
     `delete from public.account_profiles where id = '${safeId}'::uuid;`,
   ].join("\n");
-  const response = await fetch(`https://api.supabase.com/v1/projects/${projectRef}/database/query`, {
+  const sqlResponse = await fetch(`https://api.supabase.com/v1/projects/${projectRef}/database/query`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${params.managementToken}`,
@@ -289,13 +339,22 @@ async function cleanupTestSeller(params: {
     body: JSON.stringify({ query: sql, read_only: false }),
     signal: AbortSignal.timeout(30_000),
   });
-  if (!response.ok) {
-    throw new Error(`Temporary seller SQL cleanup failed: HTTP ${response.status} ${await response.text()}`);
+  if (!sqlResponse.ok) {
+    throw new Error(`Temporary seller SQL cleanup failed: HTTP ${sqlResponse.status} ${(await sqlResponse.text()).slice(0, 500)}`);
   }
-  const auth = await params.admin.auth.admin.deleteUser(params.accountId);
-  if (auth.error && !/not found/i.test(auth.error.message)) {
-    throw new Error(`Temporary auth cleanup failed: ${auth.error.message}`);
-  }
+
+  await jsonRequestWithRetry({
+    label: "temporary auth user deletion",
+    url: `${params.supabaseUrl}/auth/v1/admin/users/${safeId}`,
+    init: {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${params.serviceKey}`,
+        apikey: params.serviceKey,
+      },
+    },
+    attempts: 2,
+  });
 }
 
 function actual(payload: Json) {
@@ -369,10 +428,31 @@ async function main() {
 
   let accountId = "";
   try {
-    const seller = await createTestSeller({ admin, supabaseUrl, anonKey });
-    accountId = seller.accountId;
+    const authUser = await createAuthUser({ supabaseUrl, serviceKey });
+    accountId = authUser.accountId;
     receipt.temporarySeller.created = true;
+    receipt.temporarySeller.accountId = accountId;
     await writeFile(output, `${JSON.stringify(receipt, null, 2)}\n`);
+
+    const profile = await admin
+      .from("account_profiles")
+      .upsert({ id: accountId, account_status: "active" }, { onConflict: "id" });
+    if (profile.error) throw new Error(`Profile upsert failed: ${profile.error.message}`);
+
+    const membership = await admin.from("account_store_memberships").insert({
+      account_id: accountId,
+      store_id: FLAGSHIP_STORE_ID,
+      role: "seller",
+      status: "active",
+    });
+    if (membership.error) throw new Error(`Membership insert failed: ${membership.error.message}`);
+
+    const accessToken = await signInTestSeller({
+      supabaseUrl,
+      anonKey,
+      email: authUser.email,
+      password: authUser.password,
+    });
 
     for (const [index, truth] of TRUTH.entries()) {
       const item = items.get(truth.inventoryItemId)!;
@@ -382,7 +462,7 @@ async function main() {
         download(images.frontUrl, "front"),
         download(images.backUrl, "back"),
       ]);
-      const response = await callScanner(front, back, seller.accessToken);
+      const response = await callScanner(front, back, accessToken);
       const found = actual(response.payload);
       const registry = rec(response.payload.checklistRegistry);
       const decision = rec(response.payload.identityDecision);
@@ -426,7 +506,7 @@ async function main() {
   } finally {
     if (accountId) {
       try {
-        await cleanupTestSeller({ admin, accountId, supabaseUrl, managementToken });
+        await cleanupTestSeller({ accountId, supabaseUrl, serviceKey, managementToken });
         receipt.temporarySeller.deleted = true;
       } catch (error) {
         receipt.temporarySeller.cleanupError = error instanceof Error ? error.message : String(error);
