@@ -48,4 +48,4 @@ jobs:
             git push origin "HEAD:$STATUS_BRANCH"
           fi
 
-# Refresh after wall-clock preflight bound merge 53ac47d6 at 2026-08-07T17:46Z
+# Refresh after canonical importPlan verifier merge 84dd1afa at 2026-08-07T18:26Z
