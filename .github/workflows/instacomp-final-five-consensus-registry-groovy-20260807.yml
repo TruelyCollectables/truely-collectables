@@ -1,0 +1,115 @@
+name: InstaComp Final Five Consensus Registry Groovy 20260807
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/ops/patch-instacomp-final-five-consensus-registry-groovy-20260807.py"
+      - ".github/workflows/instacomp-final-five-consensus-registry-groovy-20260807.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instacomp-final-five-consensus-registry-groovy-20260807
+  cancel-in-progress: true
+
+jobs:
+  patch-and-certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/instacomp-final-five-consensus-registry-groovy-20260807
+          fetch-depth: 0
+
+      - name: Apply final frozen-five repair
+        run: python scripts/ops/patch-instacomp-final-five-consensus-registry-groovy-20260807.py
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install Mac service dependencies
+        working-directory: services/instacomp-ai
+        run: python -m pip install -q -r requirements.txt
+
+      - name: Exact deterministic OCR regressions
+        working-directory: services/instacomp-ai
+        run: python -m pytest -q tests/test_ocr_registry_hard_facts.py
+
+      - name: Full Mac service suite and compile
+        working-directory: services/instacomp-ai
+        run: |
+          python -m pytest -q
+          python -m compileall -q app
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install web dependencies
+        run: npm ci
+
+      - name: Final identity consensus simulations
+        run: npx tsx scripts/run-instacomp-final-identity-consensus-simulations.ts
+
+      - name: Full TypeScript compile
+        run: npx tsc --noEmit
+
+      - name: Source safety contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          grep -Fq 'set_name=_set_name_hint(front.ocr)' services/instacomp-ai/app/local_vision.py
+          grep -Fq 'hard_fields = {"year", "manufacturer", "set_name", "card_number"}' services/instacomp-ai/app/ollama.py
+          grep -Fq 'internalChecklistIdentityId' src/lib/instacomp-ai-local.ts
+          grep -Fq 'revalidateChecklistRegistryReceipt' src/lib/instacomp-learning-server.ts
+          grep -Fq 'family: "instacomp_local_deterministic"' src/app/api/instacomp/scan/route.ts
+          grep -Fq 'requestedTier: requestedAiCouncilTier' src/app/api/instacomp/scan/route.ts
+          if grep -Fq 'requestedTier: "basic"' src/app/api/instacomp/scan/route.ts; then
+            echo 'Scan route still hardcodes the basic council tier.' >&2
+            exit 2
+          fi
+          python - <<'PY'
+          from pathlib import Path
+          text=Path('src/lib/instacomp-consensus.ts').read_text()
+          marker='function hasUnresolvedVisibleSurfaceRisk'
+          block=text[text.index(marker):text.index('function evidenceSupportsCatalogParallel', text.index(marker))]
+          if 'refractor|prizm|prism|shimmer' in block:
+              raise SystemExit('generic prizm still treated as finish cue')
+          print('PASS Base surface-risk source contract')
+          PY
+
+      - name: Commit certified source only
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n' \
+            'scripts/run-instacomp-final-identity-consensus-simulations.ts' \
+            'services/instacomp-ai/app/local_vision.py' \
+            'services/instacomp-ai/app/ollama.py' \
+            'services/instacomp-ai/tests/test_ocr_registry_hard_facts.py' \
+            'src/app/api/instacomp/scan/route.ts' \
+            'src/lib/instacomp-ai-local.ts' \
+            'src/lib/instacomp-consensus.ts' \
+            'src/lib/instacomp-learning-server.ts' | sort)"
+          test "$changed" = "$expected"
+          git config user.name 'github-actions[bot]'
+          git config user.email '4189828+github-actions[bot]@users.noreply.github.com'
+          git add \
+            scripts/run-instacomp-final-identity-consensus-simulations.ts \
+            services/instacomp-ai/app/local_vision.py \
+            services/instacomp-ai/app/ollama.py \
+            services/instacomp-ai/tests/test_ocr_registry_hard_facts.py \
+            src/app/api/instacomp/scan/route.ts \
+            src/lib/instacomp-ai-local.ts \
+            src/lib/instacomp-consensus.ts \
+            src/lib/instacomp-learning-server.ts
+          git commit -m 'Fix final frozen-five identity consensus path'
+          git push origin HEAD:fix/instacomp-final-five-consensus-registry-groovy-20260807
