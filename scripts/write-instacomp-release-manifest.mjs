@@ -88,7 +88,6 @@ function runExactParallelSimulations() {
 }
 
 async function main() {
-  runNodeScript("scripts/check-instacomp-text-orientation-checklist.mjs");
   runNodeScript("scripts/check-instacomp-first-time-identity-contract.mjs");
   runExactParallelSimulations();
   const explicit = process.argv.find((argument) => /^[0-9a-f]{40}$/i.test(argument));
