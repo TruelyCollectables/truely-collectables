@@ -2,7 +2,21 @@
 from pathlib import Path
 
 path = Path("services/instacomp-ai/app/main.py")
-source = path.read_text()
+source = path.read_text(encoding="utf-8")
+
+required_markers = [
+    "ollama_ready = await reader.health()",
+    "ok=database_ready and checklist_ready and ollama_ready",
+    "suggestion = await reader.analyze(",
+    "suggestion_registry = await checklist_gateway.match(",
+    'receipt.startswith("registry_fingerprint:")',
+    'match_source = "ollama_backup"',
+    'status = "model_unavailable"',
+]
+
+if all(marker in source for marker in required_markers):
+    print(f"already patched {path}")
+    raise SystemExit(0)
 
 replacements = [
     (
@@ -33,5 +47,9 @@ for old, new in replacements:
         raise SystemExit(f"Expected exactly one match, found {count}: {old[:120]!r}")
     source = source.replace(old, new, 1)
 
-path.write_text(source)
+missing = [marker for marker in required_markers if marker not in source]
+if missing:
+    raise SystemExit(f"Patch completed but required markers are missing: {missing}")
+
+path.write_text(source, encoding="utf-8")
 print(f"patched {path}")
