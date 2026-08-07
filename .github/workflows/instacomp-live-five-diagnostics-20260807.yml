@@ -1,0 +1,71 @@
+name: InstaComp Live Five Diagnostics 20260807
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-live-five-diagnostics-20260807.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install and resolve Production database credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci >/dev/null
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          env_file="$RUNNER_TEMP/production.env"
+          runtime_file="$RUNNER_TEMP/runtime.json"
+          npx --yes vercel@56.2.0 env pull "$env_file" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          PRODUCTION_ENV_PATH="$env_file" RUNTIME_PATH="$runtime_file" node -e 'const fs=require("node:fs");const parsed={};for(const raw of fs.readFileSync(process.env.PRODUCTION_ENV_PATH,"utf8").split(/\r?\n/)){const i=raw.indexOf("=");if(i<1)continue;const k=raw.slice(0,i).trim();let v=raw.slice(i+1).trim();if(v.startsWith("\"")&&v.endsWith("\"")){try{v=JSON.parse(v)}catch{v=v.slice(1,-1)}}else if(v.startsWith("\u0027")&&v.endsWith("\u0027"))v=v.slice(1,-1);parsed[k]=v}(async()=>{const url=String(parsed.NEXT_PUBLIC_SUPABASE_URL||"").trim();if(!url)throw new Error("Missing Production Supabase URL");const ref=new URL(url).hostname.split(".")[0];const r=await fetch(`https://api.supabase.com/v1/projects/${ref}/api-keys?reveal=true`,{headers:{Authorization:`Bearer ${process.env.GH_SUPABASE_ACCESS_TOKEN}`}});const text=await r.text();if(!r.ok)throw new Error(`Supabase key lookup HTTP ${r.status}`);const keys=JSON.parse(text);const val=e=>String(e?.api_key||e?.key||e?.value||"");const modern=keys.find(e=>/^sb_secret_/i.test(val(e)));const legacy=keys.find(e=>e?.name==="service_role"&&/^eyJ/.test(val(e)))||keys.find(e=>e?.secret_jwt_template?.role==="service_role"&&/^eyJ/.test(val(e)));const key=val(modern||legacy);if(!key)throw new Error("No server key");console.log(`::add-mask::${url}`);console.log(`::add-mask::${key}`);fs.writeFileSync(process.env.RUNTIME_PATH,JSON.stringify({url,key}))})().catch(e=>{console.error(e);process.exit(1)});'
+      - name: Query exact five recent Production scan records
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/instacomp-live-five-diagnostics-20260807
+          node --input-type=module -e '
+            import fs from "node:fs";
+            import { createClient } from "@supabase/supabase-js";
+            const {url,key}=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/runtime.json","utf8"));
+            const db=createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}});
+            const hashes=new Set([
+              "eaacec37493b419f1d397df739aedd9df218639ded876c481b2fb28b2b3eb2b1",
+              "d165d8e537a6501711e0b0b789866ac5ab053a3e09216a39108c71c6485fd955",
+              "d168765374b348074c0f194fb15d099eaafe802f543c76bccf8147f391499c02",
+              "689101749388e0113da8d8c3270e250e4275dfb043d0c16fce0bd584b0d3bdb2",
+              "eb528a8e5de90e0ddb62e92ed3b5a2239819fb1c3fc27000ea1102a5b6f19728"
+            ]);
+            const {data,error}=await db.from("instacomp_scans").select("id,created_at,front_image_sha256,back_image_sha256,raw_ai_result,raw_comp_results").order("created_at",{ascending:false}).limit(100);
+            if(error) throw error;
+            const picked=(data||[]).filter(r=>hashes.has(String(r.front_image_sha256||""))).slice(0,10).map(r=>{
+              const ai=r.raw_ai_result||{}; const comp=r.raw_comp_results||{}; const consensus=comp.consensus||{}; const ocr=comp.ocrDiagnostics||{}; const registry=comp.checklistRegistry||{};
+              return {id:r.id,created_at:r.created_at,front_image_sha256:r.front_image_sha256,back_image_sha256:r.back_image_sha256,ai:{player:ai.player,year:ai.year,brand:ai.brand,setName:ai.setName,cardNumber:ai.cardNumber,parallel:ai.parallel,internalScanId:ai.internalScanId,internalStatus:ai.internalStatus,internalChecklistOutcome:ai.internalChecklistOutcome,internalChecklistReasons:ai.internalChecklistReasons,internalMatchSource:ai.internalMatchSource,frontVisibleText:ai.frontVisibleText,backVisibleText:ai.backVisibleText,backEvidence:ai.backEvidence},consensus:{trustedForIdentity:consensus.trustedForIdentity,councilReadiness:consensus.councilReadiness,fieldDecisions:consensus.fieldDecisions},ocrDiagnostics:ocr,checklistRegistry:registry};
+            });
+            fs.writeFileSync("evidence/instacomp-live-five-diagnostics-20260807/scans.json",JSON.stringify({count:picked.length,scans:picked},null,2));
+            console.log(JSON.stringify({count:picked.length,scans:picked.map(x=>({created_at:x.created_at,hash:x.front_image_sha256,ai:x.ai,registry:x.checklistRegistry,consensus:x.consensus}))},null,2));
+          '
+      - name: Upload diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-live-five-diagnostics-20260807
+          path: evidence/instacomp-live-five-diagnostics-20260807
+          retention-days: 30
