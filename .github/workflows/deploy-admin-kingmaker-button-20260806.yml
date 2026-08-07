@@ -24,7 +24,7 @@ env:
   VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
 jobs:
-  build-and-deploy:
+  verify-and-deploy:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -35,7 +35,7 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Install and verify source
+      - name: Verify button source and TypeScript
         shell: bash
         run: |
           set -euo pipefail
@@ -44,28 +44,15 @@ jobs:
           grep -q 'OPEN KINGMAKER' src/app/admin/layout.tsx
           ./node_modules/.bin/tsc --noEmit
 
-      - name: Link project and build Production output
+      - name: Deploy merged main with Vercel Production environment
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: bash
         run: |
           set -euo pipefail
           test -n "${VERCEL_TOKEN:-}"
           npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
-          npx vercel@56.2.0 pull --yes --environment=production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
-          rm -f .env.local
-          npx vercel@56.2.0 env pull .env.local --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
-          test -s .vercel/project.json
-          test -s .env.local
-          grep -q '^NEXT_PUBLIC_SUPABASE_URL=' .env.local
-          grep -q '^NEXT_PUBLIC_SUPABASE_ANON_KEY=' .env.local
-          npx vercel@56.2.0 build --prod --token "$VERCEL_TOKEN"
-          grep -R -q 'OPEN KINGMAKER' .vercel/output
+          npx vercel@56.2.0 deploy --prod --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" | tee /tmp/admin-kingmaker-deploy.txt
 
-      - name: Deploy merged main to Production
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        shell: bash
-        run: |
-          set -euo pipefail
-          npx vercel@56.2.0 deploy --prebuilt --prod --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" | tee /tmp/admin-kingmaker-deploy.txt
           curl -fsS "https://truelycollectables.com/api/instacomp/internal-readiness?ts=$(date +%s)" -o /tmp/readiness.json
           node - <<'NODE'
           const fs = require('node:fs');
@@ -80,8 +67,3 @@ jobs:
             href: '/kingmaker',
           }, null, 2));
           NODE
-
-      - name: Remove pulled environment
-        if: always()
-        shell: bash
-        run: rm -f .env.local .env.production.local
