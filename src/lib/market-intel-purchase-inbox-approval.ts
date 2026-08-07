@@ -29,6 +29,12 @@ function stringArray(value: unknown) {
   return Array.isArray(value) ? value.map((item) => String(item)) : [];
 }
 
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
 export async function approvePurchaseInboxCandidate(input: CandidateApprovalInput) {
   const supabase = createSupabaseServerClient({ admin: true });
   const { data: candidate, error: candidateError } = await supabase
@@ -221,6 +227,71 @@ export async function approvePurchaseInboxCandidate(input: CandidateApprovalInpu
     throw new Error(result?.message || "The Purchase Inbox listing could not be ingested.");
   }
   const listingId = result.listingId || null;
+
+  // A Purchase Inbox row can already own a provisional canonical Purchase Ledger lot.
+  // Promote that same lot to the verified identity/listing before the purchase-recording
+  // step runs, so exact-card review never creates a second purchase for money we already own.
+  const purchaseInboxId = candidate.metadata?.purchase_inbox_id
+    ? String(candidate.metadata.purchase_inbox_id)
+    : null;
+  if (purchaseInboxId && listingId) {
+    const { data: inboxRow, error: inboxLookupError } = await supabase
+      .from("tcos_mi_purchase_inbox")
+      .select("id,purchase_lot_id")
+      .eq("id", purchaseInboxId)
+      .maybeSingle();
+    if (inboxLookupError) throw new Error(inboxLookupError.message);
+
+    if (inboxRow?.purchase_lot_id) {
+      const purchaseLotId = String(inboxRow.purchase_lot_id);
+      const { data: purchaseLot, error: lotLookupError } = await supabase
+        .from("tcos_mi_purchase_lots")
+        .select("id,collectible_identity_id,source_listing_id,metadata")
+        .eq("id", purchaseLotId)
+        .maybeSingle();
+      if (lotLookupError) throw new Error(lotLookupError.message);
+      if (!purchaseLot) {
+        throw new Error(
+          "Purchase Inbox points to a missing Purchase Ledger lot; exact approval was blocked to prevent a duplicate purchase.",
+        );
+      }
+      if (
+        purchaseLot.collectible_identity_id &&
+        String(purchaseLot.collectible_identity_id) !== String(identityId)
+      ) {
+        throw new Error(
+          "Existing Purchase Ledger lot is already bound to a different exact identity; approval was blocked to protect money truth.",
+        );
+      }
+      if (
+        purchaseLot.source_listing_id &&
+        String(purchaseLot.source_listing_id) !== String(listingId)
+      ) {
+        throw new Error(
+          "Existing Purchase Ledger lot is already bound to a different source listing; approval was blocked to prevent duplication.",
+        );
+      }
+
+      const { error: promoteError } = await supabase
+        .from("tcos_mi_purchase_lots")
+        .update({
+          collectible_identity_id: identityId,
+          marketplace_id: candidate.marketplace_id,
+          source_listing_id: listingId,
+          source_url: String(candidate.direct_url),
+          metadata: {
+            ...recordValue(purchaseLot.metadata),
+            purchase_inbox_id: purchaseInboxId,
+            provisional_identity: false,
+            exact_identity_status: "verified",
+            exact_identity_promoted_at: new Date().toISOString(),
+            approved_identity_candidate_id: input.candidateId,
+          },
+        })
+        .eq("id", purchaseLotId);
+      if (promoteError) throw new Error(promoteError.message);
+    }
+  }
 
   const reasons = [
     parallelName !== "Base" ? parallelName : null,
