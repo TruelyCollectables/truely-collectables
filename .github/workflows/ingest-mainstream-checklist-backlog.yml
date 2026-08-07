@@ -72,6 +72,7 @@ jobs:
           bash -n scripts/resolve-mainstream-checklist-production-env.sh
           bash -n scripts/bootstrap-mainstream-checklist-schema.sh
           bash -n scripts/repair-mainstream-checklist-schema.sh
+          node --check scripts/mainstream-checklist/tcdb-complete-fetch.mjs
       - name: Verify compressed backlog manifest
         shell: bash
         run: |
@@ -181,7 +182,7 @@ jobs:
           set +a
           test -n "${RESOLVED_SUPABASE_SERVICE_ROLE_KEY:-}"
           export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
-          node --import ./scripts/mainstream-checklist/fetch-patch.mjs --import tsx scripts/ingest-mainstream-checklist-backlog.mjs
+          node --import ./scripts/mainstream-checklist/tcdb-complete-fetch.mjs --import ./scripts/mainstream-checklist/fetch-patch.mjs --import tsx scripts/ingest-mainstream-checklist-backlog.mjs
       - name: Upload sanitized batch receipt
         if: always()
         uses: actions/upload-artifact@v4
@@ -228,7 +229,7 @@ jobs:
           set +a
           test -n "${RESOLVED_SUPABASE_SERVICE_ROLE_KEY:-}"
           export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
-          node --import ./scripts/mainstream-checklist/fetch-patch.mjs --import tsx scripts/ingest-mainstream-checklist-backlog.mjs
+          node --import ./scripts/mainstream-checklist/tcdb-complete-fetch.mjs --import ./scripts/mainstream-checklist/fetch-patch.mjs --import tsx scripts/ingest-mainstream-checklist-backlog.mjs
       - name: Prove every confirmed standalone checklist is promoted
         if: always()
         shell: bash
