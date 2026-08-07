@@ -6,7 +6,7 @@ if (!url || !key) throw new Error("Production Supabase URL and service-role key 
 
 const db = createClient(url, key, {
   auth: { persistSession: false, autoRefreshToken: false },
-  global: { headers: { "X-Client-Info": "tcos-checklist-registry-contract-probe-v1" } },
+  global: { headers: { "X-Client-Info": "tcos-checklist-registry-contract-probe-v2" } },
 });
 
 const requiredTables = [
@@ -21,12 +21,14 @@ const requiredTables = [
 
 const tableChecks = [];
 for (const table of requiredTables) {
-  const { error, count } = await db
+  // One bounded row read proves PostgREST/table access without asking Production
+  // to count or scan a large Registry table.
+  const { error } = await db
     .from(table)
-    .select("*", { head: true, count: "exact" })
+    .select("*")
     .limit(1);
   if (error) throw new Error(`Registry table ${table} is not readable: ${error.message}`);
-  tableChecks.push({ table, readable: true, count: Number.isFinite(count) ? count : null });
+  tableChecks.push({ table, readable: true, boundedRead: true });
 }
 
 // This call is intentionally rejected by the writer's FIRST pre-write guard.
@@ -63,7 +65,7 @@ if (!/Checklist import plan requires validation before persistence/i.test(rpcMes
 }
 
 console.log(JSON.stringify({
-  schema: "tcos.checklist.productionRegistryContract.v1",
+  schema: "tcos.checklist.productionRegistryContract.v2",
   checkedAt: new Date().toISOString(),
   ok: true,
   tables: tableChecks,
