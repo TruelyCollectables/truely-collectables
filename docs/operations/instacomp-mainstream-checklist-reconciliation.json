@@ -1,13 +1,13 @@
 {
   "schema": "tcos.checklist.mainstreamBacklogReconciliation.v1",
-  "checkedAt": "2026-08-07T11:51:12Z",
+  "checkedAt": "2026-08-07T12:02:56Z",
   "complete": false,
   "error": "Reconciliation receipt was not produced.",
   "workflowEvidence": {
-    "runId": "31175184342",
+    "runId": "31175721463",
     "runAttempt": "1",
     "workflow": "Ingest Mainstream Checklists 2000 Plus",
     "event": "push",
-    "sourceSha": "f8f0bb46fb1be68541f48648f636d8fc922693c2"
+    "sourceSha": "7026c60a21c2442055377863f6852ce20c6b49d2"
   }
 }

@@ -1,55 +1,19 @@
 {
   "schema": "tcos.checklist.mainstreamBacklogPromotionProof.v2",
-  "checkedAt": "2026-08-07T11:51:11.461Z",
+  "checkedAt": "2026-08-07T12:02:55.545Z",
   "expectedSources": 327,
   "expectedPromotedSources": 319,
   "expectedAttachmentOnly": 8,
   "catalogRows": 327,
   "counts": {
-    "imported": 0,
+    "imported": 40,
     "unchanged": 0,
     "attachments": 8,
-    "cards": 0,
-    "identities": 0
+    "cards": 5118,
+    "identities": 5783
   },
   "complete": false,
   "failures": [
-    {
-      "id": "SR-0001",
-      "code": "confirmed_checklist_not_promoted",
-      "status": "quarantined",
-      "issues": [
-        {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
-          "severity": "error"
-        }
-      ]
-    },
-    {
-      "id": "SR-0003",
-      "code": "confirmed_checklist_not_promoted",
-      "status": "quarantined",
-      "issues": [
-        {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
-          "severity": "error"
-        }
-      ]
-    },
-    {
-      "id": "SR-0004",
-      "code": "confirmed_checklist_not_promoted",
-      "status": "quarantined",
-      "issues": [
-        {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
-          "severity": "error"
-        }
-      ]
-    },
     {
       "id": "SR-0006",
       "code": "confirmed_checklist_not_promoted",
@@ -318,18 +282,6 @@
       ]
     },
     {
-      "id": "SR-0019",
-      "code": "confirmed_checklist_not_promoted",
-      "status": "quarantined",
-      "issues": [
-        {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
-          "severity": "error"
-        }
-      ]
-    },
-    {
       "id": "SR-0021",
       "code": "confirmed_checklist_not_promoted",
       "status": "quarantined",
@@ -524,18 +476,6 @@
       ]
     },
     {
-      "id": "SR-0033",
-      "code": "confirmed_checklist_not_promoted",
-      "status": "quarantined",
-      "issues": [
-        {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
-          "severity": "error"
-        }
-      ]
-    },
-    {
       "id": "SR-0035",
       "code": "confirmed_checklist_not_promoted",
       "status": "quarantined",
@@ -650,18 +590,6 @@
         {
           "code": "reference_checklist_insufficient_rows",
           "message": "Only 0 deterministic card rows were parsed; 3 are required.",
-          "severity": "error"
-        }
-      ]
-    },
-    {
-      "id": "SR-0042",
-      "code": "confirmed_checklist_not_promoted",
-      "status": "quarantined",
-      "issues": [
-        {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
           "severity": "error"
         }
       ]
@@ -936,18 +864,6 @@
         {
           "code": "reference_checklist_insufficient_rows",
           "message": "Only 0 deterministic card rows were parsed; 3 are required.",
-          "severity": "error"
-        }
-      ]
-    },
-    {
-      "id": "SR-0061",
-      "code": "confirmed_checklist_not_promoted",
-      "status": "quarantined",
-      "issues": [
-        {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
           "severity": "error"
         }
       ]
@@ -1362,7 +1278,7 @@
       "issues": [
         {
           "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "message": "Checklist Registry transaction failed: canceling statement due to statement timeout",
           "severity": "error"
         }
       ]
@@ -1432,7 +1348,7 @@
       "issues": [
         {
           "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "message": "Checklist Registry transaction failed: canceling statement due to statement timeout",
           "severity": "error"
         }
       ]
@@ -1444,19 +1360,7 @@
       "issues": [
         {
           "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
-          "severity": "error"
-        }
-      ]
-    },
-    {
-      "id": "SR-0096",
-      "code": "confirmed_checklist_not_promoted",
-      "status": "quarantined",
-      "issues": [
-        {
-          "code": "mainstream_backlog_normalization_quarantined",
-          "message": "Checklist Registry transaction failed: there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          "message": "Checklist Registry transaction failed: duplicate key value violates unique constraint \"checklist_brands_manufacturer_id_slug_key\"",
           "severity": "error"
         }
       ]
@@ -1552,13 +1456,8 @@
       "status": "quarantined",
       "issues": [
         {
-          "code": "reference_parallel_rows_not_deterministic",
-          "message": "No deterministic parallel rows were parsed from this source.",
-          "severity": "warning"
-        },
-        {
-          "code": "reference_checklist_insufficient_rows",
-          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
+          "code": "mainstream_backlog_normalization_quarantined",
+          "message": "Checklist Registry transaction failed: canceling statement due to statement timeout",
           "severity": "error"
         }
       ]
@@ -1599,6 +1498,142 @@
     },
     {
       "id": "SR-0107",
+      "code": "confirmed_checklist_not_promoted",
+      "status": "quarantined",
+      "issues": [
+        {
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
+          "severity": "error"
+        }
+      ]
+    },
+    {
+      "id": "SR-0108",
+      "code": "confirmed_checklist_not_promoted",
+      "status": "quarantined",
+      "issues": [
+        {
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
+          "severity": "error"
+        }
+      ]
+    },
+    {
+      "id": "SR-0109",
+      "code": "confirmed_checklist_not_promoted",
+      "status": "quarantined",
+      "issues": [
+        {
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
+          "severity": "error"
+        }
+      ]
+    },
+    {
+      "id": "SR-0110",
+      "code": "confirmed_checklist_not_promoted",
+      "status": "quarantined",
+      "issues": [
+        {
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
+          "severity": "error"
+        }
+      ]
+    },
+    {
+      "id": "SR-0111",
+      "code": "confirmed_checklist_not_promoted",
+      "status": "quarantined",
+      "issues": [
+        {
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
+          "severity": "error"
+        }
+      ]
+    },
+    {
+      "id": "SR-0112",
+      "code": "confirmed_checklist_not_promoted",
+      "status": "quarantined",
+      "issues": [
+        {
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
+          "severity": "error"
+        }
+      ]
+    },
+    {
+      "id": "SR-0113",
+      "code": "confirmed_checklist_not_promoted",
+      "status": "quarantined",
+      "issues": [
+        {
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
+          "severity": "error"
+        }
+      ]
+    },
+    {
+      "id": "SR-0114",
+      "code": "confirmed_checklist_not_promoted",
+      "status": "quarantined",
+      "issues": [
+        {
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
+          "severity": "error"
+        }
+      ]
+    },
+    {
+      "id": "SR-0115",
       "code": "confirmed_checklist_not_promoted",
       "status": "quarantined",
       "issues": [
