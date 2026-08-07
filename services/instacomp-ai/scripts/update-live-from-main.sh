@@ -21,6 +21,7 @@ env_file="$service_root/.env"
 site_url="${INSTACOMP_SENTINEL_SITE_URL:-https://truelycollectables.com}"
 tunnel_hostname="${INSTACOMP_SENTINEL_TUNNEL_HOSTNAME:-instacomp.truelycollectables.com}"
 tunnel_url="https://${tunnel_hostname}"
+vercel_cli="vercel@56.2.0"
 
 if [[ -z "$repo_root" || "$service_root" != "$expected_service_root" ]]; then
   echo "Refusing update: InstaComp service is not running from the expected repository layout." >&2
@@ -87,9 +88,9 @@ set_vercel_env() {
   local environment="$3"
   local sensitivity="$4"
   if [[ "$sensitivity" == "sensitive" ]]; then
-    printf '%s' "$value" | npx vercel env add "$name" "$environment" --force --sensitive >/dev/null
+    printf '%s' "$value" | npx --yes "$vercel_cli" env add "$name" "$environment" --force --sensitive --cwd "$repo_root" >/dev/null
   else
-    printf '%s' "$value" | npx vercel env add "$name" "$environment" --force >/dev/null
+    printf '%s' "$value" | npx --yes "$vercel_cli" env add "$name" "$environment" --force --cwd "$repo_root" >/dev/null
   fi
 }
 
@@ -198,7 +199,7 @@ echo "Synchronizing the existing Mac key to Vercel Production without rotating i
 set_vercel_env INSTACOMP_AI_LOCAL_URL "$tunnel_url" production plain
 set_vercel_env INSTACOMP_AI_LOCAL_KEY "$local_key" production sensitive
 set_vercel_env INSTACOMP_SENTINEL_ARCHIVE_TOKEN "$archive_token" production sensitive
-npx vercel --prod --yes
+npx --yes "$vercel_cli" deploy --prod --yes --cwd "$repo_root"
 
 proxy_status_file="$service_root/data/runtime-updates/$timestamp-production-sentinel.json"
 proxy_status_url="${site_url}/api/instacomp/checklist-sentinel?view=status&ts=$(date +%s)"
