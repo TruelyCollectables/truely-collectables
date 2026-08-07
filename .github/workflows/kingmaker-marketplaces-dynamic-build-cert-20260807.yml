@@ -1,0 +1,40 @@
+name: KINGMAKER Marketplaces Dynamic Build Cert 20260807
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/app/kingmaker/marketplaces/page.tsx"
+      - ".github/workflows/kingmaker-marketplaces-dynamic-build-cert-20260807.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  certify-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/kingmaker-marketplaces-dynamic-build-20260807
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Production build
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run build 2>&1 | tee /tmp/kingmaker-build.log
+          grep -Eq '^[[:space:]]*├[[:space:]]+ƒ /kingmaker/marketplaces|^[[:space:]]*└[[:space:]]+ƒ /kingmaker/marketplaces' /tmp/kingmaker-build.log
+          if grep -Fq 'Failed to build /kingmaker/marketplaces/page' /tmp/kingmaker-build.log; then
+            echo 'KINGMAKER marketplaces still timed out during static generation.' >&2
+            exit 1
+          fi
+          echo 'KINGMAKER marketplaces is dynamic and Production build completed.'
