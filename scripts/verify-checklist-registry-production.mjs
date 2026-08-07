@@ -58,8 +58,10 @@ for (const table of requiredTables) {
 // fail-closed contract without inserting/updating/deleting any Registry row.
 // The RPC itself is deliberately NOT retried and is not routed through the
 // read timeout helper: only idempotent table reads get retry/abort treatment.
+// Keep this schema byte-for-byte aligned with buildPlan() in registry-tools.mjs;
+// the verifier test enforces that coupling so the probe cannot drift again.
 const invalidPlan = {
-  schema: "tcos.checklist.import-plan.v1",
+  schema: "tcos.checklist.importPlan.v1",
   validation: { status: "contract_probe_must_fail" },
   source: {
     privateArchiveRequired: true,
