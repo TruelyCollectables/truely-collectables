@@ -1,89 +1,80 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 
-type Seed = { title: string; sport?: string; category?: string; year: string; sourcePage?: string; url: string };
-type Config = {
-  name: "Topps" | "Panini" | "Leaf" | "Upper Deck";
-  seedPath: string;
-  startUrls: string[];
-  trustedHosts: string[];
-  crawlHosts: string[];
-  maxPages: number;
-  checklistPagePattern?: RegExp;
+type Seed = {
+  title: string;
+  sport?: string;
+  category?: string;
+  universe?: string;
+  year: string;
+  sourcePage?: string;
+  url: string;
 };
 
-const configs: Config[] = [
-  {
-    name: "Topps",
-    seedPath: "data/topps-checklist-seeds.json",
-    startUrls: [
-      "https://www.topps.com/pages/checklists",
-      "https://www.topps.com/pages/checklists/",
-    ],
-    trustedHosts: ["topps.com", "www.topps.com", "cdn.shopify.com"],
-    crawlHosts: ["topps.com", "www.topps.com"],
-    maxPages: 1000,
-  },
-  {
-    name: "Panini",
-    seedPath: "data/panini-checklist-seeds.json",
-    startUrls: [
-      "https://blog.paniniamerica.net/wp-sitemap.xml",
-      "https://blog.paniniamerica.net/sitemap_index.xml",
-      "https://blog.paniniamerica.net/wp-json/wp/v2/search?search=checklist&per_page=100&page=1",
-      "https://blog.paniniamerica.net/wp-json/wp/v2/posts?search=checklist&per_page=100&page=1&_fields=link,date,title,content",
-      "https://blog.paniniamerica.net/?s=checklist",
-      "https://www.paniniamerica.net/checklist.html",
-    ],
-    trustedHosts: ["paniniamerica.net", "www.paniniamerica.net", "blog.paniniamerica.net", "assets.paniniamerica.net"],
-    crawlHosts: ["paniniamerica.net", "www.paniniamerica.net", "blog.paniniamerica.net"],
-    maxPages: 5000,
-    checklistPagePattern: /^\/(?!wp-admin|wp-login)(?:[^?#]*checklist[^?#]*|wp-json\/wp\/v2\/(?:posts|search))(?:\/)?$/i,
-  },
-  {
-    name: "Leaf",
-    seedPath: "data/leaf-checklist-seeds.json",
-    startUrls: [
-      "https://www.leaftradingcards.com/",
-      "https://www.leaftradingcards.com/sitemap.xml",
-    ],
-    trustedHosts: ["leaftradingcards.com", "www.leaftradingcards.com", "cdn.prod.website-files.com", "docs.google.com", "drive.google.com"],
-    crawlHosts: ["leaftradingcards.com", "www.leaftradingcards.com"],
-    maxPages: 1000,
-  },
-  {
-    name: "Upper Deck",
-    seedPath: "data/upper-deck-checklist-seeds.json",
-    startUrls: [
-      "https://upperdeck.com/checklists/",
-      "https://upperdeck.com/checklist-category/hockey/",
-      "https://upperdeck.com/category/checklist/",
-      "https://upperdeck.com/wp-sitemap.xml",
-    ],
-    trustedHosts: ["upperdeck.com", "www.upperdeck.com"],
-    crawlHosts: ["upperdeck.com", "www.upperdeck.com"],
-    maxPages: 1500,
-    checklistPagePattern: /^\/checklist\/[^/]+\/?$/i,
-  },
-];
+type Manufacturer = {
+  id: string;
+  name: string;
+  seedPath: string;
+  startUrls: string[];
+  officialHosts: string[];
+  crawlHosts: string[];
+  maxPages: number;
+  sourcePatterns: string[];
+  includeStartUrlsAsSources?: boolean;
+  classificationField: "sport" | "category" | "universe";
+  defaultClassification: string;
+};
+
+type Policy = {
+  schema: string;
+  manufacturers: Manufacturer[];
+};
+
+const POLICY_PATH = resolve(
+  process.cwd(),
+  process.env.CHECKLIST_MANUFACTURER_POLICY ||
+    "data/official-checklist-manufacturers.json",
+);
+const REPORT_PATH = resolve(
+  process.cwd(),
+  process.env.CHECKLIST_DISCOVERY_REPORT ||
+    ".checklist-discovery/official-discovery-report.json",
+);
+const SELECTED = new Set(
+  (process.env.CHECKLIST_DISCOVERY_MANUFACTURERS || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean),
+);
 
 const FILE_RE = /\.(pdf|xlsx?|csv|tsv|json|xml|html?|zip)(?:$|[?#])/i;
-const CHECKLIST_RE = /(checklist|check-list|check_list|public[_-]?cl|\bcl(?:[_-]|\b))/i;
+const SOURCE_WORD_RE = /(checklist|check-list|check_list|card.?list|card.?gallery|card.?search|expansion|product)/i;
 
 function hostAllowed(host: string, allowed: string[]) {
   const value = host.toLowerCase();
-  return allowed.some((item) => value === item || value.endsWith(`.${item}`));
+  return allowed.some(
+    (candidate) =>
+      value === candidate.toLowerCase() ||
+      value.endsWith(`.${candidate.toLowerCase()}`),
+  );
 }
 
 function decodeHtml(value: string) {
   return value
     .replace(/\\\//g, "/")
     .replace(/\\u0026/gi, "&")
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">");
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">");
+}
+
+function canonicalUrl(value: string, base: string) {
+  const url = new URL(decodeHtml(value), base);
+  if (url.protocol !== "https:") return null;
+  url.hash = "";
+  return url.toString();
 }
 
 function extractLinks(body: string, base: string) {
@@ -97,11 +88,9 @@ function extractLinks(body: string, base: string) {
   ];
   for (const pattern of patterns) {
     for (const match of normalized.matchAll(pattern)) {
-      const raw = decodeHtml(match[1] || match[0]);
       try {
-        const url = new URL(raw, base);
-        url.hash = "";
-        links.add(url.toString());
+        const url = canonicalUrl(match[1] || match[0], base);
+        if (url) links.add(url);
       } catch {
         // Ignore malformed links.
       }
@@ -113,140 +102,213 @@ function extractLinks(body: string, base: string) {
 function guessYear(value: string) {
   const range = value.match(/\b(20\d{2})[-_/](\d{2})\b/);
   if (range) return `${range[1]}-${range[2]}`;
-  return value.match(/\b(19\d{2}|20\d{2})\b/)?.[1] || "Unknown";
+  return value.match(/\b(19\d{2}|20\d{2})\b/)?.[1] || "Current";
 }
 
-function guessCategory(value: string) {
+function guessClassification(value: string, fallback: string) {
+  if (["pokemon", "yu-gi-oh", "magic-the-gathering", "lorcana"].includes(fallback)) {
+    return fallback;
+  }
   const text = value.toLowerCase();
   const categories: Array<[string, string[]]> = [
-    ["Baseball", ["baseball", "bowman"]], ["Basketball", ["basketball", "nba", "wnba", "nbl", "hoops"]],
-    ["Football", ["football", "nfl", "ufl", "gridiron"]], ["Hockey", ["hockey", "nhl", "pwhl", "ahl", "chl", "o-pee-chee", "parkhurst"]],
-    ["Soccer", ["soccer", "uefa", "premier league", "mls", "fifa"]], ["Wrestling", ["wwe", "wrestling", "aew"]],
-    ["Racing", ["formula 1", "formula-1", "f1", "racing", "nascar"]], ["UFC", ["ufc", "mma", "fight"]],
-    ["Golf", ["golf"]], ["Celebrity", ["pop century", "celebrity"]],
+    ["Baseball", ["baseball", "bowman"]],
+    ["Basketball", ["basketball", "nba", "wnba", "hoops"]],
+    ["Football", ["football", "nfl", "ufl", "gridiron"]],
+    ["Hockey", ["hockey", "nhl", "pwhl", "ahl", "chl", "o-pee-chee", "parkhurst"]],
+    ["Soccer", ["soccer", "uefa", "premier league", "mls", "fifa"]],
+    ["Wrestling", ["wwe", "wrestling", "aew"]],
+    ["Racing", ["formula 1", "formula-1", "f1", "racing", "nascar"]],
+    ["MMA", ["ufc", "mma", "fight"]],
+    ["Golf", ["golf"]],
+    ["Celebrity", ["pop century", "celebrity"]],
     ["Entertainment", ["star wars", "marvel", "disney", "pixar", "spongebob", "stranger things", "dune", "garbage pail", "wacky packages", "dc", "entertainment"]],
-    ["Multi-Sport", ["multi-sport", "multisport", "national silver", "national vip", "father's day", "fathers day", "black friday", "sports heroes", "game used", "goodwin champions"]],
+    ["Multi-Sport", ["multi-sport", "multisport", "national silver", "national vip", "father's day", "black friday", "sports heroes", "goodwin champions"]],
   ];
-  for (const [category, needles] of categories) if (needles.some((needle) => text.includes(needle))) return category;
-  return "Miscellaneous";
+  for (const [category, needles] of categories) {
+    if (needles.some((needle) => text.includes(needle))) return category;
+  }
+  return fallback;
 }
 
 function titleFromUrl(url: string) {
   const pathname = decodeURIComponent(new URL(url).pathname);
-  const file = pathname.split("/").filter(Boolean).pop() || "Official Checklist";
-  return file.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+  const file = pathname.split("/").filter(Boolean).at(-1) || "Official Checklist";
+  return file
+    .replace(/\.[^.]+$/, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
-async function fetchText(url: string) {
+function addSeed(
+  byUrl: Map<string, Seed>,
+  manufacturer: Manufacturer,
+  url: string,
+  sourcePage?: string,
+) {
+  if (byUrl.has(url)) return false;
+  const title = titleFromUrl(url);
+  const classification = guessClassification(
+    `${title} ${url} ${sourcePage || ""}`,
+    manufacturer.defaultClassification,
+  );
+  const seed: Seed = {
+    title,
+    year: guessYear(`${title} ${url} ${sourcePage || ""}`),
+    url,
+    ...(sourcePage ? { sourcePage } : {}),
+  };
+  if (manufacturer.classificationField === "sport") seed.sport = classification;
+  if (manufacturer.classificationField === "category") seed.category = classification;
+  if (manufacturer.classificationField === "universe") seed.universe = classification;
+  byUrl.set(url, seed);
+  return true;
+}
+
+function isSourceCandidate(manufacturer: Manufacturer, url: URL) {
+  const target = `${url.pathname}${url.search}`;
+  const configured = manufacturer.sourcePatterns.some((pattern) => {
+    try {
+      return new RegExp(pattern, "i").test(target);
+    } catch {
+      return target.toLowerCase().includes(pattern.toLowerCase());
+    }
+  });
+  return configured || (FILE_RE.test(target) && SOURCE_WORD_RE.test(target));
+}
+
+function isUsefulCrawlUrl(url: URL) {
+  return /checklist|card|product|products|collection|collections|category|brand|license|page\/|sitemap|wp-json\/wp\/v2|\?s=/i.test(
+    `${url.pathname}${url.search}`,
+  );
+}
+
+async function fetchText(url: string, manufacturer: Manufacturer) {
   const response = await fetch(url, {
     headers: {
-      "User-Agent": "Mozilla/5.0 (compatible; TCOS-Checklist-Discovery/3.0; +https://totallycollectibles.com)",
       Accept: "text/html,application/xhtml+xml,application/xml,text/xml,application/json,*/*",
       "Accept-Language": "en-US,en;q=0.9",
       Referer: new URL(url).origin + "/",
+      "User-Agent": "TCOS-Official-Checklist-Discovery/4.0 (+private registry automation; contact sales@truelycollectables.com)",
     },
     redirect: "follow",
     signal: AbortSignal.timeout(60_000),
   });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  const contentType = response.headers.get("content-type") || "";
-  if (!contentType.includes("text") && !contentType.includes("html") && !contentType.includes("json") && !contentType.includes("xml")) return "";
-  return response.text();
+  if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
+  const finalUrl = response.url || url;
+  const finalHost = new URL(finalUrl).hostname;
+  if (!hostAllowed(finalHost, [...manufacturer.officialHosts, ...manufacturer.crawlHosts])) {
+    throw new Error(`Redirected outside official host allowlist: ${finalHost}`);
+  }
+  const type = response.headers.get("content-type") || "";
+  if (!/(text|html|json|xml)/i.test(type)) return { body: "", finalUrl };
+  return { body: await response.text(), finalUrl };
 }
 
-function enqueueWordPressPagination(config: Config, page: string, body: string, queue: string[], seenPages: Set<string>) {
-  if (config.name !== "Panini") return;
-  const parsed = new URL(page);
-  if (!parsed.pathname.startsWith("/wp-json/wp/v2/")) return;
-  const current = Number(parsed.searchParams.get("page") || "1");
-  if (!Number.isFinite(current) || current >= 100) return;
-  const items = body.trim().startsWith("[") ? (body.match(/"(?:id|link)"\s*:/g)?.length ?? 0) : 0;
-  if (items < 1) return;
-  const next = new URL(parsed);
-  next.searchParams.set("page", String(current + 1));
-  if (!seenPages.has(next.toString()) && !queue.includes(next.toString())) queue.push(next.toString());
-}
-
-async function discover(config: Config) {
-  const seedFile = resolve(process.cwd(), config.seedPath);
-  const existing = JSON.parse(readFileSync(seedFile, "utf8")) as Seed[];
+async function discover(manufacturer: Manufacturer) {
+  const seedFile = resolve(process.cwd(), manufacturer.seedPath);
+  let existing: Seed[] = [];
+  try {
+    existing = JSON.parse(readFileSync(seedFile, "utf8")) as Seed[];
+  } catch {
+    existing = [];
+  }
   const byUrl = new Map(existing.map((seed) => [seed.url, seed]));
-  const queue = [...config.startUrls];
-  const seenPages = new Set<string>();
-  const pageFailures: Array<{ url: string; error: string; startPage: boolean }> = [];
-  let newFiles = 0;
+  const queue = [...manufacturer.startUrls];
+  const seen = new Set<string>();
+  const failures: Array<{ url: string; error: string }> = [];
+  let newlyDiscovered = 0;
 
-  while (queue.length && seenPages.size < config.maxPages) {
-    const page = queue.shift()!;
-    if (seenPages.has(page)) continue;
-    seenPages.add(page);
-    try {
-      const body = await fetchText(page);
-      enqueueWordPressPagination(config, page, body, queue, seenPages);
-      for (const link of extractLinks(body, page)) {
-        const parsed = new URL(link);
-        const isFile = FILE_RE.test(parsed.pathname) && CHECKLIST_RE.test(link);
-        const isChecklistPage = Boolean(config.checklistPagePattern?.test(parsed.pathname));
-        if ((isFile || isChecklistPage) && hostAllowed(parsed.hostname, config.trustedHosts)) {
-          if (!byUrl.has(link)) {
-            const title = titleFromUrl(link);
-            const category = guessCategory(`${title} ${page}`);
-            byUrl.set(link, {
-              title,
-              year: guessYear(`${title} ${link} ${page}`),
-              url: link,
-              sourcePage: page,
-              ...(config.name === "Leaf" ? { category } : { sport: category }),
-            });
-            newFiles += 1;
-          }
-          if (isChecklistPage && !FILE_RE.test(parsed.pathname) && !seenPages.has(link) && !queue.includes(link)) queue.push(link);
-          continue;
-        }
-        if (!hostAllowed(parsed.hostname, config.crawlHosts)) continue;
-        const path = parsed.pathname.toLowerCase();
-        const useful = /checklist|product|products|collection|collections|category|brand|license|page\/|sitemap|wp-json\/wp\/v2|\?s=/.test(`${path}${parsed.search}`) || parsed.searchParams.has("page") || parsed.searchParams.has("s");
-        if (useful && !seenPages.has(link) && !queue.includes(link)) queue.push(link);
+  if (manufacturer.includeStartUrlsAsSources) {
+    for (const startUrl of manufacturer.startUrls) {
+      const parsed = new URL(startUrl);
+      if (hostAllowed(parsed.hostname, manufacturer.officialHosts)) {
+        if (addSeed(byUrl, manufacturer, startUrl)) newlyDiscovered += 1;
       }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const apiEnd = config.name === "Panini" && /wp-json\/wp\/v2/.test(page) && /HTTP 400/.test(message) && Number(new URL(page).searchParams.get("page") || "1") > 1;
-      if (!apiEnd) pageFailures.push({ url: page, error: message, startPage: config.startUrls.includes(page) });
     }
   }
 
-  const seeds = [...byUrl.values()].sort((a, b) => `${a.year}|${a.title}`.localeCompare(`${b.year}|${b.title}`));
-  writeFileSync(seedFile, JSON.stringify(seeds, null, 2) + "\n");
-  const hitPageLimit = seenPages.size >= config.maxPages && queue.length > 0;
-  const successfulStartPages = config.startUrls.length - pageFailures.filter((failure) => failure.startPage).length;
-  const catalogScanComplete = queue.length === 0 && !hitPageLimit && pageFailures.length === 0 && seenPages.size > 0;
-  const discoveryStatus = catalogScanComplete ? "catalog-scan-complete" : successfulStartPages > 0 ? "still-discovering" : "discovery-blocked";
+  while (queue.length && seen.size < manufacturer.maxPages) {
+    const requested = queue.shift();
+    if (!requested || seen.has(requested)) continue;
+    seen.add(requested);
+    try {
+      const { body, finalUrl } = await fetchText(requested, manufacturer);
+      for (const link of extractLinks(body, finalUrl)) {
+        const parsed = new URL(link);
+        if (
+          hostAllowed(parsed.hostname, manufacturer.officialHosts) &&
+          isSourceCandidate(manufacturer, parsed)
+        ) {
+          if (addSeed(byUrl, manufacturer, link, finalUrl)) newlyDiscovered += 1;
+        }
+        if (
+          hostAllowed(parsed.hostname, manufacturer.crawlHosts) &&
+          isUsefulCrawlUrl(parsed) &&
+          !seen.has(link) &&
+          !queue.includes(link)
+        ) {
+          queue.push(link);
+        }
+      }
+    } catch (error) {
+      failures.push({
+        url: requested,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  const seeds = [...byUrl.values()].sort((left, right) =>
+    `${right.year}|${right.title}|${right.url}`.localeCompare(
+      `${left.year}|${left.title}|${left.url}`,
+      undefined,
+      { numeric: true, sensitivity: "base" },
+    ),
+  );
+  mkdirSync(dirname(seedFile), { recursive: true });
+  writeFileSync(seedFile, `${JSON.stringify(seeds, null, 2)}\n`, "utf8");
+
   return {
-    manufacturer: config.name,
-    seedPath: config.seedPath,
-    startUrls: config.startUrls,
-    pagesScanned: seenPages.size,
-    pagesRemaining: queue.length,
-    pageLimit: config.maxPages,
-    hitPageLimit,
-    successfulStartPages,
-    catalogScanComplete,
-    discoveryStatus,
+    manufacturerId: manufacturer.id,
+    manufacturer: manufacturer.name,
+    seedPath: manufacturer.seedPath,
     knownBefore: existing.length,
-    newlyDiscovered: newFiles,
+    newlyDiscovered,
     discoveredTotal: seeds.length,
-    pageFailures,
+    pagesScanned: seen.size,
+    pagesRemaining: queue.length,
+    hitPageLimit: queue.length > 0 && seen.size >= manufacturer.maxPages,
+    failures,
   };
 }
 
 async function main() {
+  const policy = JSON.parse(readFileSync(POLICY_PATH, "utf8")) as Policy;
+  if (policy.schema !== "tcos.officialManufacturerChecklistPolicy.v1") {
+    throw new Error(`Unsupported manufacturer policy schema: ${policy.schema}`);
+  }
+  const manufacturers = policy.manufacturers.filter(
+    (manufacturer) => SELECTED.size === 0 || SELECTED.has(manufacturer.id),
+  );
+  if (!manufacturers.length) throw new Error("No configured manufacturers were selected.");
+
   const reports = [];
-  for (const config of configs) reports.push(await discover(config));
-  const output = { schema: "tcos.checklistDiscoveryReport.v3", generatedAt: new Date().toISOString(), manufacturers: reports };
-  const dir = resolve(process.cwd(), ".checklist-discovery");
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(resolve(dir, "report.json"), JSON.stringify(output, null, 2) + "\n");
-  console.log(JSON.stringify(reports.map((row) => ({ manufacturer: row.manufacturer, pagesScanned: row.pagesScanned, pageFailures: row.pageFailures.length, newlyDiscovered: row.newlyDiscovered, discoveredTotal: row.discoveredTotal, catalogScanComplete: row.catalogScanComplete, discoveryStatus: row.discoveryStatus }))));
+  for (const manufacturer of manufacturers) {
+    reports.push(await discover(manufacturer));
+  }
+  const output = {
+    schema: "tcos.officialManufacturerChecklistDiscovery.v1",
+    generatedAt: new Date().toISOString(),
+    policy: "official_manufacturer_only",
+    manufacturers: reports,
+  };
+  mkdirSync(dirname(REPORT_PATH), { recursive: true });
+  writeFileSync(REPORT_PATH, `${JSON.stringify(output, null, 2)}\n`, "utf8");
+  console.log(JSON.stringify(output, null, 2));
 }
 
-main().catch((error) => { console.error(error); process.exitCode = 1; });
+main().catch((error) => {
+  console.error(error instanceof Error ? error.stack || error.message : error);
+  process.exitCode = 1;
+});

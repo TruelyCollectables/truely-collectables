@@ -1,0 +1,70 @@
+{
+  "schema": "instacomp.aiChecklistSentinelConfig.v1",
+  "serviceName": "InstaComp AI Checklist Sentinel™",
+  "sourceRunId": 31100986894,
+  "modernGapKeysFile": "data/checklist-recovery-modern-gap-keys.txt",
+  "schedule": {
+    "frequency": "daily",
+    "intervalHours": 24,
+    "githubCronUtc": "17 16 * * *",
+    "progressCheckpointMinutes": 5
+  },
+  "searchRegistry": {
+    "searchEngines": [
+      "Google",
+      "Bing"
+    ],
+    "officialManufacturers": [
+      "Topps",
+      "Upper Deck",
+      "Panini America",
+      "Leaf Trading Cards"
+    ],
+    "establishedChecklistSources": [
+      "BaseballCardPedia",
+      "Beckett",
+      "Cardboard Connection",
+      "Break Ninja",
+      "GoGTS",
+      "Cardboard Checklist",
+      "KeyMan Collectibles",
+      "Sports Card Radio"
+    ],
+    "archives": [
+      "Internet Archive",
+      "Wayback Machine"
+    ],
+    "communityLeadSources": [
+      "Reddit",
+      "Blowout Forums",
+      "TCDB",
+      "publicly shared checklist spreadsheets"
+    ],
+    "acceptedFileTypes": [
+      "pdf",
+      "xlsx",
+      "xls",
+      "csv",
+      "tsv",
+      "html",
+      "txt"
+    ],
+    "queryPatterns": [
+      "exact season manufacturer product checklist",
+      "exact season manufacturer product checklist PDF",
+      "exact season manufacturer product checklist XLSX CSV",
+      "site-specific exact set checklist query",
+      "sport year checklist",
+      "sport decade checklist",
+      "archived exact set checklist"
+    ]
+  },
+  "policy": {
+    "scope": "Every known missing mainstream sports set from 2000 through the current year, every known pre-2000 sports set identity without checklist rows, and broad vintage discovery for set identities not yet in the master catalog.",
+    "communitySources": "Reddit, Blowout Forums, TCDB, and shared spreadsheets are discovery leads only until provenance and redistribution permission are confirmed.",
+    "dedupe": "Exact set keys are unique. Recovered files are SHA-256 hashed and source items are deduplicated before catalog merge.",
+    "downloadRule": "Automatically download only public, permitted, exact-set checklist files or factual tables from trusted sources. Never bypass logins, paywalls, CAPTCHAs, robots restrictions, or access controls.",
+    "completeness": "The Sentinel searches both known gaps and broad year-, decade-, manufacturer-, and sport-based discovery queries so new or previously unknown checklist identities can enter the review queue.",
+    "freezeProtection": "Write atomic progress and checkpoint files every five minutes, save on termination signals, restore cached state, detect stale progress, and resume unfinished targets without duplicating completed work."
+  }
+}

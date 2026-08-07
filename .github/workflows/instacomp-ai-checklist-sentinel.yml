@@ -1,0 +1,230 @@
+name: InstaComp AI Checklist Sentinel™
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Sports Card Checklist Phase 1 run containing the base master catalog
+        required: true
+        default: "31100986894"
+      max_targets:
+        description: Maximum unresolved exact-set targets processed in this pass
+        required: true
+        default: "75"
+      enable_google:
+        description: Search Google in addition to Bing, Reddit, Internet Archive, forums, and configured checklist sites
+        required: true
+        default: true
+        type: boolean
+  schedule:
+    # Daily. GitHub cron is UTC; this is approximately 10:17 AM Denver during daylight time.
+    - cron: "17 16 * * *"
+  pull_request:
+    paths:
+      - "data/checklist-recovery-targets.json"
+      - "data/checklist-recovery-modern-gap-keys.txt"
+      - "scripts/build-checklist-recovery-targets.mjs"
+      - "scripts/recover-missing-checklists.mjs"
+      - "scripts/run-checklist-recovery.mjs"
+      - "scripts/merge-recovery-catalog.mjs"
+      - ".github/workflows/instacomp-ai-checklist-sentinel.yml"
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: instacomp-ai-checklist-sentinel-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  sentinel:
+    name: Search, verify, dedupe, download, checkpoint, and merge
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      INSTACOMP_SENTINEL_NAME: "InstaComp AI Checklist Sentinel™"
+      SOURCE_RUN_ID: ${{ inputs.source_run_id || '31100986894' }}
+      CHECKLIST_RECOVERY_MAX_TARGETS: ${{ inputs.max_targets || '75' }}
+      CHECKLIST_ENABLE_GOOGLE: ${{ inputs.enable_google == false && 'false' || 'true' }}
+      CHECKLIST_RECOVERY_PROGRESS_INTERVAL_MS: "300000"
+      CHECKLIST_RECOVERY_MAX_ATTEMPTS: "5"
+      CHECKLIST_RECOVERY_SEARCH_DELAY_MS: "1200"
+      CHECKLIST_MAX_DOWNLOAD_BYTES: "50000000"
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install deterministic document extractors
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends poppler-utils unzip
+          pdftotext -v
+          unzip -v | head -n 2
+
+      - name: Restore Sentinel freeze-protection checkpoint
+        id: restore-state
+        uses: actions/cache/restore@v4
+        with:
+          path: .checklist-recovery-state
+          key: instacomp-checklist-sentinel-${{ github.event.pull_request.head.ref || github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            instacomp-checklist-sentinel-${{ github.event.pull_request.head.ref || github.ref_name }}-
+
+      - name: Download base master checklist catalog
+        run: |
+          set -euo pipefail
+          artifact_name="sports-card-checklist-master-catalog-${SOURCE_RUN_ID}"
+          artifact_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}/artifacts" --paginate --jq ".artifacts[] | select(.name == \"${artifact_name}\") | .id" | head -n 1)"
+          test -n "${artifact_id}"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > base-master-catalog.zip
+          unzip -q base-master-catalog.zip
+          test -f .card-checklist-master-archive/master-sets.json
+          test -f .card-checklist-master-archive/source-items.json
+
+      - name: Validate Sentinel configuration and scripts
+        run: |
+          node --check scripts/checklist-sources/shared.mjs
+          node --check scripts/build-checklist-recovery-targets.mjs
+          node --check scripts/recover-missing-checklists.mjs
+          node --check scripts/run-checklist-recovery.mjs
+          node --check scripts/merge-recovery-catalog.mjs
+          node -e "const x=require('./data/checklist-recovery-targets.json'); if(!x.modernGapKeysFile || x.serviceName !== 'InstaComp AI Checklist Sentinel™') process.exit(1); console.log(x.schema)"
+
+      - name: Build modern, vintage, and newly discovered exact-set target ledger
+        env:
+          CHECKLIST_BASE_CATALOG_ROOT: ".card-checklist-master-archive"
+          CHECKLIST_RECOVERY_CONFIG: "data/checklist-recovery-targets.json"
+          CHECKLIST_RECOVERY_TARGETS_OUTPUT: ".checklist-recovery-state/targets.json"
+        run: node scripts/build-checklist-recovery-targets.mjs
+
+      - name: Search all configured sources with five-minute tracker and watchdog
+        id: sentinel-search
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .checklist-recovery-state
+          CHECKLIST_RECOVERY_TARGETS=.checklist-recovery-state/targets.json node scripts/run-checklist-recovery.mjs &
+          crawler_pid=$!
+          trap 'kill -TERM "${crawler_pid}" 2>/dev/null || true; wait "${crawler_pid}" || true' TERM INT EXIT
+
+          while kill -0 "${crawler_pid}" 2>/dev/null; do
+            sleep 300
+            if [ -f .checklist-recovery-state/progress.json ]; then
+              cat .checklist-recovery-state/progress.json
+              now_epoch="$(date +%s)"
+              modified_epoch="$(stat -c %Y .checklist-recovery-state/progress.json)"
+              age="$((now_epoch - modified_epoch))"
+              if [ "${age}" -gt 720 ]; then
+                echo "Sentinel progress is stale (${age}s). Sending SIGTERM so state is saved and the next pass resumes."
+                kill -TERM "${crawler_pid}" || true
+                wait "${crawler_pid}" || true
+                exit 124
+              fi
+            fi
+          done
+
+          wait "${crawler_pid}"
+          crawler_status=$?
+          trap - TERM INT EXIT
+          exit "${crawler_status}"
+
+      - name: Organize recovered exact sets
+        if: always()
+        env:
+          CHECKLIST_ARCHIVE_INPUTS: ".checklist-recovery-source-archive/recovery=recovery"
+          CHECKLIST_ORGANIZED_OUTPUT: ".checklist-recovery-organized"
+        run: |
+          if find .checklist-recovery-source-archive/recovery/items -name metadata.json -print -quit 2>/dev/null | grep -q .; then
+            node scripts/organize-universal-checklist-archive.mjs
+          else
+            mkdir -p .checklist-recovery-organized
+            printf '[]\n' > .checklist-recovery-organized/master-sets.json
+            printf '[]\n' > .checklist-recovery-organized/source-items.json
+          fi
+
+      - name: Merge verified recoveries into the deduplicated checklist database
+        if: always()
+        env:
+          CHECKLIST_BASE_CATALOG_ROOT: ".card-checklist-master-archive"
+          CHECKLIST_RECOVERY_ORGANIZED_ROOT: ".checklist-recovery-organized"
+          CHECKLIST_RECOVERY_MASTER_ROOT: ".card-checklist-recovery-master"
+          CHECKLIST_RECOVERY_TARGETS: ".checklist-recovery-state/targets.json"
+        run: node scripts/merge-recovery-catalog.mjs
+
+      - name: Write Sentinel status
+        if: always()
+        run: |
+          echo "## InstaComp AI Checklist Sentinel™" >> "${GITHUB_STEP_SUMMARY}"
+          echo "" >> "${GITHUB_STEP_SUMMARY}"
+          if [ -f .card-checklist-recovery-master/recovery-summary.json ]; then
+            echo '```json' >> "${GITHUB_STEP_SUMMARY}"
+            cat .card-checklist-recovery-master/recovery-summary.json >> "${GITHUB_STEP_SUMMARY}"
+            echo '```' >> "${GITHUB_STEP_SUMMARY}"
+          fi
+          echo "" >> "${GITHUB_STEP_SUMMARY}"
+          echo "Freeze protection: atomic checkpoints every five minutes, signal-safe shutdown, stale-progress watchdog, cache restore, and resumed passes." >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Package Sentinel evidence and updated checklist database
+        if: always()
+        run: |
+          tar -czf instacomp-ai-checklist-sentinel-${GITHUB_RUN_ID}.tar.gz \
+            .checklist-recovery-source-archive \
+            .checklist-recovery-organized \
+            .card-checklist-recovery-master \
+            .checklist-recovery-state
+
+      - name: Upload five-minute Sentinel progress and catalog
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-ai-checklist-sentinel-status-${{ github.run_id }}
+          path: |
+            .checklist-recovery-state/*.json
+            .card-checklist-recovery-master/recovery-summary.json
+            .card-checklist-recovery-master/master-sets.csv
+            .card-checklist-recovery-master/source-items.csv
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Upload Sentinel database and recovered source files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-ai-checklist-sentinel-database-${{ github.run_id }}
+          path: instacomp-ai-checklist-sentinel-${{ github.run_id }}.tar.gz
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Save Sentinel freeze-protection checkpoint
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .checklist-recovery-state
+          key: instacomp-checklist-sentinel-${{ github.event.pull_request.head.ref || github.ref_name }}-${{ github.run_id }}
+
+      - name: Queue another backlog pass while unresolved targets remain
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          progress=.checklist-recovery-state/progress.json
+          if [ ! -f "${progress}" ]; then
+            exit 0
+          fi
+          pending="$(jq -r '.totals.pending // 0' "${progress}")"
+          if [ "${pending}" -le 0 ]; then
+            exit 0
+          fi
+          target_ref="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
+          gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/instacomp-ai-checklist-sentinel.yml/dispatches" \
+            -f "ref=${target_ref}" \
+            -f "inputs[source_run_id]=${SOURCE_RUN_ID}" \
+            -f "inputs[max_targets]=${CHECKLIST_RECOVERY_MAX_TARGETS}" \
+            -f "inputs[enable_google]=${CHECKLIST_ENABLE_GOOGLE}"
+          echo "Queued another Sentinel backlog pass for ${pending} pending targets." >> "${GITHUB_STEP_SUMMARY}"
