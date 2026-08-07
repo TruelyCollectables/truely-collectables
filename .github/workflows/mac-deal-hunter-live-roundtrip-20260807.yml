@@ -1,0 +1,95 @@
+name: Physical Mac Deal Hunter Live Roundtrip 20260807
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/mac-deal-hunter-live-roundtrip-20260807.yml"
+      - "scripts/run-mac-deal-hunter-live-roundtrip.mjs"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: physical-mac-deal-hunter-live-roundtrip-20260807
+  cancel-in-progress: false
+
+env:
+  EXPECTED_BRANCH: ops/mac-deal-hunter-live-roundtrip-20260807
+  FEATURE_MERGE_SHA: dc781cf690bc9adb389d605d2b2e896e71c20c5e
+  VERCEL_SCOPE: truelycollectables-projects
+  EVIDENCE_DIR: .audit/mac-deal-hunter-live-roundtrip-20260807
+
+jobs:
+  live-roundtrip:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'ops/mac-deal-hunter-live-roundtrip-20260807'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - name: Check out guarded proof branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on feature ancestry and proof-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE_DIR"
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main
+          git merge-base --is-ancestor "$FEATURE_MERGE_SHA" origin/main
+          git merge-base --is-ancestor "$FEATURE_MERGE_SHA" HEAD
+          scope_base="$(git merge-base origin/main HEAD)"
+          mapfile -t changed < <(git diff --name-only "$scope_base"...HEAD | sort)
+          expected=(
+            .github/workflows/mac-deal-hunter-live-roundtrip-20260807.yml
+            scripts/run-mac-deal-hunter-live-roundtrip.mjs
+          )
+          test "${#changed[@]}" -eq "${#expected[@]}"
+          test "$(printf '%s\n' "${changed[@]}")" = "$(printf '%s\n' "${expected[@]}")"
+          git diff --check "$scope_base"...HEAD
+          printf '%s\n' "$(git rev-parse origin/main)" > "$EVIDENCE_DIR/current-main-sha.txt"
+          printf '%s\n' "$FEATURE_MERGE_SHA" > "$EVIDENCE_DIR/feature-merge-sha.txt"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Resolve Production Mac and Supabase credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p .vercel "$RUNNER_TEMP/mac-deal-hunter-roundtrip"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/mac-deal-hunter-roundtrip/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          test -s "$RUNNER_TEMP/mac-deal-hunter-roundtrip/production.env"
+          echo "PRODUCTION_ENV_FILE=$RUNNER_TEMP/mac-deal-hunter-roundtrip/production.env" >> "$GITHUB_ENV"
+
+      - name: Run physical Mac to Production market-history roundtrip
+        run: node scripts/run-mac-deal-hunter-live-roundtrip.mjs
+
+      - name: Remove pulled Production environment
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/mac-deal-hunter-roundtrip/production.env"
+
+      - name: Upload sanitized roundtrip evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-deal-hunter-live-roundtrip-20260807
+          path: .audit/mac-deal-hunter-live-roundtrip-20260807
+          if-no-files-found: warn
+          retention-days: 90
