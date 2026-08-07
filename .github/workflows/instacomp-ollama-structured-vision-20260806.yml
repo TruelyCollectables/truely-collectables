@@ -1,0 +1,68 @@
+name: InstaComp Ollama Structured Vision 20260806
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/patch-instacomp-ollama-structured-vision.py"
+      - "services/instacomp-ai/app/ollama.py"
+      - "services/instacomp-ai/tests/**"
+      - ".github/workflows/instacomp-ollama-structured-vision-20260806.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instacomp-ollama-structured-vision-20260806
+  cancel-in-progress: false
+
+env:
+  EXPECTED_BRANCH: fix/instacomp-ollama-structured-vision-20260806
+
+jobs:
+  apply-and-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Apply exact runtime patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          python3 scripts/patch-instacomp-ollama-structured-vision.py
+          grep -q 'OLLAMA_OUTPUT_SCHEMA = OllamaStructuredSuggestion.model_json_schema()' services/instacomp-ai/app/ollama.py
+          grep -q '/api/chat' services/instacomp-ai/app/ollama.py
+          grep -q 'progressive=False' services/instacomp-ai/app/ollama.py
+          grep -q '"num_predict": 2048' services/instacomp-ai/app/ollama.py
+          git diff --check
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/instacomp-ai/requirements.txt
+
+      - name: Compile and run complete Mac-service suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          pip install -r services/instacomp-ai/requirements.txt
+          python -m compileall services/instacomp-ai/app services/instacomp-ai/tests
+          PYTHONPATH=services/instacomp-ai pytest -q services/instacomp-ai/tests
+
+      - name: Persist tested runtime file
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add services/instacomp-ai/app/ollama.py
+          if ! git diff --cached --quiet; then
+            git commit -m "Use structured Ollama vision output [skip ci]"
+            git push origin HEAD:$EXPECTED_BRANCH
+          fi
