@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "scripts/reconcile-ebay-pdf-purchases-production.mjs"
+      - "scripts/enforce-ebay-pdf-all-in-purchase-ledger.mjs"
       - ".github/workflows/reconcile-ebay-pdf-purchases-20260807.yml"
   workflow_dispatch:
 
@@ -59,23 +60,25 @@ jobs:
             --scope "$VERCEL_SCOPE" \
             --token "$VERCEL_TOKEN" >/dev/null
           chmod 600 .env.production.local
-          echo "Available Production integration variable names (values withheld):"
-          grep -E '^[A-Za-z_][A-Za-z0-9_]*=' .env.production.local \
-            | cut -d= -f1 \
-            | grep -Ei 'SUPABASE|EBAY' \
-            | sort -u || true
 
-      - name: Reconcile uploaded eBay purchase history into Production Purchase Ledger
-        env:
-          PRODUCTION_ENV_FILE: .env.production.local
-        run: node scripts/reconcile-ebay-pdf-purchases-production.mjs
+      - name: Reconcile PDF purchases and enforce canonical ALL-IN cost
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source .env.production.local
+          set +a
+          node scripts/reconcile-ebay-pdf-purchases-production.mjs
+          node scripts/enforce-ebay-pdf-all-in-purchase-ledger.mjs
 
-      - name: Upload reconciliation receipt
+      - name: Upload reconciliation receipts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ebay-purchase-reconcile-result
-          path: ebay-purchase-reconcile-result.json
+          path: |
+            ebay-purchase-reconcile-result.json
+            ebay-purchase-all-in-enforcement-result.json
           if-no-files-found: error
 
       - name: Remove Production environment file
