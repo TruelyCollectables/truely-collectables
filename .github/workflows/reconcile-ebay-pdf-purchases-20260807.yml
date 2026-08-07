@@ -1,6 +1,5 @@
 name: Reconcile eBay PDF Purchases 20260807
 
-# Retrigger after protected Production env-name diagnostic was added on main.
 on:
   pull_request:
     branches: [main]
@@ -60,6 +59,11 @@ jobs:
             --scope "$VERCEL_SCOPE" \
             --token "$VERCEL_TOKEN" >/dev/null
           chmod 600 .env.production.local
+          echo "Available Production integration variable names (values withheld):"
+          grep -E '^[A-Za-z_][A-Za-z0-9_]*=' .env.production.local \
+            | cut -d= -f1 \
+            | grep -Ei 'SUPABASE|EBAY' \
+            | sort -u || true
 
       - name: Reconcile uploaded eBay purchase history into Production Purchase Ledger
         env:
