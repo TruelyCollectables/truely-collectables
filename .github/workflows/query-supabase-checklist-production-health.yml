@@ -32,7 +32,7 @@ jobs:
           checked_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
           if [[ -z "${SUPABASE_ACCESS_TOKEN:-}" ]]; then
-            jq -n --arg checkedAt "$checked_at" '{schema:"tcos.supabase.checklistProductionHealth.v1",checkedAt:$checkedAt,error:"missing_management_access_token"}' > "$report"
+            jq -n --arg checkedAt "$checked_at" '{schema:"tcos.supabase.checklistProductionHealth.v2",checkedAt:$checkedAt,error:"missing_management_access_token"}' > "$report"
             exit 0
           fi
 
@@ -52,13 +52,14 @@ jobs:
           }
 
           request_json GET "$api" "$RUNNER_TEMP/supabase-health/project"
-          request_json GET "$api/health?services=db&services=rest&services=storage&services=auth&timeout_ms=5000" "$RUNNER_TEMP/supabase-health/services"
+          request_json GET "$api/health?services=db&services=rest&services=storage&services=auth" "$RUNNER_TEMP/supabase-health/services"
 
           sql="select json_build_object(
             'max_connections', current_setting('max_connections')::int,
             'total_connections', (select count(*)::int from pg_stat_activity),
             'active_connections', (select count(*)::int from pg_stat_activity where state = 'active'),
             'idle_connections', (select count(*)::int from pg_stat_activity where state = 'idle'),
+            'idle_in_transaction_connections', (select count(*)::int from pg_stat_activity where state like 'idle in transaction%'),
             'waiting_connections', (select count(*)::int from pg_stat_activity where wait_event is not null),
             'waiting_locks', (select count(*)::int from pg_locks where not granted),
             'checklist_catalog_readable', (select exists(select 1 from public.checklist_source_catalog limit 1)),
@@ -71,6 +72,60 @@ jobs:
                 from pg_stat_activity
                 group by 1,2
                 order by connections desc
+                limit 30
+              ) t
+            ),
+            'blocked_sessions', (
+              select coalesce(json_agg(row_to_json(t)), '[]'::json)
+              from (
+                select
+                  a.pid::int as blocked_pid,
+                  coalesce(nullif(a.application_name,''), '<empty>') as blocked_application,
+                  coalesce(a.usename, '<null>') as blocked_user,
+                  coalesce(a.state, '<null>') as blocked_state,
+                  coalesce(a.wait_event_type, '<null>') as blocked_wait_type,
+                  coalesce(a.wait_event, '<null>') as blocked_wait_event,
+                  round(extract(epoch from (now() - coalesce(a.query_start,a.xact_start,a.backend_start)))::numeric,1) as blocked_age_seconds,
+                  b.pid::int as blocker_pid,
+                  coalesce(nullif(b.application_name,''), '<empty>') as blocker_application,
+                  coalesce(b.usename, '<null>') as blocker_user,
+                  coalesce(b.state, '<null>') as blocker_state,
+                  coalesce(b.wait_event_type, '<null>') as blocker_wait_type,
+                  coalesce(b.wait_event, '<null>') as blocker_wait_event,
+                  round(extract(epoch from (now() - coalesce(b.query_start,b.xact_start,b.backend_start)))::numeric,1) as blocker_age_seconds,
+                  md5(coalesce(a.query,'')) as blocked_query_hash,
+                  md5(coalesce(b.query,'')) as blocker_query_hash
+                from pg_stat_activity a
+                cross join lateral unnest(pg_blocking_pids(a.pid)) bp(blocker_pid)
+                join pg_stat_activity b on b.pid = bp.blocker_pid
+                order by blocker_age_seconds desc, blocked_age_seconds desc
+                limit 50
+              ) t
+            ),
+            'ungranted_lock_types', (
+              select coalesce(json_agg(row_to_json(t)), '[]'::json)
+              from (
+                select locktype, mode, count(*)::int as lock_count
+                from pg_locks
+                where not granted
+                group by locktype, mode
+                order by lock_count desc, locktype, mode
+              ) t
+            ),
+            'long_transactions', (
+              select coalesce(json_agg(row_to_json(t)), '[]'::json)
+              from (
+                select pid::int,
+                       coalesce(nullif(application_name,''), '<empty>') as application_name,
+                       coalesce(usename, '<null>') as user_name,
+                       coalesce(state, '<null>') as state,
+                       coalesce(wait_event_type, '<null>') as wait_event_type,
+                       coalesce(wait_event, '<null>') as wait_event,
+                       round(extract(epoch from (now() - xact_start))::numeric,1) as transaction_age_seconds,
+                       md5(coalesce(query,'')) as query_hash
+                from pg_stat_activity
+                where xact_start is not null and now() - xact_start > interval '30 seconds'
+                order by xact_start
                 limit 30
               ) t
             )
@@ -116,7 +171,7 @@ jobs:
             --argjson servicesError "$services_error" \
             --argjson sqlResult "$sql_result" \
             '{
-              schema:"tcos.supabase.checklistProductionHealth.v1",
+              schema:"tcos.supabase.checklistProductionHealth.v2",
               checkedAt:$checkedAt,
               managementProject:{httpCode:$projectCode, data:$project, transportError:(if $projectStderr=="" then null else $projectStderr end)},
               serviceHealth:{httpCode:$servicesCode, services:$services, error:$servicesError, transportError:(if $servicesStderr=="" then null else $servicesStderr end)},
@@ -130,7 +185,7 @@ jobs:
           report="$RUNNER_TEMP/supabase-health/report.json"
           if [[ ! -s "$report" ]]; then
             mkdir -p "$(dirname "$report")"
-            jq -n --arg checkedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{schema:"tcos.supabase.checklistProductionHealth.v1",checkedAt:$checkedAt,error:"diagnostic_failed_before_report"}' > "$report"
+            jq -n --arg checkedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{schema:"tcos.supabase.checklistProductionHealth.v2",checkedAt:$checkedAt,error:"diagnostic_failed_before_report"}' > "$report"
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -144,4 +199,4 @@ jobs:
             git push origin "HEAD:$STATUS_BRANCH"
           fi
 
-# Failure-proof diagnostic receipt after project-specific PostgREST timeouts: 2026-08-07T18:06Z
+# Lock-graph diagnostic after bounded PostgREST read exhaustion: 2026-08-07T18:13Z
