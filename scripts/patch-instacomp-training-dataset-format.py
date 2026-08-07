@@ -35,6 +35,9 @@ new = '''    return {
         ],
         "metadata": {
 '''
+if new in source:
+    print(f"already patched {path}")
+    raise SystemExit(0)
 if source.count(old) != 1:
     raise SystemExit("training.py dataset-row contract changed unexpectedly")
 path.write_text(source.replace(old, new, 1), encoding="utf-8")
