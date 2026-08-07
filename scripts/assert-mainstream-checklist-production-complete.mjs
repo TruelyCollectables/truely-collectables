@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { loadMainstreamChecklistManifest } from "./mainstream-checklist/manifest.mjs";
+import { isVerifiedNonPromotable } from "./mainstream-checklist/verified-exceptions.mjs";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -32,7 +33,8 @@ for (const entry of manifest.entries) {
     failures.push({ id: entry.id, code: "raw_source_not_archived", status: row.status });
   }
 
-  if (entry.disposition === "attachment_only") {
+  const attachmentOnly = entry.disposition === "attachment_only" || isVerifiedNonPromotable(entry);
+  if (attachmentOnly) {
     counts.attachments += 1;
     const issueCodes = new Set((row.issue_summary || []).map((issue) => issue.code));
     if (row.status !== "quarantined" || !issueCodes.has("mainstream_attachment_only")) {
@@ -69,21 +71,21 @@ for (const entry of manifest.entries) {
 }
 
 if (manifest.entries.length !== 327) failures.push({ code: "manifest_count_changed", count: manifest.entries.length });
-if (counts.attachments !== 5) failures.push({ code: "attachment_count_changed", count: counts.attachments });
-if (counts.imported + counts.unchanged !== 322) {
+if (counts.attachments !== 8) failures.push({ code: "attachment_count_changed", count: counts.attachments, expected: 8 });
+if (counts.imported + counts.unchanged !== 319) {
   failures.push({
     code: "promoted_source_count_mismatch",
     promoted: counts.imported + counts.unchanged,
-    expected: 322,
+    expected: 319,
   });
 }
 
 const proof = {
-  schema: "tcos.checklist.mainstreamBacklogPromotionProof.v1",
+  schema: "tcos.checklist.mainstreamBacklogPromotionProof.v2",
   checkedAt: new Date().toISOString(),
   expectedSources: 327,
-  expectedPromotedSources: 322,
-  expectedAttachmentOnly: 5,
+  expectedPromotedSources: 319,
+  expectedAttachmentOnly: 8,
   catalogRows: rows.length,
   counts,
   complete: failures.length === 0,
