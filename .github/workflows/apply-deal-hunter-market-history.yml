@@ -1,16 +1,18 @@
-name: Apply Deal Hunter Market History Integration
+name: Apply Deal Hunter Market History Integration Proof
 
 on:
   pull_request:
     branches:
       - main
     paths:
+      - "services/instacomp-ai/app/deal_hunter.py"
       - "scripts/patch-deal-hunter-market-history.py"
       - ".github/workflows/apply-deal-hunter-market-history.yml"
   push:
     branches:
-      - agent/mac-deal-hunter-scheduler
+      - agent/mac-deal-hunter-market-history-proof
     paths:
+      - "services/instacomp-ai/app/deal_hunter.py"
       - "scripts/patch-deal-hunter-market-history.py"
       - ".github/workflows/apply-deal-hunter-market-history.yml"
 
@@ -24,7 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: agent/mac-deal-hunter-scheduler
+          ref: agent/mac-deal-hunter-market-history-proof
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -33,6 +35,8 @@ jobs:
       - name: Compile Deal Hunter
         run: python -m py_compile services/instacomp-ai/app/deal_hunter.py
       - name: Run scheduler tests
+        env:
+          PYTHONPATH: services/instacomp-ai
         run: python -m unittest services/instacomp-ai/tests/test_deal_hunter_scheduler.py
       - name: Verify market-history contract
         run: |
@@ -47,10 +51,13 @@ jobs:
               'targetListing',
               'soldComps',
               'activeComps',
+              'X-InstaComp-AI-Key',
           ]
           missing = [item for item in required if item not in text]
           if missing:
               raise SystemExit(f'Missing Deal Hunter market-history integration: {missing}')
+          if 'registry.get("matched") is not True' not in text:
+              raise SystemExit('Missing fail-closed Registry matched gate')
           print('Deal Hunter market-history integration contract passed.')
           PY
       - name: Commit generated integration
@@ -64,4 +71,4 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add services/instacomp-ai/app/deal_hunter.py
           git commit -m "Persist Deal Hunter exact-card market history"
-          git push origin HEAD:agent/mac-deal-hunter-scheduler
+          git push origin HEAD:agent/mac-deal-hunter-market-history-proof
