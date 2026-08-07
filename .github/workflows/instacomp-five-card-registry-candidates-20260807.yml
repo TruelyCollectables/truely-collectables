@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - ops/instacomp-five-card-registry-candidates-20260807
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -36,7 +39,6 @@ jobs:
           PROD_ENV="$RUNNER_TEMP/instacomp-registry-candidates/production.env" node --input-type=module <<'NODE'
           import fs from 'node:fs';
           import { createClient } from '@supabase/supabase-js';
-
           const parsed = {};
           for (const raw of fs.readFileSync(process.env.PROD_ENV, 'utf8').split(/\r?\n/)) {
             const line = raw.trim();
@@ -50,65 +52,39 @@ jobs:
             } else if (value.startsWith("'") && value.endsWith("'")) value = value.slice(1, -1);
             parsed[key] = value;
           }
-
           const url = String(parsed.NEXT_PUBLIC_SUPABASE_URL || '');
           if (!url) throw new Error('Missing Production Supabase URL');
           const projectRef = new URL(url).hostname.split('.')[0];
-          const keysResponse = await fetch(`https://api.supabase.com/v1/projects/${projectRef}/api-keys?reveal=true`, {
-            headers: { Authorization: `Bearer ${process.env.GH_SUPABASE_ACCESS_TOKEN}` },
-          });
+          const keysResponse = await fetch(`https://api.supabase.com/v1/projects/${projectRef}/api-keys?reveal=true`, { headers: { Authorization: `Bearer ${process.env.GH_SUPABASE_ACCESS_TOKEN}` } });
           if (!keysResponse.ok) throw new Error(`Supabase key lookup failed: ${keysResponse.status}`);
           const keys = await keysResponse.json();
-          const serviceRole = keys.find((key) => key?.name === 'service_role' && /^eyJ/.test(String(key?.api_key || '')))
-            || keys.find((key) => key?.secret_jwt_template?.role === 'service_role' && /^eyJ/.test(String(key?.api_key || '')));
+          const serviceRole = keys.find((key) => key?.name === 'service_role' && /^eyJ/.test(String(key?.api_key || ''))) || keys.find((key) => key?.secret_jwt_template?.role === 'service_role' && /^eyJ/.test(String(key?.api_key || '')));
           if (!serviceRole?.api_key) throw new Error('Legacy service_role JWT not found');
           console.log('::add-mask::' + serviceRole.api_key);
-
           const db = createClient(url, serviceRole.api_key, { auth: { persistSession: false, autoRefreshToken: false } });
           const numbers = ['122','116','13','5','118'];
-          const { data, error } = await db
-            .from('checklist_cards')
-            .select([
-              'id','card_number','normalized_card_number','variation','autograph_status','memorabilia_status',
-              'version:checklist_versions!inner(id,is_active,status)',
-              'set:checklist_sets(id,name,normalized_name)',
-              'release:checklist_releases!inner(id,product_name,release_year,season,manufacturer:checklist_manufacturers(name),brand:checklist_brands(name),sport:checklist_sports(name),league:checklist_leagues(name))',
-              'players:checklist_card_players(display_order,player:checklist_players(canonical_name))',
-              'identities:checklist_card_identities(id,variation,autograph_status,memorabilia_status,parallel:checklist_parallels(name,serial_run))'
-            ].join(','))
-            .in('normalized_card_number', numbers)
-            .eq('version.is_active', true)
-            .eq('version.status', 'live')
-            .eq('release.release_year', '2025')
-            .ilike('release.product_name', '%Prizm%')
-            .limit(500);
+          const { data, error } = await db.from('checklist_cards').select([
+            'id','card_number','normalized_card_number','variation','autograph_status','memorabilia_status',
+            'version:checklist_versions!inner(id,is_active,status)',
+            'set:checklist_sets(id,name,normalized_name)',
+            'release:checklist_releases!inner(id,product_name,release_year,season,manufacturer:checklist_manufacturers(name),brand:checklist_brands(name),sport:checklist_sports(name),league:checklist_leagues(name))',
+            'players:checklist_card_players(display_order,player:checklist_players(canonical_name))',
+            'identities:checklist_card_identities(id,variation,autograph_status,memorabilia_status,parallel:checklist_parallels(name,serial_run))'
+          ].join(',')).in('normalized_card_number', numbers).eq('version.is_active', true).eq('version.status', 'live').eq('release.release_year', '2025').ilike('release.product_name', '%Prizm%').limit(500);
           if (error) throw new Error(`${error.code || 'query'}:${error.message}`);
-
           const wantedPlayers = new Set(['sonia citron','dominique malonga','paige bueckers','rickea jackson']);
           const out = [];
           for (const card of data || []) {
             const player = (card.players || []).map((x) => x?.player?.canonical_name).filter(Boolean).join(' / ');
             if (!wantedPlayers.has(player.toLowerCase())) continue;
             for (const identity of card.identities || []) {
-              out.push({
-                cardNumber: card.card_number,
-                player,
-                product: card.release?.product_name || null,
-                setName: card.set?.name || null,
-                cardVariation: card.variation || null,
-                identityVariation: identity.variation || null,
-                parallel: identity.parallel?.name || 'Base',
-                serialRun: identity.parallel?.serial_run ?? null,
-                autographStatus: identity.autograph_status || card.autograph_status || null,
-                memorabiliaStatus: identity.memorabilia_status || card.memorabilia_status || null,
-                identityId: identity.id,
-              });
+              out.push({cardNumber:card.card_number,player,product:card.release?.product_name||null,setName:card.set?.name||null,cardVariation:card.variation||null,identityVariation:identity.variation||null,parallel:identity.parallel?.name||'Base',serialRun:identity.parallel?.serial_run??null,autographStatus:identity.autograph_status||card.autograph_status||null,memorabiliaStatus:identity.memorabilia_status||card.memorabilia_status||null,identityId:identity.id});
             }
           }
-          out.sort((a,b) => a.cardNumber.localeCompare(b.cardNumber, undefined, {numeric:true}) || a.player.localeCompare(b.player) || a.setName.localeCompare(b.setName) || a.parallel.localeCompare(b.parallel));
-          const report = { schema:'tcos.instacomp.fiveCardRegistryCandidates.v1', count:out.length, candidates:out };
-          fs.mkdirSync('evidence/instacomp-five-card-registry-candidates-20260807', { recursive:true });
-          fs.writeFileSync('evidence/instacomp-five-card-registry-candidates-20260807/receipt.json', JSON.stringify(report,null,2));
+          out.sort((a,b) => a.cardNumber.localeCompare(b.cardNumber, undefined, {numeric:true}) || a.player.localeCompare(b.player) || String(a.setName).localeCompare(String(b.setName)) || a.parallel.localeCompare(b.parallel));
+          const report = {schema:'tcos.instacomp.fiveCardRegistryCandidates.v1',count:out.length,candidates:out};
+          fs.mkdirSync('evidence/instacomp-five-card-registry-candidates-20260807',{recursive:true});
+          fs.writeFileSync('evidence/instacomp-five-card-registry-candidates-20260807/receipt.json',JSON.stringify(report,null,2));
           console.log(JSON.stringify(report,null,2));
           NODE
       - uses: actions/upload-artifact@v4
