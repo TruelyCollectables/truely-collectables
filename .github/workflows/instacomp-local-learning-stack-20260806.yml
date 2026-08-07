@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/instacomp-local-learning-stack-20260806.yml"
+      - "scripts/fix-instacomp-apple-vision-compiler.py"
       - "scripts/fix-instacomp-local-learning-patcher.py"
       - "scripts/fix-instacomp-local-learning-runtime.py"
       - "scripts/fix-instacomp-legacy-training-receipts.py"
@@ -42,11 +43,13 @@ jobs:
           python3 scripts/patch-instacomp-training-dataset-format.py
           python3 scripts/fix-instacomp-local-learning-runtime.py
           python3 scripts/fix-instacomp-legacy-training-receipts.py
+          python3 scripts/fix-instacomp-apple-vision-compiler.py
           git diff --check
           grep -q 'class LocalVisionEvidence' services/instacomp-ai/app/models.py
           grep -q 'training_examples' services/instacomp-ai/app/storage.py
           grep -q 'local_vision: dict | None = None' services/instacomp-ai/app/storage.py
           grep -q 'legacy_scan_checklist_receipt_missing' services/instacomp-ai/app/training.py
+          grep -q 'swiftc was not found' services/instacomp-ai/app/apple_vision.py
           grep -q 'analyze_local_vision' services/instacomp-ai/app/main.py
           grep -q 'deterministic_local_evidence' services/instacomp-ai/app/ollama.py
           grep -q 'opencv-python-headless' services/instacomp-ai/requirements.txt
@@ -73,6 +76,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add \
+            services/instacomp-ai/app/apple_vision.py \
             services/instacomp-ai/app/config.py \
             services/instacomp-ai/app/local_vision.py \
             services/instacomp-ai/app/main.py \
