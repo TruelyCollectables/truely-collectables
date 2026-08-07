@@ -4262,8 +4262,8 @@ async function identifyCardWithConfiguredProviderFailover(params: {
           player: registryMatch.player || consensusAi.player,
           year: registryMatch.year ? String(registryMatch.year) : consensusAi.year,
           brand:
-            registryMatch.brand ||
             registryMatch.manufacturer ||
+            registryMatch.brand ||
             consensusAi.brand,
           setName: registrySetName || consensusAi.setName,
           cardNumber: registryMatch.cardNumber || consensusAi.cardNumber,

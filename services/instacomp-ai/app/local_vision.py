@@ -352,25 +352,42 @@ def _all_text(observations: Iterable[OCRObservation]) -> str:
 
 
 def _year_hint(observations: Iterable[OCRObservation]) -> str | None:
+    values = list(observations)
     scores: dict[int, float] = {}
-    for observation in observations:
+    for observation in values:
         text = str(observation.text or "")
-        lowered = text.lower()
+        ox = observation.box.x + observation.box.width / 2
+        oy = observation.box.y + observation.box.height / 2
+        nearby = [text]
+        # Apple Vision can split a footer such as "2025 PANINI" into separate
+        # boxes. Recover same-row context so the release/copyright year still
+        # outranks a season/stat year elsewhere on the back.
+        for candidate in values:
+            if candidate is observation or candidate.side != observation.side:
+                continue
+            cx = candidate.box.x + candidate.box.width / 2
+            cy = candidate.box.y + candidate.box.height / 2
+            if abs(cy - oy) <= 0.075 and abs(cx - ox) <= 0.58:
+                nearby.append(str(candidate.text or ""))
+        context = " ".join(nearby)
+        lowered = context.lower()
         for raw in YEAR_RE.findall(text):
             year = int(raw)
             if not 1900 <= year <= 2035:
                 continue
             score = max(0.05, float(observation.confidence))
+            if observation.side == "back":
+                score += 0.15
             # Product/copyright lines describe the card's release year and must
             # outrank historical season/stat rows such as "2024 WNBA TOTALS".
             if any(name in lowered for name in MANUFACTURERS):
                 score += 5.0
             if any(token in lowered for token in ("prizm", "select", "basketball", "baseball", "hockey", "football")):
                 score += 2.0
-            if "licensed product" in lowered or "©" in text:
+            if "licensed product" in lowered or "©" in context:
                 score += 2.0
             if any(token in lowered for token in ("totals", "season", "ncaa", "stats")):
-                score -= 1.0
+                score -= 1.5
             scores[year] = scores.get(year, 0.0) + score
     if not scores:
         return None
@@ -387,20 +404,43 @@ def _manufacturer_hint(text: str) -> str | None:
 
 def _card_number_hint(observations: Iterable[OCRObservation]) -> str | None:
     values = list(observations)
-    ordered = sorted(
-        values,
-        key=lambda value: (
-            0 if value.side == "back" else 1,
-            -value.confidence,
-            -value.box.height,
-        ),
-    )
-    # First prefer a complete labeled token such as "No. 122".
-    for observation in ordered:
+
+    # Score complete labeled hits instead of returning the first regex match.
+    # Biographical copy can contain phrases such as "No. 1 overall pick"; that
+    # is not the printed card number and must never outrank the short upper-back
+    # card-number marking.
+    labeled: list[tuple[float, str]] = []
+    for observation in values:
+        text = str(observation.text or "").strip()
         for pattern in CARD_NUMBER_PATTERNS:
-            match = pattern.search(observation.text)
-            if match:
-                return match.group(1).strip().upper()
+            match = pattern.search(text)
+            if not match:
+                continue
+            token = match.group(1).strip().upper()
+            if token.isdigit() and 1900 <= int(token) <= 2035:
+                continue
+            cy = observation.box.y + observation.box.height / 2
+            word_count = len(text.split())
+            score = max(0.05, float(observation.confidence))
+            if observation.side == "back":
+                score += 1.0
+            if cy >= 0.72:
+                score += 3.0
+            if word_count <= 3:
+                score += 2.0
+            elif word_count >= 6:
+                score -= 2.5
+            lowered = text.lower()
+            if any(phrase in lowered for phrase in ("overall pick", "draft pick", "season", "totals", "stats")):
+                score -= 4.0
+            trailing = text[match.end():].strip()
+            if len(trailing) > 12:
+                score -= 1.5
+            labeled.append((score, token))
+    if labeled:
+        best_score, best_token = max(labeled, key=lambda value: value[0])
+        if best_score >= 2.5:
+            return best_token
 
     # Apple Vision frequently separates the printed "No." label and the value
     # into adjacent OCR boxes. Pair those boxes geometrically instead of asking
@@ -425,17 +465,30 @@ def _card_number_hint(observations: Iterable[OCRObservation]) -> str | None:
             cy = candidate.box.y + candidate.box.height / 2
             dx = abs(cx - lx)
             dy = abs(cy - ly)
-            # Card-number value is normally on the same row or directly below the
-            # label. Keep the search bounded so jersey/stat numbers are ignored.
             if dx > 0.34 or dy > 0.16:
                 continue
             score = (2.0 - 2.5 * dy - 1.2 * dx) + candidate.confidence
             if cx >= lx - 0.05:
                 score += 0.35
+            if cy >= 0.72:
+                score += 1.0
             token = candidate.text.strip().upper()
             if best is None or score > best[0]:
                 best = (score, token)
-    return best[1] if best else None
+    if best:
+        return best[1]
+
+    # Final fail-closed rescue for a dropped "No." label: accept a standalone
+    # token only when exactly one distinct non-year candidate appears in the
+    # upper portion of the back. Multiple candidates remain unresolved.
+    upper_back_tokens = {
+        value.text.strip().upper()
+        for value in candidates
+        if value.side == "back"
+        and value.confidence >= 0.72
+        and (value.box.y + value.box.height / 2) >= 0.72
+    }
+    return next(iter(upper_back_tokens)) if len(upper_back_tokens) == 1 else None
 
 
 def _player_hint(observations: Iterable[OCRObservation]) -> str | None:

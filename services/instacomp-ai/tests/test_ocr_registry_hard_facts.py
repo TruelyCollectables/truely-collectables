@@ -126,3 +126,56 @@ def test_ollama_merge_uses_hard_ocr_facts_and_drops_unseen_serial_hallucination(
     assert merged["identity"]["serial_number"] is None
     assert merged["identity"]["serial_run"] is None
     assert merged["identity"]["parallel"] is None
+
+
+def test_paige_top_card_number_beats_biography_no_one_overall_pick():
+    front = side("front", [obs("PAIGE BUECKERS", side="front", x=0.2, y=0.1)])
+    back = side(
+        "back",
+        [
+            obs("No. 1 overall pick", side="back", x=0.20, y=0.28, confidence=0.99),
+            obs("No.", side="back", x=0.78, y=0.90, confidence=0.79),
+            obs("5", side="back", x=0.88, y=0.90, confidence=0.76),
+            obs("2024", side="back", x=0.10, y=0.42),
+            obs("WNBA TOTALS", side="back", x=0.22, y=0.42),
+            obs("2025", side="back", x=0.54, y=0.08, confidence=0.83),
+            obs("PANINI - WNBA PRIZM BASKETBALL", side="back", x=0.70, y=0.08, confidence=0.91),
+        ],
+    )
+    identity = build_identity_hints(front=front, back=back, serial=SerialEvidence())
+    assert identity.card_number == "5"
+    assert identity.year == "2025"
+    assert identity.manufacturer == "Panini"
+
+
+def test_unique_upper_back_number_survives_missing_no_label():
+    front = side(
+        "front",
+        [
+            obs("SONIA CITRON", side="front", x=0.25, y=0.08),
+            obs("22", side="front", x=0.48, y=0.55),
+        ],
+    )
+    back = side(
+        "back",
+        [
+            obs("122", side="back", x=0.84, y=0.90, confidence=0.91),
+            obs("32", side="back", x=0.22, y=0.43, confidence=0.96),
+            obs("2025 PANINI - WNBA PRIZM BASKETBALL", side="back", x=0.55, y=0.08),
+        ],
+    )
+    identity = build_identity_hints(front=front, back=back, serial=SerialEvidence())
+    assert identity.card_number == "122"
+
+
+def test_biography_no_one_without_physical_card_number_fails_closed():
+    front = side("front", [obs("PAIGE BUECKERS", side="front", x=0.2, y=0.1)])
+    back = side(
+        "back",
+        [
+            obs("No. 1 overall pick", side="back", x=0.2, y=0.28, confidence=0.99),
+            obs("2025 PANINI - WNBA PRIZM BASKETBALL", side="back", x=0.55, y=0.08),
+        ],
+    )
+    identity = build_identity_hints(front=front, back=back, serial=SerialEvidence())
+    assert identity.card_number is None
