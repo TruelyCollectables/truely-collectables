@@ -1,5 +1,6 @@
 import {
   declaredCardFloor,
+  directPageHasChecklistDownload,
   observedCardLines,
   shouldPreferReader,
 } from "./mainstream-checklist/prefer-complete-reader.mjs";
@@ -45,6 +46,19 @@ assert(declaredCardFloor(metadata) === 100, "Set-size floor was not detected");
 assert(observedCardLines(metadata) === 100, "Metadata rows leaked into card-line count");
 
 assert(
+  directPageHasChecklistDownload('<a href="/files/2024-bowman-draft-checklist.xlsx">Download Checklist</a>'),
+  "Direct page with a checklist spreadsheet was not allowed",
+);
+assert(
+  directPageHasChecklistDownload('<a href="https://cdn.example.test/checklist.pdf">PDF Checklist</a>'),
+  "Direct page with a checklist PDF was not allowed",
+);
+assert(
+  !directPageHasChecklistDownload('<article><p>Five sample cards appear below.</p><p>BD-1 Player</p></article>'),
+  "Thin editorial page without a downloadable checklist would be allowed",
+);
+
+assert(
   shouldPreferReader("https://www.beckett.com/news/2024-bowman-draft-baseball-cards/"),
   "Beckett News should prefer the complete reader representation",
 );
@@ -62,6 +76,8 @@ console.log(JSON.stringify({
   status: "passed",
   declaredFloorEnforced: true,
   truncatedEditorialSourcesRejected: true,
+  directThinShellsRejected: true,
+  directChecklistDownloadsAllowed: true,
   metadataIgnored: true,
   readerHostsRecognized: true,
 }));
