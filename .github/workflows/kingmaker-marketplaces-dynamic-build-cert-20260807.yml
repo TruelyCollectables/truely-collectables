@@ -37,36 +37,39 @@ jobs:
         run: npm ci
       - name: TypeScript
         run: npx tsc --noEmit
-      - name: Pull exact Vercel Production project state
+      - name: Load exact Vercel Production environment
         shell: bash
         run: |
           set -euo pipefail
           test -n "${VERCEL_TOKEN:-}"
           npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
-          npx --yes vercel@56.2.0 pull --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
-          test -s .vercel/.env.production.local
-      - name: Vercel Production build
+          npx --yes vercel@56.2.0 env pull .env.local --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          test -s .env.local
+      - name: Production build with exported Vercel env
         shell: bash
         run: |
           set -euo pipefail
           set -a
-          source .vercel/.env.production.local
+          source .env.local
           set +a
-          test -n "${NEXT_PUBLIC_SUPABASE_URL:-}"
-          test -n "${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}"
-          test -n "${SUPABASE_SERVICE_ROLE_KEY:-}"
-          npx --yes vercel@56.2.0 build --prod --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee /tmp/kingmaker-vercel-build.log
-          if grep -Fq 'Failed to build /kingmaker/marketplaces/page' /tmp/kingmaker-vercel-build.log; then
+          for name in NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY; do
+            if [ -z "${!name:-}" ]; then
+              echo "Required Production environment variable is empty: $name" >&2
+              exit 2
+            fi
+          done
+          npm run build 2>&1 | tee /tmp/kingmaker-build.log
+          if grep -Fq 'Failed to build /kingmaker/marketplaces/page' /tmp/kingmaker-build.log; then
             echo 'KINGMAKER marketplaces still timed out during static generation.' >&2
             exit 1
           fi
-          if grep -Fq 'Export encountered an error on /kingmaker/marketplaces/page' /tmp/kingmaker-vercel-build.log; then
+          if grep -Fq 'Export encountered an error on /kingmaker/marketplaces/page' /tmp/kingmaker-build.log; then
             echo 'KINGMAKER marketplaces still failed static export.' >&2
             exit 1
           fi
-          grep -Eq '^[[:space:]]*├[[:space:]]+ƒ /kingmaker/marketplaces|^[[:space:]]*└[[:space:]]+ƒ /kingmaker/marketplaces' /tmp/kingmaker-vercel-build.log
-          echo 'KINGMAKER marketplaces is dynamic and Vercel Production build completed.'
-      - name: Remove local Vercel state
+          grep -Eq '^[[:space:]]*├[[:space:]]+ƒ /kingmaker/marketplaces|^[[:space:]]*└[[:space:]]+ƒ /kingmaker/marketplaces' /tmp/kingmaker-build.log
+          echo 'KINGMAKER marketplaces is dynamic and Production-equivalent build completed.'
+      - name: Remove local Production environment
         if: always()
         shell: bash
         run: rm -rf .vercel .env.local .env.production.local
