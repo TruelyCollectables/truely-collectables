@@ -267,7 +267,7 @@ export function instaCompAiLocalScanToAi(
   return {
     player,
     year: text(identity.year),
-    brand: text(identity.brand ?? identity.manufacturer),
+    brand: text(identity.manufacturer ?? identity.brand),
     setName,
     cardNumber,
     parallel: text(identity.parallel),

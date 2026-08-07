@@ -179,3 +179,65 @@ def test_biography_no_one_without_physical_card_number_fails_closed():
     )
     identity = build_identity_hints(front=front, back=back, serial=SerialEvidence())
     assert identity.card_number is None
+
+
+def test_real_sonia_notre_dame_text_cannot_become_tre_card_number():
+    front = side(
+        "front",
+        [
+            obs("SONIA CITRON", side="front", x=0.30, y=0.10, confidence=1.0),
+            obs("22", side="front", x=0.53, y=0.565, confidence=1.0),
+        ],
+    )
+    back = side(
+        "back",
+        [
+            # Coordinates mirror the archived Production Apple Vision evidence.
+            obs("No.", side="back", x=0.761, y=0.810, confidence=1.0),
+            obs("122", side="back", x=0.773, y=0.782, confidence=1.0),
+            obs("2024-25 NOTRE DAME", side="back", x=0.187, y=0.349, confidence=1.0),
+            obs("movement, poise and aggression. She's not loud about it, and", side="back", x=0.244, y=0.248, confidence=1.0),
+            obs("2025 PANINI - WNBA PRIZM BASKETBALL", side="back", x=0.55, y=0.15, confidence=1.0),
+        ],
+    )
+    identity = build_identity_hints(front=front, back=back, serial=SerialEvidence())
+    assert identity.card_number == "122"
+    assert identity.card_number != "TRE"
+
+
+def test_real_paige_split_no_label_reaches_printed_five_not_stats_table():
+    front = side(
+        "front",
+        [
+            obs("PAIGE BUECKERS", side="front", x=0.30, y=0.10, confidence=1.0),
+            obs("5", side="front", x=0.530, y=0.592, confidence=1.0),
+        ],
+    )
+    back = side(
+        "back",
+        [
+            # Archived Production OCR: label is high-right, printed 5 is lower.
+            obs("No.", side="back", x=0.782, y=0.847, confidence=1.0),
+            obs("5", side="back", x=0.529, y=0.588, confidence=1.0),
+            # Stats-table values must stay outside the bounded label pairing.
+            obs("756", side="back", x=0.769, y=0.416, confidence=1.0),
+            obs("104", side="back", x=0.724, y=0.388, confidence=1.0),
+            obs("Dallas as the No. 1 overall pick and hit the ground running.", side="back", x=0.234, y=0.213, confidence=1.0),
+            obs("2025 PANINI - WNBA PRIZM BASKETBALL", side="back", x=0.540, y=0.156, confidence=1.0),
+        ],
+    )
+    identity = build_identity_hints(front=front, back=back, serial=SerialEvidence())
+    assert identity.card_number == "5"
+
+
+def test_notre_without_real_number_label_fails_closed():
+    front = side("front", [obs("SONIA CITRON", side="front", x=0.30, y=0.10)])
+    back = side(
+        "back",
+        [
+            obs("2024-25 NOTRE DAME", side="back", x=0.187, y=0.349, confidence=1.0),
+            obs("2025 PANINI - WNBA PRIZM BASKETBALL", side="back", x=0.55, y=0.15, confidence=1.0),
+        ],
+    )
+    identity = build_identity_hints(front=front, back=back, serial=SerialEvidence())
+    assert identity.card_number is None

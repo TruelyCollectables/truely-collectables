@@ -122,14 +122,21 @@ function constantTimeSecretMatch(provided: string, expected: string) {
 export function isValidInstaCompServiceRequest(
   request: Request,
   expectedToken = getInstaCompServiceToken(),
+  acceptanceToken = process.env.INSTACOMP_ACCEPTANCE_SERVICE_TOKEN,
 ) {
   const expected = String(expectedToken || "").trim();
+  const acceptance = String(acceptanceToken || "").trim();
   const provided = String(
     request.headers.get("x-tcos-instacomp-service-token") || "",
   ).trim();
 
+  if (!provided) return false;
+  if (expected && constantTimeSecretMatch(provided, expected)) return true;
+
+  // Acceptance is deliberately a separate, short-lived credential so a
+  // Production proof can never rotate or invalidate the Mac Registry token.
   return Boolean(
-    expected && provided && constantTimeSecretMatch(provided, expected),
+    acceptance.length >= 32 && constantTimeSecretMatch(provided, acceptance),
   );
 }
 

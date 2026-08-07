@@ -68,7 +68,7 @@ SERIAL_OF_RE = re.compile(r"(?<!\d)(\d{1,5})\s+(?:OF|of)\s+(\d{1,6})(?!\d)")
 SERIAL_DENOMINATOR_RE = re.compile(r"(?:^|\s)/\s*(\d{1,6})(?!\d)")
 YEAR_RE = re.compile(r"\b((?:19|20)\d{2})\b")
 CARD_NUMBER_PATTERNS = [
-    re.compile(r"\b(?:CARD\s*(?:NO\.?|NUMBER)?|NO\.?)\s*[:#-]?\s*([A-Z0-9-]{1,12})\b", re.I),
+    re.compile(r"\b(?:CARD\s+(?:NO(?:\.(?!\w)|\b)|NUMBER)|NO(?:\.(?!\w)|\b))\s*[:#-]?\s*([A-Z0-9-]{1,12})\b", re.I),
     re.compile(r"#\s*([A-Z0-9-]{1,12})\b", re.I),
 ]
 
@@ -465,7 +465,14 @@ def _card_number_hint(observations: Iterable[OCRObservation]) -> str | None:
             cy = candidate.box.y + candidate.box.height / 2
             dx = abs(cx - lx)
             dy = abs(cy - ly)
-            if dx > 0.34 or dy > 0.16:
+            upper_back_label = label.side == "back" and ly >= 0.72
+            max_dy = 0.34 if upper_back_label else 0.16
+            if dx > 0.34 or dy > max_dy:
+                continue
+            # Real Prizm backs can place the printed number well below an upper
+            # "No." label. Allow that bounded layout, but never reach down into
+            # the statistics table or trust a weak OCR token as the card number.
+            if upper_back_label and (cy < 0.50 or candidate.confidence < 0.60):
                 continue
             score = (2.0 - 2.5 * dy - 1.2 * dx) + candidate.confidence
             if cx >= lx - 0.05:

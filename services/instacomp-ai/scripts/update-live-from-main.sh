@@ -213,9 +213,14 @@ fi
 "$python_bin" -m pytest -q "$service_root/tests"
 
 local_key="$(read_env_value "$env_file" INSTACOMP_AI_API_KEY)"
+registry_token="$(read_env_value "$env_file" INSTACOMP_AI_REGISTRY_TOKEN)"
 archive_token="$(read_env_value "$env_file" INSTACOMP_AI_SENTINEL_ARCHIVE_TOKEN)"
 if [[ ! "$local_key" =~ ^[0-9a-fA-F]{64}$ ]]; then
   echo "Refusing key repair: INSTACOMP_AI_API_KEY is missing or is not a 256-bit hex key. Run install-sentinel-control.sh once to create it safely." >&2
+  exit 2
+fi
+if [[ ! "$registry_token" =~ ^[0-9a-fA-F]{64}$ ]]; then
+  echo "Refusing Registry auth repair: INSTACOMP_AI_REGISTRY_TOKEN is missing or is not a 256-bit hex key." >&2
   exit 2
 fi
 if [[ ! "$archive_token" =~ ^[0-9a-fA-F]{64}$ ]]; then
@@ -277,9 +282,38 @@ PY
 echo "Synchronizing the existing Mac key to Vercel Production without rotating it."
 set_vercel_env INSTACOMP_AI_LOCAL_URL "$tunnel_url" production plain
 set_vercel_env INSTACOMP_AI_LOCAL_KEY "$local_key" production sensitive
+set_vercel_env INSTACOMP_SERVICE_TOKEN "$registry_token" production sensitive
 set_vercel_env INSTACOMP_SENTINEL_ARCHIVE_TOKEN "$archive_token" production sensitive
 repair_vercel_root_directory
 npx vercel --prod --yes --cwd "$repo_root"
+
+registry_probe_file="$service_root/data/runtime-updates/$timestamp-production-registry.json"
+registry_probe_url="${site_url}/api/instacomp/checklist-lookup"
+for ((attempt=1; attempt<=30; attempt++)); do
+  if curl --fail --silent --show-error --max-time 30 \
+    -H "content-type: application/json" \
+    -H "x-tcos-instacomp-service-token: $registry_token" \
+    --data '{"cardNumber":"__INSTACOMP_AUTH_PROBE__"}' \
+    "$registry_probe_url" > "$registry_probe_file" 2>/dev/null && \
+    REGISTRY_PROBE_FILE="$registry_probe_file" "$python_bin" - <<'PY'
+import json
+import os
+from pathlib import Path
+
+payload = json.loads(Path(os.environ["REGISTRY_PROBE_FILE"]).read_text("utf-8"))
+if payload.get("ok") is not True:
+    raise SystemExit(1)
+PY
+  then
+    break
+  fi
+  [[ "$attempt" -lt 30 ]] || {
+    echo "Production Registry rejected the preserved Mac Registry credential." >&2
+    exit 2
+  }
+  sleep 3
+done
+echo "PASS  Permanent Mac Registry credential accepted through Production."
 
 proxy_status_file="$service_root/data/runtime-updates/$timestamp-production-sentinel.json"
 proxy_status_url="${site_url}/api/instacomp/checklist-sentinel?view=status&ts=$(date +%s)"
