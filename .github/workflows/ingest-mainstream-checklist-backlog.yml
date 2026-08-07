@@ -29,7 +29,7 @@ on:
     - cron: "41 8 * * *"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: instacomp-mainstream-checklist-backlog-2000-plus
@@ -110,6 +110,8 @@ jobs:
       MAINSTREAM_CHECKLIST_OUTPUT: .checklist-discovery/mainstream-backlog-reconciliation.json
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -125,3 +127,47 @@ jobs:
           path: .checklist-discovery/mainstream-backlog-reconciliation.json
           if-no-files-found: error
           retention-days: 90
+      - name: Persist sanitized reconciliation receipt to status branch
+        if: always()
+        shell: bash
+        env:
+          STATUS_BRANCH: ops/mainstream-checklist-status
+          STATUS_PATH: docs/operations/instacomp-mainstream-checklist-reconciliation.json
+        run: |
+          set -euo pipefail
+          receipt=.checklist-discovery/mainstream-backlog-reconciliation.json
+          mkdir -p /tmp/mainstream-checklist-status
+          if [[ -s "$receipt" ]]; then
+            jq \
+              --arg runId "$GITHUB_RUN_ID" \
+              --arg runAttempt "$GITHUB_RUN_ATTEMPT" \
+              --arg workflow "$GITHUB_WORKFLOW" \
+              --arg event "$GITHUB_EVENT_NAME" \
+              --arg sourceSha "$GITHUB_SHA" \
+              '. + {workflowEvidence:{runId:$runId,runAttempt:$runAttempt,workflow:$workflow,event:$event,sourceSha:$sourceSha}}' \
+              "$receipt" > /tmp/mainstream-checklist-status/reconciliation.json
+          else
+            jq -n \
+              --arg checkedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              --arg runId "$GITHUB_RUN_ID" \
+              --arg runAttempt "$GITHUB_RUN_ATTEMPT" \
+              --arg workflow "$GITHUB_WORKFLOW" \
+              --arg event "$GITHUB_EVENT_NAME" \
+              --arg sourceSha "$GITHUB_SHA" \
+              '{schema:"tcos.checklist.mainstreamBacklogReconciliation.v1",checkedAt:$checkedAt,complete:false,error:"Reconciliation receipt was not produced.",workflowEvidence:{runId:$runId,runAttempt:$runAttempt,workflow:$workflow,event:$event,sourceSha:$sourceSha}}' \
+              > /tmp/mainstream-checklist-status/reconciliation.json
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin "$STATUS_BRANCH"
+          git checkout -B "$STATUS_BRANCH" "origin/$STATUS_BRANCH"
+          mkdir -p "$(dirname "$STATUS_PATH")"
+          cp /tmp/mainstream-checklist-status/reconciliation.json "$STATUS_PATH"
+          git add "$STATUS_PATH"
+          if git diff --cached --quiet; then
+            echo "Status receipt is unchanged."
+          else
+            git commit -m "Record mainstream checklist reconciliation [skip ci]"
+            git push origin "HEAD:$STATUS_BRANCH"
+          fi
