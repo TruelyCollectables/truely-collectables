@@ -1,6 +1,6 @@
 name: Query Mainstream Checklist Live Run
 
-# Operational refresh after the completeness/reliability checklist merge.
+# Operational refresh after restoring the full Registry helper.
 on:
   push:
     branches: [main]
