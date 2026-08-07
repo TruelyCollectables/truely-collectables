@@ -1,5 +1,37 @@
 const nativeFetch = globalThis.fetch.bind(globalThis);
 
+// Exact public replacements for legacy URLs that repeatedly fail from GitHub
+// runners. These are reference fallbacks only; they still pass through the same
+// parser, conflict checks, minimum-row contract, archive and Registry validation.
+const VERIFIED_SOURCE_FALLBACKS = new Map([
+  ["https://www.sportscardradio.com/2011-panini-gridiron-gear-football-checklist/", "https://www.tcdb.com/ViewSet.cfm/sid/59899/2011-Panini-Gridiron-Gear"],
+  ["https://www.sportscardradio.com/2010-11-upper-deck-black-diamond-hockey-checklist/", "https://www.cardboardconnection.com/2010-11-upper-deck-black-diamond-hockey"],
+  ["https://www.sportscardradio.com/2010-panini-donruss-rated-rookie-rc-football-box-set/", "https://www.tcdb.com/ViewSet.cfm/sid/34067/2010-Donruss-Rated-Rookies"],
+  ["https://www.sportscardradio.com/2010-topps-platinum-wwe-wrestling-checklist/", "https://www.tcdb.com/ViewSet.cfm/sid/67357/2010-Topps-Platinum-WWE"],
+  ["https://www.sportscardradio.com/2011-panini-limited-football-checklist/", "https://www.tcdb.com/Checklist.cfm/sid/60398/2011-Panini-Limited"],
+  ["https://www.sportscardradio.com/2003-upper-deck-sp-authentic-football-box-checklist/", "https://www.tcdb.com/Checklist.cfm/sid/4622/2003-SP-Authentic"],
+  ["https://www.sportscardradio.com/2010-panini-adrenalyn-xl-football-checklist/", "https://www.tcdb.com/ViewSet.cfm/sid/61988/2010-Panini-Adrenalyn-XL"],
+  ["https://www.sportscardradio.com/2010-topps-attax-nfl-football-checklist/", "https://www.tcdb.com/ViewSet.cfm/sid/63488/2010-Topps-Attax"],
+  ["https://www.sportscardradio.com/2010-topps-wwe-slam-attax-mayhem-checklist/", "https://www.tcdb.com/ViewSet.cfm/sid/67359/2010-Topps-Slam-Attax-WWE-Mayhem"],
+  ["https://www.sportscardradio.com/2011-topps-update-series-baseball-checklist/", "https://baseballcardpedia.com/index.php/2011_Topps_Update"],
+  ["https://www.sportscardradio.com/2011-panini-plates-a-patches-football-checklist/", "https://www.tcdb.com/Checklist.cfm/sid/61503/2011-Panini-Plates-%26-Patches"],
+  ["https://www.baseballcardpedia.com/index.php/2010_Topps_Sterling", "https://www.tcdb.com/ViewSet.cfm/sid/22006/2010-Topps-Sterling"],
+  ["https://www.sportscardradio.com/2011-panini-prime-signatures-football-checklist/", "https://www.tcdb.com/ViewSet.cfm/sid/62692/2011-Panini-Prime-Signatures"],
+  ["https://www.sportscardradio.com/2011-topps-wwe-classic-checklist/", "https://www.tcdb.com/ViewSet.cfm/sid/60180/2011-Topps-WWE-Classic"],
+  ["https://www.sportscardradio.com/2010-panini-classics-football-checklist/", "https://www.tcdb.com/ViewSet.cfm/sid/10101/2010-Panini-Classics"],
+  ["https://www.sportscardradio.com/2011-leaf-metal-draft-football-checklist/", "https://www.tcdb.com/ViewSet.cfm/sid/56530/2011-Leaf-Metal-Draft"],
+  ["https://www.sportscardradio.com/2011-panini-rookies-and-stars-longevity-football-checklist/", "https://www.tcdb.com/ViewSet.cfm/sid/59901/2011-PaniniRookies%26StarsLongevity"],
+  ["https://www.sportscardradio.com/2010-11-panini-elite-black-box-basketball-checklist/", "https://www.tcdb.com/ViewSet.cfm/sid/58060/2010-11-Panini-Elite-Black-Box"],
+  ["https://www.sportscardradio.com/2010-11-upper-deck-ud-hockey-series-2-checklist/", "https://www.cardboardconnection.com/2010-11-upper-deck-series-2-hockey"],
+  ["https://www.sportscardradio.com/2011-panini-adrenalyn-nfl-football-checklist/", "https://www.tcdb.com/ViewSet.cfm/sid/61908/2011-Panini-Adrenalyn-XL"],
+  ["https://www.sportscardradio.com/2010-11-panini-prestige-basketball-box-checklist/", "https://www.tcdb.com/ViewSet.cfm/sid/10407/2010-11-Panini-Prestige"],
+  ["https://www.sportscardradio.com/2011-panini-certified-football-checklist/", "https://www.tcdb.com/ViewSet.cfm/sid/59800/2011-Panini-Certified"],
+  ["https://www.sportscardradio.com/2011-topps-prime-football-checklist/", "https://www.tcdb.com/ViewSet.cfm/sid/58176/2011-Topps-Prime"],
+  ["https://www.sportscardradio.com/10-11-panini-threads-basketball-box-checklist/", "https://www.tcdb.com/ViewSet.cfm/sid/25445/2010-11-Panini-Threads"],
+  ["https://www.sportscardradio.com/2010-panini-plates-a-patches-football-box-checklist/", "https://www.tcdb.com/ViewSet.cfm/sid/48165/2010-Panini-Plates-%26-Patches"],
+  ["https://www.sportscardradio.com/2011-panini-crown-royale-football-checklist/", "https://www.tcdb.com/ViewSet.cfm/sid/59550/2011-Panini-Crown-Royale"],
+]);
+
 function requestUrl(input) {
   if (typeof input === "string") return input;
   if (input instanceof URL) return input.toString();
@@ -112,6 +144,28 @@ function proxyInit(init = {}) {
   };
 }
 
+async function tryReader(url, init) {
+  const readerUrl = proxyUrl(url);
+  if (!readerUrl) return null;
+  try {
+    const response = await nativeFetch(readerUrl, proxyInit(init));
+    if (response.ok) return transformedResponse(response, { reader: true });
+  } catch {
+    // Caller continues to the next verified source.
+  }
+  return null;
+}
+
+async function tryDirect(url, init) {
+  try {
+    const response = await nativeFetch(url, init);
+    if (response.ok) return transformedResponse(response);
+  } catch {
+    // Caller continues to reader/fallback.
+  }
+  return null;
+}
+
 globalThis.fetch = async function patchedChecklistFetch(input, init = {}) {
   const originalUrl = requestUrl(input);
   let directResponse = null;
@@ -119,23 +173,20 @@ globalThis.fetch = async function patchedChecklistFetch(input, init = {}) {
 
   try {
     directResponse = await nativeFetch(input, init);
-    if (directResponse.ok) {
-      return transformedResponse(directResponse);
-    }
+    if (directResponse.ok) return transformedResponse(directResponse);
   } catch (error) {
     directError = error;
   }
 
-  const readerUrl = proxyUrl(originalUrl);
-  if (readerUrl) {
-    try {
-      const readerResponse = await nativeFetch(readerUrl, proxyInit(init));
-      if (readerResponse.ok) {
-        return transformedResponse(readerResponse, { reader: true });
-      }
-    } catch {
-      // Preserve the original source failure below.
-    }
+  const reader = await tryReader(originalUrl, init);
+  if (reader) return reader;
+
+  const fallbackUrl = VERIFIED_SOURCE_FALLBACKS.get(originalUrl);
+  if (fallbackUrl) {
+    const fallbackDirect = await tryDirect(fallbackUrl, init);
+    if (fallbackDirect) return fallbackDirect;
+    const fallbackReader = await tryReader(fallbackUrl, init);
+    if (fallbackReader) return fallbackReader;
   }
 
   if (directResponse) return directResponse;
