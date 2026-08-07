@@ -7,6 +7,18 @@ import {
 
 const path = "scripts/verify-checklist-registry-production.mjs";
 const source = readFileSync(path, "utf8");
+const registryToolsSource = readFileSync("scripts/mainstream-checklist/registry-tools.mjs", "utf8");
+const canonicalImportPlanSchema = registryToolsSource.match(/schema:\s*"(tcos\.checklist\.importPlan\.[^"]+)"/)?.[1];
+
+assert(canonicalImportPlanSchema, "Registry plan builder must expose a canonical tcos.checklist.importPlan schema.");
+assert(
+  source.includes(`schema: "${canonicalImportPlanSchema}"`),
+  `Production verifier probe schema must match buildPlan(): ${canonicalImportPlanSchema}.`,
+);
+assert(
+  !source.includes('schema: "tcos.checklist.import-plan.'),
+  "Production verifier must not use the obsolete hyphenated import-plan schema.",
+);
 
 for (const table of [
   "checklist_source_catalog",
@@ -128,6 +140,9 @@ assert.equal(
 
 console.log(JSON.stringify({
   status: "passed",
+  canonicalImportPlanSchema,
+  verifierSchemaMatchesBuilder: true,
+  obsoleteHyphenatedSchemaAbsent: true,
   readOnlyTableChecks: true,
   boundedReads: true,
   boundedReadWallClock: true,
