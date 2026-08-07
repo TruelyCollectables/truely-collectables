@@ -47,3 +47,5 @@ jobs:
             git commit -m "Query safe-v4-final checklist live run [skip ci]"
             git push origin "HEAD:$STATUS_BRANCH"
           fi
+
+# Refresh after preflight retry merge 2cac592d at 2026-08-07T17:32Z
