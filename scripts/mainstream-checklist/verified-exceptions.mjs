@@ -1,4 +1,4 @@
-// Operational marker: final 319-promotable / 8-exception production promotion pass.
+// Operational marker: final watcher-backed 319-promotable / 8-exception production promotion pass.
 export const VERIFIED_NON_PROMOTABLE_SOURCES = Object.freeze([
   {
     id: "SR-0229",
