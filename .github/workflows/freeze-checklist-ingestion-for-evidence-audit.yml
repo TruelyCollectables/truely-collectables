@@ -1,0 +1,23 @@
+name: Freeze Checklist Ingestion For Evidence Audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/freeze-checklist-ingestion-for-evidence-audit.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instacomp-mainstream-checklist-backlog-2000-plus-production
+  cancel-in-progress: true
+
+jobs:
+  freeze:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Hold writes closed for cross-set evidence audit
+        run: |
+          echo "Checklist ingestion intentionally frozen."
+          echo "No Registry writes are performed by this workflow."
