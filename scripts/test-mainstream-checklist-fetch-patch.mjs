@@ -2,6 +2,7 @@ import {
   transformChecklistHtml,
   transformReaderText,
 } from "./mainstream-checklist/fetch-patch.mjs";
+import { transformSemanticChecklistHtml } from "./mainstream-checklist/html-semantic-prepatch.mjs";
 
 const html = [
   "<h2>Base Set Checklist</h2>",
@@ -39,6 +40,25 @@ if (
   throw new Error("Reader fallback headings were not normalized for the parser.");
 }
 
+const semantic = transformSemanticChecklistHtml([
+  "<h2>Base Set</h2>",
+  "<h3>Series One</h3>",
+  "<p>1 Alpha Player</p>",
+  "<h2>Legends Variations</h2>",
+  "<h3>Series One</h3>",
+  "<p>1 Legend Player</p>",
+  "<p>407 cards. The last 7 cards are short prints.</p>",
+].join(""));
+if (!semantic.includes("Base Set - Series One")) {
+  throw new Error("Base nested checklist heading was flattened.");
+}
+if (!semantic.includes("Legends Variations - Series One")) {
+  throw new Error("Variation nested checklist heading was flattened.");
+}
+if (!semantic.includes("NOTE: 407 cards.")) {
+  throw new Error("Numeric product prose was not guarded from card parsing.");
+}
+
 console.log(
   JSON.stringify({
     status: "passed",
@@ -46,5 +66,7 @@ console.log(
     oneCellSectionsPromoted: true,
     strongSectionsPromoted: true,
     readerHeadingsNormalized: true,
+    nestedChecklistHierarchyPreserved: true,
+    numericProductProseGuarded: true,
   }),
 );
