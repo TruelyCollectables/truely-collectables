@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "scripts/ops/patch-instacomp-final-five-consensus-registry-groovy-20260807.py"
+      - "scripts/ops/fix-instacomp-final-groovy-regression-fixture-20260807.py"
       - ".github/workflows/instacomp-final-five-consensus-registry-groovy-20260807.yml"
   workflow_dispatch:
 
@@ -27,6 +28,9 @@ jobs:
 
       - name: Apply final frozen-five repair
         run: python scripts/ops/patch-instacomp-final-five-consensus-registry-groovy-20260807.py
+
+      - name: Correct real Groovy fixture geometry
+        run: python scripts/ops/fix-instacomp-final-groovy-regression-fixture-20260807.py
 
       - uses: actions/setup-python@v5
         with:
