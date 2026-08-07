@@ -1,7 +1,9 @@
 const DEFAULT_ATTEMPTS = 6;
 const DEFAULT_BASE_MS = 750;
+const DEFAULT_ATTEMPT_TIMEOUT_MS = 10_000;
 const MAX_ATTEMPTS = 10;
 const MAX_DELAY_MS = 5_000;
+const MAX_ATTEMPT_TIMEOUT_MS = 30_000;
 
 function boundedInteger(value, fallback, min, max) {
   const parsed = Number.parseInt(String(value ?? ""), 10);
@@ -19,9 +21,17 @@ export function isRetryableRegistryReadError(error) {
   // failures, not table-contract failures. PGRST002 is the exact transient
   // Production condition observed on 2026-08-07.
   if (["PGRST000", "PGRST001", "PGRST002", "PGRST003"].includes(code)) return true;
+  if (code === "REGISTRY_READ_TIMEOUT") return true;
   if ([408, 425, 429, 502, 503, 504].includes(status)) return true;
 
-  return /(?:fetch failed|network error|timed? out|timeout|connection (?:reset|closed|refused)|gateway timeout|service unavailable|could not query the database for the schema cache)/i.test(message);
+  return /(?:fetch failed|network error|timed? out|timeout|aborted|connection (?:reset|closed|refused)|gateway timeout|service unavailable|could not query the database for the schema cache)/i.test(message);
+}
+
+function timeoutError(timeoutMs) {
+  const error = new Error(`Registry read attempt timed out after ${timeoutMs}ms.`);
+  error.name = "AbortError";
+  error.code = "REGISTRY_READ_TIMEOUT";
+  return error;
 }
 
 export async function runRegistryReadWithRetry(read, options = {}) {
@@ -29,20 +39,47 @@ export async function runRegistryReadWithRetry(read, options = {}) {
 
   const attempts = boundedInteger(options.attempts, DEFAULT_ATTEMPTS, 1, MAX_ATTEMPTS);
   const baseMs = boundedInteger(options.baseMs, DEFAULT_BASE_MS, 0, MAX_DELAY_MS);
+  const attemptTimeoutMs = boundedInteger(
+    options.attemptTimeoutMs,
+    DEFAULT_ATTEMPT_TIMEOUT_MS,
+    1,
+    MAX_ATTEMPT_TIMEOUT_MS,
+  );
   const sleep = typeof options.sleep === "function"
     ? options.sleep
     : (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   let lastResult = { data: null, error: new Error("Registry read did not execute.") };
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const controller = new AbortController();
+    let timeoutId;
     try {
-      lastResult = await read();
+      const timeoutPromise = new Promise((_, reject) => {
+        timeoutId = setTimeout(() => {
+          const error = timeoutError(attemptTimeoutMs);
+          controller.abort(error);
+          reject(error);
+        }, attemptTimeoutMs);
+      });
+      lastResult = await Promise.race([
+        Promise.resolve(read(controller.signal)),
+        timeoutPromise,
+      ]);
     } catch (error) {
       lastResult = { data: null, error };
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
     }
 
     const error = lastResult?.error || null;
-    if (!error) return { ...lastResult, attemptsUsed: attempt, retried: attempt > 1 };
+    if (!error) {
+      return {
+        ...lastResult,
+        attemptsUsed: attempt,
+        retried: attempt > 1,
+        attemptTimeoutMs,
+      };
+    }
 
     const retryable = isRetryableRegistryReadError(error);
     if (!retryable || attempt === attempts) {
@@ -52,6 +89,7 @@ export async function runRegistryReadWithRetry(read, options = {}) {
         retried: attempt > 1,
         retryable,
         exhausted: retryable && attempt === attempts,
+        attemptTimeoutMs,
       };
     }
 
@@ -59,5 +97,11 @@ export async function runRegistryReadWithRetry(read, options = {}) {
     if (delayMs > 0) await sleep(delayMs);
   }
 
-  return { ...lastResult, attemptsUsed: attempts, retried: attempts > 1, exhausted: true };
+  return {
+    ...lastResult,
+    attemptsUsed: attempts,
+    retried: attempts > 1,
+    exhausted: true,
+    attemptTimeoutMs,
+  };
 }
