@@ -1,0 +1,13 @@
+{
+  "schema": "tcos.checklist.safeV3LiveRun.v1",
+  "workflow": "Ingest Full Master Checklist Archive Safe v3",
+  "runId": "31195102966",
+  "runNumber": "2",
+  "status": "pending",
+  "conclusion": null,
+  "event": "push",
+  "sourceSha": "9f6bfc6da63c7f5892a4cb7ba20b13364d2da90f",
+  "branch": "main",
+  "createdAt": "2026-08-07T15:56:19Z",
+  "updatedAt": "2026-08-07T15:56:20Z"
+}
