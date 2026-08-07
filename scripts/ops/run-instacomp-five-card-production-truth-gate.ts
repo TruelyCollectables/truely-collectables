@@ -113,6 +113,13 @@ function normCard(value: unknown) {
   return norm(value).replace(/\s+/g, "");
 }
 
+function safeUuid(value: string, label: string) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
+    throw new Error(`Unsafe ${label} UUID`);
+  }
+  return value;
+}
+
 function parallelCompatible(expected: string, actual: unknown) {
   const wanted = norm(expected);
   const found = norm(actual);
@@ -261,6 +268,43 @@ async function jsonRequestWithRetry(params: {
   throw new Error(`${params.label} failed after ${attempts} attempt(s): ${last}`);
 }
 
+async function managementQuery(params: {
+  supabaseUrl: string;
+  managementToken: string;
+  label: string;
+  query: string;
+  attempts?: number;
+}) {
+  const projectRef = new URL(params.supabaseUrl).hostname.split(".")[0];
+  const attempts = params.attempts ?? 3;
+  let last = "unknown error";
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const response = await fetch(`https://api.supabase.com/v1/projects/${projectRef}/database/query`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${params.managementToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ query: params.query, read_only: false }),
+        signal: AbortSignal.timeout(45_000),
+      });
+      const raw = await response.text();
+      if (response.ok) {
+        if (!raw) return [];
+        try { return JSON.parse(raw); } catch { return raw; }
+      }
+      last = `HTTP ${response.status}: ${raw.slice(0, 500) || "empty body"}`;
+      const retryable = response.status === 408 || response.status === 429 || response.status >= 500;
+      if (!retryable) break;
+    } catch (error) {
+      last = error instanceof Error ? error.message : String(error);
+    }
+    if (attempt < attempts) await sleep(1500 * attempt);
+  }
+  throw new Error(`${params.label} failed after ${attempts} attempt(s): ${last}`);
+}
+
 async function createAuthUser(params: {
   supabaseUrl: string;
   serviceKey: string;
@@ -286,10 +330,33 @@ async function createAuthUser(params: {
     },
   });
   const accountId = txt(body.id || rec(body.user).id);
-  if (!/^[0-9a-f-]{36}$/i.test(accountId)) {
-    throw new Error(`Temporary auth user creation returned no UUID: ${JSON.stringify(body).slice(0, 500)}`);
-  }
+  safeUuid(accountId, "temporary account");
   return { accountId, email, password };
+}
+
+async function setupTemporarySeller(params: {
+  accountId: string;
+  supabaseUrl: string;
+  managementToken: string;
+}) {
+  const accountId = safeUuid(params.accountId, "temporary account");
+  const storeId = safeUuid(String(FLAGSHIP_STORE_ID), "flagship store");
+  await managementQuery({
+    supabaseUrl: params.supabaseUrl,
+    managementToken: params.managementToken,
+    label: "temporary seller SQL setup",
+    query: `
+      set statement_timeout = '30s';
+      set lock_timeout = '5s';
+      insert into public.account_profiles (id, account_status)
+      values ('${accountId}'::uuid, 'active')
+      on conflict (id) do update set account_status = excluded.account_status;
+      delete from public.account_store_memberships
+      where account_id = '${accountId}'::uuid and store_id = '${storeId}'::uuid;
+      insert into public.account_store_memberships (account_id, store_id, role, status)
+      values ('${accountId}'::uuid, '${storeId}'::uuid, 'seller', 'active');
+    `,
+  });
 }
 
 async function signInTestSeller(params: {
@@ -316,44 +383,43 @@ async function signInTestSeller(params: {
   return accessToken;
 }
 
+async function cleanupStaleTruthGateUsers(params: {
+  supabaseUrl: string;
+  managementToken: string;
+}) {
+  await managementQuery({
+    supabaseUrl: params.supabaseUrl,
+    managementToken: params.managementToken,
+    label: "stale temporary seller cleanup",
+    query: `
+      set statement_timeout = '30s';
+      set lock_timeout = '5s';
+      delete from public.account_store_memberships
+      where account_id in (select id from auth.users where email like '${TEST_EMAIL_PREFIX}%');
+      delete from public.account_profiles
+      where id in (select id from auth.users where email like '${TEST_EMAIL_PREFIX}%');
+      delete from auth.users where email like '${TEST_EMAIL_PREFIX}%';
+    `,
+  });
+}
+
 async function cleanupTestSeller(params: {
   accountId: string;
   supabaseUrl: string;
-  serviceKey: string;
   managementToken: string;
 }) {
-  const projectRef = new URL(params.supabaseUrl).hostname.split(".")[0];
-  const safeId = params.accountId.replace(/[^0-9a-f-]/gi, "");
-  if (safeId !== params.accountId) throw new Error("Unsafe temporary account id");
-
-  const sql = [
-    `delete from public.account_store_memberships where account_id = '${safeId}'::uuid;`,
-    `delete from public.account_profiles where id = '${safeId}'::uuid;`,
-  ].join("\n");
-  const sqlResponse = await fetch(`https://api.supabase.com/v1/projects/${projectRef}/database/query`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${params.managementToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ query: sql, read_only: false }),
-    signal: AbortSignal.timeout(30_000),
-  });
-  if (!sqlResponse.ok) {
-    throw new Error(`Temporary seller SQL cleanup failed: HTTP ${sqlResponse.status} ${(await sqlResponse.text()).slice(0, 500)}`);
-  }
-
-  await jsonRequestWithRetry({
-    label: "temporary auth user deletion",
-    url: `${params.supabaseUrl}/auth/v1/admin/users/${safeId}`,
-    init: {
-      method: "DELETE",
-      headers: {
-        Authorization: `Bearer ${params.serviceKey}`,
-        apikey: params.serviceKey,
-      },
-    },
-    attempts: 2,
+  const accountId = safeUuid(params.accountId, "temporary account");
+  await managementQuery({
+    supabaseUrl: params.supabaseUrl,
+    managementToken: params.managementToken,
+    label: "temporary seller cleanup",
+    query: `
+      set statement_timeout = '30s';
+      set lock_timeout = '5s';
+      delete from public.account_store_memberships where account_id = '${accountId}'::uuid;
+      delete from public.account_profiles where id = '${accountId}'::uuid;
+      delete from auth.users where id = '${accountId}'::uuid;
+    `,
   });
 }
 
@@ -401,6 +467,10 @@ async function main() {
   };
   await writeFile(output, `${JSON.stringify(receipt, null, 2)}\n`);
 
+  await cleanupStaleTruthGateUsers({ supabaseUrl, managementToken });
+  receipt.staleTemporarySellerCleanup = "complete";
+  await writeFile(output, `${JSON.stringify(receipt, null, 2)}\n`);
+
   const ids = TRUTH.map((card) => card.inventoryItemId);
   const [itemsResult, imagesResult] = await Promise.all([
     admin.from("inventory_items").select("id,title,status").in("id", ids),
@@ -434,18 +504,7 @@ async function main() {
     receipt.temporarySeller.accountId = accountId;
     await writeFile(output, `${JSON.stringify(receipt, null, 2)}\n`);
 
-    const profile = await admin
-      .from("account_profiles")
-      .upsert({ id: accountId, account_status: "active" }, { onConflict: "id" });
-    if (profile.error) throw new Error(`Profile upsert failed: ${profile.error.message}`);
-
-    const membership = await admin.from("account_store_memberships").insert({
-      account_id: accountId,
-      store_id: FLAGSHIP_STORE_ID,
-      role: "seller",
-      status: "active",
-    });
-    if (membership.error) throw new Error(`Membership insert failed: ${membership.error.message}`);
+    await setupTemporarySeller({ accountId, supabaseUrl, managementToken });
 
     const accessToken = await signInTestSeller({
       supabaseUrl,
@@ -506,7 +565,7 @@ async function main() {
   } finally {
     if (accountId) {
       try {
-        await cleanupTestSeller({ accountId, supabaseUrl, serviceKey, managementToken });
+        await cleanupTestSeller({ accountId, supabaseUrl, managementToken });
         receipt.temporarySeller.deleted = true;
       } catch (error) {
         receipt.temporarySeller.cleanupError = error instanceof Error ? error.message : String(error);
