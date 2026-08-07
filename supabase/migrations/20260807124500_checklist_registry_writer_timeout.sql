@@ -1,8 +1,9 @@
 -- Large, fully validated checklist releases can legitimately contain thousands of
--- cards and identities. Production's default statement timeout is too short for
--- the atomic Registry writer, so give this one function a bounded import window.
--- The function remains transactional and all existing validation gates remain in
--- force; this changes execution time only.
+-- cards and identities. Production's default timeout is too short for the atomic
+-- Registry writer, while the Supabase client API itself is capped at 60 seconds.
+-- Give only this function a bounded 55-second statement window and enough lock
+-- wait time to survive overlapping player/team/identity writes. Validation and
+-- transaction atomicity remain unchanged.
 
 alter function public.tcos_apply_checklist_import_plan(
   jsonb,
@@ -13,7 +14,18 @@ alter function public.tcos_apply_checklist_import_plan(
   text,
   text
 )
-set statement_timeout = '45s';
+set statement_timeout = '55s';
+
+alter function public.tcos_apply_checklist_import_plan(
+  jsonb,
+  text,
+  text,
+  bigint,
+  text,
+  text,
+  text
+)
+set lock_timeout = '30s';
 
 do $$
 declare
@@ -27,8 +39,11 @@ begin
     and p.proname = 'tcos_apply_checklist_import_plan'
     and pg_get_function_identity_arguments(p.oid) = 'p_plan jsonb, p_original_filename text, p_mime_type text, p_size_bytes bigint, p_sha256 text, p_storage_bucket text, p_storage_object_path text';
 
-  if v_config is null or not ('statement_timeout=45s' = any(v_config)) then
+  if v_config is null or not ('statement_timeout=55s' = any(v_config)) then
     raise exception 'Checklist Registry writer statement timeout was not installed';
+  end if;
+  if not ('lock_timeout=30s' = any(v_config)) then
+    raise exception 'Checklist Registry writer lock timeout was not installed';
   end if;
 end
 $$;
