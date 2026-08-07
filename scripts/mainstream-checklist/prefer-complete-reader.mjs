@@ -49,6 +49,14 @@ function declaredCardFloor(body) {
   return counts.length ? Math.max(...counts) : null;
 }
 
+function looksLikeObservedCardNumber(value) {
+  const number = String(value || "").trim().toUpperCase();
+  if (!number || /^(?:19|20)\d{2}$/.test(number)) return false;
+  if (/^(?:NNO|NO#)$/.test(number)) return true;
+  if (/^\d{1,5}[A-Z]?$/.test(number)) return true;
+  return /^[A-Z]{1,12}-?[A-Z0-9]{1,18}$/.test(number) && /\d/.test(number);
+}
+
 function observedCardLines(body) {
   const seen = new Set();
   for (const rawLine of String(body || "").split(/\r?\n/)) {
@@ -61,9 +69,8 @@ function observedCardLines(body) {
     const match = line.match(
       /^#?\s*((?:\d{1,5}[A-Za-z]?)|(?:[A-Z]{1,12}-?[A-Z0-9]{1,18})|(?:NNO|NO#))\s+(?:[-:–—]\s*)?(.{2,220})$/i,
     );
-    if (!match) continue;
+    if (!match || !looksLikeObservedCardNumber(match[1])) continue;
     const number = match[1].toUpperCase();
-    if (/^(?:19|20)\d{2}$/.test(number)) continue;
     const subject = match[2].toLowerCase();
     if (
       /^cards?\.?$/i.test(subject) ||
