@@ -19,7 +19,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Fetch and inspect one known TCDB checklist
+      - name: Fetch and inspect one known TCDB checklist through direct and reader paths
         shell: bash
         env:
           STATUS_BRANCH: ops/mainstream-checklist-status
@@ -28,45 +28,42 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/tcdb-probe"
           node --input-type=module > "$RUNNER_TEMP/tcdb-probe/probe.json" <<'NODE'
-          const url = 'https://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine';
-          const response = await fetch(url, {
-            headers: {
-              'User-Agent': 'TCOS-TCDB-DOM-Probe/1.0',
-              'Accept': 'text/html,application/xhtml+xml,*/*;q=0.1',
-            },
-            redirect: 'follow',
-            signal: AbortSignal.timeout(90000),
-          });
-          const html = await response.text();
-          const needle = 'Donovan McNabb';
-          const at = html.indexOf(needle);
-          const start = Math.max(0, at - 2200);
-          const end = Math.min(html.length, at + 2200);
-          const sanitize = (value) => value
-            .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
-            .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
-            .replace(/\s+/g, ' ')
-            .slice(0, 5000);
-          const hrefs = [...html.matchAll(/href=["']([^"']+)["']/gi)].map(m => m[1]);
-          const sampleCardHrefs = hrefs.filter(h => /ViewCard\.cfm/i.test(h)).slice(0, 8);
-          const result = {
-            checkedAt: new Date().toISOString(),
-            status: response.status,
-            finalUrl: response.url,
-            contentType: response.headers.get('content-type'),
-            bytes: Buffer.byteLength(html),
-            counts: {
-              tr: (html.match(/<tr\b/gi) || []).length,
-              td: (html.match(/<td\b/gi) || []).length,
-              li: (html.match(/<li\b/gi) || []).length,
-              viewCardHref: (html.match(/ViewCard\.cfm/gi) || []).length,
-              totalCardsText: (html.match(/Total Cards/gi) || []).length,
-              playerNeedle: at >= 0 ? 1 : 0,
-            },
-            sampleCardHrefs,
-            aroundFirstPlayer: at >= 0 ? sanitize(html.slice(start, end)) : null,
-          };
-          console.log(JSON.stringify(result, null, 2));
+          const target = 'https://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine';
+          const candidates = [
+            { mode: 'direct', url: target },
+            { mode: 'reader-https', url: `https://r.jina.ai/${target}` },
+            { mode: 'reader-http', url: `https://r.jina.ai/http://www.tcdb.com/Checklist.cfm/sid/4466/2001-Fleer-Genuine` },
+          ];
+          const results = [];
+          for (const candidate of candidates) {
+            try {
+              const response = await fetch(candidate.url, {
+                headers: {
+                  'User-Agent': 'TCOS-TCDB-DOM-Probe/1.1',
+                  'Accept': candidate.mode === 'direct' ? 'text/html,application/xhtml+xml,*/*;q=0.1' : 'text/plain,text/markdown,*/*;q=0.1',
+                },
+                redirect: 'follow',
+                signal: AbortSignal.timeout(90000),
+              });
+              const body = await response.text();
+              const plain = body.replace(/\s+/g, ' ');
+              results.push({
+                mode: candidate.mode,
+                status: response.status,
+                finalUrl: response.url,
+                contentType: response.headers.get('content-type'),
+                bytes: Buffer.byteLength(body),
+                hasTotal155: /Total Cards:?\s*155/i.test(body),
+                hasDonovanMcNabb: /Donovan McNabb/i.test(body),
+                cardLineLikeCount: (body.match(/(?:^|\n)\s*(?:[-*+]\s+)?1(?:\s*\||\s+)Donovan McNabb/gi) || []).length,
+                pipeRows: (body.match(/\|/g) || []).length,
+                sample: plain.slice(0, 1800),
+              });
+            } catch (error) {
+              results.push({ mode: candidate.mode, error: error instanceof Error ? error.message : String(error) });
+            }
+          }
+          console.log(JSON.stringify({ checkedAt: new Date().toISOString(), target, results }, null, 2));
           NODE
 
           git config user.name "github-actions[bot]"
@@ -77,6 +74,6 @@ jobs:
           cp "$RUNNER_TEMP/tcdb-probe/probe.json" "$STATUS_PATH"
           git add "$STATUS_PATH"
           if ! git diff --cached --quiet; then
-            git commit -m "Probe TCDB checklist DOM [skip ci]"
+            git commit -m "Probe TCDB checklist reader paths [skip ci]"
             git push origin "HEAD:$STATUS_BRANCH"
           fi
