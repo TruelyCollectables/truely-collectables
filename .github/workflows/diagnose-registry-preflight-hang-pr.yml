@@ -45,7 +45,7 @@ jobs:
             --output "$RUNNER_TEMP/rest-health.json" \
             --write-out '%{http_code}' \
             --header "$auth" \
-            "https://api.supabase.com/v1/projects/$RESOLVED_SUPABASE_PROJECT_REF/health?services=rest&timeout_ms=5000" || true)
+            "https://api.supabase.com/v1/projects/$RESOLVED_SUPABASE_PROJECT_REF/health?services=rest" || true)
           echo "management_health_http=$status"
           jq . "$RUNNER_TEMP/rest-health.json" 2>/dev/null || cat "$RUNNER_TEMP/rest-health.json" || true
       - name: Run strictly read-only timed REST probes
@@ -80,7 +80,7 @@ jobs:
                   apikey: key,
                   Authorization: `Bearer ${key}`,
                   Accept: 'application/json',
-                  'X-Client-Info': 'tcos-registry-readonly-timed-diagnostic-v2',
+                  'X-Client-Info': 'tcos-registry-readonly-timed-diagnostic-v3',
                 },
                 signal: AbortSignal.timeout(12_000),
               });
@@ -101,7 +101,7 @@ jobs:
             console.log(JSON.stringify(result));
           }
           console.log(JSON.stringify({
-            schema: 'tcos.checklist.registryTimedReadDiagnostic.v2',
+            schema: 'tcos.checklist.registryTimedReadDiagnostic.v3',
             checkedAt: new Date().toISOString(),
             allHealthy: results.every((x) => x.ok),
             results,
