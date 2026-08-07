@@ -68,6 +68,7 @@ jobs:
           set -a
           source .env.production.local
           set +a
+          echo "Production credential presence check (lengths only): URL=${#NEXT_PUBLIC_SUPABASE_URL} SERVICE_ROLE=${#SUPABASE_SERVICE_ROLE_KEY} EBAY_ID=${#EBAY_CLIENT_ID} EBAY_SECRET=${#EBAY_CLIENT_SECRET}"
           node scripts/reconcile-ebay-pdf-purchases-production.mjs
           node scripts/enforce-ebay-pdf-all-in-purchase-ledger.mjs
 
