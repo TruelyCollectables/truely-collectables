@@ -19,11 +19,18 @@ old = '''  const productLineOnlySetEvidence = isProductLineOnlySetEvidence(ai.se
         });
 '''
 new = '''  const productLineOnlySetEvidence = isProductLineOnlySetEvidence(ai.setName);
-  // A product-line label (for example PRIZM) is release evidence, not a logical
-  // checklist-set claim. Never let a coincidental OCR phrase shrink the release
-  // to a guessed set before player/card-number/parallel uniqueness is evaluated.
+  const specificSoftVisibleSetRows = softVisibleSetRows.filter(
+    (row: any) => !isProductLineOnlySetEvidence(row.name),
+  );
+  // PRIZM is release/product evidence, not a logical checklist-set claim. Keep a
+  // genuinely specific printed logical set such as GROOVY, but discard soft OCR
+  // matches whose set name is itself only the product line. If no specific set
+  // remains, search the whole matching Prizm release and require the remaining
+  // visible facts to resolve one unique identity.
   const setRowsForCoverage = productLineOnlySetEvidence
-    ? scopedSetRows
+    ? specificSoftVisibleSetRows.length
+      ? specificSoftVisibleSetRows
+      : scopedSetRows
     : softVisibleSetRows.length
       ? softVisibleSetRows
       : scopedSetRows;
@@ -31,7 +38,7 @@ new = '''  const productLineOnlySetEvidence = isProductLineOnlySetEvidence(ai.se
     row: Record<string, any>,
     allowAdjacentYearRecovery = false,
   ) =>
-    productLineOnlySetEvidence
+    productLineOnlySetEvidence && !specificSoftVisibleSetRows.length
       ? checklistProductLineCoverageMatches(ai, row, {
           allowAdjacentYearRecovery,
         })
@@ -42,4 +49,4 @@ new = '''  const productLineOnlySetEvidence = isProductLineOnlySetEvidence(ai.se
 if text.count(old) != 1:
     raise SystemExit(f"expected one product-line coverage anchor, found {text.count(old)}")
 path.write_text(text.replace(old, new, 1), encoding="utf-8")
-print("PASS product-line labels always bound release scope, never preselect logical set")
+print("PASS product-line pseudo-sets cannot displace a specific logical OCR set")
