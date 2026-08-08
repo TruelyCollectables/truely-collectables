@@ -291,9 +291,7 @@ def main_source() -> str:
 
 def analyze_source() -> str:
     source = main_source()
-    return source.split("async def analyze_scan", 1)[1].split(
-        '@app.post(\n    "/v1/lessons"', 1
-    )[0]
+    return source.split("async def analyze_scan", 1)[1].split("@app.post(", 1)[0]
 
 
 def test_analyze_scan_has_no_ollama_identity_call():
