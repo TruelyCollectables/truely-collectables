@@ -46,7 +46,9 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const decision = await resolveInstaCompChecklistFirstFromRegistry({
       year: text(body.year, 20),
-      manufacturer: text(body.manufacturer ?? body.brand, 120),
+      manufacturer: text(body.manufacturer, 120),
+      brand: text(body.brand, 160),
+      setName: text(body.setName ?? body.set_name, 180),
       cardNumber: text(body.cardNumber, 80),
       player: text(body.player, 240),
       serialNumber: text(body.serialNumber, 80),
