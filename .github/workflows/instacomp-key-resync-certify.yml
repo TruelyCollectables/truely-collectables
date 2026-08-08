@@ -1,0 +1,39 @@
+name: InstaComp Key Resync Certification
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "services/instacomp-ai/scripts/repair-vercel-mac-key-sync.sh"
+      - ".github/workflows/instacomp-key-resync-certify.yml"
+  pull_request:
+    paths:
+      - "services/instacomp-ai/scripts/repair-vercel-mac-key-sync.sh"
+      - ".github/workflows/instacomp-key-resync-certify.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  certify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bash syntax
+        run: bash -n services/instacomp-ai/scripts/repair-vercel-mac-key-sync.sh
+      - name: Security contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          script=services/instacomp-ai/scripts/repair-vercel-mac-key-sync.sh
+          grep -F 'INSTACOMP_AI_API_KEY' "$script" >/dev/null
+          grep -F 'INSTACOMP_AI_LOCAL_KEY production --force --sensitive' "$script" >/dev/null
+          grep -F 'Refusing to rotate or invent a key' "$script" >/dev/null
+          grep -F 'X-InstaComp-AI-Key' "$script" >/dev/null
+          grep -F 'npx vercel --prod --yes' "$script" >/dev/null
+          if grep -Eq 'openssl rand|INSTACOMP_AI_REGISTRY_TOKEN|INSTACOMP_SENTINEL_ARCHIVE_TOKEN|INSTACOMP_SERVICE_TOKEN' "$script"; then
+            echo 'Repair script must not generate or touch unrelated secrets.' >&2
+            exit 1
+          fi
+          echo 'Narrow shared-key resync security contract passed.'
