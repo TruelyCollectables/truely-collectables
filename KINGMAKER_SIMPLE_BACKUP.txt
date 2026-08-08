@@ -28,9 +28,15 @@ MAKE THE PHYSICAL BACKUP NOW
 
    git checkout backup/kingmaker-certified-2026-08-07-recovery
 
-   chmod +x KINGMAKER_BACKUP_NOW.command KINGMAKER_RESTORE.command
+   zsh ./KINGMAKER_BACKUP_NOW.command
 
-   ./KINGMAKER_BACKUP_NOW.command
+IMPORTANT: Do NOT run chmod +x on the tracked .command files before backup.
+Changing the executable bit can make Git report the recovery branch as dirty,
+and the golden backup correctly refuses a dirty tracked state.
+
+If the backup reports other existing local tracked changes, preserve them first.
+Do not use git reset --hard. The detailed guide explains the safe temporary-clean
+procedure.
 
 4. DO NOT call the backup good unless it ends with exactly:
 
@@ -44,7 +50,7 @@ MAKE THE PHYSICAL BACKUP NOW
 
 7. Do NOT upload that folder publicly. The archive can contain .env secrets.
 
-8. Return the normal repository to main:
+8. Return the normal repository to main when your preserved local work has been restored:
 
    git checkout main
 
@@ -64,9 +70,7 @@ IF KINGMAKER BREAKS LATER
 
    cd ~/Backups/KINGMAKER-GOLDEN-2026-08-07
 
-   chmod +x KINGMAKER_RESTORE.command
-
-   ./KINGMAKER_RESTORE.command
+   zsh ./KINGMAKER_RESTORE.command
 
 5. The restore NEVER overwrites your old repository. It creates a new folder similar to:
 
