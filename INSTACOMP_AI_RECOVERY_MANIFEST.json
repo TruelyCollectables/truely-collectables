@@ -1,0 +1,32 @@
+{
+  "schema": "instacomp.ai.disasterRecovery.v1",
+  "createdFor": "certified-working-production-state-2026-08-07",
+  "repository": "TruelyCollectables/truely-collectables",
+  "certifiedProductionCommit": "04d927fe9b845eac3902ce1e88b720eb0fb8cb6e",
+  "goldenBranch": "backup/instacomp-ai-certified-2026-08-07-golden",
+  "recoveryBranch": "backup/instacomp-ai-certified-2026-08-07-recovery",
+  "acceptanceProofBranch": "ops/instacomp-final-production-acceptance-v11-20260807",
+  "acceptanceProofHead": "993c18a334ff6de7d8f1440720dd45c652ca2276",
+  "acceptanceWorkflowRunId": 31237527356,
+  "acceptanceArtifactId": 9016085742,
+  "acceptanceArtifactDigest": "sha256:5595f19ff3c4d683e3b8f3d3c975587a2253bfd780e126b14855189b07aa7e82",
+  "certifiedMacRuntimeFingerprint": "d1f81dfa0054a5b1ca36f32c0f32c5c03f09a2de507e69041815861385878be3",
+  "frozenAcceptanceRunnerBlob": "e32e1b62d8963c2f47b257500e501dcd6d5073bc",
+  "productionAcceptance": {
+    "consecutivePasses": 2,
+    "cardsPerPass": 5,
+    "totalPassingScans": 10,
+    "minimumIdentityConfidence": 0.95,
+    "temporaryAcceptanceCredentialRemoved": true,
+    "removedCredentialRejectedHttp": 401
+  },
+  "backupLayers": [
+    "Native InstaComp AI FULL ZIP: service code + .env + SQLite + images + training/receipts/data, with manifest and SHA-256.",
+    "Repository emergency TAR.GZ: complete repository including .git and root/local .env files, with manifest and SHA-256.",
+    "GitHub golden branch: immutable pointer to the exact certified Production source commit."
+  ],
+  "important": [
+    "Never upload the local emergency archive to a public location because it may contain secrets.",
+    "The central Checklist Registry, Supabase database/storage, Vercel-managed secrets, Cloudflare configuration, and Ollama model installation are external runtime dependencies. The recovery guide validates/reconnects them rather than pretending Git alone contains them."
+  ]
+}
