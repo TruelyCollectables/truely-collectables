@@ -32,6 +32,19 @@ old_health = '''    database_ready = store.ready()
         ollama_model=settings.ollama_model,
         checklist="ready" if checklist_ready else "not_configured",
     )'''
+current_health = '''    database_ready = store.ready()
+    checklist_ready = await checklist_gateway.health()
+    ollama_ready = await reader.health()
+    return HealthResponse(
+        ok=database_ready and checklist_ready and ollama_ready,
+        app=settings.app_name,
+        codename=settings.codename,
+        version=settings.version,
+        database="ready" if database_ready else "error",
+        ollama="ready" if ollama_ready else "unavailable",
+        ollama_model=settings.ollama_model,
+        checklist="ready" if checklist_ready else "not_configured",
+    )'''
 new_health = '''    database_ready = store.ready()
     checklist_ready = await checklist_gateway.health()
     return HealthResponse(
@@ -44,7 +57,13 @@ new_health = '''    database_ready = store.ready()
         ollama_model="disabled_for_identity_scans",
         checklist="ready" if checklist_ready else "not_configured",
     )'''
-main = replace_once(main, old_health, new_health, "health contract")
+if new_health not in main:
+    if old_health in main:
+        main = main.replace(old_health, new_health, 1)
+    elif current_health in main:
+        main = main.replace(current_health, new_health, 1)
+    else:
+        raise SystemExit("health contract block not found")
 
 old_marker = (
     "    # BACKUP READER: Ollama is called only when trusted image memory and\n"
