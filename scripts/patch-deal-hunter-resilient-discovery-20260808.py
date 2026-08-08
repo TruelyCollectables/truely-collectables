@@ -182,6 +182,6 @@ async def test_discovery_still_fails_closed_when_every_feed_is_down(tmp_path: Pa
 '''
 if 'test_discovery_isolates_one_failed_feed_and_keeps_hunting' in test_text:
     raise SystemExit('Resilience tests already present; refusing duplicate patch.')
-tests.write_text(test_text.rstrip() + addition + '\n', encoding='utf-8')
+tests.write_text((test_text.rstrip() + addition).rstrip() + '\n', encoding='utf-8')
 
 print('Deal Hunter resilient discovery patch applied.')
