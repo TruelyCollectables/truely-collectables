@@ -1,6 +1,8 @@
 export type InstaCompChecklistLookupInput = {
   year: string | null;
   manufacturer: string | null;
+  brand?: string | null;
+  setName?: string | null;
   cardNumber: string | null;
   player: string | null;
   serialNumber?: string | null;
@@ -65,20 +67,25 @@ function normalizedParallel(value: unknown) {
   const normalized = normalizedText(value);
   if (!normalized) return "";
 
-  // Panini commonly exposes the same physical Ice parallel with different
-  // reader/catalog wording. Keep this intentionally narrow: only aliases that
-  // explicitly carry the Prizm/Prizms marker collapse to the Registry's
-  // canonical "Prizms Ice" spelling. Do not fuzzy-match generic colors or
-  // generic "cracked ice" text from unrelated products.
+  // Only collapse harmless spelling/order aliases for the SAME named parallel.
+  // Never collapse Cracked Ice, White Seismic, Velocity, etc. into generic Ice.
+  // Those are distinct physical parallels and must remain independently locked.
   if (
     normalized === "prizms ice" ||
     normalized === "prizm ice" ||
     normalized === "ice prizm" ||
-    normalized === "cracked ice prizm" ||
-    normalized === "white cracked ice prizm" ||
-    normalized === "prizms cracked ice"
+    normalized === "ice prizms"
   ) {
     return "prizms ice";
+  }
+
+  if (
+    normalized === "prizms silver" ||
+    normalized === "prizm silver" ||
+    normalized === "silver prizm" ||
+    normalized === "silver prizms"
+  ) {
+    return "prizms silver";
   }
 
   return normalized;
@@ -102,14 +109,40 @@ function manufacturerMatches(
 ) {
   const target = normalizedText(input.manufacturer);
   if (!target) return false;
+  const candidateManufacturer = normalizedText(candidate.manufacturer);
+  return Boolean(
+    candidateManufacturer &&
+      (candidateManufacturer === target ||
+        candidateManufacturer.includes(target) ||
+        target.includes(candidateManufacturer)),
+  );
+}
 
-  return [candidate.manufacturer, candidate.brand, candidate.product, candidate.setName]
+function brandMatches(
+  input: InstaCompChecklistLookupInput,
+  candidate: InstaCompChecklistCandidate,
+) {
+  const target = normalizedText(input.brand);
+  if (!target) return false;
+
+  return [candidate.brand, candidate.product]
     .map(normalizedText)
     .filter(Boolean)
     .some(
       (value) =>
         value === target || value.includes(target) || target.includes(value),
     );
+}
+
+function setMatches(
+  input: InstaCompChecklistLookupInput,
+  candidate: InstaCompChecklistCandidate,
+) {
+  const target = normalizedText(input.setName);
+  if (!target) return false;
+
+  const candidateSet = normalizedText(candidate.setName);
+  return Boolean(candidateSet && candidateSet === target);
 }
 
 function optionalTextMatches(input: unknown, candidate: unknown) {
@@ -130,6 +163,8 @@ export function resolveInstaCompChecklistFirst(params: {
   const missing = [
     ["year", yearStart(input.year)],
     ["manufacturer", normalizedText(input.manufacturer)],
+    ["brand", normalizedText(input.brand)],
+    ["set_name", normalizedText(input.setName)],
     ["card_number", normalizedCardNumber(input.cardNumber)],
     ["player", normalizedPlayer(input.player)],
   ]
@@ -150,6 +185,8 @@ export function resolveInstaCompChecklistFirst(params: {
     (candidate) =>
       yearStart(candidate.year) === yearStart(input.year) &&
       manufacturerMatches(input, candidate) &&
+      brandMatches(input, candidate) &&
+      setMatches(input, candidate) &&
       normalizedCardNumber(candidate.cardNumber) ===
         normalizedCardNumber(input.cardNumber) &&
       normalizedPlayer(candidate.player) === normalizedPlayer(input.player),
@@ -161,7 +198,9 @@ export function resolveInstaCompChecklistFirst(params: {
       aiRequired: true,
       match: null,
       candidates: [],
-      reasons: ["no_year_manufacturer_card_number_player_match"],
+      reasons: [
+        "no_year_manufacturer_brand_set_card_number_player_match",
+      ],
     };
   }
 
