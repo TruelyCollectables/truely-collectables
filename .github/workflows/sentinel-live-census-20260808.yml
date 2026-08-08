@@ -73,7 +73,12 @@ jobs:
               for end in ends:
                   if end <= start:
                       continue
-                  candidate = '\n'.join(cleaned[start + 1:end]).strip()
+                  wrapped = '\n'.join(cleaned[start + 1:end]).strip()
+                  first = wrapped.find('{')
+                  last = wrapped.rfind('}')
+                  if first < 0 or last <= first:
+                      continue
+                  candidate = wrapped[first:last + 1]
                   try:
                       parsed = json.loads(candidate)
                   except Exception:
