@@ -174,3 +174,39 @@ async def test_discovery_still_fails_closed_when_every_feed_is_down(tmp_path: Pa
     scheduler._fetch_feed = fail_every_feed  # type: ignore[method-assign]
     with pytest.raises(RuntimeError, match="All Deal Hunter discovery feeds failed closed"):
         await scheduler._discover()
+
+@pytest.mark.asyncio
+async def test_run_preserves_start_based_next_run_for_overdue_catchup(tmp_path: Path):
+    settings = SimpleNamespace(
+        deal_hunter_enabled=True,
+        deal_hunter_interval_minutes=60,
+        deal_hunter_candidate_cooldown_hours=6,
+        deal_hunter_max_candidates_per_run=20,
+    )
+    store = DealHunterStore(tmp_path / "instacomp.sqlite3")
+    store.initialize()
+    scheduler = DealHunterScheduler(settings, store)
+    scheduled_next = utc_now() + timedelta(minutes=60)
+    next_run_calls = 0
+
+    def fixed_next_run(_from_time=None):
+        nonlocal next_run_calls
+        next_run_calls += 1
+        return scheduled_next
+
+    async def no_candidates():
+        return [], []
+
+    async def no_publish(_run_id, _status, _counts, _summary):
+        return None
+
+    scheduler.next_run = fixed_next_run  # type: ignore[method-assign]
+    scheduler._discover = no_candidates  # type: ignore[method-assign]
+    scheduler._publish_run_summary = no_publish  # type: ignore[method-assign]
+
+    result = await scheduler.run_now(trigger="manual")
+    state = store.scheduler_state()
+
+    assert result["status"] == "completed"
+    assert next_run_calls == 1
+    assert state["next_run_at"] == scheduled_next.isoformat()

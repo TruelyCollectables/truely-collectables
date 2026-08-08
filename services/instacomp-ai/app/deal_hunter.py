@@ -249,9 +249,13 @@ class DealHunterScheduler:
                     summary=summary,
                     error_message=error_message,
                 )
+                # Preserve the cadence calculated when this run started. If a
+                # slow batch overruns that timestamp, the scheduler loop will see
+                # it as due and immediately start the next non-overlapping batch
+                # instead of idling for another full interval.
                 self.store.mark_scheduler_finished(
                     status=status,
-                    next_run_at=self.next_run(),
+                    next_run_at=next_run_at,
                     error_message=error_message,
                 )
 
