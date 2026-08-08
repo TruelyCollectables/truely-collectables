@@ -1,0 +1,162 @@
+name: InstaComp Final Cloud Registry Consensus V3 20260807
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/ops/patch-instacomp-final-cloud-registry-consensus-v3-20260807.py"
+      - "scripts/run-instacomp-final-registry-consensus-v3-simulations.ts"
+      - ".github/workflows/instacomp-final-cloud-registry-consensus-v3-20260807.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instacomp-final-cloud-registry-consensus-v3-20260807
+  cancel-in-progress: true
+
+env:
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+jobs:
+  patch-and-certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/instacomp-final-cloud-registry-consensus-v3-20260807
+          fetch-depth: 0
+
+      - name: Apply cloud-only root-cause repair
+        run: python scripts/ops/patch-instacomp-final-cloud-registry-consensus-v3-20260807.py
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Pure Base Ice Groovy consensus regressions
+        run: npx tsx scripts/run-instacomp-final-registry-consensus-v3-simulations.ts
+
+      - name: Full TypeScript compile
+        run: npx tsc --noEmit
+
+      - name: Resolve Production Registry read credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          project_ref="$(python - <<'PY'
+          import re
+          from pathlib import Path
+          text=Path('README.md').read_text(errors='ignore') if Path('README.md').exists() else ''
+          print('')
+          PY
+          )"
+          # Production project URL is intentionally pulled through Vercel in the next step.
+
+      - name: Link Vercel and resolve Production Supabase server key
+        shell: bash
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope truelycollectables-projects --token "$VERCEL_TOKEN" >/dev/null
+          env_file="$RUNNER_TEMP/production.env"
+          runtime_file="$RUNNER_TEMP/registry-env.sh"
+          npx --yes vercel@56.2.0 env pull "$env_file" --yes --environment production --scope truelycollectables-projects --token "$VERCEL_TOKEN" >/dev/null
+          PRODUCTION_ENV_PATH="$env_file" RUNTIME_ENV_PATH="$runtime_file" GH_SUPABASE_ACCESS_TOKEN="$GH_SUPABASE_ACCESS_TOKEN" node - <<'NODE'
+          const fs=require('node:fs');
+          const parsed={};
+          for(const raw of fs.readFileSync(process.env.PRODUCTION_ENV_PATH,'utf8').split(/\r?\n/)){
+            const line=raw.trim(); if(!line||line.startsWith('#')) continue;
+            const i=line.indexOf('='); if(i<1) continue;
+            const k=line.slice(0,i).trim(); let v=line.slice(i+1).trim();
+            if(v.startsWith('"')&&v.endsWith('"')){try{v=JSON.parse(v)}catch{v=v.slice(1,-1)}}
+            parsed[k]=v;
+          }
+          (async()=>{
+            const url=String(parsed.NEXT_PUBLIC_SUPABASE_URL||'').trim();
+            if(!url) throw new Error('Missing Production Supabase URL');
+            const ref=new URL(url).hostname.split('.')[0];
+            const r=await fetch(`https://api.supabase.com/v1/projects/${ref}/api-keys?reveal=true`,{headers:{Authorization:`Bearer ${process.env.GH_SUPABASE_ACCESS_TOKEN}`}});
+            const text=await r.text(); if(!r.ok) throw new Error(`Supabase keys HTTP ${r.status}`);
+            const keys=text?JSON.parse(text):[]; const val=e=>String(e?.api_key||e?.key||e?.value||'');
+            const modern=keys.find(e=>/^sb_secret_/i.test(val(e)));
+            const legacy=keys.find(e=>e?.name==='service_role'&&/^eyJ/.test(val(e)))||keys.find(e=>e?.secret_jwt_template?.role==='service_role'&&/^eyJ/.test(val(e)));
+            const key=val(modern||legacy); if(!key) throw new Error('No Production server key');
+            console.log(`::add-mask::${url}`); console.log(`::add-mask::${key}`);
+            fs.writeFileSync(process.env.RUNTIME_ENV_PATH,`export NEXT_PUBLIC_SUPABASE_URL=${JSON.stringify(url)}\nexport SUPABASE_SERVICE_ROLE_KEY=${JSON.stringify(key)}\n`,{mode:0o600});
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+
+      - name: Live Registry proof on the same frozen five identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/registry-env.sh"
+          cat > scripts/ops/.tmp-final-registry-v3-live-proof.ts <<'TS'
+          import assert from "node:assert/strict";
+          import { resolveChecklistRegistry } from "../../src/lib/instacomp-learning-server";
+
+          const cases = [
+            { player:"Sonia Citron", year:"2025", brand:"Panini", setName:"Base", cardNumber:"122", parallel:"Base", expected:"2a7d4ddd-e9f7-4ce2-904c-b1a17b33ae4f" },
+            { player:"Dominique Malonga", year:"2025", brand:"Panini", setName:"Base", cardNumber:"116", parallel:"Prizms Ice", expected:"bde0577b-72e8-4e59-8287-89aaf2f9e7e2" },
+            { player:"Sonia Citron", year:"2025", brand:"Panini", setName:"PRIZM", cardNumber:"13", parallel:"Base", registryVisibleText:"GROOVY SONIA CITRON PRIZM WNBA", expected:"c58ffc4f-e1c7-4cd9-b6e2-599af5a29044" },
+            { player:"Paige Bueckers", year:"2025", brand:"Panini", setName:"Base", cardNumber:"5", parallel:"Prizms Ice", expected:"575556fe-fdd4-4083-baee-c5071ed3161f" },
+            { player:"Rickea Jackson", year:"2025", brand:"Panini", setName:"Base", cardNumber:"118", parallel:"Base", expected:"70ad307e-06bb-45c2-90ea-689b6e2f302e" },
+          ];
+          for (const input of cases) {
+            const expected=input.expected;
+            const resolution=await resolveChecklistRegistry(input,{evidenceTrusted:false});
+            assert.equal(resolution.status,"internal_exact_match",`${input.player} #${input.cardNumber}: ${resolution.status} ${resolution.reasons.join(',')}`);
+            assert.equal(resolution.candidateCount,1,`${input.player} candidateCount`);
+            assert.equal(resolution.match?.identityId,expected,`${input.player} UUID`);
+            assert.match(String(resolution.match?.fingerprintSha256||''),/^[a-f0-9]{64}$/i);
+            console.log(`PASS ${input.player} #${input.cardNumber} -> ${expected}`);
+          }
+          TS
+          npx tsx scripts/ops/.tmp-final-registry-v3-live-proof.ts
+          rm -f scripts/ops/.tmp-final-registry-v3-live-proof.ts
+
+      - name: Source safety and cloud-only boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          changed="$( { git diff --name-only; git ls-files --others --exclude-standard; } | sort -u )"
+          expected="$(printf '%s\n' \
+            'scripts/run-instacomp-final-registry-consensus-v3-simulations.ts' \
+            'src/app/api/instacomp/scan/route.ts' \
+            'src/lib/instacomp-ai-local.ts' \
+            'src/lib/instacomp-consensus.ts' \
+            'src/lib/instacomp-learning-server.ts' | sort)"
+          test "$changed" = "$expected"
+          test -z "$(git diff --name-only -- services/instacomp-ai/app services/instacomp-ai/scripts)"
+          grep -Fq 'registryVisibleText' src/app/api/instacomp/scan/route.ts
+          grep -Fq 'localVisionOcrText' src/lib/instacomp-ai-local.ts
+          grep -Fq 'softVisibleSetRows' src/lib/instacomp-learning-server.ts
+          grep -Fq 'unresolvedSurfaceRiskFamilies.length >= 2' src/lib/instacomp-consensus.ts
+          grep -Fq 'comparableParallel(readerEvidenceText(reader))' src/lib/instacomp-consensus.ts
+
+      - name: Commit certified permanent files only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            scripts/run-instacomp-final-registry-consensus-v3-simulations.ts \
+            src/app/api/instacomp/scan/route.ts \
+            src/lib/instacomp-ai-local.ts \
+            src/lib/instacomp-consensus.ts \
+            src/lib/instacomp-learning-server.ts
+          git commit -m 'Fix final InstaComp Registry and consensus blockers v3'
+          git push origin HEAD:fix/instacomp-final-cloud-registry-consensus-v3-20260807
