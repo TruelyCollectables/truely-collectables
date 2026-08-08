@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   census:
@@ -27,13 +28,76 @@ jobs:
           test "${#changed[@]}" -eq 2
           test "${changed[0]}" = '.github/workflows/sentinel-live-census-20260808.yml'
           test "${changed[1]}" = 'scripts/sentinel-live-census-20260808.marker'
-      - name: Decode mainstream manifest labels
+      - name: Map current mainstream remainder to canonical releases
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          node --input-type=module <<'NODE'
+          raw="$RUNNER_TEMP/registry-census.bin"
+          ids="$RUNNER_TEMP/remaining.json"
+          curl -fsSL \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/jobs/93110634714/logs" \
+            -o "$raw"
+          python3 - "$raw" "$ids" <<'PY'
+          import gzip, io, json, pathlib, re, sys, zipfile
+          data = pathlib.Path(sys.argv[1]).read_bytes()
+          if data.startswith(b'PK'):
+              with zipfile.ZipFile(io.BytesIO(data)) as z:
+                  data = b'\n'.join(z.read(n) for n in z.namelist() if not n.endswith('/'))
+          elif data.startswith(b'\x1f\x8b'):
+              data = gzip.decompress(data)
+          text = data.decode('utf-8', errors='replace')
+          payload = None
+          for line in text.splitlines():
+              marker = 'CENSUS_MAINSTREAM='
+              if marker not in line:
+                  continue
+              raw_json = line.split(marker, 1)[1].strip()
+              try:
+                  parsed = json.loads(raw_json)
+              except Exception:
+                  continue
+              if parsed.get('remainingFinite') == 233:
+                  payload = parsed
+                  break
+          if payload is None:
+              raise SystemExit('Could not recover current 233-row mainstream census')
+          pathlib.Path(sys.argv[2]).write_text(json.dumps(payload['remaining']), encoding='utf-8')
+          print('REMAINING_COUNT=' + str(len(payload['remaining'])))
+          PY
+
+          REMAINING_JSON="$ids" node --input-type=module <<'NODE'
+          import fs from 'node:fs';
           import { loadMainstreamChecklistManifest } from './scripts/mainstream-checklist/manifest.mjs';
+          const remaining = JSON.parse(fs.readFileSync(process.env.REMAINING_JSON, 'utf8'));
           const manifest = loadMainstreamChecklistManifest();
-          console.log('MANIFEST_KEYS=' + JSON.stringify(Object.keys(manifest.entries[0] || {})));
-          console.log('MANIFEST_SAMPLE=' + JSON.stringify(manifest.entries.slice(0, 12)));
+          const byId = new Map(manifest.entries.map((entry) => [entry.id, entry]));
+          const mapped = remaining.map((row) => {
+            const entry = byId.get(row.id);
+            if (!entry) throw new Error(`Missing manifest entry ${row.id}`);
+            const r = entry.release || {};
+            return {
+              id: row.id,
+              canonicalName: r.canonicalName || row.id,
+              year: r.releaseYear ?? null,
+              sport: r.sport ?? null,
+              manufacturer: r.manufacturer ?? null,
+              product: r.product ?? null,
+              exactSetKey: r.exactSetKey ?? null,
+              blocker: row.issues?.[0] || 'quarantined',
+              sourceName: entry.sourceName,
+            };
+          }).sort((a,b) => (a.sport || '').localeCompare(b.sport || '') || Number(a.year || 0) - Number(b.year || 0) || a.canonicalName.localeCompare(b.canonicalName));
+          const bySport = {};
+          for (const row of mapped) {
+            const key = row.sport || 'unknown';
+            (bySport[key] ||= []).push(row);
+          }
+          console.log('REMAINING_BY_SPORT_COUNTS=' + JSON.stringify(Object.fromEntries(Object.entries(bySport).map(([k,v]) => [k,v.length]))));
+          console.log('REMAINING_CANONICAL=' + JSON.stringify(mapped));
           NODE
+          rm -f "$raw" "$ids"
