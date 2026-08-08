@@ -1,0 +1,194 @@
+name: Ops Ivan Resolver Scale Repair 20260807
+
+on:
+  push:
+    branches: [ops/parkhurst-ivan-production-20260807]
+    paths:
+      - ".github/workflows/ops-ivan-resolver-scale-repair-20260807.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+jobs:
+  patch-certify-commit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/parkhurst-ivan-production-20260807
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Patch resolver to scope active versions by candidate releases
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('src/lib/instacomp-learning-server.ts')
+          s=p.read_text()
+          old='''  // Resolve active Registry scope without relationship fan-out. The previous
+  // 5,000-row checklist_sets join multiplied release/version relationships and
+  // could hit Production statement_timeout before a card number was examined.
+  const [versionResult, releaseResult] = await Promise.all([
+    supabase
+      .from("checklist_versions")
+      .select("id")
+      .eq("is_active", true)
+      .eq("status", "live")
+      .limit(5000),
+    supabase
+      .from("checklist_releases")
+      .select(
+        "id,product_name,release_year,season,manufacturer:checklist_manufacturers(name),brand:checklist_brands(name),sport:checklist_sports(name),league:checklist_leagues(name)",
+      )
+      .limit(5000),
+  ]);
+  if (versionResult.error) {
+    console.error("Checklist Registry active-version lookup failed:", versionResult.error);
+    return unavailable(
+      `internal_checklist_version_lookup_failed:${queryCode(versionResult.error)}`,
+    );
+  }
+  if (releaseResult.error) {
+    console.error("Checklist Registry release lookup failed:", releaseResult.error);
+    return unavailable(
+      `internal_checklist_release_lookup_failed:${queryCode(releaseResult.error)}`,
+    );
+  }
+
+  const activeVersionIds = new Set(
+    (versionResult.data || []).map((row: any) => String(row.id)).filter(Boolean),
+  );
+  const releaseRows = releaseResult.data || [];
+  const releaseById = new Map(
+    releaseRows.map((row: any) => [String(row.id), row]),
+  );
+  // Keep exact and adjacent years in the bounded candidate pool so the existing
+  // adjacent-year recovery semantics remain unchanged, then apply full set-name
+  // and manufacturer evidence after the small set rows are loaded.
+  const candidateReleaseIds = unique(
+    releaseRows
+      .filter((release: any) =>
+        yearMatches(year, release.release_year || release.season, true),
+      )
+      .map((release: any) => release.id),
+  );
+
+  if (!candidateReleaseIds.length || !activeVersionIds.size) {'''
+          new='''  // Resolve releases first, then fetch active versions only for the bounded
+  // candidate releases. A global active-version LIMIT can silently omit a newly
+  // imported release once the Registry grows past that window.
+  const releaseResult = await supabase
+    .from("checklist_releases")
+    .select(
+      "id,product_name,release_year,season,manufacturer:checklist_manufacturers(name),brand:checklist_brands(name),sport:checklist_sports(name),league:checklist_leagues(name)",
+    )
+    .limit(5000);
+  if (releaseResult.error) {
+    console.error("Checklist Registry release lookup failed:", releaseResult.error);
+    return unavailable(
+      `internal_checklist_release_lookup_failed:${queryCode(releaseResult.error)}`,
+    );
+  }
+
+  const releaseRows = releaseResult.data || [];
+  const releaseById = new Map(
+    releaseRows.map((row: any) => [String(row.id), row]),
+  );
+  // Keep exact and adjacent years in the bounded candidate pool so the existing
+  // adjacent-year recovery semantics remain unchanged, then apply full set-name
+  // and manufacturer evidence after the small set rows are loaded.
+  const candidateReleaseIds = unique(
+    releaseRows
+      .filter((release: any) =>
+        yearMatches(year, release.release_year || release.season, true),
+      )
+      .map((release: any) => release.id),
+  );
+
+  const versionResult = candidateReleaseIds.length
+    ? await supabase
+        .from("checklist_versions")
+        .select("id,release_id")
+        .in("release_id", candidateReleaseIds)
+        .eq("is_active", true)
+        .eq("status", "live")
+        .limit(5000)
+    : { data: [], error: null };
+  if (versionResult.error) {
+    console.error("Checklist Registry active-version lookup failed:", versionResult.error);
+    return unavailable(
+      `internal_checklist_version_lookup_failed:${queryCode(versionResult.error)}`,
+    );
+  }
+  const activeVersionIds = new Set(
+    (versionResult.data || []).map((row: any) => String(row.id)).filter(Boolean),
+  );
+
+  if (!candidateReleaseIds.length || !activeVersionIds.size) {'''
+          if old not in s:
+              if 'A global active-version LIMIT can silently omit a newly' in s:
+                  print('resolver patch already present')
+              else:
+                  raise SystemExit('expected resolver block not found')
+          else:
+              p.write_text(s.replace(old,new,1))
+              print('resolver patch applied')
+          PY
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Resolve Production Registry credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx --yes vercel@56.2.0 env pull /tmp/prod.env --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          PROD_ENV=/tmp/prod.env GH_SUPABASE_ACCESS_TOKEN="$GH_SUPABASE_ACCESS_TOKEN" node - <<'NODE'
+          const fs=require('node:fs'); const parsed={};
+          for(const raw of fs.readFileSync(process.env.PROD_ENV,'utf8').split(/\r?\n/)){
+            const line=raw.trim(); if(!line||line.startsWith('#'))continue; const i=line.indexOf('='); if(i<1)continue;
+            const k=line.slice(0,i).trim(); let v=line.slice(i+1).trim(); if(v.startsWith('"')&&v.endsWith('"')){try{v=JSON.parse(v)}catch{v=v.slice(1,-1)}} parsed[k]=v;
+          }
+          (async()=>{const u=String(parsed.NEXT_PUBLIC_SUPABASE_URL||'').trim(); if(!u)throw Error('Missing Production Supabase URL'); const ref=new URL(u).hostname.split('.')[0]; const r=await fetch(`https://api.supabase.com/v1/projects/${ref}/api-keys?reveal=true`,{headers:{Authorization:`Bearer ${process.env.GH_SUPABASE_ACCESS_TOKEN}`}}); const text=await r.text(); if(!r.ok)throw Error(`key lookup ${r.status}`); const keys=text?JSON.parse(text):[]; const val=e=>String(e?.api_key||e?.key||e?.value||''); const modern=keys.find(e=>/^sb_secret_/i.test(val(e))); const legacy=keys.find(e=>e?.name==='service_role'&&/^eyJ/.test(val(e)))||keys.find(e=>e?.secret_jwt_template?.role==='service_role'&&/^eyJ/.test(val(e))); const key=val(modern||legacy); if(!key)throw Error('No Production server key'); console.log(`::add-mask::${u}`); console.log(`::add-mask::${key}`); fs.writeFileSync('/tmp/runtime.sh',`export NEXT_PUBLIC_SUPABASE_URL=${JSON.stringify(u)}\nexport SUPABASE_SERVICE_ROLE_KEY=${JSON.stringify(key)}\n`,{mode:0o600});})().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+      - name: Prove Production Ivan Parkhurst 236 resolver
+        shell: bash
+        run: |
+          set -euo pipefail
+          source /tmp/runtime.sh
+          cat > /tmp/ivan-proof.ts <<'TS'
+          import assert from "node:assert/strict";
+          import { resolveChecklistRegistry } from "${{ github.workspace }}/src/lib/instacomp-learning-server";
+          async function main(){
+            const r=await resolveChecklistRegistry({player:'Ivan Demidov',year:'2025-26',brand:'Upper Deck',setName:'Rookies',cardNumber:'236',parallel:'Base',team:'Montreal Canadiens',sport:'Hockey',league:'NHL',isRookie:true,isAuto:false,isRelic:false},{evidenceTrusted:true});
+            console.log('IVAN_236_RESULT',JSON.stringify(r));
+            assert.equal(r.status,'internal_exact_match'); assert.ok(r.match); assert.equal(r.match.player,'Ivan Demidov'); assert.equal(String(r.match.cardNumber),'236'); assert.match(String(r.match.product||''),/Parkhurst/i); assert.ok(r.match.identityId&&r.match.fingerprintSha256);
+            console.log('PASS_IVAN_PARKHURST_236',JSON.stringify({identityId:r.match.identityId,fingerprintSha256:r.match.fingerprintSha256,setName:r.match.setName,product:r.match.product}));
+          }
+          main().catch(e=>{console.error(e);process.exit(1)});
+          TS
+          npx tsx /tmp/ivan-proof.ts
+      - name: Commit certified resolver fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- src/lib/instacomp-learning-server.ts; then
+            echo "Resolver already committed"
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/lib/instacomp-learning-server.ts
+          git commit -m "Fix Registry active-version scoping"
+          git push origin HEAD:ops/parkhurst-ivan-production-20260807

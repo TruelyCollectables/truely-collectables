@@ -1,0 +1,47 @@
+name: Ops Parkhurst Raw Set Diagnostic 20260807
+
+on:
+  push:
+    branches: [ops/parkhurst-ivan-production-20260807]
+    paths:
+      - ".github/workflows/ops-parkhurst-raw-set-diagnostic-20260807.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Dump bounded official Parkhurst raw set labels
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > parkhurst-raw-diagnostic.mjs <<'JS'
+          const url='https://upperdeck.com/checklist/2025-26-parkhurst-checklist/';
+          const r=await fetch(url,{headers:{'User-Agent':'TCOS-Checklist-Registry/1.0'},signal:AbortSignal.timeout(60000)});
+          if(!r.ok) throw new Error(`HTTP ${r.status}`);
+          const html=await r.text();
+          const clean=s=>String(s||'').replace(/<[^>]+>/g,' ').replace(/&nbsp;/gi,' ').replace(/&amp;/gi,'&').replace(/\s+/g,' ').trim();
+          const tables=[...html.matchAll(/<table\b[^>]*>[\s\S]*?<\/table>/gi)].map(m=>m[0]);
+          let rows=[];
+          for(const table of tables){
+            const parsed=[...table.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)].map(m=>[...m[1].matchAll(/<(?:th|td)\b[^>]*>([\s\S]*?)<\/(?:th|td)>/gi)].map(c=>clean(c[1])));
+            const hi=parsed.findIndex(c=>c.some(x=>/^Set Name$/i.test(x))&&c.some(x=>/^Card(?: Number)?$/i.test(x)));
+            if(hi<0) continue;
+            const h=parsed[hi].map(x=>x.toLowerCase().replace(/[^a-z0-9]+/g,''));
+            const si=h.indexOf('setname'); const ci=h.findIndex(x=>x==='card'||x==='cardnumber'); const di=h.findIndex(x=>x==='description'||x==='playername'||x==='player');
+            for(let i=hi+1;i<parsed.length;i++) if(parsed[i].some(Boolean)) rows.push({n:rows.length+1,set:parsed[i][si]||'',card:parsed[i][ci]||'',subject:parsed[i][di]||''});
+          }
+          const bySet=new Map(); for(const x of rows){ if(!bySet.has(x.set))bySet.set(x.set,{count:0,min:x.n,max:x.n}); const v=bySet.get(x.set);v.count++;v.max=x.n; }
+          console.log('RAW_SET_SUMMARY',JSON.stringify([...bySet.entries()].map(([set,v])=>({set,...v})).filter(x=>x.max>=2300).slice(0,120)));
+          console.log('RAW_ROWS_236',JSON.stringify(rows.filter(x=>String(x.card).replace(/^#\s*/,'')==='236')));
+          console.log('RAW_ROWS_2370_2730',JSON.stringify(rows.filter(x=>x.n>=2370&&x.n<=2730).slice(0,400)));
+          JS
+          node parkhurst-raw-diagnostic.mjs
