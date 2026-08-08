@@ -42,23 +42,47 @@ const wrappers = new Map([
 
 for (const [path, target] of wrappers) {
   const source = read(path).trim();
-  if (source !== `export { default } from "${target}";`) {
-    throw new Error(`${path} must remain a thin wrapper around ${target}.`);
+  const expected =
+    path === "src/app/kingmaker/marketplaces/page.tsx"
+      ? [
+          'export const dynamic = "force-dynamic";',
+          "export const revalidate = 0;",
+          "",
+          `export { default } from "${target}";`,
+        ].join("\n")
+      : `export { default } from "${target}";`;
+  if (source !== expected) {
+    throw new Error(
+      path === "src/app/kingmaker/marketplaces/page.tsx"
+        ? `${path} must remain a force-dynamic, zero-revalidate thin wrapper around ${target}.`
+        : `${path} must remain a thin wrapper around ${target}.`,
+    );
   }
 }
 
 const auditedPending = read("src/app/kingmaker/pending/page.tsx");
 for (const required of [
-  "rotatedImageFile",
-  'formData.set("frontImage", frontImage)',
-  'formData.set("backImage", backImage)',
-  "Retry This Card",
-  "Replace Manual Identity with AI",
+  "function hasValidPair(card: PendingCard)",
+  "card.frontImageUrl !== card.backImageUrl",
+  '"/api/account/seller/inventory/instacomp-front-back"',
+  "replaceManualIdentity",
+  'aiCouncilTier: "adaptive"',
+  "Re-scan and Replace Locked Identity",
+  "Save, Lock & Teach InstaComp",
   "job?.error",
+  "Blank no longer means Base.",
+  "No Base or look-alike parallel was substituted.",
+  "never auto-published",
 ]) {
   requireText(auditedPending, required, "audited KINGMAKER Pending Listings");
 }
-rejectText(auditedPending, "failed: 100", "audited KINGMAKER Pending Listings");
+for (const forbidden of [
+  "failed: 100",
+  'formData.set("frontImage", frontImage)',
+  'formData.set("backImage", backImage)',
+]) {
+  rejectText(auditedPending, forbidden, "audited KINGMAKER Pending Listings");
+}
 
 for (const existingPath of [
   "src/app/seller/instacomp-scan/page.tsx",
@@ -223,10 +247,12 @@ requireText(macMain, "checklist_result.identity_id", "Mac Registry receipt");
 console.log(
   JSON.stringify(
     {
-      schema: "tcos.kingmaker-instacomp.architecture-certification.v2",
+      schema: "tcos.kingmaker-instacomp.architecture-certification.v3",
       status: "passed",
       thinWrappers: wrappers.size,
+      dynamicMarketplaceWrapperCertified: true,
       auditedPendingJob: true,
+      storedDistinctFrontBackRequired: true,
       capabilityCount: 10,
       canonicalIdentityAuthority: "central_checklist_registry",
       intelligenceOwner: "instacomp_ai",
