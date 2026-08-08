@@ -80,9 +80,12 @@ replace_once(
     '''  const year = yearStart(ai.year);\n  const brand = normalizedText(ai.brand);\n  const setEvidence = normalizedText(ai.setName);\n  const releaseProductHint = normalizedText(ai.releaseProductHint);\n  const requiredReleaseEvidence = [ai.year, ai.brand];\n\n  if (\n    !year ||\n    !brand ||\n    (!setEvidence && !releaseProductHint) ||\n    requiredReleaseEvidence.some(evidenceTextIsUncertain) ||\n    (setEvidence && evidenceTextIsUncertain(ai.setName)) ||\n    (releaseProductHint && evidenceTextIsUncertain(ai.releaseProductHint))\n  ) {\n''',
 )
 
-# Do not discard releases before their checklist set rows are loaded. Some
-# products (for example Parkhurst) are represented by the set row rather than
-# checklist_releases.product_name. Year bounds the release pool; product hint
-# matching happens in checklistSetCoverageMatches against release + set name.
+# Temporary read-only diagnostics for product-hint misses. The certifier never
+# commits source while the live assertion is failing, so this cannot ship.
+replace_once(
+    path,
+    '''  const exactCoveredSets = scopedSetRows.filter((row: any) =>\n    checklistSetCoverageMatches(ai, row),\n  );\n''',
+    '''  if (normalizedText(ai.releaseProductHint)) {\n    console.log(\n      "CHECKLIST_REGISTRY_PRODUCT_HINT_SCOPE",\n      JSON.stringify({\n        hint: ai.releaseProductHint,\n        year: ai.year,\n        brand: ai.brand,\n        cardNumber: ai.cardNumber,\n        candidateReleases: candidateReleaseIds.slice(0, 50).map((id) => {\n          const release: any = releaseById.get(String(id)) || {};\n          return {\n            id,\n            product: release.product_name || null,\n            year: release.release_year || release.season || null,\n            manufacturer: release.manufacturer?.name || null,\n            brand: release.brand?.name || null,\n          };\n        }),\n        scopedSets: scopedSetRows.slice(0, 100).map((row: any) => ({\n          id: row.id,\n          name: row.name,\n          releaseId: row.release_id,\n          releaseProduct: row.release?.product_name || null,\n        })),\n      }),\n    );\n  }\n  const exactCoveredSets = scopedSetRows.filter((row: any) =>\n    checklistSetCoverageMatches(ai, row),\n  );\n''',
+)
 
-print("PASS applied release-product-only Registry hint repair v2")
+print("PASS applied release-product-only Registry hint repair v2 diagnostic")
