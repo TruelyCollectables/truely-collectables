@@ -39,7 +39,7 @@ replace_once(
 # one unique Registry identity after card/player/year/brand and other evidence.
 path = "src/lib/instacomp-learning-server.ts"
 anchor = '''function normalizedBrandAlternatives(value: unknown) {\n'''
-helper = '''function releaseProductHintMatches(value: unknown, release: Record<string, any>) {\n  const hintTokens = meaningfulTokens(value);\n  if (!hintTokens.length) return true;\n  const releaseTokens = new Set(\n    meaningfulTokens(\n      [\n        release.manufacturer?.name,\n        release.brand?.name,\n        release.product_name,\n      ]\n        .filter(Boolean)\n        .join(" "),\n    ),\n  );\n  return hintTokens.every((token) => releaseTokens.has(token));\n}\n\nfunction normalizedBrandAlternatives(value: unknown) {\n'''
+helper = '''function releaseProductHintMatches(\n  value: unknown,\n  release: Record<string, any>,\n  setName: unknown = null,\n) {\n  const hintTokens = meaningfulTokens(value);\n  if (!hintTokens.length) return true;\n  const registryTokens = new Set(\n    meaningfulTokens(\n      [\n        release.manufacturer?.name,\n        release.brand?.name,\n        release.product_name,\n        setName,\n      ]\n        .filter(Boolean)\n        .join(" "),\n    ),\n  );\n  return hintTokens.every((token) => registryTokens.has(token));\n}\n\nfunction normalizedBrandAlternatives(value: unknown) {\n'''
 replace_once(path, anchor, helper)
 
 replace_once(
@@ -54,8 +54,8 @@ replace_once(
 )
 replace_once(
     path,
-    '''    const manufacturer = release.manufacturer?.name || null;\n    const brand = release.brand?.name || null;\n    const product = release.product_name || null;\n''',
-    '''    if (!releaseProductHintMatches(ai.releaseProductHint, release)) continue;\n\n    const manufacturer = release.manufacturer?.name || null;\n    const brand = release.brand?.name || null;\n    const product = release.product_name || null;\n''',
+    '''    const manufacturer = release.manufacturer?.name || null;\n    const brand = release.brand?.name || null;\n    const product = release.product_name || null;\n    const setName = card.set?.name || null;\n    if (!brandEvidenceMatches(ai.brand, [manufacturer, brand, product, setName])) {\n''',
+    '''    const manufacturer = release.manufacturer?.name || null;\n    const brand = release.brand?.name || null;\n    const product = release.product_name || null;\n    const setName = card.set?.name || null;\n    if (!releaseProductHintMatches(ai.releaseProductHint, release, setName)) continue;\n    if (!brandEvidenceMatches(ai.brand, [manufacturer, brand, product, setName])) {\n''',
 )
 replace_once(
     path,
@@ -66,7 +66,7 @@ replace_once(
 replace_once(
     path,
     '''  const targetYear = yearStart(ai.year);\n  const setProfile = logicalSetEvidenceProfile(\n''',
-    '''  const targetYear = yearStart(ai.year);\n  if (!releaseProductHintMatches(ai.releaseProductHint, release)) return false;\n  const setProfile = logicalSetEvidenceProfile(\n''',
+    '''  const targetYear = yearStart(ai.year);\n  if (!releaseProductHintMatches(ai.releaseProductHint, release, row.name)) return false;\n  const setProfile = logicalSetEvidenceProfile(\n''',
 )
 replace_once(
     path,
@@ -79,10 +79,10 @@ replace_once(
     '''  const year = yearStart(ai.year);\n  const brand = normalizedText(ai.brand);\n  const setEvidence = normalizedText(ai.setName);\n  const requiredSetEvidence = [ai.year, ai.brand, ai.setName];\n\n  if (\n    !year ||\n    !brand ||\n    !setEvidence ||\n    requiredSetEvidence.some(evidenceTextIsUncertain)\n  ) {\n''',
     '''  const year = yearStart(ai.year);\n  const brand = normalizedText(ai.brand);\n  const setEvidence = normalizedText(ai.setName);\n  const releaseProductHint = normalizedText(ai.releaseProductHint);\n  const requiredReleaseEvidence = [ai.year, ai.brand];\n\n  if (\n    !year ||\n    !brand ||\n    (!setEvidence && !releaseProductHint) ||\n    requiredReleaseEvidence.some(evidenceTextIsUncertain) ||\n    (setEvidence && evidenceTextIsUncertain(ai.setName)) ||\n    (releaseProductHint && evidenceTextIsUncertain(ai.releaseProductHint))\n  ) {\n''',
 )
-replace_once(
-    path,
-    '''      .filter((release: any) =>\n        yearMatches(year, release.release_year || release.season, true),\n      )\n''',
-    '''      .filter((release: any) =>\n        yearMatches(year, release.release_year || release.season, true) &&\n        releaseProductHintMatches(ai.releaseProductHint, release),\n      )\n''',
-)
 
-print("PASS applied release-product-only Registry hint repair v1")
+# Do not discard releases before their checklist set rows are loaded. Some
+# products (for example Parkhurst) are represented by the set row rather than
+# checklist_releases.product_name. Year bounds the release pool; product hint
+# matching happens in checklistSetCoverageMatches against release + set name.
+
+print("PASS applied release-product-only Registry hint repair v2")
