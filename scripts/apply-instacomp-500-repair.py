@@ -114,19 +114,33 @@ if active_marker:
         None,
     )
 
-    if trusted_text_match:
-        trusted_identity = trusted_text_match.identity
-        checklist_result = await checklist_gateway.match(trusted_identity)
-        pricing_allowed = checklist_result.outcome == ChecklistOutcome.EXACT_MATCH
+    trusted_text_registry = (
+        await checklist_gateway.match(trusted_text_match.identity)
+        if trusted_text_match
+        else None
+    )
+    trusted_text_registry_verified = bool(
+        trusted_text_registry
+        and trusted_text_registry.outcome == ChecklistOutcome.EXACT_MATCH
+        and trusted_text_registry.identity
+        and trusted_text_registry.identity_id
+        and any(
+            receipt.startswith("registry_fingerprint:")
+            for receipt in trusted_text_registry.source_receipts
+        )
+    )
+
+    if trusted_text_registry_verified and trusted_text_registry:
+        trusted_identity = trusted_text_registry.identity
+        checklist_result = trusted_text_registry
+        pricing_allowed = True
         status = "trusted_memory_match"
         match_source = "trusted_text_memory"
         next_action = (
-            "Known card identified from internal text memory. Continue to verified comps."
-            if pricing_allowed
-            else "Known card identified from internal text memory; Registry verification is required for pricing."
+            "Known card memory was revalidated against one exact Registry identity. Continue to verified comps."
         )
     else:
-        checklist_result = printed_registry
+        checklist_result = trusted_text_registry or printed_registry
         trusted_identity = None
         pricing_allowed = False
         match_source = "none"
@@ -138,7 +152,7 @@ if active_marker:
         else:
             status = "needs_review"
             next_action = (
-                "InstaComp preserved the front/back scan and checklist receipt, but one exact identity was not proven. Review or correct the card privately."
+                "InstaComp preserved the front/back scan and checklist receipt, but one exact Registry identity with fingerprint proof was not established. Review or correct the card privately."
             )
 
 '''
@@ -270,8 +284,13 @@ static_test.parent.mkdir(parents=True, exist_ok=True)
 static_test.write_text('''from pathlib import Path
 
 
+def main_source() -> str:
+    root = Path(__file__).resolve().parents[1]
+    return (root / "app" / "main.py").read_text()
+
+
 def analyze_source() -> str:
-    source = Path("services/instacomp-ai/app/main.py").read_text()
+    source = main_source()
     return source.split("async def analyze_scan", 1)[1].split(
         '@app.post(\n    "/v1/lessons"', 1
     )[0]
@@ -291,8 +310,17 @@ def test_unresolved_scan_still_builds_and_saves_response():
     assert "return result" in analyze
 
 
+def test_pricing_requires_exact_registry_identity_and_fingerprint():
+    analyze = analyze_source()
+    assert "trusted_text_registry_verified = bool(" in analyze
+    assert "trusted_text_registry.identity_id" in analyze
+    assert 'receipt.startswith("registry_fingerprint:")' in analyze
+    assert "pricing_allowed = True" in analyze
+
+
 def test_health_marks_ollama_unchecked():
-    source = Path("services/instacomp-ai/app/main.py").read_text()
+    source = main_source()
+    assert "await reader.health()" not in source
     assert 'ollama="unchecked"' in source
     assert 'ollama_model="disabled_for_identity_scans"' in source
 ''')
