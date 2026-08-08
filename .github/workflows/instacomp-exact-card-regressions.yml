@@ -1,0 +1,28 @@
+name: InstaComp Exact Card Regressions
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/lib/instacomp-identity-guard.ts"
+      - "scripts/run-instacomp-25-card-regression-simulations.ts"
+      - ".github/workflows/instacomp-exact-card-regressions.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  exact-card-regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm ci
+      - name: Run exact-card recognition regressions
+        run: node --import tsx scripts/run-instacomp-25-card-regression-simulations.ts
+      - name: Run existing identity-guard simulations
+        run: npm run simulate:instacomp-identity-guard
