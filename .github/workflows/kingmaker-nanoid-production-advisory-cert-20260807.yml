@@ -113,7 +113,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          echo 'Post-build working tree:'
+          git status --short
+          git checkout -- public/instacomp-release.json
           test "$(git diff --name-only)" = 'package-lock.json'
+          node - <<'NODE'
+          const lock=require('./package-lock.json');
+          const n=lock.packages?.['node_modules/nanoid'];
+          if(!n) throw new Error('nanoid lock entry missing');
+          const parts=String(n.version).split('.').map(Number);
+          const safe=parts[0]===3 && (parts[1]>3 || (parts[1]===3 && parts[2]>=17));
+          if(!safe) throw new Error(`nanoid still vulnerable after build: ${n.version}`);
+          console.log(`PASS final nanoid lock ${n.version}`);
+          NODE
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add package-lock.json
