@@ -37,17 +37,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          endpoint="$SITE_URL/api/release/instacomp-25-card-stress-test-v2"
+          endpoint="$SITE_URL/api/release/instacomp-25-card-stress-test-v3"
           for attempt in $(seq 1 60); do
             code="$(curl -sS -o "$RUNNER_TEMP/stress-probe.json" -w '%{http_code}' --max-time 20 -X POST "$endpoint" || true)"
             if [ "$code" = "401" ]; then
-              echo "Protected hydrated 25-card endpoint is live in Production."
+              echo "Protected extended-duration 25-card endpoint is live in Production."
               exit 0
             fi
             echo "Production endpoint probe attempt $attempt returned HTTP $code"
             sleep 5
           done
-          echo "Protected hydrated 25-card endpoint did not become live." >&2
+          echo "Protected extended-duration 25-card endpoint did not become live." >&2
           cat "$RUNNER_TEMP/stress-probe.json" 2>/dev/null || true
           exit 1
 
@@ -55,8 +55,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          endpoint="$SITE_URL/api/release/instacomp-25-card-stress-test-v2"
-          code="$(curl -sS -o "$EVIDENCE_DIR/results.json" -w '%{http_code}' --max-time 310 \
+          endpoint="$SITE_URL/api/release/instacomp-25-card-stress-test-v3"
+          code="$(curl -sS -o "$EVIDENCE_DIR/results.json" -w '%{http_code}' --max-time 810 \
             -X POST -H "Authorization: Bearer $VERCEL_TOKEN" -H "Accept: application/json" "$endpoint" || true)"
           echo "Stress endpoint HTTP $code"
           node - "$EVIDENCE_DIR/results.json" "$code" <<'NODE'
