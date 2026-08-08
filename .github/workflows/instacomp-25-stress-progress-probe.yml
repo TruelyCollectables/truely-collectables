@@ -1,0 +1,101 @@
+name: InstaComp 25 Stress Progress Probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-25-stress-progress-probe.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+      RESULT_BRANCH: instacomp-audit-probe
+      RESULT_PATH: audits/instacomp-25-live-listing-stress-test/progress.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Pull Production coordinates
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/instacomp-probe" .vercel
+          npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/instacomp-probe/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          echo "PRODUCTION_ENV_FILE=$RUNNER_TEMP/instacomp-probe/production.env" >> "$GITHUB_ENV"
+      - name: Read current Mac Deal Hunter state
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const envText = fs.readFileSync(process.env.PRODUCTION_ENV_FILE,'utf8');
+          function val(key){
+            const m=envText.match(new RegExp(`^${key}=(?:\"([^\"]*)\"|'([^']*)'|([^\\r\\n]*))`,'m'));
+            return String(m?.[1] ?? m?.[2] ?? m?.[3] ?? '').trim();
+          }
+          const base=val('INSTACOMP_AI_LOCAL_URL').replace(/\/+$/,'');
+          const key=val('INSTACOMP_AI_LOCAL_KEY');
+          if(!/^https:\/\/[^/]+\.truelycollectables\.com$/i.test(base)||!key) throw new Error('Mac coordinates unavailable.');
+          const headers={'X-InstaComp-AI-Key':key,Accept:'application/json'};
+          async function get(path){
+            const r=await fetch(base+path,{headers,signal:AbortSignal.timeout(30000)});
+            const p=await r.json().catch(()=>null);
+            if(!r.ok) throw new Error(`${path} HTTP ${r.status}`);
+            return p;
+          }
+          (async()=>{
+            const [health,status,runsPayload,candidatesPayload]=await Promise.all([
+              get('/health'),get('/v1/deal-hunter/status'),get('/v1/deal-hunter/runs?limit=30'),get('/v1/deal-hunter/candidates?limit=150')
+            ]);
+            const runs=Array.isArray(runsPayload?.runs)?runsPayload.runs:[];
+            const candidates=Array.isArray(candidatesPayload?.candidates)?candidatesPayload.candidates:[];
+            const stressLanes=new Set(['wnba','baseball_prospects','ivan_demidov','matvei_michkov_opc_platinum']);
+            const recentTargeted=runs.filter(r=>String(r?.trigger||'')==='manual_targeted').slice(0,12).map(r=>({
+              runId:r.run_id||null,trigger:r.trigger||null,status:r.status||null,startedAt:r.started_at||null,completedAt:r.completed_at||null,
+              discoveryCount:Number(r.discovery_count||0),evaluatedCount:Number(r.evaluated_count||0),manualReviewCount:Number(r.manual_review_count||0),failureCount:Number(r.failure_count||0),
+              targetLane:r.summary?.target_lane||null
+            }));
+            const recentCandidates=candidates.filter(c=>stressLanes.has(String(c?.lane||''))).slice(0,60).map(c=>({
+              runId:c.run_id||null,lane:c.lane||null,listingItemId:c.listing_item_id||null,title:c.title||null,status:c.status||null,
+              imageCount:Array.isArray(c.image_urls)?c.image_urls.length:0,
+              hasIdentity:Boolean(c.identity),player:c.identity?.player||null,year:c.identity?.year||null,brand:c.identity?.brand||null,setName:c.identity?.setName||null,cardNumber:c.identity?.cardNumber||null,
+              parallel:c.identity?.parallel||null,serialNumber:c.identity?.serialNumber||null,isAuto:c.identity?.isAuto??null,isRelic:c.identity?.isRelic??null,isRookie:c.identity?.isRookie??null,
+              errorCode:c.error_code||null,errorMessage:c.error_message||null,createdAt:c.created_at||null
+            }));
+            const out={schema:'truelycollectables.instacomp25StressProgressProbe.v1',checkedAt:new Date().toISOString(),health:{ok:health?.ok===true,app:health?.app||null,version:health?.version||null},scheduler:{enabled:status?.enabled===true,running:status?.running===true,activeRunId:status?.active_run_id||null,lastStartedAt:status?.last_started_at||null,lastCompletedAt:status?.last_completed_at||null,lastStatus:status?.last_status||null,lastError:status?.last_error||null},recentTargetedRuns:recentTargeted,recentStressLaneCandidates:recentCandidates};
+            fs.writeFileSync(process.env.RUNNER_TEMP+'/instacomp-progress.json',JSON.stringify(out,null,2));
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+      - name: Publish probe receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code origin "refs/heads/$RESULT_BRANCH" >/dev/null 2>&1; then
+            git fetch origin "$RESULT_BRANCH"
+            git switch -C "$RESULT_BRANCH" FETCH_HEAD
+          else
+            git switch --orphan "$RESULT_BRANCH"
+            git rm -rf . >/dev/null 2>&1 || true
+          fi
+          mkdir -p "$(dirname "$RESULT_PATH")"
+          cp "$RUNNER_TEMP/instacomp-progress.json" "$RESULT_PATH"
+          git add "$RESULT_PATH"
+          git commit -m "Update InstaComp stress-test progress probe"
+          git push --force origin "$RESULT_BRANCH"
+      - name: Remove Production env
+        if: always()
+        run: rm -f "$RUNNER_TEMP/instacomp-probe/production.env"
