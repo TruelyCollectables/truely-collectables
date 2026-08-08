@@ -178,9 +178,12 @@ def test_current_scanner_keeps_central_registry_boundary() -> None:
     checklist_source = (root / "app" / "checklist.py").read_text(encoding="utf-8")
 
     assert "checklist_gateway.match" in main_source
-    assert "suggestion_registry.identity_id" in main_source
+    assert "trusted_text_registry_verified" in main_source
+    assert "trusted_text_registry.identity_id" in main_source
     assert 'receipt.startswith("registry_fingerprint:")' in main_source
-    assert 'match_source = "ollama_backup"' in main_source
+    assert 'match_source = "trusted_text_memory"' in main_source
+    assert 'match_source = "ollama_backup"' not in main_source
+    assert "await reader.analyze(" not in main_source
     assert "RegistryChecklistGateway" in checklist_source
     assert "/api/instacomp/checklist-lookup" in checklist_source
     assert "registry_identity:" in checklist_source

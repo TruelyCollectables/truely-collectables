@@ -4231,9 +4231,8 @@ async function identifyCardWithConfiguredProviderFailover(params: {
     // model guess happened to match a checklist row.
     const consensusEscalation = baselineConsensusEscalation;
     const aiCouncilRaw = await runInstaCompAiCouncil({
-      runSecondaryVision:
-        requestedAiCouncilTier !== "basic" && consensusEscalation.runSecondaryVision,
-      requestedTier: requestedAiCouncilTier,
+      runSecondaryVision: false,
+      requestedTier: "basic",
       frontDataUrl,
       backDataUrl,
       detailImages,

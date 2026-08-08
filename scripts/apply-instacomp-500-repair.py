@@ -1,9 +1,19 @@
 from pathlib import Path
 
 
+ALREADY_APPLIED_MARKERS = {
+    "internal receipt type": "internalChecklistFingerprintSha256: string | null;",
+    "no-identity review adapter": "internalDeterministicIdentity: deterministicIdentity(scan),",
+    "resolved-identity receipt": "internalChecklistIdentityId: text(scan.checklist?.identity_id),",
+}
+
+
 def replace_once(source: str, old: str, new: str, label: str) -> str:
     if old not in source:
         if new in source:
+            return source
+        marker = ALREADY_APPLIED_MARKERS.get(label)
+        if marker and marker in source:
             return source
         raise SystemExit(f"{label} block not found")
     return source.replace(old, new, 1)
@@ -32,6 +42,19 @@ old_health = '''    database_ready = store.ready()
         ollama_model=settings.ollama_model,
         checklist="ready" if checklist_ready else "not_configured",
     )'''
+current_health = '''    database_ready = store.ready()
+    checklist_ready = await checklist_gateway.health()
+    ollama_ready = await reader.health()
+    return HealthResponse(
+        ok=database_ready and checklist_ready and ollama_ready,
+        app=settings.app_name,
+        codename=settings.codename,
+        version=settings.version,
+        database="ready" if database_ready else "error",
+        ollama="ready" if ollama_ready else "unavailable",
+        ollama_model=settings.ollama_model,
+        checklist="ready" if checklist_ready else "not_configured",
+    )'''
 new_health = '''    database_ready = store.ready()
     checklist_ready = await checklist_gateway.health()
     return HealthResponse(
@@ -44,18 +67,31 @@ new_health = '''    database_ready = store.ready()
         ollama_model="disabled_for_identity_scans",
         checklist="ready" if checklist_ready else "not_configured",
     )'''
-main = replace_once(main, old_health, new_health, "health contract")
+if new_health not in main:
+    if old_health in main:
+        main = main.replace(old_health, new_health, 1)
+    elif current_health in main:
+        main = main.replace(current_health, new_health, 1)
+    else:
+        raise SystemExit("health contract block not found")
 
-old_marker = (
+legacy_marker = (
     "    # BACKUP READER: Ollama is called only when trusted image memory and\n"
     "    # bounded OCR/Checklist Registry resolution did not identify the card."
+)
+current_marker = (
+    "    # LOCAL EVIDENCE FALLBACK: trusted memory and bounded printed evidence run\n"
+    "    # first. When they cannot identify a new card, Ollama reads the actual front/back\n"
+    "    # images and supplies evidence only. The central Registry remains the sole identity\n"
+    "    # authority, and pricing stays blocked without its identity ID and fingerprint."
 )
 new_marker = (
     "    # CHECKLIST-ONLY REVIEW PATH: unresolved cards are preserved as complete\n"
     "    # scan receipts. No Ollama or external identity reader is called here."
 )
-if old_marker in main:
-    start = main.index(old_marker)
+active_marker = legacy_marker if legacy_marker in main else current_marker if current_marker in main else None
+if active_marker:
+    start = main.index(active_marker)
     end = main.index("    suggestion_back_evidence = (", start)
     replacement = '''    # CHECKLIST-ONLY REVIEW PATH: unresolved cards are preserved as complete
     # scan receipts. No Ollama or external identity reader is called here.
@@ -78,19 +114,33 @@ if old_marker in main:
         None,
     )
 
-    if trusted_text_match:
-        trusted_identity = trusted_text_match.identity
-        checklist_result = await checklist_gateway.match(trusted_identity)
-        pricing_allowed = checklist_result.outcome == ChecklistOutcome.EXACT_MATCH
+    trusted_text_registry = (
+        await checklist_gateway.match(trusted_text_match.identity)
+        if trusted_text_match
+        else None
+    )
+    trusted_text_registry_verified = bool(
+        trusted_text_registry
+        and trusted_text_registry.outcome == ChecklistOutcome.EXACT_MATCH
+        and trusted_text_registry.identity
+        and trusted_text_registry.identity_id
+        and any(
+            receipt.startswith("registry_fingerprint:")
+            for receipt in trusted_text_registry.source_receipts
+        )
+    )
+
+    if trusted_text_registry_verified and trusted_text_registry:
+        trusted_identity = trusted_text_registry.identity
+        checklist_result = trusted_text_registry
+        pricing_allowed = True
         status = "trusted_memory_match"
         match_source = "trusted_text_memory"
         next_action = (
-            "Known card identified from internal text memory. Continue to verified comps."
-            if pricing_allowed
-            else "Known card identified from internal text memory; Registry verification is required for pricing."
+            "Known card memory was revalidated against one exact Registry identity. Continue to verified comps."
         )
     else:
-        checklist_result = printed_registry
+        checklist_result = trusted_text_registry or printed_registry
         trusted_identity = None
         pricing_allowed = False
         match_source = "none"
@@ -102,7 +152,7 @@ if old_marker in main:
         else:
             status = "needs_review"
             next_action = (
-                "InstaComp preserved the front/back scan and checklist receipt, but one exact identity was not proven. Review or correct the card privately."
+                "InstaComp preserved the front/back scan and checklist receipt, but one exact Registry identity with fingerprint proof was not established. Review or correct the card privately."
             )
 
 '''
@@ -234,11 +284,14 @@ static_test.parent.mkdir(parents=True, exist_ok=True)
 static_test.write_text('''from pathlib import Path
 
 
+def main_source() -> str:
+    root = Path(__file__).resolve().parents[1]
+    return (root / "app" / "main.py").read_text()
+
+
 def analyze_source() -> str:
-    source = Path("services/instacomp-ai/app/main.py").read_text()
-    return source.split("async def analyze_scan", 1)[1].split(
-        '@app.post(\n    "/v1/lessons"', 1
-    )[0]
+    source = main_source()
+    return source.split("async def analyze_scan", 1)[1].split("@app.post(", 1)[0]
 
 
 def test_analyze_scan_has_no_ollama_identity_call():
@@ -255,8 +308,17 @@ def test_unresolved_scan_still_builds_and_saves_response():
     assert "return result" in analyze
 
 
+def test_pricing_requires_exact_registry_identity_and_fingerprint():
+    analyze = analyze_source()
+    assert "trusted_text_registry_verified = bool(" in analyze
+    assert "trusted_text_registry.identity_id" in analyze
+    assert 'receipt.startswith("registry_fingerprint:")' in analyze
+    assert "pricing_allowed = True" in analyze
+
+
 def test_health_marks_ollama_unchecked():
-    source = Path("services/instacomp-ai/app/main.py").read_text()
+    source = main_source()
+    assert "await reader.health()" not in source
     assert 'ollama="unchecked"' in source
     assert 'ollama_model="disabled_for_identity_scans"' in source
 ''')
