@@ -143,15 +143,10 @@ jobs:
 
             const rickea={player:'Rickea Jackson',year:'2025',brand:'Panini',setName:'PRIZM',cardNumber:'118',parallel:null,serialNumber:null,team:'Los Angeles Sparks',sport:'Basketball',isRookie:false,isAuto:false,isRelic:false,conditionGuess:null,confidence:0.98,registryVisibleText:'RICKEA JACKSON PRIZM WNBA LOS ANGELES SPARKS',notes:'Black foil finish visible on the card surface.'};
 
-            // Preserve the raw fail-closed boundary: a single scanner's visible
-            // finish note must NOT silently become Base before council review.
             const raw=await resolveChecklistRegistry(rickea,{evidenceTrusted:false});
             assert.equal(raw.status,'internal_set_present_no_exact_match',`Rickea raw note must stay blocked: ${raw.status}`);
             console.log('PASS Rickea raw single-reader black-finish note remains fail-closed');
 
-            // Production shape: the note triggers escalation, two independent AI
-            // families agree on every hard identity field and neither confirms a
-            // specific parallel. Only then may the old note become audit context.
             const secondary={...rickea,notes:'No specific parallel name or serial numbering confirmed from the printed card evidence.'};
             const escalation=decideInstaCompConsensusEscalation({ai:rickea,externalOcrText:null,hasBackImage:true,pairingConfidence:1});
             assert.equal(escalation.runSecondaryVision,true,'Rickea finish note must trigger second reader');
@@ -162,9 +157,9 @@ jobs:
             const council=buildInstaCompMultiScannerConsensus({readers,baseIdentity:rickea,catalogReferee:null,escalation});
             assert.equal(council.status,'consensus_confirmed',`Rickea council: ${council.reviewReasons.join(',')}`);
             assert.equal(council.trustedForIdentity,true);
-            const adjudicated=applyInstaCompConsensusToAi(rickea,council);
-            await direct('Rickea #118 council-adjudicated surface-noise',adjudicated,'70ad307e-06bb-45c2-90ea-689b6e2f302e','bdbf4845dae6d1da4d783fd23d9c387883769cd68aee3c663b144013bb891028',{evidenceTrusted:true,parallelEvidenceAdjudicated:true});
-            await direct('Rickea #118 PRISM OCR alias after council',{...adjudicated,setName:'PRISM'},'70ad307e-06bb-45c2-90ea-689b6e2f302e','bdbf4845dae6d1da4d783fd23d9c387883769cd68aee3c663b144013bb891028',{evidenceTrusted:true,parallelEvidenceAdjudicated:true});
+            const adjudicated={...applyInstaCompConsensusToAi(rickea,council),parallelEvidenceAdjudicated:true};
+            await direct('Rickea #118 council-adjudicated surface-noise',adjudicated,'70ad307e-06bb-45c2-90ea-689b6e2f302e','bdbf4845dae6d1da4d783fd23d9c387883769cd68aee3c663b144013bb891028',{evidenceTrusted:true});
+            await direct('Rickea #118 PRISM OCR alias after council',{...adjudicated,setName:'PRISM'},'70ad307e-06bb-45c2-90ea-689b6e2f302e','bdbf4845dae6d1da4d783fd23d9c387883769cd68aee3c663b144013bb891028',{evidenceTrusted:true});
             console.log('PASS live Registry proof for all five exact v8 route shapes with raw-note fail-closed boundary preserved');
           }
           main().catch(e=>{console.error(e);process.exit(1)});
