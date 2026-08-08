@@ -1,0 +1,149 @@
+name: InstaComp 25 Mac Diagnostics
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-25-mac-diagnostics.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+      RESULT_BRANCH: instacomp-audit-diagnostics
+      RESULT_PATH: audits/instacomp-25-live-listing-stress-test/mac-diagnostics.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Pull Production coordinates
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p "$RUNNER_TEMP/instacomp-diag" .vercel
+          npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/instacomp-diag/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          echo "PRODUCTION_ENV_FILE=$RUNNER_TEMP/instacomp-diag/production.env" >> "$GITHUB_ENV"
+
+      - name: Read physical Mac diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const envText = fs.readFileSync(process.env.PRODUCTION_ENV_FILE, 'utf8');
+          function value(key) {
+            const m = envText.match(new RegExp(`^${key}=(?:"([^"]*)"|'([^']*)'|([^\\r\\n]*))`, 'm'));
+            return String(m?.[1] ?? m?.[2] ?? m?.[3] ?? '').trim();
+          }
+          const base = value('INSTACOMP_AI_LOCAL_URL').replace(/\/+$/, '');
+          const key = value('INSTACOMP_AI_LOCAL_KEY');
+          if (!/^https:\/\/[^/]+\.truelycollectables\.com$/i.test(base) || !key) {
+            throw new Error('Production Mac coordinates are unavailable or invalid.');
+          }
+          const headers = { 'X-InstaComp-AI-Key': key, Accept: 'application/json' };
+          async function get(path, protectedRoute = true) {
+            const started = Date.now();
+            try {
+              const r = await fetch(base + path, {
+                headers: protectedRoute ? headers : { Accept: 'application/json' },
+                cache: 'no-store',
+                signal: AbortSignal.timeout(30000),
+              });
+              const text = await r.text();
+              let payload = null;
+              try { payload = text ? JSON.parse(text) : null; }
+              catch { payload = { raw: text.slice(0, 1200) }; }
+              return { ok: r.ok, status: r.status, durationMs: Date.now() - started, payload };
+            } catch (error) {
+              return { ok: false, status: null, durationMs: Date.now() - started, error: error instanceof Error ? error.message : String(error) };
+            }
+          }
+          (async () => {
+            const [health, scheduler, runs] = await Promise.all([
+              get('/health', false),
+              get('/v1/deal-hunter/status'),
+              get('/v1/deal-hunter/runs?limit=10'),
+            ]);
+            const recentRuns = Array.isArray(runs?.payload?.runs)
+              ? runs.payload.runs.slice(0, 10).map((r) => ({
+                  runId: r.run_id || null,
+                  trigger: r.trigger || null,
+                  status: r.status || null,
+                  startedAt: r.started_at || null,
+                  completedAt: r.completed_at || null,
+                  discoveryCount: Number(r.discovery_count || 0),
+                  evaluatedCount: Number(r.evaluated_count || 0),
+                  failureCount: Number(r.failure_count || 0),
+                  error: r.error_message ? String(r.error_message).slice(0, 1200) : null,
+                }))
+              : [];
+            const out = {
+              schema: 'truelycollectables.instacomp25MacDiagnostics.v1',
+              checkedAt: new Date().toISOString(),
+              health,
+              scheduler: {
+                requestOk: scheduler.ok,
+                httpStatus: scheduler.status,
+                durationMs: scheduler.durationMs,
+                enabled: scheduler?.payload?.enabled === true,
+                running: scheduler?.payload?.running === true,
+                activeRunId: scheduler?.payload?.active_run_id || null,
+                lastStartedAt: scheduler?.payload?.last_started_at || null,
+                lastCompletedAt: scheduler?.payload?.last_completed_at || null,
+                lastStatus: scheduler?.payload?.last_status || null,
+                lastError: scheduler?.payload?.last_error || null,
+                evaluationKeyConfigured: scheduler?.payload?.mac_evaluation_key_configured === true,
+              },
+              recentRuns,
+            };
+            fs.writeFileSync(process.env.RUNNER_TEMP + '/instacomp-mac-diagnostics.json', JSON.stringify(out, null, 2));
+            console.log(JSON.stringify(out, null, 2));
+          })().catch((error) => { console.error(error); process.exit(1); });
+          NODE
+
+      - name: Upload diagnostic receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-25-mac-diagnostics
+          path: ${{ runner.temp }}/instacomp-mac-diagnostics.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Publish diagnostic receipt
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code origin "refs/heads/$RESULT_BRANCH" >/dev/null 2>&1; then
+            git fetch origin "$RESULT_BRANCH"
+            git switch -C "$RESULT_BRANCH" FETCH_HEAD
+          else
+            git switch --orphan "$RESULT_BRANCH"
+            git rm -rf . >/dev/null 2>&1 || true
+          fi
+          mkdir -p "$(dirname "$RESULT_PATH")"
+          cp "$RUNNER_TEMP/instacomp-mac-diagnostics.json" "$RESULT_PATH"
+          git add "$RESULT_PATH"
+          git commit -m "Update InstaComp Mac diagnostic receipt"
+          git push --force origin "$RESULT_BRANCH"
+
+      - name: Remove pulled Production environment
+        if: always()
+        run: rm -f "$RUNNER_TEMP/instacomp-diag/production.env"
