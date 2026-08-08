@@ -67,28 +67,15 @@ function normalizedParallel(value: unknown) {
   const normalized = normalizedText(value);
   if (!normalized) return "";
 
-  // Only collapse harmless spelling/order aliases for the SAME named parallel.
-  // Never collapse Cracked Ice, White Seismic, Velocity, etc. into generic Ice.
-  // Those are distinct physical parallels and must remain independently locked.
-  if (
-    normalized === "prizms ice" ||
-    normalized === "prizm ice" ||
-    normalized === "ice prizm" ||
-    normalized === "ice prizms"
-  ) {
-    return "prizms ice";
-  }
-
-  if (
-    normalized === "prizms silver" ||
-    normalized === "prizm silver" ||
-    normalized === "silver prizm" ||
-    normalized === "silver prizms"
-  ) {
-    return "prizms silver";
-  }
-
-  return normalized;
+  // Prizm/Prizms is catalog wording, not the physical parallel identity.
+  // Remove only that harmless token so "Prizms Blue Velocity" matches
+  // "Blue Velocity Prizm", while Cracked Ice, Ice, White Seismic, Velocity,
+  // etc. remain DIFFERENT parallel identities and can never collapse together.
+  return normalized
+    .split(" ")
+    .filter((token) => token !== "prizm" && token !== "prizms")
+    .join(" ")
+    .trim();
 }
 
 function yearStart(value: unknown) {
