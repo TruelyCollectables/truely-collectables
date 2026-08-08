@@ -100,6 +100,20 @@ replace_once(path,
             operatorSerialNumberOverride,
           ),
 ''')
+replace_once(path,
+'''      (await resolveChecklistRegistry(registryProbeAi, {
+        evidenceTrusted: evidenceConsensus.trustedForIdentity,
+      }));
+''',
+'''      (await resolveChecklistRegistry(registryProbeAi, {
+        evidenceTrusted: evidenceConsensus.trustedForIdentity,
+        // The full scanner council has already adjudicated the hard parallel
+        // field. A stale free-form note from one reader must not re-enter as a
+        // hard parallel after a conflict-free council; real parallel conflicts
+        // make the council untrusted and keep note evidence fail-closed.
+        parallelEvidenceAdjudicated: evidenceConsensus.status === "consensus_confirmed",
+      }));
+''')
 
 path='src/lib/instacomp-learning-server.ts'
 replace_once(path,
@@ -143,6 +157,99 @@ function releaseSupportsProductLineSetEvidence(
 }
 ''')
 replace_once(path,
+'''function targetParallelProfile(ai: Record<string, any>, setContext: unknown) {
+  const setTokens = new Set(meaningfulTokens(setContext));
+  const normalizedParallel = normalizedText(ai.parallel);
+  const explicitBase = Boolean(normalizedParallel) && isBaseParallel(ai.parallel);
+  const directTokens = explicitBase
+    ? []
+    : checklistParallelTokens(ai.parallel).filter(
+        (token) =>
+          !setTokens.has(token) &&
+          !GENERIC_PARALLEL_EVIDENCE_TOKENS.has(token),
+      );
+  const noteTokens = visibleParallelNoteTokens(ai.notes);
+''',
+'''function targetParallelProfile(
+  ai: Record<string, any>,
+  setContext: unknown,
+  options: { parallelEvidenceAdjudicated?: boolean } = {},
+) {
+  const setTokens = new Set(meaningfulTokens(setContext));
+  const normalizedParallel = normalizedText(ai.parallel);
+  const explicitBase = Boolean(normalizedParallel) && isBaseParallel(ai.parallel);
+  const directTokens = explicitBase
+    ? []
+    : checklistParallelTokens(ai.parallel).filter(
+        (token) =>
+          !setTokens.has(token) &&
+          !GENERIC_PARALLEL_EVIDENCE_TOKENS.has(token),
+      );
+  // Notes are allowed to raise a parallel suspicion before council review. Once
+  // a conflict-free multi-scanner council has adjudicated the hard parallel
+  // field, note-only prose is audit context and cannot become a new hard fact.
+  const noteTokens = options.parallelEvidenceAdjudicated
+    ? []
+    : visibleParallelNoteTokens(ai.notes);
+''')
+replace_once(path,
+'''export function chooseRegistryMatch(
+  ai: Record<string, any>,
+  rows: any[],
+  options: { allowAdjacentYearRecovery?: boolean } = {},
+): RegistryMatch | null {
+''',
+'''export function chooseRegistryMatch(
+  ai: Record<string, any>,
+  rows: any[],
+  options: {
+    allowAdjacentYearRecovery?: boolean;
+    parallelEvidenceAdjudicated?: boolean;
+  } = {},
+): RegistryMatch | null {
+''')
+replace_once(path,
+'''    const parallelProfile = targetParallelProfile(
+    ai,
+    [ai.setName, brand, product, setName].filter(Boolean).join(" "),
+  );
+''',
+'''    const parallelProfile = targetParallelProfile(
+      ai,
+      [ai.setName, brand, product, setName].filter(Boolean).join(" "),
+      { parallelEvidenceAdjudicated: options.parallelEvidenceAdjudicated },
+    );
+''')
+replace_once(path,
+'''  if (
+    parallelProfile.baseLike &&
+    (parallelProfile.surfaceRisk || adjacentYearRecovered)
+  ) {
+    continue;
+  }
+''',
+'''    // Free-form finish/color prose from one scanner may not veto an otherwise
+    // exact Base Registry candidate after the multi-reader council has already
+    // adjudicated parallel evidence. Adjacent-year Base recovery stays closed.
+    if (parallelProfile.baseLike && adjacentYearRecovered) {
+      continue;
+    }
+''')
+replace_once(path,
+'''export async function resolveChecklistRegistry(
+  ai: Record<string, any>,
+  options: { evidenceTrusted?: boolean } = {},
+) {
+''',
+'''export async function resolveChecklistRegistry(
+  ai: Record<string, any>,
+  options: {
+    evidenceTrusted?: boolean;
+    parallelEvidenceAdjudicated?: boolean;
+  } = {},
+) {
+''')
+replace_once(path,
 '''  const candidateReleaseIds = unique(
     releaseRows
       .filter((release: any) =>
@@ -169,19 +276,14 @@ replace_once(path,
   );
 ''')
 replace_once(path,
-'''  if (
-    parallelProfile.baseLike &&
-    (parallelProfile.surfaceRisk || adjacentYearRecovered)
-  ) {
-    continue;
-  }
+'''  const match = chooseRegistryMatch(ai, cardRows, {
+    allowAdjacentYearRecovery: usedAdjacentYearRecovery,
+  });
 ''',
-'''  // Free-form finish/color prose from one scanner may not veto an otherwise
-  // exact Base Registry candidate before the multi-reader catalog referee runs.
-  // Adjacent-year Base recovery remains fail-closed here.
-  if (parallelProfile.baseLike && adjacentYearRecovered) {
-    continue;
-  }
+'''  const match = chooseRegistryMatch(ai, cardRows, {
+    allowAdjacentYearRecovery: usedAdjacentYearRecovery,
+    parallelEvidenceAdjudicated: options.parallelEvidenceAdjudicated,
+  });
 ''')
 
 print('PASS applied clean v8 final-two repair')
