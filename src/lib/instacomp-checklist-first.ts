@@ -65,12 +65,12 @@ function normalizedPlayer(value: unknown) {
 
 function normalizedParallel(value: unknown) {
   const normalized = normalizedText(value);
-  if (!normalized) return "";
+  if (!normalized || normalized === "base") return "";
 
-  // Prizm/Prizms is catalog wording, not the physical parallel identity.
-  // Remove only that harmless token so "Prizms Blue Velocity" matches
-  // "Blue Velocity Prizm", while Cracked Ice, Ice, White Seismic, Velocity,
-  // etc. remain DIFFERENT parallel identities and can never collapse together.
+  // Prizm/Prizms is a catalog spelling token, not the surface name itself.
+  // Remove only that token so harmless word-order differences can match, while
+  // Ice, Cracked Ice, Silver, White Seismic, Blue Velocity, Flash, etc. stay
+  // separate. Never collapse distinct physical finishes into generic Ice.
   return normalized
     .split(" ")
     .filter((token) => token !== "prizm" && token !== "prizms")
@@ -139,7 +139,8 @@ function optionalTextMatches(input: unknown, candidate: unknown) {
 
 function optionalParallelMatches(input: unknown, candidate: unknown) {
   const target = normalizedParallel(input);
-  return !target || target === normalizedParallel(candidate);
+  const candidateValue = normalizedParallel(candidate);
+  return !target || target === candidateValue;
 }
 
 export function resolveInstaCompChecklistFirst(params: {
