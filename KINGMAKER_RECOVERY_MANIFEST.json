@@ -1,0 +1,47 @@
+{
+  "schema": "tcos.kingmaker.disasterRecovery.v1",
+  "certifiedAt": "2026-08-07",
+  "repository": "TruelyCollectables/truely-collectables",
+  "certifiedCommit": "7f20e5d3d5eb078ae9a6ffff5c19af92f1ab29d9",
+  "goldenBranch": "backup/kingmaker-certified-2026-08-07-golden",
+  "recoveryBranch": "backup/kingmaker-certified-2026-08-07-recovery",
+  "productionOrigin": "https://truelycollectables.com",
+  "certificationEvidence": {
+    "fbiAuditRunId": 31239900562,
+    "fbiAuditJobId": 93059017606,
+    "fbiAuditResult": "success",
+    "goldenCertificationRunId": 31239900603,
+    "goldenCertificationCodeGates": "passed through full Production build; original live-SHA gate correctly failed because Production had not auto-deployed",
+    "forcedProductionDeployRunId": 31240355160,
+    "forcedProductionDeployJobId": 93060196680,
+    "forcedProductionDeployResult": "success",
+    "exactLiveProductionShaProven": true,
+    "liveKingmakerRouteSmoke": "success",
+    "kingmakerRegressionSuitesPassed": 61,
+    "productionHighOrCriticalDependencyAudit": "0 vulnerabilities"
+  },
+  "certifiedRepairs": {
+    "architectureContractPr": 913,
+    "auditInitialLoadEffectPr": 915,
+    "productionNanoidAdvisoryPr": 916,
+    "nanoidVersion": "3.3.18"
+  },
+  "backupLayers": [
+    "GitHub golden branch pinned to the exact live-certified source commit.",
+    "Local whole-repository emergency TAR.GZ created by npm run backup:nightly, including .git and local/root .env files, with manifest and SHA-256.",
+    "Recovery branch containing the exact certified source plus KINGMAKER-only backup/restore instructions and helpers."
+  ],
+  "externalState": [
+    "Supabase Production database and Storage are external to the Git repository.",
+    "Vercel Production environment variables and deployment metadata are external to the Git repository.",
+    "Provider-side accounts and credentials such as Stripe, eBay, Resend, Cloudflare and other integrations are external systems.",
+    "The local repository backup preserves local .env configuration but cannot recreate a deleted third-party account or deleted cloud database by itself."
+  ],
+  "failClosedRecovery": [
+    "Never overwrite the only existing installation during restore.",
+    "Require SHA-256 verification before extracting a local emergency archive.",
+    "Require exact certified source commit and KINGMAKER safety contracts before Production deployment.",
+    "Require Production to report the exact restored source SHA and pass live KINGMAKER route smoke before declaring recovery complete.",
+    "If data/continuity evidence is not verified, follow KINGMAKER Phase 18: freeze writes, disable payments/shipping, and require owner review rather than guessing."
+  ]
+}
