@@ -73,7 +73,10 @@ export async function POST(req: NextRequest) {
           player: match.player || null,
           team: match.team || null,
           cardNumber: match.cardNumber || null,
-          parallel: match.parallel || "Base",
+          // Never manufacture the display word "Base". If the Registry has a
+          // real named parallel, return it. Otherwise leave parallel null; the
+          // product/set name (for example En Fuego or Snapshots) is sufficient.
+          parallel: match.parallel || null,
           variation: match.variation || null,
           serialRun: match.serialRun || null,
           isAuto: match.isAuto,
