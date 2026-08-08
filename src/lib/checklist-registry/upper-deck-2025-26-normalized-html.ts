@@ -6,7 +6,7 @@ import { parseUpperDeckHtmlChecklist } from "./upper-deck-html";
 
 export const UPPER_DECK_2025_26_NORMALIZED_ADAPTER_ID =
   "upper-deck-2025-26-normalized-html" as const;
-export const UPPER_DECK_2025_26_NORMALIZED_ADAPTER_VERSION = "1.0.0" as const;
+export const UPPER_DECK_2025_26_NORMALIZED_ADAPTER_VERSION = "1.0.1" as const;
 
 type Cell = {
   full: string;
@@ -79,6 +79,8 @@ function serialValue(value: string) {
   if (oneOf) return oneOf[1];
   const per = normalized.match(/^(\d{1,7})\s+per(?:\s+.*)?$/i);
   if (per) return per[1];
+  const announced = normalized.match(/^Ann\.?\s*(\d{1,7})$/i);
+  if (announced) return announced[1];
   return value;
 }
 
@@ -130,6 +132,7 @@ function normalizeChecklistTable(table: string) {
   const normalizedRows = rows.map((row, rowIndex) => {
     const rowCells = parsed[rowIndex];
     const replacements = new Map<number, string>();
+    let appendSpValue: string | null = null;
 
     if (rowIndex === headerIndex) {
       if (names[cardIndex] === "cardnumber") replacements.set(cardIndex, "Card");
@@ -148,6 +151,7 @@ function normalizeChecklistTable(table: string) {
         const prior = spIndex < rowCells.length ? rowCells[spIndex]?.text || "" : "";
         const variation = [prior, `Subject: ${subject}`].filter(Boolean).join("; ");
         if (spIndex < rowCells.length) replacements.set(spIndex, variation);
+        else if (!addSpColumn) appendSpValue = variation;
       }
     }
 
@@ -167,6 +171,8 @@ function normalizeChecklistTable(table: string) {
           : "";
       const cellTag = rowIndex === headerIndex ? "th" : "td";
       output = output.replace(/<\/tr>$/i, `<${cellTag}>${value}</${cellTag}></tr>`);
+    } else if (appendSpValue !== null) {
+      output = output.replace(/<\/tr>$/i, `<td>${appendSpValue}</td></tr>`);
     }
     return output;
   });
