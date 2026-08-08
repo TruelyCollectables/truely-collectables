@@ -4,10 +4,12 @@ on:
   push:
     branches:
       - ops/sentinel-progress-now-20260808
+    paths:
+      - .github/workflows/sentinel-progress-now-20260808.yml
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   progress:
@@ -16,8 +18,12 @@ jobs:
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_SCOPE: truelycollectables-projects
+      RESULT_PATH: audits/sentinel-progress-now.json
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ops/sentinel-progress-now-20260808
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -28,7 +34,7 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${VERCEL_TOKEN:-}"
-          mkdir -p "$RUNNER_TEMP/sentinel-progress" .vercel
+          mkdir -p "$RUNNER_TEMP/sentinel-progress" .vercel "$(dirname "$RESULT_PATH")"
           npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
           npx vercel@56.2.0 env pull "$RUNNER_TEMP/sentinel-progress/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
           export PRODUCTION_ENV_FILE="$RUNNER_TEMP/sentinel-progress/production.env"
@@ -81,9 +87,20 @@ jobs:
               freezeStale: Boolean(status?.freeze_protection?.stale),
               heartbeatAt: job.heartbeat_at || null,
             };
+            fs.writeFileSync(process.env.RESULT_PATH, JSON.stringify(out, null, 2) + '\n');
             console.log('SENTINEL_PROGRESS=' + JSON.stringify(out));
           })().catch((error) => { console.error(error); process.exit(1); });
           NODE
+
+      - name: Publish progress receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$RESULT_PATH"
+          git commit -m 'Update live Sentinel progress receipt'
+          git push origin HEAD:ops/sentinel-progress-now-20260808
 
       - name: Remove pulled Production environment
         if: always()
