@@ -1,0 +1,315 @@
+name: InstaComp 25 Live Listing Stress Test
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-25-live-listing-stress-test.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  live-stress-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+      RESULT_BRANCH: instacomp-audit-results
+      RESULT_PATH: audits/instacomp-25-live-listing-stress-test/latest.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Pull Production environment coordinates
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p "$RUNNER_TEMP/instacomp-25-stress" .vercel
+          npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/instacomp-25-stress/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          echo "PRODUCTION_ENV_FILE=$RUNNER_TEMP/instacomp-25-stress/production.env" >> "$GITHUB_ENV"
+
+      - name: Run 25 live front/back listing recognitions on the physical Mac
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+
+          const envPath = process.env.PRODUCTION_ENV_FILE;
+          if (!envPath || !fs.existsSync(envPath)) throw new Error('Production env file missing.');
+
+          function parseEnv(text) {
+            const out = {};
+            for (const raw of text.split(/\r?\n/)) {
+              const line = raw.trim();
+              if (!line || line.startsWith('#')) continue;
+              const idx = line.indexOf('=');
+              if (idx <= 0) continue;
+              const key = line.slice(0, idx).trim();
+              let value = line.slice(idx + 1).trim();
+              if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+                value = value.slice(1, -1);
+              }
+              value = value.replace(/\\n/g, '\n').replace(/\\r/g, '\r');
+              out[key] = value;
+            }
+            return out;
+          }
+
+          const env = parseEnv(fs.readFileSync(envPath, 'utf8'));
+          const baseUrl = String(env.INSTACOMP_AI_LOCAL_URL || '').trim().replace(/\/+$/, '');
+          const apiKey = String(env.INSTACOMP_AI_LOCAL_KEY || '').trim();
+          if (!/^https:\/\/[^/]+\.truelycollectables\.com$/i.test(baseUrl)) {
+            throw new Error('Physical Mac tunnel URL is missing or invalid.');
+          }
+          if (!apiKey) throw new Error('Physical Mac shared key is missing.');
+
+          const headers = { 'X-InstaComp-AI-Key': apiKey, Accept: 'application/json' };
+          const lanePlan = [
+            { lane: 'wnba', limit: 8, sportBucket: 'basketball' },
+            { lane: 'baseball_prospects', limit: 8, sportBucket: 'baseball' },
+            { lane: 'ivan_demidov', limit: 5, sportBucket: 'hockey' },
+            { lane: 'matvei_michkov_opc_platinum', limit: 4, sportBucket: 'hockey' },
+          ];
+
+          async function jsonFetch(url, options = {}, timeoutMs = 900000) {
+            const response = await fetch(url, {
+              ...options,
+              headers: { ...headers, ...(options.headers || {}) },
+              signal: AbortSignal.timeout(timeoutMs),
+            });
+            const text = await response.text();
+            let payload = null;
+            try { payload = text ? JSON.parse(text) : null; }
+            catch { payload = { raw: text.slice(0, 2000) }; }
+            if (!response.ok) throw new Error(`HTTP ${response.status} ${url}: ${JSON.stringify(payload).slice(0, 2000)}`);
+            return payload;
+          }
+
+          async function waitIdle() {
+            for (let attempt = 0; attempt < 120; attempt += 1) {
+              const status = await jsonFetch(`${baseUrl}/v1/deal-hunter/status`, {}, 30000);
+              if (status.enabled !== true) throw new Error('Deal Hunter scheduler is disabled.');
+              if (status.mac_evaluation_key_configured !== true) throw new Error('Deal Hunter evaluation key is not configured.');
+              if (status.running !== true) return status;
+              await new Promise((resolve) => setTimeout(resolve, 5000));
+            }
+            throw new Error('Physical Mac Deal Hunter did not become idle in the bounded window.');
+          }
+
+          function norm(value) {
+            return String(value || '').toLowerCase().replace(/[^a-z0-9/]+/g, ' ').replace(/\s+/g, ' ').trim();
+          }
+          function tokenContains(haystack, needle) {
+            const h = norm(haystack);
+            const tokens = norm(needle).split(' ').filter((x) => x.length > 1);
+            return tokens.length > 0 && tokens.every((token) => h.includes(token));
+          }
+          function sellerCardNumber(title) {
+            const m = String(title || '').match(/(?:#|card\s*(?:no\.?|number)?\s*[:#-]?\s*)([a-z0-9-]{1,16})/i);
+            return m ? m[1].toLowerCase() : null;
+          }
+          function sellerSerialRun(title) {
+            const text = String(title || '');
+            const exact = text.match(/\b(\d{1,5})\s*\/\s*(\d{1,6})\b/);
+            if (exact) return { exact: `${Number(exact[1])}/${Number(exact[2])}`, denominator: String(Number(exact[2])) };
+            const run = text.match(/(?:^|\s)\/\s*(\d{1,6})\b/);
+            return run ? { exact: null, denominator: String(Number(run[1])) } : null;
+          }
+          function aiSerialRun(value) {
+            const m = String(value || '').match(/(\d{1,5})\s*\/\s*(\d{1,6})/);
+            return m ? { exact: `${Number(m[1])}/${Number(m[2])}`, denominator: String(Number(m[2])) } : null;
+          }
+          function gradeRow(row) {
+            const ai = row.identity || null;
+            const title = String(row.title || '');
+            const checks = [];
+            const add = (name, applicable, pass, detail) => checks.push({ name, applicable, pass: applicable ? Boolean(pass) : null, detail });
+
+            add('identity_returned', true, Boolean(ai), ai ? 'InstaComp returned an identity object.' : 'No identity object returned.');
+            add('front_and_back_present', true, Array.isArray(row.image_urls) && row.image_urls.length >= 2, `${Array.isArray(row.image_urls) ? row.image_urls.length : 0} listing image URLs exposed.`);
+            if (ai) {
+              add('player_matches_listing', Boolean(ai.player), ai.player ? tokenContains(title, ai.player) : false, ai.player || null);
+              add('year_matches_listing', Boolean(ai.year && /(?:19|20)\d{2}/.test(title)), ai.year ? norm(title).includes(norm(ai.year)) : false, ai.year || null);
+              const sellerNo = sellerCardNumber(title);
+              add('card_number_matches_listing', Boolean(sellerNo), sellerNo && ai.cardNumber ? norm(ai.cardNumber) === norm(sellerNo) : false, sellerNo ? `listing=${sellerNo}; ai=${ai.cardNumber || 'missing'}` : null);
+              const expectsAuto = /\b(auto|autograph|autographed|signed)\b/i.test(title);
+              add('auto_flag', expectsAuto, ai.isAuto === true, expectsAuto ? `ai.isAuto=${String(ai.isAuto)}` : null);
+              const expectsRelic = /\b(relic|patch|jersey|memorabilia|game[- ]used|swatch)\b/i.test(title);
+              add('relic_flag', expectsRelic, ai.isRelic === true, expectsRelic ? `ai.isRelic=${String(ai.isRelic)}` : null);
+              const sellerSerial = sellerSerialRun(title);
+              const aiSerial = aiSerialRun(ai.serialNumber);
+              add('serial_number', Boolean(sellerSerial), Boolean(sellerSerial && aiSerial && sellerSerial.denominator === aiSerial.denominator), sellerSerial ? `listing=${sellerSerial.exact || '/' + sellerSerial.denominator}; ai=${ai.serialNumber || 'missing'}` : null);
+              const expectsRookie = /\b(rc|rookie)\b/i.test(title);
+              add('rookie_flag', expectsRookie, ai.isRookie === true, expectsRookie ? `ai.isRookie=${String(ai.isRookie)}` : null);
+            }
+            const applicable = checks.filter((c) => c.applicable);
+            const passed = applicable.filter((c) => c.pass === true).length;
+            return {
+              checks,
+              applicableChecks: applicable.length,
+              passedChecks: passed,
+              titleConcordancePercent: applicable.length ? Number((passed / applicable.length * 100).toFixed(1)) : 0,
+            };
+          }
+
+          async function main() {
+            const startedAt = new Date().toISOString();
+            const health = await jsonFetch(`${baseUrl}/health`, {}, 30000);
+            if (health.ok !== true) throw new Error('Physical Mac InstaComp health is not ready.');
+            await waitIdle();
+
+            const runs = [];
+            for (const plan of lanePlan) {
+              await waitIdle();
+              const url = `${baseUrl}/v1/deal-hunter/run-targeted?lane=${encodeURIComponent(plan.lane)}&force=true&limit=${plan.limit}`;
+              const run = await jsonFetch(url, { method: 'POST' }, 1200000);
+              runs.push({ ...plan, run });
+              if (run.accepted !== true || run.status !== 'completed' || !run.run_id) {
+                throw new Error(`Targeted lane ${plan.lane} did not complete cleanly: ${JSON.stringify(run).slice(0, 3000)}`);
+              }
+            }
+
+            const candidatePayload = await jsonFetch(`${baseUrl}/v1/deal-hunter/candidates?limit=500`, {}, 60000);
+            const candidates = Array.isArray(candidatePayload.candidates) ? candidatePayload.candidates : [];
+            const runIds = new Set(runs.map((x) => String(x.run.run_id)));
+            const byRun = new Map();
+            for (const row of candidates) {
+              if (!runIds.has(String(row.run_id || ''))) continue;
+              if (!byRun.has(String(row.run_id))) byRun.set(String(row.run_id), []);
+              byRun.get(String(row.run_id)).push(row);
+            }
+
+            const selected = [];
+            const seen = new Set();
+            for (const entry of runs) {
+              const rows = byRun.get(String(entry.run.run_id)) || [];
+              for (const row of rows) {
+                const key = String(row.candidate_key || row.listing_url || '');
+                if (!key || seen.has(key)) continue;
+                if (!Array.isArray(row.image_urls) || row.image_urls.length < 2) continue;
+                seen.add(key);
+                selected.push({ ...row, requestedSportBucket: entry.sportBucket, requestedLane: entry.lane });
+              }
+            }
+
+            const first25 = selected.slice(0, 25).map((row, index) => ({
+              testNumber: index + 1,
+              ...row,
+              grade: gradeRow(row),
+            }));
+
+            const identityReturned = first25.filter((row) => row.identity).length;
+            const exactComplete = first25.filter((row) => {
+              const ai = row.identity || {};
+              return Boolean(ai.player && ai.year && ai.brand && ai.setName && ai.cardNumber);
+            }).length;
+            const special = {
+              autosClaimed: first25.filter((r) => /\b(auto|autograph|autographed|signed)\b/i.test(r.title || '')).length,
+              autosCaught: first25.filter((r) => /\b(auto|autograph|autographed|signed)\b/i.test(r.title || '') && r.identity?.isAuto === true).length,
+              relicsClaimed: first25.filter((r) => /\b(relic|patch|jersey|memorabilia|game[- ]used|swatch)\b/i.test(r.title || '')).length,
+              relicsCaught: first25.filter((r) => /\b(relic|patch|jersey|memorabilia|game[- ]used|swatch)\b/i.test(r.title || '') && r.identity?.isRelic === true).length,
+              serialsClaimed: first25.filter((r) => sellerSerialRun(r.title)).length,
+              serialsCaught: first25.filter((r) => {
+                const s = sellerSerialRun(r.title); const a = aiSerialRun(r.identity?.serialNumber); return Boolean(s && a && s.denominator === a.denominator);
+              }).length,
+            };
+            const totalApplicable = first25.reduce((sum, row) => sum + row.grade.applicableChecks, 0);
+            const totalPassed = first25.reduce((sum, row) => sum + row.grade.passedChecks, 0);
+            const overallTitleConcordance = totalApplicable ? Number((totalPassed / totalApplicable * 100).toFixed(1)) : 0;
+
+            const result = {
+              schema: 'truelycollectables.instacomp25LiveListingStressTest.v1',
+              startedAt,
+              completedAt: new Date().toISOString(),
+              physicalMacHealth: { ok: health.ok === true, app: health.app || null, version: health.version || null },
+              requestedCount: 25,
+              qualifyingFrontBackCount: first25.length,
+              identityReturnedCount: identityReturned,
+              exactCoreIdentityCount: exactComplete,
+              overallTitleConcordancePercent: overallTitleConcordance,
+              specialDetailScore: special,
+              lanePlan,
+              runs: runs.map((x) => ({
+                lane: x.lane,
+                sportBucket: x.sportBucket,
+                requestedLimit: x.limit,
+                runId: x.run.run_id,
+                status: x.run.status,
+                discovery: Number(x.run.discovery || 0),
+                evaluated: Number(x.run.evaluated || 0),
+                manualReview: Number(x.run.manual_review || 0),
+                failure: Number(x.run.failure || 0),
+              })),
+              cards: first25,
+              gradingNote: 'Automated grade measures concordance with seller-visible listing claims plus required front/back presence. It does not treat seller text as infallible; registry lock/fail-closed behavior remains authoritative for pricing.',
+            };
+
+            const outPath = path.join(process.env.RUNNER_TEMP, 'instacomp-25-live-listing-stress-test.json');
+            fs.writeFileSync(outPath, JSON.stringify(result, null, 2));
+            console.log(JSON.stringify({
+              requestedCount: result.requestedCount,
+              qualifyingFrontBackCount: result.qualifyingFrontBackCount,
+              identityReturnedCount: result.identityReturnedCount,
+              exactCoreIdentityCount: result.exactCoreIdentityCount,
+              overallTitleConcordancePercent: result.overallTitleConcordancePercent,
+              specialDetailScore: result.specialDetailScore,
+              output: outPath,
+            }, null, 2));
+            if (first25.length < 25) {
+              throw new Error(`Only ${first25.length} unique evaluated listings exposed at least two listing images; refusing to call this a 25-card test.`);
+            }
+          }
+
+          main().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+
+      - name: Upload full stress-test receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-25-live-listing-stress-test
+          path: ${{ runner.temp }}/instacomp-25-live-listing-stress-test.json
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Publish sanitized receipt to audit branch
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          result="$RUNNER_TEMP/instacomp-25-live-listing-stress-test.json"
+          test -s "$result"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code origin "refs/heads/$RESULT_BRANCH" >/dev/null 2>&1; then
+            git fetch origin "$RESULT_BRANCH"
+            git switch -C "$RESULT_BRANCH" FETCH_HEAD
+          else
+            git switch --orphan "$RESULT_BRANCH"
+            git rm -rf . >/dev/null 2>&1 || true
+          fi
+          mkdir -p "$(dirname "$RESULT_PATH")"
+          cp "$result" "$RESULT_PATH"
+          git add "$RESULT_PATH"
+          git commit -m "Update InstaComp 25-listing stress-test receipt"
+          git push --force origin "$RESULT_BRANCH"
+
+      - name: Remove pulled Production environment
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/instacomp-25-stress/production.env"
