@@ -1093,6 +1093,22 @@ function checklistSetCoverageMatches(
     return false;
   }
 
+  // PRIZM/PRISM by itself is a release/product-line observation, not a logical
+  // checklist set. Constrain it against the release brand/product only and let
+  // player + card number + parallel prove one unique logical set identity. Soft
+  // visible logical-set text (for example GROOVY) is still applied before this
+  // function by narrowing setRowsForCoverage, so inserts are never coerced Base.
+  if (isProductLineOnlySetEvidence(ai.setName)) {
+    const registryProductTokens = new Set(
+      meaningfulTokens(
+        [brand.name, release.product_name].filter(Boolean).join(" "),
+      ),
+    );
+    return [...targetSetTokens].every((token) =>
+      registryProductTokens.has(token),
+    );
+  }
+
   const registrySetTokens = new Set(
     meaningfulTokens(
       [

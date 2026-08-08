@@ -307,8 +307,20 @@ export function instaCompAiLocalScanToAi(
   const setName = text(identity.set_name ?? identity.setName);
 
   const serialRun = Number(identity.serial_run ?? identity.serialRun);
+  // A trusted-memory identity may contain historical serial-run metadata, but
+  // serialization is visible-card evidence and must be re-proven on the current
+  // physical scan. Never let stale memory manufacture a /NNN constraint.
+  const deterministicSerialNumber = text(
+    deterministicIdentity(scan)?.serialNumber,
+  );
+  const deterministicSerialRun = deterministicSerialNumber
+    ?.match(/\/\s*(\d{1,7})\b/)?.[1];
   const printRun =
-    Number.isInteger(serialRun) && serialRun > 0 ? `/${serialRun}` : null;
+    Number.isInteger(serialRun) &&
+    serialRun > 0 &&
+    Number(deterministicSerialRun) === serialRun
+      ? `/${serialRun}`
+      : null;
   const identityConfidence = trusted
     ? Math.max(confidence(scan.visual_match_score), 0.98)
     : confidence(scan.local_suggestion?.confidence);
