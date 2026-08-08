@@ -104,11 +104,15 @@ function normalizeSetProduct(value: string) {
 }
 
 function detectPrintedSetName(text: string, season: string | null) {
-  const panini = text.match(
-    /\b((?:19|20)\d{2}(?:[-/]\d{2})?)\s+PANINI\s*-\s*([A-Z0-9][A-Z0-9 &'./-]{1,70}?(?:BASKETBALL|FOOTBALL|BASEBALL))\b/i,
-  );
-  if (panini?.[1] && panini?.[2]) {
-    return `${normalizeSeasonToken(panini[1])} Panini ${normalizeSetProduct(panini[2])}`;
+  const paniniMatches = Array.from(
+    text.matchAll(/\b((?:19|20)\d{2}(?:[-/]\d{2})?)\s+PANINI\s*-\s*([A-Z0-9][A-Z0-9 &'./-]{1,70}?(?:BASKETBALL|FOOTBALL|BASEBALL))\b/gi),
+  )
+    .map((match) => ({ season: match[1], product: match[2] }))
+    .filter((match) => match.season && match.product)
+    .sort((a, b) => a.product.length - b.product.length);
+  const panini = paniniMatches[0];
+  if (panini) {
+    return `${normalizeSeasonToken(panini.season)} Panini ${normalizeSetProduct(panini.product)}`;
   }
 
   const upperDeck = text.match(
@@ -139,20 +143,27 @@ function detectPrintedSetName(text: string, season: string | null) {
 function looksLikeCardCode(value: string) {
   if (!value || /^\d{4}[-/]\d{2,4}$/.test(value)) return false;
   if (/^\d{1,4}$/.test(value)) return true;
+  const normalized = value.toLowerCase();
+  if (
+    new Set([
+      "game-used",
+      "player-worn",
+      "player-used",
+      "upper-deck",
+      "all-rights",
+      "rookie-auto",
+      "auto-patch",
+      "draft-day",
+      "right-wing",
+      "left-wing",
+    ]).has(normalized)
+  ) return false;
   return /[A-Za-z]/.test(value) && /^[A-Za-z0-9.-]{2,24}$/.test(value);
 }
 
 function detectPrintedCardNumber(text: string) {
-  const explicit = Array.from(
-    text.matchAll(/\b(?:NO\.?|CARD(?:\s+NO\.?)?)\s*#?\s*([A-Z0-9][A-Z0-9.-]{0,23})\b/gi),
-  );
-  for (const match of explicit) {
-    const candidate = String(match[1] || "").trim();
-    if (looksLikeCardCode(candidate)) return candidate;
-  }
-
-  const hashMatch = text.match(/(?:^|\s)#\s*([A-Z0-9][A-Z0-9.-]{0,23})\b/i)?.[1];
-  if (hashMatch && looksLikeCardCode(hashMatch)) return hashMatch;
+  const explicitCode = text.match(/\bNO\.\s*([A-Z0-9]{1,6}-[A-Z0-9]{1,10})\b/i)?.[1];
+  if (explicitCode && looksLikeCardCode(explicitCode)) return explicitCode;
 
   const codeMatches = Array.from(
     text.matchAll(/\b([A-Z0-9]{1,6}-[A-Z0-9]{1,10})\b/gi),
@@ -161,6 +172,16 @@ function detectPrintedCardNumber(text: string) {
     const candidate = String(match[1] || "").trim();
     if (looksLikeCardCode(candidate)) return candidate;
   }
+
+  const explicitNumeric = firstMatch(text, [
+    /\bNO\.\s*(\d{1,4})\b/i,
+    /\bNO\s+(\d{1,4})\b/i,
+    /\bCARD\s+(?:NO\.?|#)\s*(\d{1,4})\b/i,
+  ])?.[1];
+  if (explicitNumeric && looksLikeCardCode(explicitNumeric)) return explicitNumeric;
+
+  const hashMatch = text.match(/(?:^|\s)#\s*(\d{1,4})\b/i)?.[1];
+  if (hashMatch && looksLikeCardCode(hashMatch)) return hashMatch;
   return null;
 }
 
@@ -173,17 +194,32 @@ function normalizeSportLabel(value: string | null | undefined) {
   return value || null;
 }
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function appendNote(notes: string | null, note: string) {
   return [notes, note].filter(Boolean).join(" ");
 }
 
-function applyPrintedIdentityCorrections(ai: InstaCompAiResult, evidenceText: string) {
+function applyPrintedIdentityCorrections(
+  ai: InstaCompAiResult,
+  evidenceText: string,
+  semanticEvidenceText = evidenceText,
+) {
   const season = detectPrintedSeason(evidenceText);
   const setName = detectPrintedSetName(evidenceText, season);
-  const cardNumber = detectPrintedCardNumber(evidenceText);
-  const printedRookie = /\b(?:ROOKIE|RC)\b/i.test(evidenceText);
-  const printedAuto = /\b(?:AUTOGRAPH(?:ED|S)?|AUTO\s+PATCH|AUTOGRAPH\s+ISSUE|AUTOGRAPH\s+IS\s+GUARANTEED|AUTOGRAPH\s+ARE\s+GUARANTEED)\b/i.test(evidenceText);
-  const printedRelic = /\b(?:MEMORABILIA|PLAYER[- ](?:WORN|USED)\s+MATERIAL|AUTHENTIC\s+MEMORABILIA|JERSEY|PATCH|SWATCH)\b/i.test(evidenceText);
+  const detectedCardNumber = detectPrintedCardNumber(evidenceText);
+  const currentCardNumber = cleanSignalText(ai.cardNumber);
+  const currentCardVisible = Boolean(
+    currentCardNumber &&
+      !currentCardNumber.includes("/") &&
+      new RegExp(`(?:^|[^A-Za-z0-9])${escapeRegExp(currentCardNumber)}(?:$|[^A-Za-z0-9])`, "i").test(evidenceText),
+  );
+  const cardNumber = currentCardVisible ? currentCardNumber : detectedCardNumber;
+  const printedRookie = /\b(?:ROOKIE|RC)\b/i.test(semanticEvidenceText);
+  const printedAuto = /\b(?:AUTOGRAPH(?:ED|S)?|AUTO\s+PATCH|AUTOGRAPH\s+ISSUE|AUTOGRAPH\s+IS\s+GUARANTEED|AUTOGRAPH\s+ARE\s+GUARANTEED|SIGNATURE)\b/i.test(semanticEvidenceText);
+  const printedRelic = /\b(?:MEMORABILIA|PLAYER[- ](?:WORN|USED)\s+MATERIAL|AUTHENTIC\s+MEMORABILIA|ENCLOSED\s+OFFICIALLY\s+LICENSED\s+MATERIAL|JERSEY|PATCH|SWATCH)\b/i.test(semanticEvidenceText);
 
   const changes: string[] = [];
   const next: InstaCompAiResult = {
@@ -226,14 +262,31 @@ function applyPrintedIdentityCorrections(ai: InstaCompAiResult, evidenceText: st
 }
 
 function detectPrintedVariantSignal(text: string): VariantSignal | null {
-  if (/\bPREMIUM\s+AUTO\s+BLUE\b/i.test(text)) {
-    return { label: "Premium Auto Blue", reason: "printed text indicates Premium Auto Blue", confidence: "exact" };
+  const premiumAutoBlue = text.match(/\bPREMIUM\s+AUTO\s+BLUE\b/i);
+  if (premiumAutoBlue) {
+    return {
+      label: "Premium Auto Blue",
+      reason: "printed text indicates Premium Auto Blue",
+      confidence: "exact",
+    };
   }
-  if (/\bBLUE\s+AUTOGRAPHS?\b/i.test(text)) {
-    return { label: "Blue Autographs", reason: "printed text indicates Blue Autographs", confidence: "exact" };
+
+  const blueAutograph = text.match(/\bBLUE\s+AUTOGRAPHS?\b/i);
+  if (blueAutograph) {
+    return {
+      label: "Blue Autographs",
+      reason: "printed text indicates Blue Autographs",
+      confidence: "exact",
+    };
   }
-  if (/\bHOT\s+SPRINGS\b/i.test(text)) {
-    return { label: "Hot Springs", reason: "printed text indicates Hot Springs", confidence: "exact" };
+
+  const hotSprings = text.match(/\bHOT\s+SPRINGS\b/i);
+  if (hotSprings) {
+    return {
+      label: "Hot Springs",
+      reason: "printed text indicates Hot Springs",
+      confidence: "exact",
+    };
   }
 
   const limitedColor = firstMatch(text, [
@@ -261,9 +314,11 @@ function detectPrintedVariantSignal(text: string): VariantSignal | null {
   if (/\bupper\s+deck\s+clear\s+cut\b/i.test(text) || /\bclear\s+cut\b/i.test(text)) {
     return { label: "Clear Cut", setName: "Clear Cut", reason: "printed text indicates Upper Deck Clear Cut / Clear Cut", confidence: "exact" };
   }
+
   if (/\bupper\s+deck\b/i.test(text) && /\b(?:transparent|translucent|acetate|clear[-\s]*stock|clear\s*\/\s*ghosted)\b/i.test(text) && /\b(?:centered\s+(?:team\s+)?logo|ghosted\s+back\s+logo|back\s+logo|team\s+logo|player[-\s]*name\s+treatment|clear\s+back)\b/i.test(text)) {
     return { label: "Clear Cut", setName: "Clear Cut", reason: "Upper Deck clear-stock back-logo cue indicates Clear Cut", confidence: "exact" };
   }
+
   if (/\bacetate\b/i.test(text)) {
     return { label: "Acetate / clear parallel - exact type uncertain", reason: "printed text or OCR indicates acetate/clear stock", confidence: "review" };
   }
@@ -273,6 +328,7 @@ function detectPrintedVariantSignal(text: string): VariantSignal | null {
     const label = collectorInsertLabel(priorityNamedInsert[1]);
     return { label, setName: label, reason: `printed text indicates insert/subset ${label}`, confidence: "exact" };
   }
+
   const namedInsert = firstMatch(text, [
     /\b(ud\s+canvas|canvas|dazzlers|young\s+guns|rookie\s+materials|honor\s+roll|rookie\s+class|star\s+rookies|portraits|debut\s+dates|opc\s+glossy|clear\s+cut|marquee\s+rookies|spectrum\s+fx|outliers|future\s+watch)\b/i,
   ]);
@@ -280,12 +336,15 @@ function detectPrintedVariantSignal(text: string): VariantSignal | null {
     const label = collectorInsertLabel(namedInsert[1]);
     return { label, setName: label, reason: `printed text indicates insert/subset ${label}`, confidence: "exact" };
   }
+
   if (/\bREFRACTOR\b/i.test(text)) {
     return { label: "Refractor", reason: "printed text indicates Refractor", confidence: "exact" };
   }
+
   if (/\bPRIZM\b/i.test(text)) {
     return { label: "Prizm", reason: "printed text indicates Prizm", confidence: "exact" };
   }
+
   if (/\binsert\s+(?:card|cards|set|subset)\b/i.test(text) || /\bspecial\s+insert\b/i.test(text) || /\bfrom\s+this\s+subset\b/i.test(text) || /\bsubset\s+(?:card|cards|set)\b/i.test(text)) {
     return { label: "Insert - exact type uncertain", reason: "printed text indicates an insert/subset but exact insert name needs review", confidence: "review" };
   }
@@ -342,13 +401,31 @@ export function applyInstaCompIdentityGuard(
   ai: InstaCompAiResult,
   context: { externalOcrText?: string | null } = {},
 ): InstaCompAiResult {
-  const combinedEvidence = cleanSignalText([
+  const receipt = ai as InstaCompAiResult & {
+    frontVisibleText?: unknown;
+    backVisibleText?: unknown;
+    backEvidence?: unknown;
+  };
+  const receiptText = [
+    Array.isArray(receipt.frontVisibleText) ? receipt.frontVisibleText.join(" ") : null,
+    Array.isArray(receipt.backVisibleText) ? receipt.backVisibleText.join(" ") : null,
+    typeof receipt.backEvidence === "string" ? receipt.backEvidence : null,
+  ].filter(Boolean).join(" ");
+  const printedEvidence = cleanSignalText([
     context.externalOcrText,
+    receiptText,
+  ].filter(Boolean).join(" "));
+  const combinedEvidence = cleanSignalText([
+    printedEvidence,
     ai.setName,
     ai.brand,
     ai.notes,
   ].filter(Boolean).join(" "));
-  const printedCorrectedAi = applyPrintedIdentityCorrections(ai, combinedEvidence);
+  const printedCorrectedAi = applyPrintedIdentityCorrections(
+    ai,
+    printedEvidence || combinedEvidence,
+    combinedEvidence,
+  );
   const surfaceGuardedAi = normalizePrizmSurfaceParallel(printedCorrectedAi, combinedEvidence);
   const signal = detectPrintedVariantSignal(combinedEvidence);
   const currentParallel = surfaceGuardedAi.parallel || null;
