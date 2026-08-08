@@ -81,7 +81,10 @@ jobs:
             sprintBaseline: baseline,
             sprintProcessed,
             sprintPercent,
-            freezeStale: Boolean(payload.freezeStale),
-            heartbeatAt: job.heartbeatAt || null
+            freezeStale: payload.freezeStale,
+            heartbeatAt: job.heartbeatAt || null,
+            degraded: Boolean(payload.degraded),
+            source: payload.source || null,
+            upstreamStatus: payload.upstreamStatus || null
           }));
           NODE
