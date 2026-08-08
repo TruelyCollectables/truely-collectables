@@ -51,6 +51,7 @@ import {
 } from "../../../../lib/instacomp-curated-checklist";
 import { detectGradingDetails } from "../../../../lib/grading-cert";
 import { normalizeInstaCompSideImages } from "../../../../lib/instacomp-image-orientation";
+import { extractInstaCompUntrustedListingIdentityHint } from "../../../../lib/instacomp-listing-identity-hint";
 import { readValidatedInstaCompImage } from "../../../../lib/instacomp-image-safety";
 import {
   formatUntrustedOcrEvidence,
@@ -3952,28 +3953,9 @@ function authorizedEphemeralBenchmark(req: NextRequest) {
 }
 
 function extractUntrustedListingIdentityHint(value: unknown) {
-  const title = String(value || "").trim().slice(0, 1000);
-  if (!title) return { title: null, year: null, cardNumber: null, brand: null, setName: null };
-  const season =
-    title.match(/\b((?:19|20)\d{2}[-/](?:\d{2}|(?:19|20)\d{2}))\b/)?.[1] ||
-    title.match(/\b((?:19|20)\d{2})\b/)?.[1] || null;
-  const cardNumber =
-    title.match(/(?:\bcard\s*)?#\s*([A-Za-z0-9][A-Za-z0-9.-]{0,24})\b/i)?.[1] || null;
-  const productRules: Array<{ pattern: RegExp; brand: string; setName: string }> = [
-    { pattern: /\bO-?Pee-?Chee\s+Platinum\b/i, brand: "O-Pee-Chee", setName: "O-Pee-Chee Platinum" },
-    { pattern: /\bNational\s+Hockey\s+Card\s+Day\b/i, brand: "Upper Deck", setName: "National Hockey Card Day" },
-    { pattern: /\bParkhurst\b/i, brand: "Upper Deck", setName: "Parkhurst" },
-    { pattern: /\bSPx\b/i, brand: "Upper Deck", setName: "SPx" },
-    { pattern: /\bFlair\b/i, brand: "Upper Deck", setName: "Flair" },
-    { pattern: /\bTopps\s+Now\b/i, brand: "Topps", setName: "Topps Now" },
-    { pattern: /\bPrizm\b/i, brand: "Panini", setName: "Prizm" },
-    { pattern: /\bBowman\s+Draft\b/i, brand: "Topps", setName: "Bowman Draft" },
-    { pattern: /\bBowman\b/i, brand: "Topps", setName: "Bowman" },
-  ];
-  const product = productRules.find((rule) => rule.pattern.test(title)) || null;
-  const brand = product?.brand || (/\bUpper\s+Deck\b/i.test(title) ? "Upper Deck" : null);
-  return { title, year: season, cardNumber, brand, setName: product?.setName || null };
+  return extractInstaCompUntrustedListingIdentityHint(value);
 }
+
 
 async function identifyCardWithConfiguredProviderFailover(params: {
       frontImage: File;
