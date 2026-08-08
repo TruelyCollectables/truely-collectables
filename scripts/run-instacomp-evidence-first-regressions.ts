@@ -153,8 +153,8 @@ assert(
   "Production scan route must not use benchmark/hardcoded checklist fallback",
 );
 assert(
-  route.includes("resolveChecklistRegistry(evidenceAi"),
-  "Production route must resolve the internal checklist after evidence consensus",
+  route.includes("resolveChecklistRegistry(registryProbeAi"),
+  "Production route must resolve the internal checklist from the current bounded Registry probe",
 );
 assert(
   route.includes("identityDecision.confirmed"),
