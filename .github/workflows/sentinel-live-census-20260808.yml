@@ -38,7 +38,7 @@ jobs:
         run: |
           set -euo pipefail
           git fetch --depth=1 origin main
-          mapfile -t changed < <(git diff --name-only origin/main...HEAD | sort)
+          mapfile -t changed < <(git diff --name-only origin/main HEAD | sort)
           test "${#changed[@]}" -eq 2
           test "${changed[0]}" = '.github/workflows/sentinel-live-census-20260808.yml'
           test "${changed[1]}" = 'scripts/sentinel-live-census-20260808.marker'
