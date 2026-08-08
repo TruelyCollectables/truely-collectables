@@ -104,10 +104,16 @@ jobs:
           cat > .tmp-v8-final-two-live-proof.ts <<'TS'
           import assert from "node:assert/strict";
           import { applyInstaCompSerialEvidenceGuard } from "./src/lib/instacomp-identity-guard";
+          import {
+            applyInstaCompConsensusToAi,
+            buildInstaCompMultiScannerConsensus,
+            buildInstaCompReaderFindingFromAi,
+            decideInstaCompConsensusEscalation,
+          } from "./src/lib/instacomp-consensus";
           import { revalidateChecklistRegistryReceipt, resolveChecklistRegistry } from "./src/lib/instacomp-learning-server";
 
-          async function direct(label:any,input:any,expected:string,fp:string){
-            const r=await resolveChecklistRegistry(input,{evidenceTrusted:false});
+          async function direct(label:any,input:any,expected:string,fp:string,opts:any={evidenceTrusted:false}){
+            const r=await resolveChecklistRegistry(input,opts);
             assert.equal(r.status,"internal_exact_match",`${label}: ${r.status} ${r.reasons.join(',')}`);
             assert.equal(r.candidateCount,1,`${label}: candidateCount=${r.candidateCount}`);
             assert.equal(r.match?.identityId,expected,`${label}: UUID`);
@@ -135,10 +141,31 @@ jobs:
 
             await receipt('Paige #5 Ice',{player:'Paige Bueckers',year:'2025',brand:'Panini',setName:'Base',cardNumber:'5',parallel:'Prizms Ice',team:'Dallas Wings',sport:'Basketball',isRookie:true,isAuto:false,isRelic:false},'575556fe-fdd4-4083-baee-c5071ed3161f','66531f084322d986e26c569e12a152bada033904c67b7068c00572c3efaa7d42');
 
-            const rickea={player:'Rickea Jackson',year:'2025',brand:'Panini',setName:'PRIZM',cardNumber:'118',parallel:null,registryVisibleText:'RICKEA JACKSON PRIZM WNBA LOS ANGELES SPARKS',notes:'Black foil finish visible on the card surface.'};
-            await direct('Rickea #118 surface-noise',rickea,'70ad307e-06bb-45c2-90ea-689b6e2f302e','bdbf4845dae6d1da4d783fd23d9c387883769cd68aee3c663b144013bb891028');
-            await direct('Rickea #118 PRISM OCR alias',{...rickea,setName:'PRISM'},'70ad307e-06bb-45c2-90ea-689b6e2f302e','bdbf4845dae6d1da4d783fd23d9c387883769cd68aee3c663b144013bb891028');
-            console.log('PASS live Registry proof for all five exact v8 route shapes plus PRISM OCR alias');
+            const rickea={player:'Rickea Jackson',year:'2025',brand:'Panini',setName:'PRIZM',cardNumber:'118',parallel:null,serialNumber:null,team:'Los Angeles Sparks',sport:'Basketball',isRookie:false,isAuto:false,isRelic:false,conditionGuess:null,confidence:0.98,registryVisibleText:'RICKEA JACKSON PRIZM WNBA LOS ANGELES SPARKS',notes:'Black foil finish visible on the card surface.'};
+
+            // Preserve the raw fail-closed boundary: a single scanner's visible
+            // finish note must NOT silently become Base before council review.
+            const raw=await resolveChecklistRegistry(rickea,{evidenceTrusted:false});
+            assert.equal(raw.status,'internal_set_present_no_exact_match',`Rickea raw note must stay blocked: ${raw.status}`);
+            console.log('PASS Rickea raw single-reader black-finish note remains fail-closed');
+
+            // Production shape: the note triggers escalation, two independent AI
+            // families agree on every hard identity field and neither confirms a
+            // specific parallel. Only then may the old note become audit context.
+            const secondary={...rickea,notes:'No specific parallel name or serial numbering confirmed from the printed card evidence.'};
+            const escalation=decideInstaCompConsensusEscalation({ai:rickea,externalOcrText:null,hasBackImage:true,pairingConfidence:1});
+            assert.equal(escalation.runSecondaryVision,true,'Rickea finish note must trigger second reader');
+            const readers=[
+              buildInstaCompReaderFindingFromAi({readerId:'primary',label:'Primary vision',kind:'primary_vision',family:'family_primary',ai:rickea}),
+              buildInstaCompReaderFindingFromAi({readerId:'secondary',label:'Secondary vision',kind:'secondary_vision',family:'family_secondary',ai:secondary}),
+            ];
+            const council=buildInstaCompMultiScannerConsensus({readers,baseIdentity:rickea,catalogReferee:null,escalation});
+            assert.equal(council.status,'consensus_confirmed',`Rickea council: ${council.reviewReasons.join(',')}`);
+            assert.equal(council.trustedForIdentity,true);
+            const adjudicated=applyInstaCompConsensusToAi(rickea,council);
+            await direct('Rickea #118 council-adjudicated surface-noise',adjudicated,'70ad307e-06bb-45c2-90ea-689b6e2f302e','bdbf4845dae6d1da4d783fd23d9c387883769cd68aee3c663b144013bb891028',{evidenceTrusted:true,parallelEvidenceAdjudicated:true});
+            await direct('Rickea #118 PRISM OCR alias after council',{...adjudicated,setName:'PRISM'},'70ad307e-06bb-45c2-90ea-689b6e2f302e','bdbf4845dae6d1da4d783fd23d9c387883769cd68aee3c663b144013bb891028',{evidenceTrusted:true,parallelEvidenceAdjudicated:true});
+            console.log('PASS live Registry proof for all five exact v8 route shapes with raw-note fail-closed boundary preserved');
           }
           main().catch(e=>{console.error(e);process.exit(1)});
           TS
@@ -158,8 +185,10 @@ jobs:
           test "$changed" = "$expected"
           test -z "$(git diff --name-only -- services/instacomp-ai)"
           grep -Fq 'applyInstaCompSerialEvidenceGuard' src/app/api/instacomp/scan/route.ts
+          grep -Fq 'parallelEvidenceAdjudicated: evidenceConsensus.status === "consensus_confirmed"' src/app/api/instacomp/scan/route.ts
           grep -Fq 'Serial evidence guard suppressed uncorroborated serial' src/lib/instacomp-identity-guard.ts
           grep -Fq 'releaseSupportsProductLineSetEvidence' src/lib/instacomp-learning-server.ts
+          grep -Fq 'parallelEvidenceAdjudicated' src/lib/instacomp-learning-server.ts
           grep -Fq 'if (parallelProfile.baseLike && adjacentYearRecovered)' src/lib/instacomp-learning-server.ts
           if grep -Fq 'parallelProfile.baseLike &&' src/lib/instacomp-learning-server.ts | grep -Fq 'surfaceRisk'; then exit 2; fi
 
