@@ -1,0 +1,14 @@
+{
+  "checkedAt": "2026-08-08T18:29:50.144Z",
+  "httpStatus": 500,
+  "requestOk": false,
+  "success": false,
+  "physicalMacHealthy": false,
+  "scheduler": null,
+  "recentRuns": [],
+  "error": "Deal Hunter status returned HTTP 401: {\"detail\":\"Invalid InstaComp AI key\"}",
+  "response": {
+    "success": false,
+    "error": "Deal Hunter status returned HTTP 401: {\"detail\":\"Invalid InstaComp AI key\"}"
+  }
+}
