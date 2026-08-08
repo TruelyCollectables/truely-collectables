@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: instacomp-current-25-ebay-user-stress
@@ -18,8 +19,8 @@ env:
   VERCEL_SCOPE: truelycollectables-projects
   VERCEL_PROJECT: truely-collectables
   PRODUCTION_ORIGIN: https://truelycollectables.com
-  INSTACOMP_BENCHMARK_TARGET: "25"
-  INSTACOMP_BENCHMARK_CONCURRENCY: "2"
+  DISCOVERY_ARTIFACT_ID: "9017394474"
+  TEMP_DIR: /tmp/instacomp-current-25-ebay-user-stress
 
 jobs:
   live-benchmark:
@@ -37,6 +38,7 @@ jobs:
         run: |
           set -euo pipefail
           test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          mkdir -p "$TEMP_DIR" reports
           git fetch origin main --quiet
           base="$(git merge-base HEAD origin/main)"
           mapfile -t changed < <(git diff --name-only "$base"...HEAD)
@@ -52,161 +54,96 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Install exact dependencies
-        run: npm ci
-
-      - name: Verify current InstaComp safety gates
+      - name: Install exact dependencies and verify safety gates
         shell: bash
         run: |
           set -euo pipefail
+          npm ci
           npm run verify:instacomp
           npx tsx scripts/run-instacomp-identity-firewall-regressions.ts
           npx tsx scripts/run-instacomp-serial-color-gate-regressions.ts
 
-      - name: Link Vercel project
+      - name: Link Vercel Production project
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
           test -n "$VERCEL_TOKEN"
-          npx vercel@56.2.0 link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx --yes vercel@56.2.0 link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
 
-      - name: Prove certified Production InstaComp is ready before audit
+      - name: Prove certified Production InstaComp is healthy before test
         shell: bash
         run: |
           set -euo pipefail
-          out="$RUNNER_TEMP/instacomp-readiness-before.json"
-          code="$(curl -sS --max-time 30 -o "$out" -w '%{http_code}' -H 'Cache-Control: no-cache' "$PRODUCTION_ORIGIN/api/instacomp/internal-readiness?audit25=before&ts=$(date +%s)")"
+          out="$TEMP_DIR/readiness-before.json"
+          code="$(curl -sS --max-time 30 -o "$out" -w '%{http_code}' -H 'Cache-Control: no-cache' "$PRODUCTION_ORIGIN/api/instacomp/internal-readiness?audit25=direct-before&ts=$(date +%s)")"
           test "$code" = "200"
           node - "$out" <<'NODE'
           const fs=require('node:fs');const b=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
           for(const k of ['ok','configured','reachable','internalMemoryReady','checklistReady','localModelReady']) if(b[k]!==true) throw new Error(`${k}=${b[k]}`);
-          console.log(JSON.stringify({ok:b.ok,configured:b.configured,reachable:b.reachable,version:b.version||null,runtimeSourceFingerprint:b.runtimeSourceFingerprint||null}));
+          console.log('READINESS_BEFORE='+JSON.stringify({ok:b.ok,configured:b.configured,reachable:b.reachable,version:b.version||null,runtimeSourceFingerprint:b.runtimeSourceFingerprint||null}));
           NODE
 
-      - name: Generate one-run benchmark credential
-        shell: bash
-        run: |
-          set -euo pipefail
-          token="$(openssl rand -hex 32)"
-          echo "::add-mask::$token"
-          echo "INSTACOMP_BENCHMARK_TOKEN=$token" >> "$GITHUB_ENV"
-
-      - name: Atomically deploy app-equivalent audit runtime to Production
-        id: deploy
+      - name: Recover the 25 live eBay front/back pairs already discovered
         env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          npx vercel@56.2.0 deploy --prod --yes --force --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" \
-            --env "INSTACOMP_BENCHMARK_TOKEN=$INSTACOMP_BENCHMARK_TOKEN" \
-            > deployment-url.txt
-          deployment_url="$(tail -n 1 deployment-url.txt | tr -d '\r\n')"
-          test -n "$deployment_url"
-          echo "deployment_url=$deployment_url" >> "$GITHUB_OUTPUT"
-          echo "INSTACOMP_AUDIT_DEPLOYMENT_URL=$deployment_url" >> "$GITHUB_ENV"
-
-      - name: Re-prove certified InstaComp on audit deployment
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          ready=0
-          for attempt in $(seq 1 18); do
-            if npx vercel@56.2.0 curl /api/instacomp/internal-readiness \
-              --deployment "$INSTACOMP_AUDIT_DEPLOYMENT_URL" \
-              > "$RUNNER_TEMP/readiness-audit.json" 2> "$RUNNER_TEMP/readiness-audit.stderr"; then
-              if node - "$RUNNER_TEMP/readiness-audit.json" <<'NODE'
-          const fs=require('node:fs');const b=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
-          for(const k of ['ok','configured','reachable','internalMemoryReady','checklistReady','localModelReady']) if(b[k]!==true) process.exit(1);
-          NODE
-              then ready=1; break; fi
-            fi
-            sleep 5
-          done
-          test "$ready" = "1"
-
-      - name: Verify live eBay benchmark manifest
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          npx vercel@56.2.0 curl /api/instacomp/benchmark/ebay-25 \
-            --deployment "$INSTACOMP_AUDIT_DEPLOYMENT_URL" \
-            --header "Authorization: Bearer $INSTACOMP_BENCHMARK_TOKEN" \
-            > benchmark-manifest.json 2> benchmark-manifest-stderr.txt
-          node - <<'NODE'
-          const fs=require('fs');const p=JSON.parse(fs.readFileSync('benchmark-manifest.json','utf8'));
-          if(!p.ok||!Array.isArray(p.cases)||p.cases.length<25) throw new Error(`Benchmark manifest not ready: ${JSON.stringify(p).slice(0,1200)}`);
-          console.log(`LIVE_MANIFEST_CASES=${p.cases.length}`);
+          curl -fsSL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$DISCOVERY_ARTIFACT_ID/zip" \
+            -o "$TEMP_DIR/discovery.zip"
+          unzip -q "$TEMP_DIR/discovery.zip" -d "$TEMP_DIR/discovery"
+          report="$TEMP_DIR/discovery/reports/instacomp-ebay-25-report.json"
+          test -s "$report"
+          DISCOVERY_REPORT="$report" PAIRS_OUT="$TEMP_DIR/live-pairs.json" node <<'NODE'
+          const fs=require('node:fs');
+          const r=JSON.parse(fs.readFileSync(process.env.DISCOVERY_REPORT,'utf8'));
+          const rows=(Array.isArray(r.allResults)?r.allResults:[]).filter(x=>x?.eBay?.frontImageUrl&&x?.eBay?.backImageUrl&&x.eBay.frontImageUrl!==x.eBay.backImageUrl&&x?.expected&&x?.eBay?.url);
+          const unique=[];const seen=new Set();
+          for(const row of rows){const key=String(row.eBay.legacyItemId||row.eBay.itemId||row.eBay.url);if(seen.has(key))continue;seen.add(key);unique.push({caseId:row.caseId,expected:row.expected,catalogSourceLabel:row.catalogSourceLabel,catalogSourceUrl:row.catalogSourceUrl,eBay:row.eBay});if(unique.length===25)break;}
+          if(unique.length!==25) throw new Error(`Expected 25 unique front/back live listings; found ${unique.length}`);
+          fs.writeFileSync(process.env.PAIRS_OUT,JSON.stringify(unique,null,2));
+          const serial=unique.filter(x=>Number(x.expected?.serialDenominator)>0).length;
+          const rookie=unique.filter(x=>x.expected?.isRookie===true).length;
+          const parallel=unique.filter(x=>String(x.expected?.parallel||'Base').toLowerCase()!=='base').length;
+          console.log(`DISCOVERED_25 frontBack=25 serialNumbered=${serial} rookies=${rookie} nonBaseParallels=${parallel}`);
           NODE
 
-      - name: Run 25 live eBay front/back cards through current InstaComp
-        id: benchmark
-        continue-on-error: true
+      - name: Provision isolated Production scan credential
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          INSTACOMP_PREVIEW_DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
-        run: node scripts/run-instacomp-ebay-25-through-vercel-curl.mjs
-
-      - name: Print full grading receipt
-        if: always()
         shell: bash
         run: |
-          if [ -f reports/instacomp-ebay-25-report.json ]; then
-            echo 'INSTACOMP_25_REPORT_START'
-            cat reports/instacomp-ebay-25-report.json
-            echo 'INSTACOMP_25_REPORT_END'
-          else
-            echo 'NO_BENCHMARK_REPORT'
+          set -euo pipefail
+          list="$TEMP_DIR/env-clean.txt"
+          npx --yes vercel@56.2.0 env ls production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$list"
+          if grep -Eq '(^|[[:space:]])INSTACOMP_ACCEPTANCE_SERVICE_TOKEN([[:space:]]|$)' "$list"; then
+            npx --yes vercel@56.2.0 env rm INSTACOMP_ACCEPTANCE_SERVICE_TOKEN production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null 2>&1 || true
           fi
+          openssl rand -hex 32 > "$TEMP_DIR/acceptance-token"
+          chmod 600 "$TEMP_DIR/acceptance-token"
+          secret="$(cat "$TEMP_DIR/acceptance-token")"
+          echo "::add-mask::$secret"
+          npx --yes vercel@56.2.0 env add INSTACOMP_ACCEPTANCE_SERVICE_TOKEN production --force --sensitive --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" < "$TEMP_DIR/acceptance-token" >/dev/null
+          touch "$TEMP_DIR/token-provisioned"
 
-      - name: Upload full benchmark evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: instacomp-current-25-ebay-user-stress
-          path: |
-            reports/instacomp-ebay-25-report.json
-            reports/instacomp-ebay-25-report.md
-            benchmark-manifest.json
-            benchmark-manifest-stderr.txt
-            deployment-url.txt
-          if-no-files-found: warn
-          retention-days: 90
-
-      - name: Grade test
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -f reports/instacomp-ebay-25-report.json
-          node - <<'NODE'
-          const fs=require('fs');const r=JSON.parse(fs.readFileSync('reports/instacomp-ebay-25-report.json','utf8'));const s=r.summary||{};
-          console.log('INSTACOMP_25_SUMMARY='+JSON.stringify({requested:s.requestedCards||25,attempted:s.attemptedCards||0,completed:s.completedCards||0,passed:s.passedCards||0,passRate:s.passRate||0,averageScore:s.averageScore??null,registryCoverage:s.catalogCoverageRate||0,criticalErrors:s.criticalErrors||0,majorErrors:s.majorErrors||0,targetMet:!!s.targetMet}));
-          if(Number(s.completedCards||0)<25) throw new Error(`Incomplete: ${s.completedCards||0}/25`);
-          NODE
-
-      - name: Clean redeploy exact main without audit credential
-        if: always()
+      - name: Deploy app-equivalent source with isolated scan credential
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin main --quiet
-          git checkout --force --detach origin/main
-          npx vercel@56.2.0 deploy --prod --yes --force --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > cleanup-deployment-url.txt
-          clean_url="$(tail -n 1 cleanup-deployment-url.txt | tr -d '\r\n')"
-          test -n "$clean_url"
+          npx --yes vercel@56.2.0 deploy --prod --yes --force --no-color --cwd "$GITHUB_WORKSPACE" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$TEMP_DIR/acceptance-deploy.log" 2>&1
+          touch "$TEMP_DIR/acceptance-deployed"
           ready=0
           for attempt in $(seq 1 18); do
-            out="$RUNNER_TEMP/instacomp-readiness-clean.json"
-            code="$(curl -sS --max-time 30 -o "$out" -w '%{http_code}' -H 'Cache-Control: no-cache' "$PRODUCTION_ORIGIN/api/instacomp/internal-readiness?audit25=clean&attempt=$attempt&ts=$(date +%s)")"
+            out="$TEMP_DIR/readiness-before-scans.json"
+            code="$(curl -sS --max-time 30 -o "$out" -w '%{http_code}' -H 'Cache-Control: no-cache' "$PRODUCTION_ORIGIN/api/instacomp/internal-readiness?audit25=direct-scans&attempt=$attempt&ts=$(date +%s)")"
             if [ "$code" = "200" ] && node - "$out" <<'NODE'
           const fs=require('node:fs');const b=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
           for(const k of ['ok','configured','reachable','internalMemoryReady','checklistReady','localModelReady']) if(b[k]!==true) process.exit(1);
@@ -215,3 +152,133 @@ jobs:
             sleep 5
           done
           test "$ready" = "1"
+          token="$(cat "$TEMP_DIR/acceptance-token")"; echo "::add-mask::$token"
+          body="$TEMP_DIR/auth-heartbeat.json"
+          code="$(curl -sS --max-time 30 -o "$body" -w '%{http_code}' -X POST -H "x-tcos-instacomp-service-token: $token" -F 'aiCouncilTier=basic' "$PRODUCTION_ORIGIN/api/instacomp/scan")"
+          test "$code" = "400"
+          grep -Fq 'Upload a front card image.' "$body"
+
+      - name: Scan and grade 25 real eBay front/back cards
+        id: direct_scan
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          token="$(cat "$TEMP_DIR/acceptance-token")"; echo "::add-mask::$token"
+          export INSTACOMP_ACCEPTANCE_SERVICE_TOKEN="$token"
+          PAIRS_PATH="$TEMP_DIR/live-pairs.json" REPORT_PATH="$GITHUB_WORKSPACE/reports/instacomp-direct-25-production.json" node <<'NODE'
+          const fs=require('node:fs');
+          const pairs=JSON.parse(fs.readFileSync(process.env.PAIRS_PATH,'utf8'));
+          const ORIGIN='https://truelycollectables.com';
+          const token=process.env.INSTACOMP_ACCEPTANCE_SERVICE_TOKEN;
+          const clean=v=>String(v??'').replace(/\s+/g,' ').trim();
+          const norm=v=>clean(v).normalize('NFKD').replace(/[’']/g,'').toLowerCase().replace(/&/g,' and ').replace(/[^a-z0-9/]+/g,' ').replace(/\s+/g,' ').trim();
+          const card=v=>norm(v).replace(/[^a-z0-9]/g,'');
+          const bool=v=>v===true;
+          const record=v=>v&&typeof v==='object'&&!Array.isArray(v)?v:{};
+          const canonParallel=v=>{const n=norm(v);if(!n||['base','base card','none','null','standard','regular'].includes(n))return 'base';return n.replace(/^prizms?\s+/,'').replace(/\s+prizms?$/,'').trim();};
+          const denominator=v=>{const m=clean(v).match(/(?:\d{1,5}\s*\/\s*)?(\d{1,6})/);const slash=clean(v).match(/\d{1,5}\s*\/\s*(\d{1,6})/);return slash?Number(slash[1]):null;};
+          const allowed=(actual,expected,aliases=[])=>[expected,...(aliases||[])].some(x=>norm(actual)===norm(x));
+          async function image(url,side){const r=await fetch(url,{signal:AbortSignal.timeout(30000),headers:{'User-Agent':'TCOS-InstaComp-25-Live-Listing-Audit/1.0'}});if(!r.ok)throw new Error(`${side} image HTTP ${r.status}`);const type=(r.headers.get('content-type')||'image/jpeg').split(';')[0];const bytes=Buffer.from(await r.arrayBuffer());if(bytes.length<500)throw new Error(`${side} image too small`);return new File([bytes],`${side}.jpg`,{type});}
+          async function scan(front,back){const form=new FormData();form.append('frontImage',front,front.name);form.append('backImage',back,back.name);form.append('aiCouncilTier','basic');const r=await fetch(`${ORIGIN}/api/instacomp/scan`,{method:'POST',body:form,redirect:'error',signal:AbortSignal.timeout(295000),headers:{'x-tcos-instacomp-service-token':token,'User-Agent':'TCOS-InstaComp-25-Live-Listing-Audit/1.0'}});const text=await r.text();let p={};try{p=text?JSON.parse(text):{}}catch{p={error:`Non-JSON: ${text.slice(0,500)}`}}return {httpOk:r.ok,httpStatus:r.status,payload:p};}
+          function grade(row,res){const e=row.expected||{},p=record(res.payload),a=record(p.ai),reg=record(p.checklistRegistry),dec=record(p.identityDecision);let conf=Number(dec.confidence??reg.identityConfidence??NaN);if(Number.isFinite(conf)&&conf>1)conf/=100;const actual={player:clean(a.player),year:clean(a.year),brand:clean(a.manufacturer||a.brand),setName:clean(a.setName||a.set_name),cardNumber:clean(a.cardNumber||a.card_number),parallel:clean(a.parallel)||'Base',serialNumber:clean(a.serialNumber||a.serial_number),team:clean(a.team),sport:clean(a.sport),isRookie:a.isRookie??a.is_rookie??false,isAuto:a.isAuto??a.is_auto??false,isRelic:a.isRelic??a.is_relic??false,confidence:Number.isFinite(conf)?conf:null,registryMatched:reg.matched===true,identityConfirmed:dec.confirmed===true||reg.identityConfirmed===true,registryIdentityId:clean(reg.identityId)||null};
+            const fields=[];const add=(field,weight,pass,note)=>fields.push({field,weight,pass:!!pass,earned:pass?weight:0,note});
+            add('player',15,norm(actual.player)===norm(e.player),`${actual.player} vs ${e.player}`);
+            add('year',10,norm(actual.year)===norm(e.year),`${actual.year} vs ${e.year}`);
+            add('brand',8,norm(actual.brand)===norm(e.brand),`${actual.brand} vs ${e.brand}`);
+            add('set',10,allowed(actual.setName,e.setName,e.setAliases),`${actual.setName} vs ${e.setName}`);
+            add('cardNumber',12,card(actual.cardNumber)===card(e.cardNumber),`${actual.cardNumber} vs ${e.cardNumber}`);
+            add('parallel',10,allowed(canonParallel(actual.parallel),canonParallel(e.parallel),(e.parallelAliases||[]).map(canonParallel)),`${actual.parallel} vs ${e.parallel}`);
+            const expDen=Number(e.serialDenominator||0)||null,actDen=denominator(actual.serialNumber);
+            add('serial',8,expDen?actDen===expDen:!actDen,`${actual.serialNumber||'none'} vs ${expDen?'/'+expDen:'none'}`);
+            add('team',6,!e.team||norm(actual.team)===norm(e.team),`${actual.team} vs ${e.team}`);
+            add('sport',4,!e.sport||norm(actual.sport)===norm(e.sport),`${actual.sport} vs ${e.sport}`);
+            add('rookie',5,bool(actual.isRookie)===bool(e.isRookie),`${actual.isRookie} vs ${e.isRookie}`);
+            add('auto',4,bool(actual.isAuto)===bool(e.isAuto),`${actual.isAuto} vs ${e.isAuto}`);
+            add('relic',3,bool(actual.isRelic)===bool(e.isRelic),`${actual.isRelic} vs ${e.isRelic}`);
+            add('confidence',5,(actual.confidence??0)>=0.95,`${actual.confidence}`);
+            const score=fields.reduce((s,x)=>s+x.earned,0);const critical=fields.filter(x=>['player','year','cardNumber'].includes(x.field)&&!x.pass).map(x=>x.field);const major=fields.filter(x=>['parallel','serial'].includes(x.field)&&!x.pass).map(x=>x.field);const exactCore=['player','year','brand','set','cardNumber','parallel'].every(f=>fields.find(x=>x.field===f)?.pass)&&(expDen?fields.find(x=>x.field==='serial')?.pass:true);const registryLock=actual.registryMatched&&actual.identityConfirmed;return {actual,fields,score,critical,major,exactCore,registryLock,pass:res.httpOk&&p.ok===true&&critical.length===0&&major.length===0&&score>=85&&registryLock};}
+          const results=[];
+          for(let i=0;i<pairs.length;i++){
+            const row=pairs[i];const started=Date.now();let res={httpOk:false,httpStatus:0,payload:{}};let failure=null;
+            try{const [front,back]=await Promise.all([image(row.eBay.frontImageUrl,'front'),image(row.eBay.backImageUrl,'back')]);res=await scan(front,back);}catch(e){failure=String(e?.message||e);}
+            const graded=grade(row,res);const out={number:i+1,caseId:row.caseId,listing:{itemId:row.eBay.legacyItemId||row.eBay.itemId,title:row.eBay.title,url:row.eBay.url,frontImageUrl:row.eBay.frontImageUrl,backImageUrl:row.eBay.backImageUrl},expected:row.expected,http:{ok:res.httpOk,status:res.httpStatus},routeOk:res.payload?.ok===true,failure:failure||clean(res.payload?.error)||null,...graded,durationMs:Date.now()-started};results.push(out);console.log(`CARD ${i+1}/25 ${graded.pass?'PASS':'FAIL'} score=${graded.score} core=${graded.exactCore} registry=${graded.registryLock} ${row.eBay.title}`);fs.writeFileSync(process.env.REPORT_PATH,JSON.stringify({schema:'tcos.instacomp.direct25LiveListings.v1',startedAt:null,updatedAt:new Date().toISOString(),results},null,2));}
+          const total=results.length,passed=results.filter(x=>x.pass).length,core=results.filter(x=>x.exactCore).length,registry=results.filter(x=>x.registryLock).length,httpOk=results.filter(x=>x.http.ok&&x.routeOk).length,avg=total?+(results.reduce((s,x)=>s+x.score,0)/total).toFixed(1):0;
+          const serialRows=results.filter(x=>Number(x.expected?.serialDenominator)>0);const serialPassed=serialRows.filter(x=>x.fields.find(f=>f.field==='serial')?.pass).length;
+          const rookieRows=results.filter(x=>x.expected?.isRookie===true);const rookiePassed=rookieRows.filter(x=>x.fields.find(f=>f.field==='rookie')?.pass).length;
+          const parallelRows=results.filter(x=>canonParallel(x.expected?.parallel)!=='base');const parallelPassed=parallelRows.filter(x=>x.fields.find(f=>f.field==='parallel')?.pass).length;
+          const autoRows=results.filter(x=>x.expected?.isAuto===true),relicRows=results.filter(x=>x.expected?.isRelic===true);
+          const summary={requested:25,completed:total,httpRouteOk:httpOk,passed,passRate:+(passed/25*100).toFixed(1),exactCore:core,exactCoreRate:+(core/25*100).toFixed(1),registryLocked:registry,registryRate:+(registry/25*100).toFixed(1),averageScore:avg,serialNumbered:{tested:serialRows.length,correct:serialPassed},rookies:{tested:rookieRows.length,correct:rookiePassed},nonBaseParallels:{tested:parallelRows.length,correct:parallelPassed},positiveAutos:{tested:autoRows.length,correct:autoRows.filter(x=>x.fields.find(f=>f.field==='auto')?.pass).length},positiveRelics:{tested:relicRows.length,correct:relicRows.filter(x=>x.fields.find(f=>f.field==='relic')?.pass).length},criticalErrors:results.reduce((s,x)=>s+x.critical.length,0),majorErrors:results.reduce((s,x)=>s+x.major.length,0)};
+          const final={schema:'tcos.instacomp.direct25LiveListings.v1',completedAt:new Date().toISOString(),summary,grading:'100 points: player15 year10 brand8 set10 card#12 parallel10 serial8 team6 sport4 rookie5 auto4 relic3 confidence5; pass also requires no critical/major mismatch, >=85, and Registry lock.',sourceArtifactId:9017394474,results};fs.writeFileSync(process.env.REPORT_PATH,JSON.stringify(final,null,2));console.log('INSTACOMP_DIRECT_25_SUMMARY='+JSON.stringify(summary));
+          if(total!==25) throw new Error(`Incomplete ${total}/25`);
+          NODE
+
+      - name: Print and upload full 25-card grading receipt
+        if: always()
+        shell: bash
+        run: |
+          if [ -s reports/instacomp-direct-25-production.json ]; then
+            echo 'INSTACOMP_DIRECT_25_REPORT_START'
+            cat reports/instacomp-direct-25-production.json
+            echo 'INSTACOMP_DIRECT_25_REPORT_END'
+          else
+            echo 'NO_DIRECT_25_REPORT'
+          fi
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-direct-25-production
+          path: reports/instacomp-direct-25-production.json
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Remove isolated scan credential and clean redeploy exact main
+        if: always()
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f "$TEMP_DIR/token-provisioned" ]; then
+            npx --yes vercel@56.2.0 env rm INSTACOMP_ACCEPTANCE_SERVICE_TOKEN production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null 2>&1 || true
+          fi
+          git fetch origin main --quiet
+          git checkout --force --detach origin/main
+          npx --yes vercel@56.2.0 deploy --prod --yes --force --no-color --cwd "$GITHUB_WORKSPACE" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$TEMP_DIR/clean-deploy.log" 2>&1
+          ready=0
+          for attempt in $(seq 1 18); do
+            out="$TEMP_DIR/readiness-clean.json"
+            code="$(curl -sS --max-time 30 -o "$out" -w '%{http_code}' -H 'Cache-Control: no-cache' "$PRODUCTION_ORIGIN/api/instacomp/internal-readiness?audit25=direct-clean&attempt=$attempt&ts=$(date +%s)")"
+            if [ "$code" = "200" ] && node - "$out" <<'NODE'
+          const fs=require('node:fs');const b=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+          for(const k of ['ok','configured','reachable','internalMemoryReady','checklistReady','localModelReady']) if(b[k]!==true) process.exit(1);
+          NODE
+            then ready=1; break; fi
+            sleep 5
+          done
+          test "$ready" = "1"
+          if [ -s "$TEMP_DIR/acceptance-token" ]; then
+            dead="$(cat "$TEMP_DIR/acceptance-token")"; echo "::add-mask::$dead"
+            body="$TEMP_DIR/dead-token.json"
+            auth_code="$(curl -sS --max-time 30 -o "$body" -w '%{http_code}' -X POST -H "x-tcos-instacomp-service-token: $dead" -F 'aiCouncilTier=basic' "$PRODUCTION_ORIGIN/api/instacomp/scan")"
+            test "$auth_code" = "401" -o "$auth_code" = "403"
+          fi
+
+      - name: Final grade gate
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s reports/instacomp-direct-25-production.json
+          node - <<'NODE'
+          const fs=require('fs');const r=JSON.parse(fs.readFileSync('reports/instacomp-direct-25-production.json','utf8'));const s=r.summary||{};
+          console.log(JSON.stringify(s,null,2));
+          if(Number(s.completed||0)!==25) throw new Error(`Incomplete: ${s.completed||0}/25`);
+          NODE
+
+      - name: Remove temporary files
+        if: always()
+        shell: bash
+        run: rm -rf "$TEMP_DIR"
