@@ -1,0 +1,62 @@
+name: Deal Hunter Deploy And Read Providers 20260808
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/lib/deal-hunter-deploy-read-providers-20260808.marker'
+      - '.github/workflows/deal-hunter-deploy-read-providers-20260808.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-and-read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+      SITE_URL: https://truelycollectables.com
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Deploy exact current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p .vercel
+          npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          git fetch origin main
+          git checkout --detach origin/main
+          echo "DEPLOYING_MAIN_SHA=$(git rev-parse HEAD)"
+          npx vercel@56.2.0 --prod --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+      - name: Read latest completed Deal Hunter provider diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 60 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "$SITE_URL/api/release/instacomp-deal-hunter-learning-self-test?mode=status" > status.json
+          RUN_ID="$(node -e "const p=require('./status.json'); const r=(p.runs||[]).find(x=>x.status==='completed'); if(!r?.runId) process.exit(2); process.stdout.write(r.runId)")"
+          echo "LATEST_COMPLETED_RUN_ID=$RUN_ID"
+          curl -fsS --max-time 60 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "$SITE_URL/api/release/instacomp-deal-hunter-history-status?since=2026-08-08T22:00:00Z&runId=$RUN_ID" > diagnostics.json
+          cat diagnostics.json
+          node - <<'NODE'
+          const p=require('./diagnostics.json');
+          if(!p.success) throw new Error(JSON.stringify(p));
+          const candidates=p.completedRunCandidates?.candidates||[];
+          const exactMarket={};
+          const messages={};
+          const missing={};
+          for(const c of candidates){
+            const s=c.exactMarket?.status||'unknown'; exactMarket[s]=(exactMarket[s]||0)+1;
+            for(const f of c.exactMarket?.missingIdentityFields||[]) missing[f]=(missing[f]||0)+1;
+            for(const row of c.exactMarket?.providerMessages||[]){
+              const key=[row.label,row.status,row.message].join(' | '); messages[key]=(messages[key]||0)+1;
+            }
+          }
+          console.log('DEAL_HUNTER_PROVIDER_DIAGNOSTICS='+JSON.stringify({runId:p.completedRunCandidates?.runId,count:candidates.length,totalObservationCount:p.totalObservationCount,observationCountSince:p.observationCountSince,exactMarket,missingIdentityFields:missing,providerMessages:messages}));
+          NODE
