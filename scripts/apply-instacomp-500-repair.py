@@ -1,9 +1,19 @@
 from pathlib import Path
 
 
+ALREADY_APPLIED_MARKERS = {
+    "internal receipt type": "internalChecklistFingerprintSha256: string | null;",
+    "no-identity review adapter": "internalDeterministicIdentity: deterministicIdentity(scan),",
+    "resolved-identity receipt": "internalChecklistIdentityId: text(scan.checklist?.identity_id),",
+}
+
+
 def replace_once(source: str, old: str, new: str, label: str) -> str:
     if old not in source:
         if new in source:
+            return source
+        marker = ALREADY_APPLIED_MARKERS.get(label)
+        if marker and marker in source:
             return source
         raise SystemExit(f"{label} block not found")
     return source.replace(old, new, 1)
