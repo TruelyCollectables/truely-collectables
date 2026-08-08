@@ -5,11 +5,10 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/ops-parkhurst-ivan-production-20260807.yml"
+      - "src/lib/checklist-registry/upper-deck-2025-26-normalized-html.ts"
   push:
     branches:
       - ops/parkhurst-ivan-production-20260807
-    paths:
-      - ".github/workflows/ops-parkhurst-ivan-production-20260807.yml"
   workflow_dispatch:
 
 permissions:
@@ -69,7 +68,7 @@ jobs:
           })().catch(e=>{console.error(e);process.exit(1)});
           NODE
 
-      - name: Bound checklist import function timeout
+      - name: Repair live Registry taxonomy upserts and timeout
         shell: bash
         run: |
           set -euo pipefail
@@ -78,31 +77,36 @@ jobs:
           const ref=process.env.SUPABASE_PROJECT_REF;
           const token=process.env.GH_SUPABASE_ACCESS_TOKEN;
           if(!ref||!token) throw new Error('Missing Supabase management context');
-          const query=`
-          DO $$
-          DECLARE r record;
-          BEGIN
-            FOR r IN
-              SELECT p.oid::regprocedure::text AS signature
-              FROM pg_proc p
-              JOIN pg_namespace n ON n.oid=p.pronamespace
-              WHERE n.nspname='public' AND p.proname='tcos_apply_checklist_import_plan'
-            LOOP
-              EXECUTE format('ALTER FUNCTION %s SET statement_timeout = %L', r.signature, '5min');
-            END LOOP;
-          END $$;
-          SELECT p.oid::regprocedure::text AS signature, p.proconfig
-          FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-          WHERE n.nspname='public' AND p.proname='tcos_apply_checklist_import_plan';`;
-          (async()=>{
-            const r=await fetch(`https://api.supabase.com/v1/projects/${ref}/database/query`,{
-              method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},
-              body:JSON.stringify({query,read_only:false})
-            });
+          const endpoint=`https://api.supabase.com/v1/projects/${ref}/database/query`;
+          async function query(sql, readOnly=false){
+            const r=await fetch(endpoint,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({query:sql,read_only:readOnly})});
             const text=await r.text();
-            if(!r.ok) throw new Error(`Supabase function-timeout update HTTP ${r.status}: ${text.slice(0,500)}`);
-            if(!/statement_timeout=5min/i.test(text)) throw new Error(`Checklist import timeout was not verified: ${text.slice(0,1000)}`);
-            console.log('CHECKLIST_IMPORT_TIMEOUT_OK', text);
+            if(!r.ok) throw new Error(`Supabase query HTTP ${r.status}: ${text.slice(0,1000)}`);
+            return text?JSON.parse(text):null;
+          }
+          function oneReplace(source, regex, replacement, label){
+            let count=0;
+            const out=source.replace(regex,(...args)=>{count++; return typeof replacement==='function'?replacement(...args):replacement;});
+            if(count!==1) throw new Error(`${label}: expected exactly one live function block, found ${count}`);
+            return out;
+          }
+          (async()=>{
+            const rows=await query(`SELECT p.oid::regprocedure::text AS signature, pg_get_functiondef(p.oid) AS definition FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='tcos_apply_checklist_import_plan';`,true);
+            if(!Array.isArray(rows)||rows.length!==1||!rows[0]?.definition) throw new Error(`Unexpected writer definition response: ${JSON.stringify(rows).slice(0,1000)}`);
+            let def=String(rows[0].definition);
+            def=oneReplace(def,/select id into v_manufacturer_id\s+from public\.checklist_manufacturers\s+where slug = v_manufacturer_slug;\s+if v_manufacturer_id is null then\s+insert into public\.checklist_manufacturers\(name, slug\)\s+values \(v_release->>'manufacturer', v_manufacturer_slug\)\s+returning id into v_manufacturer_id;\s+end if;/i,`insert into public.checklist_manufacturers(name, slug)\n  values (v_release->>'manufacturer', v_manufacturer_slug)\n  on conflict (slug) do update set name = excluded.name, active = true\n  returning id into v_manufacturer_id;`,'manufacturer upsert');
+            def=oneReplace(def,/select id into v_sport_id\s+from public\.checklist_sports\s+where slug = v_sport_slug;\s+if v_sport_id is null then\s+insert into public\.checklist_sports\(name, slug\)\s+values \(v_release->>'sport', v_sport_slug\)\s+returning id into v_sport_id;\s+end if;/i,`insert into public.checklist_sports(name, slug)\n  values (v_release->>'sport', v_sport_slug)\n  on conflict (slug) do update set name = excluded.name, active = true\n  returning id into v_sport_id;`,'sport upsert');
+            def=oneReplace(def,/select id into v_brand_id\s+from public\.checklist_brands\s+where manufacturer_id = v_manufacturer_id and slug = v_brand_slug;\s+if v_brand_id is null then\s+insert into public\.checklist_brands\(manufacturer_id, name, slug\)\s+values \(v_manufacturer_id, v_release->>'brand', v_brand_slug\)\s+returning id into v_brand_id;\s+end if;/i,`insert into public.checklist_brands(manufacturer_id, name, slug)\n    values (v_manufacturer_id, v_release->>'brand', v_brand_slug)\n    on conflict (manufacturer_id, slug) do update set name = excluded.name, active = true\n    returning id into v_brand_id;`,'brand upsert');
+            def=oneReplace(def,/select id into v_league_id\s+from public\.checklist_leagues\s+where sport_id = v_sport_id and slug = v_league_slug;\s+if v_league_id is null then\s+insert into public\.checklist_leagues\(sport_id, name, slug\)\s+values \(v_sport_id, v_release->>'league', v_league_slug\)\s+returning id into v_league_id;\s+end if;/i,`insert into public.checklist_leagues(sport_id, name, slug)\n    values (v_sport_id, v_release->>'league', v_league_slug)\n    on conflict (sport_id, slug) do update set name = excluded.name, active = true\n    returning id into v_league_id;`,'league upsert');
+            await query(def,false);
+            await query(`DO $$ DECLARE r record; BEGIN FOR r IN SELECT p.oid::regprocedure::text AS signature FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='tcos_apply_checklist_import_plan' LOOP EXECUTE format('ALTER FUNCTION %s SET statement_timeout = %L', r.signature, '5min'); END LOOP; END $$;`,false);
+            const verify=await query(`SELECT pg_get_functiondef(p.oid) AS definition, p.proconfig FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='tcos_apply_checklist_import_plan';`,true);
+            const live=String(verify?.[0]?.definition||'');
+            for(const needle of ['on conflict (slug) do update set name = excluded.name, active = true','on conflict (manufacturer_id, slug) do update set name = excluded.name, active = true','on conflict (sport_id, slug) do update set name = excluded.name, active = true']){
+              if(!live.toLowerCase().includes(needle)) throw new Error(`Live writer missing ${needle}`);
+            }
+            if(!JSON.stringify(verify?.[0]?.proconfig||[]).includes('statement_timeout=5min')) throw new Error('Live writer timeout is not 5min');
+            console.log('REGISTRY_TAXONOMY_UPSERT_REPAIR_OK');
           })().catch(e=>{console.error(e);process.exit(1)});
           NODE
 
@@ -124,43 +128,34 @@ jobs:
             const content=await response.text();
             assert.ok(content.length>10000,`Parkhurst source too small: ${content.length}`);
             const artifact:ChecklistSourceArtifact={sourceUrl:url,originalFilename:"2025-26-parkhurst.html",mimeType:"text/html",content,retrievedAt:new Date().toISOString(),authority:"official_manufacturer",redistributionAllowed:false};
-
             const validation=await importChecklistArtifact({artifact,validateOnly:true});
             const errors=validation.plan.validation.issues.filter((x:any)=>x.severity==="error");
             assert.equal(validation.ok,true,`Parkhurst validation failed: ${JSON.stringify(errors)}`);
-            assert.equal(validation.plan.validation.status,"passed",`Parkhurst validation status ${validation.plan.validation.status}`);
+            assert.equal(validation.plan.validation.status,"passed");
             const number236=(validation.plan.cards as any[]).filter((c:any)=>String(c.cardNumber).trim()==="236");
-            console.log("PARKHURST_236_ROWS",JSON.stringify(number236));
             const cards=number236.filter((c:any)=>(c.players||[]).some((p:any)=>String(p).toLowerCase().includes("ivan demidov")));
-            assert.ok(cards.length>=1,`Ivan Demidov #236 absent from normalized Parkhurst plan`);
+            assert.ok(cards.length>=1,'Ivan Demidov #236 absent from normalized Parkhurst plan');
             const setKeys=[...new Set(cards.map((c:any)=>c.setSourceKey).filter(Boolean))];
             const sets=(validation.plan.sets as any[]).filter((s:any)=>setKeys.includes(s.sourceKey||s.setSourceKey||s.source_key));
-            console.log("PARKHURST_VALIDATED",JSON.stringify({adapter:validation.adapter,counts:validation.plan.validation.counts,ivanCards:cards,setKeys,sets}));
-
+            console.log('PARKHURST_VALIDATED',JSON.stringify({counts:validation.plan.validation.counts,ivanCards:cards,setKeys,sets}));
             const imported=await importChecklistArtifact({artifact});
-            assert.equal(imported.ok,true,"Parkhurst Production import did not return ok");
-            console.log("PARKHURST_IMPORTED",JSON.stringify({persistence:imported.persistence,counts:imported.plan.validation.counts}));
-
-            const logicalCandidates=[...new Set([
-              ...sets.flatMap((s:any)=>[s.name,s.displayName,s.normalizedName,s.title]),
-              "Rookies","Base Set - Rookies","Base Set","Base"
-            ].filter(Boolean).map(String))];
-            let exact:any=null;
-            const attempts:any[]=[];
+            assert.equal(imported.ok,true,'Parkhurst Production import did not return ok');
+            console.log('PARKHURST_IMPORTED',JSON.stringify({persistence:imported.persistence,counts:imported.plan.validation.counts}));
+            const logicalCandidates=[...new Set([...sets.flatMap((s:any)=>[s.name,s.displayName,s.normalizedName,s.title]),'Rookies','Base Set - Rookies','Base Set','Base'].filter(Boolean).map(String))];
+            let exact:any=null; const attempts:any[]=[];
             for(const setName of logicalCandidates){
-              const r=await resolveChecklistRegistry({player:"Ivan Demidov",year:"2025-26",brand:"Upper Deck",setName,cardNumber:"236",parallel:"Base",team:"Montreal Canadiens",sport:"Hockey",league:"NHL",isRookie:true,isAuto:false,isRelic:false},{evidenceTrusted:true});
+              const r=await resolveChecklistRegistry({player:'Ivan Demidov',year:'2025-26',brand:'Upper Deck',setName,cardNumber:'236',parallel:'Base',team:'Montreal Canadiens',sport:'Hockey',league:'NHL',isRookie:true,isAuto:false,isRelic:false},{evidenceTrusted:true});
               attempts.push({setName,status:r.status,reasons:r.reasons,match:r.match?{identityId:r.match.identityId,fingerprintSha256:r.match.fingerprintSha256,setName:r.match.setName,product:r.match.product,player:r.match.player,cardNumber:r.match.cardNumber}:null});
-              if(r.status==="internal_exact_match"&&r.match){exact=r;break;}
+              if(r.status==='internal_exact_match'&&r.match){exact=r;break;}
             }
-            console.log("IVAN_RESOLVER_ATTEMPTS",JSON.stringify(attempts));
-            assert.ok(exact?.match,`Ivan #236 did not resolve exactly after Parkhurst import`);
-            assert.equal(exact.match.player,"Ivan Demidov");
-            assert.equal(String(exact.match.cardNumber),"236");
-            assert.match(String(exact.match.product||""),/Parkhurst/i);
-            assert.ok(exact.match.identityId&&exact.match.fingerprintSha256,"Ivan #236 missing Registry receipt");
-            console.log("PASS_IVAN_PARKHURST_236",JSON.stringify({identityId:exact.match.identityId,fingerprintSha256:exact.match.fingerprintSha256,setName:exact.match.setName,product:exact.match.product}));
+            console.log('IVAN_RESOLVER_ATTEMPTS',JSON.stringify(attempts));
+            assert.ok(exact?.match,'Ivan #236 did not resolve exactly after Parkhurst import');
+            assert.equal(exact.match.player,'Ivan Demidov');
+            assert.equal(String(exact.match.cardNumber),'236');
+            assert.match(String(exact.match.product||''),/Parkhurst/i);
+            assert.ok(exact.match.identityId&&exact.match.fingerprintSha256,'Ivan #236 missing Registry receipt');
+            console.log('PASS_IVAN_PARKHURST_236',JSON.stringify({identityId:exact.match.identityId,fingerprintSha256:exact.match.fingerprintSha256,setName:exact.match.setName,product:exact.match.product}));
           }
-
           main().catch((error)=>{console.error(error);process.exit(1)});
           TS
           npx tsx parkhurst-proof-temp.ts
