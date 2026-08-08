@@ -50,12 +50,15 @@ async function fetchMacJson(
   baseUrl: string,
   key: string,
   path: string,
+  init: RequestInit = {},
 ): Promise<{ response: Response; payload: Record<string, unknown> | null }> {
+  const headers = new Headers(init.headers);
+  headers.set("X-InstaComp-AI-Key", key);
+  headers.set("Accept", "application/json");
+  if (init.body) headers.set("Content-Type", "application/json");
   const macResponse = await fetch(`${baseUrl}${path}`, {
-    headers: {
-      "X-InstaComp-AI-Key": key,
-      Accept: "application/json",
-    },
+    ...init,
+    headers,
     cache: "no-store",
     redirect: "error",
     signal: AbortSignal.timeout(20_000),
@@ -64,6 +67,10 @@ async function fetchMacJson(
     | Record<string, unknown>
     | null;
   return { response: macResponse, payload };
+}
+
+async function readStatus(baseUrl: string, key: string) {
+  return fetchMacJson(baseUrl, key, "/v1/checklist-sentinel/status");
 }
 
 export async function GET() {
@@ -81,11 +88,55 @@ export async function GET() {
       );
     }
 
-    const statusRead = await fetchMacJson(
-      baseUrl,
-      key,
-      "/v1/checklist-sentinel/status",
-    );
+    let statusRead = await readStatus(baseUrl, key);
+    let selfHealAttempted = false;
+    let selfHealAccepted = false;
+    let selfHealReason: string | null = null;
+
+    if (statusRead.response.ok && statusRead.payload) {
+      const initialStatus = statusRead.payload;
+      const initialFreeze =
+        initialStatus.freeze_protection && typeof initialStatus.freeze_protection === "object"
+          ? initialStatus.freeze_protection as Record<string, unknown>
+          : {};
+      const initialTargets = sanitizedTargets(initialStatus.targets);
+      const initialLatestJob =
+        initialStatus.latest_job && typeof initialStatus.latest_job === "object"
+          ? initialStatus.latest_job as Record<string, unknown>
+          : {};
+      const staleRunning =
+        Boolean(initialFreeze.stale) &&
+        String(initialLatestJob.status || "") === "running" &&
+        initialTargets.pending > 0;
+
+      // Safe self-heal for an orphaned stale job. The Mac's trigger path already
+      // fails closed: a real in-memory run task returns already_running, while an
+      // orphaned stale SQLite row is marked interrupted before a new batch starts.
+      // No target history is reset or requeued here.
+      if (staleRunning) {
+        selfHealAttempted = true;
+        const recovery = await fetchMacJson(
+          baseUrl,
+          key,
+          "/v1/checklist-sentinel/run",
+          {
+            method: "POST",
+            body: JSON.stringify({ trigger: "stale-progress-self-heal" }),
+          },
+        );
+        if (recovery.response.ok && recovery.payload) {
+          selfHealAccepted = Boolean(recovery.payload.accepted);
+          selfHealReason = recovery.payload.reason
+            ? String(recovery.payload.reason)
+            : null;
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          const refreshed = await readStatus(baseUrl, key);
+          if (refreshed.response.ok && refreshed.payload) statusRead = refreshed;
+        } else {
+          selfHealReason = `http_${recovery.response.status}`;
+        }
+      }
+    }
 
     if (statusRead.response.ok && statusRead.payload) {
       const status = statusRead.payload;
@@ -105,6 +156,11 @@ export async function GET() {
         degraded: false,
         source: "status",
         checkedAt: new Date().toISOString(),
+        selfHeal: {
+          attempted: selfHealAttempted,
+          accepted: selfHealAccepted,
+          reason: selfHealReason,
+        },
         job: {
           status: String(latestJob.status || "unknown"),
           trigger: String(latestJob.trigger || "unknown"),
@@ -139,6 +195,11 @@ export async function GET() {
         degraded: true,
         source: "targets_fallback",
         checkedAt: new Date().toISOString(),
+        selfHeal: {
+          attempted: selfHealAttempted,
+          accepted: selfHealAccepted,
+          reason: selfHealReason,
+        },
         upstreamStatus: statusRead.response.status,
         job: {
           status: "unknown",
