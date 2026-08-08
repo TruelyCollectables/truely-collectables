@@ -17,6 +17,7 @@ env:
   EXPECTED_BRANCH: test/instacomp-current-25-ebay-20260807
   VERCEL_SCOPE: truelycollectables-projects
   VERCEL_PROJECT: truely-collectables
+  PRODUCTION_ORIGIN: https://truelycollectables.com
   INSTACOMP_BENCHMARK_TARGET: "25"
   INSTACOMP_BENCHMARK_CONCURRENCY: "2"
 
@@ -36,13 +37,15 @@ jobs:
         run: |
           set -euo pipefail
           test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
-          git fetch origin main
+          git fetch origin main --quiet
           base="$(git merge-base HEAD origin/main)"
           mapfile -t changed < <(git diff --name-only "$base"...HEAD)
           printf '%s\n' "${changed[@]}"
           test "${#changed[@]}" -eq 1
           test "${changed[0]}" = '.github/workflows/instacomp-current-25-ebay-user-stress.yml'
           git diff --check "$base"...HEAD
+          app_drift="$(git diff --name-only origin/main...HEAD -- ':!.github/workflows/instacomp-current-25-ebay-user-stress.yml')"
+          test -z "$app_drift"
 
       - uses: actions/setup-node@v4
         with:
@@ -52,7 +55,7 @@ jobs:
       - name: Install exact dependencies
         run: npm ci
 
-      - name: Verify current InstaComp before live cards
+      - name: Verify current InstaComp safety gates
         shell: bash
         run: |
           set -euo pipefail
@@ -69,62 +72,62 @@ jobs:
           test -n "$VERCEL_TOKEN"
           npx vercel@56.2.0 link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
 
-      - name: Resolve secure Production InstaComp engine coordinates
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      - name: Prove certified Production InstaComp is ready before audit
         shell: bash
         run: |
           set -euo pipefail
-          prod_env="$RUNNER_TEMP/instacomp-production.env"
-          npx vercel@56.2.0 env pull "$prod_env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
-          PRODUCTION_ENV_PATH="$prod_env" node <<'NODE'
-          const fs=require('node:fs');
-          const p={};
-          for(const raw of fs.readFileSync(process.env.PRODUCTION_ENV_PATH,'utf8').split(/\r?\n/)){
-            const line=raw.trim(); if(!line||line.startsWith('#')) continue;
-            const i=line.indexOf('='); if(i<1) continue;
-            const k=line.slice(0,i).trim(); let v=line.slice(i+1).trim();
-            if(v.startsWith('"')&&v.endsWith('"')){try{v=JSON.parse(v)}catch{v=v.slice(1,-1)}}
-            else if(v.startsWith("'")&&v.endsWith("'")){v=v.slice(1,-1)}
-            p[k]=v;
-          }
-          const url=String(p.INSTACOMP_AI_LOCAL_URL||'').trim().replace(/\/+$/,'');
-          const key=String(p.INSTACOMP_AI_LOCAL_KEY||'').trim();
-          if(!/^https?:\/\/[^/]+/i.test(url)) throw new Error('Production INSTACOMP_AI_LOCAL_URL is unavailable.');
-          if(!key) throw new Error('Production INSTACOMP_AI_LOCAL_KEY is unavailable.');
-          console.log(`::add-mask::${url}`); console.log(`::add-mask::${key}`);
-          fs.appendFileSync(process.env.GITHUB_ENV,`INSTACOMP_TEST_ENGINE_URL=${url}\nINSTACOMP_TEST_ENGINE_KEY=${key}\n`);
+          out="$RUNNER_TEMP/instacomp-readiness-before.json"
+          code="$(curl -sS --max-time 30 -o "$out" -w '%{http_code}' -H 'Cache-Control: no-cache' "$PRODUCTION_ORIGIN/api/instacomp/internal-readiness?audit25=before&ts=$(date +%s)")"
+          test "$code" = "200"
+          node - "$out" <<'NODE'
+          const fs=require('node:fs');const b=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+          for(const k of ['ok','configured','reachable','internalMemoryReady','checklistReady','localModelReady']) if(b[k]!==true) throw new Error(`${k}=${b[k]}`);
+          console.log(JSON.stringify({ok:b.ok,configured:b.configured,reachable:b.reachable,version:b.version||null,runtimeSourceFingerprint:b.runtimeSourceFingerprint||null}));
           NODE
-          rm -f "$prod_env"
 
-      - name: Generate isolated one-run credentials
+      - name: Generate one-run benchmark credential
         shell: bash
         run: |
           set -euo pipefail
-          benchmark_token="$(openssl rand -hex 32)"
-          benchmark_admin_secret="$(openssl rand -hex 48)"
-          echo "::add-mask::$benchmark_token"
-          echo "::add-mask::$benchmark_admin_secret"
-          echo "INSTACOMP_BENCHMARK_TOKEN=$benchmark_token" >> "$GITHUB_ENV"
-          echo "BENCHMARK_ADMIN_SESSION_SECRET=$benchmark_admin_secret" >> "$GITHUB_ENV"
+          token="$(openssl rand -hex 32)"
+          echo "::add-mask::$token"
+          echo "INSTACOMP_BENCHMARK_TOKEN=$token" >> "$GITHUB_ENV"
 
-      - name: Deploy isolated protected preview with Production engine only
+      - name: Atomically deploy app-equivalent audit runtime to Production
         id: deploy
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          npx vercel@56.2.0 deploy --yes --force --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" \
+          npx vercel@56.2.0 deploy --prod --yes --force --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" \
             --env "INSTACOMP_BENCHMARK_TOKEN=$INSTACOMP_BENCHMARK_TOKEN" \
-            --env "ADMIN_SESSION_SECRET=$BENCHMARK_ADMIN_SESSION_SECRET" \
-            --env "INSTACOMP_AI_LOCAL_URL=$INSTACOMP_TEST_ENGINE_URL" \
-            --env "INSTACOMP_AI_LOCAL_KEY=$INSTACOMP_TEST_ENGINE_KEY" \
             > deployment-url.txt
-          preview_url="$(tail -n 1 deployment-url.txt | tr -d '\r\n')"
-          test -n "$preview_url"
-          echo "preview_url=$preview_url" >> "$GITHUB_OUTPUT"
-          echo "INSTACOMP_PREVIEW_DEPLOYMENT_URL=$preview_url" >> "$GITHUB_ENV"
+          deployment_url="$(tail -n 1 deployment-url.txt | tr -d '\r\n')"
+          test -n "$deployment_url"
+          echo "deployment_url=$deployment_url" >> "$GITHUB_OUTPUT"
+          echo "INSTACOMP_AUDIT_DEPLOYMENT_URL=$deployment_url" >> "$GITHUB_ENV"
+
+      - name: Re-prove certified InstaComp on audit deployment
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ready=0
+          for attempt in $(seq 1 18); do
+            if npx vercel@56.2.0 curl /api/instacomp/internal-readiness \
+              --deployment "$INSTACOMP_AUDIT_DEPLOYMENT_URL" \
+              > "$RUNNER_TEMP/readiness-audit.json" 2> "$RUNNER_TEMP/readiness-audit.stderr"; then
+              if node - "$RUNNER_TEMP/readiness-audit.json" <<'NODE'
+          const fs=require('node:fs');const b=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+          for(const k of ['ok','configured','reachable','internalMemoryReady','checklistReady','localModelReady']) if(b[k]!==true) process.exit(1);
+          NODE
+              then ready=1; break; fi
+            fi
+            sleep 5
+          done
+          test "$ready" = "1"
 
       - name: Verify live eBay benchmark manifest
         env:
@@ -133,7 +136,7 @@ jobs:
         run: |
           set -euo pipefail
           npx vercel@56.2.0 curl /api/instacomp/benchmark/ebay-25 \
-            --deployment "$INSTACOMP_PREVIEW_DEPLOYMENT_URL" \
+            --deployment "$INSTACOMP_AUDIT_DEPLOYMENT_URL" \
             --header "Authorization: Bearer $INSTACOMP_BENCHMARK_TOKEN" \
             > benchmark-manifest.json 2> benchmark-manifest-stderr.txt
           node - <<'NODE'
@@ -147,7 +150,7 @@ jobs:
         continue-on-error: true
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          INSTACOMP_PREVIEW_DEPLOYMENT_URL: ${{ steps.deploy.outputs.preview_url }}
+          INSTACOMP_PREVIEW_DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
         run: node scripts/run-instacomp-ebay-25-through-vercel-curl.mjs
 
       - name: Print full grading receipt
@@ -184,11 +187,31 @@ jobs:
           test -f reports/instacomp-ebay-25-report.json
           node - <<'NODE'
           const fs=require('fs');const r=JSON.parse(fs.readFileSync('reports/instacomp-ebay-25-report.json','utf8'));const s=r.summary||{};
-          console.log(JSON.stringify({completed:s.completedCards||0,passed:s.passedCards||0,passRate:s.passRate||0,averageScore:s.averageScore??null,registryCoverage:s.catalogCoverageRate||0,criticalErrors:s.criticalErrors||0,majorErrors:s.majorErrors||0,targetMet:!!s.targetMet},null,2));
+          console.log('INSTACOMP_25_SUMMARY='+JSON.stringify({requested:s.requestedCards||25,attempted:s.attemptedCards||0,completed:s.completedCards||0,passed:s.passedCards||0,passRate:s.passRate||0,averageScore:s.averageScore??null,registryCoverage:s.catalogCoverageRate||0,criticalErrors:s.criticalErrors||0,majorErrors:s.majorErrors||0,targetMet:!!s.targetMet}));
           if(Number(s.completedCards||0)<25) throw new Error(`Incomplete: ${s.completedCards||0}/25`);
           NODE
 
-      - name: Remove temporary Production env material
+      - name: Clean redeploy exact main without audit credential
         if: always()
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         shell: bash
-        run: rm -f "$RUNNER_TEMP/instacomp-production.env"
+        run: |
+          set -euo pipefail
+          git fetch origin main --quiet
+          git checkout --force --detach origin/main
+          npx vercel@56.2.0 deploy --prod --yes --force --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > cleanup-deployment-url.txt
+          clean_url="$(tail -n 1 cleanup-deployment-url.txt | tr -d '\r\n')"
+          test -n "$clean_url"
+          ready=0
+          for attempt in $(seq 1 18); do
+            out="$RUNNER_TEMP/instacomp-readiness-clean.json"
+            code="$(curl -sS --max-time 30 -o "$out" -w '%{http_code}' -H 'Cache-Control: no-cache' "$PRODUCTION_ORIGIN/api/instacomp/internal-readiness?audit25=clean&attempt=$attempt&ts=$(date +%s)")"
+            if [ "$code" = "200" ] && node - "$out" <<'NODE'
+          const fs=require('node:fs');const b=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+          for(const k of ['ok','configured','reachable','internalMemoryReady','checklistReady','localModelReady']) if(b[k]!==true) process.exit(1);
+          NODE
+            then ready=1; break; fi
+            sleep 5
+          done
+          test "$ready" = "1"
