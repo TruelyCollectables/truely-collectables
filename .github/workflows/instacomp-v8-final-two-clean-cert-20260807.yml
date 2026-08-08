@@ -135,8 +135,10 @@ jobs:
 
             await receipt('Paige #5 Ice',{player:'Paige Bueckers',year:'2025',brand:'Panini',setName:'Base',cardNumber:'5',parallel:'Prizms Ice',team:'Dallas Wings',sport:'Basketball',isRookie:true,isAuto:false,isRelic:false},'575556fe-fdd4-4083-baee-c5071ed3161f','66531f084322d986e26c569e12a152bada033904c67b7068c00572c3efaa7d42');
 
-            await direct('Rickea #118 surface-noise',{player:'Rickea Jackson',year:'2025',brand:'Panini',setName:'PRIZM',cardNumber:'118',parallel:null,registryVisibleText:'RICKEA JACKSON PRIZM WNBA LOS ANGELES SPARKS',notes:'Black foil finish visible on the card surface.'},'70ad307e-06bb-45c2-90ea-689b6e2f302e','bdbf4845dae6d1da4d783fd23d9c387883769cd68aee3c663b144013bb891028');
-            console.log('PASS live Registry proof for all five exact v8 route shapes');
+            const rickea={player:'Rickea Jackson',year:'2025',brand:'Panini',setName:'PRIZM',cardNumber:'118',parallel:null,registryVisibleText:'RICKEA JACKSON PRIZM WNBA LOS ANGELES SPARKS',notes:'Black foil finish visible on the card surface.'};
+            await direct('Rickea #118 surface-noise',rickea,'70ad307e-06bb-45c2-90ea-689b6e2f302e','bdbf4845dae6d1da4d783fd23d9c387883769cd68aee3c663b144013bb891028');
+            await direct('Rickea #118 PRISM OCR alias',{...rickea,setName:'PRISM'},'70ad307e-06bb-45c2-90ea-689b6e2f302e','bdbf4845dae6d1da4d783fd23d9c387883769cd68aee3c663b144013bb891028');
+            console.log('PASS live Registry proof for all five exact v8 route shapes plus PRISM OCR alias');
           }
           main().catch(e=>{console.error(e);process.exit(1)});
           TS
@@ -157,6 +159,7 @@ jobs:
           test -z "$(git diff --name-only -- services/instacomp-ai)"
           grep -Fq 'applyInstaCompSerialEvidenceGuard' src/app/api/instacomp/scan/route.ts
           grep -Fq 'Serial evidence guard suppressed uncorroborated serial' src/lib/instacomp-identity-guard.ts
+          grep -Fq 'releaseSupportsProductLineSetEvidence' src/lib/instacomp-learning-server.ts
           grep -Fq 'if (parallelProfile.baseLike && adjacentYearRecovered)' src/lib/instacomp-learning-server.ts
           if grep -Fq 'parallelProfile.baseLike &&' src/lib/instacomp-learning-server.ts | grep -Fq 'surfaceRisk'; then exit 2; fi
 
