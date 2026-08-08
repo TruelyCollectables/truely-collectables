@@ -96,7 +96,7 @@ echo ""
 echo "STEP 1/4 - Creating InstaComp AI native FULL backup..."
 (
   cd "$SERVICE_DIR"
-  .venv/bin/python scripts/backup-now.py
+  PYTHONPATH=. .venv/bin/python scripts/backup-now.py
 )
 LATEST_NATIVE="$(ls -1t "$SERVICE_DIR"/backups/InstaComp-AI-FULL-*.zip 2>/dev/null | head -1 || true)"
 if [ -z "$LATEST_NATIVE" ]; then
