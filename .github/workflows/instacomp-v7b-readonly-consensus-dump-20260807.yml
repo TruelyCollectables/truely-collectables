@@ -1,0 +1,104 @@
+name: InstaComp V7B Readonly Consensus Dump 20260807
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-v7b-readonly-consensus-dump-20260807.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  OUT_DIR: evidence/instacomp-v7b-readonly-consensus-dump-20260807
+  TEMP_DIR: /tmp/instacomp-v7b-readonly-consensus-dump-20260807
+
+jobs:
+  dump:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Resolve Production read credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$OUT_DIR" "$TEMP_DIR"
+          npm ci
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          env_file="$TEMP_DIR/production.env"
+          runtime_file="$TEMP_DIR/runtime-env.sh"
+          npx --yes vercel@56.2.0 env pull "$env_file" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          PRODUCTION_ENV_PATH="$env_file" RUNTIME_ENV_PATH="$runtime_file" GH_SUPABASE_ACCESS_TOKEN="$GH_SUPABASE_ACCESS_TOKEN" node - <<'NODE'
+          const fs=require('node:fs');
+          const parsed={};
+          for(const raw of fs.readFileSync(process.env.PRODUCTION_ENV_PATH,'utf8').split(/\r?\n/)){
+            const line=raw.trim(); if(!line||line.startsWith('#'))continue;
+            const i=line.indexOf('='); if(i<1)continue;
+            const k=line.slice(0,i).trim(); let v=line.slice(i+1).trim();
+            if(v.startsWith('"')&&v.endsWith('"')){try{v=JSON.parse(v)}catch{v=v.slice(1,-1)}}
+            parsed[k]=v;
+          }
+          (async()=>{
+            const url=String(parsed.NEXT_PUBLIC_SUPABASE_URL||'').trim();
+            if(!url)throw new Error('Missing Production Supabase URL');
+            const ref=new URL(url).hostname.split('.')[0];
+            const r=await fetch(`https://api.supabase.com/v1/projects/${ref}/api-keys?reveal=true`,{headers:{Authorization:`Bearer ${process.env.GH_SUPABASE_ACCESS_TOKEN}`}});
+            const text=await r.text(); if(!r.ok)throw new Error(`Supabase key lookup HTTP ${r.status}`);
+            const keys=text?JSON.parse(text):[]; const val=e=>String(e?.api_key||e?.key||e?.value||'');
+            const modern=keys.find(e=>/^sb_secret_/i.test(val(e)));
+            const legacy=keys.find(e=>e?.name==='service_role'&&/^eyJ/.test(val(e)))||keys.find(e=>e?.secret_jwt_template?.role==='service_role'&&/^eyJ/.test(val(e)));
+            const key=val(modern||legacy); if(!key)throw new Error('No Production server key');
+            console.log(`::add-mask::${url}`); console.log(`::add-mask::${key}`);
+            fs.writeFileSync(process.env.RUNTIME_ENV_PATH,`export NEXT_PUBLIC_SUPABASE_URL=${JSON.stringify(url)}\nexport SUPABASE_SERVICE_ROLE_KEY=${JSON.stringify(key)}\n`,{mode:0o600});
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+
+      - name: Dump recent frozen-five consensus records read-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$TEMP_DIR/runtime-env.sh"
+          node - <<'NODE'
+          const fs=require('node:fs');
+          const {createClient}=require('@supabase/supabase-js');
+          const db=createClient(process.env.NEXT_PUBLIC_SUPABASE_URL,process.env.SUPABASE_SERVICE_ROLE_KEY,{auth:{persistSession:false,autoRefreshToken:false}});
+          (async()=>{
+            const {data,error}=await db.from('instacomp_scans')
+              .select('id,created_at,player,year,brand,set_name,card_number,parallel,confidence,raw_ai_result,raw_comp_results')
+              .gte('created_at','2026-08-08T00:00:00Z')
+              .in('card_number',['122','116','13','5','118'])
+              .order('created_at',{ascending:false})
+              .limit(40);
+            if(error)throw error;
+            const wanted=new Set(['Sonia Citron|122','Dominique Malonga|116','Sonia Citron|13','Paige Bueckers|5','Rickea Jackson|118']);
+            const rows=(data||[]).filter(r=>wanted.has(`${r.player}|${r.card_number}`));
+            fs.writeFileSync('evidence/instacomp-v7b-readonly-consensus-dump-20260807/recent-scans.json',JSON.stringify(rows,null,2)+'\n');
+            console.log(`PASS dumped ${rows.length} matching recent scan rows`);
+            for(const r of rows.slice(0,15)){
+              const c=r.raw_comp_results?.consensus||{};
+              console.log(JSON.stringify({id:r.id,created_at:r.created_at,player:r.player,card:r.card_number,set:r.set_name,parallel:r.parallel,confidence:r.confidence,consensusStatus:c.status,trusted:c.trustedForIdentity,readiness:c.councilReadiness,reviewReasons:c.reviewReasons,fieldDecisions:c.fieldDecisions},null,2));
+            }
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+
+      - name: Upload read-only evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-v7b-readonly-consensus-dump-20260807
+          path: evidence/instacomp-v7b-readonly-consensus-dump-20260807
+          retention-days: 30
+
+      - name: Remove temporary files
+        if: always()
+        run: rm -rf "$TEMP_DIR"
