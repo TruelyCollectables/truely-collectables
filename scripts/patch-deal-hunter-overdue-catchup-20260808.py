@@ -22,6 +22,7 @@ async def test_run_preserves_start_based_next_run_for_overdue_catchup(tmp_path: 
         deal_hunter_max_candidates_per_run=20,
     )
     store = DealHunterStore(tmp_path / "instacomp.sqlite3")
+    store.initialize()
     scheduler = DealHunterScheduler(settings, store)
     scheduled_next = utc_now() + timedelta(minutes=60)
     next_run_calls = 0
