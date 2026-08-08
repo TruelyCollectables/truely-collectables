@@ -1,0 +1,271 @@
+name: Sentinel Live Census 20260808
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/sentinel-live-census-20260808.yml'
+      - 'scripts/sentinel-live-census-20260808.marker'
+
+permissions:
+  contents: read
+
+jobs:
+  census:
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_PROJECT_ID: prj_8mJZCaMhTddaKgcFFJYPwWu0P4mk
+      VERCEL_ORG_ID: team_cDDhCqEiYlz0KJQ3ATLJH7nz
+      VERCEL_SCOPE: truelycollectables-projects
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fail closed on census-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          mapfile -t changed < <(git diff --name-only origin/main...HEAD | sort)
+          printf '%s\n' "${changed[@]}"
+          test "${#changed[@]}" -eq 2
+          test "${changed[0]}" = '.github/workflows/sentinel-live-census-20260808.yml'
+          test "${changed[1]}" = 'scripts/sentinel-live-census-20260808.marker'
+          test -n "$VERCEL_TOKEN"
+
+      - name: Pull Production environment into ephemeral runner file
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .vercel
+          printf '{"projectId":"%s","orgId":"%s"}\n' "$VERCEL_PROJECT_ID" "$VERCEL_ORG_ID" > .vercel/project.json
+          npx vercel@58.8.0 env pull .env.sentinel-census --yes --environment=production --token "$VERCEL_TOKEN" --scope "$VERCEL_SCOPE" >/dev/null
+          test -s .env.sentinel-census
+
+      - name: Query live Mac Sentinel and Production Registry read-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import ast
+          import json
+          import pathlib
+          import re
+          import urllib.parse
+          import urllib.request
+          from collections import Counter, defaultdict
+          from datetime import datetime, timezone
+
+          ENV_PATH = pathlib.Path('.env.sentinel-census')
+          TARGET_PATH = pathlib.Path('data/checklist-recovery-modern-gap-keys.txt')
+
+          def parse_env(path):
+              out = {}
+              for raw in path.read_text('utf-8').splitlines():
+                  line = raw.strip()
+                  if not line or line.startswith('#') or '=' not in line:
+                      continue
+                  key, value = line.split('=', 1)
+                  key = key.strip()
+                  value = value.strip()
+                  if len(value) >= 2 and value[0] == value[-1] and value[0] in {'\"', "'"}:
+                      try:
+                          value = ast.literal_eval(value)
+                      except Exception:
+                          value = value[1:-1]
+                  out[key] = str(value)
+              return out
+
+          env = parse_env(ENV_PATH)
+          local_url = env.get('INSTACOMP_AI_LOCAL_URL', '').rstrip('/')
+          local_key = env.get('INSTACOMP_AI_LOCAL_KEY', '')
+          supabase_url = env.get('NEXT_PUBLIC_SUPABASE_URL', '').rstrip('/')
+          service_key = env.get('SUPABASE_SERVICE_ROLE_KEY', '')
+
+          if not local_url.startswith('https://'):
+              raise SystemExit('Missing Production INSTACOMP_AI_LOCAL_URL')
+          if len(local_key) < 32:
+              raise SystemExit('Missing Production INSTACOMP_AI_LOCAL_KEY')
+          if not supabase_url.startswith('https://'):
+              raise SystemExit('Missing NEXT_PUBLIC_SUPABASE_URL')
+          if len(service_key) < 32:
+              raise SystemExit('Missing SUPABASE_SERVICE_ROLE_KEY')
+
+          def request_json(url, headers=None, method='GET'):
+              req = urllib.request.Request(url, headers=headers or {}, method=method)
+              with urllib.request.urlopen(req, timeout=60) as response:
+                  body = response.read()
+                  return json.loads(body.decode('utf-8')) if body else None, dict(response.headers), response.status
+
+          mac_headers = {'X-InstaComp-AI-Key': local_key, 'accept': 'application/json'}
+          sentinel_status, _, _ = request_json(f'{local_url}/v1/checklist-sentinel/status', mac_headers)
+          sentinel_targets_payload, _, _ = request_json(f'{local_url}/v1/checklist-sentinel/targets?limit=5000', mac_headers)
+          sentinel_downloads_payload, _, _ = request_json(f'{local_url}/v1/checklist-sentinel/downloads?limit=5000', mac_headers)
+
+          targets = list((sentinel_targets_payload or {}).get('targets') or [])
+          downloads = list((sentinel_downloads_payload or {}).get('downloads') or [])
+          target_by_key = {str(t.get('target_key') or ''): t for t in targets if t.get('target_key')}
+          downloads_by_target = defaultdict(list)
+          for row in downloads:
+              downloads_by_target[str(row.get('target_key') or '')].append(row)
+
+          supa_headers = {
+              'apikey': service_key,
+              'Authorization': f'Bearer {service_key}',
+              'Accept': 'application/json',
+          }
+
+          def rest_url(table, params):
+              return f"{supabase_url}/rest/v1/{table}?{urllib.parse.urlencode(params, doseq=True)}"
+
+          def count_table(table, filters=None):
+              params = [('select', 'id')]
+              for key, value in (filters or []):
+                  params.append((key, value))
+              headers = dict(supa_headers)
+              headers['Prefer'] = 'count=exact'
+              req = urllib.request.Request(rest_url(table, params), headers=headers, method='HEAD')
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as response:
+                      content_range = response.headers.get('Content-Range', '')
+                      m = re.search(r'/([0-9]+|\*)$', content_range)
+                      return {'exists': True, 'count': int(m.group(1)) if m and m.group(1) != '*' else None}
+              except urllib.error.HTTPError as error:
+                  return {'exists': False, 'status': error.code}
+
+          def fetch_rows(table, select, extra=None, page_size=1000, max_rows=100000):
+              rows = []
+              offset = 0
+              while offset < max_rows:
+                  params = [('select', select), ('limit', str(page_size)), ('offset', str(offset))]
+                  for key, value in (extra or []):
+                      params.append((key, value))
+                  try:
+                      page, _, _ = request_json(rest_url(table, params), supa_headers)
+                  except Exception:
+                      break
+                  page = page or []
+                  rows.extend(page)
+                  if len(page) < page_size:
+                      break
+                  offset += page_size
+              return rows
+
+          candidate_tables = {}
+          for table in ['checklist_versions', 'checklist_cards', 'checklist_sets', 'checklist_releases', 'checklist_identities', 'checklist_parallel_definitions']:
+              candidate_tables[table] = count_table(table)
+
+          version_rows = fetch_rows('checklist_versions', 'id,status,is_active')
+          version_status = Counter(str(row.get('status') or 'null') for row in version_rows)
+          version_active = Counter('active' if row.get('is_active') is True else 'inactive' for row in version_rows)
+          active_live_versions = sum(1 for row in version_rows if row.get('is_active') is True and row.get('status') == 'live')
+          explicit_pending_versions = sum(1 for row in version_rows if str(row.get('status') or '').lower() in {'pending','queued','processing','review','review_required','draft','staged','validated'})
+
+          sample_version = []
+          try:
+              sample_version, _, _ = request_json(rest_url('checklist_versions', [('select','*'),('limit','1')]), supa_headers)
+          except Exception:
+              sample_version = []
+          sample_version_keys = sorted((sample_version[0] if sample_version else {}).keys())
+          sample_version_safe = {}
+          if sample_version:
+              for key, value in sample_version[0].items():
+                  if key.lower() not in {'created_by','updated_by'}:
+                      sample_version_safe[key] = value
+
+          target_lines = []
+          if TARGET_PATH.is_file():
+              target_lines = [line.strip() for line in TARGET_PATH.read_text('utf-8').splitlines() if line.strip() and not line.lstrip().startswith('#')]
+          unique_seed = list(dict.fromkeys(target_lines))
+
+          seed_status = Counter()
+          seed_scope = Counter()
+          seed_sport = Counter()
+          seed_year_bucket = Counter()
+          seed_download_status = Counter()
+          seed_missing_from_sentinel = []
+          seed_remaining_not_recovered = []
+          seed_recovered = []
+
+          def year_bucket(key):
+              parts = key.split('|')
+              raw = parts[1] if len(parts) > 1 else ''
+              match = re.match(r'^(20\d{2})', raw)
+              if not match:
+                  return 'unknown'
+              year = int(match.group(1))
+              if 2000 <= year <= 2009: return '2000-2009'
+              if 2010 <= year <= 2019: return '2010-2019'
+              if 2020 <= year <= 2029: return '2020-2029'
+              return str(year)
+
+          for key in unique_seed:
+              parts = key.split('|')
+              seed_sport[parts[0] if parts else 'unknown'] += 1
+              seed_year_bucket[year_bucket(key)] += 1
+              target = target_by_key.get(key)
+              if not target:
+                  seed_status['missing_from_sentinel'] += 1
+                  seed_missing_from_sentinel.append(key)
+                  continue
+              status = str(target.get('status') or 'unknown')
+              seed_status[status] += 1
+              seed_scope[str(target.get('scope') or 'unknown')] += 1
+              if status == 'recovered':
+                  seed_recovered.append(key)
+              else:
+                  seed_remaining_not_recovered.append(key)
+              for download in downloads_by_target.get(key, []):
+                  seed_download_status[str(download.get('status') or 'unknown')] += 1
+
+          report = {
+              'generated_at': datetime.now(timezone.utc).isoformat(),
+              'sentinel': {
+                  'enabled': sentinel_status.get('enabled'),
+                  'targets': sentinel_status.get('targets'),
+                  'latest_job': sentinel_status.get('latest_job'),
+                  'freeze_protection': sentinel_status.get('freeze_protection'),
+                  'registry_import_configured': sentinel_status.get('registry_import_configured'),
+                  'target_feed_configured': sentinel_status.get('target_feed_configured'),
+                  'listed_target_rows': len(targets),
+                  'listed_download_rows': len(downloads),
+              },
+              'registry_database': {
+                  'candidate_table_counts': candidate_tables,
+                  'checklist_versions_fetched': len(version_rows),
+                  'checklist_version_status_counts': dict(sorted(version_status.items())),
+                  'checklist_version_active_counts': dict(sorted(version_active.items())),
+                  'active_live_versions': active_live_versions,
+                  'explicit_pending_like_versions': explicit_pending_versions,
+                  'sample_checklist_version_keys': sample_version_keys,
+                  'sample_checklist_version': sample_version_safe,
+              },
+              'mainstream_2000_plus_seed': {
+                  'seed_file': str(TARGET_PATH),
+                  'raw_rows': len(target_lines),
+                  'unique_keys': len(unique_seed),
+                  'status_counts_in_sentinel': dict(sorted(seed_status.items())),
+                  'scope_counts_in_sentinel': dict(sorted(seed_scope.items())),
+                  'sport_counts': dict(sorted(seed_sport.items())),
+                  'year_bucket_counts': dict(sorted(seed_year_bucket.items())),
+                  'download_status_counts': dict(sorted(seed_download_status.items())),
+                  'remaining_not_recovered_count': len(seed_remaining_not_recovered),
+                  'recovered_count': len(seed_recovered),
+                  'missing_from_sentinel_count': len(seed_missing_from_sentinel),
+                  'remaining_not_recovered_keys': seed_remaining_not_recovered,
+                  'recovered_keys': seed_recovered,
+                  'missing_from_sentinel_keys': seed_missing_from_sentinel,
+              },
+          }
+          print('SENTINEL_LIVE_CENSUS_JSON_START')
+          print(json.dumps(report, indent=2, sort_keys=True))
+          print('SENTINEL_LIVE_CENSUS_JSON_END')
+          PY
+
+      - name: Destroy pulled Production environment file
+        if: always()
+        shell: bash
+        run: |
+          rm -f .env.sentinel-census
