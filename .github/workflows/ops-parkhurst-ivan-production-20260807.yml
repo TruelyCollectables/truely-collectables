@@ -65,7 +65,44 @@ jobs:
             const legacy=keys.find(e=>e?.name==='service_role'&&/^eyJ/.test(val(e)))||keys.find(e=>e?.secret_jwt_template?.role==='service_role'&&/^eyJ/.test(val(e)));
             const key=val(modern||legacy); if(!key)throw Error('No Production server key');
             console.log(`::add-mask::${u}`); console.log(`::add-mask::${key}`);
-            fs.writeFileSync(process.env.RUNTIME_ENV_PATH,`export NEXT_PUBLIC_SUPABASE_URL=${JSON.stringify(u)}\nexport SUPABASE_SERVICE_ROLE_KEY=${JSON.stringify(key)}\n`,{mode:0o600});
+            fs.writeFileSync(process.env.RUNTIME_ENV_PATH,`export NEXT_PUBLIC_SUPABASE_URL=${JSON.stringify(u)}\nexport SUPABASE_SERVICE_ROLE_KEY=${JSON.stringify(key)}\nexport SUPABASE_PROJECT_REF=${JSON.stringify(ref)}\n`,{mode:0o600});
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+
+      - name: Bound checklist import function timeout
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$TEMP_DIR/runtime-env.sh"
+          node - <<'NODE'
+          const ref=process.env.SUPABASE_PROJECT_REF;
+          const token=process.env.GH_SUPABASE_ACCESS_TOKEN;
+          if(!ref||!token) throw new Error('Missing Supabase management context');
+          const query=`
+          DO $$
+          DECLARE r record;
+          BEGIN
+            FOR r IN
+              SELECT p.oid::regprocedure::text AS signature
+              FROM pg_proc p
+              JOIN pg_namespace n ON n.oid=p.pronamespace
+              WHERE n.nspname='public' AND p.proname='tcos_apply_checklist_import_plan'
+            LOOP
+              EXECUTE format('ALTER FUNCTION %s SET statement_timeout = %L', r.signature, '5min');
+            END LOOP;
+          END $$;
+          SELECT p.oid::regprocedure::text AS signature, p.proconfig
+          FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+          WHERE n.nspname='public' AND p.proname='tcos_apply_checklist_import_plan';`;
+          (async()=>{
+            const r=await fetch(`https://api.supabase.com/v1/projects/${ref}/database/query`,{
+              method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},
+              body:JSON.stringify({query,read_only:false})
+            });
+            const text=await r.text();
+            if(!r.ok) throw new Error(`Supabase function-timeout update HTTP ${r.status}: ${text.slice(0,500)}`);
+            if(!/statement_timeout=5min/i.test(text)) throw new Error(`Checklist import timeout was not verified: ${text.slice(0,1000)}`);
+            console.log('CHECKLIST_IMPORT_TIMEOUT_OK', text);
           })().catch(e=>{console.error(e);process.exit(1)});
           NODE
 
