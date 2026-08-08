@@ -1,0 +1,49 @@
+name: Deal Hunter Candidate Diagnostics 20260808
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/lib/deal-hunter-candidate-diagnostics-20260808.marker'
+      - '.github/workflows/deal-hunter-candidate-diagnostics-20260808.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  read-candidates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      SITE_URL: https://truelycollectables.com
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read latest completed Mac run and stored candidate diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          curl -fsS --max-time 60 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "$SITE_URL/api/release/instacomp-deal-hunter-learning-self-test?mode=status" > status.json
+          cat status.json
+          RUN_ID="$(node -e "const p=require('./status.json'); const r=(p.runs||[]).find(x=>x.status==='completed'); if(!r?.id) process.exit(2); process.stdout.write(r.id)")"
+          echo "LATEST_COMPLETED_RUN_ID=$RUN_ID"
+          curl -fsS --max-time 60 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "$SITE_URL/api/release/instacomp-deal-hunter-history-status?since=2026-08-08T22:00:00Z&runId=$RUN_ID" > diagnostics.json
+          cat diagnostics.json
+          node - <<'NODE'
+          const p=require('./diagnostics.json');
+          if(!p.success) throw new Error(JSON.stringify(p));
+          const c=p.completedRunCandidates;
+          if(!c || !Array.isArray(c.candidates) || !c.candidates.length) throw new Error('No stored candidate diagnostics for latest completed run');
+          const byStatus={};
+          const byError={};
+          for(const row of c.candidates){
+            const s=row.evaluation?.status||'unknown';
+            const e=row.evaluation?.errorCode||'none';
+            byStatus[s]=(byStatus[s]||0)+1;
+            byError[e]=(byError[e]||0)+1;
+          }
+          console.log('CANDIDATE_DIAGNOSTIC_SUMMARY='+JSON.stringify({runId:c.runId,count:c.count,byStatus,byError,totalObservationCount:p.totalObservationCount,observationCountSince:p.observationCountSince,candidates:c.candidates}));
+          NODE
