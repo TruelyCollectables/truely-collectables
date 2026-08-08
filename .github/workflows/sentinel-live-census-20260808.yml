@@ -9,17 +9,15 @@ on:
 
 permissions:
   contents: read
-  actions: read
 
 jobs:
   census:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
-
       - name: Fail closed on census-only scope
         shell: bash
         run: |
@@ -29,85 +27,13 @@ jobs:
           test "${#changed[@]}" -eq 2
           test "${changed[0]}" = '.github/workflows/sentinel-live-census-20260808.yml'
           test "${changed[1]}" = 'scripts/sentinel-live-census-20260808.marker'
-
-      - name: Extract Sentinel counters from successful live census job
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Decode mainstream manifest labels
         shell: bash
         run: |
           set -euo pipefail
-          raw="$RUNNER_TEMP/prior-sentinel-job.bin"
-          curl -fsSL \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/jobs/93109633264/logs" \
-            -o "$raw"
-          python3 - "$raw" <<'PY'
-          import gzip
-          import io
-          import json
-          import pathlib
-          import re
-          import sys
-          import zipfile
-
-          data = pathlib.Path(sys.argv[1]).read_bytes()
-          if data.startswith(b'PK'):
-              with zipfile.ZipFile(io.BytesIO(data)) as archive:
-                  data = b'\n'.join(archive.read(name) for name in archive.namelist() if not name.endswith('/'))
-          elif data.startswith(b'\x1f\x8b'):
-              data = gzip.decompress(data)
-
-          text = data.decode('utf-8', errors='replace')
-          text = re.sub(r'\x1b\[[0-9;]*[A-Za-z]', '', text)
-          cleaned = []
-          for line in text.splitlines():
-              line = re.sub(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\s+', '', line)
-              cleaned.append(line)
-
-          starts = [i for i, line in enumerate(cleaned) if line.strip() == 'SENTINEL_RUNTIME_CENSUS_JSON_START']
-          ends = [i for i, line in enumerate(cleaned) if line.strip() == 'SENTINEL_RUNTIME_CENSUS_JSON_END']
-          payload = None
-          decoder = json.JSONDecoder()
-          for start in starts:
-              for end in ends:
-                  if end <= start:
-                      continue
-                  wrapped = '\n'.join(cleaned[start + 1:end])
-                  for match in re.finditer(r'\{', wrapped):
-                      try:
-                          parsed, _ = decoder.raw_decode(wrapped[match.start():])
-                      except Exception:
-                          continue
-                      if isinstance(parsed, dict) and parsed.get('name') == 'InstaComp AI Checklist Sentinel™':
-                          payload = parsed
-                          break
-                  if payload is not None:
-                      break
-              if payload is not None:
-                  break
-          if payload is None:
-              print(f'markers starts={len(starts)} ends={len(ends)} bytes={len(data)}')
-              raise SystemExit('Could not parse Sentinel census JSON from prior successful job log')
-
-          latest = payload.get('latest_job') or {}
-          compact = {
-              'checkedAt': payload.get('checked_at'),
-              'name': payload.get('name'),
-              'enabled': payload.get('enabled'),
-              'targets': payload.get('targets'),
-              'listedTargetRows': payload.get('listed_target_rows'),
-              'listedDownloadRows': payload.get('listed_download_rows'),
-              'latestJob': {k: latest.get(k) for k in [
-                  'job_id','status','trigger','started_at','heartbeat_at','current_target_key',
-                  'processed_targets','total_targets','found_count','downloaded_count','imported_count',
-                  'duplicate_count','failed_count'
-              ]},
-              'freezeProtection': payload.get('freeze_protection'),
-              'registryImportConfigured': payload.get('registry_import_configured'),
-              'targetFeedConfigured': payload.get('target_feed_configured'),
-          }
-          print('CENSUS_SENTINEL=' + json.dumps(compact, separators=(',', ':'), sort_keys=True))
-          PY
-          rm -f "$raw"
+          node --input-type=module <<'NODE'
+          import { loadMainstreamChecklistManifest } from './scripts/mainstream-checklist/manifest.mjs';
+          const manifest = loadMainstreamChecklistManifest();
+          console.log('MANIFEST_KEYS=' + JSON.stringify(Object.keys(manifest.entries[0] || {})));
+          console.log('MANIFEST_SAMPLE=' + JSON.stringify(manifest.entries.slice(0, 12)));
+          NODE
