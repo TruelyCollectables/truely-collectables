@@ -9,29 +9,16 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   census:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    env:
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_PROJECT_ID: prj_8mJZCaMhTddaKgcFFJYPwWu0P4mk
-      VERCEL_ORG_ID: team_cDDhCqEiYlz0KJQ3ATLJH7nz
-      VERCEL_SCOPE: truelycollectables-projects
-      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies quietly
-        run: npm ci --silent
 
       - name: Fail closed on census-only scope
         shell: bash
@@ -42,165 +29,70 @@ jobs:
           test "${#changed[@]}" -eq 2
           test "${changed[0]}" = '.github/workflows/sentinel-live-census-20260808.yml'
           test "${changed[1]}" = 'scripts/sentinel-live-census-20260808.marker'
-          test -n "$VERCEL_TOKEN"
-          test -n "$GH_SUPABASE_ACCESS_TOKEN"
 
-      - name: Link exact Vercel project
+      - name: Extract Sentinel counters from successful live census job
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p .vercel
-          printf '{"projectId":"%s","orgId":"%s"}\n' "$VERCEL_PROJECT_ID" "$VERCEL_ORG_ID" > .vercel/project.json
+          raw="$RUNNER_TEMP/prior-sentinel-job.log"
+          curl -fsSL \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/jobs/93109633264/logs" \
+            -o "$raw"
+          python3 - "$raw" <<'PY'
+          import json
+          import pathlib
+          import re
+          import sys
 
-      - name: Resolve protected Production Supabase credentials
-        shell: bash
-        run: bash scripts/resolve-mainstream-checklist-production-env.sh >/dev/null
+          text = pathlib.Path(sys.argv[1]).read_text('utf-8', errors='replace')
+          text = re.sub(r'\x1b\[[0-9;]*[A-Za-z]', '', text)
+          cleaned = []
+          for line in text.splitlines():
+              line = re.sub(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\s+', '', line)
+              cleaned.append(line)
 
-      - name: Print compact Registry and mainstream census
-        shell: bash
-        run: |
-          set -euo pipefail
-          set -a
-          source "$PRODUCTION_ENV_PATH"
-          set +a
-          export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
-          node --input-type=module <<'NODE'
-          import { createClient } from '@supabase/supabase-js';
-          import { loadMainstreamChecklistManifest } from './scripts/mainstream-checklist/manifest.mjs';
-          import { isVerifiedNonPromotable } from './scripts/mainstream-checklist/verified-exceptions.mjs';
+          starts = [i for i, line in enumerate(cleaned) if line.strip() == 'SENTINEL_RUNTIME_CENSUS_JSON_START']
+          ends = [i for i, line in enumerate(cleaned) if line.strip() == 'SENTINEL_RUNTIME_CENSUS_JSON_END']
+          payload = None
+          for start in starts:
+              for end in ends:
+                  if end <= start:
+                      continue
+                  candidate = '\n'.join(cleaned[start + 1:end]).strip()
+                  try:
+                      parsed = json.loads(candidate)
+                  except Exception:
+                      continue
+                  if isinstance(parsed, dict) and parsed.get('name') == 'InstaComp AI Checklist Sentinel™':
+                      payload = parsed
+                      break
+              if payload is not None:
+                  break
+          if payload is None:
+              raise SystemExit('Could not parse Sentinel census JSON from prior successful job log')
 
-          const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession:false, autoRefreshToken:false } });
-          async function count(table) {
-            const { count, error } = await db.from(table).select('*', { count:'exact', head:true });
-            return error ? { exists:false, error:error.message } : { exists:true, count:Number(count || 0) };
-          }
-          async function all(table, select) {
-            const out=[];
-            for (let from=0;;from+=1000) {
-              const { data, error } = await db.from(table).select(select).range(from, from+999);
-              if (error) throw new Error(`${table}: ${error.message}`);
-              out.push(...(data || []));
-              if (!data || data.length < 1000) break;
-            }
-            return out;
-          }
-
-          const tableNames=['checklist_sets','checklist_releases','checklist_versions','checklist_cards','checklist_identities','checklist_parallel_definitions','checklist_source_catalog'];
-          const tableCounts={};
-          for (const t of tableNames) tableCounts[t]=await count(t);
-
-          const versions=await all('checklist_versions','id,status,is_active');
-          const versionStatus={};
-          let activeLive=0, pendingLike=0;
-          const pendingStatuses=new Set(['pending','queued','processing','review','review_required','draft','staged','validated']);
-          for (const row of versions) {
-            const s=String(row.status ?? 'null');
-            versionStatus[s]=(versionStatus[s]||0)+1;
-            if (row.is_active === true && s === 'live') activeLive++;
-            if (pendingStatuses.has(s.toLowerCase())) pendingLike++;
-          }
-
-          const sourceRows=await all('checklist_source_catalog','source_url,status,last_checked_at,validation_counts,issue_summary,metadata');
-          const sourceStatus={};
-          for (const row of sourceRows) {
-            const s=String(row.status ?? 'null');
-            sourceStatus[s]=(sourceStatus[s]||0)+1;
-          }
-
-          const manifest=loadMainstreamChecklistManifest();
-          const promotableEntries=manifest.entries.filter(e => e.disposition !== 'attachment_only' && !isVerifiedNonPromotable(e));
-          const urls=manifest.entries.map(e=>e.sourceUrl);
-          const matched=[];
-          for (let i=0;i<urls.length;i+=100) {
-            const {data,error}=await db.from('checklist_source_catalog').select('source_url,status,validation_counts,issue_summary,metadata').in('source_url',urls.slice(i,i+100));
-            if (error) throw new Error(error.message);
-            matched.push(...(data||[]));
-          }
-          const byUrl=new Map(matched.map(r=>[r.source_url,r]));
-          let promoted=0, rawArchived=0, classifiedExceptions=0, cards=0, identities=0;
-          const mainstreamStatus={}, issueCounts={}, remaining=[], exceptions=[];
-          for (const e of manifest.entries) {
-            const row=byUrl.get(e.sourceUrl);
-            const exception=e.disposition === 'attachment_only' || isVerifiedNonPromotable(e);
-            const status=row?.status || 'missing_catalog_row';
-            mainstreamStatus[status]=(mainstreamStatus[status]||0)+1;
-            if (row?.metadata?.rawArchived === true) rawArchived++;
-            for (const issue of row?.issue_summary || []) if (issue?.code) issueCounts[issue.code]=(issueCounts[issue.code]||0)+1;
-            const label=e.label || e.name || e.releaseName || e.setName || e.id;
-            const item={ id:e.id, label, sport:e.sport ?? null, year:e.year ?? null, status, issues:(row?.issue_summary || []).slice(0,3).map(x=>x.code).filter(Boolean) };
-            if (exception) {
-              if (status === 'quarantined') classifiedExceptions++;
-              exceptions.push({...item, disposition:e.disposition || null});
-            } else if (['imported','unchanged'].includes(status)) {
-              promoted++;
-              cards += Number(row?.validation_counts?.cards || 0);
-              identities += Number(row?.validation_counts?.identities || 0);
-            } else remaining.push(item);
-          }
-          const registry={
-            checkedAt:new Date().toISOString(), tableCounts, checklistVersionRows:versions.length,
-            versionStatusCounts:versionStatus, activeLiveVersions:activeLive, pendingLikeVersions:pendingLike,
-            sourceCatalogRows:sourceRows.length, sourceCatalogStatusCounts:sourceStatus
-          };
-          const mainstream={
-            manifestEntries:manifest.entries.length, promotableUniverse:promotableEntries.length,
-            exceptionUniverse:manifest.entries.length-promotableEntries.length, catalogRowsMatched:matched.length,
-            rawArchived, promotedFinite:promoted, remainingFinite:promotableEntries.length-promoted,
-            classifiedExceptions, statusCounts:mainstreamStatus, promotedTotals:{cards,identities},
-            issueCounts:Object.fromEntries(Object.entries(issueCounts).sort((a,b)=>b[1]-a[1])),
-            remaining, exceptions
-          };
-          console.log('CENSUS_REGISTRY=' + JSON.stringify(registry));
-          console.log('CENSUS_MAINSTREAM=' + JSON.stringify(mainstream));
-          NODE
-
-      - name: Print compact live Sentinel status when Vercel exposes runtime secrets
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -euo pipefail
-          script="$RUNNER_TEMP/sentinel-compact.py"
-          cat > "$script" <<'PY'
-          import json, os, urllib.request
-          from datetime import datetime, timezone
-          base = str(os.environ.get('INSTACOMP_AI_LOCAL_URL') or '').strip().rstrip('/')
-          key = str(os.environ.get('INSTACOMP_AI_LOCAL_KEY') or '').strip()
-          if not base.startswith('https://') or len(key) < 32:
-              print('CENSUS_SENTINEL=' + json.dumps({'available':False,'reason':'Vercel CLI did not expose write-only Sentinel connection variables.'}, separators=(',',':')))
-              raise SystemExit(0)
-          def get(path):
-              req = urllib.request.Request(base + path, headers={'X-InstaComp-AI-Key': key, 'accept':'application/json'})
-              with urllib.request.urlopen(req, timeout=60) as r:
-                  return json.loads(r.read().decode())
-          status = get('/v1/checklist-sentinel/status')
-          targets = get('/v1/checklist-sentinel/targets?limit=5000').get('targets') or []
-          downloads = get('/v1/checklist-sentinel/downloads?limit=5000').get('downloads') or []
-          latest = status.get('latest_job') or {}
+          latest = payload.get('latest_job') or {}
           compact = {
-              'available':True,
-              'checkedAt': datetime.now(timezone.utc).isoformat(),
-              'name': status.get('name'),
-              'enabled': status.get('enabled'),
-              'targets': status.get('targets'),
-              'targetRows': len(targets),
-              'downloadRows': len(downloads),
+              'checkedAt': payload.get('checked_at'),
+              'name': payload.get('name'),
+              'enabled': payload.get('enabled'),
+              'targets': payload.get('targets'),
+              'listedTargetRows': payload.get('listed_target_rows'),
+              'listedDownloadRows': payload.get('listed_download_rows'),
               'latestJob': {k: latest.get(k) for k in [
                   'job_id','status','trigger','started_at','heartbeat_at','current_target_key',
                   'processed_targets','total_targets','found_count','downloaded_count','imported_count',
                   'duplicate_count','failed_count'
               ]},
-              'freezeProtection': status.get('freeze_protection'),
-              'registryImportConfigured': status.get('registry_import_configured'),
-              'targetFeedConfigured': status.get('target_feed_configured'),
+              'freezeProtection': payload.get('freeze_protection'),
+              'registryImportConfigured': payload.get('registry_import_configured'),
+              'targetFeedConfigured': payload.get('target_feed_configured'),
           }
-          print('CENSUS_SENTINEL=' + json.dumps(compact, separators=(',',':'), sort_keys=True))
+          print('CENSUS_SENTINEL=' + json.dumps(compact, separators=(',', ':'), sort_keys=True))
           PY
-          npx vercel@58.8.0 env run -e production --token "$VERCEL_TOKEN" --scope "$VERCEL_SCOPE" -- python3 "$script"
-          rm -f "$script"
-
-      - name: Destroy temporary credential files
-        if: always()
-        shell: bash
-        run: |
-          rm -rf "$RUNNER_TEMP/mainstream-checklist-ingestion"
-          rm -f "$RUNNER_TEMP/sentinel-compact.py"
+          rm -f "$raw"
