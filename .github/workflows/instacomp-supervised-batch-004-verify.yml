@@ -45,6 +45,10 @@ jobs:
           set -a
           source "$PRODUCTION_ENV_FILE"
           set +a
+          echo "INSTACOMP_AI_LOCAL_URL length=${#INSTACOMP_AI_LOCAL_URL:-0}"
+          echo "INSTACOMP_AI_LOCAL_KEY length=${#INSTACOMP_AI_LOCAL_KEY:-0}"
+          echo "NEXT_PUBLIC_SUPABASE_URL length=${#NEXT_PUBLIC_SUPABASE_URL:-0}"
+          echo "SUPABASE_SERVICE_ROLE_KEY length=${#SUPABASE_SERVICE_ROLE_KEY:-0}"
           npx tsx scripts/verify-instacomp-supervised-batch-004.ts
       - name: Upload verification receipt
         if: always()
