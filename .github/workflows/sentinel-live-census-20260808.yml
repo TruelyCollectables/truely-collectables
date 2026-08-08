@@ -69,22 +69,21 @@ jobs:
           starts = [i for i, line in enumerate(cleaned) if line.strip() == 'SENTINEL_RUNTIME_CENSUS_JSON_START']
           ends = [i for i, line in enumerate(cleaned) if line.strip() == 'SENTINEL_RUNTIME_CENSUS_JSON_END']
           payload = None
+          decoder = json.JSONDecoder()
           for start in starts:
               for end in ends:
                   if end <= start:
                       continue
-                  wrapped = '\n'.join(cleaned[start + 1:end]).strip()
-                  first = wrapped.find('{')
-                  last = wrapped.rfind('}')
-                  if first < 0 or last <= first:
-                      continue
-                  candidate = wrapped[first:last + 1]
-                  try:
-                      parsed = json.loads(candidate)
-                  except Exception:
-                      continue
-                  if isinstance(parsed, dict) and parsed.get('name') == 'InstaComp AI Checklist Sentinel™':
-                      payload = parsed
+                  wrapped = '\n'.join(cleaned[start + 1:end])
+                  for match in re.finditer(r'\{', wrapped):
+                      try:
+                          parsed, _ = decoder.raw_decode(wrapped[match.start():])
+                      except Exception:
+                          continue
+                      if isinstance(parsed, dict) and parsed.get('name') == 'InstaComp AI Checklist Sentinel™':
+                          payload = parsed
+                          break
+                  if payload is not None:
                       break
               if payload is not None:
                   break
