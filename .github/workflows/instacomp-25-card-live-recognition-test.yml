@@ -1,0 +1,90 @@
+name: InstaComp 25 Card Live Recognition Test
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-25-card-live-recognition-test.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  live-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      SITE_URL: https://truelycollectables.com
+      EVIDENCE_DIR: .audit/instacomp-25-card-live-recognition
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Wait for protected production stress endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p "$EVIDENCE_DIR"
+          endpoint="$SITE_URL/api/release/instacomp-25-card-stress-test"
+          for attempt in $(seq 1 100); do
+            code="$(curl -sS -o "$RUNNER_TEMP/stress-probe.json" -w '%{http_code}' --max-time 20 -X POST "$endpoint" || true)"
+            if [ "$code" = "401" ]; then
+              echo "Protected 25-card endpoint is live in Production."
+              exit 0
+            fi
+            echo "Production endpoint probe attempt $attempt returned HTTP $code"
+            sleep 5
+          done
+          echo "Protected 25-card endpoint did not become live." >&2
+          cat "$RUNNER_TEMP/stress-probe.json" 2>/dev/null || true
+          exit 1
+
+      - name: Run real 25-card front-back recognition test
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="$SITE_URL/api/release/instacomp-25-card-stress-test"
+          code="$(curl -sS -o "$EVIDENCE_DIR/results.json" -w '%{http_code}' --max-time 310 \
+            -X POST -H "Authorization: Bearer $VERCEL_TOKEN" -H "Accept: application/json" "$endpoint" || true)"
+          echo "Stress endpoint HTTP $code"
+          node - "$EVIDENCE_DIR/results.json" "$code" <<'NODE'
+          const fs = require('fs');
+          const file = process.argv[2];
+          const code = Number(process.argv[3]);
+          const raw = fs.existsSync(file) ? fs.readFileSync(file,'utf8') : '';
+          let p; try { p = JSON.parse(raw); } catch { throw new Error(`Non-JSON response HTTP ${code}: ${raw.slice(0,1200)}`); }
+          if (code < 200 || code >= 300 || p.success !== true) {
+            throw new Error(`Live 25-card stress test failed HTTP ${code}: ${JSON.stringify(p).slice(0,4000)}`);
+          }
+          console.log('=== INSTAComp 25-CARD SUMMARY ===');
+          console.log(JSON.stringify(p.summary, null, 2));
+          console.log('=== FAILURES ===');
+          console.log(JSON.stringify(p.failures || [], null, 2));
+          console.log('=== CARD-BY-CARD ===');
+          for (const row of p.results || []) {
+            console.log(JSON.stringify({
+              index: row.index,
+              sport: row.sport,
+              title: row.title,
+              url: row.url,
+              expected: row.expected,
+              ai: row.ai || null,
+              imageRoles: row.imageRoles || null,
+              pass: row.grade?.pass === true,
+              failedChecks: (row.grade?.checks || []).filter(c => !c.pass),
+            }));
+          }
+          NODE
+
+      - name: Upload complete stress-test receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-25-card-live-recognition-results
+          path: .audit/instacomp-25-card-live-recognition/results.json
+          if-no-files-found: warn
+          retention-days: 90
