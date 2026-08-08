@@ -21,15 +21,12 @@ jobs:
       VERCEL_SCOPE: truelycollectables-projects
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-
       - name: Install dependencies
         run: npm ci
-
       - name: Pull Production environment
         shell: bash
         run: |
@@ -39,7 +36,8 @@ jobs:
           npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
           npx vercel@56.2.0 env pull "$RUNNER_TEMP/instacomp-batch004/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
           echo "PRODUCTION_ENV_FILE=$RUNNER_TEMP/instacomp-batch004/production.env" >> "$GITHUB_ENV"
-
+          echo "Available internal env keys:"
+          grep -E '^(INSTACOMP|NEXT_PUBLIC_SUPABASE|SUPABASE_SERVICE_ROLE)' "$RUNNER_TEMP/instacomp-batch004/production.env" | sed 's/=.*$/=<present>/' || true
       - name: Verify Batch 004 against live internal memory and Checklist Registry
         shell: bash
         run: |
@@ -48,7 +46,6 @@ jobs:
           source "$PRODUCTION_ENV_FILE"
           set +a
           npx tsx scripts/verify-instacomp-supervised-batch-004.ts
-
       - name: Upload verification receipt
         if: always()
         uses: actions/upload-artifact@v4
@@ -57,7 +54,6 @@ jobs:
           path: audits/instacomp-supervised/batch-004-live-verification.json
           if-no-files-found: warn
           retention-days: 30
-
       - name: Remove pulled Production environment
         if: always()
         run: rm -f "$RUNNER_TEMP/instacomp-batch004/production.env"
