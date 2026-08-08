@@ -36,7 +36,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          raw="$RUNNER_TEMP/prior-sentinel-job.log"
+          raw="$RUNNER_TEMP/prior-sentinel-job.bin"
           curl -fsSL \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer $GH_TOKEN" \
@@ -44,12 +44,22 @@ jobs:
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/jobs/93109633264/logs" \
             -o "$raw"
           python3 - "$raw" <<'PY'
+          import gzip
+          import io
           import json
           import pathlib
           import re
           import sys
+          import zipfile
 
-          text = pathlib.Path(sys.argv[1]).read_text('utf-8', errors='replace')
+          data = pathlib.Path(sys.argv[1]).read_bytes()
+          if data.startswith(b'PK'):
+              with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                  data = b'\n'.join(archive.read(name) for name in archive.namelist() if not name.endswith('/'))
+          elif data.startswith(b'\x1f\x8b'):
+              data = gzip.decompress(data)
+
+          text = data.decode('utf-8', errors='replace')
           text = re.sub(r'\x1b\[[0-9;]*[A-Za-z]', '', text)
           cleaned = []
           for line in text.splitlines():
@@ -74,6 +84,7 @@ jobs:
               if payload is not None:
                   break
           if payload is None:
+              print(f'markers starts={len(starts)} ends={len(ends)} bytes={len(data)}')
               raise SystemExit('Could not parse Sentinel census JSON from prior successful job log')
 
           latest = payload.get('latest_job') or {}
