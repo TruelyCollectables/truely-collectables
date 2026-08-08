@@ -1,0 +1,138 @@
+name: InstaComp V8 Last Two Cert V3 20260807
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/ops/patch-instacomp-v8-last-two-20260807.py"
+      - "scripts/ops/patch-instacomp-v8-rickea-product-line-20260807.py"
+      - "scripts/ops/run-instacomp-v8-last-two-live-proof.ts"
+      - ".github/workflows/instacomp-v8-last-two-cert-v3-20260807.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instacomp-v8-last-two-cert-v3-20260807
+  cancel-in-progress: true
+
+env:
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_SCOPE: truelycollectables-projects
+
+jobs:
+  patch-and-certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/instacomp-v8-last-two-20260807
+          fetch-depth: 0
+
+      - name: Apply last-two repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/ops/patch-instacomp-v8-last-two-20260807.py
+          python scripts/ops/patch-instacomp-v8-rickea-product-line-20260807.py
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Serial evidence guard regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx tsx -e '
+            import assert from "node:assert/strict";
+            import { applyInstaCompSerialEvidenceGuard } from "./src/lib/instacomp-identity-guard";
+            const ai={player:"Dominique Malonga",year:"2025",brand:"Panini",setName:"Base",cardNumber:"116",parallel:"Prizms Ice",serialNumber:"/299",team:"Seattle Storm",sport:"Basketball",isRookie:true,isAuto:false,isRelic:false,conditionGuess:null,confidence:0.98,notes:null};
+            const suppressed=applyInstaCompSerialEvidenceGuard(ai,[]);
+            assert.equal(suppressed.serialNumber,null);
+            assert.match(String(suppressed.notes||""),/suppressed uncorroborated serial/i);
+            const confirmed=applyInstaCompSerialEvidenceGuard(ai,["/299"]);
+            assert.equal(confirmed.serialNumber,"/299");
+            console.log("PASS serial guard suppresses stale /299 and preserves corroborated serial");
+          '
+
+      - name: Full TypeScript compile
+        run: npx tsc --noEmit
+
+      - name: Resolve Production Registry read credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          env_file="$RUNNER_TEMP/production.env"
+          runtime_file="$RUNNER_TEMP/registry-env.sh"
+          npx --yes vercel@56.2.0 env pull "$env_file" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          PRODUCTION_ENV_PATH="$env_file" RUNTIME_ENV_PATH="$runtime_file" GH_SUPABASE_ACCESS_TOKEN="$GH_SUPABASE_ACCESS_TOKEN" node - <<'NODE'
+          const fs=require('node:fs');
+          const parsed={};
+          for(const raw of fs.readFileSync(process.env.PRODUCTION_ENV_PATH,'utf8').split(/\r?\n/)){
+            const line=raw.trim();if(!line||line.startsWith('#'))continue;
+            const i=line.indexOf('=');if(i<1)continue;
+            const k=line.slice(0,i).trim();let v=line.slice(i+1).trim();
+            if(v.startsWith('"')&&v.endsWith('"')){try{v=JSON.parse(v)}catch{v=v.slice(1,-1)}}
+            parsed[k]=v;
+          }
+          (async()=>{
+            const url=String(parsed.NEXT_PUBLIC_SUPABASE_URL||'').trim();
+            if(!url)throw new Error('Missing Production Supabase URL');
+            const ref=new URL(url).hostname.split('.')[0];
+            const r=await fetch(`https://api.supabase.com/v1/projects/${ref}/api-keys?reveal=true`,{headers:{Authorization:`Bearer ${process.env.GH_SUPABASE_ACCESS_TOKEN}`}});
+            const text=await r.text();if(!r.ok)throw new Error(`Supabase keys HTTP ${r.status}`);
+            const keys=text?JSON.parse(text):[];const val=e=>String(e?.api_key||e?.key||e?.value||'');
+            const modern=keys.find(e=>/^sb_secret_/i.test(val(e)));
+            const legacy=keys.find(e=>e?.name==='service_role'&&/^eyJ/.test(val(e)))||keys.find(e=>e?.secret_jwt_template?.role==='service_role'&&/^eyJ/.test(val(e)));
+            const key=val(modern||legacy);if(!key)throw new Error('No Production server key');
+            console.log(`::add-mask::${url}`);console.log(`::add-mask::${key}`);
+            fs.writeFileSync(process.env.RUNTIME_ENV_PATH,`export NEXT_PUBLIC_SUPABASE_URL=${JSON.stringify(url)}\nexport SUPABASE_SERVICE_ROLE_KEY=${JSON.stringify(key)}\n`,{mode:0o600});
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+
+      - name: Live Registry proof for all five route semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/registry-env.sh"
+          npx tsx scripts/ops/run-instacomp-v8-last-two-live-proof.ts
+
+      - name: Source safety boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          changed="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n' \
+            'src/app/api/instacomp/scan/route.ts' \
+            'src/lib/instacomp-identity-guard.ts' \
+            'src/lib/instacomp-learning-server.ts' | sort)"
+          test "$changed" = "$expected"
+          test -z "$(git diff --name-only -- services/instacomp-ai)"
+          grep -Fq 'applyInstaCompSerialEvidenceGuard' src/app/api/instacomp/scan/route.ts
+          grep -Fq 'Serial evidence guard suppressed uncorroborated serial' src/lib/instacomp-identity-guard.ts
+          grep -Fq 'checklistProductLineCoverageMatches' src/lib/instacomp-learning-server.ts
+          grep -Fq 'const setRowsForCoverage = productLineOnlySetEvidence' src/lib/instacomp-learning-server.ts
+          grep -Fq 'productLineOnlySetEvidence' src/lib/instacomp-learning-server.ts
+
+      - name: Commit certified permanent source only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/app/api/instacomp/scan/route.ts src/lib/instacomp-identity-guard.ts src/lib/instacomp-learning-server.ts
+          git commit -m 'Fix Malonga serial and Rickea product-line Registry resolution'
+          git push origin HEAD:fix/instacomp-v8-last-two-20260807
