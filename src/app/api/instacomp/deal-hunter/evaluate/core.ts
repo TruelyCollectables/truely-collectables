@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { POST as runLiveScan } from "../../live-scan/route";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
 import { getInstaCompServiceToken } from "../../../../../lib/tcos-profit-hunter-secrets";
+import { loadExactCardMarketHistory } from "../../../../../lib/instacomp-market-history";
+import { trustedHistoricalSoldPricing } from "../../../../../lib/deal-hunter-trusted-sold-history";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -154,6 +156,62 @@ function economics(listing: Record<string, unknown>, scan: Record<string, any>) 
       returnReserveRate,
     },
   };
+}
+
+
+async function applyTrustedHistoricalSoldFallback(scan: Record<string, any>) {
+  const exactMarket = (scan.exactMarket || {}) as Record<string, any>;
+  const liveSoldCount = Number(exactMarket.pricingEligibleSoldCount || 0);
+  const livePrice = numberValue(exactMarket.trustedSuggestedPrice);
+  if (liveSoldCount > 0 && livePrice !== null) return scan;
+
+  const registry = (scan.checklistRegistry || {}) as Record<string, any>;
+  const identityId = text(registry.identityId, 100);
+  const fingerprint = text(registry.fingerprintSha256, 128);
+  if (registry.matched !== true || !identityId || !fingerprint) return scan;
+
+  try {
+    const history = await loadExactCardMarketHistory(identityId);
+    const historical = trustedHistoricalSoldPricing({
+      history,
+      registryIdentityId: identityId,
+      registryFingerprintSha256: fingerprint,
+      maxAgeDays: 90,
+    });
+    if (!historical) return scan;
+
+    return {
+      ...scan,
+      exactMarket: {
+        ...exactMarket,
+        status: "ready",
+        pricingEligibleSoldCount: historical.soldCount,
+        trustedSuggestedPrice: historical.medianDeliveredPrice,
+        historicalSoldFallback: {
+          used: true,
+          source: "trusted_exact_card_market_history",
+          soldCount: historical.soldCount,
+          medianDeliveredPrice: historical.medianDeliveredPrice,
+          oldestSoldAt: historical.oldestSoldAt,
+          newestSoldAt: historical.newestSoldAt,
+          maxAgeDays: historical.maxAgeDays,
+          registryIdentityId: identityId,
+          registryFingerprintSha256: fingerprint,
+        },
+      },
+    };
+  } catch (error) {
+    return {
+      ...scan,
+      exactMarket: {
+        ...exactMarket,
+        historicalSoldFallback: {
+          used: false,
+          error: text(error instanceof Error ? error.message : String(error), 500),
+        },
+      },
+    };
+  }
 }
 
 async function persistRunSummary(body: Record<string, any>) {
@@ -401,8 +459,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const evaluation = economics(listing, scan);
-    const persistence = await persistEvaluation({ listing, scan, evaluation });
+    const pricedScan = await applyTrustedHistoricalSoldFallback(scan);
+    const evaluation = economics(listing, pricedScan);
+    const persistence = await persistEvaluation({ listing, scan: pricedScan, evaluation });
     return json({
       ok: true,
       schema: "truely.deal-hunter.evaluation.v1",
@@ -413,7 +472,7 @@ export async function POST(request: NextRequest) {
       },
       evaluation,
       persistence,
-      scan,
+      scan: pricedScan,
       boundaries: {
         purchaseCapability: false,
         autoBuy: false,
