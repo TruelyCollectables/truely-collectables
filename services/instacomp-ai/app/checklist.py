@@ -70,9 +70,10 @@ class RegistryChecklistGateway:
                 reasons=["INSTACOMP_AI_REGISTRY_URL is not configured."],
             )
 
-        # The Registry can infer year, manufacturer, and player from the bounded
-        # OCR block after card-number candidate retrieval. A card number is the
-        # only required pre-query field.
+        # The Registry may use bounded OCR to infer player/year/manufacturer,
+        # but exact locking must also prove product-family/brand and set/subset.
+        # Card number remains the minimum pre-query field so the server can load
+        # a bounded candidate space without scanning the full Registry.
         if not identity.card_number:
             return ChecklistResult(
                 outcome=ChecklistOutcome.INPUT_INCOMPLETE,
@@ -81,7 +82,9 @@ class RegistryChecklistGateway:
 
         payload = {
             "year": identity.year,
-            "manufacturer": identity.manufacturer or identity.brand,
+            "manufacturer": identity.manufacturer,
+            "brand": identity.brand,
+            "setName": identity.set_name,
             "cardNumber": identity.card_number,
             "player": identity.player,
             "serialNumber": identity.serial_number,
