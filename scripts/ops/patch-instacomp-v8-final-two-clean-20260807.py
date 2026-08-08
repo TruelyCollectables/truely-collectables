@@ -203,6 +203,51 @@ replace_once(path,
   }
 ''')
 replace_once(path,
+'''  const targetYear = yearStart(ai.year);
+  const targetSetTokens = new Set(meaningfulTokens(ai.setName));
+
+  const releaseYear = release.release_year || release.season || null;
+''',
+'''  const targetYear = yearStart(ai.year);
+  const productLineOnlySetEvidence = isProductLineOnlySetEvidence(ai.setName);
+  const setEvidenceTokens = (value: unknown) =>
+    productLineOnlySetEvidence
+      ? normalizedProductLineTokens(value)
+      : meaningfulTokens(value);
+  const targetSetTokens = new Set(setEvidenceTokens(ai.setName));
+
+  const releaseYear = release.release_year || release.season || null;
+''')
+replace_once(path,
+'''  const registrySetTokens = new Set(
+    meaningfulTokens(
+      [
+        brand.name,
+        release.product_name,
+        row.name,
+        sport.name,
+        league.name,
+      ]
+        .filter(Boolean)
+        .join(" "),
+    ),
+  );
+''',
+'''  const registrySetTokens = new Set(
+    setEvidenceTokens(
+      [
+        brand.name,
+        release.product_name,
+        row.name,
+        sport.name,
+        league.name,
+      ]
+        .filter(Boolean)
+        .join(" "),
+    ),
+  );
+''')
+replace_once(path,
 '''  const candidateReleaseIds = unique(
     releaseRows
       .filter((release: any) =>
