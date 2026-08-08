@@ -22,14 +22,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: fix/sentinel-stale-self-heal-20260808
           fetch-depth: 1
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      - name: Deploy exact current main to Production
+      - name: Deploy stale-self-heal fix to Production
         shell: bash
         run: |
           set -euo pipefail
@@ -85,6 +85,6 @@ jobs:
             heartbeatAt: job.heartbeatAt || null,
             degraded: Boolean(payload.degraded),
             source: payload.source || null,
-            upstreamStatus: payload.upstreamStatus || null
+            selfHeal: payload.selfHeal || null
           }));
           NODE
