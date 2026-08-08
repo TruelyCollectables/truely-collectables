@@ -1,0 +1,37 @@
+name: Deal Hunter Trusted Sold History Census 20260808
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/lib/deal-hunter-sold-history-census-20260808.marker'
+      - '.github/workflows/deal-hunter-sold-history-census-20260808.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  census:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      SITE_URL: https://truelycollectables.com
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read exact-card market history census
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 60 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "$SITE_URL/api/release/instacomp-deal-hunter-history-status?since=2026-05-10T00:00:00Z" > history.json
+          cat history.json
+          node - <<'NODE'
+          const p=require('./history.json');
+          if(!p.success) throw new Error(JSON.stringify(p));
+          const rows=p.recent||[];
+          const sold=rows.filter(r=>r.kind==='SOLD');
+          const ask=rows.filter(r=>r.kind==='ASK');
+          const identities=new Set(sold.map(r=>r.registryIdentityId).filter(Boolean));
+          console.log('TRUSTED_SOLD_HISTORY_CENSUS='+JSON.stringify({totalObservationCount:p.totalObservationCount,returnedSince:p.observationCountSince,soldReturned:sold.length,askReturned:ask.length,identitiesWithSold:identities.size,newestSold:sold[0]||null,oldestSold:sold[sold.length-1]||null}));
+          NODE
