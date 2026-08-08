@@ -27,7 +27,7 @@ jobs:
           curl -fsS --max-time 60 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" \
             "$SITE_URL/api/release/instacomp-deal-hunter-learning-self-test?mode=status" > status.json
           cat status.json
-          RUN_ID="$(node -e "const p=require('./status.json'); const r=(p.runs||[]).find(x=>x.status==='completed'); if(!r?.id) process.exit(2); process.stdout.write(r.id)")"
+          RUN_ID="$(node -e "const p=require('./status.json'); const r=(p.runs||[]).find(x=>x.status==='completed'); if(!r?.runId) process.exit(2); process.stdout.write(r.runId)")"
           echo "LATEST_COMPLETED_RUN_ID=$RUN_ID"
           curl -fsS --max-time 60 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" \
             "$SITE_URL/api/release/instacomp-deal-hunter-history-status?since=2026-08-08T22:00:00Z&runId=$RUN_ID" > diagnostics.json
