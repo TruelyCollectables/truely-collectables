@@ -42,8 +42,21 @@ const wrappers = new Map([
 
 for (const [path, target] of wrappers) {
   const source = read(path).trim();
-  if (source !== `export { default } from "${target}";`) {
-    throw new Error(`${path} must remain a thin wrapper around ${target}.`);
+  const expected =
+    path === "src/app/kingmaker/marketplaces/page.tsx"
+      ? [
+          'export const dynamic = "force-dynamic";',
+          "export const revalidate = 0;",
+          "",
+          `export { default } from "${target}";`,
+        ].join("\n")
+      : `export { default } from "${target}";`;
+  if (source !== expected) {
+    throw new Error(
+      path === "src/app/kingmaker/marketplaces/page.tsx"
+        ? `${path} must remain a force-dynamic, zero-revalidate thin wrapper around ${target}.`
+        : `${path} must remain a thin wrapper around ${target}.`,
+    );
   }
 }
 
@@ -223,9 +236,10 @@ requireText(macMain, "checklist_result.identity_id", "Mac Registry receipt");
 console.log(
   JSON.stringify(
     {
-      schema: "tcos.kingmaker-instacomp.architecture-certification.v2",
+      schema: "tcos.kingmaker-instacomp.architecture-certification.v3",
       status: "passed",
       thinWrappers: wrappers.size,
+      dynamicMarketplaceWrapperCertified: true,
       auditedPendingJob: true,
       capabilityCount: 10,
       canonicalIdentityAuthority: "central_checklist_registry",
