@@ -4266,16 +4266,22 @@ async function identifyCardWithConfiguredProviderFailover(params: {
       escalation: consensusEscalation,
     });
     const evidenceAi = applyInstaCompConsensusToAi(guardedAi, evidenceConsensus);
-    // Marketplace title facts are untrusted lookup coordinates only; they never vote in consensus.
+    // Marketplace title facts and fresh Apple Vision text are untrusted lookup coordinates only;
+    // they may narrow internal Registry rows but never vote as hard identity fields.
     const listingIdentityHint = extractUntrustedListingIdentityHint(listingTitleHint);
+    const internalReceipt = primaryAiResult.value as InstaCompAiResultWithInternalReceipt;
+    const registryVisibleText = [
+      ...internalReceipt.frontVisibleText,
+      ...internalReceipt.backVisibleText,
+    ].join(" ");
     const registryProbeAi = {
       ...evidenceAi,
+      registryVisibleText,
       ...(listingIdentityHint.year ? { year: listingIdentityHint.year } : {}),
       ...(listingIdentityHint.brand ? { brand: listingIdentityHint.brand } : {}),
       ...(listingIdentityHint.setName ? { setName: listingIdentityHint.setName } : {}),
       ...(listingIdentityHint.cardNumber ? { cardNumber: listingIdentityHint.cardNumber } : {}),
     };
-    const internalReceipt = primaryAiResult.value as InstaCompAiResultWithInternalReceipt;
     const receiptResolution = await revalidateChecklistRegistryReceipt({
       ai: registryProbeAi,
       identityId: internalReceipt.internalChecklistIdentityId,
