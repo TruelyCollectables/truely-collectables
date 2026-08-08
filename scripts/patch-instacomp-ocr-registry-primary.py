@@ -14,7 +14,7 @@ ALREADY_APPLIED_MARKERS = {
     "FastAPI scan signature": "printed_evidence_json: str | None = Form(default=None)",
     "printed evidence parsing": "printed_evidence = parse_printed_evidence(printed_evidence_json)",
     "OCR Registry primary block": "printed_registry = (",
-    "Ollama evidence Registry call": "proposed_identity,\n            printed_text,",
+    "Ollama evidence Registry call": "suggestion_registry = await checklist_gateway.match(",
 }
 
 
