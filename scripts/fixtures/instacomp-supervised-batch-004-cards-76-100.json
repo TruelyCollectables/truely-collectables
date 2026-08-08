@@ -1,0 +1,32 @@
+{
+  "schema": "tcos.instacomp-ai.manual-groundtruth.v2",
+  "source": "User-reviewed InstaComp Supervised Review — Cards 76–100 PDF, 2026-08-08",
+  "batch": "004",
+  "cards": [
+    {"ordinal":76,"year":"2025","manufacturer":"Panini","brand":"Panini Prizm WNBA","set_name":"Base","player":"Hailey Van Lith","card_number":"139","parallel":"Cracked Ice Prizm"},
+    {"ordinal":77,"year":"2025","manufacturer":"Panini","brand":"Panini Prizm WNBA","set_name":"Base","player":"Aziaha James","card_number":"141","parallel":"Blue Velocity Prizm"},
+    {"ordinal":78,"year":"2025","manufacturer":"Panini","brand":"Panini Prizm WNBA","set_name":"Base","player":"Brianna Turner","card_number":"105","parallel":"Cracked Ice Prizm"},
+    {"ordinal":79,"year":"2025","manufacturer":"Panini","brand":"Panini Select WNBA","set_name":"Score Select","player":"Sophie Cunningham","card_number":"19","parallel":null},
+    {"ordinal":80,"year":"2025","manufacturer":"Panini","brand":"Panini Select WNBA","set_name":"Courtside","player":"Sophie Cunningham","card_number":"212","parallel":null},
+    {"ordinal":81,"year":"2025","manufacturer":"Panini","brand":"Panini Select WNBA","set_name":"Snapshots","player":"Sophie Cunningham","card_number":"5","parallel":null},
+    {"ordinal":82,"year":"2025","manufacturer":"Panini","brand":"Panini Select WNBA","set_name":"Concourse","player":"Sophie Cunningham","card_number":"12","parallel":null},
+    {"ordinal":83,"year":"2025","manufacturer":"Panini","brand":"Panini Select WNBA","set_name":"Score Select","player":"Jewell Loyd","card_number":"13","parallel":null},
+    {"ordinal":84,"year":"2025","manufacturer":"Panini","brand":"Panini Donruss WNBA","set_name":"Franchise Features","player":"Jewell Loyd","card_number":"9","parallel":"Diamond"},
+    {"ordinal":85,"year":"2025","manufacturer":"Panini","brand":"Panini Donruss WNBA","set_name":"Base","player":"Jewell Loyd","card_number":"23","parallel":"Green Shimmer"},
+    {"ordinal":86,"year":"2025","manufacturer":"Panini","brand":"Panini Donruss WNBA","set_name":"Crunch Time","player":"Jewell Loyd","card_number":"2","parallel":null},
+    {"ordinal":87,"year":"2025","manufacturer":"Panini","brand":"Panini Donruss WNBA","set_name":"Crunch Time","player":"Jewell Loyd","card_number":"2","parallel":"Press Proof Purple"},
+    {"ordinal":88,"year":"2025","manufacturer":"Panini","brand":"Panini Donruss WNBA","set_name":"Base","player":"Alanna Smith","card_number":"68","parallel":"Holo","operator_note":"Correction: exact parallel is Holo and the card is unnumbered. Do not retain UNKNOWN UNNUMBERED PARALLEL."},
+    {"ordinal":89,"year":"2025","manufacturer":"Panini","brand":"Panini Prizm WNBA","set_name":"Base","player":"Aneesah Morrow","card_number":"146","parallel":null},
+    {"ordinal":90,"year":"2025","manufacturer":"Panini","brand":"Panini Select WNBA","set_name":"Premier Level","player":"Aneesah Morrow","card_number":"176","parallel":null},
+    {"ordinal":91,"year":"2025","manufacturer":"Panini","brand":"Panini Select WNBA","set_name":"Concourse","player":"Aneesah Morrow","card_number":"42","parallel":null},
+    {"ordinal":92,"year":"2025","manufacturer":"Panini","brand":"Panini Select WNBA","set_name":"En Fuego","player":"Kelsey Plum","card_number":"12","parallel":null},
+    {"ordinal":93,"year":"2025","manufacturer":"Panini","brand":"Panini Select WNBA","set_name":"All-Stars","player":"Kelsey Plum","card_number":"10","parallel":null},
+    {"ordinal":94,"year":"2025","manufacturer":"Panini","brand":"Panini Select WNBA","set_name":"Snapshots","player":"Rickea Jackson","card_number":"14","parallel":null},
+    {"ordinal":95,"year":"2025","manufacturer":"Panini","brand":"Panini Select WNBA","set_name":"Futures","player":"Sarah Ashlee Barker","card_number":"10","parallel":null},
+    {"ordinal":96,"year":"2025","manufacturer":"Panini","brand":"Panini Select WNBA","set_name":"Premier Level","player":"Sarah Ashlee Barker","card_number":"126","parallel":null},
+    {"ordinal":97,"year":"2025","manufacturer":"Panini","brand":"Panini Prizm WNBA","set_name":"Top Tier","player":"Napheesa Collier","card_number":"5","parallel":null},
+    {"ordinal":98,"year":"2025","manufacturer":"Panini","brand":"Panini Select WNBA","set_name":"Concourse","player":"Sarah Ashlee Barker","card_number":"66","parallel":null},
+    {"ordinal":99,"year":"2025","manufacturer":"Panini","brand":"Panini Select WNBA","set_name":"Score Select","player":"Cameron Brink","card_number":"9","parallel":null},
+    {"ordinal":100,"year":"2025","manufacturer":"Panini","brand":"Panini Select WNBA","set_name":"Futures","player":"Cameron Brink","card_number":"6","parallel":null}
+  ]
+}
