@@ -1,0 +1,73 @@
+name: InstaComp Batch 004 Post-Merge Live Probe
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-batch004-postmerge-live-probe-20260808.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERIFY_URL: https://truelycollectables.com/api/release/instacomp-supervised-batch-004
+    steps:
+      - name: Wait for Production deployment and verify Batch 004
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          receipt="$RUNNER_TEMP/instacomp-batch-004-live-verification.json"
+          ready=0
+          for attempt in $(seq 1 75); do
+            code="$(curl -sS -o "$receipt" -w '%{http_code}' --max-time 40 \
+              -X POST \
+              -H "Authorization: Bearer $VERCEL_TOKEN" \
+              -H 'Accept: application/json' \
+              "$VERIFY_URL" || true)"
+            if [[ "$code" == "200" ]] && node - "$receipt" <<'NODE'
+          const fs = require('fs');
+          const payload = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          process.exit(payload?.success === true ? 0 : 1);
+          NODE
+            then
+              ready=1
+              break
+            fi
+            echo "attempt=$attempt http=$code waiting for Production verifier"
+            sleep 10
+          done
+          if [[ "$ready" != "1" ]]; then
+            echo "Production Batch 004 verifier did not become ready." >&2
+            cat "$receipt" >&2 || true
+            exit 1
+          fi
+          node - "$receipt" <<'NODE'
+          const fs = require('fs');
+          const payload = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          const summary = {
+            batch: payload.batch,
+            total: payload.total,
+            trustedMemoryVerified: payload.trustedMemoryVerified,
+            registryExpectedCandidateVerified: payload.registryExpectedCandidateVerified,
+            missingTrustedMemoryOrdinals: payload.missingTrustedMemoryOrdinals,
+            missingRegistryOrdinals: payload.missingRegistryOrdinals,
+            allTrustedMemoryVerified: payload.allTrustedMemoryVerified,
+            allRegistryCandidatesVerified: payload.allRegistryCandidatesVerified,
+          };
+          console.log('BATCH004_LIVE_SUMMARY=' + JSON.stringify(summary));
+          NODE
+          mkdir -p audits/instacomp-supervised
+          cp "$receipt" audits/instacomp-supervised/batch-004-live-verification.json
+      - name: Upload live verification receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-supervised-batch-004-postmerge-live-verification
+          path: audits/instacomp-supervised/batch-004-live-verification.json
+          if-no-files-found: error
+          retention-days: 30
