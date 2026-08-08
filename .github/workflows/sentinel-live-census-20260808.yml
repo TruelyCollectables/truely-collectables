@@ -23,23 +23,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
 
-      - name: Install repository dependencies
-        run: npm ci
+      - name: Install dependencies quietly
+        run: npm ci --silent
 
       - name: Fail closed on census-only scope
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin main
+          git fetch --depth=1 origin main
           mapfile -t changed < <(git diff --name-only origin/main...HEAD | sort)
-          printf '%s\n' "${changed[@]}"
           test "${#changed[@]}" -eq 2
           test "${changed[0]}" = '.github/workflows/sentinel-live-census-20260808.yml'
           test "${changed[1]}" = 'scripts/sentinel-live-census-20260808.marker'
@@ -53,97 +52,52 @@ jobs:
           mkdir -p .vercel
           printf '{"projectId":"%s","orgId":"%s"}\n' "$VERCEL_PROJECT_ID" "$VERCEL_ORG_ID" > .vercel/project.json
 
-      - name: Audit Production environment names only
+      - name: Print compact live Sentinel status
         shell: bash
         run: |
           set -euo pipefail
-          npx vercel@58.8.0 env ls production --token "$VERCEL_TOKEN" --scope "$VERCEL_SCOPE" \
-            | sed -E 's/[[:space:]]+/ /g' \
-            | grep -E 'INSTACOMP_AI_LOCAL_(URL|KEY)|INSTACOMP_SENTINEL_ARCHIVE_TOKEN|NEXT_PUBLIC_SUPABASE_URL|SUPABASE_SERVICE_ROLE_KEY' \
-            || true
-
-      - name: Query live Sentinel through Production env runtime without printing secrets
-        shell: bash
-        run: |
-          set -euo pipefail
-          runtime_script="$RUNNER_TEMP/sentinel-runtime-census.py"
-          cat > "$runtime_script" <<'PY'
-          import json
-          import os
-          import urllib.request
+          script="$RUNNER_TEMP/sentinel-compact.py"
+          cat > "$script" <<'PY'
+          import json, os, urllib.request
           from datetime import datetime, timezone
-
-          local_url = str(os.environ.get('INSTACOMP_AI_LOCAL_URL') or '').strip().rstrip('/')
-          local_key = str(os.environ.get('INSTACOMP_AI_LOCAL_KEY') or '').strip()
-
-          report = {
-              'checked_at': datetime.now(timezone.utc).isoformat(),
-              'available': False,
-              'reason': None,
+          base = str(os.environ.get('INSTACOMP_AI_LOCAL_URL') or '').strip().rstrip('/')
+          key = str(os.environ.get('INSTACOMP_AI_LOCAL_KEY') or '').strip()
+          if not base.startswith('https://') or len(key) < 32:
+              raise SystemExit('Production env runtime did not expose Sentinel connection variables')
+          def get(path):
+              req = urllib.request.Request(base + path, headers={'X-InstaComp-AI-Key': key, 'accept':'application/json'})
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  return json.loads(r.read().decode())
+          status = get('/v1/checklist-sentinel/status')
+          targets = get('/v1/checklist-sentinel/targets?limit=5000').get('targets') or []
+          downloads = get('/v1/checklist-sentinel/downloads?limit=5000').get('downloads') or []
+          latest = status.get('latest_job') or {}
+          compact = {
+              'checkedAt': datetime.now(timezone.utc).isoformat(),
+              'name': status.get('name'),
+              'enabled': status.get('enabled'),
+              'targets': status.get('targets'),
+              'targetRows': len(targets),
+              'downloadRows': len(downloads),
+              'latestJob': {k: latest.get(k) for k in [
+                  'job_id','status','trigger','started_at','heartbeat_at','current_target_key',
+                  'processed_targets','total_targets','found_count','downloaded_count','imported_count',
+                  'duplicate_count','failed_count'
+              ]},
+              'freezeProtection': status.get('freeze_protection'),
+              'registryImportConfigured': status.get('registry_import_configured'),
+              'targetFeedConfigured': status.get('target_feed_configured'),
           }
-
-          if not local_url.startswith('https://'):
-              report['reason'] = 'Production env runtime did not expose INSTACOMP_AI_LOCAL_URL to CLI env run.'
-          elif len(local_key) < 32:
-              report['reason'] = 'Production env runtime did not expose INSTACOMP_AI_LOCAL_KEY to CLI env run.'
-          else:
-              def get_json(path):
-                  req = urllib.request.Request(
-                      f'{local_url}{path}',
-                      headers={'X-InstaComp-AI-Key': local_key, 'accept': 'application/json'},
-                  )
-                  with urllib.request.urlopen(req, timeout=60) as response:
-                      return json.loads(response.read().decode('utf-8'))
-
-              status = get_json('/v1/checklist-sentinel/status')
-              targets_payload = get_json('/v1/checklist-sentinel/targets?limit=5000')
-              downloads_payload = get_json('/v1/checklist-sentinel/downloads?limit=5000')
-              targets = list((targets_payload or {}).get('targets') or [])
-              downloads = list((downloads_payload or {}).get('downloads') or [])
-              latest = status.get('latest_job') or {}
-              report.update({
-                  'available': True,
-                  'reason': None,
-                  'name': status.get('name'),
-                  'enabled': status.get('enabled'),
-                  'targets': status.get('targets'),
-                  'latest_job': {
-                      'job_id': latest.get('job_id'),
-                      'status': latest.get('status'),
-                      'trigger': latest.get('trigger'),
-                      'started_at': latest.get('started_at'),
-                      'heartbeat_at': latest.get('heartbeat_at'),
-                      'current_target_key': latest.get('current_target_key'),
-                      'processed_targets': latest.get('processed_targets'),
-                      'total_targets': latest.get('total_targets'),
-                      'found_count': latest.get('found_count'),
-                      'downloaded_count': latest.get('downloaded_count'),
-                      'imported_count': latest.get('imported_count'),
-                      'duplicate_count': latest.get('duplicate_count'),
-                      'failed_count': latest.get('failed_count'),
-                  },
-                  'freeze_protection': status.get('freeze_protection'),
-                  'registry_import_configured': status.get('registry_import_configured'),
-                  'target_feed_configured': status.get('target_feed_configured'),
-                  'listed_target_rows': len(targets),
-                  'listed_download_rows': len(downloads),
-                  'target_rows': targets,
-              })
-
-          print('SENTINEL_RUNTIME_CENSUS_JSON_START')
-          print(json.dumps(report, indent=2, sort_keys=True))
-          print('SENTINEL_RUNTIME_CENSUS_JSON_END')
+          print('CENSUS_SENTINEL=' + json.dumps(compact, separators=(',',':'), sort_keys=True))
           PY
-
-          npx vercel@58.8.0 env run -e production --token "$VERCEL_TOKEN" --scope "$VERCEL_SCOPE" -- \
-            python3 "$runtime_script"
-          rm -f "$runtime_script"
+          npx vercel@58.8.0 env run -e production --token "$VERCEL_TOKEN" --scope "$VERCEL_SCOPE" -- python3 "$script"
+          rm -f "$script"
 
       - name: Resolve protected Production Supabase credentials
         shell: bash
-        run: bash scripts/resolve-mainstream-checklist-production-env.sh
+        run: bash scripts/resolve-mainstream-checklist-production-env.sh >/dev/null
 
-      - name: Query complete Production Registry and mainstream 2000+ progress read-only
+      - name: Print compact Registry and mainstream census
         shell: bash
         run: |
           set -euo pipefail
@@ -151,28 +105,20 @@ jobs:
           source "$PRODUCTION_ENV_PATH"
           set +a
           export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
-
           node --input-type=module <<'NODE'
           import { createClient } from '@supabase/supabase-js';
           import { loadMainstreamChecklistManifest } from './scripts/mainstream-checklist/manifest.mjs';
           import { isVerifiedNonPromotable } from './scripts/mainstream-checklist/verified-exceptions.mjs';
 
-          const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
-            auth: { persistSession: false, autoRefreshToken: false },
-          });
-
-          async function exactCount(table, apply) {
-            let query = db.from(table).select('*', { count: 'exact', head: true });
-            if (apply) query = apply(query);
-            const { count, error } = await query;
-            if (error) return { exists: false, error: error.message };
-            return { exists: true, count: Number(count || 0) };
+          const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession:false, autoRefreshToken:false } });
+          async function count(table) {
+            const { count, error } = await db.from(table).select('*', { count:'exact', head:true });
+            return error ? { exists:false, error:error.message } : { exists:true, count:Number(count || 0) };
           }
-
-          async function allRows(table, select) {
-            const out = [];
-            for (let from = 0; ; from += 1000) {
-              const { data, error } = await db.from(table).select(select).range(from, from + 999);
+          async function all(table, select) {
+            const out=[];
+            for (let from=0;;from+=1000) {
+              const { data, error } = await db.from(table).select(select).range(from, from+999);
               if (error) throw new Error(`${table}: ${error.message}`);
               out.push(...(data || []));
               if (!data || data.length < 1000) break;
@@ -180,155 +126,78 @@ jobs:
             return out;
           }
 
-          const candidateTableNames = [
-            'checklist_sets',
-            'checklist_releases',
-            'checklist_versions',
-            'checklist_cards',
-            'checklist_identities',
-            'checklist_parallel_definitions',
-            'checklist_source_catalog',
-          ];
-          const candidateTableCounts = {};
-          for (const table of candidateTableNames) {
-            candidateTableCounts[table] = await exactCount(table);
+          const tableNames=['checklist_sets','checklist_releases','checklist_versions','checklist_cards','checklist_identities','checklist_parallel_definitions','checklist_source_catalog'];
+          const tableCounts={};
+          for (const t of tableNames) tableCounts[t]=await count(t);
+
+          const versions=await all('checklist_versions','id,status,is_active');
+          const versionStatus={};
+          let activeLive=0, pendingLike=0;
+          const pendingStatuses=new Set(['pending','queued','processing','review','review_required','draft','staged','validated']);
+          for (const row of versions) {
+            const s=String(row.status ?? 'null');
+            versionStatus[s]=(versionStatus[s]||0)+1;
+            if (row.is_active === true && s === 'live') activeLive++;
+            if (pendingStatuses.has(s.toLowerCase())) pendingLike++;
           }
 
-          const versionRows = await allRows('checklist_versions', 'id,status,is_active');
-          const versionStatusCounts = {};
-          const versionActiveCounts = { active: 0, inactive: 0 };
-          let activeLiveVersions = 0;
-          let pendingLikeVersions = 0;
-          const pendingLikeStatuses = new Set(['pending','queued','processing','review','review_required','draft','staged','validated']);
-          for (const row of versionRows) {
-            const status = String(row.status ?? 'null');
-            versionStatusCounts[status] = (versionStatusCounts[status] || 0) + 1;
-            if (row.is_active === true) versionActiveCounts.active += 1;
-            else versionActiveCounts.inactive += 1;
-            if (row.is_active === true && status === 'live') activeLiveVersions += 1;
-            if (pendingLikeStatuses.has(status.toLowerCase())) pendingLikeVersions += 1;
+          const sourceRows=await all('checklist_source_catalog','source_url,status,last_checked_at,validation_counts,issue_summary,metadata');
+          const sourceStatus={};
+          for (const row of sourceRows) {
+            const s=String(row.status ?? 'null');
+            sourceStatus[s]=(sourceStatus[s]||0)+1;
           }
 
-          const catalogRowsAll = await allRows(
-            'checklist_source_catalog',
-            'source_url,status,last_checked_at,validation_counts,issue_summary,metadata'
-          );
-          const sourceCatalogStatusCounts = {};
-          for (const row of catalogRowsAll) {
-            const status = String(row.status ?? 'null');
-            sourceCatalogStatusCounts[status] = (sourceCatalogStatusCounts[status] || 0) + 1;
-          }
-
-          const manifest = loadMainstreamChecklistManifest();
-          const byUrl = new Map(manifest.entries.map((entry) => [entry.sourceUrl, entry]));
-          const urls = manifest.entries.map((entry) => entry.sourceUrl);
-          const rows = [];
-          for (let i = 0; i < urls.length; i += 100) {
-            const { data, error } = await db
-              .from('checklist_source_catalog')
-              .select('source_url,status,last_checked_at,validation_counts,issue_summary,metadata')
-              .in('source_url', urls.slice(i, i + 100));
+          const manifest=loadMainstreamChecklistManifest();
+          const promotableEntries=manifest.entries.filter(e => e.disposition !== 'attachment_only' && !isVerifiedNonPromotable(e));
+          const urls=manifest.entries.map(e=>e.sourceUrl);
+          const matched=[];
+          for (let i=0;i<urls.length;i+=100) {
+            const {data,error}=await db.from('checklist_source_catalog').select('source_url,status,validation_counts,issue_summary,metadata').in('source_url',urls.slice(i,i+100));
             if (error) throw new Error(error.message);
-            rows.push(...(data || []));
+            matched.push(...(data||[]));
           }
-
-          const catalogByUrl = new Map(rows.map((row) => [row.source_url, row]));
-          const mainstreamStatusCounts = {};
-          const issueCounts = {};
-          let rawArchived = 0;
-          let promotedFinite = 0;
-          let classifiedExceptions = 0;
-          let cards = 0;
-          let identities = 0;
-          const promoted = [];
-          const remaining = [];
-          const exceptions = [];
-          const missingCatalogRows = [];
-
-          for (const entry of manifest.entries) {
-            const row = catalogByUrl.get(entry.sourceUrl);
-            const exception = entry.disposition === 'attachment_only' || isVerifiedNonPromotable(entry);
-            if (!row) {
-              mainstreamStatusCounts.missing_catalog_row = (mainstreamStatusCounts.missing_catalog_row || 0) + 1;
-              if (exception) exceptions.push({ id: entry.id, status: 'missing_catalog_row', disposition: entry.disposition || null });
-              else {
-                missingCatalogRows.push(entry.id);
-                remaining.push({ id: entry.id, status: 'missing_catalog_row', issues: [] });
-              }
-              continue;
-            }
-            mainstreamStatusCounts[row.status] = (mainstreamStatusCounts[row.status] || 0) + 1;
-            if (row.metadata?.rawArchived === true) rawArchived += 1;
-            for (const issue of row.issue_summary || []) {
-              if (!issue?.code) continue;
-              issueCounts[issue.code] = (issueCounts[issue.code] || 0) + 1;
-            }
+          const byUrl=new Map(matched.map(r=>[r.source_url,r]));
+          let promoted=0, rawArchived=0, classifiedExceptions=0, cards=0, identities=0;
+          const mainstreamStatus={}, issueCounts={}, remaining=[], exceptions=[];
+          for (const e of manifest.entries) {
+            const row=byUrl.get(e.sourceUrl);
+            const exception=e.disposition === 'attachment_only' || isVerifiedNonPromotable(e);
+            const status=row?.status || 'missing_catalog_row';
+            mainstreamStatus[status]=(mainstreamStatus[status]||0)+1;
+            if (row?.metadata?.rawArchived === true) rawArchived++;
+            for (const issue of row?.issue_summary || []) if (issue?.code) issueCounts[issue.code]=(issueCounts[issue.code]||0)+1;
+            const label=e.label || e.name || e.releaseName || e.setName || e.id;
+            const item={ id:e.id, label, sport:e.sport ?? null, year:e.year ?? null, status, issues:(row?.issue_summary || []).slice(0,3).map(x=>x.code).filter(Boolean) };
             if (exception) {
-              if (row.status === 'quarantined') classifiedExceptions += 1;
-              exceptions.push({ id: entry.id, status: row.status, disposition: entry.disposition || null });
-              continue;
-            }
-            if (['imported','unchanged'].includes(row.status)) {
-              promotedFinite += 1;
-              const rowCards = Number(row.validation_counts?.cards || 0);
-              const rowIdentities = Number(row.validation_counts?.identities || 0);
-              cards += rowCards;
-              identities += rowIdentities;
-              promoted.push({ id: entry.id, status: row.status, cards: rowCards, identities: rowIdentities });
-            } else {
-              remaining.push({
-                id: entry.id,
-                status: row.status,
-                cards: Number(row.validation_counts?.cards || 0),
-                identities: Number(row.validation_counts?.identities || 0),
-                issues: (row.issue_summary || []).slice(0, 5).map((issue) => ({ code: issue.code, message: issue.message })),
-              });
-            }
+              if (status === 'quarantined') classifiedExceptions++;
+              exceptions.push({...item, disposition:e.disposition || null});
+            } else if (['imported','unchanged'].includes(status)) {
+              promoted++;
+              cards += Number(row?.validation_counts?.cards || 0);
+              identities += Number(row?.validation_counts?.identities || 0);
+            } else remaining.push(item);
           }
-
-          const promotableUniverse = manifest.entries.filter(
-            (entry) => entry.disposition !== 'attachment_only' && !isVerifiedNonPromotable(entry)
-          ).length;
-          const exceptionUniverse = manifest.entries.length - promotableUniverse;
-          const sortedIssueCounts = Object.fromEntries(Object.entries(issueCounts).sort((a,b) => b[1] - a[1]));
-
-          console.log('REGISTRY_MAINSTREAM_CENSUS_JSON_START');
-          console.log(JSON.stringify({
-            checkedAt: new Date().toISOString(),
-            registryDatabase: {
-              candidateTableCounts,
-              checklistVersionRows: versionRows.length,
-              checklistVersionStatusCounts: versionStatusCounts,
-              checklistVersionActiveCounts: versionActiveCounts,
-              activeLiveVersions,
-              pendingLikeVersions,
-              sourceCatalogRows: catalogRowsAll.length,
-              sourceCatalogStatusCounts,
-            },
-            mainstream2000Plus: {
-              manifestEntries: manifest.entries.length,
-              promotableUniverse,
-              exceptionUniverse,
-              catalogRowsMatched: rows.length,
-              rawArchived,
-              promotedFinite,
-              remainingFinite: promotableUniverse - promotedFinite,
-              classifiedExceptions,
-              statusCounts: mainstreamStatusCounts,
-              promotedTotals: { cards, identities },
-              issueCounts: sortedIssueCounts,
-              missingCatalogRows,
-              remaining,
-              exceptions,
-            },
-          }, null, 2));
-          console.log('REGISTRY_MAINSTREAM_CENSUS_JSON_END');
+          const registry={
+            checkedAt:new Date().toISOString(), tableCounts, checklistVersionRows:versions.length,
+            versionStatusCounts:versionStatus, activeLiveVersions:activeLive, pendingLikeVersions:pendingLike,
+            sourceCatalogRows:sourceRows.length, sourceCatalogStatusCounts:sourceStatus
+          };
+          const mainstream={
+            manifestEntries:manifest.entries.length, promotableUniverse:promotableEntries.length,
+            exceptionUniverse:manifest.entries.length-promotableEntries.length, catalogRowsMatched:matched.length,
+            rawArchived, promotedFinite:promoted, remainingFinite:promotableEntries.length-promoted,
+            classifiedExceptions, statusCounts:mainstreamStatus, promotedTotals:{cards,identities},
+            issueCounts:Object.fromEntries(Object.entries(issueCounts).sort((a,b)=>b[1]-a[1])),
+            remaining, exceptions
+          };
+          console.log('CENSUS_REGISTRY=' + JSON.stringify(registry));
+          console.log('CENSUS_MAINSTREAM=' + JSON.stringify(mainstream));
           NODE
 
       - name: Destroy temporary credential files
         if: always()
         shell: bash
         run: |
-          rm -f .env.sentinel-census
           rm -rf "$RUNNER_TEMP/mainstream-checklist-ingestion"
-          rm -f "$RUNNER_TEMP/sentinel-runtime-census.py"
+          rm -f "$RUNNER_TEMP/sentinel-compact.py"
