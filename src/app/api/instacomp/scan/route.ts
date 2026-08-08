@@ -42,7 +42,10 @@ import {
   throwInstaCompDatabaseError,
 } from "../../../../lib/instacomp-job-server";
 import { assertTrustedInstaCompMutationRequest } from "../../../../lib/instacomp-mutation-security";
-import { applyInstaCompIdentityGuard } from "../../../../lib/instacomp-identity-guard";
+import {
+  applyInstaCompIdentityGuard,
+  applyInstaCompSerialEvidenceGuard,
+} from "../../../../lib/instacomp-identity-guard";
 import {
   catalogEvidenceToConsensusReferee,
 } from "../../../../lib/instacomp-curated-checklist";
@@ -4187,15 +4190,19 @@ async function identifyCardWithConfiguredProviderFailover(params: {
       detailImages,
       externalOcr,
     });
-    const baseAi = mergeGradingDetection(
-      primaryAiResult.value,
-      externalOcr,
+    const internalReceipt = primaryAiResult.value as InstaCompAiResultWithInternalReceipt;
+    const deterministicSerialNumber = String(internalReceipt.internalDeterministicIdentity?.serialNumber || "").trim() || null;
+    const confirmedSerialNumbers = [
+      externalOcr?.serialNumber || null,
+      deterministicSerialNumber,
+      operatorSerialNumberOverride === undefined ? null : operatorSerialNumberOverride,
+    ];
+    const baseAi = applyInstaCompSerialEvidenceGuard(
+      mergeGradingDetection(primaryAiResult.value, externalOcr),
+      confirmedSerialNumbers,
     );
     const serialOcr = null as InstaCompSerialOcrResult | null;
-    const baseAiForConsensus = applyOperatorSerialNumberOverride(
-      baseAi,
-      operatorSerialNumberOverride,
-    );
+    const baseAiForConsensus = applyOperatorSerialNumberOverride(baseAi, operatorSerialNumberOverride);
     const consensusSerialOcr =
       operatorSerialNumberOverride === undefined
         ? serialOcr
@@ -4239,7 +4246,10 @@ async function identifyCardWithConfiguredProviderFailover(params: {
         ...reader,
         ai: applyInstaCompIdentityGuard(
           applyOperatorSerialNumberOverride(
-            mergeGradingDetection(mergeSerialOcrResult(reader.ai, serialOcr), externalOcr),
+            applyInstaCompSerialEvidenceGuard(
+              mergeGradingDetection(mergeSerialOcrResult(reader.ai, serialOcr), externalOcr),
+              confirmedSerialNumbers,
+            ),
             operatorSerialNumberOverride,
           ),
           {
@@ -4269,7 +4279,6 @@ async function identifyCardWithConfiguredProviderFailover(params: {
     // Marketplace title facts and fresh Apple Vision text are untrusted lookup coordinates only;
     // they may narrow internal Registry rows but never vote as hard identity fields.
     const listingIdentityHint = extractUntrustedListingIdentityHint(listingTitleHint);
-    const internalReceipt = primaryAiResult.value as InstaCompAiResultWithInternalReceipt;
     const registryVisibleText = [
       ...internalReceipt.frontVisibleText,
       ...internalReceipt.backVisibleText,
@@ -4277,6 +4286,10 @@ async function identifyCardWithConfiguredProviderFailover(params: {
     const registryProbeAi = {
       ...evidenceAi,
       registryVisibleText,
+      // Internal resolver-only marker: the scanner council has already
+      // adjudicated hard parallel identity. It is never accepted from listing
+      // hints or OCR and is only true for a conflict-free council.
+      parallelEvidenceAdjudicated: evidenceConsensus.status === "consensus_confirmed",
       ...(listingIdentityHint.year ? { year: listingIdentityHint.year } : {}),
       ...(listingIdentityHint.brand ? { brand: listingIdentityHint.brand } : {}),
       ...(listingIdentityHint.setName ? { setName: listingIdentityHint.setName } : {}),

@@ -1,0 +1,198 @@
+name: InstaComp V8 Final Two Clean Cert 20260807
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/ops/patch-instacomp-v8-final-two-clean-20260807.py"
+      - ".github/workflows/instacomp-v8-final-two-clean-cert-20260807.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instacomp-v8-final-two-clean-cert-20260807
+  cancel-in-progress: true
+
+env:
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_SCOPE: truelycollectables-projects
+
+jobs:
+  patch-and-certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/instacomp-v8-final-two-clean-20260807
+          fetch-depth: 0
+
+      - name: Apply clean final-two repair
+        run: python scripts/ops/patch-instacomp-v8-final-two-clean-20260807.py
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Malonga serial evidence guard regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx tsx -e '
+            import assert from "node:assert/strict";
+            import { applyInstaCompSerialEvidenceGuard } from "./src/lib/instacomp-identity-guard";
+            const ai={player:"Dominique Malonga",year:"2025",brand:"Panini",setName:"Base",cardNumber:"116",parallel:"Prizms Ice",serialNumber:"/299",team:"Seattle Storm",sport:"Basketball",isRookie:true,isAuto:false,isRelic:false,conditionGuess:null,confidence:0.98,notes:null};
+            const suppressed=applyInstaCompSerialEvidenceGuard(ai,[]);
+            assert.equal(suppressed.serialNumber,null);
+            assert.match(String(suppressed.notes||""),/suppressed uncorroborated serial/i);
+            const confirmed=applyInstaCompSerialEvidenceGuard(ai,["/299"]);
+            assert.equal(confirmed.serialNumber,"/299");
+            console.log("PASS serial guard suppresses stale /299 and preserves corroborated /299");
+          '
+
+      - name: Full TypeScript compile
+        run: npx tsc --noEmit
+
+      - name: Resolve Production Registry read credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          env_file="$RUNNER_TEMP/production.env"
+          runtime_file="$RUNNER_TEMP/registry-env.sh"
+          npx --yes vercel@56.2.0 env pull "$env_file" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          PRODUCTION_ENV_PATH="$env_file" RUNTIME_ENV_PATH="$runtime_file" GH_SUPABASE_ACCESS_TOKEN="$GH_SUPABASE_ACCESS_TOKEN" node - <<'NODE'
+          const fs=require('node:fs');
+          const p={};
+          for(const raw of fs.readFileSync(process.env.PRODUCTION_ENV_PATH,'utf8').split(/\r?\n/)){
+            const line=raw.trim(); if(!line||line.startsWith('#')) continue;
+            const i=line.indexOf('='); if(i<1) continue;
+            const k=line.slice(0,i).trim(); let v=line.slice(i+1).trim();
+            if(v.startsWith('"')&&v.endsWith('"')){try{v=JSON.parse(v)}catch{v=v.slice(1,-1)}}
+            p[k]=v;
+          }
+          (async()=>{
+            const url=String(p.NEXT_PUBLIC_SUPABASE_URL||'').trim();
+            if(!url) throw new Error('Missing Production Supabase URL');
+            const ref=new URL(url).hostname.split('.')[0];
+            const r=await fetch(`https://api.supabase.com/v1/projects/${ref}/api-keys?reveal=true`,{headers:{Authorization:`Bearer ${process.env.GH_SUPABASE_ACCESS_TOKEN}`}});
+            const text=await r.text(); if(!r.ok) throw new Error(`Supabase keys HTTP ${r.status}: ${text.slice(0,300)}`);
+            const keys=text?JSON.parse(text):[]; const val=e=>String(e?.api_key||e?.key||e?.value||'');
+            const modern=keys.find(e=>/^sb_secret_/i.test(val(e)));
+            const legacy=keys.find(e=>e?.name==='service_role'&&/^eyJ/.test(val(e)))||keys.find(e=>e?.secret_jwt_template?.role==='service_role'&&/^eyJ/.test(val(e)));
+            const key=val(modern||legacy); if(!key) throw new Error('No Production server key');
+            console.log(`::add-mask::${url}`); console.log(`::add-mask::${key}`);
+            fs.writeFileSync(process.env.RUNTIME_ENV_PATH,`export NEXT_PUBLIC_SUPABASE_URL=${JSON.stringify(url)}\nexport SUPABASE_SERVICE_ROLE_KEY=${JSON.stringify(key)}\n`,{mode:0o600});
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+
+      - name: Live Registry proof on exact v8 failure shapes
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/registry-env.sh"
+          cat > .tmp-v8-final-two-live-proof.ts <<'TS'
+          import assert from "node:assert/strict";
+          import { applyInstaCompSerialEvidenceGuard } from "./src/lib/instacomp-identity-guard";
+          import {
+            applyInstaCompConsensusToAi,
+            buildInstaCompMultiScannerConsensus,
+            buildInstaCompReaderFindingFromAi,
+            decideInstaCompConsensusEscalation,
+          } from "./src/lib/instacomp-consensus";
+          import { revalidateChecklistRegistryReceipt, resolveChecklistRegistry } from "./src/lib/instacomp-learning-server";
+
+          async function direct(label:any,input:any,expected:string,fp:string,opts:any={evidenceTrusted:false}){
+            const r=await resolveChecklistRegistry(input,opts);
+            assert.equal(r.status,"internal_exact_match",`${label}: ${r.status} ${r.reasons.join(',')}`);
+            assert.equal(r.candidateCount,1,`${label}: candidateCount=${r.candidateCount}`);
+            assert.equal(r.match?.identityId,expected,`${label}: UUID`);
+            assert.equal(r.match?.fingerprintSha256,fp,`${label}: fingerprint`);
+            console.log(`PASS direct ${label} -> ${expected}`);
+          }
+          async function receipt(label:any,ai:any,expected:string,fp:string){
+            const r=await revalidateChecklistRegistryReceipt({ai,identityId:expected,fingerprintSha256:fp});
+            assert.ok(r,`${label}: receipt missing`);
+            assert.equal(r.status,"internal_exact_match",`${label}: ${r.status} ${r.reasons.join(',')}`);
+            assert.equal(r.match?.identityId,expected,`${label}: UUID`);
+            assert.equal(r.match?.fingerprintSha256,fp,`${label}: fingerprint`);
+            console.log(`PASS receipt ${label} -> ${expected}`);
+          }
+
+          async function main(){
+            await direct('Sonia #122',{player:'Sonia Citron',year:'2025',brand:'Panini',setName:'2025 Panini Prizm WNBA',cardNumber:'122',parallel:'Base'},'2a7d4ddd-e9f7-4ce2-904c-b1a17b33ae4f','4366f96b6cf8b136e5ae4da70c35539d56e1793de0a42bcccbf970a892791e59');
+
+            const malongaBad={player:'Dominique Malonga',year:'2025',brand:'Panini',setName:'Base',cardNumber:'116',parallel:'Prizms Ice',serialNumber:'/299',team:'Seattle Storm',sport:'Basketball',isRookie:true,isAuto:false,isRelic:false,conditionGuess:null,confidence:0.98,notes:null};
+            const malonga=applyInstaCompSerialEvidenceGuard(malongaBad,[]);
+            assert.equal(malonga.serialNumber,null,'Malonga stale /299 must be cleared');
+            await receipt('Malonga #116 Ice',malonga,'bde0577b-72e8-4e59-8287-89aaf2f9e7e2','112f66efaa6b13de4f33e18f632a5c364c8bd2895b610d157a538748c858ba32');
+
+            await direct('Groovy #13',{player:'Sonia Citron',year:'2025',brand:'Panini',setName:'PRIZM',cardNumber:'13',parallel:'Base',registryVisibleText:'GROOVY SONIA CITRON PRIZM WNBA'},'c58ffc4f-e1c7-4cd9-b6e2-599af5a29044','dd4d9c92ff0cc4b985ef0b3aa29c8bcfb882ffe27021aa8809fde3c97db7a2ad');
+
+            await receipt('Paige #5 Ice',{player:'Paige Bueckers',year:'2025',brand:'Panini',setName:'Base',cardNumber:'5',parallel:'Prizms Ice',team:'Dallas Wings',sport:'Basketball',isRookie:true,isAuto:false,isRelic:false},'575556fe-fdd4-4083-baee-c5071ed3161f','66531f084322d986e26c569e12a152bada033904c67b7068c00572c3efaa7d42');
+
+            const rickea={player:'Rickea Jackson',year:'2025',brand:'Panini',setName:'PRIZM',cardNumber:'118',parallel:null,serialNumber:null,team:'Los Angeles Sparks',sport:'Basketball',isRookie:false,isAuto:false,isRelic:false,conditionGuess:null,confidence:0.98,registryVisibleText:'RICKEA JACKSON PRIZM WNBA LOS ANGELES SPARKS',notes:'Black foil finish visible on the card surface.'};
+
+            const raw=await resolveChecklistRegistry(rickea,{evidenceTrusted:false});
+            assert.equal(raw.status,'internal_set_present_no_exact_match',`Rickea raw note must stay blocked: ${raw.status}`);
+            console.log('PASS Rickea raw single-reader black-finish note remains fail-closed');
+
+            const secondary={...rickea,notes:'No specific parallel name or serial numbering confirmed from the printed card evidence.'};
+            const escalation=decideInstaCompConsensusEscalation({ai:rickea,externalOcrText:null,hasBackImage:true,pairingConfidence:1});
+            assert.equal(escalation.runSecondaryVision,true,'Rickea finish note must trigger second reader');
+            const readers=[
+              buildInstaCompReaderFindingFromAi({readerId:'primary',label:'Primary vision',kind:'primary_vision',family:'family_primary',ai:rickea}),
+              buildInstaCompReaderFindingFromAi({readerId:'secondary',label:'Secondary vision',kind:'secondary_vision',family:'family_secondary',ai:secondary}),
+            ];
+            const council=buildInstaCompMultiScannerConsensus({readers,baseIdentity:rickea,catalogReferee:null,escalation});
+            assert.equal(council.status,'consensus_confirmed',`Rickea council: ${council.reviewReasons.join(',')}`);
+            assert.equal(council.trustedForIdentity,true);
+            const adjudicated={...applyInstaCompConsensusToAi(rickea,council),parallelEvidenceAdjudicated:true};
+            await direct('Rickea #118 council-adjudicated surface-noise',adjudicated,'70ad307e-06bb-45c2-90ea-689b6e2f302e','bdbf4845dae6d1da4d783fd23d9c387883769cd68aee3c663b144013bb891028',{evidenceTrusted:true});
+            await direct('Rickea #118 PRISM OCR alias after council',{...adjudicated,setName:'PRISM'},'70ad307e-06bb-45c2-90ea-689b6e2f302e','bdbf4845dae6d1da4d783fd23d9c387883769cd68aee3c663b144013bb891028',{evidenceTrusted:true});
+            console.log('PASS live Registry proof for all five exact v8 route shapes with raw-note fail-closed boundary preserved');
+          }
+          main().catch(e=>{console.error(e);process.exit(1)});
+          TS
+          npx tsx .tmp-v8-final-two-live-proof.ts
+          rm -f .tmp-v8-final-two-live-proof.ts
+
+      - name: Source safety boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          changed="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n' \
+            'src/app/api/instacomp/scan/route.ts' \
+            'src/lib/instacomp-identity-guard.ts' \
+            'src/lib/instacomp-learning-server.ts' | sort)"
+          test "$changed" = "$expected"
+          test -z "$(git diff --name-only -- services/instacomp-ai)"
+          grep -Fq 'applyInstaCompSerialEvidenceGuard' src/app/api/instacomp/scan/route.ts
+          grep -Fq 'parallelEvidenceAdjudicated: evidenceConsensus.status === "consensus_confirmed"' src/app/api/instacomp/scan/route.ts
+          grep -Fq 'Serial evidence guard suppressed uncorroborated serial' src/lib/instacomp-identity-guard.ts
+          grep -Fq 'releaseSupportsProductLineSetEvidence' src/lib/instacomp-learning-server.ts
+          grep -Fq 'parallelEvidenceAdjudicated' src/lib/instacomp-learning-server.ts
+          grep -Fq 'if (parallelProfile.baseLike && adjacentYearRecovered)' src/lib/instacomp-learning-server.ts
+          if grep -Fq 'parallelProfile.baseLike &&' src/lib/instacomp-learning-server.ts | grep -Fq 'surfaceRisk'; then exit 2; fi
+
+      - name: Commit certified permanent source only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/app/api/instacomp/scan/route.ts src/lib/instacomp-identity-guard.ts src/lib/instacomp-learning-server.ts
+          git commit -m 'Fix final Malonga serial and Rickea Base Registry blockers'
+          git push origin HEAD:fix/instacomp-v8-final-two-clean-20260807
