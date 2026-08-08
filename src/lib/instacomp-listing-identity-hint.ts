@@ -57,9 +57,10 @@ const CHECKLIST_CODE_PREFIXES = [
 
 function checklistCodeFromTitle(title: string) {
   const prefix = CHECKLIST_CODE_PREFIXES.join("|");
-  return title.match(new RegExp(`\\b((?:${prefix})[- ]?[A-Za-z0-9]{1,12})\\b`, "i"))?.[1]
-    ?.replace(/\s+/g, "-")
-    .toUpperCase() || null;
+  const match = title.match(
+    new RegExp(`\\b((?:${prefix})(?:-|\\s)[A-Za-z0-9]{1,12})\\b`, "i"),
+  )?.[1];
+  return match?.replace(/\s+/g, "-").toUpperCase() || null;
 }
 
 /**
