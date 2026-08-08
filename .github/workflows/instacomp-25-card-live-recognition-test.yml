@@ -12,9 +12,10 @@ permissions:
 jobs:
   live-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
       SITE_URL: https://truelycollectables.com
       EVIDENCE_DIR: .audit/instacomp-25-card-live-recognition
     steps:
@@ -23,14 +24,21 @@ jobs:
         with:
           node-version: 22
 
-      - name: Wait for protected production stress endpoint
+      - name: Ensure protected stress endpoint is deployed to Production
         shell: bash
         run: |
           set -euo pipefail
           test -n "${VERCEL_TOKEN:-}"
-          mkdir -p "$EVIDENCE_DIR"
+          mkdir -p "$EVIDENCE_DIR" .vercel
+          npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx vercel@56.2.0 deploy --prod --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+
+      - name: Wait for protected production stress endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
           endpoint="$SITE_URL/api/release/instacomp-25-card-stress-test"
-          for attempt in $(seq 1 100); do
+          for attempt in $(seq 1 60); do
             code="$(curl -sS -o "$RUNNER_TEMP/stress-probe.json" -w '%{http_code}' --max-time 20 -X POST "$endpoint" || true)"
             if [ "$code" = "401" ]; then
               echo "Protected 25-card endpoint is live in Production."
