@@ -273,5 +273,20 @@ replace_once(path,
       .map((release: any) => release.id),
   );
 ''')
+replace_once(path,
+'''  const match = chooseRegistryMatch(ai, cardRows, {
+    allowAdjacentYearRecovery: usedAdjacentYearRecovery,
+  });
+''',
+'''  // Keep OCR alias normalization local to product-line-only evidence. The
+  // exact matcher should see PRISM and PRIZM as the same Panini product-line
+  // token without introducing fuzzy matching for any logical checklist set.
+  const matchAi = isProductLineOnlySetEvidence(ai.setName)
+    ? { ...ai, setName: normalizedProductLineTokens(ai.setName).join(" ") }
+    : ai;
+  const match = chooseRegistryMatch(matchAi, cardRows, {
+    allowAdjacentYearRecovery: usedAdjacentYearRecovery,
+  });
+''')
 
 print('PASS applied clean v8 final-two repair')
