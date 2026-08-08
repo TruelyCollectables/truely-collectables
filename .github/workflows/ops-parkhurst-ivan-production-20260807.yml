@@ -74,54 +74,60 @@ jobs:
         run: |
           set -euo pipefail
           source "$TEMP_DIR/runtime-env.sh"
-          cat > "$TEMP_DIR/parkhurst-proof.ts" <<'TS'
+          cat > parkhurst-proof-temp.ts <<'TS'
           import assert from "node:assert/strict";
           import { importChecklistArtifact } from "./src/lib/checklist-registry/server";
           import { resolveChecklistRegistry } from "./src/lib/instacomp-learning-server";
           import type { ChecklistSourceArtifact } from "./src/lib/checklist-registry/source-adapter";
 
-          const url="https://upperdeck.com/checklist/2025-26-parkhurst-checklist/";
-          const response=await fetch(url,{headers:{Accept:"text/html,application/xhtml+xml","Cache-Control":"no-cache","User-Agent":"TCOS-Checklist-Registry/1.0"},redirect:"follow",signal:AbortSignal.timeout(60000)});
-          assert.equal(response.ok,true,`Parkhurst source HTTP ${response.status}`);
-          const content=await response.text();
-          assert.ok(content.length>10000,`Parkhurst source too small: ${content.length}`);
-          const artifact:ChecklistSourceArtifact={sourceUrl:url,originalFilename:"2025-26-parkhurst.html",mimeType:"text/html",content,retrievedAt:new Date().toISOString(),authority:"official_manufacturer",redistributionAllowed:false};
+          async function main() {
+            const url="https://upperdeck.com/checklist/2025-26-parkhurst-checklist/";
+            const response=await fetch(url,{headers:{Accept:"text/html,application/xhtml+xml","Cache-Control":"no-cache","User-Agent":"TCOS-Checklist-Registry/1.0"},redirect:"follow",signal:AbortSignal.timeout(60000)});
+            assert.equal(response.ok,true,`Parkhurst source HTTP ${response.status}`);
+            const content=await response.text();
+            assert.ok(content.length>10000,`Parkhurst source too small: ${content.length}`);
+            const artifact:ChecklistSourceArtifact={sourceUrl:url,originalFilename:"2025-26-parkhurst.html",mimeType:"text/html",content,retrievedAt:new Date().toISOString(),authority:"official_manufacturer",redistributionAllowed:false};
 
-          const validation=await importChecklistArtifact({artifact,validateOnly:true});
-          const errors=validation.plan.validation.issues.filter((x:any)=>x.severity==="error");
-          assert.equal(validation.ok,true,`Parkhurst validation failed: ${JSON.stringify(errors)}`);
-          assert.equal(validation.plan.validation.status,"passed",`Parkhurst validation status ${validation.plan.validation.status}`);
-          const cards=(validation.plan.cards as any[]).filter((c:any)=>String(c.cardNumber).trim()==="236" && (c.players||[]).some((p:any)=>String(p).toLowerCase().includes("ivan demidov")));
-          assert.ok(cards.length>=1,`Ivan Demidov #236 absent from normalized Parkhurst plan`);
-          const setKeys=[...new Set(cards.map((c:any)=>c.setSourceKey).filter(Boolean))];
-          const sets=(validation.plan.sets as any[]).filter((s:any)=>setKeys.includes(s.sourceKey||s.setSourceKey||s.source_key));
-          console.log("PARKHURST_VALIDATED",JSON.stringify({adapter:validation.adapter,counts:validation.plan.validation.counts,ivanCards:cards,setKeys,sets}));
+            const validation=await importChecklistArtifact({artifact,validateOnly:true});
+            const errors=validation.plan.validation.issues.filter((x:any)=>x.severity==="error");
+            assert.equal(validation.ok,true,`Parkhurst validation failed: ${JSON.stringify(errors)}`);
+            assert.equal(validation.plan.validation.status,"passed",`Parkhurst validation status ${validation.plan.validation.status}`);
+            const number236=(validation.plan.cards as any[]).filter((c:any)=>String(c.cardNumber).trim()==="236");
+            console.log("PARKHURST_236_ROWS",JSON.stringify(number236));
+            const cards=number236.filter((c:any)=>(c.players||[]).some((p:any)=>String(p).toLowerCase().includes("ivan demidov")));
+            assert.ok(cards.length>=1,`Ivan Demidov #236 absent from normalized Parkhurst plan`);
+            const setKeys=[...new Set(cards.map((c:any)=>c.setSourceKey).filter(Boolean))];
+            const sets=(validation.plan.sets as any[]).filter((s:any)=>setKeys.includes(s.sourceKey||s.setSourceKey||s.source_key));
+            console.log("PARKHURST_VALIDATED",JSON.stringify({adapter:validation.adapter,counts:validation.plan.validation.counts,ivanCards:cards,setKeys,sets}));
 
-          const imported=await importChecklistArtifact({artifact});
-          assert.equal(imported.ok,true,"Parkhurst Production import did not return ok");
-          console.log("PARKHURST_IMPORTED",JSON.stringify({persistence:imported.persistence,counts:imported.plan.validation.counts}));
+            const imported=await importChecklistArtifact({artifact});
+            assert.equal(imported.ok,true,"Parkhurst Production import did not return ok");
+            console.log("PARKHURST_IMPORTED",JSON.stringify({persistence:imported.persistence,counts:imported.plan.validation.counts}));
 
-          const logicalCandidates=[...new Set([
-            ...sets.flatMap((s:any)=>[s.name,s.displayName,s.normalizedName,s.title]),
-            "Rookies","Base Set - Rookies","Base Set","Base"
-          ].filter(Boolean).map(String))];
-          let exact:any=null;
-          const attempts:any[]=[];
-          for(const setName of logicalCandidates){
-            const r=await resolveChecklistRegistry({player:"Ivan Demidov",year:"2025-26",brand:"Upper Deck",setName,cardNumber:"236",parallel:"Base",team:"Montreal Canadiens",sport:"Hockey",league:"NHL",isRookie:true,isAuto:false,isRelic:false},{evidenceTrusted:true});
-            attempts.push({setName,status:r.status,reasons:r.reasons,match:r.match?{identityId:r.match.identityId,fingerprintSha256:r.match.fingerprintSha256,setName:r.match.setName,product:r.match.product,player:r.match.player,cardNumber:r.match.cardNumber}:null});
-            if(r.status==="internal_exact_match"&&r.match){exact=r;break;}
+            const logicalCandidates=[...new Set([
+              ...sets.flatMap((s:any)=>[s.name,s.displayName,s.normalizedName,s.title]),
+              "Rookies","Base Set - Rookies","Base Set","Base"
+            ].filter(Boolean).map(String))];
+            let exact:any=null;
+            const attempts:any[]=[];
+            for(const setName of logicalCandidates){
+              const r=await resolveChecklistRegistry({player:"Ivan Demidov",year:"2025-26",brand:"Upper Deck",setName,cardNumber:"236",parallel:"Base",team:"Montreal Canadiens",sport:"Hockey",league:"NHL",isRookie:true,isAuto:false,isRelic:false},{evidenceTrusted:true});
+              attempts.push({setName,status:r.status,reasons:r.reasons,match:r.match?{identityId:r.match.identityId,fingerprintSha256:r.match.fingerprintSha256,setName:r.match.setName,product:r.match.product,player:r.match.player,cardNumber:r.match.cardNumber}:null});
+              if(r.status==="internal_exact_match"&&r.match){exact=r;break;}
+            }
+            console.log("IVAN_RESOLVER_ATTEMPTS",JSON.stringify(attempts));
+            assert.ok(exact?.match,`Ivan #236 did not resolve exactly after Parkhurst import`);
+            assert.equal(exact.match.player,"Ivan Demidov");
+            assert.equal(String(exact.match.cardNumber),"236");
+            assert.match(String(exact.match.product||""),/Parkhurst/i);
+            assert.ok(exact.match.identityId&&exact.match.fingerprintSha256,"Ivan #236 missing Registry receipt");
+            console.log("PASS_IVAN_PARKHURST_236",JSON.stringify({identityId:exact.match.identityId,fingerprintSha256:exact.match.fingerprintSha256,setName:exact.match.setName,product:exact.match.product}));
           }
-          console.log("IVAN_RESOLVER_ATTEMPTS",JSON.stringify(attempts));
-          assert.ok(exact?.match,`Ivan #236 did not resolve exactly after Parkhurst import`);
-          assert.equal(exact.match.player,"Ivan Demidov");
-          assert.equal(String(exact.match.cardNumber),"236");
-          assert.match(String(exact.match.product||""),/Parkhurst/i);
-          assert.ok(exact.match.identityId&&exact.match.fingerprintSha256,"Ivan #236 missing Registry receipt");
-          console.log("PASS_IVAN_PARKHURST_236",JSON.stringify({identityId:exact.match.identityId,fingerprintSha256:exact.match.fingerprintSha256,setName:exact.match.setName,product:exact.match.product}));
+
+          main().catch((error)=>{console.error(error);process.exit(1)});
           TS
-          npx tsx "$TEMP_DIR/parkhurst-proof.ts"
+          npx tsx parkhurst-proof-temp.ts
 
       - name: Cleanup
         if: always()
-        run: rm -rf "$TEMP_DIR"
+        run: rm -rf "$TEMP_DIR" parkhurst-proof-temp.ts
