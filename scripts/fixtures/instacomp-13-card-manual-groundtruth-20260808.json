@@ -1,0 +1,156 @@
+{
+  "schema": "tcos.instacomp-ai.manual-groundtruth.v1",
+  "source": "User-reviewed InstaComp 13 Card Review PDF, 2026-08-08",
+  "notes": [
+    "Use official checklist naming for canonical parallel values.",
+    "Collector wording 'cracked ice' maps to the official Ice Prizm/Prizms Ice name only where the product checklist itself names that physical parallel Ice.",
+    "Do not infer product or set from year + manufacturer + card number + player alone."
+  ],
+  "cards": [
+    {
+      "ordinal": 1,
+      "source_scan_id": "49b50447-2082-4cc2-9b1b-bbc7864843aa",
+      "year": "2025",
+      "manufacturer": "Panini",
+      "brand": "Panini Select WNBA",
+      "set_name": "En Fuego",
+      "player": "Sonia Citron",
+      "card_number": "7",
+      "parallel": "Ice Prizm",
+      "operator_note": "En Fuego cracked-ice finish; official Select insert checklist calls the parallel Ice."
+    },
+    {
+      "ordinal": 2,
+      "source_scan_id": "7d8330f5-e6d6-4195-8d37-c21fe144b4ee",
+      "year": "2025",
+      "manufacturer": "Panini",
+      "brand": "Panini Prizm WNBA",
+      "set_name": "Base",
+      "player": "Marine Johannes",
+      "card_number": "90",
+      "parallel": "Silver Prizm"
+    },
+    {
+      "ordinal": 3,
+      "source_scan_id": "4392d08d-c029-4985-8247-7679b48feaaa",
+      "year": "2025",
+      "manufacturer": "Panini",
+      "brand": "Panini Prizm WNBA",
+      "set_name": "Base",
+      "player": "Kayla Thornton",
+      "card_number": "17",
+      "parallel": "Ice Prizm"
+    },
+    {
+      "ordinal": 4,
+      "source_scan_id": "a17c7e48-658a-43c3-9227-8476f583b33f",
+      "year": "2025",
+      "manufacturer": "Panini",
+      "brand": "Panini Prizm WNBA",
+      "set_name": "Base",
+      "player": "Dorka Juhasz",
+      "card_number": "109",
+      "parallel": "Ice Prizm"
+    },
+    {
+      "ordinal": 5,
+      "source_scan_id": "f2b7d315-3d36-4cdb-b9c8-280a96c30a64",
+      "year": "2025",
+      "manufacturer": "Panini",
+      "brand": "Panini Prizm WNBA",
+      "set_name": "Base",
+      "player": "Gabby Williams",
+      "card_number": "77",
+      "parallel": "Ice Prizm"
+    },
+    {
+      "ordinal": 6,
+      "source_scan_id": "4ef7553f-c61e-4498-934f-3e7ba72b6104",
+      "year": "2025",
+      "manufacturer": "Panini",
+      "brand": "Panini Prizm WNBA",
+      "set_name": "Base",
+      "player": "Aziaha James",
+      "card_number": "141",
+      "parallel": "Blue Velocity Prizm"
+    },
+    {
+      "ordinal": 7,
+      "source_scan_id": "d7a7f266-5e00-4c30-a9b1-8ab92b4d235e",
+      "year": "2025",
+      "manufacturer": "Panini",
+      "brand": "Panini Select WNBA",
+      "set_name": "Snapshots",
+      "player": "Sonia Citron",
+      "card_number": "7",
+      "parallel": "Base"
+    },
+    {
+      "ordinal": 8,
+      "source_scan_id": "3b7424f0-4593-4d4a-acc3-3f1d320c8a1e",
+      "year": "2025",
+      "manufacturer": "Panini",
+      "brand": "Panini Select WNBA",
+      "set_name": "Snapshots",
+      "player": "Sonia Citron",
+      "card_number": "7",
+      "parallel": "Silver Prizm"
+    },
+    {
+      "ordinal": 9,
+      "source_scan_id": "7209c7ca-5e65-4ba4-b0c4-c0972c1a38ec",
+      "year": "2025",
+      "manufacturer": "Panini",
+      "brand": "Panini Select WNBA",
+      "set_name": "En Fuego",
+      "player": "Sonia Citron",
+      "card_number": "7",
+      "parallel": "Flash Prizm",
+      "operator_note": "User called this Silver Flash; official Select En Fuego checklist separates Flash and Silver, and this is carried as Flash pending image-level final confirmation."
+    },
+    {
+      "ordinal": 10,
+      "source_scan_id": "41f81bec-c3a8-4e75-8077-5de8a35ab75f",
+      "year": "2025",
+      "manufacturer": "Panini",
+      "brand": "Panini Select WNBA",
+      "set_name": "En Fuego",
+      "player": "Sonia Citron",
+      "card_number": "7",
+      "parallel": "Silver Prizm"
+    },
+    {
+      "ordinal": 11,
+      "source_scan_id": "ec55a129-6edb-40db-95dc-915e0ee64af7",
+      "year": "2025",
+      "manufacturer": "Panini",
+      "brand": "Panini Select WNBA",
+      "set_name": "En Fuego",
+      "player": "Sonia Citron",
+      "card_number": "7",
+      "parallel": "Base"
+    },
+    {
+      "ordinal": 12,
+      "source_scan_id": "65444002-ef69-4e92-a2cb-bb53d2851cec",
+      "year": "2025",
+      "manufacturer": "Panini",
+      "brand": "Panini Prizm WNBA",
+      "set_name": "Base",
+      "player": "Dominique Malonga",
+      "card_number": "116",
+      "parallel": "White Seismic Prizm"
+    },
+    {
+      "ordinal": 13,
+      "source_scan_id": "a2ca1ddf-09b3-404f-a05a-91cf8e4e7929",
+      "year": "2025",
+      "manufacturer": "Panini",
+      "brand": "Panini Prizm WNBA",
+      "set_name": "Base",
+      "player": "Dominique Malonga",
+      "card_number": "116",
+      "parallel": "White Seismic Prizm"
+    }
+  ]
+}
