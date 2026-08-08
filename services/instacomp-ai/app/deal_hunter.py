@@ -271,10 +271,24 @@ class DealHunterScheduler:
             outcomes = await asyncio.gather(*tasks, return_exceptions=True)
 
         failures = []
-        for outcome in outcomes:
+        healthy_feed_count = 0
+        for index, outcome in enumerate(outcomes):
+            feed_key, _path, expected_families = FEEDS[index]
             if isinstance(outcome, Exception):
-                failures.append(str(outcome))
+                error = str(outcome)[:1000]
+                failures.append(f"{feed_key}: {error}")
+                coverage.append(
+                    {
+                        "key": feed_key,
+                        "status": "FAILED",
+                        "query_family_count": expected_families,
+                        "result_count": 0,
+                        "error": error,
+                    }
+                )
                 continue
+
+            healthy_feed_count += 1
             coverage.append(outcome["coverage"])
             for raw in outcome["results"]:
                 normalized = normalize_candidate(raw)
@@ -304,8 +318,13 @@ class DealHunterScheduler:
                 else:
                     aggregate[key] = normalized
 
-        if failures:
-            raise RuntimeError("Deal Hunter discovery failed closed: " + " | ".join(failures))
+        # Discovery resilience is deliberately separate from identity/pricing trust.
+        # A broken feed must not blind every healthy hunting lane, but a total feed
+        # outage remains fail-closed. Each degraded lane stays visible in coverage.
+        if failures and healthy_feed_count == 0:
+            raise RuntimeError(
+                "All Deal Hunter discovery feeds failed closed: " + " | ".join(failures)
+            )
         return list(aggregate.values()), coverage
 
     async def _fetch_feed(

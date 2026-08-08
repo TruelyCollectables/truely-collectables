@@ -2,10 +2,16 @@ from __future__ import annotations
 
 from datetime import timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from app.deal_hunter import candidate_key, normalize_candidate, validate_feed
+from app.deal_hunter import (
+    DealHunterScheduler,
+    candidate_key,
+    normalize_candidate,
+    validate_feed,
+)
 from app.deal_hunter_store import DealHunterStore, utc_now
 
 
@@ -104,3 +110,67 @@ def test_store_preserves_runs_candidates_and_cooldown(tmp_path: Path):
         current_price=9.0,
         cooldown_hours=6,
     )
+
+@pytest.mark.asyncio
+async def test_discovery_isolates_one_failed_feed_and_keeps_hunting(tmp_path: Path):
+    settings = SimpleNamespace(
+        deal_hunter_site_url="https://example.test",
+        deal_hunter_request_timeout_seconds=1.0,
+        deal_hunter_per_query=1,
+    )
+    scheduler = DealHunterScheduler(
+        settings,
+        DealHunterStore(tmp_path / "instacomp.sqlite3"),
+    )
+
+    async def fake_fetch_feed(_client, key, _url, expected):
+        if key == "wnba":
+            raise RuntimeError("simulated WNBA feed outage")
+        return {
+            "coverage": {
+                "key": key,
+                "status": "COMPLETE",
+                "query_family_count": expected,
+                "result_count": 1,
+                "duration_ms": 1,
+            },
+            "results": [
+                {
+                    "listingItemId": f"{key}-1",
+                    "listingUrl": f"https://www.ebay.com/itm/{key}-1",
+                    "title": f"{key} candidate",
+                    "itemPrice": 10,
+                    "imageUrls": ["https://img.test/front.jpg", "https://img.test/back.jpg"],
+                }
+            ],
+        }
+
+    scheduler._fetch_feed = fake_fetch_feed  # type: ignore[method-assign]
+    candidates, coverage = await scheduler._discover()
+
+    assert len(candidates) == 5
+    failed = [row for row in coverage if row["status"] == "FAILED"]
+    assert len(failed) == 1
+    assert failed[0]["key"] == "wnba"
+    assert "simulated WNBA feed outage" in failed[0]["error"]
+    assert len([row for row in coverage if row["status"] == "COMPLETE"]) == 5
+
+
+@pytest.mark.asyncio
+async def test_discovery_still_fails_closed_when_every_feed_is_down(tmp_path: Path):
+    settings = SimpleNamespace(
+        deal_hunter_site_url="https://example.test",
+        deal_hunter_request_timeout_seconds=1.0,
+        deal_hunter_per_query=1,
+    )
+    scheduler = DealHunterScheduler(
+        settings,
+        DealHunterStore(tmp_path / "instacomp.sqlite3"),
+    )
+
+    async def fail_every_feed(_client, key, _url, _expected):
+        raise RuntimeError(f"{key} unavailable")
+
+    scheduler._fetch_feed = fail_every_feed  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="All Deal Hunter discovery feeds failed closed"):
+        await scheduler._discover()
