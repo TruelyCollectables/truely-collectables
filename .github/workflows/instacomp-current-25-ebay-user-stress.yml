@@ -69,6 +69,34 @@ jobs:
           test -n "$VERCEL_TOKEN"
           npx vercel@56.2.0 link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
 
+      - name: Resolve secure Production InstaComp engine coordinates
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          prod_env="$RUNNER_TEMP/instacomp-production.env"
+          npx vercel@56.2.0 env pull "$prod_env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          PRODUCTION_ENV_PATH="$prod_env" node <<'NODE'
+          const fs=require('node:fs');
+          const p={};
+          for(const raw of fs.readFileSync(process.env.PRODUCTION_ENV_PATH,'utf8').split(/\r?\n/)){
+            const line=raw.trim(); if(!line||line.startsWith('#')) continue;
+            const i=line.indexOf('='); if(i<1) continue;
+            const k=line.slice(0,i).trim(); let v=line.slice(i+1).trim();
+            if(v.startsWith('"')&&v.endsWith('"')){try{v=JSON.parse(v)}catch{v=v.slice(1,-1)}}
+            else if(v.startsWith("'")&&v.endsWith("'")){v=v.slice(1,-1)}
+            p[k]=v;
+          }
+          const url=String(p.INSTACOMP_AI_LOCAL_URL||'').trim().replace(/\/+$/,'');
+          const key=String(p.INSTACOMP_AI_LOCAL_KEY||'').trim();
+          if(!/^https?:\/\/[^/]+/i.test(url)) throw new Error('Production INSTACOMP_AI_LOCAL_URL is unavailable.');
+          if(!key) throw new Error('Production INSTACOMP_AI_LOCAL_KEY is unavailable.');
+          console.log(`::add-mask::${url}`); console.log(`::add-mask::${key}`);
+          fs.appendFileSync(process.env.GITHUB_ENV,`INSTACOMP_TEST_ENGINE_URL=${url}\nINSTACOMP_TEST_ENGINE_KEY=${key}\n`);
+          NODE
+          rm -f "$prod_env"
+
       - name: Generate isolated one-run credentials
         shell: bash
         run: |
@@ -80,7 +108,7 @@ jobs:
           echo "INSTACOMP_BENCHMARK_TOKEN=$benchmark_token" >> "$GITHUB_ENV"
           echo "BENCHMARK_ADMIN_SESSION_SECRET=$benchmark_admin_secret" >> "$GITHUB_ENV"
 
-      - name: Deploy isolated protected preview
+      - name: Deploy isolated protected preview with Production engine only
         id: deploy
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -90,6 +118,8 @@ jobs:
           npx vercel@56.2.0 deploy --yes --force --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" \
             --env "INSTACOMP_BENCHMARK_TOKEN=$INSTACOMP_BENCHMARK_TOKEN" \
             --env "ADMIN_SESSION_SECRET=$BENCHMARK_ADMIN_SESSION_SECRET" \
+            --env "INSTACOMP_AI_LOCAL_URL=$INSTACOMP_TEST_ENGINE_URL" \
+            --env "INSTACOMP_AI_LOCAL_KEY=$INSTACOMP_TEST_ENGINE_KEY" \
             > deployment-url.txt
           preview_url="$(tail -n 1 deployment-url.txt | tr -d '\r\n')"
           test -n "$preview_url"
@@ -157,3 +187,8 @@ jobs:
           console.log(JSON.stringify({completed:s.completedCards||0,passed:s.passedCards||0,passRate:s.passRate||0,averageScore:s.averageScore??null,registryCoverage:s.catalogCoverageRate||0,criticalErrors:s.criticalErrors||0,majorErrors:s.majorErrors||0,targetMet:!!s.targetMet},null,2));
           if(Number(s.completedCards||0)<25) throw new Error(`Incomplete: ${s.completedCards||0}/25`);
           NODE
+
+      - name: Remove temporary Production env material
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/instacomp-production.env"
