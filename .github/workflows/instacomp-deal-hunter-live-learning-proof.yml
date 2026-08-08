@@ -6,11 +6,13 @@ on:
     paths:
       - "src/app/api/release/instacomp-deal-hunter-learning-self-test/route.ts"
       - ".github/workflows/instacomp-deal-hunter-live-learning-proof.yml"
+      - ".github/scripts/instacomp-25-card-stress.mjs"
   push:
     branches: [main]
     paths:
       - "src/app/api/release/instacomp-deal-hunter-learning-self-test/route.ts"
       - ".github/workflows/instacomp-deal-hunter-live-learning-proof.yml"
+      - ".github/scripts/instacomp-25-card-stress.mjs"
 
 permissions:
   contents: read
@@ -43,6 +45,47 @@ jobs:
           ]) if (!route.includes(marker)) throw new Error(`Missing live-proof contract: ${marker}`);
           console.log('Live learning proof security contract passed.');
           NODE
+
+  stress-25:
+    if: github.event_name == 'pull_request'
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+      EVIDENCE_DIR: .audit/instacomp-25-card-stress
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Pull Production scanner coordinates and credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p "$EVIDENCE_DIR" .vercel "$RUNNER_TEMP/instacomp-25-card-stress"
+          npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/instacomp-25-card-stress/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          echo "PRODUCTION_ENV_FILE=$RUNNER_TEMP/instacomp-25-card-stress/production.env" >> "$GITHUB_ENV"
+      - name: Run real 25-card front/back recognition stress test
+        shell: bash
+        run: |
+          set -euo pipefail
+          node .github/scripts/instacomp-25-card-stress.mjs "$PRODUCTION_ENV_FILE" "$EVIDENCE_DIR"
+      - name: Upload 25-card stress receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-25-card-stress
+          path: .audit/instacomp-25-card-stress
+          if-no-files-found: warn
+          retention-days: 90
+      - name: Remove pulled Production environment
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/instacomp-25-card-stress/production.env"
 
   live-production:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
