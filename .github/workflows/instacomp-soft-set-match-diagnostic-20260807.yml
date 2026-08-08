@@ -120,4 +120,3 @@ jobs:
           TS
           npx tsx .tmp-soft-set-diagnostic.ts
           rm -f .tmp-soft-set-diagnostic.ts
-TS
