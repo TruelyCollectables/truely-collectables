@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "scripts/ops/patch-instacomp-exact-receipt-serial-v4-20260807.py"
+      - "scripts/ops/patch-instacomp-exact-receipt-serial-zero-v5-20260807.py"
       - ".github/workflows/instacomp-registry-consensus-final-v4-20260807.yml"
   workflow_dispatch:
 
@@ -31,12 +32,13 @@ jobs:
           ref: fix/instacomp-registry-consensus-final-v3-20260807
           fetch-depth: 0
 
-      - name: Apply both web-only repairs
+      - name: Apply web-only repairs
         shell: bash
         run: |
           set -euo pipefail
           python scripts/ops/patch-instacomp-registry-consensus-final-v3-20260807.py
           python scripts/ops/patch-instacomp-exact-receipt-serial-v4-20260807.py
+          python scripts/ops/patch-instacomp-exact-receipt-serial-zero-v5-20260807.py
 
       - uses: actions/setup-node@v4
         with:
@@ -104,6 +106,8 @@ jobs:
           grep -Fq 'kind: "product_line_only"' src/lib/instacomp-learning-server.ts
           grep -Fq 'allowExactReceiptUnnumberedSerialRecovery?: boolean' src/lib/instacomp-learning-server.ts
           grep -Fq 'allowExactReceiptUnnumberedSerialRecovery: true' src/lib/instacomp-learning-server.ts
+          grep -Fq 'options.allowExactReceiptUnnumberedSerialRecovery === true &&' src/lib/instacomp-learning-server.ts
+          grep -Fq '      !serialRun;' src/lib/instacomp-learning-server.ts
           grep -Fq 'catalogExplicitlyUnnumbered' src/lib/instacomp-consensus.ts
           grep -Fq 'Two independent scanner families observed a serial denominator' src/lib/instacomp-consensus.ts
           grep -Fq 'malongaSerialHallucinationConsensus' scripts/run-instacomp-final-identity-consensus-simulations.ts
