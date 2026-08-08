@@ -1,0 +1,121 @@
+name: KINGMAKER Nanoid Production Advisory Cert 20260807
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/kingmaker-nanoid-production-advisory-cert-20260807.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kingmaker-nanoid-production-advisory-cert-20260807
+  cancel-in-progress: true
+
+env:
+  EXPECTED_BRANCH: fix/kingmaker-nanoid-production-advisory-20260807
+
+jobs:
+  fix-test-commit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-service-role-key
+      ADMIN_PASSWORD: build-only-admin-password
+      ADMIN_SESSION_SECRET: build-only-admin-session-secret-with-sufficient-length
+      STRIPE_SECRET_KEY: sk_test_build_only
+      STRIPE_WEBHOOK_SECRET: whsec_build_only
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      EBAY_CLIENT_ID: build-only-client-id
+      EBAY_CLIENT_SECRET: build-only-client-secret
+      EBAY_ENVIRONMENT: production
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install current locked tree and prove vulnerable baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm ls nanoid || true
+          node - <<'NODE'
+          const lock=require('./package-lock.json');
+          const n=lock.packages?.['node_modules/nanoid'];
+          if(!n) throw new Error('nanoid lock entry missing');
+          if(n.version !== '3.3.16') throw new Error(`unexpected baseline nanoid ${n.version}`);
+          console.log(`PASS vulnerable baseline pinned exactly at nanoid ${n.version}`);
+          NODE
+          cp package-lock.json "$RUNNER_TEMP/package-lock.before.json"
+
+      - name: Apply npm advisory repair to Production lock only
+        run: npm audit fix --package-lock-only --omit=dev
+
+      - name: Prove only nanoid lock record changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git diff --name-only)" = 'package-lock.json'
+          git diff --check
+          BEFORE="$RUNNER_TEMP/package-lock.before.json" node - <<'NODE'
+          const fs=require('node:fs');
+          const before=JSON.parse(fs.readFileSync(process.env.BEFORE,'utf8'));
+          const after=JSON.parse(fs.readFileSync('package-lock.json','utf8'));
+          const oldNano=before.packages?.['node_modules/nanoid'];
+          const newNano=after.packages?.['node_modules/nanoid'];
+          if(!oldNano||!newNano) throw new Error('nanoid lock record missing');
+          delete before.packages['node_modules/nanoid'];
+          delete after.packages['node_modules/nanoid'];
+          if(JSON.stringify(before)!==JSON.stringify(after)) {
+            throw new Error('npm audit fix changed dependency records beyond node_modules/nanoid');
+          }
+          const parts=String(newNano.version).split('.').map(Number);
+          const safe=parts[0]===3 && (parts[1]>3 || (parts[1]===3 && parts[2]>=17));
+          if(!safe) throw new Error(`nanoid still vulnerable: ${newNano.version}`);
+          console.log(`PASS nanoid-only lock repair ${oldNano.version} -> ${newNano.version}`);
+          NODE
+
+      - name: Reinstall exact repaired tree
+        run: npm ci
+
+      - name: Production dependency audit must be clean at high severity
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: KINGMAKER architecture and work-order contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/certify-kingmaker-instacomp-architecture.mjs
+          node scripts/certify-kingmaker-global-execution-query.mjs
+
+      - name: Full TypeScript
+        run: npx tsc --noEmit
+
+      - name: Full Production build
+        run: npm run build
+
+      - name: Commit only repaired lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git diff --name-only)" = 'package-lock.json'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add package-lock.json
+          git commit -m 'Fix high-severity nanoid Production advisory'
+          git push origin HEAD:${EXPECTED_BRANCH}
