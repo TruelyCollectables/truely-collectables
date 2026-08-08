@@ -33,6 +33,19 @@ function text(value: unknown) {
   return normalized || null;
 }
 
+function safeProviderMessages(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 12).map((row) => {
+    const provider = row && typeof row === "object" ? (row as Record<string, unknown>) : {};
+    return {
+      label: text(provider.label),
+      status: text(provider.status),
+      results: Number(provider.results || 0),
+      message: text(provider.message)?.slice(0, 500) || null,
+    };
+  });
+}
+
 export async function POST(request: Request) {
   if (!(await authorized(request))) {
     return Response.json({ success: false, error: "Unauthorized" }, { status: 401 });
@@ -77,7 +90,7 @@ export async function POST(request: Request) {
     const history = identityId ? await loadExactCardMarketHistory(identityId) : null;
     return Response.json({
       success: true,
-      schema: "truelycollectables.instacompDealHunterHistoryDiagnostics.v2",
+      schema: "truelycollectables.instacompDealHunterHistoryDiagnostics.v3",
       totalObservationCount: Number(count || 0),
       since,
       observationCountSince: rows.length,
@@ -113,9 +126,13 @@ export async function POST(request: Request) {
             },
             exactMarket: {
               status: text(exactMarket.status),
+              missingIdentityFields: Array.isArray(exactMarket.missingIdentityFields)
+                ? exactMarket.missingIdentityFields.map(text).filter(Boolean).slice(0, 10)
+                : [],
               soldCount: Number(exactMarket.soldCount || 0),
               pricingEligibleSoldCount: Number(exactMarket.pricingEligibleSoldCount || 0),
               activeCount: Number(exactMarket.activeCount || 0),
+              providerMessages: safeProviderMessages(exactMarket.providerMessages),
             },
             evaluation: {
               status: text(evaluation.status),
