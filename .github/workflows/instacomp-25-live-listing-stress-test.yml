@@ -22,7 +22,7 @@ jobs:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       SITE_URL: https://truelycollectables.com
       RESULT_BRANCH: instacomp-audit-results
-      RESULT_PATH: audits/instacomp-25-live-listing-stress-test/latest.json
+      RESULT_DIR: audits/instacomp-25-live-listing-stress-test
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,11 +32,34 @@ jobs:
         with:
           node-version: 22
 
-      - name: Run protected mixed 25-card InstaComp recognition stress test
+      - name: Capture physical Mac preflight
         shell: bash
         run: |
           set -euo pipefail
           test -n "${VERCEL_TOKEN:-}"
+          status="$RUNNER_TEMP/instacomp-25-mac-status.json"
+          curl -fsS --max-time 60 \
+            -X POST \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            -H "Accept: application/json" \
+            "$SITE_URL/api/release/instacomp-deal-hunter-learning-self-test?mode=status" \
+            > "$status"
+          node - "$status" <<'NODE'
+          const fs = require('fs');
+          const p = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          if (p.success !== true) throw new Error(JSON.stringify(p).slice(0, 2000));
+          console.log(JSON.stringify({
+            checkedAt: p.checkedAt || null,
+            physicalMacHealthy: p.physicalMacHealthy === true,
+            scheduler: p.scheduler || null,
+            recentRuns: Array.isArray(p.runs) ? p.runs.slice(0, 5) : [],
+          }, null, 2));
+          NODE
+
+      - name: Run protected mixed 25-card InstaComp recognition stress test
+        shell: bash
+        run: |
+          set -euo pipefail
           result="$RUNNER_TEMP/instacomp-25-live-listing-stress-test.json"
           curl -fsS --max-time 840 \
             -X POST \
@@ -46,52 +69,30 @@ jobs:
             > "$result"
           node - "$result" <<'NODE'
           const fs = require('fs');
-          const path = process.argv[2];
-          const payload = JSON.parse(fs.readFileSync(path, 'utf8'));
-          if (payload.success !== true) {
-            throw new Error(`Stress endpoint failed: ${JSON.stringify(payload).slice(0, 3000)}`);
+          const p = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          if (p.success !== true) throw new Error(JSON.stringify(p).slice(0, 3000));
+          if (Number(p.summary?.selectedListings) !== 25 || !Array.isArray(p.results) || p.results.length !== 25) {
+            throw new Error('Stress response did not contain 25 card results.');
           }
-          const summary = payload.summary || {};
-          if (Number(summary.selectedListings) !== 25) {
-            throw new Error(`Expected 25 selected listings, got ${summary.selectedListings ?? 'missing'}.`);
-          }
-          if (!Array.isArray(payload.results) || payload.results.length !== 25) {
-            throw new Error(`Expected 25 result rows, got ${Array.isArray(payload.results) ? payload.results.length : 'missing'}.`);
-          }
-          console.log(JSON.stringify({
-            completedAt: payload.completedAt || null,
-            selectedListings: summary.selectedListings,
-            cardsPassed: summary.cardsPassed,
-            cardsFailed: summary.cardsFailed,
-            cardAccuracyPercent: summary.cardAccuracyPercent,
-            fieldChecksPassed: summary.fieldChecksPassed,
-            fieldChecksTotal: summary.fieldChecksTotal,
-            fieldAccuracyPercent: summary.fieldAccuracyPercent,
-            autographCards: summary.autographCards,
-            memorabiliaCards: summary.memorabiliaCards,
-            serialNumberedCards: summary.serialNumberedCards,
-            parallelCards: summary.parallelCards,
-            rookieCards: summary.rookieCards,
-            frontBackVerified: summary.frontBackVerified,
-            perfect: summary.perfect === true,
-          }, null, 2));
+          console.log(JSON.stringify(p.summary, null, 2));
           NODE
 
-      - name: Upload full stress-test receipt
+      - name: Upload stress receipts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: instacomp-25-live-listing-stress-test
-          path: ${{ runner.temp }}/instacomp-25-live-listing-stress-test.json
+          path: |
+            ${{ runner.temp }}/instacomp-25-live-listing-stress-test.json
+            ${{ runner.temp }}/instacomp-25-mac-status.json
           if-no-files-found: warn
           retention-days: 90
 
-      - name: Publish latest audit receipt
-        if: success()
+      - name: Publish latest audit receipts
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
-          result="$RUNNER_TEMP/instacomp-25-live-listing-stress-test.json"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           if git ls-remote --exit-code origin "refs/heads/$RESULT_BRANCH" >/dev/null 2>&1; then
@@ -101,8 +102,13 @@ jobs:
             git switch --orphan "$RESULT_BRANCH"
             git rm -rf . >/dev/null 2>&1 || true
           fi
-          mkdir -p "$(dirname "$RESULT_PATH")"
-          cp "$result" "$RESULT_PATH"
-          git add "$RESULT_PATH"
-          git commit -m "Update InstaComp 25-card live stress result"
+          mkdir -p "$RESULT_DIR"
+          test -f "$RUNNER_TEMP/instacomp-25-mac-status.json" && cp "$RUNNER_TEMP/instacomp-25-mac-status.json" "$RESULT_DIR/mac-status.json" || true
+          test -f "$RUNNER_TEMP/instacomp-25-live-listing-stress-test.json" && cp "$RUNNER_TEMP/instacomp-25-live-listing-stress-test.json" "$RESULT_DIR/latest.json" || true
+          git add "$RESULT_DIR"
+          if git diff --cached --quiet; then
+            echo "No receipt changes to publish."
+            exit 0
+          fi
+          git commit -m "Update InstaComp 25-card stress receipts"
           git push --force origin "$RESULT_BRANCH"
