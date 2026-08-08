@@ -52,47 +52,6 @@ jobs:
           mkdir -p .vercel
           printf '{"projectId":"%s","orgId":"%s"}\n' "$VERCEL_PROJECT_ID" "$VERCEL_ORG_ID" > .vercel/project.json
 
-      - name: Print compact live Sentinel status
-        shell: bash
-        run: |
-          set -euo pipefail
-          script="$RUNNER_TEMP/sentinel-compact.py"
-          cat > "$script" <<'PY'
-          import json, os, urllib.request
-          from datetime import datetime, timezone
-          base = str(os.environ.get('INSTACOMP_AI_LOCAL_URL') or '').strip().rstrip('/')
-          key = str(os.environ.get('INSTACOMP_AI_LOCAL_KEY') or '').strip()
-          if not base.startswith('https://') or len(key) < 32:
-              raise SystemExit('Production env runtime did not expose Sentinel connection variables')
-          def get(path):
-              req = urllib.request.Request(base + path, headers={'X-InstaComp-AI-Key': key, 'accept':'application/json'})
-              with urllib.request.urlopen(req, timeout=60) as r:
-                  return json.loads(r.read().decode())
-          status = get('/v1/checklist-sentinel/status')
-          targets = get('/v1/checklist-sentinel/targets?limit=5000').get('targets') or []
-          downloads = get('/v1/checklist-sentinel/downloads?limit=5000').get('downloads') or []
-          latest = status.get('latest_job') or {}
-          compact = {
-              'checkedAt': datetime.now(timezone.utc).isoformat(),
-              'name': status.get('name'),
-              'enabled': status.get('enabled'),
-              'targets': status.get('targets'),
-              'targetRows': len(targets),
-              'downloadRows': len(downloads),
-              'latestJob': {k: latest.get(k) for k in [
-                  'job_id','status','trigger','started_at','heartbeat_at','current_target_key',
-                  'processed_targets','total_targets','found_count','downloaded_count','imported_count',
-                  'duplicate_count','failed_count'
-              ]},
-              'freezeProtection': status.get('freeze_protection'),
-              'registryImportConfigured': status.get('registry_import_configured'),
-              'targetFeedConfigured': status.get('target_feed_configured'),
-          }
-          print('CENSUS_SENTINEL=' + json.dumps(compact, separators=(',',':'), sort_keys=True))
-          PY
-          npx vercel@58.8.0 env run -e production --token "$VERCEL_TOKEN" --scope "$VERCEL_SCOPE" -- python3 "$script"
-          rm -f "$script"
-
       - name: Resolve protected Production Supabase credentials
         shell: bash
         run: bash scripts/resolve-mainstream-checklist-production-env.sh >/dev/null
@@ -194,6 +153,50 @@ jobs:
           console.log('CENSUS_REGISTRY=' + JSON.stringify(registry));
           console.log('CENSUS_MAINSTREAM=' + JSON.stringify(mainstream));
           NODE
+
+      - name: Print compact live Sentinel status when Vercel exposes runtime secrets
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          script="$RUNNER_TEMP/sentinel-compact.py"
+          cat > "$script" <<'PY'
+          import json, os, urllib.request
+          from datetime import datetime, timezone
+          base = str(os.environ.get('INSTACOMP_AI_LOCAL_URL') or '').strip().rstrip('/')
+          key = str(os.environ.get('INSTACOMP_AI_LOCAL_KEY') or '').strip()
+          if not base.startswith('https://') or len(key) < 32:
+              print('CENSUS_SENTINEL=' + json.dumps({'available':False,'reason':'Vercel CLI did not expose write-only Sentinel connection variables.'}, separators=(',',':')))
+              raise SystemExit(0)
+          def get(path):
+              req = urllib.request.Request(base + path, headers={'X-InstaComp-AI-Key': key, 'accept':'application/json'})
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  return json.loads(r.read().decode())
+          status = get('/v1/checklist-sentinel/status')
+          targets = get('/v1/checklist-sentinel/targets?limit=5000').get('targets') or []
+          downloads = get('/v1/checklist-sentinel/downloads?limit=5000').get('downloads') or []
+          latest = status.get('latest_job') or {}
+          compact = {
+              'available':True,
+              'checkedAt': datetime.now(timezone.utc).isoformat(),
+              'name': status.get('name'),
+              'enabled': status.get('enabled'),
+              'targets': status.get('targets'),
+              'targetRows': len(targets),
+              'downloadRows': len(downloads),
+              'latestJob': {k: latest.get(k) for k in [
+                  'job_id','status','trigger','started_at','heartbeat_at','current_target_key',
+                  'processed_targets','total_targets','found_count','downloaded_count','imported_count',
+                  'duplicate_count','failed_count'
+              ]},
+              'freezeProtection': status.get('freeze_protection'),
+              'registryImportConfigured': status.get('registry_import_configured'),
+              'targetFeedConfigured': status.get('target_feed_configured'),
+          }
+          print('CENSUS_SENTINEL=' + json.dumps(compact, separators=(',',':'), sort_keys=True))
+          PY
+          npx vercel@58.8.0 env run -e production --token "$VERCEL_TOKEN" --scope "$VERCEL_SCOPE" -- python3 "$script"
+          rm -f "$script"
 
       - name: Destroy temporary credential files
         if: always()
