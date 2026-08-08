@@ -7,12 +7,14 @@ on:
       - "src/app/api/release/instacomp-deal-hunter-learning-self-test/route.ts"
       - ".github/workflows/instacomp-deal-hunter-live-learning-proof.yml"
       - ".github/scripts/instacomp-25-card-stress.mjs"
+      - ".github/scripts/instacomp-25-card-stress-v2.mjs"
   push:
     branches: [main]
     paths:
       - "src/app/api/release/instacomp-deal-hunter-learning-self-test/route.ts"
       - ".github/workflows/instacomp-deal-hunter-live-learning-proof.yml"
       - ".github/scripts/instacomp-25-card-stress.mjs"
+      - ".github/scripts/instacomp-25-card-stress-v2.mjs"
 
 permissions:
   contents: read
@@ -73,7 +75,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          node .github/scripts/instacomp-25-card-stress.mjs "$PRODUCTION_ENV_FILE" "$EVIDENCE_DIR"
+          node .github/scripts/instacomp-25-card-stress-v2.mjs "$PRODUCTION_ENV_FILE" "$EVIDENCE_DIR"
       - name: Upload 25-card stress receipts
         if: always()
         uses: actions/upload-artifact@v4
