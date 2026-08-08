@@ -6,7 +6,7 @@ import { parseUpperDeckHtmlChecklist } from "./upper-deck-html";
 
 export const UPPER_DECK_2025_26_NORMALIZED_ADAPTER_ID =
   "upper-deck-2025-26-normalized-html" as const;
-export const UPPER_DECK_2025_26_NORMALIZED_ADAPTER_VERSION = "1.0.1" as const;
+export const UPPER_DECK_2025_26_NORMALIZED_ADAPTER_VERSION = "1.0.2" as const;
 
 type Cell = {
   full: string;
@@ -84,6 +84,26 @@ function serialValue(value: string) {
   return value;
 }
 
+function normalizeParallelSetName(value: string, parentSetNames: string[]) {
+  const normalized = text(value);
+  const match = normalized.match(/^(.*?)\s+Parallel$/i);
+  if (!match) return normalized;
+  const beforeParallel = text(match[1]);
+  const beforeComparable = comparable(beforeParallel);
+  const parent = parentSetNames
+    .filter((candidate) => {
+      const key = comparable(candidate);
+      return beforeComparable === key || beforeComparable.startsWith(`${key}-`);
+    })
+    .sort((left, right) => comparable(right).length - comparable(left).length)[0];
+  if (!parent) return normalized;
+  const parentKey = comparable(parent);
+  if (beforeComparable === parentKey) return normalized;
+  const parallelName = text(beforeParallel.slice(parent.length)).replace(/^[-\s]+/, "");
+  if (!parallelName) return normalized;
+  return `${parallelName} Parallel - ${parent}`;
+}
+
 function normalizeChecklistTable(table: string) {
   const rowMatches = [...table.matchAll(/<tr\b[^>]*>[\s\S]*?<\/tr>/gi)];
   const rows = rowMatches.map((match) => match[0]);
@@ -108,10 +128,23 @@ function normalizeChecklistTable(table: string) {
 
   if (setIndex < 0 || cardIndex < 0 || subjectIndex < 0) return table;
 
+  const parentSetNames = [...new Set(
+    parsed
+      .slice(headerIndex + 1)
+      .map((row) => row[setIndex]?.text || "")
+      .filter((value) => value && !/\s+Parallel$/i.test(value)),
+  )];
+
+  const normalizedSetNames = parsed.map((row, index) =>
+    index > headerIndex && row[setIndex]
+      ? normalizeParallelSetName(row[setIndex].text, parentSetNames)
+      : row[setIndex]?.text || "",
+  );
+
   const owners = new Map<string, Set<string>>();
   for (let index = headerIndex + 1; index < parsed.length; index += 1) {
     const row = parsed[index];
-    const setName = row[setIndex]?.text || "";
+    const setName = normalizedSetNames[index] || "";
     const cardNumber = row[cardIndex]?.text || "";
     const subject = row[subjectIndex]?.text || "";
     if (!setName || !cardNumber || !subject) continue;
@@ -132,7 +165,6 @@ function normalizeChecklistTable(table: string) {
   const normalizedRows = rows.map((row, rowIndex) => {
     const rowCells = parsed[rowIndex];
     const replacements = new Map<number, string>();
-    let appendSpValue: string | null = null;
 
     if (rowIndex === headerIndex) {
       if (names[cardIndex] === "cardnumber") replacements.set(cardIndex, "Card");
@@ -143,15 +175,17 @@ function normalizeChecklistTable(table: string) {
       if (serialIndex >= 0 && rowCells[serialIndex]) {
         replacements.set(serialIndex, serialValue(rowCells[serialIndex].inner));
       }
-      const setName = rowCells[setIndex]?.text || "";
+      const normalizedSetName = normalizedSetNames[rowIndex] || "";
+      if (normalizedSetName && normalizedSetName !== rowCells[setIndex]?.text) {
+        replacements.set(setIndex, normalizedSetName);
+      }
       const cardNumber = rowCells[cardIndex]?.text || "";
       const subject = rowCells[subjectIndex]?.text || "";
-      const key = `${comparable(setName)}:${comparable(cardNumber)}`;
+      const key = `${comparable(normalizedSetName)}:${comparable(cardNumber)}`;
       if (conflicts.has(key) && subject) {
         const prior = spIndex < rowCells.length ? rowCells[spIndex]?.text || "" : "";
         const variation = [prior, `Subject: ${subject}`].filter(Boolean).join("; ");
         if (spIndex < rowCells.length) replacements.set(spIndex, variation);
-        else if (!addSpColumn) appendSpValue = variation;
       }
     }
 
@@ -161,7 +195,7 @@ function normalizeChecklistTable(table: string) {
         ? "SPs"
         : rowIndex > headerIndex
           ? (() => {
-              const setName = rowCells[setIndex]?.text || "";
+              const setName = normalizedSetNames[rowIndex] || "";
               const cardNumber = rowCells[cardIndex]?.text || "";
               const subject = rowCells[subjectIndex]?.text || "";
               return conflicts.has(`${comparable(setName)}:${comparable(cardNumber)}`) && subject
@@ -171,8 +205,6 @@ function normalizeChecklistTable(table: string) {
           : "";
       const cellTag = rowIndex === headerIndex ? "th" : "td";
       output = output.replace(/<\/tr>$/i, `<${cellTag}>${value}</${cellTag}></tr>`);
-    } else if (appendSpValue !== null) {
-      output = output.replace(/<\/tr>$/i, `<td>${appendSpValue}</td></tr>`);
     }
     return output;
   });
