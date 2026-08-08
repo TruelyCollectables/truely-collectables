@@ -85,6 +85,41 @@ export async function POST(request: Request) {
       candidateRows = candidates || [];
     }
 
+    const cutoff90 = new Date(Date.now() - 90 * 86_400_000).toISOString();
+    const [legacyAll, legacyRecent, legacyIdentities] = await Promise.all([
+      supabase
+        .from("tcos_mi_sold_comps")
+        .select("id", { count: "exact", head: true })
+        .eq("verified", true)
+        .eq("excluded", false)
+        .eq("outlier_flag", false),
+      supabase
+        .from("tcos_mi_sold_comps")
+        .select("collectible_identity_id,sold_at,match_confidence", { count: "exact" })
+        .eq("verified", true)
+        .eq("excluded", false)
+        .eq("outlier_flag", false)
+        .gte("sold_at", cutoff90)
+        .gte("match_confidence", 95)
+        .order("sold_at", { ascending: false })
+        .limit(1000),
+      supabase
+        .from("tcos_mi_collectible_identities")
+        .select("id", { count: "exact", head: true })
+        .eq("active", true),
+    ]);
+    for (const [label, result] of [
+      ["Legacy sold all-time", legacyAll],
+      ["Legacy sold 90-day", legacyRecent],
+      ["Legacy identity", legacyIdentities],
+    ] as const) {
+      if (result.error) throw new Error(`${label} census failed: ${result.error.message}`);
+    }
+    const legacyRecentRows = legacyRecent.data || [];
+    const legacyRecentIdentityCount = new Set(
+      legacyRecentRows.map((row) => String(row.collectible_identity_id || "")).filter(Boolean),
+    ).size;
+
     const rows = data || [];
     const identityId = String(rows[0]?.registry_identity_id || "").trim();
     const history = identityId ? await loadExactCardMarketHistory(identityId) : null;
@@ -94,6 +129,15 @@ export async function POST(request: Request) {
       totalObservationCount: Number(count || 0),
       since,
       observationCountSince: rows.length,
+      legacySoldCensus: {
+        verifiedIncludedAllTime: Number(legacyAll.count || 0),
+        verifiedHighConfidenceLast90Days: Number(legacyRecent.count || legacyRecentRows.length || 0),
+        identitiesWithRecentSold: legacyRecentIdentityCount,
+        activeLegacyIdentities: Number(legacyIdentities.count || 0),
+        cutoff90,
+        newestSoldAt: legacyRecentRows[0]?.sold_at || null,
+        oldestReturnedSoldAt: legacyRecentRows[legacyRecentRows.length - 1]?.sold_at || null,
+      },
       recent: rows.map((row) => ({
         registryIdentityId: row.registry_identity_id,
         kind: row.observation_kind,
