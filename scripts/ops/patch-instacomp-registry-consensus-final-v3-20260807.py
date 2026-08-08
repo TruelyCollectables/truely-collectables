@@ -1,5 +1,4 @@
 from pathlib import Path
-import re
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -57,6 +56,11 @@ replace_once(path, old, new)
 
 # Regression simulation: exact Registry referee must survive primary PRIZM product-line text.
 path = "scripts/run-instacomp-final-identity-consensus-simulations.ts"
+replace_once(
+    path,
+    'const baseMatch = { ...iceMatch, identityId: "2a7d4ddd-e9f7-4ce2-904c-b1a17b33ae4f", fingerprintSha256: "2".repeat(64), player: "Sonia Citron", cardNumber: "122", parallel: "Base" };\n',
+    'const baseMatch = { ...iceMatch, identityId: "2a7d4ddd-e9f7-4ce2-904c-b1a17b33ae4f", fingerprintSha256: "2".repeat(64), player: "Sonia Citron", cardNumber: "122", parallel: "Base", team: "Washington Mystics" };\n',
+)
 old = '''assert.equal(baseDecision.confirmed, true);\nassert.ok(baseDecision.confidence >= 0.95);\n\nconst local = instaCompAiLocalScanToAi({\n'''
 new = '''assert.equal(baseDecision.confirmed, true);\nassert.ok(baseDecision.confidence >= 0.95);\n\nconst productLineOnlyBaseConsensus = buildInstaCompMultiScannerConsensus({\n  readers: [\n    {\n      readerId: "primary-product-line-base",\n      label: "Primary local Qwen",\n      kind: "primary_vision",\n      family: "instacomp_internal",\n      identity: { player: "Sonia Citron", year: "2025", brand: "Panini", setName: "PRIZM", cardNumber: "122", team: "Washington Mystics", sport: "Basketball", isRookie: true, isAuto: false, isRelic: false },\n      confidence: 0.98,\n      evidence: ["front/back model"],\n    },\n    {\n      readerId: "deterministic-product-line-base",\n      label: "Apple Vision/OpenCV deterministic evidence",\n      kind: "ocr_printed_evidence",\n      family: "instacomp_local_deterministic",\n      identity: { year: "2025", brand: "Panini", cardNumber: "122", isRookie: true },\n      confidence: 0.99,\n      evidence: ["printed hard facts"],\n    },\n  ],\n  baseIdentity: { player: "Sonia Citron", year: "2025", brand: "Panini", setName: "PRIZM", cardNumber: "122", team: "Washington Mystics", sport: "Basketball", isRookie: true, isAuto: false, isRelic: false },\n  catalogReferee: catalogEvidenceToConsensusReferee(baseCatalog),\n  escalation: applyInstaCompRegistryFastLane(\n    { schema: "tcos.instacomp.consensusEscalation.v1", speedLane: "escalated_multi_ai", councilMode: "full_council", riskTier: "high", runSecondaryVision: false, reasons: ["missing_setName"], scannerPlan: [], explanation: "test" },\n    baseMatch.identityId,\n  ),\n});\nassert.equal(productLineOnlyBaseConsensus.catalogReferee.status, "catalog_confirmed");\nassert.equal(productLineOnlyBaseConsensus.trustedForIdentity, true);\nassert.equal(productLineOnlyBaseConsensus.finalIdentity.setName, "Base");\nconst productLineOnlyBaseDecision = buildInstaCompEvidenceIdentityDecision({\n  resolution: { status: "internal_exact_match", match: baseMatch, reasons: [], candidateCount: 1, coveredReleaseIds: ["r"], coveredVersionIds: ["v"], coveredSetIds: ["s"], sourceTier: "internal", externalLookupEligible: false, externalLookupAttempted: false },\n  consensus: productLineOnlyBaseConsensus,\n  hasBackImage: true,\n  threshold: 0.95,\n});\nassert.equal(productLineOnlyBaseDecision.confirmed, true);\nassert.ok(productLineOnlyBaseDecision.confidence >= 0.95);\n\nconst local = instaCompAiLocalScanToAi({\n'''
 replace_once(path, old, new)
