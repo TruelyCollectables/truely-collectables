@@ -1,0 +1,80 @@
+INSTACOMP AI — SIMPLE GOLDEN BACKUP / RESTORE
+Certified working application commit: 04d927fe9b845eac3902ce1e88b720eb0fb8cb6e
+Certified Mac runtime fingerprint: d1f81dfa0054a5b1ca36f32c0f32c5c03f09a2de507e69041815861385878be3
+
+============================================================
+MAKE THE BACKUP NOW
+============================================================
+
+1. Open Terminal on the Mac mini.
+
+2. Go to the existing truely-collectables repository.
+   Easy way: type "cd " (with a space), drag the truely-collectables folder from Finder into Terminal, then press Return.
+
+3. Run these commands ONE AT A TIME:
+
+   git fetch origin
+
+   git checkout backup/instacomp-ai-certified-2026-08-07-recovery
+
+   chmod +x INSTACOMP_AI_BACKUP_NOW.command
+
+   ./INSTACOMP_AI_BACKUP_NOW.command
+
+4. Do NOT call the backup good unless the window ends with:
+
+   SUCCESS - InstaComp AI golden backup is VERIFIED.
+
+5. In Finder, open:
+
+   ~/Backups/InstaComp-AI-GOLDEN-2026-08-07
+
+6. Copy that ENTIRE folder to an external SSD or USB drive.
+
+7. Do NOT upload that folder to a public website or public GitHub repository. It can contain .env secrets.
+
+8. When finished, return the working repository to main:
+
+   git checkout main
+
+============================================================
+IF EVERYTHING BREAKS LATER
+============================================================
+
+1. DO NOT delete the broken/old folder yet.
+
+2. Copy the entire backup folder back to:
+
+   ~/Backups/InstaComp-AI-GOLDEN-2026-08-07
+
+3. Get the recovery branch from GitHub into a clean repository checkout.
+
+4. In Terminal, go to that recovery repository and run:
+
+   chmod +x INSTACOMP_AI_RESTORE.command
+
+   ./INSTACOMP_AI_RESTORE.command
+
+5. The restore NEVER overwrites the old repository. It creates a new folder named similar to:
+
+   ~/InstaComp-AI-Recovery-20260807-xxxxxx
+
+6. Do NOT continue unless the restore ends with:
+
+   LOCAL RECOVERY SUCCESS
+
+7. Then open INSTACOMP_AI_RECOVERY_GUIDE.md and follow the section named:
+
+   FINAL PRODUCTION RECOVERY
+
+============================================================
+GOLDEN GITHUB COPY
+============================================================
+
+Exact untouched certified code:
+backup/instacomp-ai-certified-2026-08-07-golden
+
+Recovery helpers + exact certified application code:
+backup/instacomp-ai-certified-2026-08-07-recovery
+
+The golden branch must NOT be edited.
