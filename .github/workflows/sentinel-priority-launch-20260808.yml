@@ -1,0 +1,341 @@
+name: Sentinel Priority Launch 20260808
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/sentinel-priority-launch-20260808.yml'
+      - 'scripts/sentinel-priority-launch-20260808.marker'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  launch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_PROJECT_ID: prj_8mJZCaMhTddaKgcFFJYPwWu0P4mk
+      VERCEL_ORG_ID: team_cDDhCqEiYlz0KJQ3ATLJH7nz
+      VERCEL_SCOPE: truelycollectables-projects
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SITE_URL: https://truelycollectables.com
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies quietly
+        run: npm ci --silent
+
+      - name: Fail closed on one-time launch scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --depth=1 origin main
+          mapfile -t changed < <(git diff --name-only origin/main HEAD | sort)
+          printf '%s\n' "${changed[@]}"
+          test "${#changed[@]}" -eq 2
+          test "${changed[0]}" = '.github/workflows/sentinel-priority-launch-20260808.yml'
+          test "${changed[1]}" = 'scripts/sentinel-priority-launch-20260808.marker'
+          test -n "$VERCEL_TOKEN"
+          test -n "$GH_SUPABASE_ACCESS_TOKEN"
+
+      - name: Link exact Vercel project
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .vercel
+          printf '{"projectId":"%s","orgId":"%s"}\n' "$VERCEL_PROJECT_ID" "$VERCEL_ORG_ID" > .vercel/project.json
+
+      - name: Resolve protected Production Registry credentials
+        shell: bash
+        run: bash scripts/resolve-mainstream-checklist-production-env.sh >/dev/null
+
+      - name: Build current unresolved mainstream target campaign
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source "$PRODUCTION_ENV_PATH"
+          set +a
+          export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
+          export TARGET_FILE="$RUNNER_TEMP/sentinel-mainstream-priority-targets.json"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { createClient } from '@supabase/supabase-js';
+          import { loadMainstreamChecklistManifest } from './scripts/mainstream-checklist/manifest.mjs';
+          import { isVerifiedNonPromotable } from './scripts/mainstream-checklist/verified-exceptions.mjs';
+
+          const db = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL,
+            process.env.SUPABASE_SERVICE_ROLE_KEY,
+            { auth: { persistSession: false, autoRefreshToken: false } },
+          );
+          const manifest = loadMainstreamChecklistManifest();
+          const promotable = manifest.entries.filter(
+            (entry) => entry.disposition !== 'attachment_only' && !isVerifiedNonPromotable(entry),
+          );
+          const urls = promotable.map((entry) => entry.sourceUrl);
+          const rows = [];
+          for (let i = 0; i < urls.length; i += 100) {
+            const { data, error } = await db
+              .from('checklist_source_catalog')
+              .select('source_url,status,issue_summary')
+              .in('source_url', urls.slice(i, i + 100));
+            if (error) throw new Error(error.message);
+            rows.push(...(data || []));
+          }
+          const byUrl = new Map(rows.map((row) => [row.source_url, row]));
+          const unresolved = promotable.filter((entry) => {
+            const status = String(byUrl.get(entry.sourceUrl)?.status || 'missing_catalog_row');
+            return !['imported', 'unchanged'].includes(status);
+          });
+          if (!unresolved.length || unresolved.length > promotable.length) {
+            throw new Error(`Refusing invalid unresolved mainstream count: ${unresolved.length}`);
+          }
+          const targets = unresolved.map((entry) => {
+            const release = entry.release || {};
+            const catalog = byUrl.get(entry.sourceUrl) || {};
+            const exactSetKey = String(release.exactSetKey || '').trim();
+            if (!exactSetKey || exactSetKey.split('|').length !== 4) {
+              throw new Error(`Invalid exactSetKey for ${entry.id}: ${exactSetKey}`);
+            }
+            return {
+              target_key: exactSetKey,
+              exactSetKey,
+              sport: release.sport || null,
+              year: release.releaseYear || null,
+              season: release.season || String(release.releaseYear || ''),
+              manufacturer: release.manufacturer || null,
+              product: release.product || release.canonicalName || entry.id,
+              scope: 'mainstream-2000plus-priority',
+              priority: 1,
+              metadata: {
+                campaign: 'mainstream-2000plus-20260808',
+                sourceId: entry.id,
+                canonicalName: release.canonicalName || entry.id,
+                sourceUrl: entry.sourceUrl,
+                catalogStatus: catalog.status || 'missing_catalog_row',
+                blockerCodes: (catalog.issue_summary || []).map((item) => item?.code).filter(Boolean),
+              },
+            };
+          });
+          const bySport = {};
+          for (const target of targets) {
+            const key = target.sport || 'unknown';
+            bySport[key] = (bySport[key] || 0) + 1;
+          }
+          fs.writeFileSync(process.env.TARGET_FILE, JSON.stringify({ targets }, null, 2));
+          console.log('MAINSTREAM_PRIORITY_TARGET_COUNT=' + targets.length);
+          console.log('MAINSTREAM_PRIORITY_BY_SPORT=' + JSON.stringify(bySport));
+          NODE
+          test -s "$TARGET_FILE"
+          echo "TARGET_FILE=$TARGET_FILE" >> "$GITHUB_ENV"
+
+      - name: Generate ephemeral Production control bridge
+        id: bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          token="$(openssl rand -hex 32)"
+          test "${#token}" -eq 64
+          echo "CONTROL_TOKEN=$token" >> "$GITHUB_ENV"
+          route_dir="src/app/api/internal/sentinel-priority-launch-20260808"
+          mkdir -p "$route_dir"
+          cat > "$route_dir/route.ts" <<EOF
+          import { NextResponse } from "next/server";
+
+          export const runtime = "nodejs";
+          export const dynamic = "force-dynamic";
+          export const maxDuration = 60;
+
+          const CONTROL_TOKEN = "$token";
+
+          function configuredMacUrl() {
+            const value = String(process.env.INSTACOMP_AI_LOCAL_URL || "").trim().replace(/\\/+$/, "");
+            if (!/^https:\\/\\//i.test(value)) return null;
+            return value;
+          }
+
+          async function callMac(path: string, init: RequestInit = {}) {
+            const base = configuredMacUrl();
+            const key = String(process.env.INSTACOMP_AI_LOCAL_KEY || "").trim();
+            if (!base || key.length < 32) throw new Error("Mac connection unavailable");
+            const headers = new Headers(init.headers);
+            headers.set("X-InstaComp-AI-Key", key);
+            if (init.body) headers.set("content-type", "application/json");
+            const result = await fetch(base + path, {
+              ...init,
+              headers,
+              cache: "no-store",
+              redirect: "error",
+              signal: AbortSignal.timeout(45_000),
+            });
+            const payload = await result.json().catch(() => null);
+            if (!result.ok || !payload) throw new Error("Mac HTTP " + result.status);
+            return payload;
+          }
+
+          function dueNow(row: any) {
+            if (!["pending", "no_result", "lead_only", "failed"].includes(String(row?.status || ""))) return false;
+            const next = String(row?.next_search_at || "").trim();
+            if (!next) return true;
+            const parsed = Date.parse(next);
+            return Number.isFinite(parsed) && parsed <= Date.now();
+          }
+
+          export async function POST(request: Request) {
+            try {
+              const supplied = String(request.headers.get("x-sentinel-one-time-control") || "");
+              if (supplied !== CONTROL_TOKEN) {
+                return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+              }
+              const body = await request.json();
+              const targets = Array.isArray(body?.targets) ? body.targets : [];
+              if (!targets.length || targets.length > 500) {
+                return NextResponse.json({ ok: false, error: "invalid target count" }, { status: 400 });
+              }
+              for (const target of targets) {
+                const key = String(target?.target_key || target?.exactSetKey || "");
+                if (key.split("|").length !== 4 || Number(target?.priority) !== 1) {
+                  return NextResponse.json({ ok: false, error: "invalid target payload" }, { status: 400 });
+                }
+              }
+
+              const before = await callMac("/v1/checklist-sentinel/status");
+              const upsert = await callMac("/v1/checklist-sentinel/targets", {
+                method: "POST",
+                body: JSON.stringify({ targets }),
+              });
+              const targetSnapshot = await callMac("/v1/checklist-sentinel/targets?limit=5000");
+              const wanted = new Set(targets.map((target: any) => String(target.target_key || target.exactSetKey)));
+              const rows = Array.isArray(targetSnapshot?.targets)
+                ? targetSnapshot.targets.filter((row: any) => wanted.has(String(row?.target_key || "")))
+                : [];
+              const statusCounts: Record<string, number> = {};
+              let dueCampaignTargets = 0;
+              for (const row of rows) {
+                const status = String(row?.status || "unknown");
+                statusCounts[status] = (statusCounts[status] || 0) + 1;
+                if (dueNow(row)) dueCampaignTargets += 1;
+              }
+
+              const run = await callMac("/v1/checklist-sentinel/run", {
+                method: "POST",
+                body: JSON.stringify({ trigger: "mainstream-2000plus-priority-launch" }),
+              });
+              await new Promise((resolve) => setTimeout(resolve, 2500));
+              const after = await callMac("/v1/checklist-sentinel/status");
+              return NextResponse.json({
+                ok: true,
+                submittedTargets: targets.length,
+                beforeTargets: before?.targets || null,
+                upsert,
+                campaign: {
+                  matchedRows: rows.length,
+                  dueNow: dueCampaignTargets,
+                  statusCounts,
+                },
+                run,
+                afterTargets: after?.targets || null,
+                latestJob: after?.latest_job || null,
+                freezeProtection: after?.freeze_protection || null,
+              });
+            } catch (error) {
+              return NextResponse.json(
+                { ok: false, error: error instanceof Error ? error.message : "bridge failure" },
+                { status: 502 },
+              );
+            }
+          }
+          EOF
+          test -s "$route_dir/route.ts"
+
+      - name: Deploy ephemeral bridge to Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@58.8.0 --prod --yes --cwd . --token "$VERCEL_TOKEN" --scope "$VERCEL_SCOPE"
+
+      - name: Push priority targets and start Sentinel
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$RUNNER_TEMP/sentinel-priority-launch-response.json"
+          for attempt in $(seq 1 30); do
+            code="$(curl -sS -o "$response" -w '%{http_code}' --max-time 60 \
+              -H 'content-type: application/json' \
+              -H "x-sentinel-one-time-control: $CONTROL_TOKEN" \
+              --data-binary "@$TARGET_FILE" \
+              "$SITE_URL/api/internal/sentinel-priority-launch-20260808" || true)"
+            if [[ "$code" == "200" ]]; then
+              break
+            fi
+            [[ "$attempt" -lt 30 ]] || {
+              echo "One-time Sentinel bridge never became callable; HTTP $code" >&2
+              test -f "$response" && cat "$response" >&2 || true
+              exit 1
+            }
+            sleep 2
+          done
+          RESPONSE_FILE="$response" python3 - <<'PY'
+          import json, os
+          payload = json.load(open(os.environ['RESPONSE_FILE'], encoding='utf-8'))
+          if payload.get('ok') is not True:
+              raise SystemExit('Sentinel launch bridge did not return ok=true')
+          submitted = int(payload.get('submittedTargets') or 0)
+          campaign = payload.get('campaign') or {}
+          matched = int(campaign.get('matchedRows') or 0)
+          if submitted <= 0 or matched <= 0:
+              raise SystemExit('Sentinel priority campaign did not match any Mac targets')
+          latest = payload.get('latestJob') or {}
+          run = payload.get('run') or {}
+          print('SENTINEL_PRIORITY_LAUNCH=' + json.dumps({
+              'submittedTargets': submitted,
+              'matchedRows': matched,
+              'dueNow': campaign.get('dueNow'),
+              'campaignStatusCounts': campaign.get('statusCounts'),
+              'runAccepted': run.get('accepted'),
+              'runReason': run.get('reason'),
+              'jobId': latest.get('job_id'),
+              'jobStatus': latest.get('status'),
+              'jobTrigger': latest.get('trigger'),
+              'jobTotalTargets': latest.get('total_targets'),
+              'jobProcessedTargets': latest.get('processed_targets'),
+              'currentTargetKey': latest.get('current_target_key'),
+              'targetCounts': payload.get('afterTargets'),
+              'freezeStale': (payload.get('freezeProtection') or {}).get('stale'),
+          }, separators=(',', ':'), sort_keys=True))
+          if latest.get('status') != 'running':
+              raise SystemExit('Sentinel is not running after launch request')
+          if int(latest.get('total_targets') or 0) <= 0:
+              raise SystemExit('Sentinel launched but no targets were due')
+          PY
+
+      - name: Restore exact current main Production
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git checkout --detach origin/main
+          git clean -fd
+          mkdir -p .vercel
+          printf '{"projectId":"%s","orgId":"%s"}\n' "$VERCEL_PROJECT_ID" "$VERCEL_ORG_ID" > .vercel/project.json
+          npx vercel@58.8.0 --prod --yes --cwd . --token "$VERCEL_TOKEN" --scope "$VERCEL_SCOPE"
+
+      - name: Destroy temporary files
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "$RUNNER_TEMP/mainstream-checklist-ingestion"
+          rm -f "$RUNNER_TEMP/sentinel-mainstream-priority-targets.json"
+          rm -f "$RUNNER_TEMP/sentinel-priority-launch-response.json"
