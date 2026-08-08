@@ -1,0 +1,31 @@
+name: Sentinel Progress Quick Probe 20260808
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/sentinel-progress-quick-probe-20260808.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Probe both Production hostnames
+        shell: bash
+        run: |
+          set +e
+          for url in \
+            'https://truelycollectables.com/api/instacomp/checklist-sentinel/progress' \
+            'https://truely-collectables.vercel.app/api/instacomp/checklist-sentinel/progress'
+          do
+            echo "=== $url ==="
+            curl -sS --connect-timeout 5 --max-time 15 -D - "$url"
+            echo
+            echo "curl_exit=$?"
+          done
+          exit 0
