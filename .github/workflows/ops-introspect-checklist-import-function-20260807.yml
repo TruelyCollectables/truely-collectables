@@ -49,3 +49,4 @@ jobs:
             console.log(text);
           })().catch(e=>{console.error(e);process.exit(1)});
           NODE
+      - run: echo introspection-trigger-2
