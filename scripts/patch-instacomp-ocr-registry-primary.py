@@ -300,7 +300,12 @@ requireText(
   "OCR-resolved cards must record Checklist Registry provenance.",
 );
 '''
-if addition not in contract:
+modern_contract = (
+    'requireText(\n  service,\n  "printed_registry = ("' in contract
+    and 'forbidText(\n  analyze,\n  "await reader.analyze("' in contract
+    and '"CHECKLIST-ONLY REVIEW PATH"' in contract
+)
+if addition not in contract and not modern_contract:
     if marker not in contract:
         raise SystemExit("permanent contract marker missing")
     contract = contract.replace(marker, addition + marker, 1)
