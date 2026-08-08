@@ -1,0 +1,87 @@
+name: Sentinel Progress Deploy Proof 20260808
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/sentinel-progress-deploy-proof-20260808.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_SCOPE: truelycollectables-projects
+  PROGRESS_URL: https://truely-collectables.vercel.app/api/instacomp/checklist-sentinel/progress
+
+jobs:
+  deploy-and-prove:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Deploy exact current main to Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx vercel@56.2.0 --prod --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+
+      - name: Read live Sentinel progress
+        shell: bash
+        run: |
+          set -euo pipefail
+          body="$RUNNER_TEMP/sentinel-progress.json"
+          code=""
+          for attempt in $(seq 1 18); do
+            code="$(curl -sS --max-time 55 -o "$body" -w '%{http_code}' "$PROGRESS_URL" || true)"
+            if [[ "$code" == "200" ]]; then
+              break
+            fi
+            sleep 5
+          done
+          echo "HTTP=$code"
+          cat "$body" || true
+          echo
+          [[ "$code" == "200" ]]
+          node - "$body" <<'NODE'
+          const fs = require('fs');
+          const payload = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          if (payload.ok !== true) throw new Error('Progress endpoint did not return ok=true');
+          const job = payload.job || {};
+          const targets = payload.targets || {};
+          const baseline = 278;
+          const pending = Number(targets.pending || 0);
+          const sprintProcessed = Math.max(0, Math.min(baseline, baseline - pending));
+          const sprintPercent = baseline ? Math.round((sprintProcessed * 1000) / baseline) / 10 : 0;
+          console.log('SENTINEL_PROGRESS=' + JSON.stringify({
+            checkedAt: payload.checkedAt || null,
+            status: job.status || null,
+            trigger: job.trigger || null,
+            currentTarget: job.currentTarget || null,
+            batchProcessed: Number(job.processed || 0),
+            batchTotal: Number(job.total || 0),
+            batchPercent: Number(job.percent || 0),
+            targetTotal: Number(targets.total || 0),
+            pending,
+            recovered: Number(targets.recovered || 0),
+            noResult: Number(targets.noResult || 0),
+            leadOnly: Number(targets.leadOnly || 0),
+            failed: Number(targets.failed || 0),
+            sprintBaseline: baseline,
+            sprintProcessed,
+            sprintPercent,
+            freezeStale: Boolean(payload.freezeStale),
+            heartbeatAt: job.heartbeatAt || null
+          }));
+          NODE
