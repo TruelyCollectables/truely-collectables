@@ -165,6 +165,35 @@ def build_sentinel_router(
             "targets": sentinel.store.target_counts(),
         }
 
+    @protected.post("/requeue-targets")
+    async def requeue_targets(payload: Any = Body(...)) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="Object payload required.")
+        raw_keys = payload.get("target_keys") or payload.get("targetKeys") or []
+        if not isinstance(raw_keys, list):
+            raise HTTPException(status_code=400, detail="target_keys must be a list.")
+        target_keys = [str(value).strip() for value in raw_keys if str(value).strip()]
+        if not target_keys or len(target_keys) > 500:
+            raise HTTPException(
+                status_code=400,
+                detail="Provide between 1 and 500 target keys.",
+            )
+        try:
+            priority = int(payload.get("priority") or 1)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="priority must be an integer.")
+
+        result = sentinel.store.requeue_targets(target_keys, priority=priority)
+        launch = None
+        if result.get("requeued"):
+            launch = await sentinel.trigger(trigger="priority-requeue")
+        return {
+            "ok": True,
+            "requeue": result,
+            "launch": launch,
+            "targets": sentinel.store.target_counts(),
+        }
+
     @protected.get("/targets")
     async def list_targets(
         limit: int = Query(default=500, ge=1, le=5000),

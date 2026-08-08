@@ -264,6 +264,68 @@ class SentinelStore:
                 changed += db.total_changes - before
         return changed
 
+    def requeue_targets(
+        self,
+        target_keys: list[str],
+        *,
+        priority: int = 1,
+    ) -> dict[str, int]:
+        """Force unresolved targets due now without touching recovered truth.
+
+        This is intentionally narrow: it preserves attempts, search history,
+        findings, downloads and recovered targets. It only moves unresolved
+        target states back to pending and makes them immediately due.
+        """
+        unique_keys = list(dict.fromkeys(
+            str(value).strip() for value in target_keys if str(value).strip()
+        ))
+        if not unique_keys:
+            return {
+                "requested": 0,
+                "matched": 0,
+                "requeued": 0,
+                "recovered_skipped": 0,
+                "other_skipped": 0,
+            }
+
+        normalized_priority = max(1, min(100, int(priority)))
+        placeholders = ",".join("?" for _ in unique_keys)
+        now = iso_now()
+        requeueable = {"pending", "no_result", "lead_only", "failed"}
+
+        with self.connection() as db:
+            rows = db.execute(
+                f"SELECT target_key, status FROM checklist_sentinel_targets WHERE target_key IN ({placeholders})",
+                unique_keys,
+            ).fetchall()
+            matched = len(rows)
+            recovered_skipped = sum(1 for row in rows if row["status"] == "recovered")
+            eligible = [row["target_key"] for row in rows if row["status"] in requeueable]
+            other_skipped = matched - recovered_skipped - len(eligible)
+
+            if eligible:
+                eligible_placeholders = ",".join("?" for _ in eligible)
+                db.execute(
+                    f"""
+                    UPDATE checklist_sentinel_targets
+                    SET status = 'pending',
+                        next_search_at = ?,
+                        priority = CASE WHEN priority > ? THEN ? ELSE priority END,
+                        updated_at = ?
+                    WHERE target_key IN ({eligible_placeholders})
+                      AND status IN ('pending', 'no_result', 'lead_only', 'failed')
+                    """,
+                    [now, normalized_priority, normalized_priority, now, *eligible],
+                )
+
+        return {
+            "requested": len(unique_keys),
+            "matched": matched,
+            "requeued": len(eligible),
+            "recovered_skipped": recovered_skipped,
+            "other_skipped": other_skipped,
+        }
+
     def due_targets(self, limit: int) -> list[dict[str, Any]]:
         now = iso_now()
         with self.connection() as db:
