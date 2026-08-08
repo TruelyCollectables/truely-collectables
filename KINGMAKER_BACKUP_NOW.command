@@ -82,15 +82,50 @@ node scripts/certify-kingmaker-global-execution-query.mjs
 echo "Checking live Production source SHA..."
 LIVE_JSON="$(curl --silent --show-error --fail --max-time 30 -H 'Cache-Control: no-cache' "${PRODUCTION_RELEASE}?kingmaker-backup=$(date +%s)")"
 LIVE_SHA="$(node -e 'const b=JSON.parse(process.argv[1]);process.stdout.write(String(b.sourceCommit||""));' "$LIVE_JSON")"
-if [ "$LIVE_SHA" != "$CERTIFIED_COMMIT" ]; then
-  echo "ERROR: Production is not serving the certified KINGMAKER commit."
-  echo "Expected: $CERTIFIED_COMMIT"
-  echo "Live:     $LIVE_SHA"
-  echo "Golden backup REFUSED."
-  read "?Press Return to close..."
-  exit 1
+PRODUCTION_PROOF="exact-certified-sha"
+
+if [ "$LIVE_SHA" = "$CERTIFIED_COMMIT" ]; then
+  echo "PASS live Production exact certified SHA $LIVE_SHA"
+else
+  echo "Production is newer than the certified KINGMAKER source."
+  echo "Certified: $CERTIFIED_COMMIT"
+  echo "Live:      $LIVE_SHA"
+  echo "Fail-closed check: only the specifically audited InstaComp 25-card stress files may differ."
+
+  git fetch origin --quiet
+
+  if ! git cat-file -e "${LIVE_SHA}^{commit}" 2>/dev/null; then
+    echo "ERROR: live Production SHA is not present in fetched repository history."
+    echo "Golden backup REFUSED."
+    read "?Press Return to close..."
+    exit 1
+  fi
+
+  if ! git merge-base --is-ancestor "$CERTIFIED_COMMIT" "$LIVE_SHA"; then
+    echo "ERROR: live Production is not a descendant of the certified KINGMAKER commit."
+    echo "Golden backup REFUSED."
+    read "?Press Return to close..."
+    exit 1
+  fi
+
+  ALLOWED_LIVE_DRIFT='^(\.github/workflows/instacomp-25-live-listing-stress-test\.yml|\.github/workflows/instacomp-25-stress-progress-probe\.yml|src/app/api/release/instacomp-25-card-stress-test/route\.ts|src/app/api/release/instacomp-25-card-stress-test-v2/route\.ts|src/app/api/release/instacomp-25-card-stress-test-v3/route\.ts)$'
+  LIVE_CHANGED="$(git diff --name-only "$CERTIFIED_COMMIT" "$LIVE_SHA")"
+  UNEXPECTED_LIVE_DRIFT="$(printf '%s\n' "$LIVE_CHANGED" | sed '/^$/d' | grep -Ev "$ALLOWED_LIVE_DRIFT" || true)"
+
+  if [ -n "$UNEXPECTED_LIVE_DRIFT" ]; then
+    echo "ERROR: Production contains changes outside the audited non-KINGMAKER drift set:"
+    echo "$UNEXPECTED_LIVE_DRIFT"
+    echo "Golden backup REFUSED."
+    read "?Press Return to close..."
+    exit 1
+  fi
+
+  echo "Audited Production drift:"
+  printf '%s\n' "$LIVE_CHANGED"
+  echo "PASS live Production differs only by the audited InstaComp 25-card stress-test files."
+  echo "PASS certified KINGMAKER source remains unchanged in live Production ancestry."
+  PRODUCTION_PROOF="newer-live-sha-with-only-audited-non-kingmaker-drift"
 fi
-echo "PASS live Production exact SHA $LIVE_SHA"
 
 mkdir -p "$BACKUP_DIR"
 
@@ -109,8 +144,9 @@ cp -f KINGMAKER_RESTORE.command "$BACKUP_DIR/" 2>/dev/null || true
 
 cat > "$BACKUP_DIR/READ-ME-FIRST.txt" <<EOF
 KINGMAKER GOLDEN DISASTER-RECOVERY BACKUP
-Certified source: $CERTIFIED_COMMIT
-Production exact-source proof: PASS at backup time
+Certified KINGMAKER source: $CERTIFIED_COMMIT
+Live Production source at backup time: $LIVE_SHA
+Production compatibility proof: $PRODUCTION_PROOF
 
 KEEP THIS ENTIRE FOLDER TOGETHER.
 Treat it as sensitive because the archive can contain local .env secrets.
