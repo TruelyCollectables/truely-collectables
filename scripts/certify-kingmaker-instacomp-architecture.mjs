@@ -72,7 +72,7 @@ for (const required of [
   "job?.error",
   "Blank no longer means Base.",
   "No Base or look-alike parallel was substituted.",
-  "Nothing publishes automatically.",
+  "never auto-published",
 ]) {
   requireText(auditedPending, required, "audited KINGMAKER Pending Listings");
 }
