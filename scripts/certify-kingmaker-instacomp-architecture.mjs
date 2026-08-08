@@ -62,16 +62,27 @@ for (const [path, target] of wrappers) {
 
 const auditedPending = read("src/app/kingmaker/pending/page.tsx");
 for (const required of [
-  "rotatedImageFile",
-  'formData.set("frontImage", frontImage)',
-  'formData.set("backImage", backImage)',
-  "Retry This Card",
-  "Replace Manual Identity with AI",
+  "function hasValidPair(card: PendingCard)",
+  "card.frontImageUrl !== card.backImageUrl",
+  '"/api/account/seller/inventory/instacomp-front-back"',
+  "replaceManualIdentity",
+  'aiCouncilTier: "adaptive"',
+  "Re-scan and Replace Locked Identity",
+  "Save, Lock & Teach InstaComp",
   "job?.error",
+  "Blank no longer means Base.",
+  "No Base or look-alike parallel was substituted.",
+  "Nothing publishes automatically.",
 ]) {
   requireText(auditedPending, required, "audited KINGMAKER Pending Listings");
 }
-rejectText(auditedPending, "failed: 100", "audited KINGMAKER Pending Listings");
+for (const forbidden of [
+  "failed: 100",
+  'formData.set("frontImage", frontImage)',
+  'formData.set("backImage", backImage)',
+]) {
+  rejectText(auditedPending, forbidden, "audited KINGMAKER Pending Listings");
+}
 
 for (const existingPath of [
   "src/app/seller/instacomp-scan/page.tsx",
@@ -241,6 +252,7 @@ console.log(
       thinWrappers: wrappers.size,
       dynamicMarketplaceWrapperCertified: true,
       auditedPendingJob: true,
+      storedDistinctFrontBackRequired: true,
       capabilityCount: 10,
       canonicalIdentityAuthority: "central_checklist_registry",
       intelligenceOwner: "instacomp_ai",
