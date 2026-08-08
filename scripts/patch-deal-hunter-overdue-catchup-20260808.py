@@ -51,6 +51,6 @@ async def test_run_preserves_start_based_next_run_for_overdue_catchup(tmp_path: 
 '''
 if 'test_run_preserves_start_based_next_run_for_overdue_catchup' in test_text:
     raise SystemExit('Catch-up test already present; refusing duplicate patch.')
-tests.write_text(test_text.rstrip() + addition + '\n', encoding='utf-8')
+tests.write_text((test_text.rstrip() + addition.rstrip()).rstrip() + '\n', encoding='utf-8')
 
 print('Deal Hunter overdue catch-up patch applied.')
