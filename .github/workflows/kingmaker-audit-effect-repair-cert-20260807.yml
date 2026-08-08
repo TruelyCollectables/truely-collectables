@@ -83,8 +83,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          echo 'Post-build working tree:'
+          git status --short
+          # prebuild intentionally stamps the current build SHA into this generated file.
+          # Reset only that known generated artifact before asserting the runtime diff.
+          git checkout -- public/instacomp-release.json
           changed="$(git diff --name-only)"
           test "$changed" = 'src/app/kingmaker/instacomp-audit/page.tsx'
+          patch="$(git diff -- src/app/kingmaker/instacomp-audit/page.tsx)"
+          echo "$patch" | grep -Fq 'const timer = window.setTimeout(() => {'
+          echo "$patch" | grep -Fq 'return () => window.clearTimeout(timer);'
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add src/app/kingmaker/instacomp-audit/page.tsx
