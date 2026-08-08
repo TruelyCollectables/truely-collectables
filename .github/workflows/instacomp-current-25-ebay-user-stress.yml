@@ -1,0 +1,160 @@
+name: InstaComp Current 25 eBay User Stress
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-current-25-ebay-user-stress.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instacomp-current-25-ebay-user-stress
+  cancel-in-progress: true
+
+env:
+  EXPECTED_BRANCH: test/instacomp-current-25-ebay-20260807
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_PROJECT: truely-collectables
+  INSTACOMP_BENCHMARK_TARGET: "25"
+  INSTACOMP_BENCHMARK_CONCURRENCY: "2"
+
+jobs:
+  live-benchmark:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Check out exact test branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on operations-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main
+          base="$(git merge-base HEAD origin/main)"
+          mapfile -t changed < <(git diff --name-only "$base"...HEAD)
+          printf '%s\n' "${changed[@]}"
+          test "${#changed[@]}" -eq 1
+          test "${changed[0]}" = '.github/workflows/instacomp-current-25-ebay-user-stress.yml'
+          git diff --check "$base"...HEAD
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Verify current InstaComp before live cards
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run verify:instacomp
+          npx tsx scripts/run-instacomp-registry-consensus-bridge-regression.ts
+          npx tsx scripts/run-instacomp-identity-firewall-regressions.ts
+          npx tsx scripts/run-instacomp-serial-color-gate-regressions.ts
+
+      - name: Link Vercel project
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$VERCEL_TOKEN"
+          npx vercel@56.2.0 link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Generate isolated one-run credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          benchmark_token="$(openssl rand -hex 32)"
+          benchmark_admin_secret="$(openssl rand -hex 48)"
+          echo "::add-mask::$benchmark_token"
+          echo "::add-mask::$benchmark_admin_secret"
+          echo "INSTACOMP_BENCHMARK_TOKEN=$benchmark_token" >> "$GITHUB_ENV"
+          echo "BENCHMARK_ADMIN_SESSION_SECRET=$benchmark_admin_secret" >> "$GITHUB_ENV"
+
+      - name: Deploy isolated protected preview
+        id: deploy
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 deploy --yes --force --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" \
+            --env "INSTACOMP_BENCHMARK_TOKEN=$INSTACOMP_BENCHMARK_TOKEN" \
+            --env "ADMIN_SESSION_SECRET=$BENCHMARK_ADMIN_SESSION_SECRET" \
+            > deployment-url.txt
+          preview_url="$(tail -n 1 deployment-url.txt | tr -d '\r\n')"
+          test -n "$preview_url"
+          echo "preview_url=$preview_url" >> "$GITHUB_OUTPUT"
+          echo "INSTACOMP_PREVIEW_DEPLOYMENT_URL=$preview_url" >> "$GITHUB_ENV"
+
+      - name: Verify live eBay benchmark manifest
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 curl /api/instacomp/benchmark/ebay-25 \
+            --deployment "$INSTACOMP_PREVIEW_DEPLOYMENT_URL" \
+            --header "Authorization: Bearer $INSTACOMP_BENCHMARK_TOKEN" \
+            > benchmark-manifest.json 2> benchmark-manifest-stderr.txt
+          node - <<'NODE'
+          const fs=require('fs');const p=JSON.parse(fs.readFileSync('benchmark-manifest.json','utf8'));
+          if(!p.ok||!Array.isArray(p.cases)||p.cases.length<25) throw new Error(`Benchmark manifest not ready: ${JSON.stringify(p).slice(0,1200)}`);
+          console.log(`LIVE_MANIFEST_CASES=${p.cases.length}`);
+          NODE
+
+      - name: Run 25 live eBay front/back cards through current InstaComp
+        id: benchmark
+        continue-on-error: true
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          INSTACOMP_PREVIEW_DEPLOYMENT_URL: ${{ steps.deploy.outputs.preview_url }}
+        run: node scripts/run-instacomp-ebay-25-through-vercel-curl.mjs
+
+      - name: Print full grading receipt
+        if: always()
+        shell: bash
+        run: |
+          if [ -f reports/instacomp-ebay-25-report.json ]; then
+            echo 'INSTACOMP_25_REPORT_START'
+            cat reports/instacomp-ebay-25-report.json
+            echo 'INSTACOMP_25_REPORT_END'
+          else
+            echo 'NO_BENCHMARK_REPORT'
+          fi
+
+      - name: Upload full benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-current-25-ebay-user-stress
+          path: |
+            reports/instacomp-ebay-25-report.json
+            reports/instacomp-ebay-25-report.md
+            benchmark-manifest.json
+            benchmark-manifest-stderr.txt
+            deployment-url.txt
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Grade test
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f reports/instacomp-ebay-25-report.json
+          node - <<'NODE'
+          const fs=require('fs');const r=JSON.parse(fs.readFileSync('reports/instacomp-ebay-25-report.json','utf8'));const s=r.summary||{};
+          console.log(JSON.stringify({completed:s.completedCards||0,passed:s.passedCards||0,passRate:s.passRate||0,averageScore:s.averageScore??null,registryCoverage:s.catalogCoverageRate||0,criticalErrors:s.criticalErrors||0,majorErrors:s.majorErrors||0,targetMet:!!s.targetMet},null,2));
+          if(Number(s.completedCards||0)<25) throw new Error(`Incomplete: ${s.completedCards||0}/25`);
+          NODE
