@@ -81,18 +81,22 @@ jobs:
             {name:"Paige #5", ai:{player:"Paige Bueckers",year:"2025",brand:"Panini",setName:"Base",cardNumber:"5",parallel:"Prizms Ice",team:"Dallas Wings",sport:"Basketball",isRookie:true,isAuto:false,isRelic:false}, id:"575556fe-fdd4-4083-baee-c5071ed3161f", fp:"66531f084322d986e26c569e12a152bada033904c67b7068c00572c3efaa7d42", set:"Base", receipt:true},
             {name:"Rickea #118", ai:{player:"Rickea Jackson",year:"2025",brand:"Panini",setName:"PRIZM",cardNumber:"118",parallel:null,team:"Los Angeles Sparks",sport:"Basketball",isAuto:false,isRelic:false}, id:"70ad307e-06bb-45c2-90ea-689b6e2f302e", fp:"bdbf4845dae6d1da4d783fd23d9c387883769cd68aee3c663b144013bb891028", set:"Base"},
           ];
-          for (const t of truth) {
-            const resolution = t.receipt
-              ? await revalidateChecklistRegistryReceipt({ai:t.ai,identityId:t.id,fingerprintSha256:t.fp})
-              : await resolveChecklistRegistry(t.ai,{evidenceTrusted:false});
-            assert.ok(resolution, `${t.name}: receipt revalidation returned null`);
-            assert.equal(resolution!.status,"internal_exact_match",`${t.name}: ${resolution!.status} ${resolution!.reasons.join(',')}`);
-            assert.equal(resolution!.match?.identityId,t.id,`${t.name}: UUID`);
-            assert.equal(resolution!.match?.fingerprintSha256,t.fp,`${t.name}: fingerprint`);
-            assert.equal(resolution!.match?.setName,t.set,`${t.name}: logical set`);
-            console.log(`PASS ${t.name} -> ${t.set} ${t.id}`);
+
+          async function main() {
+            for (const t of truth) {
+              const resolution = t.receipt
+                ? await revalidateChecklistRegistryReceipt({ai:t.ai,identityId:t.id,fingerprintSha256:t.fp})
+                : await resolveChecklistRegistry(t.ai,{evidenceTrusted:false});
+              assert.ok(resolution, `${t.name}: receipt revalidation returned null`);
+              assert.equal(resolution!.status,"internal_exact_match",`${t.name}: ${resolution!.status} ${resolution!.reasons.join(',')}`);
+              assert.equal(resolution!.match?.identityId,t.id,`${t.name}: UUID`);
+              assert.equal(resolution!.match?.fingerprintSha256,t.fp,`${t.name}: fingerprint`);
+              assert.equal(resolution!.match?.setName,t.set,`${t.name}: logical set`);
+              console.log(`PASS ${t.name} -> ${t.set} ${t.id}`);
+            }
+            console.log("PASS Production Registry frozen-five recovery 5/5");
           }
-          console.log("PASS Production Registry frozen-five recovery 5/5");
+          main().catch((error)=>{console.error(error);process.exit(1)});
           TS
           cp "$TEMP_DIR/registry-proof.ts" ./registry-proof-temp.ts
           npx tsx registry-proof-temp.ts
