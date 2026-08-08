@@ -151,6 +151,10 @@ export function buildExactIdentityTitle(
   return title || clean(fallback) || "sports card";
 }
 
+function isIntentionalSoldCapabilityGap(provider: InstaCompProviderResult) {
+  return clean(provider.source).toLowerCase() === "ebay_official_sold_unavailable";
+}
+
 export function mergeExactMarketSources(
   sources: Array<InstaCompExactMarketSource | null | undefined>,
 ): InstaCompTrustedMarketSummary {
@@ -168,13 +172,21 @@ export function mergeExactMarketSources(
     sold: pricingSold,
     active: pricingActive,
   });
-  const providerUnavailable = sources.some(
-    (source) =>
-      source?.sold?.status === "error" ||
-      source?.active?.status === "error" ||
-      source?.sold?.status === "not_configured" ||
-      source?.active?.status === "not_configured",
-  );
+
+  // The official eBay Browse API intentionally has no completed-sales lane.
+  // That known capability gap must not turn an otherwise healthy zero-match
+  // result into a provider failure. Exact sold health is determined only by
+  // sold providers that are actually expected to supply pricing evidence.
+  const pricingSoldProviders = sources
+    .map((source) => source?.sold)
+    .filter((provider): provider is InstaCompProviderResult => Boolean(provider))
+    .filter((provider) => !isIntentionalSoldCapabilityGap(provider));
+  const soldProvidersUnavailable =
+    pricingSoldProviders.length === 0 ||
+    pricingSoldProviders.every(
+      (provider) =>
+        provider.status === "error" || provider.status === "not_configured",
+    );
 
   return {
     sold,
@@ -183,7 +195,7 @@ export function mergeExactMarketSources(
     trustedSuggestedPrice: pricingSold.length ? pricing.suggestedPrice : null,
     status: pricingSold.length
       ? "ready"
-      : providerUnavailable
+      : soldProvidersUnavailable
         ? "provider_error"
         : "no_exact_sold",
   };
