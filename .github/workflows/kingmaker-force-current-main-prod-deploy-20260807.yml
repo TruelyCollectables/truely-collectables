@@ -1,0 +1,93 @@
+name: KINGMAKER Force Current Main Production Deploy 20260807
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/kingmaker-force-current-main-prod-deploy-20260807.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kingmaker-force-current-main-prod-deploy-20260807
+  cancel-in-progress: true
+
+env:
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  PRODUCTION_ORIGIN: https://truelycollectables.com
+  EXPECTED_MAIN_SHA: 7f20e5d3d5eb078ae9a6ffff5c19af92f1ab29d9
+
+jobs:
+  deploy-and-prove:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Prove exact repaired main
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          echo "main=$actual"
+          test "$actual" = "$EXPECTED_MAIN_SHA"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install exact dependencies and link Production project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          npm ci >/dev/null
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Force deploy exact current main to Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/vercel-deploy.log"
+          npx --yes vercel@56.2.0 deploy --prod --yes --force --no-color --cwd "$GITHUB_WORKSPACE" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee "$log"
+          url="$(grep -Eo 'https://[A-Za-z0-9.-]+\.vercel\.app' "$log" | tail -n 1)"
+          test -n "$url"
+          echo "deployment_url=$url"
+
+      - name: Prove live Production source SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmp="$RUNNER_TEMP/release.json"
+          matched=0
+          for attempt in $(seq 1 24); do
+            code="$(curl -sS --max-time 30 -H 'Cache-Control: no-cache' -o "$tmp" -w '%{http_code}' "$PRODUCTION_ORIGIN/instacomp-release.json?kingmaker-force=$attempt&ts=$(date +%s)")"
+            if [ "$code" = "200" ] && node -e 'const fs=require("node:fs");const b=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));if(b.sourceCommit!==process.argv[2])process.exit(1);' "$tmp" "$EXPECTED_MAIN_SHA"; then
+              matched=1
+              break
+            fi
+            sleep 5
+          done
+          cat "$tmp"
+          test "$matched" = "1"
+          echo "PASS live Production exact SHA $EXPECTED_MAIN_SHA"
+
+      - name: Live KINGMAKER smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in /kingmaker /kingmaker/scan /kingmaker/pending /kingmaker/inventory /kingmaker/intelligence /kingmaker/sourcing /kingmaker/offers /kingmaker/orders /kingmaker/marketplaces /kingmaker/payouts /kingmaker/settings /kingmaker/instacomp-audit; do
+            out="$RUNNER_TEMP/$(echo "$path" | tr '/' '_').html"
+            code="$(curl -sS --max-time 30 -H 'Cache-Control: no-cache' -o "$out" -w '%{http_code}' "$PRODUCTION_ORIGIN$path")"
+            test "$code" = "200"
+            grep -Fqi 'KINGMAKER' "$out"
+            ! grep -Eqi 'Build Error|Runtime Error|Unhandled Runtime Error|Internal Server Error|Failed to compile' "$out"
+            echo "PASS $path"
+          done
