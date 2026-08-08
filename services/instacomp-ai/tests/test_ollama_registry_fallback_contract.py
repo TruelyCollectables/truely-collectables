@@ -6,25 +6,24 @@ def test_unknown_cards_use_local_visual_evidence_before_registry_lock():
 
     memory_index = source.index("store.find_trusted_image_match")
     printed_index = source.index("identity_from_printed_evidence")
-    ollama_index = source.index("suggestion = await reader.analyze")
-    registry_index = source.index(
-        "suggestion_registry = await checklist_gateway.match",
-        ollama_index,
-    )
-    pricing_index = source.index("pricing_allowed = True", registry_index)
+    local_vision_index = source.index("local_vision = await analyze_local_vision")
+    registry_index = source.index("printed_registry = (")
 
-    assert memory_index < ollama_index
-    assert printed_index < ollama_index
-    assert ollama_index < registry_index < pricing_index
-    assert 'match_source = "ollama_backup"' in source
+    assert memory_index < local_vision_index
+    assert printed_index < local_vision_index
+    assert local_vision_index < registry_index
+    assert "await reader.analyze(" not in source
+    assert 'match_source = "ollama_backup"' not in source
+    assert "trusted_text_registry_verified" in source
+    assert "trusted_text_registry.identity_id" in source
     assert 'receipt.startswith("registry_fingerprint:")' in source
-    assert 'status = "model_unavailable"' in source
+    assert 'status = "needs_review"' in source
 
 
-def test_health_requires_the_local_visual_reader():
+def test_health_does_not_require_external_visual_reader():
     source = (Path(__file__).resolve().parents[1] / "app" / "main.py").read_text()
 
-    assert "ollama_ready = await reader.health()" in source
-    assert "ok=database_ready and checklist_ready and ollama_ready" in source
-    assert 'ollama="ready" if ollama_ready else "unavailable"' in source
-    assert "ollama_model=settings.ollama_model" in source
+    assert "ollama_ready = await reader.health()" not in source
+    assert "ok=database_ready and checklist_ready" in source
+    assert 'ollama="unchecked"' in source
+    assert 'ollama_model="disabled_for_identity_scans"' in source
