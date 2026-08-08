@@ -175,6 +175,29 @@ function appendNote(notes: string | null, note: string) {
   return [notes, note].filter(Boolean).join(" ");
 }
 
+function comparableSerial(value: string | null | undefined) {
+  return cleanSignalText(value).toLowerCase().replace(/\s+/g, "").replace(/^0+(?=\d)/, "");
+}
+
+export function applyInstaCompSerialEvidenceGuard(
+  ai: InstaCompAiResult,
+  confirmedSerialNumbers: Array<string | null | undefined>,
+): InstaCompAiResult {
+  const candidate = cleanSignalText(ai.serialNumber);
+  if (!candidate) return ai;
+  const candidateKey = comparableSerial(candidate);
+  const corroborated = confirmedSerialNumbers
+    .map((value) => cleanSignalText(value))
+    .filter(Boolean)
+    .some((value) => comparableSerial(value) === candidateKey);
+  if (corroborated) return ai;
+  return {
+    ...ai,
+    serialNumber: null,
+    notes: appendNote(ai.notes, `Serial evidence guard suppressed uncorroborated serial "${candidate}"; fresh printed evidence did not confirm that exact stamp.`),
+  };
+}
+
 function normalizePrizmSurfaceParallel(
   ai: InstaCompAiResult,
   evidenceText: string,

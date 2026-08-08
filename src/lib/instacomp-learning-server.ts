@@ -330,6 +330,35 @@ function isProductLineOnlySetEvidence(value: unknown) {
   return ["prizm", "prism", "panini prizm", "panini prism"].includes(normalized);
 }
 
+function normalizedProductLineTokens(value: unknown) {
+  return meaningfulTokens(value).map((token) =>
+    token === "prism" ? "prizm" : token,
+  );
+}
+
+function releaseSupportsProductLineSetEvidence(
+  ai: Record<string, any>,
+  release: Record<string, any>,
+) {
+  if (
+    !brandEvidenceMatches(ai.brand, [
+      release.manufacturer?.name,
+      release.brand?.name,
+      release.product_name,
+    ])
+  ) {
+    return false;
+  }
+  const targetTokens = normalizedProductLineTokens(ai.setName);
+  if (!targetTokens.length) return false;
+  const releaseTokens = new Set(
+    normalizedProductLineTokens(
+      [release.brand?.name, release.product_name].filter(Boolean).join(" "),
+    ),
+  );
+  return targetTokens.every((token) => releaseTokens.has(token));
+}
+
 function visibleTextSupportsLogicalSet(setName: unknown, visibleText: unknown) {
   if (isBaseParallel(setName)) return false;
   const setTokens = meaningfulTokens(setName);
@@ -520,7 +549,12 @@ function targetParallelProfile(ai: Record<string, any>, setContext: unknown) {
           !setTokens.has(token) &&
           !GENERIC_PARALLEL_EVIDENCE_TOKENS.has(token),
       );
-  const noteTokens = visibleParallelNoteTokens(ai.notes);
+  // Notes may raise a variant suspicion before scanner-council review. Once a
+  // conflict-free council has adjudicated the hard parallel field, note-only
+  // prose is audit context and cannot re-enter as a new hard identity fact.
+  const noteTokens = ai.parallelEvidenceAdjudicated === true
+    ? []
+    : visibleParallelNoteTokens(ai.notes);
   const signatureTokens = directTokens.length ? directTokens : noteTokens;
   const signature = [...new Set(signatureTokens)].sort().join(" ");
   const baseLike =
@@ -857,10 +891,10 @@ export function chooseRegistryMatch(
     ai,
     [ai.setName, brand, product, setName].filter(Boolean).join(" "),
   );
-  if (
-    parallelProfile.baseLike &&
-    (parallelProfile.surfaceRisk || adjacentYearRecovered)
-  ) {
+  // Free-form finish/color prose from one scanner may not veto an otherwise
+  // exact Base Registry candidate after a conflict-free multi-reader council.
+  // Adjacent-year Base recovery remains fail-closed.
+  if (parallelProfile.baseLike && adjacentYearRecovered) {
     continue;
   }
 
@@ -1069,7 +1103,12 @@ function checklistSetCoverageMatches(
   const sport = record(release.sport);
   const league = record(release.league);
   const targetYear = yearStart(ai.year);
-  const targetSetTokens = new Set(meaningfulTokens(ai.setName));
+  const productLineOnlySetEvidence = isProductLineOnlySetEvidence(ai.setName);
+  const setEvidenceTokens = (value: unknown) =>
+    productLineOnlySetEvidence
+      ? normalizedProductLineTokens(value)
+      : meaningfulTokens(value);
+  const targetSetTokens = new Set(setEvidenceTokens(ai.setName));
 
   const releaseYear = release.release_year || release.season || null;
   if (
@@ -1094,7 +1133,7 @@ function checklistSetCoverageMatches(
   }
 
   const registrySetTokens = new Set(
-    meaningfulTokens(
+    setEvidenceTokens(
       [
         brand.name,
         release.product_name,
@@ -1204,8 +1243,17 @@ export async function resolveChecklistRegistry(
   // Keep exact and adjacent years in the bounded candidate pool so the existing
   // adjacent-year recovery semantics remain unchanged, then apply full set-name
   // and manufacturer evidence after the small set rows are loaded.
+  // Product-line-only OCR such as PRIZM is release evidence, not a logical
+  // checklist-set name. Narrow the bounded set query to matching product
+  // releases before looking for Base versus a visible insert/subset. This
+  // avoids year-wide set truncation while preserving exact-card uniqueness.
+  const releaseRowsForCoverage = isProductLineOnlySetEvidence(ai.setName)
+    ? releaseRows.filter((release: any) =>
+        releaseSupportsProductLineSetEvidence(ai, release),
+      )
+    : releaseRows;
   const candidateReleaseIds = unique(
-    releaseRows
+    releaseRowsForCoverage
       .filter((release: any) =>
         yearMatches(year, release.release_year || release.season, true),
       )
@@ -1450,7 +1498,13 @@ export async function resolveChecklistRegistry(
       total + (Array.isArray(card.identities) ? card.identities.length : 0),
     0,
   );
-  const match = chooseRegistryMatch(ai, cardRows, {
+  // Keep OCR alias normalization local to product-line-only evidence. The
+  // exact matcher should see PRISM and PRIZM as the same Panini product-line
+  // token without introducing fuzzy matching for any logical checklist set.
+  const matchAi = isProductLineOnlySetEvidence(ai.setName)
+    ? { ...ai, setName: normalizedProductLineTokens(ai.setName).join(" ") }
+    : ai;
+  const match = chooseRegistryMatch(matchAi, cardRows, {
     allowAdjacentYearRecovery: usedAdjacentYearRecovery,
   });
 
