@@ -1,0 +1,225 @@
+name: KINGMAKER Golden Certification V2 20260807
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/kingmaker-golden-cert-v2-20260807.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kingmaker-golden-cert-v2-20260807
+  cancel-in-progress: true
+
+env:
+  PINNED_MAIN_SHA: 7f20e5d3d5eb078ae9a6ffff5c19af92f1ab29d9
+  CERT_BRANCH: ops/kingmaker-golden-cert-v2-20260807
+  PRODUCTION_ORIGIN: https://truelycollectables.com
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-service-role-key
+      ADMIN_PASSWORD: build-only-admin-password
+      ADMIN_SESSION_SECRET: build-only-admin-session-secret-with-sufficient-length
+      STRIPE_SECRET_KEY: sk_test_build_only
+      STRIPE_WEBHOOK_SECRET: whsec_build_only
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      EBAY_CLIENT_ID: build-only-client-id
+      EBAY_CLIENT_SECRET: build-only-client-secret
+      EBAY_ENVIRONMENT: production
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CERT_BRANCH }}
+          fetch-depth: 0
+
+      - name: Prove exact combined repaired main and read-only cert scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --quiet
+          actual_main="$(git rev-parse origin/main)"
+          test "$actual_main" = "$PINNED_MAIN_SHA"
+          git merge-base --is-ancestor "$PINNED_MAIN_SHA" HEAD
+          changed="$(git diff --name-only "$PINNED_MAIN_SHA"...HEAD)"
+          test "$changed" = '.github/workflows/kingmaker-golden-cert-v2-20260807.yml'
+          echo "PASS exact combined main lock: $actual_main"
+          echo "PASS certification branch changes no application/database source"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install exact locked dependencies
+        run: npm ci
+
+      - name: Production dependency security must have zero high or critical advisories
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Certify KINGMAKER authority architecture
+        run: node scripts/certify-kingmaker-instacomp-architecture.mjs
+
+      - name: Certify global KINGMAKER work-order queue and retry contract
+        run: node scripts/certify-kingmaker-global-execution-query.mjs
+
+      - name: Run every KINGMAKER regression suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t suites < <(find scripts -maxdepth 1 -type f -name 'run-kingmaker-*-regressions.ts' -print | sort)
+          test "${#suites[@]}" -gt 0
+          echo "Running ${#suites[@]} KINGMAKER regression suites"
+          for suite in "${suites[@]}"; do
+            echo "== $suite =="
+            npx tsx "$suite"
+          done
+
+      - name: Verify KINGMAKER command surfaces and safety labels
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=(
+            src/app/kingmaker/page.tsx
+            src/app/kingmaker/scan/page.tsx
+            src/app/kingmaker/pending/page.tsx
+            src/app/kingmaker/inventory/page.tsx
+            src/app/kingmaker/intelligence/page.tsx
+            src/app/kingmaker/sourcing/page.tsx
+            src/app/kingmaker/offers/page.tsx
+            src/app/kingmaker/orders/page.tsx
+            src/app/kingmaker/marketplaces/page.tsx
+            src/app/kingmaker/payouts/page.tsx
+            src/app/kingmaker/settings/page.tsx
+            src/app/kingmaker/instacomp-audit/page.tsx
+            src/app/kingmaker/KingmakerShell.tsx
+            src/app/admin/market-intel/kingmaker/page.tsx
+            src/app/admin/market-intel/kingmaker/capital-ledger/page.tsx
+          )
+          for file in "${files[@]}"; do test -s "$file"; done
+          grep -Fq 'data-kingmaker-shell="v1"' src/app/kingmaker/KingmakerShell.tsx
+          grep -Fq 'Registry controls identity' src/app/kingmaker/KingmakerShell.tsx
+          grep -Fq 'Seller approval controls execution' src/app/kingmaker/KingmakerShell.tsx
+          grep -Fq 'Purchase Ledger' src/app/admin/market-intel/kingmaker/capital-ledger/page.tsx
+          grep -Fq 'const timer = window.setTimeout(() => {' src/app/kingmaker/instacomp-audit/page.tsx
+          echo "PASS KINGMAKER command surfaces and repaired audit effect"
+
+      - name: Lint KINGMAKER surfaces and authority controls
+        run: >-
+          npx eslint
+          src/app/kingmaker
+          src/app/admin/market-intel/kingmaker
+          src/lib/instacomp-capabilities.ts
+          src/lib/instacomp-evidence-contract.ts
+          src/lib/instacomp-research-contract.ts
+          src/lib/kingmaker-instacomp-boundaries.ts
+          src/lib/kingmaker-private-pricing-work-order-execution-server.ts
+          src/lib/kingmaker-phase-18-disaster-recovery-business-continuity.ts
+          src/app/api/instacomp/pricing/coverage/work-orders/execution/route.ts
+          src/app/admin/instacomp/pricing/_components/private-pricing-work-order-execution.tsx
+          src/app/admin/instacomp/pricing/coverage/work-orders/page.tsx
+          scripts/certify-kingmaker-instacomp-architecture.mjs
+          scripts/certify-kingmaker-global-execution-query.mjs
+
+      - name: Full TypeScript compile
+        run: npx tsc --noEmit
+
+      - name: Full Production build
+        run: npm run build
+
+      - name: Wait for Production to serve this exact repaired main commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp)"
+          matched=0
+          for attempt in $(seq 1 30); do
+            code="$(curl -sS --max-time 20 -H 'Cache-Control: no-cache' -o "$tmp" -w '%{http_code}' "$PRODUCTION_ORIGIN/instacomp-release.json?kingmaker-golden=$attempt&ts=$(date +%s)")"
+            if [ "$code" = "200" ] && node -e 'const fs=require("node:fs");const b=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));if(b.sourceCommit!==process.argv[2])process.exit(1);' "$tmp" "$PINNED_MAIN_SHA"; then
+              matched=1
+              break
+            fi
+            sleep 10
+          done
+          test "$matched" = "1"
+          cat "$tmp"
+          echo "PASS Production release manifest is exact repaired main $PINNED_MAIN_SHA"
+
+      - name: Live Production KINGMAKER route and auth-boundary smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+
+          probe_public() {
+            local path="$1"
+            local expected="$2"
+            local out="$tmp/$(echo "$path" | tr '/?' '__').html"
+            local code
+            code="$(curl -sS --max-time 30 -H 'Cache-Control: no-cache' -o "$out" -w '%{http_code}' "$PRODUCTION_ORIGIN$path")"
+            test "$code" = "200"
+            grep -Fqi "$expected" "$out"
+            if grep -Eqi 'Build Error|Runtime Error|Unhandled Runtime Error|Internal Server Error|Failed to compile' "$out"; then
+              echo "FAIL red-box text on $path" >&2
+              exit 1
+            fi
+            echo "PASS live $path HTTP $code"
+          }
+
+          probe_protected_admin() {
+            local path="$1"
+            local forbidden="$2"
+            local body="$tmp/protected-body.html"
+            local headers="$tmp/protected-headers.txt"
+            local code
+            code="$(curl -sS --max-time 30 -D "$headers" -o "$body" -w '%{http_code}' -H 'Cache-Control: no-cache' "$PRODUCTION_ORIGIN$path")"
+            if [[ "$code" =~ ^30[12378]$ ]]; then
+              grep -Eqi '^location: .*/admin/login' "$headers"
+            elif [ "$code" = "200" ]; then
+              grep -Fqi 'Admin password' "$body"
+              ! grep -Fqi "$forbidden" "$body"
+            else
+              echo "FAIL protected $path returned HTTP $code" >&2
+              exit 1
+            fi
+            echo "PASS protected boundary $path HTTP $code"
+          }
+
+          probe_public /kingmaker KINGMAKER
+          probe_public /kingmaker/scan KINGMAKER
+          probe_public /kingmaker/pending KINGMAKER
+          probe_public /kingmaker/inventory KINGMAKER
+          probe_public /kingmaker/intelligence KINGMAKER
+          probe_public /kingmaker/sourcing KINGMAKER
+          probe_public /kingmaker/offers KINGMAKER
+          probe_public /kingmaker/orders KINGMAKER
+          probe_public /kingmaker/marketplaces KINGMAKER
+          probe_public /kingmaker/payouts KINGMAKER
+          probe_public /kingmaker/settings KINGMAKER
+          probe_public /kingmaker/instacomp-audit KINGMAKER
+          probe_protected_admin /admin/market-intel/kingmaker 'Capital Intelligence Command'
+          probe_protected_admin /admin/market-intel/kingmaker/capital-ledger 'Purchase Ledger Command'
+          echo 'PASS live Production KINGMAKER route/auth smoke'
+
+      - name: Final no-mutation proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout -- public/instacomp-release.json
+          test "$(git diff --name-only "$PINNED_MAIN_SHA"...HEAD)" = '.github/workflows/kingmaker-golden-cert-v2-20260807.yml'
+          test -z "$(git status --porcelain)"
+          echo 'PASS certification performed no repository source/data mutation'
