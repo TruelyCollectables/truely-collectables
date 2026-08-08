@@ -4,7 +4,7 @@ import { loadExactCardMarketHistory } from "../../../../lib/instacomp-market-his
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
+export const maxDuration = 800;
 
 function bearerToken(request: Request) {
   const authorization = request.headers.get("authorization") || "";
@@ -100,7 +100,7 @@ async function currentMacDiagnostics(baseUrl: string, headers: Record<string, st
 
 async function waitForCompletedManualRun(baseUrl: string, headers: Record<string, string>, startedAt: string) {
   const startedMs = Date.parse(startedAt);
-  for (let attempt = 0; attempt < 44; attempt += 1) {
+  for (let attempt = 0; attempt < 120; attempt += 1) {
     const payload = await jsonFetch(`${baseUrl}/v1/deal-hunter/runs?limit=10`, { headers }, "Mac run receipts", 20_000);
     const runs = Array.isArray(payload?.runs) ? payload.runs : [];
     const run = runs.find((row: any) =>
