@@ -37,23 +37,37 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${VERCEL_TOKEN:-}"
-          status="$RUNNER_TEMP/instacomp-25-mac-status.json"
-          curl -fsS --max-time 60 \
+          body="$RUNNER_TEMP/instacomp-25-mac-status-body.json"
+          receipt="$RUNNER_TEMP/instacomp-25-mac-status.json"
+          code="$(curl -sS --max-time 60 \
+            -o "$body" \
+            -w '%{http_code}' \
             -X POST \
             -H "Authorization: Bearer $VERCEL_TOKEN" \
             -H "Accept: application/json" \
-            "$SITE_URL/api/release/instacomp-deal-hunter-learning-self-test?mode=status" \
-            > "$status"
-          node - "$status" <<'NODE'
+            "$SITE_URL/api/release/instacomp-deal-hunter-learning-self-test?mode=status" || true)"
+          HTTP_CODE="$code" BODY_PATH="$body" RECEIPT_PATH="$receipt" node <<'NODE'
           const fs = require('fs');
-          const p = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
-          if (p.success !== true) throw new Error(JSON.stringify(p).slice(0, 2000));
-          console.log(JSON.stringify({
-            checkedAt: p.checkedAt || null,
-            physicalMacHealthy: p.physicalMacHealthy === true,
-            scheduler: p.scheduler || null,
-            recentRuns: Array.isArray(p.runs) ? p.runs.slice(0, 5) : [],
-          }, null, 2));
+          const code = Number(process.env.HTTP_CODE || 0);
+          const bodyPath = process.env.BODY_PATH;
+          const receiptPath = process.env.RECEIPT_PATH;
+          const raw = bodyPath && fs.existsSync(bodyPath) ? fs.readFileSync(bodyPath, 'utf8') : '';
+          let payload = null;
+          try { payload = raw ? JSON.parse(raw) : null; }
+          catch { payload = raw ? { raw: raw.slice(0, 3000) } : null; }
+          const receipt = {
+            checkedAt: new Date().toISOString(),
+            httpStatus: code || null,
+            requestOk: code >= 200 && code < 300,
+            success: payload?.success === true,
+            physicalMacHealthy: payload?.physicalMacHealthy === true,
+            scheduler: payload?.scheduler || null,
+            recentRuns: Array.isArray(payload?.runs) ? payload.runs.slice(0, 8) : [],
+            error: payload?.error ? String(payload.error).slice(0, 3000) : null,
+            response: payload,
+          };
+          fs.writeFileSync(receiptPath, JSON.stringify(receipt, null, 2));
+          console.log(JSON.stringify(receipt, null, 2));
           NODE
 
       - name: Run protected mixed 25-card InstaComp recognition stress test
