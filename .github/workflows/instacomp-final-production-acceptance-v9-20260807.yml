@@ -16,7 +16,7 @@ concurrency:
 
 env:
   EXPECTED_BRANCH: ops/instacomp-final-production-acceptance-v9-20260807
-  FINAL_SCANNER_REPAIR_COMMIT: 60d9a5fa4f24392e64f535f7a6672624536565dd
+  FINAL_SCANNER_REPAIR_COMMIT: 04d927fe9b845eac3902ce1e88b720eb0fb8cb6e
   CERTIFIED_MAC_FINGERPRINT: d1f81dfa0054a5b1ca36f32c0f32c5c03f09a2de507e69041815861385878be3
   FROZEN_RUNNER_REF: ops/instacomp-final-production-acceptance-v8-20260807
   FROZEN_RUNNER_PATH: scripts/ops/run-instacomp-final-production-acceptance-v8.mjs
