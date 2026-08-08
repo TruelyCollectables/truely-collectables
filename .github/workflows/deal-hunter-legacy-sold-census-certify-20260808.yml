@@ -1,0 +1,59 @@
+name: Deal Hunter Legacy Sold Census Certify 20260808
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/patch-deal-hunter-legacy-sold-census-20260808.py'
+      - 'src/lib/deal-hunter-legacy-sold-census-20260808.marker'
+      - '.github/workflows/deal-hunter-legacy-sold-census-certify-20260808.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  certify-and-materialize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          token: ${{ github.token }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Apply exact diagnostic patch
+        run: python3 scripts/patch-deal-hunter-legacy-sold-census-20260808.py
+      - name: TypeScript
+        run: npx tsc --noEmit --pretty false
+      - name: Guard census is read-only counts
+        shell: bash
+        run: |
+          set -euo pipefail
+          route=src/app/api/release/instacomp-deal-hunter-history-status/route.ts
+          grep -F '.from("tcos_mi_sold_comps")' "$route" >/dev/null
+          grep -F '.eq("verified", true)' "$route" >/dev/null
+          grep -F '.eq("excluded", false)' "$route" >/dev/null
+          grep -F '.eq("outlier_flag", false)' "$route" >/dev/null
+          grep -F '.gte("match_confidence", 95)' "$route" >/dev/null
+          if grep -E '\.(insert|update|upsert|delete)\(' "$route"; then
+            echo 'Diagnostic route must remain read-only.' >&2
+            exit 1
+          fi
+          git diff --check
+      - name: Materialize census and remove temporary harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Truely Collectables CI'
+          git config user.email 'actions@users.noreply.github.com'
+          git add src/app/api/release/instacomp-deal-hunter-history-status/route.ts
+          git rm scripts/patch-deal-hunter-legacy-sold-census-20260808.py
+          git rm src/lib/deal-hunter-legacy-sold-census-20260808.marker
+          git rm .github/workflows/deal-hunter-legacy-sold-census-certify-20260808.yml
+          git commit -m 'Expose read-only legacy sold comp census'
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
