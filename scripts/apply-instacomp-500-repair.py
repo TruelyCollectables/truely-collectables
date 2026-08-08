@@ -65,16 +65,23 @@ if new_health not in main:
     else:
         raise SystemExit("health contract block not found")
 
-old_marker = (
+legacy_marker = (
     "    # BACKUP READER: Ollama is called only when trusted image memory and\n"
     "    # bounded OCR/Checklist Registry resolution did not identify the card."
+)
+current_marker = (
+    "    # LOCAL EVIDENCE FALLBACK: trusted memory and bounded printed evidence run\n"
+    "    # first. When they cannot identify a new card, Ollama reads the actual front/back\n"
+    "    # images and supplies evidence only. The central Registry remains the sole identity\n"
+    "    # authority, and pricing stays blocked without its identity ID and fingerprint."
 )
 new_marker = (
     "    # CHECKLIST-ONLY REVIEW PATH: unresolved cards are preserved as complete\n"
     "    # scan receipts. No Ollama or external identity reader is called here."
 )
-if old_marker in main:
-    start = main.index(old_marker)
+active_marker = legacy_marker if legacy_marker in main else current_marker if current_marker in main else None
+if active_marker:
+    start = main.index(active_marker)
     end = main.index("    suggestion_back_evidence = (", start)
     replacement = '''    # CHECKLIST-ONLY REVIEW PATH: unresolved cards are preserved as complete
     # scan receipts. No Ollama or external identity reader is called here.
