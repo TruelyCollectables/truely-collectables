@@ -1,0 +1,56 @@
+name: InstaComp Listing Hint Certify 20260808
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/lib/instacomp-listing-identity-hint.ts'
+      - 'scripts/run-instacomp-listing-hint-regressions.ts'
+      - 'scripts/patch-instacomp-listing-hints-20260808.py'
+      - 'src/lib/instacomp-listing-hints-20260808.marker'
+      - '.github/workflows/instacomp-listing-hints-certify-20260808.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  certify-and-materialize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          token: ${{ github.token }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Apply exact route patch
+        run: python3 scripts/patch-instacomp-listing-hints-20260808.py
+      - name: Listing-hint regressions
+        run: node --import tsx scripts/run-instacomp-listing-hint-regressions.ts
+      - name: TypeScript
+        run: npx tsc --noEmit --pretty false
+      - name: Guard untrusted-hint boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F 'extractInstaCompUntrustedListingIdentityHint' src/app/api/instacomp/scan/route.ts >/dev/null
+          grep -F 'trustedForIdentity: false' src/app/api/instacomp/scan/route.ts >/dev/null
+          grep -F 'identityDecision.confirmed' src/app/api/instacomp/scan/route.ts >/dev/null
+          git diff --check
+      - name: Materialize certified route patch and remove temporary harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Truely Collectables CI'
+          git config user.email 'actions@users.noreply.github.com'
+          git add src/app/api/instacomp/scan/route.ts src/lib/instacomp-listing-identity-hint.ts scripts/run-instacomp-listing-hint-regressions.ts
+          git rm scripts/patch-instacomp-listing-hints-20260808.py
+          git rm src/lib/instacomp-listing-hints-20260808.marker
+          git rm .github/workflows/instacomp-listing-hints-certify-20260808.yml
+          git commit -m 'Expand fail-closed Deal Hunter Registry listing hints'
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
