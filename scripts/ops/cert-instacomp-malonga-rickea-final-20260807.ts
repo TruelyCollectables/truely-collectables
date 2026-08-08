@@ -119,7 +119,7 @@ async function live() {
     league: "WNBA",
     isAuto: false,
     isRelic: false,
-    registryVisibleText: "RICKea JACKSON 118 PANINI PRIZM WNBA",
+    registryVisibleText: "RICKEA JACKSON 118 PANINI PRIZM WNBA",
   }, { evidenceTrusted: false });
   assert.equal(rickea.status, "internal_exact_match", `Rickea PRIZM product-line probe: ${rickea.status} ${rickea.reasons.join(",")}`);
   assert.equal(rickea.candidateCount, 1);
@@ -147,6 +147,13 @@ async function live() {
   console.log("PASS live: Malonga exact Ice receipt + Rickea unique Base from PRIZM product line + Groovy narrowing preserved");
 }
 
-if (mode === "pure") await pure();
-else if (mode === "live") await live();
-else throw new Error(`Unknown mode ${mode}`);
+async function main() {
+  if (mode === "pure") await pure();
+  else if (mode === "live") await live();
+  else throw new Error(`Unknown mode ${mode}`);
+}
+
+main().catch((error) => {
+  console.error(error instanceof Error ? error.stack || error.message : error);
+  process.exit(1);
+});
