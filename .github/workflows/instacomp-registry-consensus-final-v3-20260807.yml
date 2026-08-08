@@ -1,0 +1,130 @@
+name: InstaComp Registry Consensus Final V3 20260807
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/ops/patch-instacomp-registry-consensus-final-v3-20260807.py"
+      - ".github/workflows/instacomp-registry-consensus-final-v3-20260807.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  TEMP_DIR: /tmp/instacomp-registry-consensus-final-v3-20260807
+
+concurrency:
+  group: instacomp-registry-consensus-final-v3-20260807
+  cancel-in-progress: true
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/instacomp-registry-consensus-final-v3-20260807
+          fetch-depth: 0
+
+      - name: Apply web-only repair
+        run: python scripts/ops/patch-instacomp-registry-consensus-final-v3-20260807.py
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Offline Registry/consensus regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx tsx scripts/run-instacomp-final-identity-consensus-simulations.ts
+
+      - name: Full TypeScript compile
+        run: npx tsc --noEmit
+
+      - name: Resolve Production read-only Registry credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$TEMP_DIR"
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          env_file="$TEMP_DIR/production.env"; runtime_file="$TEMP_DIR/runtime-env.sh"
+          npx --yes vercel@56.2.0 env pull "$env_file" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          PRODUCTION_ENV_PATH="$env_file" RUNTIME_ENV_PATH="$runtime_file" GH_SUPABASE_ACCESS_TOKEN="$GH_SUPABASE_ACCESS_TOKEN" node - <<'NODE'
+          const fs=require('node:fs'); const parsed={};
+          for(const raw of fs.readFileSync(process.env.PRODUCTION_ENV_PATH,'utf8').split(/\r?\n/)){const line=raw.trim();if(!line||line.startsWith('#'))continue;const i=line.indexOf('=');if(i<1)continue;const k=line.slice(0,i).trim();let v=line.slice(i+1).trim();if(v.startsWith('"')&&v.endsWith('"')){try{v=JSON.parse(v)}catch{v=v.slice(1,-1)}}parsed[k]=v}
+          (async()=>{const u=String(parsed.NEXT_PUBLIC_SUPABASE_URL||'').trim();if(!u)throw Error('Missing Production Supabase URL');const ref=new URL(u).hostname.split('.')[0];const r=await fetch(`https://api.supabase.com/v1/projects/${ref}/api-keys?reveal=true`,{headers:{Authorization:`Bearer ${process.env.GH_SUPABASE_ACCESS_TOKEN}`}});const text=await r.text();if(!r.ok)throw Error(`Supabase key lookup HTTP ${r.status}`);const keys=text?JSON.parse(text):[];const val=e=>String(e?.api_key||e?.key||e?.value||'');const modern=keys.find(e=>/^sb_secret_/i.test(val(e)));const legacy=keys.find(e=>e?.name==='service_role'&&/^eyJ/.test(val(e)))||keys.find(e=>e?.secret_jwt_template?.role==='service_role'&&/^eyJ/.test(val(e)));const key=val(modern||legacy);if(!key)throw Error('No server key');console.log(`::add-mask::${u}`);console.log(`::add-mask::${key}`);fs.writeFileSync(process.env.RUNTIME_ENV_PATH,`export NEXT_PUBLIC_SUPABASE_URL=${JSON.stringify(u)}\nexport SUPABASE_SERVICE_ROLE_KEY=${JSON.stringify(key)}\n`,{mode:0o600})})().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+
+      - name: Production Registry read-only frozen-five recovery proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$TEMP_DIR/runtime-env.sh"
+          cat > "$TEMP_DIR/registry-proof.ts" <<'TS'
+          import assert from "node:assert/strict";
+          import { resolveChecklistRegistry, revalidateChecklistRegistryReceipt } from "./src/lib/instacomp-learning-server";
+
+          const truth = [
+            {name:"Sonia #122", ai:{player:"Sonia Citron",year:"2025",brand:"Panini",setName:"PRIZM",cardNumber:"122",parallel:null,team:"Washington Mystics",sport:"Basketball",isAuto:false,isRelic:false}, id:"2a7d4ddd-e9f7-4ce2-904c-b1a17b33ae4f", fp:"4366f96b6cf8b136e5ae4da70c35539d56e1793de0a42bcccbf970a892791e59", set:"Base"},
+            {name:"Malonga #116", ai:{player:"Dominique Malonga",year:"2025",brand:"Panini",setName:"Base",cardNumber:"116",parallel:"Prizms Ice",serialNumber:"/299",team:"Seattle Storm",sport:"Basketball",isRookie:true,isAuto:false,isRelic:false}, id:"bde0577b-72e8-4e59-8287-89aaf2f9e7e2", fp:"112f66efaa6b13de4f33e18f632a5c364c8bd2895b610d157a538748c858ba32", set:"Base", receipt:true},
+            {name:"Sonia Groovy #13", ai:{player:"Sonia Citron",year:"2025",brand:"Panini",setName:"PRIZM",cardNumber:"13",parallel:null,team:"Washington Mystics",sport:"Basketball",isRookie:true,isAuto:false,isRelic:false}, id:"c58ffc4f-e1c7-4cd9-b6e2-599af5a29044", fp:"dd4d9c92ff0cc4b985ef0b3aa29c8bcfb882ffe27021aa8809fde3c97db7a2ad", set:"Groovy"},
+            {name:"Paige #5", ai:{player:"Paige Bueckers",year:"2025",brand:"Panini",setName:"Base",cardNumber:"5",parallel:"Prizms Ice",team:"Dallas Wings",sport:"Basketball",isRookie:true,isAuto:false,isRelic:false}, id:"575556fe-fdd4-4083-baee-c5071ed3161f", fp:"66531f084322d986e26c569e12a152bada033904c67b7068c00572c3efaa7d42", set:"Base", receipt:true},
+            {name:"Rickea #118", ai:{player:"Rickea Jackson",year:"2025",brand:"Panini",setName:"PRIZM",cardNumber:"118",parallel:null,team:"Los Angeles Sparks",sport:"Basketball",isAuto:false,isRelic:false}, id:"70ad307e-06bb-45c2-90ea-689b6e2f302e", fp:"bdbf4845dae6d1da4d783fd23d9c387883769cd68aee3c663b144013bb891028", set:"Base"},
+          ];
+          for (const t of truth) {
+            const resolution = t.receipt
+              ? await revalidateChecklistRegistryReceipt({ai:t.ai,identityId:t.id,fingerprintSha256:t.fp})
+              : await resolveChecklistRegistry(t.ai,{evidenceTrusted:false});
+            assert.ok(resolution, `${t.name}: receipt revalidation returned null`);
+            assert.equal(resolution!.status,"internal_exact_match",`${t.name}: ${resolution!.status} ${resolution!.reasons.join(',')}`);
+            assert.equal(resolution!.match?.identityId,t.id,`${t.name}: UUID`);
+            assert.equal(resolution!.match?.fingerprintSha256,t.fp,`${t.name}: fingerprint`);
+            assert.equal(resolution!.match?.setName,t.set,`${t.name}: logical set`);
+            console.log(`PASS ${t.name} -> ${t.set} ${t.id}`);
+          }
+          console.log("PASS Production Registry frozen-five recovery 5/5");
+          TS
+          cp "$TEMP_DIR/registry-proof.ts" ./registry-proof-temp.ts
+          npx tsx registry-proof-temp.ts
+          rm -f registry-proof-temp.ts
+
+      - name: Source safety contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          grep -Fq 'kind: "product_line_only"' src/lib/instacomp-learning-server.ts
+          grep -Fq 'if (setProfile.kind === "base") return isExplicitBaseSetEvidence(row.name);' src/lib/instacomp-learning-server.ts
+          grep -Fq 'if (setProfile.kind === "product_line_only") return true;' src/lib/instacomp-learning-server.ts
+          grep -Fq 'const targetSetEvidence = normalizedText(ai.setName);' src/lib/instacomp-learning-server.ts
+          grep -Fq 'readerSetIsReleaseProductOnly' src/lib/instacomp-consensus.ts
+          grep -Fq 'if (readerSetIsReleaseProductOnly(readerValue, catalogIdentity)) return true;' src/lib/instacomp-consensus.ts
+          grep -Fq 'productLineOnlyBaseConsensus' scripts/run-instacomp-final-identity-consensus-simulations.ts
+          test -z "$(git diff --name-only -- services/instacomp-ai)"
+
+      - name: Commit certified web-only files
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed="$( { git diff --name-only; git ls-files --others --exclude-standard; } | sort -u )"
+          expected="$(printf '%s\n' 'scripts/run-instacomp-final-identity-consensus-simulations.ts' 'src/lib/instacomp-consensus.ts' 'src/lib/instacomp-learning-server.ts' | sort)"
+          test "$changed" = "$expected"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add scripts/run-instacomp-final-identity-consensus-simulations.ts src/lib/instacomp-consensus.ts src/lib/instacomp-learning-server.ts
+          git commit -m 'Fix final InstaComp Registry set consensus semantics'
+          git push origin HEAD:fix/instacomp-registry-consensus-final-v3-20260807
+
+      - name: Remove temporary files
+        if: always()
+        run: rm -rf "$TEMP_DIR" registry-proof-temp.ts
