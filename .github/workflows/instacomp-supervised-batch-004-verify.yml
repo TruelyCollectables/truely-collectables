@@ -1,0 +1,63 @@
+name: InstaComp Supervised Batch 004 Verify
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-supervised-batch-004-verify.yml"
+      - "scripts/verify-instacomp-supervised-batch-004.ts"
+      - "scripts/fixtures/instacomp-supervised-batch-004-cards-76-100.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Pull Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p "$RUNNER_TEMP/instacomp-batch004" .vercel
+          npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/instacomp-batch004/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          echo "PRODUCTION_ENV_FILE=$RUNNER_TEMP/instacomp-batch004/production.env" >> "$GITHUB_ENV"
+
+      - name: Verify Batch 004 against live internal memory and Checklist Registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source "$PRODUCTION_ENV_FILE"
+          set +a
+          npx tsx scripts/verify-instacomp-supervised-batch-004.ts
+
+      - name: Upload verification receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-supervised-batch-004-verification
+          path: audits/instacomp-supervised/batch-004-live-verification.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Remove pulled Production environment
+        if: always()
+        run: rm -f "$RUNNER_TEMP/instacomp-batch004/production.env"
