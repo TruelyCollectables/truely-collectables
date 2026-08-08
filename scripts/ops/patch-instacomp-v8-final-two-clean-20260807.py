@@ -103,6 +103,72 @@ replace_once(path,
 
 path='src/lib/instacomp-learning-server.ts'
 replace_once(path,
+'''function isProductLineOnlySetEvidence(value: unknown) {
+  const normalized = normalizedText(value);
+  return ["prizm", "prism", "panini prizm", "panini prism"].includes(normalized);
+}
+''',
+'''function isProductLineOnlySetEvidence(value: unknown) {
+  const normalized = normalizedText(value);
+  return ["prizm", "prism", "panini prizm", "panini prism"].includes(normalized);
+}
+
+function normalizedProductLineTokens(value: unknown) {
+  return meaningfulTokens(value).map((token) =>
+    token === "prism" ? "prizm" : token,
+  );
+}
+
+function releaseSupportsProductLineSetEvidence(
+  ai: Record<string, any>,
+  release: Record<string, any>,
+) {
+  if (
+    !brandEvidenceMatches(ai.brand, [
+      release.manufacturer?.name,
+      release.brand?.name,
+      release.product_name,
+    ])
+  ) {
+    return false;
+  }
+  const targetTokens = normalizedProductLineTokens(ai.setName);
+  if (!targetTokens.length) return false;
+  const releaseTokens = new Set(
+    normalizedProductLineTokens(
+      [release.brand?.name, release.product_name].filter(Boolean).join(" "),
+    ),
+  );
+  return targetTokens.every((token) => releaseTokens.has(token));
+}
+''')
+replace_once(path,
+'''  const candidateReleaseIds = unique(
+    releaseRows
+      .filter((release: any) =>
+        yearMatches(year, release.release_year || release.season, true),
+      )
+      .map((release: any) => release.id),
+  );
+''',
+'''  // Product-line-only OCR such as PRIZM is release evidence, not a logical
+  // checklist-set name. Narrow the bounded set query to matching product
+  // releases before looking for Base versus a visible insert/subset. This
+  // avoids year-wide set truncation while preserving exact-card uniqueness.
+  const releaseRowsForCoverage = isProductLineOnlySetEvidence(ai.setName)
+    ? releaseRows.filter((release: any) =>
+        releaseSupportsProductLineSetEvidence(ai, release),
+      )
+    : releaseRows;
+  const candidateReleaseIds = unique(
+    releaseRowsForCoverage
+      .filter((release: any) =>
+        yearMatches(year, release.release_year || release.season, true),
+      )
+      .map((release: any) => release.id),
+  );
+''')
+replace_once(path,
 '''  if (
     parallelProfile.baseLike &&
     (parallelProfile.surfaceRisk || adjacentYearRecovered)
