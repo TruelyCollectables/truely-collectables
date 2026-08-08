@@ -1,0 +1,123 @@
+name: Ops Parkhurst Ivan Production Repair 20260807
+
+on:
+  push:
+    branches:
+      - ops/parkhurst-ivan-production-20260807
+    paths:
+      - ".github/workflows/ops-parkhurst-ivan-production-20260807.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  TEMP_DIR: /tmp/parkhurst-ivan-production-20260807
+
+jobs:
+  import-and-certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/parkhurst-ivan-production-20260807
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Resolve Production Registry credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$TEMP_DIR"
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          env_file="$TEMP_DIR/production.env"
+          runtime_file="$TEMP_DIR/runtime-env.sh"
+          npx --yes vercel@56.2.0 env pull "$env_file" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          PRODUCTION_ENV_PATH="$env_file" RUNTIME_ENV_PATH="$runtime_file" GH_SUPABASE_ACCESS_TOKEN="$GH_SUPABASE_ACCESS_TOKEN" node - <<'NODE'
+          const fs=require('node:fs'); const parsed={};
+          for(const raw of fs.readFileSync(process.env.PRODUCTION_ENV_PATH,'utf8').split(/\r?\n/)){
+            const line=raw.trim(); if(!line||line.startsWith('#'))continue;
+            const i=line.indexOf('='); if(i<1)continue;
+            const k=line.slice(0,i).trim(); let v=line.slice(i+1).trim();
+            if(v.startsWith('"')&&v.endsWith('"')){try{v=JSON.parse(v)}catch{v=v.slice(1,-1)}} parsed[k]=v;
+          }
+          (async()=>{
+            const u=String(parsed.NEXT_PUBLIC_SUPABASE_URL||'').trim(); if(!u)throw Error('Missing Production Supabase URL');
+            const ref=new URL(u).hostname.split('.')[0];
+            const r=await fetch(`https://api.supabase.com/v1/projects/${ref}/api-keys?reveal=true`,{headers:{Authorization:`Bearer ${process.env.GH_SUPABASE_ACCESS_TOKEN}`}});
+            const text=await r.text(); if(!r.ok)throw Error(`Supabase key lookup HTTP ${r.status}`);
+            const keys=text?JSON.parse(text):[]; const val=e=>String(e?.api_key||e?.key||e?.value||'');
+            const modern=keys.find(e=>/^sb_secret_/i.test(val(e)));
+            const legacy=keys.find(e=>e?.name==='service_role'&&/^eyJ/.test(val(e)))||keys.find(e=>e?.secret_jwt_template?.role==='service_role'&&/^eyJ/.test(val(e)));
+            const key=val(modern||legacy); if(!key)throw Error('No Production server key');
+            console.log(`::add-mask::${u}`); console.log(`::add-mask::${key}`);
+            fs.writeFileSync(process.env.RUNTIME_ENV_PATH,`export NEXT_PUBLIC_SUPABASE_URL=${JSON.stringify(u)}\nexport SUPABASE_SERVICE_ROLE_KEY=${JSON.stringify(key)}\n`,{mode:0o600});
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+
+      - name: Validate, import Parkhurst, and prove Ivan 236
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$TEMP_DIR/runtime-env.sh"
+          cat > "$TEMP_DIR/parkhurst-proof.ts" <<'TS'
+          import assert from "node:assert/strict";
+          import { importChecklistArtifact } from "./src/lib/checklist-registry/server";
+          import { resolveChecklistRegistry } from "./src/lib/instacomp-learning-server";
+          import type { ChecklistSourceArtifact } from "./src/lib/checklist-registry/source-adapter";
+
+          const url="https://upperdeck.com/checklist/2025-26-parkhurst-checklist/";
+          const response=await fetch(url,{headers:{Accept:"text/html,application/xhtml+xml","Cache-Control":"no-cache","User-Agent":"TCOS-Checklist-Registry/1.0"},redirect:"follow",signal:AbortSignal.timeout(60000)});
+          assert.equal(response.ok,true,`Parkhurst source HTTP ${response.status}`);
+          const content=await response.text();
+          assert.ok(content.length>10000,`Parkhurst source too small: ${content.length}`);
+          const artifact:ChecklistSourceArtifact={sourceUrl:url,originalFilename:"2025-26-parkhurst.html",mimeType:"text/html",content,retrievedAt:new Date().toISOString(),authority:"official_manufacturer",redistributionAllowed:false};
+
+          const validation=await importChecklistArtifact({artifact,validateOnly:true});
+          const errors=validation.plan.validation.issues.filter((x:any)=>x.severity==="error");
+          assert.equal(validation.ok,true,`Parkhurst validation failed: ${JSON.stringify(errors)}`);
+          assert.equal(validation.plan.validation.status,"passed",`Parkhurst validation status ${validation.plan.validation.status}`);
+          const cards=(validation.plan.cards as any[]).filter((c:any)=>String(c.cardNumber).trim()==="236" && (c.players||[]).some((p:any)=>String(p).toLowerCase().includes("ivan demidov")));
+          assert.ok(cards.length>=1,`Ivan Demidov #236 absent from normalized Parkhurst plan`);
+          const setKeys=[...new Set(cards.map((c:any)=>c.setSourceKey).filter(Boolean))];
+          const sets=(validation.plan.sets as any[]).filter((s:any)=>setKeys.includes(s.sourceKey||s.setSourceKey||s.source_key));
+          console.log("PARKHURST_VALIDATED",JSON.stringify({adapter:validation.adapter,counts:validation.plan.validation.counts,ivanCards:cards,setKeys,sets}));
+
+          const imported=await importChecklistArtifact({artifact});
+          assert.equal(imported.ok,true,"Parkhurst Production import did not return ok");
+          console.log("PARKHURST_IMPORTED",JSON.stringify({persistence:imported.persistence,counts:imported.plan.validation.counts}));
+
+          const logicalCandidates=[...new Set([
+            ...sets.flatMap((s:any)=>[s.name,s.displayName,s.normalizedName,s.title]),
+            "Rookies","Base Set - Rookies","Base Set","Base"
+          ].filter(Boolean).map(String))];
+          let exact:any=null;
+          const attempts:any[]=[];
+          for(const setName of logicalCandidates){
+            const r=await resolveChecklistRegistry({player:"Ivan Demidov",year:"2025-26",brand:"Upper Deck",setName,cardNumber:"236",parallel:"Base",team:"Montreal Canadiens",sport:"Hockey",league:"NHL",isRookie:true,isAuto:false,isRelic:false},{evidenceTrusted:true});
+            attempts.push({setName,status:r.status,reasons:r.reasons,match:r.match?{identityId:r.match.identityId,fingerprintSha256:r.match.fingerprintSha256,setName:r.match.setName,product:r.match.product,player:r.match.player,cardNumber:r.match.cardNumber}:null});
+            if(r.status==="internal_exact_match"&&r.match){exact=r;break;}
+          }
+          console.log("IVAN_RESOLVER_ATTEMPTS",JSON.stringify(attempts));
+          assert.ok(exact?.match,`Ivan #236 did not resolve exactly after Parkhurst import`);
+          assert.equal(exact.match.player,"Ivan Demidov");
+          assert.equal(String(exact.match.cardNumber),"236");
+          assert.match(String(exact.match.product||""),/Parkhurst/i);
+          assert.ok(exact.match.identityId&&exact.match.fingerprintSha256,"Ivan #236 missing Registry receipt");
+          console.log("PASS_IVAN_PARKHURST_236",JSON.stringify({identityId:exact.match.identityId,fingerprintSha256:exact.match.fingerprintSha256,setName:exact.match.setName,product:exact.match.product}));
+          TS
+          npx tsx "$TEMP_DIR/parkhurst-proof.ts"
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf "$TEMP_DIR"
