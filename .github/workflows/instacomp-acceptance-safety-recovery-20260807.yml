@@ -1,0 +1,128 @@
+name: InstaComp Acceptance Safety Recovery 20260807
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-acceptance-safety-recovery-20260807.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instacomp-production-acceptance-global
+  cancel-in-progress: false
+
+env:
+  EXPECTED_BRANCH: ops/instacomp-acceptance-safety-recovery-20260807
+  EXPECTED_MAIN: 04d927fe9b845eac3902ce1e88b720eb0fb8cb6e
+  EXPECTED_MAC_FINGERPRINT: d1f81dfa0054a5b1ca36f32c0f32c5c03f09a2de507e69041815861385878be3
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  PRODUCTION_ORIGIN: https://truelycollectables.com
+  EVIDENCE_DIR: evidence/instacomp-acceptance-safety-recovery-20260807
+
+jobs:
+  recover:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Prove exact source boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main --quiet
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN"
+          changed="$(git diff --name-only "$EXPECTED_MAIN"...HEAD | sort)"
+          test "$changed" = '.github/workflows/instacomp-acceptance-safety-recovery-20260807.yml'
+          mkdir -p "$EVIDENCE_DIR"
+          printf '{"main":"%s","recoveryHead":"%s","appSourceIdentical":true}\n' \
+            "$EXPECTED_MAIN" "$(git rev-parse HEAD)" > "$EVIDENCE_DIR/source-lock.json"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Link Production project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          npm ci
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Remove acceptance credential if present and prove absent
+        shell: bash
+        run: |
+          set -euo pipefail
+          before="$EVIDENCE_DIR/env-before.txt"
+          after="$EVIDENCE_DIR/env-after.txt"
+          npx --yes vercel@56.2.0 env ls production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$before"
+          if grep -Eq '(^|[[:space:]])INSTACOMP_ACCEPTANCE_SERVICE_TOKEN([[:space:]]|$)' "$before"; then
+            removed=0
+            for attempt in 1 2 3; do
+              set +e
+              npx --yes vercel@56.2.0 env rm INSTACOMP_ACCEPTANCE_SERVICE_TOKEN production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null 2>&1
+              rc=$?
+              set -e
+              npx --yes vercel@56.2.0 env ls production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$after"
+              if ! grep -Eq '(^|[[:space:]])INSTACOMP_ACCEPTANCE_SERVICE_TOKEN([[:space:]]|$)' "$after"; then
+                removed=1
+                break
+              fi
+              echo "acceptance credential still present after removal attempt $attempt (rc=$rc)" >&2
+              sleep 3
+            done
+            test "$removed" = "1"
+          else
+            cp "$before" "$after"
+          fi
+          if grep -Eq '(^|[[:space:]])INSTACOMP_ACCEPTANCE_SERVICE_TOKEN([[:space:]]|$)' "$after"; then
+            echo 'Temporary acceptance credential is still present in Production.' >&2
+            exit 1
+          fi
+          printf '{"acceptanceCredentialPresentAfterRecovery":false}\n' > "$EVIDENCE_DIR/env-proof.json"
+          rm -f "$before" "$after"
+
+      - name: Clean deploy exact application source
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$EVIDENCE_DIR/clean-deploy.log"
+          npx --yes vercel@56.2.0 deploy --prod --yes --force --no-color --cwd "$GITHUB_WORKSPACE" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee "$log"
+          grep -Fq "InstaComp release manifest bound to $(git rev-parse HEAD)." "$log"
+
+      - name: Prove clean Production readiness and Mac fingerprint
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$EVIDENCE_DIR/readiness-clean.json"
+          ready=0
+          for attempt in $(seq 1 18); do
+            code="$(curl -sS --max-time 30 -o "$out" -w '%{http_code}' -H 'Cache-Control: no-cache' "$PRODUCTION_ORIGIN/api/instacomp/internal-readiness?safety=recovery&attempt=$attempt&ts=$(date +%s)")"
+            if [ "$code" = "200" ] && node -e 'const fs=require("node:fs");const b=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));for(const k of ["ok","configured","reachable","internalMemoryReady","checklistReady","localModelReady"])if(b[k]!==true)process.exit(1);if(b.runtimeSourceFingerprint!==process.argv[2])process.exit(1);' "$out" "$EXPECTED_MAC_FINGERPRINT"; then
+              ready=1
+              break
+            fi
+            sleep 5
+          done
+          test "$ready" = "1"
+          printf '{"clean":true,"acceptanceCredentialPresent":false,"runtimeSourceFingerprint":"%s"}\n' \
+            "$EXPECTED_MAC_FINGERPRINT" > "$EVIDENCE_DIR/cleanup-proof.json"
+
+      - name: Upload safety evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-acceptance-safety-recovery-20260807
+          path: evidence/instacomp-acceptance-safety-recovery-20260807
+          if-no-files-found: warn
+          retention-days: 90
