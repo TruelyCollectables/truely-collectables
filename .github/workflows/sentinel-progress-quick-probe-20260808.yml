@@ -15,17 +15,21 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     steps:
-      - name: Probe both Production hostnames
+      - name: Probe Production progress, readiness, and Mac tunnel health
         shell: bash
         run: |
           set +e
           for url in \
             'https://truelycollectables.com/api/instacomp/checklist-sentinel/progress' \
-            'https://truely-collectables.vercel.app/api/instacomp/checklist-sentinel/progress'
+            'https://truelycollectables.com/api/instacomp/internal-readiness' \
+            'https://truely-collectables.vercel.app/api/instacomp/checklist-sentinel/progress' \
+            'https://truely-collectables.vercel.app/api/instacomp/internal-readiness' \
+            'https://instacomp.truelycollectables.com/health'
           do
             echo "=== $url ==="
             curl -sS --connect-timeout 5 --max-time 15 -D - "$url"
+            rc=$?
             echo
-            echo "curl_exit=$?"
+            echo "curl_exit=$rc"
           done
           exit 0
