@@ -176,6 +176,21 @@ function record(value: unknown): Record<string, unknown> {
     : {};
 }
 
+function localVisionOcrText(scan: InstaCompAiLocalScan, side: "front" | "back") {
+  const localVision = record(scan.local_vision);
+  const sideEvidence = record(localVision[side]);
+  const observations = Array.isArray(sideEvidence.ocr) ? sideEvidence.ocr : [];
+  return Array.from(
+    new Set(
+      observations
+        .map((value) => record(value))
+        .filter((value) => Number(value.confidence ?? 0) >= 0.5)
+        .map((value) => text(value.text))
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
+}
+
 function checklistReceiptValue(scan: InstaCompAiLocalScan, prefix: string) {
   const receipts = textList(scan.checklist?.source_receipts);
   const value = receipts.find((receipt) => receipt.startsWith(prefix));
@@ -227,6 +242,8 @@ function confidence(value: unknown) {
 export function instaCompAiLocalScanToAi(
   scan: InstaCompAiLocalScan,
 ): InstaCompAiResultWithInternalReceipt | null {
+  const freshFrontVisibleText = localVisionOcrText(scan, "front");
+  const freshBackVisibleText = localVisionOcrText(scan, "back");
   const trusted = scan.trusted_identity || null;
   const suggested = scan.local_suggestion?.identity || null;
   const identity = trusted || suggested;
@@ -279,9 +296,9 @@ export function instaCompAiLocalScanToAi(
       internalInscription: false,
       internalInscriptionText: null,
       internalMemorabiliaType: null,
-      frontVisibleText: [],
-      backVisibleText: [],
-      backEvidence: null,
+      frontVisibleText: freshFrontVisibleText,
+      backVisibleText: freshBackVisibleText,
+      backEvidence: freshBackVisibleText.join(" | ") || null,
     };
   }
 
@@ -297,8 +314,12 @@ export function instaCompAiLocalScanToAi(
     : confidence(scan.local_suggestion?.confidence);
   const source = scan.match_source || scan.local_suggestion?.provider || "instacomp";
   const evidence = scan.local_suggestion?.evidence;
-  const frontVisibleText = textList(evidence?.front_visible_text);
-  const backVisibleText = textList(evidence?.back_visible_text);
+  const frontVisibleText = Array.from(
+    new Set([...freshFrontVisibleText, ...textList(evidence?.front_visible_text)]),
+  );
+  const backVisibleText = Array.from(
+    new Set([...freshBackVisibleText, ...textList(evidence?.back_visible_text)]),
+  );
   const backNotes = textList(evidence?.back_notes);
   const frontPatternEvidence = [
     ...textList(evidence?.colors),

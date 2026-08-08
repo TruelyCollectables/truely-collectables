@@ -315,7 +315,6 @@ function meaningfulTokens(value: unknown) {
           "card",
           "cards",
           "trading",
-          "base",
           "set",
           "series",
           "upper",
@@ -324,6 +323,19 @@ function meaningfulTokens(value: unknown) {
           "topps",
         ].includes(token),
     );
+}
+
+function isProductLineOnlySetEvidence(value: unknown) {
+  const normalized = normalizedText(value);
+  return ["prizm", "prism", "panini prizm", "panini prism"].includes(normalized);
+}
+
+function visibleTextSupportsLogicalSet(setName: unknown, visibleText: unknown) {
+  if (isBaseParallel(setName)) return false;
+  const setTokens = meaningfulTokens(setName);
+  if (!setTokens.length) return false;
+  const visibleTokens = new Set(meaningfulTokens(visibleText));
+  return setTokens.every((token) => visibleTokens.has(token));
 }
 
 function normalizedBrandAlternatives(value: unknown) {
@@ -454,8 +466,8 @@ function visibleParallelNoteTokens(value: unknown) {
   ]) {
     const negated = new RegExp(`\\b(?:no|without)\\b[^.]{0,40}\\b${color}\\b`).test(notes);
     const contextual =
-      new RegExp(`\\b${color}\\b(?:\\s+\\w+){0,3}\\s+\\b(?:border|foil|finish|parallel|background|frame)\\b`).test(notes) ||
-      new RegExp(`\\b(?:border|foil|finish|parallel|background|frame)\\b(?:\\s+\\w+){0,3}\\s+\\b${color}\\b`).test(notes);
+      new RegExp(`\\b${color}\\b(?:\\s+\\w+){0,3}\\s+\\b(?:border|foil|finish|parallel)\\b`).test(notes) ||
+      new RegExp(`\\b(?:border|foil|finish|parallel)\\b(?:\\s+\\w+){0,3}\\s+\\b${color}\\b`).test(notes);
     if (!negated && contextual) add(color);
   }
   return tokens;
@@ -466,7 +478,7 @@ function hasVisibleParallelSurfaceRisk(value: unknown) {
   const finishCue =
     /\b(speckle(?:d)?|sparkle|glitter|rainbow|holo(?:graphic)?|foil|acetate|clear[-\s]*stock|transparent|translucent|outburst|refractor|shimmer|wave|pulsar|mojo|mosaic|laser|black\s+and\s+white)\b/i;
   const colorContext =
-    /\b(black|blue|gold|green|orange|pink|purple|red|silver|white)\b(?:\s+\w+){0,3}\s+\b(border|background|frame|finish|foil|parallel)\b/i;
+    /\b(black|blue|gold|green|orange|pink|purple|red|silver|white)\b(?:\s+\w+){0,3}\s+\b(border|finish|foil|parallel)\b/i;
   const negation = /\b(no|not|without|none|absent|neither)\b/i;
 
   return clauses.some((clause) => {
@@ -1250,13 +1262,21 @@ export async function resolveChecklistRegistry(
       version: { id: row.version_id, is_active: true, status: "live" },
       release: releaseById.get(String(row.release_id)) || null,
     }));
+  const softVisibleSetRows = isProductLineOnlySetEvidence(ai.setName)
+    ? scopedSetRows.filter((row: any) =>
+        visibleTextSupportsLogicalSet(row.name, ai.registryVisibleText),
+      )
+    : [];
+  const setRowsForCoverage = softVisibleSetRows.length
+    ? softVisibleSetRows
+    : scopedSetRows;
 
-  const exactCoveredSets = scopedSetRows.filter((row: any) =>
+  const exactCoveredSets = setRowsForCoverage.filter((row: any) =>
     checklistSetCoverageMatches(ai, row),
   );
   const adjacentCoveredSets = exactCoveredSets.length
     ? []
-    : scopedSetRows.filter((row: any) =>
+    : setRowsForCoverage.filter((row: any) =>
         checklistSetCoverageMatches(ai, row, {
           allowAdjacentYearRecovery: true,
         }),

@@ -313,6 +313,11 @@ function isGenericBase(value: string | boolean | null | undefined) {
   );
 }
 
+function isProductLineOnlySetValue(value: string | boolean | null | undefined) {
+  const normalized = comparableText(value);
+  return ["prizm", "prism", "panini prizm", "panini prism"].includes(normalized);
+}
+
 function isUncertain(value: string | boolean | null | undefined) {
   return /\b(uncertain|unknown|unsure|not sure|cannot confirm|ambiguous|maybe|possibly|exact type uncertain)\b/i.test(
     String(value || ""),
@@ -563,8 +568,12 @@ function buildFieldDecision(params: {
 
   if (knownValue(catalogValue)) {
     const catalogKey = comparableFieldValue(field, catalogValue);
+    const groupMatchesCatalog = (group: ValueGroup) =>
+      field === "setName" && catalogReferee?.identity
+        ? catalogTextFieldMatchesReader(field, catalogReferee.identity, group.value)
+        : group.key === catalogKey;
     const conflictingValues = groups
-      .filter((group) => group.key !== catalogKey)
+      .filter((group) => !groupMatchesCatalog(group))
       .map((group) => String(group.value));
 
     return {
@@ -574,7 +583,7 @@ function buildFieldDecision(params: {
       sources: [
         catalogReferee?.sourceLabel || "Catalog/checklist referee",
         ...(groups
-          .filter((group) => group.key === catalogKey)
+          .filter((group) => groupMatchesCatalog(group))
           .flatMap((group) => group.sources)),
       ],
       conflictingValues: uniqueStrings(conflictingValues),
@@ -748,7 +757,7 @@ function hasUnresolvedVisibleSurfaceRisk(value: string) {
   const finishCue =
     /\b(speckle(?:d)?|sparkle|glitter|rainbow|holo(?:graphic)?|foil|acetate|clear[-\s]*stock|transparent|translucent|outburst|refractor|shimmer|wave|pulsar|mojo|mosaic|laser|black\s+and\s+white)\b/i;
   const colorContext =
-    /\b(black|blue|gold|green|orange|pink|purple|red|silver|white)\b(?:\s+\w+){0,3}\s+\b(border|background|frame|finish|foil|parallel)\b/i;
+    /\b(black|blue|gold|green|orange|pink|purple|red|silver|white)\b(?:\s+\w+){0,3}\s+\b(border|finish|foil|parallel)\b/i;
   const negation = /\b(no|not|without|none|absent|neither)\b/i;
   return clauses.some((clause) => {
     const cue = finishCue.exec(clause) || colorContext.exec(clause);
@@ -763,8 +772,12 @@ function evidenceSupportsCatalogParallel(
 ) {
   const catalogParallel = normalizeValue(identity?.parallel);
   if (!knownValue(catalogParallel) || isGenericBase(catalogParallel)) return false;
-  const evidenceTokens = new Set(semanticTokens(readerEvidenceText(reader)));
-  const requiredTokens = semanticTokens(catalogParallel);
+  const evidenceTokens = new Set(
+    comparableParallel(readerEvidenceText(reader)).split(" ").filter(Boolean),
+  );
+  const requiredTokens = comparableParallel(catalogParallel)
+    .split(" ")
+    .filter(Boolean);
   return (
     requiredTokens.length > 0 &&
     requiredTokens.every((token) => evidenceTokens.has(token))
@@ -785,6 +798,14 @@ function catalogTextFieldMatchesReader(
   if (field === "setName") {
     const registrySetName = catalogRegistrySetName(catalogIdentity);
     const catalogSetValues = [catalogValue, registrySetName].filter(Boolean);
+    if (isProductLineOnlySetValue(readerValue)) {
+      const readerTokens = semanticTokens(readerValue);
+      const productTokens = new Set(semanticTokens((catalogIdentity as typeof catalogIdentity & { product?: string | null }).product));
+      return (
+        readerTokens.length > 0 &&
+        readerTokens.every((token) => productTokens.has(token))
+      );
+    }
     // semanticTokens intentionally strips generic words such as "base". Handle
     // the logical Base set explicitly so Base vs Base cannot become an empty-token
     // false conflict while still refusing Base vs a named insert/subset.
@@ -872,12 +893,16 @@ function guardCatalogRefereeAgainstHardEvidence(params: {
       !group.hasGenericBase &&
       !group.hasUncertain,
   );
-  const unresolvedSurfaceRisk = params.readers.some((reader) =>
-    hasUnresolvedVisibleSurfaceRisk(readerEvidenceText(reader)),
+  const unresolvedSurfaceRiskFamilies = uniqueStrings(
+    params.readers
+      .filter((reader) =>
+        hasUnresolvedVisibleSurfaceRisk(readerEvidenceText(reader)),
+      )
+      .map((reader) => readerFamily(reader)),
   );
 
   if (isGenericBase(catalogParallel)) {
-    if (unresolvedSurfaceRisk) {
+    if (unresolvedSurfaceRiskFamilies.length >= 2) {
       conflicts.push(
         "catalog Base parallel conflicts with unresolved visible surface/finish evidence",
       );
