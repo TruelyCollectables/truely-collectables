@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "qwen2.5vl:7b"
     ollama_timeout_seconds: float = 120.0
+    # The trained LoRA is an opt-in evidence reader only. It can never lock
+    # identity or pricing by itself; the central Checklist Registry still must
+    # return one exact UUID + fingerprint. Disabled is the rollback/default.
+    lora_candidate_enabled: bool = False
+    lora_candidate_url: str = "http://127.0.0.1:8791"
+    lora_candidate_timeout_seconds: float = 120.0
     api_key: str | None = None
 
     # Mac-owned Deal Hunter scheduler. The existing LaunchAgent keeps the
