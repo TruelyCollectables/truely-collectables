@@ -341,6 +341,78 @@ def _save_scan(
 
 
 @app.post(
+    "/v1/scans/supervised-archive",
+    dependencies=[Depends(require_api_key)],
+)
+async def supervised_archive_scan(
+    front: UploadFile = File(...),
+    back: UploadFile = File(...),
+    card_uuid: str | None = Form(default=None),
+):
+    """Persist an operator-supervised image pair without re-identifying it.
+
+    This endpoint never creates trusted identity by itself. The caller must follow
+    it with an operator-confirmed lesson, which remains the trust boundary.
+    """
+    front_content = await front.read()
+    back_content = await back.read()
+    if len(front_content) + len(back_content) > settings.max_total_image_bytes:
+        raise HTTPException(status_code=413, detail="Combined images are too large")
+    try:
+        front_image = validate_and_normalize_image(
+            front_content,
+            settings.max_image_bytes,
+        )
+        back_image = validate_and_normalize_image(
+            back_content,
+            settings.max_image_bytes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    persist_image(front_image, image_store_path, "front")
+    persist_image(back_image, image_store_path, "back")
+    scan_id = str(uuid4())
+    created_at = datetime.now(timezone.utc)
+    combined_hash = pair_hash(front_image.sha256, back_image.sha256)
+    physical_card_uuid = _resolve_card_uuid(
+        requested=card_uuid,
+        image_pair_sha256=combined_hash,
+        first_scan_id=scan_id,
+    )
+    archive_only = ChecklistResult(
+        outcome=ChecklistOutcome.INPUT_INCOMPLETE,
+        reasons=[
+            "Operator-supervised archive only; identity is supplied by the following operator-confirmed lesson."
+        ],
+        source_receipts=["operator_supervised_archive_only"],
+    )
+    _save_scan(
+        scan_id=scan_id,
+        card_uuid=physical_card_uuid,
+        created_at=created_at,
+        front_image=front_image,
+        back_image=back_image,
+        combined_hash=combined_hash,
+        suggestion=None,
+        local_vision=None,
+        checklist_result=archive_only,
+        status="supervised_archive_pending_lesson",
+    )
+    return {
+        "schema_version": "tcos.instacomp-ai.supervised-archive.v1",
+        "scan_id": scan_id,
+        "card_uuid": physical_card_uuid,
+        "status": "supervised_archive_pending_lesson",
+        "front_sha256": front_image.sha256,
+        "back_sha256": back_image.sha256,
+        "image_pair_sha256": combined_hash,
+        "identity_created": False,
+        "nothing_published": True,
+    }
+
+
+@app.post(
     "/v1/scans/analyze",
     response_model=AnalyzeResponse,
     dependencies=[Depends(require_api_key)],
