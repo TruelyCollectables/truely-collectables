@@ -54,25 +54,35 @@ for (const forbidden of [
 
 const mac = read("services/instacomp-ai/app/main.py");
 for (const required of [
-  "suggestion = await reader.analyze(",
-  "suggestion_registry = await checklist_gateway.match(",
-  "suggestion_registry.identity_id",
+  "local_vision = await analyze_local_vision(",
+  "printed_registry = (",
+  "CHECKLIST-ONLY REVIEW PATH",
+  "trusted_text_registry_verified = bool(",
+  "trusted_text_registry.identity_id",
   'receipt.startswith("registry_fingerprint:")',
-  'match_source = "ollama_backup"',
-  'status = "model_unavailable"',
+  'match_source = "trusted_text_memory"',
+  'status = "needs_review"',
+  "pricing_allowed = True",
   "pricing_allowed = False",
+  "No external identity provider was called",
 ]) {
   requireText(
     mac,
     required,
-    `Mac first-time evidence fallback is missing: ${required}`,
+    `Mac checklist-only first-time identity contract is missing: ${required}`,
   );
 }
-forbidText(
-  mac,
-  "No Ollama or external identity reader is called here",
-  "The original first-time-card deadlock must not be restored.",
-);
+for (const forbidden of [
+  "await reader.analyze(",
+  'match_source = "ollama_backup"',
+  'status = "model_unavailable"',
+]) {
+  forbidText(
+    mac,
+    forbidden,
+    `First-time identity must not execute or depend on the retired external reader path: ${forbidden}`,
+  );
+}
 
 const intake = read(
   "src/app/api/kingmaker/instacomp-scan-intake-v2/route.ts",
@@ -90,4 +100,4 @@ requireText(
   "Pending retries must use the repaired exact route.",
 );
 
-console.log("First-time card identity deadlock repair contract passed.");
+console.log("First-time card checklist-only identity contract passed.");

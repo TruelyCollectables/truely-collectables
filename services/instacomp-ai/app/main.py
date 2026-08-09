@@ -217,15 +217,14 @@ def _trusted_memory_back_evidence(
 async def health() -> HealthResponse:
     database_ready = store.ready()
     checklist_ready = await checklist_gateway.health()
-    ollama_ready = await reader.health()
     return HealthResponse(
-        ok=database_ready and checklist_ready and ollama_ready,
+        ok=database_ready and checklist_ready,
         app=settings.app_name,
         codename=settings.codename,
         version=settings.version,
         database="ready" if database_ready else "error",
-        ollama="ready" if ollama_ready else "unavailable",
-        ollama_model=settings.ollama_model,
+        ollama="unchecked",
+        ollama_model="disabled_for_identity_scans",
         checklist="ready" if checklist_ready else "not_configured",
     )
 
@@ -560,53 +559,10 @@ async def analyze_scan(
             ),
         )
 
-    # LOCAL EVIDENCE FALLBACK: trusted memory and bounded printed evidence run
-    # first. When they cannot identify a new card, Ollama reads the actual front/back
-    # images and supplies evidence only. The central Registry remains the sole identity
-    # authority, and pricing stays blocked without its identity ID and fingerprint.
+    # CHECKLIST-ONLY REVIEW PATH: unresolved cards are preserved as complete
+    # scan receipts. No Ollama or external identity reader is called here.
     suggestion = None
-    model_error = None
-    model_error_code = None
-    suggestion_registry = printed_registry
-    try:
-        suggestion = await reader.analyze(
-            front_image.content,
-            back_image.content if back_image else None,
-            local_vision=local_vision,
-        )
-        suggestion_text = "\n".join(
-            dict.fromkeys(
-                [
-                    *suggestion.evidence.visible_text,
-                    *suggestion.evidence.front_visible_text,
-                    *suggestion.evidence.back_visible_text,
-                    *suggestion.evidence.logos,
-                    *suggestion.evidence.front_notes,
-                    *suggestion.evidence.back_notes,
-                ]
-            )
-        )
-        suggestion_registry = await checklist_gateway.match(
-            suggestion.identity,
-            suggestion_text,
-        )
-    except httpx.HTTPStatusError as exc:
-        model_error_code = f"ollama_http_{exc.response.status_code}"
-        detail = _safe_ollama_error_detail(exc.response.text)
-        model_error = (
-            f"{model_error_code}:{detail}" if detail else model_error_code
-        )
-    except httpx.TimeoutException:
-        model_error_code = "ollama_timeout"
-        model_error = model_error_code
-    except httpx.HTTPError as exc:
-        model_error_code = f"ollama_transport_{type(exc).__name__.lower()}"
-        model_error = model_error_code
-    except (TypeError, ValueError, KeyError) as exc:
-        model_error_code = f"ollama_parse_{type(exc).__name__.lower()}"
-        model_error = model_error_code
-
-    proposed_identity = suggestion.identity if suggestion else printed_identity
+    proposed_identity = printed_identity
     memory_matches = (
         store.search(proposed_identity)
         if any(proposed_identity.model_dump().values())
@@ -640,58 +596,21 @@ async def analyze_scan(
         )
     )
 
-    if (
-        suggestion
-        and suggestion_registry.outcome == ChecklistOutcome.EXACT_MATCH
-        and suggestion_registry.identity
-        and suggestion_registry.identity_id
-        and any(
-            receipt.startswith("registry_fingerprint:")
-            for receipt in suggestion_registry.source_receipts
-        )
-    ):
-        trusted_identity = suggestion_registry.identity
-        checklist_result = suggestion_registry
-        pricing_allowed = True
-        status = "trusted_memory_match"
-        match_source = "ollama_backup"
-        next_action = (
-            "Local front/back evidence was locked to one exact Registry identity. "
-            "Continue to verified comps."
-        )
-    elif (
-        trusted_text_match
-        and trusted_text_registry_verified
-        and trusted_text_registry
-    ):
+    if trusted_text_registry_verified and trusted_text_registry:
         trusted_identity = trusted_text_registry.identity
         checklist_result = trusted_text_registry
         pricing_allowed = True
         status = "trusted_memory_match"
         match_source = "trusted_text_memory"
         next_action = (
-            "Known card memory was revalidated against the current Registry. "
-            "Continue to verified comps."
+            "Known card memory was revalidated against one exact Registry identity. Continue to verified comps."
         )
     else:
-        checklist_result = suggestion_registry
+        checklist_result = trusted_text_registry or printed_registry
         trusted_identity = None
         pricing_allowed = False
         match_source = "none"
-        if model_error:
-            status = "model_unavailable"
-            error_receipt = f"local_model_error:{model_error or model_error_code or 'unknown'}"
-            checklist_result = checklist_result.model_copy(
-                update={
-                    "reasons": list(dict.fromkeys([*checklist_result.reasons, error_receipt]))
-                }
-            )
-            next_action = (
-                "The local Ollama evidence reader did not produce a usable result "
-                f"({model_error_code or 'unknown'}). Keep identity and pricing blocked, "
-                "repair the local reader, and retry."
-            )
-        elif checklist_result.outcome == ChecklistOutcome.NOT_CONFIGURED:
+        if checklist_result.outcome == ChecklistOutcome.NOT_CONFIGURED:
             status = "needs_checklist"
             next_action = (
                 "Checklist Registry is not connected. Preserve this scan for private manual review."
@@ -699,8 +618,7 @@ async def analyze_scan(
         else:
             status = "needs_review"
             next_action = (
-                "InstaComp preserved the front/back evidence and Registry receipt, but "
-                "one exact identity was not proven. Review or correct the card privately."
+                "InstaComp preserved the front/back scan and checklist receipt, but one exact Registry identity with fingerprint proof was not established. No external identity provider was called. Review or correct the card privately."
             )
 
     suggestion_back_evidence = (

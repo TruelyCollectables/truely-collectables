@@ -3,8 +3,26 @@ from __future__ import annotations
 from pathlib import Path
 
 
+ALREADY_APPLIED_MARKERS = {
+    "OCR enrichment export": "export function enrichInstaCompChecklistInputFromOcr(",
+    "OCR enrichment call": "const enriched = enrichInstaCompChecklistInputFromOcr(input, candidates);",
+    "local client signature": "printedEvidence?: {",
+    "local client multipart body": '"printed_evidence_json"',
+    "website local engine call": "printedEvidence: params.externalOcr",
+    "FastAPI Form import": "Form, Header",
+    "printed evidence import": "from .printed_evidence import (",
+    "FastAPI scan signature": "printed_evidence_json: str | None = Form(default=None)",
+    "printed evidence parsing": "printed_evidence = parse_printed_evidence(printed_evidence_json)",
+    "OCR Registry primary block": "printed_registry = (",
+    "Ollama evidence Registry call": "suggestion_registry = await checklist_gateway.match(",
+}
+
+
 def replace_once(text: str, old: str, new: str, label: str) -> str:
     if new in text:
+        return text
+    marker = ALREADY_APPLIED_MARKERS.get(label)
+    if marker and marker in text:
         return text
     if old not in text:
         raise SystemExit(f"{label} anchor missing")
@@ -282,10 +300,15 @@ requireText(
   "OCR-resolved cards must record Checklist Registry provenance.",
 );
 '''
-if addition not in contract:
+modern_contract = (
+    'requireText(\n  service,\n  "printed_registry = ("' in contract
+    and 'forbidText(\n  analyze,\n  "await reader.analyze("' in contract
+    and '"CHECKLIST-ONLY REVIEW PATH"' in contract
+)
+if addition not in contract and not modern_contract:
     if marker not in contract:
         raise SystemExit("permanent contract marker missing")
     contract = contract.replace(marker, addition + marker, 1)
 contract_path.write_text(contract)
 
-print("OCR/Checklist Registry primary patch applied")
+print("OCR/Checklist Registry primary patch applied or already present")
