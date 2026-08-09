@@ -6,6 +6,7 @@ on:
     paths:
       - ".github/workflows/kingmaker-unified-admin-workflow.yml"
       - "scripts/patch-kingmaker-pending-full-review.py"
+      - "scripts/patch-kingmaker-pending-compatibility.py"
       - "src/app/admin/**"
       - "src/app/kingmaker/**"
       - "src/app/api/account/seller/instacomp-pending/route.ts"
@@ -30,10 +31,11 @@ jobs:
           ref: feature/kingmaker-unified-admin-workflow-20260809
           fetch-depth: 0
 
-      - name: Apply Pending full-review backend patch
+      - name: Apply Pending full-review and compatibility patches
         run: |
           set -euo pipefail
           python3 scripts/patch-kingmaker-pending-full-review.py
+          python3 scripts/patch-kingmaker-pending-compatibility.py
           git diff --check
 
       - uses: actions/setup-node@v4
@@ -43,6 +45,15 @@ jobs:
 
       - run: npm ci
 
+      - name: Existing KINGMAKER FBI contract
+        run: node scripts/check-kingmaker-fbi-contract.mjs
+
+      - name: Existing scan-to-list release matrix
+        run: node --import tsx scripts/run-instacomp-scan-to-list-release-gate.ts
+
+      - name: Existing KINGMAKER architecture contract
+        run: node scripts/certify-kingmaker-instacomp-architecture.mjs
+
       - name: TypeScript contract
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
@@ -50,7 +61,7 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ci-placeholder
         run: npx tsc --noEmit --pretty false
 
-      - name: KINGMAKER workflow contract
+      - name: KINGMAKER unified workflow contract
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -75,25 +86,36 @@ jobs:
           assert 'Nothing publishes automatically' in queue
           assert 'Edit All Fields' in pending
           assert 'Rotate 90°' in pending
+          assert 'rotatedImageFile' in pending
+          assert 'formData.set("frontImage", frontImage)' in pending
+          assert 'formData.set("backImage", backImage)' in pending
+          assert 'Retry This Card' in pending
+          assert 'Replace Manual Identity with AI' in pending
+          assert 'Re-scan and Replace Locked Identity' in pending
+          assert 'soldCompEvidence' in pending and 'activeCompetition' in pending
           assert 'standardizedTitle' in pending
           assert '.replace(/\\bBase\\b/gi' in pending
           assert 'cardUuid:' in pending_api and 'identity:' in pending_api
           assert 'displayTitle' in edit_api and '.replace(/\\bBase\\b/gi' in edit_api
           assert 'description: nextDescription' in edit_api
           assert 'persistNormalizedInstaCompImagePair' in rotate_api
+          assert 'form.get("frontImage") ?? form.get("front")' in rotate_api
+          assert 'form.get("backImage") ?? form.get("back")' in rotate_api
           assert 'published: false' in rotate_api
           print('PASS KINGMAKER unified scan -> Pending -> correction -> pricing workflow contract')
           PY
 
-      - name: Persist tested backend patch
+      - name: Persist tested generated changes
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add \
+            src/app/kingmaker/pending/page.tsx \
             src/app/api/account/seller/instacomp-pending/route.ts \
-            src/app/api/account/seller/inventory/instacomp-card-edit/route.ts
+            src/app/api/account/seller/inventory/instacomp-card-edit/route.ts \
+            src/app/api/account/seller/inventory/instacomp-image-rotate/route.ts
           if ! git diff --cached --quiet; then
-            git commit -m "Expose full Pending identity and listing correction fields [skip ci]"
+            git commit -m "Restore Pending safety contracts in unified KINGMAKER [skip ci]"
             git push origin HEAD:feature/kingmaker-unified-admin-workflow-20260809
           fi
