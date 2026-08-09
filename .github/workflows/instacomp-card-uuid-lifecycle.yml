@@ -1,0 +1,68 @@
+name: InstaComp Permanent Card UUID Lifecycle
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-card-uuid-lifecycle.yml"
+      - "scripts/patch-instacomp-card-uuid-lifecycle.py"
+      - "scripts/verify-instacomp-card-uuid-lifecycle.mjs"
+      - "src/modules/inventory/types.ts"
+      - "src/modules/inventory/repository.ts"
+      - "src/modules/inventory/engine.ts"
+      - "src/lib/checkout-order-finalization.ts"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instacomp-card-uuid-lifecycle-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_BRANCH: feature/instacomp-card-uuid-lifecycle-20260808
+
+jobs:
+  apply-test-and-persist:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Apply UUID lifecycle patch
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-instacomp-card-uuid-lifecycle.py
+          git diff --check
+          node scripts/verify-instacomp-card-uuid-lifecycle.mjs
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: TypeScript and production build
+        run: |
+          set -euo pipefail
+          npm ci >/dev/null
+          npx tsc --noEmit
+          npm run build
+
+      - name: Persist generated UUID lifecycle runtime
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            src/modules/inventory/types.ts \
+            src/modules/inventory/repository.ts \
+            src/modules/inventory/engine.ts \
+            src/lib/checkout-order-finalization.ts
+          if ! git diff --cached --quiet; then
+            git commit -m "Carry permanent card UUID through inventory and orders [skip ci]"
+            git push origin "HEAD:$EXPECTED_BRANCH"
+          fi
