@@ -1,0 +1,74 @@
+name: Ops Sentinel Live Progress Probe 2 20260809
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - agent/sentinel-live-progress-probe2-20260809
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    if: github.head_ref == 'agent/sentinel-live-progress-probe2-20260809' || github.ref_name == 'agent/sentinel-live-progress-probe2-20260809'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Query sanitized Production Sentinel progress
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 30 \
+            https://truelycollectables.com/api/instacomp/checklist-sentinel/progress \
+            -o sentinel-progress.json
+          python3 -m json.tool sentinel-progress.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          payload = json.loads(Path('sentinel-progress.json').read_text('utf-8'))
+          if payload.get('ok') is not True:
+              raise SystemExit(f"Production Sentinel progress is not healthy: {payload}")
+          job = payload.get('job') or {}
+          targets = payload.get('targets') or {}
+          summary = {
+              'checkedAt': payload.get('checkedAt'),
+              'degraded': payload.get('degraded'),
+              'source': payload.get('source'),
+              'freezeStale': payload.get('freezeStale'),
+              'selfHeal': payload.get('selfHeal'),
+              'job': {
+                  'status': job.get('status'),
+                  'trigger': job.get('trigger'),
+                  'processed': job.get('processed'),
+                  'total': job.get('total'),
+                  'percent': job.get('percent'),
+                  'found': job.get('found'),
+                  'downloaded': job.get('downloaded'),
+                  'imported': job.get('imported'),
+                  'failed': job.get('failed'),
+                  'heartbeatAt': job.get('heartbeatAt'),
+              },
+              'targets': {
+                  'total': targets.get('total'),
+                  'pending': targets.get('pending'),
+                  'recovered': targets.get('recovered'),
+                  'noResult': targets.get('noResult'),
+                  'leadOnly': targets.get('leadOnly'),
+                  'failed': targets.get('failed'),
+              },
+          }
+          Path('sentinel-progress-summary.json').write_text(json.dumps(summary, indent=2) + '\n', 'utf-8')
+          print('\nSANITIZED_SENTINEL_SUMMARY')
+          print(json.dumps(summary, indent=2))
+          PY
+
+      - name: Upload sanitized receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: sentinel-live-progress-receipt-2
+          path: sentinel-progress-summary.json
+          if-no-files-found: error
+          retention-days: 3
