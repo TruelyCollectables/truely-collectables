@@ -13,27 +13,25 @@ permissions:
 jobs:
   prove:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 8
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       IMPORT_URL: https://truelycollectables.com/api/release/instacomp-supervised-203
     steps:
-      - name: Call merged Production importer and print sanitized receipt
+      - name: Call merged Production importer once and print sanitized receipt
         shell: bash
         run: |
           set -euo pipefail
           test -n "${VERCEL_TOKEN:-}"
           receipt="$RUNNER_TEMP/instacomp-supervised-203-live-proof.json"
-          ready=0
-          for attempt in $(seq 1 60); do
-            code="$(curl -sS -o "$receipt" -w '%{http_code}' --max-time 300 \
-              -X POST \
-              -H "Authorization: Bearer $VERCEL_TOKEN" \
-              -H 'Accept: application/json' \
-              "$IMPORT_URL" || true)"
-            echo "attempt=$attempt http=$code"
-            if [[ -s "$receipt" ]]; then
-              node - "$receipt" <<'NODE' || true
+          code="$(curl -sS -o "$receipt" -w '%{http_code}' --max-time 300 \
+            -X POST \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            -H 'Accept: application/json' \
+            "$IMPORT_URL" || true)"
+          echo "http=$code"
+          if [[ -s "$receipt" ]]; then
+            node - "$receipt" <<'NODE' || true
           const fs = require('fs');
           const p = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           console.log(JSON.stringify({
@@ -54,19 +52,12 @@ jobs:
             error:p.error,
           }, null, 2));
           NODE
-            fi
-            if [[ "$code" == "200" ]] && node - "$receipt" <<'NODE'
+          fi
+          if [[ "$code" != "200" ]]; then
+            exit 1
+          fi
+          node - "$receipt" <<'NODE'
           const fs = require('fs');
           const p = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           process.exit(p?.success === true && p?.completePhysicalScanPairs === 203 && p?.finalTrustedVerified === 203 && p?.failedInsertCount === 0 ? 0 : 1);
           NODE
-            then
-              ready=1
-              break
-            fi
-            sleep 10
-          done
-          if [[ "$ready" != "1" ]]; then
-            echo "Live supervised-203 proof failed." >&2
-            exit 1
-          fi
