@@ -1,5 +1,24 @@
 from pathlib import Path
 
+model_path = Path("src/lib/instacomp.ts")
+model = model_path.read_text()
+old_model = '''  soldAt?: string | null;
+  listedAt?: string | null;
+'''
+new_model = '''  soldAt?: string | null;
+  itemId?: string | null;
+  seller?: string | null;
+  sellerName?: string | null;
+  sellerFeedbackPercent?: number | null;
+  sellerFeedbackScore?: number | null;
+  listedAt?: string | null;
+'''
+if new_model not in model:
+    if old_model not in model:
+        raise SystemExit("shared InstaComp comp type anchor missing")
+    model = model.replace(old_model, new_model, 1)
+model_path.write_text(model)
+
 route_path = Path("src/app/api/instacomp/scan/route.ts")
 route = route_path.read_text()
 old = '''        imageUrl: item?.image?.imageUrl ? String(item.image.imageUrl) : null,
