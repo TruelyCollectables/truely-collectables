@@ -7,6 +7,7 @@ import {
 const scan: InstaCompAiLocalScan = {
   schema_version: "tcos.instacomp-ai.scan.v1",
   scan_id: "review-contract-123",
+  card_uuid: "card-review-contract-123",
   status: "needs_review",
   pricing_allowed: false,
   learning_allowed: false,
@@ -24,6 +25,7 @@ const scan: InstaCompAiLocalScan = {
 const ai = instaCompAiLocalScanToAi(scan);
 assert.ok(ai, "A valid review scan must never be converted to null");
 assert.equal(ai.internalScanId, "review-contract-123");
+assert.equal(ai.internalCardUuid, "card-review-contract-123");
 assert.equal(ai.internalStatus, "needs_review");
 assert.equal(ai.internalChecklistOutcome, "input_incomplete");
 assert.deepEqual(ai.internalChecklistReasons, [
