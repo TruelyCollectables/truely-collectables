@@ -1,0 +1,94 @@
+name: Capture InstaComp Gateway Smoke 20260808
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/capture-instacomp-gateway-smoke-20260808.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_SCOPE: truelycollectables-projects
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact branch source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Deploy exact branch preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx vercel@56.2.0 --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee /tmp/vercel-preview.log
+          preview_url="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' /tmp/vercel-preview.log | tail -n 1)"
+          test -n "$preview_url"
+          echo "PREVIEW_URL=$preview_url" >> "$GITHUB_ENV"
+
+      - name: Capture safe live smoke receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -sS -o /tmp/gateway-smoke.json --max-time 280 -X POST \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "$PREVIEW_URL/api/release/instacomp-gateway-teacher-smoke" || true
+          mkdir -p .verification
+          node - <<'NODE'
+          const fs=require('fs');
+          let p={};
+          try { p=JSON.parse(fs.readFileSync('/tmp/gateway-smoke.json','utf8')); } catch (error) {
+            p={success:false,error:'Smoke response was not valid JSON: '+String(error?.message||error).slice(0,300)};
+          }
+          const safe={
+            schema:'truelycollectables.instacompGatewayTeacherSafeFailureReceipt.v1',
+            success:p.success===true,
+            automaticVercelGatewayAuthProven:p.automaticVercelGatewayAuthProven===true,
+            gatewayTeachersOperational:p.gatewayTeachersOperational===true,
+            configuredTeachers:Number(p.configuredTeachers||0),
+            requiredVotes:Number(p.requiredVotes||0),
+            gatewayAttempts:Array.isArray(p.gatewayAttempts)?p.gatewayAttempts.map(a=>({
+              teacher:String(a?.teacher||''),
+              configured:a?.configured===true,
+              ok:a?.ok===true,
+              error:a?.error?String(a.error).slice(0,1000):null,
+              soldCount:Array.isArray(a?.sold)?a.sold.length:0,
+              activeCount:Array.isArray(a?.active)?a.active.length:0,
+              notes:a?.notes?String(a.notes).slice(0,500):'',
+            })):[],
+            consensusSoldStatus:p.consensusSoldStatus||null,
+            consensusSoldCount:Number(p.consensusSoldCount||0),
+            discoverySoldCount:Number(p.discoverySoldCount||0),
+            discoveryActiveCount:Number(p.discoveryActiveCount||0),
+            routeError:p.error?String(p.error).slice(0,1000):null,
+            secretValuesExposed:false,
+            checkedAt:p.checkedAt||new Date().toISOString(),
+          };
+          fs.writeFileSync('.verification/instacomp-gateway-smoke-safe-receipt.json',JSON.stringify(safe,null,2)+'\n');
+          NODE
+          rm -f /tmp/gateway-smoke.json
+
+      - name: Commit safe receipt only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .verification/instacomp-gateway-smoke-safe-receipt.json
+          git commit -m 'Record safe Gateway teacher smoke receipt'
+          git push origin HEAD:${{ github.event.pull_request.head.ref || github.ref_name }}
