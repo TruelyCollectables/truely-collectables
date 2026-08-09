@@ -7,7 +7,7 @@ BEGIN
   IF to_regclass('public.instacomp_scans') IS NOT NULL THEN
     EXECUTE 'ALTER TABLE public.instacomp_scans ADD COLUMN IF NOT EXISTS card_uuid uuid';
     EXECUTE 'CREATE INDEX IF NOT EXISTS instacomp_scans_card_uuid_idx ON public.instacomp_scans(card_uuid)';
-    EXECUTE $$COMMENT ON COLUMN public.instacomp_scans.card_uuid IS 'Permanent UUID for one physical card; distinct from the per-scan event UUID.'$$;
+    EXECUTE 'COMMENT ON COLUMN public.instacomp_scans.card_uuid IS ''Permanent UUID for one physical card; distinct from the per-scan event UUID.''';
   END IF;
 
   IF to_regclass('public.inventory_items') IS NOT NULL THEN
