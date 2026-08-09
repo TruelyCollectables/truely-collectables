@@ -9,6 +9,7 @@ printed evidence and the internal Checklist Registry.
 from . import local_vision as _local_vision
 from . import verified_checklist_sources_modern_extra as _verified_checklist_sources_modern_extra
 from .deterministic_checklist_recovery import install_deterministic_checklist_recovery
+from .lora_candidate_runtime import install_lora_candidate_runtime
 from .pattern_memory import apply_trusted_pattern_style
 from .psa_policy import install_psa_lead_only_policy
 from .runtime_compat import install_sentinel_runtime_compat
@@ -29,3 +30,4 @@ _local_vision.analyze_local_vision = _analyze_local_vision_with_trusted_style_me
 install_psa_lead_only_policy()
 install_sentinel_runtime_compat()
 install_deterministic_checklist_recovery()
+install_lora_candidate_runtime()

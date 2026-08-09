@@ -1,0 +1,91 @@
+name: InstaComp LoRA Runtime Candidate Mac
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-lora-runtime-candidate-macos.yml"
+      - "services/instacomp-ai/app/__init__.py"
+      - "services/instacomp-ai/app/config.py"
+      - "services/instacomp-ai/app/lora_candidate_runtime.py"
+      - "services/instacomp-ai/app/runtime_identity.py"
+      - "services/instacomp-ai/scripts/run_lora_candidate_server.py"
+      - "services/instacomp-ai/scripts/enable-lora-candidate-macos.sh"
+      - "services/instacomp-ai/scripts/disable-lora-candidate-macos.sh"
+      - "services/instacomp-ai/tests/test_lora_runtime_candidate.py"
+      - "services/instacomp-ai/tests/test_runtime_identity.py"
+      - "services/instacomp-ai/requirements-lora-runtime.txt"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instacomp-lora-runtime-candidate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mac-candidate-gate:
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            services/instacomp-ai/requirements.txt
+            services/instacomp-ai/requirements-training.txt
+            services/instacomp-ai/requirements-lora-runtime.txt
+
+      - name: Install service test runtime
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -r services/instacomp-ai/requirements-training.txt
+
+      - name: Compile candidate runtime and lint shell launchers
+        run: |
+          set -euo pipefail
+          python -m compileall -q \
+            services/instacomp-ai/app \
+            services/instacomp-ai/scripts/run_lora_candidate_server.py
+          bash -n services/instacomp-ai/scripts/enable-lora-candidate-macos.sh
+          bash -n services/instacomp-ai/scripts/disable-lora-candidate-macos.sh
+
+      - name: Prove candidate safety contracts
+        run: |
+          set -euo pipefail
+          PYTHONPATH=services/instacomp-ai python -m pytest -q \
+            services/instacomp-ai/tests/test_lora_runtime_candidate.py \
+            services/instacomp-ai/tests/test_runtime_identity.py
+
+      - name: Run complete InstaComp service suite
+        run: |
+          set -euo pipefail
+          PYTHONPATH=services/instacomp-ai python -m pytest -q services/instacomp-ai/tests
+
+      - name: Bootstrap certified isolated MLX runtime
+        working-directory: services/instacomp-ai
+        run: |
+          set -euo pipefail
+          python scripts/run_lora_training.py --preflight-only
+          .venv-lora/bin/python scripts/run_lora_candidate_server.py --help >/dev/null
+          .venv-lora/bin/python - <<'PY'
+          from importlib.metadata import version
+          assert version("mlx-vlm") == "0.6.8", version("mlx-vlm")
+          print("PASS certified MLX-VLM 0.6.8 candidate runtime")
+          PY
+
+      - name: Fail closed source contract
+        run: |
+          set -euo pipefail
+          grep -q 'lora_candidate_enabled: bool = False' services/instacomp-ai/app/config.py
+          grep -q 'candidate_checklist_fields_ignored' services/instacomp-ai/app/lora_candidate_runtime.py
+          grep -q 'eligible_for_runtime_candidate' services/instacomp-ai/scripts/run_lora_candidate_server.py
+          grep -q 'automatic_promotion.*False' services/instacomp-ai/scripts/run_lora_candidate_server.py
+          grep -q 'HTTPServer(("127.0.0.1"' services/instacomp-ai/scripts/run_lora_candidate_server.py
+          grep -q 'install_lora_candidate_runtime()' services/instacomp-ai/app/__init__.py
+          echo "PASS candidate remains opt-in, localhost-only, validation-gated, evidence-only, and rollbackable"

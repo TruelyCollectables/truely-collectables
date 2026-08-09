@@ -6,9 +6,12 @@ from pathlib import Path
 from .config import settings
 
 RUNTIME_IDENTITY_FILES = (
+    "app/__init__.py",
     "app/main.py",
     "app/local_vision.py",
     "app/ollama.py",
+    "app/lora_candidate_runtime.py",
+    "scripts/run_lora_candidate_server.py",
 )
 
 
