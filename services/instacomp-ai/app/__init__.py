@@ -8,6 +8,7 @@ printed evidence and the internal Checklist Registry.
 
 from . import local_vision as _local_vision
 from .pattern_memory import apply_trusted_pattern_style
+from .runtime_compat import install_sentinel_runtime_compat
 
 _original_analyze_local_vision = _local_vision.analyze_local_vision
 
@@ -22,3 +23,4 @@ async def _analyze_local_vision_with_trusted_style_memory(front, back, settings)
 
 
 _local_vision.analyze_local_vision = _analyze_local_vision_with_trusted_style_memory
+install_sentinel_runtime_compat()
