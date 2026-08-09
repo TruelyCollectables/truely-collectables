@@ -56,6 +56,8 @@ export type InstaCompComp = {
   soldAt?: string | null;
   listedAt?: string | null;
   observedAt?: string | null;
+  conditionText?: string | null;
+  buyingOption?: string | null;
 };
 
 export type InstaCompProviderResult = {
@@ -331,8 +333,18 @@ function serialRunDenominatorFromTitle(title: string) {
   );
   const parsed = extractInstaCompSerialNumber(normalized);
   const denominator = Number(parsed?.denominator);
+  if (Number.isFinite(denominator) && denominator > 0) return denominator;
 
-  return Number.isFinite(denominator) && denominator > 0 ? denominator : null;
+  // Sold listings frequently omit the physical copy numerator and advertise
+  // only the configuration-level print run (for example "Refractor /499").
+  // That is sufficient for exact comping because 355/499 and 29/499 are the
+  // same card configuration. The copy numerator remains physical-card data.
+  const denominatorOnly = Array.from(
+    normalized.matchAll(/(?:^|[^0-9])\/\s*(\d{1,6})\b/g),
+  )
+    .map((match) => Number(match[1]))
+    .filter((value) => Number.isSafeInteger(value) && value > 0);
+  return denominatorOnly.length ? denominatorOnly[denominatorOnly.length - 1] : null;
 }
 
 function serialRunAdjustmentFactor(targetDenominator: number, compDenominator: number) {
