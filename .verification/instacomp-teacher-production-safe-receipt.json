@@ -1,0 +1,21 @@
+{
+  "schema": "truelycollectables.instacompTeacherProductionSafeReceipt.v1",
+  "votingTeacherCount": 0,
+  "requiredVotes": 2,
+  "teacherConsensusOperational": false,
+  "geminiConfigured": false,
+  "anthropicConfigured": false,
+  "xaiConfigured": false,
+  "groqConfigured": false,
+  "perplexityConfigured": false,
+  "openAiConfigured": true,
+  "serpApiConfigured": true,
+  "googleCseConfigured": false,
+  "macLearningBridgeConfigured": true,
+  "macReachable": true,
+  "teacherLearningEndpointAvailable": false,
+  "macStatus": "service_update_required",
+  "teacherCompLearning": null,
+  "checkedAt": "2026-08-09T02:02:39.660Z",
+  "secretValuesExposed": false
+}
