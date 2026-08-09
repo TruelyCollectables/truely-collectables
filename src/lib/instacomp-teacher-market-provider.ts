@@ -28,11 +28,11 @@ const XAI_MODEL = String(
 const GROQ_MODEL = String(
   process.env.INSTACOMP_TEACHER_GROQ_MODEL || "groq/compound",
 ).trim();
-const GATEWAY_GOOGLE_MODEL = String(
-  process.env.INSTACOMP_GATEWAY_GOOGLE_MODEL || "google/gemini-3.6-flash",
+const GATEWAY_INCLUSIONAI_MODEL = String(
+  process.env.INSTACOMP_GATEWAY_INCLUSIONAI_MODEL || "inclusionai/ling-3.0-flash-free",
 ).trim();
-const GATEWAY_XAI_MODEL = String(
-  process.env.INSTACOMP_GATEWAY_XAI_MODEL || "xai/grok-4.5",
+const GATEWAY_POOLSIDE_MODEL = String(
+  process.env.INSTACOMP_GATEWAY_POOLSIDE_MODEL || "poolside/laguna-s-2.1-free",
 ).trim();
 const TEACHER_TIMEOUT_MS = 120_000;
 const MAX_ROWS_PER_TEACHER = 12;
@@ -42,8 +42,8 @@ export type TeacherName =
   | "anthropic"
   | "xai"
   | "groq"
-  | "gateway_google"
-  | "gateway_xai"
+  | "gateway_inclusionai"
+  | "gateway_poolside"
   | "perplexity";
 
 type TeacherMarketRow = {
@@ -442,14 +442,14 @@ function gatewayPlatformAvailable() {
   );
 }
 
-async function runGatewayGoogle(prompt: string): Promise<TeacherAttempt> {
-  const configured = gatewayPlatformAvailable() && !GEMINI_API_KEY;
+async function runGatewayInclusionAi(prompt: string): Promise<TeacherAttempt> {
+  const configured = gatewayPlatformAvailable();
   if (!configured) {
-    return { teacher: "gateway_google", configured: false, ok: false, sold: [], active: [], notes: "", error: null };
+    return { teacher: "gateway_inclusionai", configured: false, ok: false, sold: [], active: [], notes: "", error: null };
   }
   try {
     const result = await generateText({
-      model: GATEWAY_GOOGLE_MODEL,
+      model: GATEWAY_INCLUSIONAI_MODEL,
       prompt,
       temperature: 0,
       maxOutputTokens: 6000,
@@ -467,16 +467,16 @@ async function runGatewayGoogle(prompt: string): Promise<TeacherAttempt> {
     });
     const parsed = parseJsonObject(result.text);
     return {
-      teacher: "gateway_google",
+      teacher: "gateway_inclusionai",
       configured: true,
       ok: true,
       ...parsed,
-      notes: [parsed.notes, "Vercel AI Gateway automatic OIDC; Google model + Perplexity Search."].filter(Boolean).join(" "),
+      notes: [parsed.notes, "Vercel AI Gateway automatic OIDC; InclusionAI Ling free model + Perplexity Search."].filter(Boolean).join(" "),
       error: null,
     };
   } catch (error) {
     return {
-      teacher: "gateway_google",
+      teacher: "gateway_inclusionai",
       configured: true,
       ok: false,
       sold: [],
@@ -487,14 +487,14 @@ async function runGatewayGoogle(prompt: string): Promise<TeacherAttempt> {
   }
 }
 
-async function runGatewayXai(prompt: string): Promise<TeacherAttempt> {
-  const configured = gatewayPlatformAvailable() && !XAI_API_KEY;
+async function runGatewayPoolside(prompt: string): Promise<TeacherAttempt> {
+  const configured = gatewayPlatformAvailable();
   if (!configured) {
-    return { teacher: "gateway_xai", configured: false, ok: false, sold: [], active: [], notes: "", error: null };
+    return { teacher: "gateway_poolside", configured: false, ok: false, sold: [], active: [], notes: "", error: null };
   }
   try {
     const result = await generateText({
-      model: GATEWAY_XAI_MODEL,
+      model: GATEWAY_POOLSIDE_MODEL,
       prompt,
       temperature: 0,
       maxOutputTokens: 6000,
@@ -516,16 +516,16 @@ async function runGatewayXai(prompt: string): Promise<TeacherAttempt> {
     });
     const parsed = parseJsonObject(result.text);
     return {
-      teacher: "gateway_xai",
+      teacher: "gateway_poolside",
       configured: true,
       ok: true,
       ...parsed,
-      notes: [parsed.notes, "Vercel AI Gateway automatic OIDC; xAI model + Parallel Search."].filter(Boolean).join(" "),
+      notes: [parsed.notes, "Vercel AI Gateway automatic OIDC; Poolside Laguna free model + Parallel Search."].filter(Boolean).join(" "),
       error: null,
     };
   } catch (error) {
     return {
-      teacher: "gateway_xai",
+      teacher: "gateway_poolside",
       configured: true,
       ok: false,
       sold: [],
@@ -685,10 +685,10 @@ export async function getTeacherExactMarketProviders(params: {
   const prompt = teacherPrompt(params.exactTitle, params.ai);
   const attempts = await Promise.all([
     runGemini(prompt),
-    runGatewayGoogle(prompt),
+    runGatewayInclusionAi(prompt),
     runAnthropic(prompt),
     runXai(prompt),
-    runGatewayXai(prompt),
+    runGatewayPoolside(prompt),
     runGroq(prompt),
     runPerplexity(params.exactTitle),
   ]);

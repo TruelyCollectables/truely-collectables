@@ -5,8 +5,8 @@ export type InstaCompTeacherRuntimeConfiguration = {
   groqConfigured: boolean;
   perplexityConfigured: boolean;
   gatewayOidcAvailable: boolean;
-  gatewayGoogleConfigured: boolean;
-  gatewayXaiConfigured: boolean;
+  gatewayInclusionAiConfigured: boolean;
+  gatewayPoolsideConfigured: boolean;
   openAiConfigured: boolean;
   serpApiConfigured: boolean;
   googleCseConfigured: boolean;
@@ -48,8 +48,8 @@ export function resolveInstaCompTeacherRuntimeConfiguration(
       configured(env.AI_GATEWAY_API_KEY) ||
       configured(env.VERCEL_OIDC_TOKEN),
   );
-  const gatewayGoogleConfigured = gatewayOidcAvailable && !geminiConfigured;
-  const gatewayXaiConfigured = gatewayOidcAvailable && !xaiConfigured;
+  const gatewayInclusionAiConfigured = gatewayOidcAvailable;
+  const gatewayPoolsideConfigured = gatewayOidcAvailable;
   const openAiConfigured = configured(env.OPENAI_API_KEY);
   const serpApiConfigured = configured(env.SERPAPI_API_KEY);
   const googleCseConfigured = Boolean(
@@ -57,13 +57,15 @@ export function resolveInstaCompTeacherRuntimeConfiguration(
       configured(env.GOOGLE_CSE_CX || env.GOOGLE_CUSTOM_SEARCH_CX),
   );
 
-  // Provider families count once. Direct Google/xAI credentials suppress their
-  // matching Gateway adapters so one underlying provider can never cast two votes.
+  // Every entry is an independent model-provider family. Perplexity remains
+  // discovery/corroboration only and therefore is intentionally not counted.
   const votingTeacherCount = [
-    geminiConfigured || gatewayGoogleConfigured,
+    geminiConfigured,
     anthropicConfigured,
-    xaiConfigured || gatewayXaiConfigured,
+    xaiConfigured,
     groqConfigured,
+    gatewayInclusionAiConfigured,
+    gatewayPoolsideConfigured,
   ].filter(Boolean).length;
   const requiredVotes = teacherRequiredVotes(votingTeacherCount);
   const macLearningBridgeConfigured = Boolean(
@@ -77,8 +79,8 @@ export function resolveInstaCompTeacherRuntimeConfiguration(
     groqConfigured,
     perplexityConfigured,
     gatewayOidcAvailable,
-    gatewayGoogleConfigured,
-    gatewayXaiConfigured,
+    gatewayInclusionAiConfigured,
+    gatewayPoolsideConfigured,
     openAiConfigured,
     serpApiConfigured,
     googleCseConfigured,

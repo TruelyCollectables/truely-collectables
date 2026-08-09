@@ -56,12 +56,12 @@ export async function POST(request: Request) {
   });
 
   const gatewayAttempts = result.attempts.filter((attempt) =>
-    ["gateway_google", "gateway_xai"].includes(attempt.teacher),
+    ["gateway_inclusionai", "gateway_poolside"].includes(attempt.teacher),
   );
-  const google = gatewayAttempts.find((attempt) => attempt.teacher === "gateway_google") || null;
-  const xai = gatewayAttempts.find((attempt) => attempt.teacher === "gateway_xai") || null;
+  const inclusionAi = gatewayAttempts.find((attempt) => attempt.teacher === "gateway_inclusionai") || null;
+  const poolside = gatewayAttempts.find((attempt) => attempt.teacher === "gateway_poolside") || null;
   const operational = Boolean(
-    google?.configured && google.ok && xai?.configured && xai.ok,
+    inclusionAi?.configured && inclusionAi.ok && poolside?.configured && poolside.ok,
   );
 
   return Response.json(
