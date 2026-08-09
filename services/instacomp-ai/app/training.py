@@ -48,6 +48,26 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def latest_training_examples(
+    examples: Iterable[TrainingExample],
+) -> list[TrainingExample]:
+    """Keep only the newest lesson/training truth for each physical scan.
+
+    A corrected operator lesson intentionally supersedes every older lesson for
+    the same front/back scan. This prevents a prior wrong parallel from sharing
+    a training dataset with the later trusted correction.
+    """
+    ordered = sorted(examples, key=lambda example: example.created_at, reverse=True)
+    latest: list[TrainingExample] = []
+    seen_scan_ids: set[str] = set()
+    for example in ordered:
+        if example.scan_id in seen_scan_ids:
+            continue
+        seen_scan_ids.add(example.scan_id)
+        latest.append(example)
+    return latest
+
+
 def changed_fields(
     predicted: CardIdentity | None,
     confirmed: CardIdentity,
@@ -256,7 +276,8 @@ def export_training_dataset(
 ) -> dict:
     if not 0 <= validation_percent <= 50:
         raise ValueError("validation_percent must be between 0 and 50")
-    trusted = [example for example in examples if example.trusted]
+    latest = latest_training_examples(examples)
+    trusted = [example for example in latest if example.trusted]
     timestamp = utc_now().strftime("%Y%m%dT%H%M%SZ")
     destination = destination_root / timestamp
     destination.mkdir(parents=True, exist_ok=False)
@@ -289,6 +310,7 @@ def export_training_dataset(
                 LearningState.OPERATOR_CONFIRMED.value,
                 LearningState.CHECKLIST_CONFIRMED.value,
             ],
+            "latest_teacher_truth_per_scan_only": True,
             "physical_serial_numerator_separate_from_print_run": True,
             "unconfirmed_examples_excluded": True,
         },
@@ -301,7 +323,8 @@ def export_training_dataset(
 
 
 def training_readiness(examples: Iterable[TrainingExample]) -> dict:
-    trusted = [example for example in examples if example.trusted]
+    latest = latest_training_examples(examples)
+    trusted = [example for example in latest if example.trusted]
     operator = [
         example
         for example in trusted
@@ -348,4 +371,5 @@ def training_readiness(examples: Iterable[TrainingExample]) -> dict:
         "ready_for_trial_lora": len(trusted) >= minimum and len(with_boxes) >= minimum // 2,
         "ready_for_production_candidate": len(trusted) >= recommended,
         "promotion_requires_locked_validation_improvement": True,
+        "latest_teacher_truth_per_scan_only": True,
     }
