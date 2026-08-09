@@ -6,8 +6,10 @@ on:
     paths:
       - ".github/workflows/instacomp-card-uuid-inventory-handoff.yml"
       - "scripts/patch-instacomp-card-uuid-inventory-handoff.py"
+      - "scripts/fix-instacomp-card-uuid-local-scan-type.py"
       - "scripts/verify-instacomp-card-uuid-inventory-handoff.mjs"
       - "src/app/api/account/seller/instacomp-scan/intake/route.ts"
+      - "src/lib/instacomp-ai-local.ts"
       - "src/lib/inventory-activation.ts"
   workflow_dispatch:
 
@@ -35,6 +37,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/patch-instacomp-card-uuid-inventory-handoff.py
+          python3 scripts/fix-instacomp-card-uuid-local-scan-type.py
           git diff --check
           node scripts/verify-instacomp-card-uuid-inventory-handoff.mjs
 
@@ -50,12 +53,14 @@ jobs:
           npx tsc --noEmit
           npm run build
 
-      - name: Persist generated intake route
+      - name: Persist generated UUID handoff runtime
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/app/api/account/seller/instacomp-scan/intake/route.ts
+          git add \
+            src/app/api/account/seller/instacomp-scan/intake/route.ts \
+            src/lib/instacomp-ai-local.ts
           if ! git diff --cached --quiet; then
             git commit -m "Carry permanent card UUID into Pending Listings [skip ci]"
             git push origin "HEAD:$EXPECTED_BRANCH"
