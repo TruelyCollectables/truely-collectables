@@ -4,6 +4,9 @@ const files = {
   installer: "services/instacomp-ai/scripts/install-sentinel-control.sh",
   updater: "services/instacomp-ai/scripts/update-live-from-main.sh",
   sentinel: "services/instacomp-ai/app/sentinel.py",
+  sentinelSources: "services/instacomp-ai/app/sentinel_sources.py",
+  runtimeCompat: "services/instacomp-ai/app/runtime_compat.py",
+  verifiedSources: "services/instacomp-ai/app/verified_checklist_sources.py",
   relay: "services/instacomp-ai/app/sentinel_routes.py",
   archiveAuth: "src/lib/instacomp-sentinel-auth.ts",
   importRoute: "src/app/api/instacomp/checklist-sentinel/import/route.ts",
@@ -60,6 +63,14 @@ assert(contents.updater.includes("Refusing key repair"), "Mac updater must fail 
 assert(!contents.updater.includes("openssl rand"), "Routine Mac updates must never rotate the InstaComp AI key.");
 
 assert(contents.sentinel.includes('"INSTACOMP_AI_SENTINEL_MAX_TARGETS_PER_RUN", 75'), "Sentinel safe batch cap must remain 75 targets.");
+assert(contents.verifiedSources.includes('"baseball|2024|topps|series-1"'), "Verified recovery index must contain the audited 2024 Topps Series 1 target.");
+assert(contents.verifiedSources.includes('"football|2024|panini|prizm"'), "Verified recovery index must contain the audited 2024 Panini Prizm target.");
+assert(contents.verifiedSources.includes("Official Topps checklist library"), "Verified recovery index must preserve first-party Topps provenance.");
+assert(contents.verifiedSources.includes("Full Beckett master checklist"), "Verified recovery index must label complete page-source provenance.");
+assert(!contents.sentinelSources.includes('"cdn.shopify.com":'), "Topps CDN must never become globally trusted; exact verified URLs stay target-scoped.");
+assert(contents.runtimeCompat.includes("verified_checklist_sources_for_target"), "Sentinel runtime must try exact verified recovery sources before SERP discovery.");
+assert(contents.runtimeCompat.includes("_render_verified_checklist_page_with_chrome"), "Verified full checklist pages must support rendered page capture.");
+assert(contents.runtimeCompat.includes("Refusing browser capture for a non-verified checklist page URL"), "Browser page capture must fail closed for unverified URLs.");
 
 assert(contents.relay.includes("registry-import-relay"), "Mac relay route is missing.");
 assert(contents.relay.includes("hashlib.sha256"), "Mac relay must independently hash the local file.");
@@ -107,8 +118,14 @@ assert(contents.dashboard.includes("registry_import_configured"), "Dashboard mus
 assert(!contents.dashboard.includes("INSTACOMP_AI_LOCAL_KEY"), "Browser code must never contain the Mac key.");
 assert(!contents.dashboard.includes("instacomp.truelycollectables.com"), "Browser code must not call the tunnel directly.");
 
-assert(contents.adminPage.includes('href="/admin/instacomp/checklist-sentinel"'), "Main Admin page must have a direct Checklist Sentinel link.");
-assert(contents.adminPage.includes("Open Checklist Sentinel"), "Main Admin page must visibly label the Checklist Sentinel link.");
+const adminHasSentinelHref =
+  contents.adminPage.includes('href="/admin/instacomp/checklist-sentinel"')
+  || contents.adminPage.includes('href: "/admin/instacomp/checklist-sentinel"');
+const adminLabelsSentinel =
+  contents.adminPage.includes("Open Checklist Sentinel")
+  || contents.adminPage.includes('title: "Checklist Sentinel"');
+assert(adminHasSentinelHref, "Main Admin page must expose Checklist Sentinel in its system-tools model or direct link.");
+assert(adminLabelsSentinel, "Main Admin page must visibly label the Checklist Sentinel system tool.");
 assert(contents.quickTools.includes("/admin/instacomp/checklist-sentinel"), "Admin quick tools must link to Sentinel.");
 assert(contents.env.includes("INSTACOMP_AI_SENTINEL_INTERVAL_SECONDS=86400"), "Documented cadence must be 24 hours.");
 assert(contents.env.includes("INSTACOMP_AI_SENTINEL_CHECKPOINT_SECONDS=300"), "Documented checkpoint must be five minutes.");
@@ -121,7 +138,9 @@ console.log("✓ Routine Mac updates re-sync the existing key without rotating i
 console.log("✓ Known invalid Vercel './' root settings are repaired narrowly before Production deploys");
 console.log("✓ No unrelated Vercel service credential is read or rotated");
 console.log("✓ Sentinel safe batch cap remains 75 and pending backlog auto-drains only when due");
-console.log("✓ Main Admin page and quick tools both link directly to Checklist Sentinel");
+console.log("✓ Verified target-scoped checklist sources bypass noisy SERPs without widening domain trust");
+console.log("✓ Exact verified full pages can be browser-captured while unverified URLs remain blocked");
+console.log("✓ Main Admin system tools and quick tools both expose Checklist Sentinel");
 console.log("✓ Dashboard reports overall checklist search progress with a 20-minute timestamped refresh");
 console.log("✓ Large files stay off the Vercel request body");
 console.log("✓ Source URL, redirects, DNS, byte count, duplicate bytes, and SHA-256 fail closed");
