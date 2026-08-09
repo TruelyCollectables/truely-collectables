@@ -22,6 +22,8 @@ concurrency:
 
 env:
   EXPECTED_BRANCH: feature/instacomp-card-uuid-inventory-handoff-20260808
+  NEXT_PUBLIC_SUPABASE_URL: https://ci-placeholder.supabase.co
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
 
 jobs:
   apply-test-and-persist:
