@@ -1,0 +1,99 @@
+name: KINGMAKER Unified Admin Workflow
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/kingmaker-unified-admin-workflow.yml"
+      - "scripts/patch-kingmaker-pending-full-review.py"
+      - "src/app/admin/**"
+      - "src/app/kingmaker/**"
+      - "src/app/api/account/seller/instacomp-pending/route.ts"
+      - "src/app/api/account/seller/inventory/instacomp-card-edit/route.ts"
+      - "src/app/api/account/seller/inventory/instacomp-image-rotate/route.ts"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kingmaker-unified-admin-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/kingmaker-unified-admin-workflow-20260809
+          fetch-depth: 0
+
+      - name: Apply Pending full-review backend patch
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-kingmaker-pending-full-review.py
+          git diff --check
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: TypeScript contract
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder
+          SUPABASE_SERVICE_ROLE_KEY: ci-placeholder
+        run: npx tsc --noEmit --pretty false
+
+      - name: KINGMAKER workflow contract
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          admin = Path('src/app/admin/page.tsx').read_text('utf-8')
+          layout = Path('src/app/admin/layout.tsx').read_text('utf-8')
+          home = Path('src/app/kingmaker/page.tsx').read_text('utf-8')
+          queue = Path('src/app/kingmaker/KingmakerInstaCompQueue.tsx').read_text('utf-8')
+          pending = Path('src/app/kingmaker/pending/page.tsx').read_text('utf-8')
+          pending_api = Path('src/app/api/account/seller/instacomp-pending/route.ts').read_text('utf-8')
+          edit_api = Path('src/app/api/account/seller/inventory/instacomp-card-edit/route.ts').read_text('utf-8')
+          rotate_api = Path('src/app/api/account/seller/inventory/instacomp-image-rotate/route.ts').read_text('utf-8')
+
+          assert 'Enter KINGMAKER' in admin
+          assert '/admin/advanced' in admin and '/admin/advanced' in layout
+          assert 'LegacyAdminDashboard' not in admin
+          assert 'KingmakerInstaCompQueue' in home
+          assert '/api/account/seller/instacomp-scan/intake' in queue
+          assert 'cardUuid' in queue
+          assert 'multiple' in queue
+          assert 'Nothing publishes automatically' in queue
+          assert 'Edit All Fields' in pending
+          assert 'Rotate 90°' in pending
+          assert 'standardizedTitle' in pending
+          assert '.replace(/\\bBase\\b/gi' in pending
+          assert 'cardUuid:' in pending_api and 'identity:' in pending_api
+          assert 'displayTitle' in edit_api and '.replace(/\\bBase\\b/gi' in edit_api
+          assert 'description: nextDescription' in edit_api
+          assert 'persistNormalizedInstaCompImagePair' in rotate_api
+          assert 'published: false' in rotate_api
+          print('PASS KINGMAKER unified scan -> Pending -> correction -> pricing workflow contract')
+          PY
+
+      - name: Persist tested backend patch
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            src/app/api/account/seller/instacomp-pending/route.ts \
+            src/app/api/account/seller/inventory/instacomp-card-edit/route.ts
+          if ! git diff --cached --quiet; then
+            git commit -m "Expose full Pending identity and listing correction fields [skip ci]"
+            git push origin HEAD:feature/kingmaker-unified-admin-workflow-20260809
+          fi
