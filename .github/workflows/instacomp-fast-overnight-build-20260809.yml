@@ -100,9 +100,19 @@ jobs:
 
           scan_path.write_text(text)
 
+          def repair_clock(path_text: str) -> str:
+              path_text = path_text.replace('Date.now()', 'readElapsedClockMs()')
+              path_text = path_text.replace('performance.now()', 'readElapsedClockMs()')
+              if 'function readElapsedClockMs()' not in path_text:
+                  marker = 'const IDENTITY_CONCURRENCY = 2;\n\n'
+                  if marker not in path_text:
+                      raise SystemExit('Could not locate Fast scanner clock helper insertion point')
+                  helper = 'function readElapsedClockMs() {\n  return performance.now();\n}\n\n'
+                  path_text = path_text.replace(marker, marker + helper, 1)
+              return path_text
+
           fast_path = Path('src/app/admin/instacomp/fast/InstaCompFastDropScanner.tsx')
-          fast = fast_path.read_text()
-          fast = fast.replace('Date.now()', 'performance.now()')
+          fast = repair_clock(fast_path.read_text())
           effect = '''  useEffect(() => {\n    if (!editing && ai) setDraft({ ...ai });\n  }, [ai, editing]);\n\n'''
           if effect in fast:
               fast = fast.replace(effect, '', 1)
@@ -110,8 +120,7 @@ jobs:
           fast_path.write_text(fast)
 
           v2_path = Path('src/app/admin/instacomp/fast/InstaCompFastDropScannerV2.tsx')
-          v2 = v2_path.read_text().replace('Date.now()', 'performance.now()')
-          v2_path.write_text(v2)
+          v2_path.write_text(repair_clock(v2_path.read_text()))
 
           sentinel_path = Path('src/app/admin/instacomp/checklist-sentinel/page.tsx')
           sentinel = sentinel_path.read_text()
@@ -121,7 +130,39 @@ jobs:
               sentinel = sentinel.replace(unsafe, safe)
           elif safe not in sentinel:
               raise SystemExit('Could not locate Checklist Sentinel JSON parse')
+          sentinel = sentinel.replace('max-w-7xl', 'max-w-[1600px]')
           sentinel_path.write_text(sentinel)
+
+          smoke_path = Path('scripts/smoke-admin-runtime.mjs')
+          smoke = smoke_path.read_text()
+          sentinel_route = '    path: "/admin/instacomp/checklist-sentinel",'
+          if sentinel_route not in smoke:
+              marker = '''  {
+            path: "/admin/instacomp/checklists",
+            auth: true,
+            expectedText: "Checklist Registry",
+          },
+          '''
+              addition = marker + '''  {
+            path: "/admin/instacomp/checklist-sentinel",
+            auth: true,
+            expectedText: "Checklist Sentinel™",
+          },
+          '''
+              if marker not in smoke:
+                  raise SystemExit('Could not locate admin runtime smoke checklist insertion point')
+              smoke = smoke.replace(marker, addition, 1)
+          smoke_path.write_text(smoke)
+
+          audit_path = Path('scripts/run-instacomp-sentinel-control-audit.mjs')
+          audit = audit_path.read_text()
+          stale_deploy = 'npx vercel --prod --yes --cwd "$repo_root"'
+          current_deploy = 'npx vercel --prod --yes --archive=tgz --cwd "$repo_root"'
+          if stale_deploy in audit:
+              audit = audit.replace(stale_deploy, current_deploy, 1)
+          elif current_deploy not in audit:
+              raise SystemExit('Could not locate Sentinel Production deploy audit contract')
+          audit_path.write_text(audit)
           PY
 
       - name: Refresh dependency lockfile security fixes
@@ -141,11 +182,13 @@ jobs:
             src/app/admin/instacomp/fast/InstaCompFastDropScanner.tsx \
             src/app/admin/instacomp/fast/InstaCompFastDropScannerV2.tsx \
             src/app/admin/instacomp/checklist-sentinel/page.tsx \
+            scripts/smoke-admin-runtime.mjs \
+            scripts/run-instacomp-sentinel-control-audit.mjs \
             package-lock.json
           if git diff --cached --quiet; then
             echo 'Release blocker fixes already persisted.'
           else
-            git commit -m 'Fix InstaComp release blockers'
+            git commit -m 'Finish InstaComp release integration'
             git push origin HEAD:agent/instacomp-fast-overnight-audit
           fi
 
@@ -154,6 +197,7 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/run-instacomp-fast-workbench-regressions.mjs
+          node scripts/run-instacomp-sentinel-control-audit.mjs
           grep -q 'preserveSeasonYear(consensusAi.year, registryMatch.year, registrySetName)' src/app/api/instacomp/scan/route.ts
           grep -q 'Year / season' src/app/admin/instacomp/fast/InstaCompFastDropScanner.tsx
           grep -q 'Edit card' src/app/admin/instacomp/fast/InstaCompFastDropScanner.tsx
@@ -161,8 +205,12 @@ jobs:
           grep -q 'aiCouncilTier.*, "basic"' src/app/admin/instacomp/fast/InstaCompFastDropScanner.tsx
           grep -q 'aiCouncilTier.*, "adaptive"' src/app/admin/instacomp/fast/InstaCompFastDropScanner.tsx
           grep -q 'response.json().catch(() => ({}))' src/app/admin/instacomp/checklist-sentinel/page.tsx
+          grep -q 'path: "/admin/instacomp/checklist-sentinel"' scripts/smoke-admin-runtime.mjs
+          ! grep -q 'max-w-7xl' src/app/admin/instacomp/checklist-sentinel/page.tsx
           ! grep -q 'Date.now()' src/app/admin/instacomp/fast/InstaCompFastDropScanner.tsx
           ! grep -q 'Date.now()' src/app/admin/instacomp/fast/InstaCompFastDropScannerV2.tsx
+          test "$(grep -o 'performance.now()' src/app/admin/instacomp/fast/InstaCompFastDropScanner.tsx | wc -l)" -eq 1
+          test "$(grep -o 'performance.now()' src/app/admin/instacomp/fast/InstaCompFastDropScannerV2.tsx | wc -l)" -eq 1
 
       - name: Install dependencies
         run: npm ci
@@ -194,4 +242,4 @@ jobs:
       - name: Production build
         run: npm run build
 
-# certification-trigger: post-release-blocker-fix
+# certification-trigger: integration-fix-pass
