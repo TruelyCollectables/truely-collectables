@@ -1,0 +1,142 @@
+name: Checklist Recovery Live Requeue 20260809
+
+on:
+  push:
+    branches:
+      - ops/checklist-recovery-live-20260809
+    paths:
+      - ".github/workflows/checklist-recovery-live-requeue-20260809.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checklist-recovery-live-requeue-20260809
+  cancel-in-progress: false
+
+jobs:
+  requeue-live-sentinel:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      MAC_URL: https://instacomp.truelycollectables.com
+      MAC_KEY: ${{ secrets.INSTACOMP_AI_LOCAL_KEY || secrets.INSTACOMP_AI_API_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Require existing Mac API credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${MAC_KEY:-}" ]]; then
+            echo "No InstaComp Mac API credential is available to this GitHub workflow." >&2
+            exit 2
+          fi
+          if [[ ! "$MAC_KEY" =~ ^[0-9a-fA-F]{64}$ ]]; then
+            echo "Configured InstaComp Mac API credential is malformed." >&2
+            exit 2
+          fi
+          echo "PASS  Existing Mac API credential is available without printing it."
+
+      - name: Probe physical Mac and live Sentinel
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 30 \
+            "$MAC_URL/v1/runtime-identity" > /tmp/runtime-identity.json
+          curl --fail --silent --show-error --max-time 30 \
+            -H "X-InstaComp-AI-Key: $MAC_KEY" \
+            "$MAC_URL/v1/checklist-sentinel/status" > /tmp/sentinel-before.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          identity = json.loads(Path('/tmp/runtime-identity.json').read_text())
+          status = json.loads(Path('/tmp/sentinel-before.json').read_text())
+          if status.get('name') != 'InstaComp AI Checklist Sentinel™':
+              raise SystemExit('Tunnel did not return the expected live Sentinel service')
+          print('Live runtime version:', identity.get('version'))
+          print('Live runtime fingerprint:', identity.get('runtime_source_fingerprint'))
+          print('Before target counts:', json.dumps(status.get('targets') or {}, sort_keys=True))
+          print('Before latest job:', json.dumps(status.get('latest_job') or {}, sort_keys=True))
+          PY
+
+      - name: Build exact 375-target recovery payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          path = Path('data/checklist-recovery-modern-gap-keys.txt')
+          keys = [
+              line.strip()
+              for line in path.read_text('utf-8').splitlines()
+              if line.strip() and not line.lstrip().startswith('#')
+          ]
+          if len(keys) != 375 or len(set(keys)) != 375:
+              raise SystemExit(f'Expected 375 unique audited keys, got {len(keys)} rows / {len(set(keys))} unique')
+          Path('/tmp/requeue.json').write_text(
+              json.dumps({'target_keys': keys, 'priority': 1}),
+              encoding='utf-8',
+          )
+          print('Prepared 375 exact checklist targets for live requeue.')
+          PY
+
+      - name: Refresh live targets and requeue unresolved recovery inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 60 \
+            -X POST \
+            -H "X-InstaComp-AI-Key: $MAC_KEY" \
+            -H "content-type: application/json" \
+            --data '{}' \
+            "$MAC_URL/v1/checklist-sentinel/refresh-targets" > /tmp/refresh.json
+          curl --fail --silent --show-error --max-time 60 \
+            -X POST \
+            -H "X-InstaComp-AI-Key: $MAC_KEY" \
+            -H "content-type: application/json" \
+            --data-binary @/tmp/requeue.json \
+            "$MAC_URL/v1/checklist-sentinel/requeue-targets" > /tmp/requeue-response.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          refresh = json.loads(Path('/tmp/refresh.json').read_text())
+          payload = json.loads(Path('/tmp/requeue-response.json').read_text())
+          if refresh.get('ok') is not True:
+              raise SystemExit(f'Live target refresh failed: {refresh}')
+          if payload.get('ok') is not True:
+              raise SystemExit(f'Live requeue failed: {payload}')
+          result = payload.get('requeue') or {}
+          if int(result.get('matched') or 0) < 300:
+              raise SystemExit(f'Live Mac matched too few audited targets: {result}')
+          print('Refresh counts:', json.dumps(refresh.get('targets') or {}, sort_keys=True))
+          print('Requeue result:', json.dumps(result, sort_keys=True))
+          print('Launch result:', json.dumps(payload.get('launch') or {}, sort_keys=True))
+          print('Post-requeue target counts:', json.dumps(payload.get('targets') or {}, sort_keys=True))
+          PY
+
+      - name: Confirm recovery campaign is running or queued
+        shell: bash
+        run: |
+          set -euo pipefail
+          sleep 5
+          curl --fail --silent --show-error --max-time 30 \
+            -H "X-InstaComp-AI-Key: $MAC_KEY" \
+            "$MAC_URL/v1/checklist-sentinel/status" > /tmp/sentinel-after.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          status = json.loads(Path('/tmp/sentinel-after.json').read_text())
+          counts = status.get('targets') or {}
+          latest = status.get('latest_job') or {}
+          if status.get('name') != 'InstaComp AI Checklist Sentinel™':
+              raise SystemExit('Live Sentinel identity changed unexpectedly')
+          if latest.get('status') not in {'running', 'completed', 'completed_with_errors'}:
+              raise SystemExit(f'Recovery campaign did not launch: {latest}')
+          print('After target counts:', json.dumps(counts, sort_keys=True))
+          print('Active/latest job:', json.dumps(latest, sort_keys=True))
+          print('PASS  Live 375-target recovery campaign accepted by physical Mac Sentinel.')
+          PY
