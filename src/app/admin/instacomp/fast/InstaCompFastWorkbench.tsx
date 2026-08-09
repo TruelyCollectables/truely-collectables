@@ -13,6 +13,7 @@ type CompRow = {
   sourceLabel?: string | null;
   sourceCategory?: string | null;
   soldAt?: string | null;
+  itemId?: string | null;
   seller?: string | null;
   sellerName?: string | null;
   sellerFeedbackPercent?: number | string | null;
@@ -906,12 +907,16 @@ function CompList({ title, rows }: { title: string; rows: CompRow[] }) {
                     {row.sourceLabel || row.source || "Market source"}
                     {seller ? ` · Seller: ${seller}` : ""}
                     {row.sellerFeedbackPercent !== null && row.sellerFeedbackPercent !== undefined ? ` · ${row.sellerFeedbackPercent}% feedback` : ""}
+                    {row.itemId ? ` · Item #${row.itemId}` : ""}
                     {row.soldAt ? ` · Sold ${new Date(row.soldAt).toLocaleDateString()}` : ""}
+                  </p>
+                  <p className="mt-1 text-xs font-semibold text-neutral-500">
+                    Item {money(row.itemPrice ?? row.price)} · Shipping {row.shippingPrice === null || row.shippingPrice === undefined ? "UNKNOWN" : money(row.shippingPrice)} · Delivered {money(delivered)}
                   </p>
                 </div>
                 <div className="shrink-0 text-right">
                   <p className="font-black">{money(delivered)}</p>
-                  {row.url ? <a href={row.url} target="_blank" rel="noreferrer" className="text-xs font-black text-blue-700 underline">Open</a> : null}
+                  {row.url ? <a href={row.url} target="_blank" rel="noreferrer" className="text-xs font-black text-blue-700 underline">Open listing</a> : null}
                 </div>
               </div>
             </div>

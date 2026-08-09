@@ -2368,6 +2368,18 @@ async function getEbayProvider(
         currency: String(item?.price?.currency || "USD"),
         url: String(item?.itemWebUrl || ""),
         imageUrl: item?.image?.imageUrl ? String(item.image.imageUrl) : null,
+        itemId: item?.itemId ? String(item.itemId) : null,
+        seller: item?.seller?.username ? String(item.seller.username) : null,
+        sellerName: item?.seller?.username ? String(item.seller.username) : null,
+        sellerFeedbackPercent:
+          item?.seller?.feedbackPercentage !== undefined &&
+          item?.seller?.feedbackPercentage !== null
+            ? Number(item.seller.feedbackPercentage)
+            : null,
+        sellerFeedbackScore:
+          item?.seller?.feedbackScore !== undefined && item?.seller?.feedbackScore !== null
+            ? Number(item.seller.feedbackScore)
+            : null,
         source: "ebay_active" as const,
         sourceLabel: "eBay Active",
         sourceCategory: "marketplace" as const,
