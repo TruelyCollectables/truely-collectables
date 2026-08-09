@@ -204,7 +204,21 @@ def verify_existing(
             and identity_matches(example.get("confirmed_identity"), card)
             for example in rows
         )
-    except Exception:
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code if exc.response is not None else "unknown"
+        body = exc.response.text[:600] if exc.response is not None else str(exc)
+        print(
+            f"VERIFY HTTP ERROR scan={scan_id} card={card_uuid} status={status}: {body}",
+            file=sys.stderr,
+            flush=True,
+        )
+        return False
+    except Exception as exc:
+        print(
+            f"VERIFY ERROR scan={scan_id} card={card_uuid}: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
         return False
 
 

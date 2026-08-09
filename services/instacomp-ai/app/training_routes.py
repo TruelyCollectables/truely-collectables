@@ -55,7 +55,7 @@ def build_training_router(require_api_key: Callable, store: MemoryStore, *, imag
         return result
 
     @router.get("/examples")
-    async def examples(trusted_only: bool = Query(default=True), limit: int = Query(default=100, ge=1, le=2000)):
+    async def examples(trusted_only: bool = Query(default=True), limit: int = Query(default=100, ge=1, le=100_000)):
         rows = store.list_training_examples(trusted_only=trusted_only, limit=limit)
         return {"schema_version": "tcos.instacomp-ai.training-examples.v1", "count": len(rows), "examples": [row.model_dump(mode="json") for row in rows]}
 
