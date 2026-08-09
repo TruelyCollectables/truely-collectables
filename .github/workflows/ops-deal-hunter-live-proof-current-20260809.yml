@@ -1,0 +1,80 @@
+name: Ops Deal Hunter Live Proof Current 20260809
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/ops-deal-hunter-live-proof-current-20260809.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  prove:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      SITE_URL: https://truelycollectables.com
+    steps:
+      - name: Read current live Deal Hunter status
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          curl -fsS --max-time 60 -X POST \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "$SITE_URL/api/release/instacomp-deal-hunter-learning-self-test?mode=status" > pre.json
+          cat pre.json
+          node - <<'NODE'
+          const fs=require('fs');
+          const p=JSON.parse(fs.readFileSync('pre.json','utf8'));
+          if(!p.success) throw new Error(JSON.stringify(p));
+          if(!p.physicalMacHealthy) throw new Error('Physical Mac unhealthy');
+          if(!p.scheduler?.enabled) throw new Error('Deal Hunter scheduler disabled');
+          if(!p.scheduler?.evaluationKeyConfigured) throw new Error('Deal Hunter evaluation key missing');
+          fs.appendFileSync(process.env.GITHUB_ENV,`PRE_COMPLETED=${p.scheduler.lastCompletedAt||''}\n`);
+          console.log('PRE_STATUS_OK');
+          NODE
+
+      - name: Force one real current Deal Hunter run
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl -sS --max-time 300 -o trigger.json -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "$SITE_URL/api/release/instacomp-deal-hunter-learning-self-test?pass=1" || true)"
+          echo "trigger_http=$code"
+          test -s trigger.json && cat trigger.json || true
+
+      - name: Poll durable receipt and fail closed
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > status.json
+          for i in $(seq 1 100); do
+            code="$(curl -sS --max-time 45 -o status.json -w '%{http_code}' -X POST \
+              -H "Authorization: Bearer $VERCEL_TOKEN" \
+              "$SITE_URL/api/release/instacomp-deal-hunter-learning-self-test?mode=status" || true)"
+            if [ "$code" = 200 ]; then
+              completed="$(node -e "const p=require('./status.json'); process.stdout.write(String(p.scheduler?.lastCompletedAt||''))")"
+              running="$(node -e "const p=require('./status.json'); process.stdout.write(String(Boolean(p.scheduler?.running)))")"
+              if [ -n "$completed" ] && [ "$completed" != "$PRE_COMPLETED" ] && [ "$running" = false ]; then break; fi
+            fi
+            sleep 15
+          done
+          cat status.json
+          node - <<'NODE'
+          const p=require('./status.json');
+          const runs=Array.isArray(p.runs)?p.runs:[];
+          const latest=runs[0]||null;
+          const receipt={physicalMacHealthy:p.physicalMacHealthy,scheduler:p.scheduler,latestRun:latest};
+          console.log('DEAL_HUNTER_CURRENT_FINAL_RECEIPT='+JSON.stringify(receipt));
+          if(!p.success) throw new Error('Status route failed');
+          if(!p.physicalMacHealthy) throw new Error('Physical Mac unhealthy');
+          if(!p.scheduler?.enabled) throw new Error('Scheduler disabled');
+          if(!latest) throw new Error('No Deal Hunter run receipt');
+          if(latest.status!=='completed') throw new Error('Latest run not completed: '+JSON.stringify(latest));
+          if(Number(latest.discoveryCount||0)<=0) throw new Error('Zero discovered: '+JSON.stringify(latest));
+          if(Number(latest.evaluatedCount||0)<=0) throw new Error('Zero evaluated: '+JSON.stringify(latest));
+          NODE
