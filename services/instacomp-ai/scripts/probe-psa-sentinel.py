@@ -47,15 +47,24 @@ TARGETS = [
     },
 ]
 
+KNOWN_SET_PAGES = [
+    "https://www.psacard.com/auctionprices/basketball-cards/2010-panini-elite-black-box/101090",
+    "https://www.psacard.com/auctionprices/basketball-cards/2009-topps/89284",
+]
+
 
 class TableParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
         self.rows: list[list[str]] = []
+        self.links: list[str] = []
         self._row: list[str] | None = None
         self._cell: list[str] | None = None
 
     def handle_starttag(self, tag: str, attrs):
+        values = dict(attrs)
+        if tag.lower() == "a" and values.get("href"):
+            self.links.append(str(values["href"]))
         if tag.lower() == "tr":
             self._row = []
         elif tag.lower() in {"td", "th"} and self._row is not None:
@@ -78,9 +87,10 @@ class TableParser(HTMLParser):
             self._cell = None
 
 
-def data_rows(content: bytes) -> list[list[str]]:
+def parsed_page(content: bytes) -> tuple[list[list[str]], list[str], list[str]]:
+    text = content.decode("utf-8", errors="replace")
     parser = TableParser()
-    parser.feed(content.decode("utf-8", errors="replace"))
+    parser.feed(text)
     rows = []
     for cells in parser.rows:
         if len(cells) < 2:
@@ -88,14 +98,48 @@ def data_rows(content: bytes) -> list[list[str]]:
         number = cells[0].lstrip("#").strip()
         if re.fullmatch(r"[A-Za-z0-9-]+", number) and number.lower() not in {"no", "number"}:
             rows.append(cells)
-    return rows
+    page_links = sorted(
+        {
+            link
+            for link in parser.links
+            if re.search(r"(?:page|skip|offset|start|index)=", link, re.I)
+        }
+    )[:20]
+    hints = []
+    for pattern in [
+        r".{0,80}(?:pageCount|totalPages|pageSize|itemsPerPage|totalItems|totalCount).{0,120}",
+        r".{0,80}(?:Next|Previous).{0,120}",
+    ]:
+        hints.extend(re.findall(pattern, text, flags=re.I | re.S)[:10])
+    hints = [" ".join(hint.split())[:250] for hint in hints]
+    return rows, page_links, hints[:20]
 
 
 async def main() -> None:
     psa = next(source for source in DEFAULT_SOURCES if source["source_id"] == "psa")
     client = SentinelSourceClient(timeout_seconds=45, max_download_bytes=10_000_000)
+
+    for url in KNOWN_SET_PAGES:
+        result = {"fixture_url": url, "row_count": 0, "page_links": [], "pagination_hints": [], "sample": []}
+        try:
+            downloaded = await client.download(url)
+            rows, page_links, hints = parsed_page(downloaded.content)
+            result.update(
+                row_count=len(rows),
+                page_links=page_links,
+                pagination_hints=hints,
+                sample=rows[:5],
+            )
+        except Exception as error:
+            result["download_error"] = str(error)[:300]
+        print(json.dumps(result, sort_keys=True))
+
     for target in TARGETS:
-        candidates = await client.search(psa, target)
+        try:
+            candidates = await client.search(psa, target)
+        except Exception as error:
+            print(json.dumps({"target": target["target_key"], "search_error": str(error)[:300]}, sort_keys=True))
+            continue
         result = {
             "target": target["target_key"],
             "candidate_count": len(candidates),
@@ -115,9 +159,11 @@ async def main() -> None:
             if candidate.exact_match:
                 try:
                     downloaded = await client.download(candidate.url)
-                    rows = data_rows(downloaded.content)
+                    rows, page_links, hints = parsed_page(downloaded.content)
                     row["row_count"] = len(rows)
                     row["sample"] = rows[:5]
+                    row["page_links"] = page_links
+                    row["pagination_hints"] = hints
                 except Exception as error:
                     row["download_error"] = str(error)[:300]
             result["candidates"].append(row)
