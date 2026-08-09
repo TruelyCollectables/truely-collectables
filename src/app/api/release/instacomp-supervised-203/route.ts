@@ -206,8 +206,6 @@ export async function POST(request: NextRequest) {
       throw new Error("Physical InstaComp Mac database is not ready.");
     }
 
-    // HARD GATE: prove every named physical scan and both images exist before
-    // writing any trusted lesson. A bad/missing mapping produces zero mutation.
     const presence = await mapLimit(INSTACOMP_SUPERVISED_203, 12, async (card) => {
       const result = await macFetch(
         baseUrl,
@@ -322,7 +320,9 @@ export async function POST(request: NextRequest) {
                 readiness.ready_for_production_candidate === true,
             }
           : null,
-        trainingExportDeferredUntilLatest-per-scanDedupIsLive: true,
+        trainingExportDeferred: true,
+        trainingExportReason:
+          "Latest-per-scan deduplication must be live on the Mac before exporting corrected lessons.",
         nothingPublished: true,
       },
       {
