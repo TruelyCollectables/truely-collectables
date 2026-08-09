@@ -277,5 +277,3 @@ class HealthResponse(BaseModel):
     ollama: Literal["ready", "unavailable", "unchecked"]
     ollama_model: str
     checklist: Literal["not_configured", "ready"]
-    lora_candidate: Literal["enabled", "disabled"] = "disabled"
-    lora_candidate_url: str | None = None
