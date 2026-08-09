@@ -78,3 +78,56 @@ jobs:
           PYTHON=python bash services/instacomp-ai/scripts/run-lora-training-safe.sh --preflight-only
           grep -q 'trainer_utils.freeze_model(model)' services/instacomp-ai/scripts/lora-resume-freeze-patch/sitecustomize.py
           echo "PASS safe resume freezes base before applying adapter weights"
+
+      - name: Smoke test resumed adapter has LoRA-only trainable tensors
+        env:
+          INSTACOMP_MLX_SAFE_RESUME: "1"
+          PYTHONPATH: services/instacomp-ai/scripts/lora-resume-freeze-patch
+        run: |
+          set -euo pipefail
+          services/instacomp-ai/.venv-lora/bin/python - <<'PY'
+          import tempfile
+          from pathlib import Path
+
+          import mlx.nn as nn
+          from mlx.utils import tree_flatten
+          from mlx_vlm.trainer import utils
+
+          class Config:
+              pass
+
+          class TinyLanguage(nn.Module):
+              def __init__(self):
+                  super().__init__()
+                  self.q_proj = nn.Linear(8, 8)
+                  self.k_proj = nn.Linear(8, 8)
+
+          class TinyModel(nn.Module):
+              def __init__(self):
+                  super().__init__()
+                  self.language_model = TinyLanguage()
+                  self.config = Config()
+
+          with tempfile.TemporaryDirectory() as tmp:
+              bundle = Path(tmp) / "adapter"
+              bundle.mkdir()
+
+              fresh = TinyModel()
+              modules = utils.find_all_linear_names(fresh.language_model)
+              fresh = utils.get_peft_model(
+                  fresh,
+                  modules,
+                  rank=2,
+                  alpha=4,
+                  dropout=0.0,
+                  verbose=False,
+              )
+              utils.save_adapter(fresh, bundle / "adapters.safetensors")
+
+              resumed = TinyModel()
+              resumed = utils.apply_lora_layers(resumed, bundle)
+              names = [name for name, _ in tree_flatten(resumed.trainable_parameters())]
+              assert names, "resume produced no trainable tensors"
+              assert all(name.endswith(("lora_a", "lora_b")) for name in names), names
+              print("PASS resumed adapter exposes LoRA tensors only:", names)
+          PY
