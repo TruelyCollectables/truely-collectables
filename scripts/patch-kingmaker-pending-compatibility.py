@@ -49,6 +49,20 @@ replace_once(
 
 replace_once(
     pending,
+    '''      setPageError("Enter Base or the exact checklist parallel. Blank is never treated as Base.");\n''',
+    '''      setPageError("Blank no longer means Base. Enter Base or the exact checklist parallel.");\n''',
+    "explicit blank-parallel rule",
+)
+
+replace_once(
+    pending,
+    '''          [card.inventoryItemId]: data.parallelDecision?.evidence || "Exact identity remains unresolved. No look-alike parallel was substituted.",\n''',
+    '''          [card.inventoryItemId]: data.parallelDecision?.evidence || "The exact parallel remains unresolved. No Base or look-alike parallel was substituted.",\n''',
+    "fail-closed no-Base substitution message",
+)
+
+replace_once(
+    pending,
     '''            const suggested = Number(card.instaComp.suggestedPrice || 0);\n            const priceChoices = suggested > 0\n''',
     '''            const soldCompEvidence = card.instaComp.soldCompEvidence || [];\n            const activeCompetition = card.instaComp.activeCompetition || [];\n            const suggested = Number(card.instaComp.suggestedPrice || 0);\n            const priceChoices = suggested > 0\n''',
     "per-card market evidence collections",
