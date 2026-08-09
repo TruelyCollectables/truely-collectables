@@ -18,10 +18,13 @@ const main = read('services/instacomp-ai/app/main.py');
 const bridge = read('src/lib/instacomp-ai-local.ts');
 const live = read('src/app/api/instacomp/live-scan/route.ts');
 const updater = read('services/instacomp-ai/scripts/update-live-from-main.sh');
+const importer = read('services/instacomp-ai/scripts/import_supervised_203_trusted.py');
 const migration = read('supabase/migrations/20260809032000_instacomp_card_uuid_tracking.sql');
 
-requireText(models, 'card_uuid: str', 'Mac scan response card UUID');
-requireText(models, 'card_uuid: str | None = None', 'training metadata card UUID');
+requireText(models, 'card_uuid: str | None = None', 'backwards-compatible Mac scan response card UUID');
+requireText(storage, 'card_uuid: str | None = None', 'legacy scan caller compatibility');
+requireText(storage, 'resolved_card_uuid = str(card_uuid or scan_id).strip()', 'first-scan UUID fallback for direct callers');
+requireText(storage, 'UPDATE scans SET card_uuid = scan_id WHERE card_uuid IS NULL', 'legacy local scan UUID backfill');
 requireText(storage, 'card_uuid_for_image_pair', 'exact-pair card UUID lookup');
 requireText(storage, 'WHERE image_pair_sha256 = ? AND card_uuid IS NOT NULL', 'exact-only card UUID reuse');
 requireText(main, 'return requested_uuid or exact_pair_uuid or first_scan_id', 'first scan UUID promotion');
@@ -37,6 +40,10 @@ requireText(live, 'cardUuid: params.cardUuid', 'cloud scan JSON UUID persistence
 requireText(live, 'cardUuid,', 'live scan UUID response');
 requireText(updater, '--cwd "$repo_root"', 'Vercel commands anchored to repository root');
 requireText(updater, 'ensure_vercel_link', 'automatic Vercel link repair');
+requireText(importer, 'tcos.instacomp-ai.card-uuid-map.v1', '203-card master UUID map');
+requireText(importer, 'uniquePermanentCardUuids', '203-card UUID uniqueness receipt');
+requireText(importer, 'if normalized_uuid in seen_card_uuids', 'duplicate physical UUID rejection');
+requireText(importer, '"nothingPublished": True', 'supervised batch publication block');
 for (const table of ['instacomp_scans', 'inventory_items', 'products', 'order_items']) {
   requireText(migration, `${table} ADD COLUMN IF NOT EXISTS card_uuid uuid`, `${table}.card_uuid migration`);
 }
