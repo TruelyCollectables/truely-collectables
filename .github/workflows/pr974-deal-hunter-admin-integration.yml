@@ -32,23 +32,11 @@ jobs:
           smoke = smoke_path.read_text()
           deal_route = '    path: "/admin/market-intel/deal-hunter",'
           if deal_route not in smoke:
-              marker = '''  {
-            path: "/admin/market-intel/deals",
-            auth: true,
-            expectedText: "Shark List™ Deal Engine",
-          },
-          '''
-              replacement = marker + '''  {
-            path: "/admin/market-intel/deal-hunter",
-            auth: true,
-            expectedText: "InstaComp AI Deal Hunter",
-          },
-          '''
-              marker = marker.replace('          ', '')
-              replacement = replacement.replace('          ', '')
+              marker = '  {\n    path: "/admin/market-intel/deals",\n    auth: true,\n    expectedText: "Shark List™ Deal Engine",\n  },\n'
+              addition = marker + '  {\n    path: "/admin/market-intel/deal-hunter",\n    auth: true,\n    expectedText: "InstaComp AI Deal Hunter",\n  },\n'
               if marker not in smoke:
                   raise SystemExit('Could not locate market-intel deals smoke route')
-              smoke = smoke.replace(marker, replacement, 1)
+              smoke = smoke.replace(marker, addition, 1)
           smoke_path.write_text(smoke)
 
           dashboard_path = Path('src/app/admin/LegacyAdminDashboard.tsx')
