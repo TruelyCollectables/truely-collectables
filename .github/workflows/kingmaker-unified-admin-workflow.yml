@@ -45,27 +45,46 @@ jobs:
 
           path = Path('src/lib/instacomp-learning-server.ts')
           source = path.read_text('utf-8')
-          old = '''  // Free-form finish/color prose from one scanner may not veto an otherwise
-          // exact Base Registry candidate after a conflict-free multi-reader council.
-          // Adjacent-year Base recovery remains fail-closed.
-          if (parallelProfile.baseLike && adjacentYearRecovered) {
-            continue;
-          }'''
-          new = '''  // Raw unresolved finish/color evidence must remain fail-closed for Base.
-          // Only a conflict-free multi-reader council may mark that note evidence as
-          // adjudicated audit context; adjacent-year Base recovery is always blocked.
-          const unresolvedSurfaceRisk =
-            parallelProfile.surfaceRisk && ai.parallelEvidenceAdjudicated !== true;
-          if (
-            parallelProfile.baseLike &&
-            (unresolvedSurfaceRisk || adjacentYearRecovered)
-          ) {
-            continue;
-          }'''
-          if old in source:
-              source = source.replace(old, new, 1)
-          elif 'const unresolvedSurfaceRisk =' not in source:
-              raise SystemExit('Registry surface guard target not found')
+          if 'const unresolvedSurfaceRisk =' not in source:
+              needle = 'if (parallelProfile.baseLike && adjacentYearRecovered) {'
+              index = source.find(needle)
+              if index < 0:
+                  raise SystemExit('Registry surface guard target not found')
+              line_start = source.rfind('\n', 0, index) + 1
+              indent = source[line_start:index]
+              old_block = (
+                  f'{indent}{needle}\n'
+                  f'{indent}  continue;\n'
+                  f'{indent}}}'
+              )
+              if old_block not in source:
+                  raise SystemExit('Registry surface guard block shape changed')
+              new_block = (
+                  f'{indent}const unresolvedSurfaceRisk =\n'
+                  f'{indent}  parallelProfile.surfaceRisk && ai.parallelEvidenceAdjudicated !== true;\n'
+                  f'{indent}if (\n'
+                  f'{indent}  parallelProfile.baseLike &&\n'
+                  f'{indent}  (unresolvedSurfaceRisk || adjacentYearRecovered)\n'
+                  f'{indent}) {{\n'
+                  f'{indent}  continue;\n'
+                  f'{indent}}}'
+              )
+              source = source.replace(old_block, new_block, 1)
+              source = source.replace(
+                  'Free-form finish/color prose from one scanner may not veto an otherwise',
+                  'Raw unresolved finish/color evidence must remain fail-closed for Base.',
+                  1,
+              )
+              source = source.replace(
+                  'exact Base Registry candidate after a conflict-free multi-reader council.',
+                  'Only a conflict-free multi-reader council may mark note evidence as adjudicated.',
+                  1,
+              )
+              source = source.replace(
+                  'Adjacent-year Base recovery remains fail-closed.',
+                  'Adjacent-year Base recovery remains fail-closed regardless of note adjudication.',
+                  1,
+              )
           path.write_text(source, 'utf-8')
           PY
           git diff --check
