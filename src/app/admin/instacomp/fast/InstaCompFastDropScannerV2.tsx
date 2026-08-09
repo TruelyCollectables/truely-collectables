@@ -86,6 +86,10 @@ type QueueCard = {
 const MAX_SCAN_EDGE = 2400;
 const IDENTITY_CONCURRENCY = 2;
 
+function readElapsedClockMs() {
+  return performance.now();
+}
+
 function money(value: unknown) {
   const number = Number(value);
   return Number.isFinite(number) && number > 0
@@ -278,7 +282,7 @@ export default function InstaCompFastDropScannerV2() {
 
   async function exactMarket(card: QueueCard, startedAt: number) {
     if (!card.back) {
-      patch(card.id, { status: "ready", totalMs: Date.now() - startedAt });
+      patch(card.id, { status: "ready", totalMs: readElapsedClockMs() - startedAt });
       return;
     }
     patch(card.id, { status: "exact_market" });
@@ -298,12 +302,12 @@ export default function InstaCompFastDropScannerV2() {
       patch(card.id, {
         exactResult: data,
         status: "ready",
-        totalMs: Date.now() - startedAt,
+        totalMs: readElapsedClockMs() - startedAt,
       });
     } catch (error) {
       patch(card.id, {
         status: "ready",
-        totalMs: Date.now() - startedAt,
+        totalMs: readElapsedClockMs() - startedAt,
         error:
           error instanceof Error
             ? `Identity succeeded; exact comps failed: ${error.message}`
@@ -313,7 +317,7 @@ export default function InstaCompFastDropScannerV2() {
   }
 
   async function identify(card: QueueCard) {
-    const startedAt = Date.now();
+    const startedAt = readElapsedClockMs();
     patch(card.id, { status: "identifying", error: null });
     try {
       const form = new FormData();
@@ -331,7 +335,7 @@ export default function InstaCompFastDropScannerV2() {
         throw new Error(data.error || "InstaComp could not identify this card.");
       }
       const oriented = await applySemanticOrientation(card, data);
-      const identityMs = Date.now() - startedAt;
+      const identityMs = readElapsedClockMs() - startedAt;
       const next: QueueCard = {
         ...oriented,
         fastResult: data,
@@ -346,8 +350,8 @@ export default function InstaCompFastDropScannerV2() {
     } catch (error) {
       patch(card.id, {
         status: "error",
-        identityMs: Date.now() - startedAt,
-        totalMs: Date.now() - startedAt,
+        identityMs: readElapsedClockMs() - startedAt,
+        totalMs: readElapsedClockMs() - startedAt,
         error: error instanceof Error ? error.message : "Card identification failed.",
       });
     }
@@ -368,7 +372,7 @@ export default function InstaCompFastDropScannerV2() {
       const prepared: QueueCard[] = [];
       for (let index = 0; index < pairs.length; index += 1) {
         const pair = pairs[index];
-        const stamp = `${Date.now()}-${index + 1}`;
+        const stamp = `${readElapsedClockMs()}-${index + 1}`;
         const [front, back] = await Promise.all([
           renderImage(pair.front, `instacomp-${stamp}-front`),
           pair.back

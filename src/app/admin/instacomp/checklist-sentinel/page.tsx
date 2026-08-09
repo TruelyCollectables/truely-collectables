@@ -140,7 +140,7 @@ export default function ChecklistSentinelAdminPage() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action: actionName }),
       });
-      const payload = (await response.json()) as ProxyPayload;
+      const payload = (await response.json().catch(() => ({}))) as ProxyPayload;
       if (!response.ok || !payload.ok) throw new Error(payload.error || "Sentinel action failed.");
       await load();
     } catch (actionError) {
@@ -175,7 +175,7 @@ export default function ChecklistSentinelAdminPage() {
 
   return (
     <main className="min-h-screen bg-neutral-950 px-4 py-8 text-white sm:px-8">
-      <div className="mx-auto max-w-7xl space-y-6">
+      <div className="mx-auto max-w-[1600px] space-y-6">
         <div className="flex flex-col gap-4 rounded-3xl border border-cyan-300/20 bg-gradient-to-br from-cyan-400/10 via-neutral-950 to-blue-500/10 p-6 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <div className="text-xs font-black uppercase tracking-[0.24em] text-cyan-300">InstaComp AI</div>

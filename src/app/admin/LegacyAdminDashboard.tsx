@@ -827,6 +827,7 @@ export default async function AdminDashboard() {
       links: [
         { href: "/admin/pending-card-import", label: "Card Intake & Listing" },
         { href: "/admin/instacomp/mobile", label: "InstaComp Mobile" },
+        { href: "/admin/instacomp/fast", label: "InstaComp Fast" },
         { href: "/admin/instacomp/v2", label: "InstaComp 2.0" },
         { href: "/admin/instacomp/seller-sweep", label: "Seller Sweep" },
         { href: "/admin/instacomp/checklists", label: "Checklist Registry" },
@@ -851,6 +852,7 @@ export default async function AdminDashboard() {
         { href: "/admin/market-intel/discovery", label: "Discovery Desk" },
         { href: "/admin/market-intel/ebay", label: "Active Scanner" },
         { href: "/admin/market-intel/deals", label: "Deal Engine" },
+        { href: "/admin/market-intel/deal-hunter", label: "Deal Hunter AI" },
         { href: "/admin/market-intel/growth-specs", label: "Growth Specs" },
         {
           href: "/admin/market-intel/growth-specs/prospects",

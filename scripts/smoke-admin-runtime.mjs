@@ -244,6 +244,11 @@ const smokeRoutes = [
     expectedText: "Pricing Audit",
   },
   {
+    path: "/admin/instacomp/fast",
+    auth: true,
+    expectedText: "InstaComp",
+  },
+  {
     path: "/admin/instacomp/v2",
     auth: true,
     expectedText: "InstaComp™ 2.0",
@@ -262,6 +267,11 @@ const smokeRoutes = [
     path: "/admin/instacomp/checklists",
     auth: true,
     expectedText: "Checklist Registry",
+  },
+  {
+    path: "/admin/instacomp/checklist-sentinel",
+    auth: true,
+    expectedText: "Checklist Sentinel™",
   },
   {
     path: "/admin/inventory",
@@ -317,6 +327,11 @@ const smokeRoutes = [
     path: "/admin/market-intel/deals",
     auth: true,
     expectedText: "Shark List™ Deal Engine",
+  },
+  {
+    path: "/admin/market-intel/deal-hunter",
+    auth: true,
+    expectedText: "InstaComp AI Deal Hunter",
   },
   {
     path: "/admin/market-intel/growth-specs",

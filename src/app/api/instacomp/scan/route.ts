@@ -904,6 +904,36 @@ function normalizeAiBoolean(value: unknown) {
   return false;
 }
 
+function preserveSeasonYear(
+  evidenceYear: unknown,
+  registryYear: unknown,
+  identityContext?: unknown,
+): string | null {
+  const evidence = String(evidenceYear || "").trim();
+  const registry = String(registryYear || "").trim();
+  const context = String(identityContext || "").trim();
+  const candidates = [evidence, context];
+
+  for (const candidate of candidates) {
+    const match = candidate.match(/\b((?:19|20)\d{2})\s*[-/]\s*((?:19|20)?\d{2})\b/);
+    if (!match) continue;
+
+    const start = Number(match[1]);
+    const rawEnd = match[2];
+    const end = rawEnd.length === 2
+      ? Math.floor(start / 100) * 100 + Number(rawEnd)
+      : Number(rawEnd);
+    const canonical = `${start}-${String(end).slice(-2).padStart(2, "0")}`;
+    const registryNumber = Number(registry);
+
+    if (!registry || registryNumber === start || registryNumber === end) {
+      return canonical;
+    }
+  }
+
+  return registry || evidence || null;
+}
+
 function normalizeInstaCompAiResult(value: unknown): InstaCompAiResult {
   const record =
     value && typeof value === "object" ? (value as Record<string, unknown>) : {};
@@ -4329,7 +4359,7 @@ async function identifyCardWithConfiguredProviderFailover(params: {
       ? {
           ...consensusAi,
           player: registryMatch.player || consensusAi.player,
-          year: registryMatch.year ? String(registryMatch.year) : consensusAi.year,
+          year: preserveSeasonYear(consensusAi.year, registryMatch.year, registrySetName),
           brand:
             registryMatch.manufacturer ||
             registryMatch.brand ||
