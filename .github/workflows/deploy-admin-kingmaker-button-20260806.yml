@@ -59,15 +59,15 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Verify admin launcher source and TypeScript
+      - name: Verify KINGMAKER Admin architecture and TypeScript
         shell: bash
         run: |
           set -euo pipefail
           npm ci
           grep -q 'href="/kingmaker"' src/app/admin/layout.tsx
           grep -q 'OPEN KINGMAKER' src/app/admin/layout.tsx
-          grep -q 'href="/admin/instacomp/fast"' src/app/admin/layout.tsx
-          grep -q 'INSTACOMP' src/app/admin/layout.tsx
+          grep -q 'href="/admin/advanced"' src/app/admin/layout.tsx
+          grep -q 'Advanced Admin' src/app/admin/layout.tsx
           test -f src/app/admin/instacomp/fast/InstaCompFastDropScannerV2.tsx
           grep -q 'aiCouncilTier", "basic"' src/app/admin/instacomp/fast/InstaCompFastDropScannerV2.tsx
           grep -q 'frontRotation' src/app/admin/instacomp/fast/InstaCompFastDropScannerV2.tsx
@@ -79,7 +79,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          jq -n --arg state success --arg context instacomp-production-verify --arg description "Source contract and TypeScript passed" \
+          jq -n --arg state success --arg context instacomp-production-verify --arg description "KINGMAKER Admin contract and TypeScript passed" \
             '{state:$state,context:$context,description:$description}' \
             | curl -fsS -X POST \
                 -H "Authorization: Bearer $GH_TOKEN" \
@@ -126,11 +126,11 @@ jobs:
           console.log(JSON.stringify({
             status: 'passed',
             sourceContainsKingmakerButton: true,
-            sourceContainsInstaCompButton: true,
+            sourceContainsAdvancedAdminLink: true,
             fastScannerSemanticRotation: true,
             fastScannerBasicIdentityLane: true,
             productionReachable: true,
-            instaCompHref: '/admin/instacomp/fast',
+            instaCompHref: '/kingmaker',
           }, null, 2));
           NODE
 
@@ -174,4 +174,4 @@ jobs:
                 "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
                 -d @- >/dev/null
 
-# certification-deploy-stage-receipts-20260809
+# certification-deploy-stage-receipts-20260809-v2
