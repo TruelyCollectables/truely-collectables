@@ -1,0 +1,40 @@
+name: Ops Sentinel Progress Post Requeue 20260809
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/ops-sentinel-progress-post-requeue-20260809.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Read sanitized live Sentinel progress
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 30 \
+            https://truelycollectables.com/api/instacomp/checklist-sentinel/progress \
+            -o progress.json
+          python3 - <<'PY'
+          import json
+          p=json.load(open('progress.json',encoding='utf-8'))
+          if p.get('ok') is not True:
+              raise SystemExit(json.dumps(p))
+          job=p.get('job') or {}
+          targets=p.get('targets') or {}
+          out={
+            'checkedAt':p.get('checkedAt'),
+            'degraded':p.get('degraded'),
+            'freezeStale':p.get('freezeStale'),
+            'job':{k:job.get(k) for k in ['status','trigger','currentTarget','processed','total','percent','found','downloaded','imported','failed','heartbeatAt']},
+            'targets':{k:targets.get(k) for k in ['total','pending','recovered','noResult','leadOnly','failed']},
+            'selfHeal':p.get('selfHeal'),
+          }
+          print('SENTINEL_POST_REQUEUE='+json.dumps(out))
+          PY
