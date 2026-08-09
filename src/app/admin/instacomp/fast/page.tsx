@@ -1,13 +1,13 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import InstaCompFastDropScannerV2 from "./InstaCompFastDropScannerV2";
+import InstaCompFastWorkbench from "./InstaCompFastWorkbench";
 
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "InstaComp | Fast Admin Scanner",
   description:
-    "Fast drag-and-drop InstaComp workbench for front/back sports-card identification and exact-market follow-up.",
+    "Fast drag-and-drop InstaComp workbench for front/back sports-card identification, correction, progress tracking, exact comps, and teacher-learning follow-up.",
   robots: { index: false, follow: false },
 };
 
@@ -22,9 +22,9 @@ export default function InstaCompFastPage() {
             </p>
             <h1 className="mt-1 text-3xl font-black tracking-tight">InstaComp</h1>
             <p className="mt-2 max-w-3xl text-sm font-semibold text-neutral-300">
-              Drop front/back card images. InstaComp auto-rotates the images upright,
-              identifies the card on the local/Registry fast lane, then finishes exact
-              comps and teacher-learning evidence in the background.
+              Drop front/back card images. InstaComp auto-rotates each side upright,
+              returns identity on the fast lane, shows live job progress, lets you correct
+              the exact card, then finishes sold comps and teacher learning in the background.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -45,7 +45,7 @@ export default function InstaCompFastPage() {
       </header>
 
       <div className="mx-auto w-full max-w-[1500px] px-4 py-6 sm:px-6 lg:px-8">
-        <InstaCompFastDropScannerV2 />
+        <InstaCompFastWorkbench />
       </div>
     </main>
   );
