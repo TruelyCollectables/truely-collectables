@@ -5,7 +5,6 @@ import html
 import ipaddress
 import json
 import re
-import socket
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
@@ -29,6 +28,10 @@ AUTO_IMPORT_DOMAINS = {
     "www.paniniamerica.net": 100,
     "leaftradingcards.com": 98,
     "www.leaftradingcards.com": 98,
+    # PSA APR set pages expose deterministic `No. | Subject | Auction Results`
+    # tables. Only exact whole-release APR URLs may auto-import.
+    "psacard.com": 96,
+    "www.psacard.com": 96,
     "baseballcardpedia.com": 92,
     "www.baseballcardpedia.com": 92,
     "beckett.com": 90,
@@ -50,6 +53,10 @@ AUTO_IMPORT_DOMAINS = {
 }
 
 LEAD_ONLY_DOMAINS = {
+    # SGC has a searchable Pop Report and cert verification, but it remains
+    # discovery-only until row completeness is certified against known sets.
+    "gosgc.com": 70,
+    "www.gosgc.com": 70,
     "reddit.com": 55,
     "www.reddit.com": 55,
     "old.reddit.com": 55,
@@ -115,6 +122,24 @@ DEFAULT_SOURCES: list[dict[str, Any]] = [
         "import_policy": "auto_import",
         "search_url_template": "https://www.bing.com/search?q={query}",
         "domains": ["leaftradingcards.com", "www.leaftradingcards.com"],
+    },
+    {
+        "source_id": "psa",
+        "name": "PSA Auction Prices Realized set index",
+        "kind": "site_search",
+        "trust_score": 96,
+        "import_policy": "auto_import",
+        "search_url_template": "https://www.bing.com/search?q={query}",
+        "domains": ["psacard.com", "www.psacard.com"],
+    },
+    {
+        "source_id": "sgc",
+        "name": "SGC Pop Report",
+        "kind": "site_search",
+        "trust_score": 70,
+        "import_policy": "lead_only",
+        "search_url_template": "https://www.bing.com/search?q={query}",
+        "domains": ["gosgc.com", "www.gosgc.com"],
     },
     {
         "source_id": "baseballcardpedia",
@@ -402,6 +427,39 @@ def safe_filename(target: dict[str, Any], extension: str, sha256: str) -> str:
     return f"{slug[:160]}-{sha256[:12]}{extension}"
 
 
+def _is_psa_set_apr_url(url: str) -> bool:
+    parsed = urlparse(url)
+    if (parsed.hostname or "").lower() not in {"psacard.com", "www.psacard.com"}:
+        return False
+    parts = [part for part in parsed.path.split("/") if part]
+    # Set-level APR: /auctionprices/<category>/<set-slug>/<numeric-set-id>
+    return (
+        len(parts) == 4
+        and parts[0].lower() == "auctionprices"
+        and parts[3].isdigit()
+    )
+
+
+def _psa_expected_release_slug(target: dict[str, Any]) -> str:
+    year = str(target.get("year") or "").strip()
+    manufacturer_tokens = normalize_text(target.get("manufacturer")).split()
+    product_tokens = normalize_text(target.get("product")).split()
+    if manufacturer_tokens and product_tokens[: len(manufacturer_tokens)] == manufacturer_tokens:
+        product_tokens = product_tokens[len(manufacturer_tokens) :]
+    if product_tokens == manufacturer_tokens:
+        product_tokens = []
+    pieces = [year, *manufacturer_tokens, *product_tokens]
+    return "-".join(piece for piece in pieces if piece)
+
+
+def _is_psa_exact_release_url(url: str, target: dict[str, Any]) -> bool:
+    if not _is_psa_set_apr_url(url):
+        return False
+    parts = [part for part in urlparse(url).path.split("/") if part]
+    expected = _psa_expected_release_slug(target)
+    return bool(expected and parts[2].lower() == expected)
+
+
 class SentinelSourceClient:
     def __init__(
         self,
@@ -417,7 +475,10 @@ class SentinelSourceClient:
     ) -> list[Candidate]:
         query = self._query(source, target)
         url = source["search_url_template"].format(query=quote_plus(query))
-        headers = {"user-agent": USER_AGENT, "accept": "text/html,application/json;q=0.9,*/*;q=0.8"}
+        headers = {
+            "user-agent": USER_AGENT,
+            "accept": "text/html,application/json;q=0.9,*/*;q=0.8",
+        }
         async with httpx.AsyncClient(
             timeout=self.timeout_seconds,
             follow_redirects=True,
@@ -433,8 +494,38 @@ class SentinelSourceClient:
         return self._html_candidates(source, target, response.text, str(response.url))
 
     def _query(self, source: dict[str, Any], target: dict[str, Any]) -> str:
+        source_id = str(source.get("source_id") or "")
         if target.get("scope") == "discovery":
             query = str(target.get("product") or "")
+        elif source_id == "psa":
+            # PSA titles use release/card year (for example `2010 Panini ...`),
+            # while our canonical target may use the hobby season `2010-11`.
+            # Search by the parsed first year but keep the full season untouched
+            # for Registry identity/persistence.
+            query = " ".join(
+                str(value).strip()
+                for value in [
+                    target.get("year") or target.get("season"),
+                    target.get("manufacturer"),
+                    target.get("product"),
+                    target.get("sport"),
+                    '"Auction Prices Realized"',
+                    '"Items in Set"',
+                ]
+                if value
+            )
+        elif source_id == "sgc":
+            query = " ".join(
+                str(value).strip()
+                for value in [
+                    target.get("year") or target.get("season"),
+                    target.get("manufacturer"),
+                    target.get("product"),
+                    target.get("sport"),
+                    '"Pop Report"',
+                ]
+                if value
+            )
         else:
             query = " ".join(
                 str(value).strip()
@@ -470,6 +561,8 @@ class SentinelSourceClient:
             seen.add(url)
             host = (urlparse(url).hostname or "").lower()
             if host.endswith("google.com") or host.endswith("bing.com"):
+                continue
+            if source.get("source_id") == "psa" and not _is_psa_exact_release_url(url, target):
                 continue
             trust, policy = candidate_trust(url)
             exact, reason = exact_target_match(target, title, url)
@@ -559,13 +652,20 @@ class SentinelSourceClient:
         ) as client:
             async with client.stream("GET", url) as response:
                 response.raise_for_status()
-                content_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
+                content_type = (
+                    response.headers.get("content-type", "")
+                    .split(";")[0]
+                    .strip()
+                    .lower()
+                )
                 chunks: list[bytes] = []
                 total = 0
                 async for chunk in response.aiter_bytes():
                     total += len(chunk)
                     if total > self.max_download_bytes:
-                        raise ValueError("Checklist download exceeded the configured byte limit.")
+                        raise ValueError(
+                            "Checklist download exceeded the configured byte limit."
+                        )
                     chunks.append(chunk)
                 content = b"".join(chunks)
                 final_url = str(response.url)
@@ -584,7 +684,17 @@ class SentinelSourceClient:
     @staticmethod
     def _extension(url: str, content_type: str) -> str:
         path = urlparse(url).path.lower()
-        for ext in [".pdf", ".xlsx", ".xls", ".csv", ".tsv", ".zip", ".json", ".html", ".htm"]:
+        for ext in [
+            ".pdf",
+            ".xlsx",
+            ".xls",
+            ".csv",
+            ".tsv",
+            ".zip",
+            ".json",
+            ".html",
+            ".htm",
+        ]:
             if path.endswith(ext):
                 return ".html" if ext == ".htm" else ext
         mapping = {
@@ -711,7 +821,10 @@ def broad_discovery_targets() -> list[dict[str, Any]]:
                     "year": None,
                     "season": label,
                     "manufacturer": "",
-                    "product": f"{label} {sport} trading card checklist master set list PDF spreadsheet",
+                    "product": (
+                        f"{label} {sport} trading card checklist master set list "
+                        "PDF spreadsheet"
+                    ),
                     "scope": "discovery",
                     "priority": 90,
                     "metadata": {"discovery": True},

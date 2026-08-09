@@ -18,13 +18,22 @@ async function main() {
     identityEvidence: "Exact year, product, set, player and card number matched.",
   };
 
+  const expectedDomains = ["ebay.com", "130point.com", "psacard.com"];
   let disagreement = false;
   let xaiContractChecked = false;
   let groqContractChecked = false;
+  let psaGuardrailChecked = false;
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.includes("generativelanguage.googleapis.com")) {
+      const requestBody = JSON.parse(String(init?.body || "{}"));
+      const prompt = String(requestBody?.contents?.[0]?.parts?.[0]?.text || "");
+      assert.match(prompt, /PSA-graded cards/i);
+      assert.match(prompt, /Auction Prices Realized/i);
+      assert.match(prompt, /PSA Estimate and PSA Price Guide values are reference-only/i);
+      assert.match(prompt, /NEVER sold comps/i);
+      psaGuardrailChecked = true;
       return new Response(
         JSON.stringify({
           candidates: [
@@ -47,6 +56,8 @@ async function main() {
       );
     }
     if (url.includes("api.anthropic.com")) {
+      const requestBody = JSON.parse(String(init?.body || "{}"));
+      assert.deepEqual(requestBody?.tools?.[0]?.allowed_domains, expectedDomains);
       const anthropicSold = disagreement
         ? { ...sharedSold, url: "https://www.ebay.com/itm/999999999999" }
         : sharedSold;
@@ -72,7 +83,7 @@ async function main() {
         ? requestBody.tools.find((tool: any) => tool?.type === "web_search")
         : null;
       assert.ok(webSearch, "xAI teacher must use web_search");
-      assert.deepEqual(webSearch.filters?.allowed_domains, ["ebay.com", "130point.com"]);
+      assert.deepEqual(webSearch.filters?.allowed_domains, expectedDomains);
       assert.equal(webSearch.allowed_domains, undefined);
       assert.equal(webSearch.enable_image_understanding, true);
       xaiContractChecked = true;
@@ -108,10 +119,7 @@ async function main() {
         "web_search",
         "visit_website",
       ]);
-      assert.deepEqual(requestBody.search_settings?.include_domains, [
-        "ebay.com",
-        "130point.com",
-      ]);
+      assert.deepEqual(requestBody.search_settings?.include_domains, expectedDomains);
       assert.equal(requestBody.search_settings?.country, "united states");
       const headers = new Headers(init?.headers);
       assert.equal(headers.get("Groq-Model-Version"), "latest");
@@ -185,6 +193,7 @@ async function main() {
     assert.equal(agreed.sold.results[0].sourceCategory, "sold");
     assert.equal(agreed.sold.results[0].price, 30);
     assert.ok(agreed.sold.results[0].flags.includes("eligible to teach InstaComp AI"));
+    assert.equal(psaGuardrailChecked, true);
     assert.equal(xaiContractChecked, true);
     assert.equal(groqContractChecked, true);
 

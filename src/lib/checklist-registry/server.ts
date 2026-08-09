@@ -6,6 +6,7 @@ import { pokemonJapaneseMPReconciledAdapter } from "./pokemon-japanese-mp-reconc
 import { pokemonJapaneseOfficialReconciledAdapter } from "./pokemon-japanese-official-reconciled";
 import { pokemonJapaneseVariantReconciledAdapter } from "./pokemon-japanese-variant-reconciled";
 import { pokemonTcgDataSourceIdSafeAdapter } from "./pokemon-tcg-data-source-ids";
+import { psaAprHtmlChecklistAdapter } from "./psa-apr-html";
 import type {
   ChecklistImportPlan,
   ChecklistSourceAdapter,
@@ -33,6 +34,7 @@ const CHECKLIST_ADAPTERS: ChecklistSourceAdapter[] = [
   pokemonJapaneseOfficialReconciledAdapter,
   tcgdexJapaneseSetBundleAdapter,
   pokemonTcgDataSourceIdSafeAdapter,
+  psaAprHtmlChecklistAdapter,
   upperDeckMvpOfficialHtmlChecklistAdapter,
   upperDeckTeamCanadaOfficialHtmlChecklistAdapter,
   upperDeckArtifactsOfficialHtmlChecklistAdapter,

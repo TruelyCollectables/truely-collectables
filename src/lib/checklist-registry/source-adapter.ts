@@ -7,6 +7,15 @@ export type ChecklistSourceAuthority =
   | "approved_reference_dataset"
   | "manual_official_file";
 
+export type ChecklistSourceTargetContext = {
+  targetKey?: string | null;
+  sport?: string | null;
+  year?: string | number | null;
+  season?: string | null;
+  manufacturer?: string | null;
+  product?: string | null;
+};
+
 export type ChecklistSourceArtifact = {
   sourceUrl: string;
   originalFilename: string;
@@ -18,6 +27,7 @@ export type ChecklistSourceArtifact = {
   retrievedAt: string;
   authority: ChecklistSourceAuthority;
   redistributionAllowed: boolean;
+  targetContext?: ChecklistSourceTargetContext | null;
 };
 
 export type ChecklistImportValidationIssue = {
