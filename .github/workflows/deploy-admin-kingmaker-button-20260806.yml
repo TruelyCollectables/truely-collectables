@@ -174,4 +174,4 @@ jobs:
                 "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
                 -d @- >/dev/null
 
-# certification-deploy-stage-receipts-20260809-v3-final-990
+# certification-deploy-stage-receipts-20260809-v4-readiness-retry
