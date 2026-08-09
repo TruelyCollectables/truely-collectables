@@ -96,15 +96,10 @@ export async function POST(request: Request) {
     return Response.json({ success: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  // Vercel Functions provide OIDC on the request context/header. Builds/local
-  // pulls may instead expose VERCEL_OIDC_TOKEN directly. Feed only the presence
-  // into the status resolver; the token value is never returned.
-  const requestOidc = String(request.headers.get("x-vercel-oidc-token") || "").trim();
-  const configuration = resolveInstaCompTeacherRuntimeConfiguration({
-    ...process.env,
-    VERCEL_OIDC_TOKEN:
-      String(process.env.VERCEL_OIDC_TOKEN || "").trim() || requestOidc || undefined,
-  });
+  // Vercel's AI SDK consumes deployment OIDC automatically. This status call
+  // reports only platform/config presence; the separate live Gateway smoke is
+  // the authority for whether model + search-tool access actually works.
+  const configuration = resolveInstaCompTeacherRuntimeConfiguration(process.env);
   const mac = await macTrainingReadiness();
   return Response.json(
     {
@@ -118,6 +113,7 @@ export async function POST(request: Request) {
         instaCompAiIdentityAuthorityFromTeacherReceipts: false,
         minimumVotingTeachersForTrustedSoldTruth: 2,
         duplicateProviderFamilyVotesAllowed: false,
+        liveGatewaySmokeRequiredForOperationalProof: true,
       },
       checkedAt: new Date().toISOString(),
     },
