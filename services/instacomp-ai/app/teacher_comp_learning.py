@@ -90,34 +90,41 @@ def _normalized_receipt(body: dict[str, Any]) -> dict[str, Any]:
     trusted_sold_count = min(len(accepted_sold), max(0, pricing_eligible_count))
     consensus_trusted = consensus.get("trusted") is True
 
+    registry_identity_id = _text(
+        body.get("registryIdentityId") or body.get("registry_identity_id"), 160
+    ) or None
+    registry_fingerprint_sha256 = _text(
+        body.get("registryFingerprintSha256") or body.get("registry_fingerprint_sha256"), 128
+    ) or None
+
+    canonical_identity = body.get("canonicalIdentity") or body.get("canonical_identity") or {}
+    if not isinstance(canonical_identity, dict):
+        canonical_identity = {}
+    canonical_identity_complete = all(
+        _text(canonical_identity.get(field), 300)
+        for field in ("player", "year", "brand", "setName", "cardNumber")
+    )
+
     # Market truth can only become student training material when independent
-    # teachers actually reached the configured vote threshold and at least one
-    # pricing-eligible exact sold comp survived the deterministic firewall.
+    # teachers reached the vote threshold, a canonical Registry identity binds
+    # the lesson to one exact card, and at least one pricing-eligible exact sold
+    # comp survived the deterministic firewall.
     trusted_market_truth = bool(
         consensus_trusted
         and len(configured) >= 2
         and required_votes >= 2
         and trusted_sold_count > 0
+        and registry_identity_id
+        and registry_fingerprint_sha256
+        and canonical_identity_complete
     )
-
-    canonical_identity = body.get("canonicalIdentity") or body.get("canonical_identity") or {}
-    if not isinstance(canonical_identity, dict):
-        canonical_identity = {}
 
     normalized = {
         "schemaVersion": RECEIPT_SCHEMA_VERSION,
         "source": _text(body.get("source") or "instacomp", 100),
         "scanId": _text(body.get("scanId") or body.get("scan_id"), 120) or None,
-        "registryIdentityId": _text(
-            body.get("registryIdentityId") or body.get("registry_identity_id"), 160
-        )
-        or None,
-        "registryFingerprintSha256": _text(
-            body.get("registryFingerprintSha256")
-            or body.get("registry_fingerprint_sha256"),
-            128,
-        )
-        or None,
+        "registryIdentityId": registry_identity_id,
+        "registryFingerprintSha256": registry_fingerprint_sha256,
         "canonicalIdentity": canonical_identity,
         "teacherConsensus": {
             **consensus,
@@ -139,7 +146,7 @@ def _normalized_receipt(body: dict[str, Any]) -> dict[str, Any]:
         "trustedSuggestedPrice": _number(
             body.get("trustedSuggestedPrice") or body.get("trusted_suggested_price")
         ),
-        "pricingEligibleSoldCount": trusted_sold_count,
+        "pricingEligibleSoldCount": trusted_sold_count if trusted_market_truth else 0,
         "studentMode": True,
         "pricingAuthority": False,
         "identityTrainingMutationAllowed": False,
@@ -153,7 +160,11 @@ def record_teacher_comp_receipt(path: Path, body: dict[str, Any]) -> dict[str, A
     initialize_teacher_comp_learning(path)
     receipt = _normalized_receipt(body)
     canonical = json.dumps(receipt, sort_keys=True, separators=(",", ":"))
-    fingerprint = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    fingerprint_payload = {key: value for key, value in receipt.items() if key != "createdAt"}
+    fingerprint_canonical = json.dumps(
+        fingerprint_payload, sort_keys=True, separators=(",", ":")
+    )
+    fingerprint = hashlib.sha256(fingerprint_canonical.encode("utf-8")).hexdigest()
     consensus = receipt["teacherConsensus"]
     trusted = consensus.get("trusted") is True
 
