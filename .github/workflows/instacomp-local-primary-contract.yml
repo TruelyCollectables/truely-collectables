@@ -20,6 +20,7 @@ on:
       - "scripts/run-instacomp-internal-fail-closed-regressions.ts"
       - "scripts/run-instacomp-ocr-registry-primary-regressions.ts"
       - "scripts/run-instacomp-prizm-surface-regressions.ts"
+      - "scripts/smoke-admin-runtime.mjs"
       - "scripts/apply-instacomp-seller-display-fix.py"
       - "scripts/apply-instacomp-ocr-registry-context-fix.py"
       - ".github/workflows/instacomp-local-primary-contract.yml"
@@ -65,6 +66,8 @@ jobs:
           grep -q 'boundedProductCandidates' src/lib/instacomp-checklist-first-server.ts
           grep -q 'item?.seller?.username' src/app/api/instacomp/scan/route.ts
           grep -q 'Item #' src/app/admin/instacomp/fast/InstaCompFastWorkbench.tsx
+          grep -q 'path: "/admin/instacomp/checklist-sentinel"' scripts/smoke-admin-runtime.mjs
+          grep -q 'path: "/admin/instacomp/fast"' scripts/smoke-admin-runtime.mjs
       - name: Internal fail-closed regressions
         run: node --import tsx scripts/run-instacomp-internal-fail-closed-regressions.ts
       - name: Council runtime hard-stop regressions
@@ -132,7 +135,8 @@ jobs:
             src/app/admin/instacomp/fast/InstaCompFastWorkbench.tsx \
             src/lib/instacomp-checklist-first-server.ts \
             scripts/run-instacomp-ocr-registry-primary-regressions.ts \
-            scripts/instacomp-fast-workbench-certify.mjs
+            scripts/instacomp-fast-workbench-certify.mjs \
+            scripts/smoke-admin-runtime.mjs
           if git diff --cached --quiet; then
             echo "Final bounded Registry and seller packet already committed."
           else
