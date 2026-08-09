@@ -79,6 +79,50 @@ jobs:
           print("PASS certified MLX-VLM 0.6.8 candidate runtime")
           PY
 
+      - name: Reproduce repo-root activation preflight on macOS
+        run: |
+          set -euo pipefail
+          # The physical Mac invokes activation from the repository root. Build
+          # the same service-python layout and prove app.config imports there
+          # before any launchd/.env mutation is allowed.
+          python -m venv --system-site-packages services/instacomp-ai/.venv
+          git checkout -B main "$GITHUB_SHA"
+          adapter="$PWD/services/instacomp-ai/data/training/adapters/activation-ci-fixture"
+          mkdir -p "$adapter"
+          printf '%s\n' '{"lora_parameters":{"rank":16,"alpha":32}}' > "$adapter/adapter_config.json"
+          printf '%s' 'ci-safe-test-weights' > "$adapter/adapters.safetensors"
+          ADAPTER="$adapter" python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          adapter = Path(os.environ["ADAPTER"]).resolve()
+          receipt = {
+              "adapter": str(adapter),
+              "held_out_examples": 30,
+              "score": {
+                  "critical_regressions": [],
+                  "gates": {
+                      "strict_improvement": True,
+                      "no_critical_regressions": True,
+                      "parse_not_worse": True,
+                      "candidate_not_worse_exact": True,
+                      "promotion_candidate": True,
+                  },
+              },
+              "promotion": {
+                  "eligible_for_runtime_candidate": True,
+                  "automatic_deployment": False,
+              },
+          }
+          (adapter / "validation-ci.json").write_text(json.dumps(receipt), encoding="utf-8")
+          PY
+          INSTACOMP_AI_LORA_ACTIVATION_PREFLIGHT_ONLY=1 \
+            bash services/instacomp-ai/scripts/enable-lora-candidate-macos.sh "$adapter" \
+            | tee /tmp/instacomp-lora-activation-preflight.log
+          grep -q '"promotion_candidate": true' /tmp/instacomp-lora-activation-preflight.log
+          grep -q 'PASS LoRA candidate activation preflight: no runtime state changed.' /tmp/instacomp-lora-activation-preflight.log
+
       - name: Fail closed source contract
         run: |
           set -euo pipefail
@@ -88,4 +132,6 @@ jobs:
           grep -q 'automatic_promotion.*False' services/instacomp-ai/scripts/run_lora_candidate_server.py
           grep -q 'HTTPServer(("127.0.0.1"' services/instacomp-ai/scripts/run_lora_candidate_server.py
           grep -q 'install_lora_candidate_runtime()' services/instacomp-ai/app/__init__.py
-          echo "PASS candidate remains opt-in, localhost-only, validation-gated, evidence-only, and rollbackable"
+          grep -q 'rollback_on_exit' services/instacomp-ai/scripts/enable-lora-candidate-macos.sh
+          grep -q 'cd "$service_root"' services/instacomp-ai/scripts/enable-lora-candidate-macos.sh
+          echo "PASS candidate remains opt-in, localhost-only, validation-gated, evidence-only, transactional, and rollbackable"
