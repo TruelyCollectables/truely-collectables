@@ -1,0 +1,23 @@
+{
+  "schema": "truelycollectables.instacompAltTeacherEnvPresence.v1",
+  "production": true,
+  "presence": {
+    "OPENROUTER_API_KEY": false,
+    "TOGETHER_API_KEY": false,
+    "FIREWORKS_API_KEY": false,
+    "DEEPSEEK_API_KEY": false,
+    "MISTRAL_API_KEY": false,
+    "COHERE_API_KEY": false,
+    "CLOUDFLARE_API_TOKEN": false,
+    "CLOUDFLARE_ACCOUNT_ID": false,
+    "HF_TOKEN": false,
+    "HUGGINGFACE_API_KEY": false,
+    "GOOGLE_API_KEY": false,
+    "AZURE_OPENAI_API_KEY": false,
+    "AZURE_OPENAI_ENDPOINT": false,
+    "AWS_BEDROCK_ACCESS_KEY_ID": false,
+    "AWS_ACCESS_KEY_ID": false
+  },
+  "secretValuesExposed": false,
+  "checkedAt": "2026-08-09T02:24:55.126Z"
+}
