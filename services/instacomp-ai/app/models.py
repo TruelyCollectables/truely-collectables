@@ -165,6 +165,9 @@ class MemoryMatch(BaseModel):
 class AnalyzeResponse(BaseModel):
     schema_version: Literal["tcos.instacomp-ai.scan.v1"] = "tcos.instacomp-ai.scan.v1"
     scan_id: str
+    # Permanent UUID for this exact physical card. On first ingest this equals
+    # scan_id; later rescans get a new scan_id but keep this card_uuid.
+    card_uuid: str | None = None
     created_at: datetime
     status: Literal[
         "trusted_memory_match",
@@ -240,6 +243,8 @@ class TrainingExample(BaseModel):
     training_example_id: str
     lesson_id: str
     scan_id: str
+    # Tracking metadata only. It is never a visual identity target.
+    card_uuid: str | None = None
     state: LearningState
     trusted: bool
     created_at: datetime

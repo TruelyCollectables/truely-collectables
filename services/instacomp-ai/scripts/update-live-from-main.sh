@@ -21,6 +21,8 @@ env_file="$service_root/.env"
 site_url="${INSTACOMP_SENTINEL_SITE_URL:-https://truelycollectables.com}"
 tunnel_hostname="${INSTACOMP_SENTINEL_TUNNEL_HOSTNAME:-instacomp.truelycollectables.com}"
 tunnel_url="https://${tunnel_hostname}"
+vercel_project="${INSTACOMP_VERCEL_PROJECT:-truely-collectables}"
+vercel_scope="${INSTACOMP_VERCEL_SCOPE:-truelycollectables-projects}"
 
 if [[ -z "$repo_root" || "$service_root" != "$expected_service_root" ]]; then
   echo "Refusing update: InstaComp service is not running from the expected repository layout." >&2
@@ -81,15 +83,23 @@ for raw in path.read_text("utf-8").splitlines():
 PY
 }
 
+ensure_vercel_link() {
+  if [[ -f "$repo_root/.vercel/project.json" ]]; then
+    return 0
+  fi
+  echo "Linking the repository root to the existing Vercel project."
+  npx vercel link --yes --project "$vercel_project" --scope "$vercel_scope" --cwd "$repo_root" >/dev/null
+}
+
 set_vercel_env() {
   local name="$1"
   local value="$2"
   local environment="$3"
   local sensitivity="$4"
   if [[ "$sensitivity" == "sensitive" ]]; then
-    printf '%s' "$value" | npx vercel env add "$name" "$environment" --force --sensitive >/dev/null
+    printf '%s' "$value" | npx vercel env add "$name" "$environment" --force --sensitive --cwd "$repo_root" >/dev/null
   else
-    printf '%s' "$value" | npx vercel env add "$name" "$environment" --force >/dev/null
+    printf '%s' "$value" | npx vercel env add "$name" "$environment" --force --cwd "$repo_root" >/dev/null
   fi
 }
 
@@ -281,6 +291,7 @@ print(json.dumps(receipt, indent=2))
 PY
 
 echo "Synchronizing the existing Mac key to Vercel Production without rotating it."
+ensure_vercel_link
 set_vercel_env INSTACOMP_AI_LOCAL_URL "$tunnel_url" production plain
 set_vercel_env INSTACOMP_AI_LOCAL_KEY "$local_key" production sensitive
 set_vercel_env INSTACOMP_SERVICE_TOKEN "$registry_token" production sensitive

@@ -160,6 +160,7 @@ function marketStats(summary: ReturnType<typeof mergeExactMarketSources>) {
 
 async function persistExactMarketSummary(params: {
   scanId: string | null;
+  cardUuid: string | null;
   query: string;
   suggestedPrice: number | null;
   soldSearchUrl: string | null;
@@ -198,6 +199,7 @@ async function persistExactMarketSummary(params: {
       ebay_sold_url: params.soldSearchUrl,
       raw_comp_results: {
         ...previousRaw,
+        cardUuid: params.cardUuid,
         exactMarket: params.exactMarketEvidence || null,
       },
     })
@@ -347,12 +349,14 @@ export async function POST(request: NextRequest) {
   }
 
   const ai = base.ai;
+  const cardUuid = String((ai as any).internalCardUuid || "").trim() || null;
   const missingIdentity = missingExactIdentityFields(ai);
   const exactTitle = buildExactIdentityTitle(ai, base.searchQuery);
 
   if (missingIdentity.length) {
     const persistence = await persistExactMarketSummary({
       scanId: base.scanId ? String(base.scanId) : null,
+      cardUuid,
       query: exactTitle,
       suggestedPrice: null,
       soldSearchUrl: base.links?.ebaySoldUrl
@@ -363,6 +367,7 @@ export async function POST(request: NextRequest) {
     return json({
       ...base,
       ok: true,
+      cardUuid,
       simulated: false,
       providers: [],
       sourceCoverage: [],
@@ -624,6 +629,7 @@ export async function POST(request: NextRequest) {
   };
   const persistence = await persistExactMarketSummary({
     scanId: base.scanId ? String(base.scanId) : null,
+    cardUuid,
     query: exactTitle,
     suggestedPrice: summary.trustedSuggestedPrice,
     soldSearchUrl,
@@ -694,6 +700,7 @@ export async function POST(request: NextRequest) {
   return json({
     ...base,
     ok: true,
+    cardUuid,
     simulated: false,
     searchQuery: exactTitle,
     providers: exactProviders,

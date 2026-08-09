@@ -51,19 +51,20 @@ def utc_now() -> datetime:
 def latest_training_examples(
     examples: Iterable[TrainingExample],
 ) -> list[TrainingExample]:
-    """Keep only the newest lesson/training truth for each physical scan.
+    """Keep only the newest trusted truth for each physical card.
 
-    A corrected operator lesson intentionally supersedes every older lesson for
-    the same front/back scan. This prevents a prior wrong parallel from sharing
-    a training dataset with the later trusted correction.
+    card_uuid survives rescans, so a later correction supersedes stale labels
+    even if the card was scanned again under a new scan_id. Legacy examples
+    without card_uuid continue to deduplicate by scan_id.
     """
     ordered = sorted(examples, key=lambda example: example.created_at, reverse=True)
     latest: list[TrainingExample] = []
-    seen_scan_ids: set[str] = set()
+    seen_card_keys: set[str] = set()
     for example in ordered:
-        if example.scan_id in seen_scan_ids:
+        key = example.card_uuid or f"scan:{example.scan_id}"
+        if key in seen_card_keys:
             continue
-        seen_scan_ids.add(example.scan_id)
+        seen_card_keys.add(key)
         latest.append(example)
     return latest
 
@@ -154,6 +155,7 @@ def build_training_example(
         training_example_id=str(uuid4()),
         lesson_id=lesson.lesson_id,
         scan_id=lesson.scan_id,
+        card_uuid=scan.get("card_uuid"),
         state=lesson.state,
         trusted=lesson.trusted,
         created_at=lesson.created_at,
@@ -252,6 +254,7 @@ def _dataset_row(
         ],
         "metadata": {
             "scan_id": example.scan_id,
+            "card_uuid": example.card_uuid,
             "lesson_id": example.lesson_id,
             "verification_source": example.verification_source,
             "state": example.state.value,
@@ -311,6 +314,8 @@ def export_training_dataset(
                 LearningState.CHECKLIST_CONFIRMED.value,
             ],
             "latest_teacher_truth_per_scan_only": True,
+            "latest_teacher_truth_per_physical_card_when_uuid_present": True,
+            "card_uuid_is_tracking_metadata_not_visual_label": True,
             "physical_serial_numerator_separate_from_print_run": True,
             "unconfirmed_examples_excluded": True,
         },

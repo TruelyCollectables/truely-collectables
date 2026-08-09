@@ -26,6 +26,7 @@ export type InstaCompAiLocalSuggestion = {
 export type InstaCompAiLocalScan = {
   schema_version: "tcos.instacomp-ai.scan.v1";
   scan_id: string;
+  card_uuid: string;
   created_at?: string;
   status:
     | "trusted_memory_match"
@@ -65,6 +66,7 @@ export type InstaCompAiLocalScan = {
 export type InstaCompAiLocalScanArchive = {
   schema_version: "tcos.instacomp-ai.scan-archive.v1";
   scan_id: string;
+  card_uuid: string | null;
   created_at: string;
   front_sha256: string;
   back_sha256: string | null;
@@ -101,6 +103,7 @@ export type InstaCompAiLocalLessonIdentity = {
 
 export type InstaCompAiResultWithInternalReceipt = InstaCompAiResult & {
   internalScanId: string;
+  internalCardUuid: string;
   internalStatus: string;
   internalChecklistOutcome: string | null;
   internalChecklistCandidateCount: number;
@@ -153,6 +156,14 @@ function safeScanId(scanId: string) {
     throw new Error("Invalid InstaComp scan ID.");
   }
   return value;
+}
+
+function safeCardUuid(value: unknown) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(normalized)) {
+    throw new Error("Invalid InstaComp physical card UUID.");
+  }
+  return normalized;
 }
 
 function text(value: unknown): string | null {
@@ -275,6 +286,7 @@ export function instaCompAiLocalScanToAi(
         .filter(Boolean)
         .join(" "),
       internalScanId: safeScanId(scan.scan_id),
+      internalCardUuid: safeCardUuid(scan.card_uuid),
       internalStatus: scan.status,
       internalChecklistOutcome: text(scan.checklist?.outcome),
       internalChecklistCandidateCount: Math.max(
@@ -372,6 +384,7 @@ export function instaCompAiLocalScanToAi(
     confidence: identityConfidence,
     notes: notes || null,
     internalScanId: safeScanId(scan.scan_id),
+    internalCardUuid: safeCardUuid(scan.card_uuid),
     internalStatus: scan.status,
     internalChecklistOutcome: text(scan.checklist?.outcome),
     internalChecklistCandidateCount: Math.max(
@@ -404,6 +417,7 @@ export function instaCompAiLocalScanToAi(
 export async function analyzeWithInstaCompAiLocal(params: {
   front: Blob;
   back?: Blob | null;
+  cardUuid?: string | null;
   printedEvidence?: {
     provider?: string;
     text?: string;
@@ -416,6 +430,7 @@ export async function analyzeWithInstaCompAiLocal(params: {
   const body = new FormData();
   body.append("front", params.front, "front.jpg");
   if (params.back) body.append("back", params.back, "back.jpg");
+  if (params.cardUuid) body.append("card_uuid", safeCardUuid(params.cardUuid));
   if (params.printedEvidence?.text) {
     body.append(
       "printed_evidence_json",
