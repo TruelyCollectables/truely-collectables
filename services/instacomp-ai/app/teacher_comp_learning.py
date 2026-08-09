@@ -79,6 +79,7 @@ def _normalized_receipt(body: dict[str, Any]) -> dict[str, Any]:
 
     required_votes = int(_number(consensus.get("requiredVotes") or consensus.get("required_votes")) or 2)
     required_votes = max(2, required_votes)
+    expected_required_votes = max(2, len(configured) // 2 + 1)
 
     accepted_sold = body.get("acceptedSoldComps") or body.get("accepted_sold_comps") or []
     if not isinstance(accepted_sold, list):
@@ -112,7 +113,7 @@ def _normalized_receipt(body: dict[str, Any]) -> dict[str, Any]:
     trusted_market_truth = bool(
         consensus_trusted
         and len(configured) >= 2
-        and required_votes >= 2
+        and required_votes >= expected_required_votes
         and trusted_sold_count > 0
         and registry_identity_id
         and registry_fingerprint_sha256

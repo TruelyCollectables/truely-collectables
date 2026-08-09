@@ -11,6 +11,7 @@ const GEMINI_API_KEY = String(
 ).trim();
 const ANTHROPIC_API_KEY = String(process.env.ANTHROPIC_API_KEY || "").trim();
 const XAI_API_KEY = String(process.env.XAI_API_KEY || "").trim();
+const GROQ_API_KEY = String(process.env.GROQ_API_KEY || "").trim();
 const PERPLEXITY_API_KEY = String(process.env.PERPLEXITY_API_KEY || "").trim();
 
 const GEMINI_MODEL = String(
@@ -22,10 +23,13 @@ const ANTHROPIC_MODEL = String(
 const XAI_MODEL = String(
   process.env.INSTACOMP_TEACHER_XAI_MODEL || "grok-4.5",
 ).trim();
+const GROQ_MODEL = String(
+  process.env.INSTACOMP_TEACHER_GROQ_MODEL || "groq/compound",
+).trim();
 const TEACHER_TIMEOUT_MS = 120_000;
 const MAX_ROWS_PER_TEACHER = 12;
 
-export type TeacherName = "gemini" | "anthropic" | "xai" | "perplexity";
+export type TeacherName = "gemini" | "anthropic" | "xai" | "groq" | "perplexity";
 
 type TeacherMarketRow = {
   title: string;
@@ -367,6 +371,54 @@ async function runXai(prompt: string): Promise<TeacherAttempt> {
   }
 }
 
+async function runGroq(prompt: string): Promise<TeacherAttempt> {
+  if (!GROQ_API_KEY) {
+    return { teacher: "groq", configured: false, ok: false, sold: [], active: [], notes: "", error: null };
+  }
+  try {
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${GROQ_API_KEY}`,
+        "Content-Type": "application/json",
+        "Groq-Model-Version": "latest",
+      },
+      body: JSON.stringify({
+        model: GROQ_MODEL,
+        temperature: 0,
+        messages: [{ role: "user", content: prompt }],
+        response_format: { type: "json_object" },
+        compound_custom: {
+          tools: {
+            enabled_tools: ["web_search", "visit_website"],
+          },
+        },
+        search_settings: {
+          include_domains: ["ebay.com", "130point.com"],
+          country: "united states",
+        },
+      }),
+      signal: AbortSignal.timeout(TEACHER_TIMEOUT_MS),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(clean(payload?.error?.message) || `Groq HTTP ${response.status}`);
+    }
+    const parsed = parseJsonObject(clean(payload?.choices?.[0]?.message?.content));
+    return { teacher: "groq", configured: true, ok: true, ...parsed, error: null };
+  } catch (error) {
+    return {
+      teacher: "groq",
+      configured: true,
+      ok: false,
+      sold: [],
+      active: [],
+      notes: "",
+      error: sanitizeInstaCompProviderError(error instanceof Error ? error.message : String(error)),
+    };
+  }
+}
+
 function priceFromText(value: string) {
   const match = value.replace(/,/g, "").match(/(?:US\s*)?\$\s*(\d+(?:\.\d{1,2})?)/i);
   return match?.[1] ? money(match[1]) : null;
@@ -518,6 +570,7 @@ export async function getTeacherExactMarketProviders(params: {
     runGemini(prompt),
     runAnthropic(prompt),
     runXai(prompt),
+    runGroq(prompt),
     runPerplexity(params.exactTitle),
   ]);
   const votingAttempts = attempts.filter((attempt) => attempt.teacher !== "perplexity");
