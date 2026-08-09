@@ -79,6 +79,7 @@ type ManualProductInput = {
 
 type SellerDraftProductInput = {
   sellerAccountId: string | null;
+  cardUuid?: string | null;
   title: string;
   description?: string | null;
   category?: string | null;
@@ -116,10 +117,27 @@ function toNumber(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function validCardUuid(value: unknown) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(normalized)
+    ? normalized
+    : null;
+}
+
+function metadataCardUuid(metadata: Record<string, unknown> | null | undefined) {
+  const record = metadata && typeof metadata === "object" ? metadata : {};
+  const instaComp =
+    record.instacomp && typeof record.instacomp === "object" && !Array.isArray(record.instacomp)
+      ? (record.instacomp as Record<string, unknown>)
+      : {};
+  return validCardUuid(instaComp.cardUuid);
+}
+
 function mapLegacyProduct(product: any): LegacyProductSnapshot {
   return {
     id: Number(product.id),
     seller_account_id: product.seller_account_id ?? null,
+    card_uuid: validCardUuid(product.card_uuid),
     sku: product.sku ?? null,
     title: String(product.title ?? "Untitled"),
     description: product.description ?? null,
@@ -149,10 +167,15 @@ function mapUniversal(
 
   if (inventoryItem) {
     const authenticity = extractAuthenticityProfile(inventoryItem.metadata);
+    const cardUuid =
+      validCardUuid(inventoryItem.card_uuid) ??
+      metadataCardUuid(inventoryItem.metadata) ??
+      validCardUuid(product.card_uuid);
 
     return {
       inventoryItemId: inventoryItem.id,
       legacyProductId: product.id,
+      cardUuid,
       sellerAccountId:
         inventoryItem.seller_account_id ?? product.seller_account_id ?? null,
       sku: inventoryItem.sku ?? product.sku,
@@ -177,6 +200,7 @@ function mapUniversal(
   return {
     inventoryItemId: null,
     legacyProductId: product.id,
+    cardUuid: validCardUuid(product.card_uuid),
     sellerAccountId: product.seller_account_id ?? null,
     sku: product.sku,
     title,
@@ -606,6 +630,7 @@ export class InventoryEngine {
         const payload = {
           seller_account_id: product.seller_account_id ?? null,
           legacy_product_id: product.id,
+          card_uuid: product.card_uuid,
           sku: product.sku,
           title: product.title,
           description:
@@ -1282,6 +1307,7 @@ export class InventoryEngine {
       .insert({
         store_id: this.storeId,
         seller_account_id: input.sellerAccountId,
+        card_uuid: validCardUuid(input.cardUuid),
         sku,
         title: input.title,
         player: null,
@@ -1302,6 +1328,7 @@ export class InventoryEngine {
     const inventoryItem = await this.repository.create({
       seller_account_id: input.sellerAccountId,
       legacy_product_id: legacyProduct.id,
+      card_uuid: validCardUuid(input.cardUuid) ?? legacyProduct.card_uuid,
       sku: legacyProduct.sku,
       title: legacyProduct.title,
       description: generatedDescription,
@@ -1389,6 +1416,7 @@ export class InventoryEngine {
     const { data: product, error } = await this.database
       .from("products")
       .update({
+        card_uuid: current.cardUuid,
         title: input.title,
         player: input.player,
         sport: input.sport,
@@ -1413,6 +1441,7 @@ export class InventoryEngine {
     const updatedInventoryItem = await this.repository.update(
       inventoryItem.id,
       {
+        card_uuid: current.cardUuid,
         title: input.title,
         description,
         category: input.sport ?? "sports cards",

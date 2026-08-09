@@ -10,6 +10,12 @@ import type {
   UpdateInventoryItemInput,
 } from "./types";
 
+function validPhysicalCardUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value.trim(),
+  );
+}
+
 export class InventoryRepository {
   constructor(
     private readonly storeId = getActiveStoreId(),
@@ -80,9 +86,16 @@ export class InventoryRepository {
     }
 
     if (params.query) {
-      query = query.or(
-        `title.ilike.%${params.query}%,sku.ilike.%${params.query}%,description.ilike.%${params.query}%`
-      );
+      const searchValue = params.query.trim();
+      const filters = [
+        `title.ilike.%${searchValue}%`,
+        `sku.ilike.%${searchValue}%`,
+        `description.ilike.%${searchValue}%`,
+      ];
+      if (validPhysicalCardUuid(searchValue)) {
+        filters.push(`card_uuid.eq.${searchValue.toLowerCase()}`);
+      }
+      query = query.or(filters.join(","));
     }
 
     const { data, error } = await query;
@@ -99,6 +112,7 @@ export class InventoryRepository {
         store_id: this.storeId,
         seller_account_id: input.seller_account_id ?? null,
         legacy_product_id: input.legacy_product_id ?? null,
+        card_uuid: input.card_uuid ?? null,
         sku: input.sku ?? null,
         title: input.title,
         description: input.description ?? null,
@@ -138,6 +152,7 @@ export class InventoryRepository {
     const payload = {
       seller_account_id: input.seller_account_id ?? null,
       legacy_product_id: input.legacy_product_id ?? null,
+      card_uuid: input.card_uuid ?? existing?.card_uuid ?? null,
       sku: input.sku,
       title: input.title,
       description: input.description ?? null,

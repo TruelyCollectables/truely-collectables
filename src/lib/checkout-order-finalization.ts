@@ -230,6 +230,7 @@ export async function finalizeCheckoutOrder(params: {
         store_id: storeId,
         order_id: orderId,
         product_id: product.legacyProductId,
+        card_uuid: product.cardUuid,
         seller_account_id: product.sellerAccountId,
         title: product.title,
         price: Number(product.price),
@@ -265,7 +266,7 @@ export async function finalizeCheckoutOrder(params: {
 
   const { data: ledgerOrderItems, error: ledgerItemsError } = await supabase
     .from("order_items")
-    .select("id,product_id,seller_account_id,title,price,quantity")
+    .select("id,product_id,card_uuid,seller_account_id,title,price,quantity")
     .eq("order_id", orderId)
     .eq("store_id", storeId);
   if (ledgerItemsError) throw ledgerItemsError;
