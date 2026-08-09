@@ -84,8 +84,12 @@ assert(
   `Consensus brand must use manufacturer Panini, received ${evidence.compIdentity?.brand}`,
 );
 assert(
-  evidence.compIdentity?.setName === "2025 Panini Origins Football",
-  `Consensus set must use the release product, received ${evidence.compIdentity?.setName}`,
+  evidence.compIdentity?.setName === "Base - Rookies",
+  `Consensus set must use the logical checklist set, received ${evidence.compIdentity?.setName}`,
+);
+assert(
+  evidence.compIdentity?.product === "2025 Panini Origins Football",
+  `Release product must remain separately available for search/display, received ${evidence.compIdentity?.product}`,
 );
 assert(
   evidence.selectedMatch?.identity.parallel === "Holo Blue",
@@ -126,8 +130,8 @@ assert(
 );
 assert(consensus.finalIdentity.brand === "Panini", "Final manufacturer/brand changed.");
 assert(
-  consensus.finalIdentity.setName === "2025 Panini Origins Football",
-  "Final product/set changed.",
+  consensus.finalIdentity.setName === "Base - Rookies",
+  `Final identity must use the logical checklist set, received ${consensus.finalIdentity.setName}`,
 );
 assert(
   consensus.finalIdentity.parallel === "Holo Blue",
