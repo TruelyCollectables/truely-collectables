@@ -1,0 +1,149 @@
+name: Apply InstaComp Permanent Card UUID Schema 20260808
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/apply-instacomp-card-uuid-schema-20260808.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apply-instacomp-card-uuid-schema-20260808
+  cancel-in-progress: false
+
+env:
+  EXPECTED_BRANCH: ops/apply-instacomp-card-uuid-schema-20260808
+  EXPECTED_MAIN_SHA: e50cd50591a49702992eaa9d47096626dc8cf304
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on exact schema operation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          test "$(git diff --name-only "$EXPECTED_MAIN_SHA"...HEAD)" = ".github/workflows/apply-instacomp-card-uuid-schema-20260808.yml"
+          test -f supabase/migrations/20260809032000_instacomp_card_uuid_tracking.sql
+          grep -q 'inventory_items ADD COLUMN IF NOT EXISTS card_uuid uuid' supabase/migrations/20260809032000_instacomp_card_uuid_tracking.sql
+          grep -q 'products ADD COLUMN IF NOT EXISTS card_uuid uuid' supabase/migrations/20260809032000_instacomp_card_uuid_tracking.sql
+          grep -q 'order_items ADD COLUMN IF NOT EXISTS card_uuid uuid' supabase/migrations/20260809032000_instacomp_card_uuid_tracking.sql
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Resolve Production Supabase project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          mkdir -p "$RUNNER_TEMP/card-uuid-schema" evidence/card-uuid-schema
+          npx --yes vercel@58.8.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx --yes vercel@58.8.0 env pull "$RUNNER_TEMP/card-uuid-schema/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Apply UUID migration and verify Production columns
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+
+          const envPath = path.join(process.env.RUNNER_TEMP, 'card-uuid-schema', 'production.env');
+          const parsed = {};
+          for (const raw of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
+            const line = raw.trim();
+            if (!line || line.startsWith('#')) continue;
+            const i = line.indexOf('=');
+            if (i < 1) continue;
+            const key = line.slice(0, i).trim();
+            let value = line.slice(i + 1).trim();
+            if (value.startsWith('"') && value.endsWith('"')) {
+              try { value = JSON.parse(value); } catch { value = value.slice(1, -1); }
+            } else if (value.startsWith("'") && value.endsWith("'")) value = value.slice(1, -1);
+            parsed[key] = value;
+          }
+          const productionUrl = parsed.NEXT_PUBLIC_SUPABASE_URL;
+          if (!productionUrl || !/^https:\/\//.test(productionUrl)) throw new Error('Production Supabase URL was not resolved.');
+          const projectRef = new URL(productionUrl).hostname.split('.')[0];
+          const token = process.env.GH_SUPABASE_ACCESS_TOKEN;
+          if (!projectRef || !token) throw new Error('Supabase management credentials incomplete.');
+          const endpoint = `https://api.supabase.com/v1/projects/${projectRef}/database/query`;
+          const query = async (sql, readOnly) => {
+            const response = await fetch(endpoint, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ query: sql, parameters: [], read_only: readOnly }),
+            });
+            const raw = await response.text();
+            if (!response.ok) throw new Error(`Supabase management query HTTP ${response.status}: ${raw.slice(0, 1200)}`);
+            return raw ? JSON.parse(raw) : [];
+          };
+
+          const migrationPath = 'supabase/migrations/20260809032000_instacomp_card_uuid_tracking.sql';
+          const migration = fs.readFileSync(migrationPath, 'utf8').trim();
+          if (!migration) throw new Error('UUID migration is empty.');
+          await query(`begin;\n${migration}\ncommit;`, false);
+
+          const verifySql = `
+            select table_name, column_name, data_type
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name in ('instacomp_scans','inventory_items','products','order_items')
+              and column_name = 'card_uuid'
+            order by table_name;
+          `;
+          const rows = await query(verifySql, true);
+          const byTable = new Map(rows.map(row => [row.table_name, row]));
+          const existingTablesSql = `
+            select table_name from information_schema.tables
+            where table_schema='public'
+              and table_name in ('instacomp_scans','inventory_items','products','order_items')
+            order by table_name;
+          `;
+          const existing = (await query(existingTablesSql, true)).map(row => row.table_name);
+          const missing = existing.filter(table => !byTable.has(table));
+          const wrongType = rows.filter(row => row.data_type !== 'uuid').map(row => row.table_name);
+          if (missing.length || wrongType.length) throw new Error(`UUID schema verification failed: missing=${missing.join(',')} wrongType=${wrongType.join(',')}`);
+
+          const receipt = {
+            schema: 'tcos.instacomp.cardUuidProductionSchema.v1',
+            appliedAt: new Date().toISOString(),
+            sourceSha: process.env.EXPECTED_MAIN_SHA,
+            migration: migrationPath,
+            existingTrackedTables: existing,
+            verifiedUuidColumns: rows.map(row => ({ table: row.table_name, type: row.data_type })),
+            missing,
+            wrongType,
+            ok: true,
+          };
+          fs.writeFileSync('evidence/card-uuid-schema/receipt.json', JSON.stringify(receipt, null, 2) + '\n');
+          console.log(JSON.stringify(receipt, null, 2));
+          NODE
+          rm -f "$RUNNER_TEMP/card-uuid-schema/production.env"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: instacomp-card-uuid-production-schema
+          path: evidence/card-uuid-schema
+          if-no-files-found: error
+          retention-days: 90
