@@ -3,6 +3,9 @@ import { lookup } from "node:dns/promises";
 import { isIP, type LookupFunction } from "node:net";
 import { request as httpsRequest } from "node:https";
 import { NextResponse } from "next/server";
+import { importChecklistArtifact } from "../../../../../lib/checklist-registry/server";
+import type { ChecklistSourceAuthority } from "../../../../../lib/checklist-registry/source-adapter";
+import { CHECKLIST_SOURCE_ALLOWED_MIME_TYPES } from "../../../../../lib/checklist-registry/storage";
 import { requireInstaCompJobSupabase } from "../../../../../lib/instacomp-job-server";
 import { isValidInstaCompSentinelArchiveRequest } from "../../../../../lib/instacomp-sentinel-auth";
 
@@ -27,6 +30,29 @@ type ImportPayload = {
   byteCount?: unknown;
   contentType?: unknown;
   fileName?: unknown;
+};
+
+type NormalizedImport = {
+  targetKey: string;
+  sport: string;
+  year: string;
+  season: string;
+  manufacturer: string;
+  product: string;
+  sourceUrl: string;
+  expectedSha: string;
+  expectedBytes: number;
+  sourceName: string;
+  contentType: string;
+  fileName: string;
+};
+
+type SourceBytes = {
+  bytes: Buffer;
+  finalUrl: string;
+  contentType: string;
+  byteCount: number;
+  proofMode: "central_refetch" | "trusted_mac_relay";
 };
 
 function text(value: unknown, max: number) {
@@ -171,13 +197,7 @@ async function requestPinnedSource(target: ValidatedPublicUrl) {
         const location = headerValue(incoming.headers.location);
         if (status >= 300 && status < 400) {
           incoming.resume();
-          resolve({
-            status,
-            location,
-            bytes: null,
-            contentType: "",
-            byteCount: 0,
-          });
+          resolve({ status, location, bytes: null, contentType: "", byteCount: 0 });
           return;
         }
         if (status < 200 || status >= 300) {
@@ -210,9 +230,7 @@ async function requestPinnedSource(target: ValidatedPublicUrl) {
             status,
             location: "",
             bytes: Buffer.concat(chunks, total),
-            contentType:
-              headerValue(incoming.headers["content-type"]) ||
-              "application/octet-stream",
+            contentType: headerValue(incoming.headers["content-type"]) || "application/octet-stream",
             byteCount: total,
           });
         });
@@ -227,7 +245,7 @@ async function requestPinnedSource(target: ValidatedPublicUrl) {
   });
 }
 
-async function fetchVerifiedSource(startUrl: string, expectedBytes: number) {
+async function fetchVerifiedSource(startUrl: string, expectedBytes: number): Promise<SourceBytes> {
   let current = await validatePublicUrl(startUrl);
   for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
     const response = await requestPinnedSource(current);
@@ -235,9 +253,7 @@ async function fetchVerifiedSource(startUrl: string, expectedBytes: number) {
       if (!response.location || redirects === MAX_REDIRECTS) {
         throw new Error("Checklist source redirect chain was invalid or too long.");
       }
-      current = await validatePublicUrl(
-        new URL(response.location, current.url).toString(),
-      );
+      current = await validatePublicUrl(new URL(response.location, current.url).toString());
       continue;
     }
     if (!response.bytes) throw new Error("Checklist source returned no bytes.");
@@ -249,6 +265,7 @@ async function fetchVerifiedSource(startUrl: string, expectedBytes: number) {
       finalUrl: current.url.toString(),
       contentType: response.contentType,
       byteCount: response.byteCount,
+      proofMode: "central_refetch",
     };
   }
   throw new Error("Checklist source could not be fetched.");
@@ -277,6 +294,27 @@ function safeFileName(value: string, contentType: string) {
   return `${cleaned || "checklist-source"}${extension}`;
 }
 
+function normalizedMimeType(value: string) {
+  return value.split(";", 1)[0].trim().toLowerCase();
+}
+
+function sourceAuthority(sourceUrl: string): ChecklistSourceAuthority {
+  const host = new URL(sourceUrl).hostname.toLowerCase();
+  if (
+    host === "topps.com" ||
+    host.endsWith(".topps.com") ||
+    host === "upperdeck.com" ||
+    host.endsWith(".upperdeck.com") ||
+    host === "paniniamerica.net" ||
+    host.endsWith(".paniniamerica.net") ||
+    host === "leaftradingcards.com" ||
+    host.endsWith(".leaftradingcards.com")
+  ) {
+    return "official_manufacturer";
+  }
+  return "approved_reference_dataset";
+}
+
 async function ensurePrivateBucket() {
   const supabase = requireInstaCompJobSupabase();
   const { data } = await supabase.storage.getBucket(BUCKET);
@@ -288,6 +326,67 @@ async function ensurePrivateBucket() {
     if (error && !/already exists|duplicate/i.test(error.message)) throw error;
   }
   return supabase;
+}
+
+function normalizeImportPayload(body: ImportPayload): NormalizedImport {
+  return {
+    targetKey: text(body.targetKey, 500),
+    sport: text(body.sport, 120),
+    year: text(body.year, 40),
+    season: text(body.season, 40),
+    manufacturer: text(body.manufacturer, 200),
+    product: text(body.product, 300),
+    sourceUrl: text(body.sourceUrl, 4000),
+    expectedSha: text(body.sha256, 64).toLowerCase(),
+    expectedBytes: Math.max(0, Math.min(Number(body.byteCount) || 0, MAX_BYTES)),
+    sourceName: text(body.source, 120) || "instacomp-ai-checklist-sentinel",
+    contentType: text(body.contentType, 200),
+    fileName: text(body.fileName, 300),
+  };
+}
+
+async function requestInput(request: Request) {
+  const contentType = request.headers.get("content-type") || "";
+  if (/^multipart\/form-data\b/i.test(contentType)) {
+    const form = await request.formData();
+    const sourceFile = form.get("sourceFile");
+    if (!(sourceFile instanceof File) || sourceFile.size <= 0) {
+      throw new Error("Trusted Mac relay sourceFile is required.");
+    }
+    if (sourceFile.size > MAX_BYTES) {
+      throw new Error("Checklist source exceeds the 50 MB limit.");
+    }
+    const input = normalizeImportPayload({
+      targetKey: form.get("targetKey"),
+      sport: form.get("sport"),
+      year: form.get("year"),
+      season: form.get("season"),
+      manufacturer: form.get("manufacturer"),
+      product: form.get("product"),
+      sourceUrl: form.get("sourceUrl"),
+      sha256: form.get("sha256"),
+      source: form.get("source"),
+      byteCount: form.get("byteCount"),
+      contentType: sourceFile.type || form.get("contentType"),
+      fileName: sourceFile.name || form.get("fileName"),
+    });
+    await validatePublicUrl(input.sourceUrl);
+    const bytes = Buffer.from(await sourceFile.arrayBuffer());
+    return {
+      input,
+      source: {
+        bytes,
+        finalUrl: input.sourceUrl,
+        contentType: sourceFile.type || input.contentType || "application/octet-stream",
+        byteCount: bytes.byteLength,
+        proofMode: "trusted_mac_relay" as const,
+      },
+    };
+  }
+
+  const input = normalizeImportPayload((await request.json()) as ImportPayload);
+  const source = await fetchVerifiedSource(input.sourceUrl, input.expectedBytes);
+  return { input, source };
 }
 
 export async function GET(request: Request) {
@@ -306,20 +405,10 @@ export async function GET(request: Request) {
     if (uploadError) throw uploadError;
     const { error: removeError } = await archive.remove([probePath]);
     if (removeError) throw removeError;
-    return json({
-      ok: true,
-      archiveReady: true,
-      bucket: BUCKET,
-      public: false,
-      probeRemoved: true,
-    });
+    return json({ ok: true, archiveReady: true, bucket: BUCKET, public: false, probeRemoved: true });
   } catch (error) {
     return json(
-      {
-        ok: false,
-        archiveReady: false,
-        error: error instanceof Error ? error.message : "Sentinel archive probe failed.",
-      },
+      { ok: false, archiveReady: false, error: error instanceof Error ? error.message : "Sentinel archive probe failed." },
       503,
     );
   }
@@ -331,36 +420,35 @@ export async function POST(request: Request) {
   }
 
   try {
-    const body = (await request.json()) as ImportPayload;
-    const targetKey = text(body.targetKey, 500);
-    const sourceUrl = text(body.sourceUrl, 4000);
-    const expectedSha = text(body.sha256, 64).toLowerCase();
-    const expectedBytes = Math.max(0, Math.min(Number(body.byteCount) || 0, MAX_BYTES));
+    const { input, source } = await requestInput(request);
+    const { targetKey, sourceUrl, expectedSha, expectedBytes } = input;
     if (!targetKey || !sourceUrl || !/^[0-9a-f]{64}$/.test(expectedSha)) {
       return json({ ok: false, error: "Target key, public source URL, and SHA-256 are required." }, 400);
     }
-
-    const source = await fetchVerifiedSource(sourceUrl, expectedBytes);
-    const actualSha = createHash("sha256").update(source.bytes).digest("hex");
-    if (actualSha !== expectedSha) {
-      return json({ ok: false, error: "Central source SHA-256 did not match the Mac receipt." }, 409);
+    if (source.byteCount <= 0 || source.byteCount > MAX_BYTES) {
+      return json({ ok: false, error: "Checklist source byte count is invalid." }, 400);
+    }
+    if (expectedBytes > 0 && source.byteCount !== expectedBytes) {
+      return json({ ok: false, error: "Trusted relay byte count did not match the Mac receipt." }, 409);
     }
 
-    const contentType = text(body.contentType, 200) || source.contentType;
-    const originalFileName = safeFileName(text(body.fileName, 300), contentType);
+    const actualSha = createHash("sha256").update(source.bytes).digest("hex");
+    if (actualSha !== expectedSha) {
+      return json({ ok: false, error: "Checklist source SHA-256 did not match the Mac receipt." }, 409);
+    }
+
+    const mimeType = normalizedMimeType(input.contentType || source.contentType);
+    const originalFileName = safeFileName(input.fileName, mimeType);
     const directory = `sources/${expectedSha.slice(0, 2)}/${expectedSha}`;
     const sourcePath = `${directory}/${expectedSha}.source`;
-    const sourceReceiptId = createHash("sha256")
-      .update(source.finalUrl, "utf8")
-      .digest("hex")
-      .slice(0, 24);
+    const sourceReceiptId = createHash("sha256").update(source.finalUrl, "utf8").digest("hex").slice(0, 24);
     const receiptPath = `receipts/${expectedSha}/${sourceReceiptId}.json`;
     const supabase = await ensurePrivateBucket();
     const archive = supabase.storage.from(BUCKET);
 
     let duplicate = false;
     const { error: sourceError } = await archive.upload(sourcePath, source.bytes, {
-      contentType,
+      contentType: mimeType || "application/octet-stream",
       upsert: false,
       cacheControl: "0",
     });
@@ -381,37 +469,87 @@ export async function POST(request: Request) {
       }
     }
 
+    let registryImported = false;
+    let registryAdapter: { id: string; version: string } | null = null;
+    let registryCounts: Record<string, number> | null = null;
+    let registryIssues: Array<{ code?: string; severity?: string; message?: string }> = [];
+    let registryError: string | null = null;
+
+    if (CHECKLIST_SOURCE_ALLOWED_MIME_TYPES.includes(mimeType as never)) {
+      try {
+        const registry = await importChecklistArtifact({
+          artifact: {
+            sourceUrl: source.finalUrl,
+            originalFilename: originalFileName,
+            mimeType,
+            content: new Uint8Array(source.bytes),
+            retrievedAt: new Date().toISOString(),
+            authority: sourceAuthority(source.finalUrl),
+            redistributionAllowed: false,
+            targetContext: {
+              targetKey: input.targetKey,
+              sport: input.sport || null,
+              year: input.year || null,
+              season: input.season || null,
+              manufacturer: input.manufacturer || null,
+              product: input.product || null,
+            },
+          },
+        });
+        registryImported = registry.ok === true && registry.validatedOnly === false && Boolean(registry.persistence);
+        registryAdapter = registry.adapter;
+        registryCounts = registry.plan?.validation?.counts || null;
+        registryIssues = Array.isArray(registry.plan?.validation?.issues)
+          ? registry.plan.validation.issues.slice(0, 50)
+          : [];
+        if (!registryImported) {
+          registryError = "Checklist Registry validation did not approve this source for persistence.";
+        }
+      } catch (error) {
+        registryError = error instanceof Error ? error.message.slice(0, 1000) : "Checklist Registry validation failed.";
+      }
+    } else {
+      registryError = `Unsupported Checklist Registry MIME type: ${mimeType || "unknown"}`;
+    }
+
+    const archiveStatus = registryImported
+      ? "registry_imported"
+      : "private_source_archived_pending_registry_validation";
     const receipt = {
-      schemaVersion: "instacomp.checklist-sentinel.archive.v1",
+      schemaVersion: "instacomp.checklist-sentinel.archive.v2",
       receipt: `sentinel-archive:${expectedSha}:${sourceReceiptId}`,
       targetKey,
-      sport: text(body.sport, 120) || null,
-      year: text(body.year, 40) || null,
-      season: text(body.season, 40) || null,
-      manufacturer: text(body.manufacturer, 200) || null,
-      product: text(body.product, 300) || null,
-      source: text(body.source, 120) || "instacomp-ai-checklist-sentinel",
+      sport: input.sport || null,
+      year: input.year || null,
+      season: input.season || null,
+      manufacturer: input.manufacturer || null,
+      product: input.product || null,
+      source: input.sourceName,
       sourceUrl,
       finalSourceUrl: source.finalUrl,
       sha256: expectedSha,
       byteCount: source.byteCount,
-      contentType,
+      contentType: mimeType,
       originalFileName,
       storageBucket: BUCKET,
       storagePath: sourcePath,
       duplicate,
-      archiveStatus: "private_source_archived_pending_registry_validation",
+      sourceProofMode: source.proofMode,
+      archiveStatus,
+      registryImported,
+      registryAdapter,
+      registryCounts,
+      registryIssues,
+      registryError,
       archivedAt: new Date().toISOString(),
     };
     const receiptBytes = Buffer.from(JSON.stringify(receipt, null, 2) + "\n", "utf8");
     const { error: receiptError } = await archive.upload(receiptPath, receiptBytes, {
       contentType: "application/json",
-      upsert: false,
+      upsert: true,
       cacheControl: "0",
     });
-    if (receiptError && !/already exists|duplicate|resource exists/i.test(receiptError.message)) {
-      throw receiptError;
-    }
+    if (receiptError) throw receiptError;
 
     return json({
       ok: true,
@@ -420,13 +558,16 @@ export async function POST(request: Request) {
       duplicate,
       sha256: expectedSha,
       byteCount: source.byteCount,
+      sourceProofMode: source.proofMode,
+      registryImported,
+      registryAdapter,
+      registryCounts,
+      registryIssues,
+      registryError,
     });
   } catch (error) {
     return json(
-      {
-        ok: false,
-        error: error instanceof Error ? error.message : "Checklist source archive failed.",
-      },
+      { ok: false, error: error instanceof Error ? error.message : "Checklist source archive failed." },
       500,
     );
   }
