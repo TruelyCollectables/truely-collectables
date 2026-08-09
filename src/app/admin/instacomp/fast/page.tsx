@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import InstaCompFastDropScanner from "./InstaCompFastDropScanner";
+import InstaCompFastDropScannerV2 from "./InstaCompFastDropScannerV2";
 
 export const dynamic = "force-dynamic";
 
@@ -22,9 +22,9 @@ export default function InstaCompFastPage() {
             </p>
             <h1 className="mt-1 text-3xl font-black tracking-tight">InstaComp</h1>
             <p className="mt-2 max-w-3xl text-sm font-semibold text-neutral-300">
-              Drop front/back card images. InstaComp normalizes image orientation,
-              identifies the card on the fast lane, then finishes exact comps and
-              teacher-learning evidence without blocking the next card.
+              Drop front/back card images. InstaComp auto-rotates the images upright,
+              identifies the card on the local/Registry fast lane, then finishes exact
+              comps and teacher-learning evidence in the background.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -45,7 +45,7 @@ export default function InstaCompFastPage() {
       </header>
 
       <div className="mx-auto w-full max-w-[1500px] px-4 py-6 sm:px-6 lg:px-8">
-        <InstaCompFastDropScanner />
+        <InstaCompFastDropScannerV2 />
       </div>
     </main>
   );
