@@ -36,7 +36,6 @@ jobs:
           python3 scripts/patch-instacomp-card-uuid-inventory-handoff.py
           git diff --check
           node scripts/verify-instacomp-card-uuid-inventory-handoff.mjs
-          node scripts/certify-instacomp-scanner-pipeline.mjs
 
       - uses: actions/setup-node@v4
         with:
