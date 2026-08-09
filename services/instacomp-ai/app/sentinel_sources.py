@@ -13,6 +13,8 @@ from urllib.parse import parse_qs, quote_plus, unquote, urljoin, urlparse
 
 import httpx
 
+from .psa_verified_sets import verified_psa_set_for_target
+
 
 USER_AGENT = (
     "Mozilla/5.0 (compatible; InstaComp-AI-Checklist-Sentinel/1.0; "
@@ -508,6 +510,38 @@ class SentinelSourceClient:
         kind = source["kind"]
 
         if kind == "psa_first_party":
+            verified = verified_psa_set_for_target(target.get("target_key"))
+            if verified is not None:
+                verified_url = _canonical_psa_apr_url(verified.url)
+                if not _is_psa_exact_release_url(verified_url, target):
+                    raise ValueError(
+                        "Verified PSA set index entry failed exact-release validation."
+                    )
+                trust, policy = candidate_trust(verified_url)
+                exact, identity_reason = exact_target_match(
+                    target, verified.title, verified_url
+                )
+                if not exact:
+                    raise ValueError(
+                        "Verified PSA set index entry failed target identity validation: "
+                        + identity_reason
+                    )
+                return [
+                    Candidate(
+                        url=verified_url,
+                        title=verified.title,
+                        source_id=source["source_id"],
+                        domain=(urlparse(verified_url).hostname or "").lower(),
+                        trust_score=trust,
+                        import_policy=policy,
+                        exact_match=True,
+                        reason=(
+                            "Exact whole-release match from verified PSA whole-release "
+                            f"index ({verified.verified_on}); {identity_reason}"
+                        ),
+                    )
+                ]
+
             direct_url = source["search_url_template"].format(query=quote_plus(query))
             direct_error: httpx.HTTPError | None = None
             try:
