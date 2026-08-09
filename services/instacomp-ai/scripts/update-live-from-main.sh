@@ -285,6 +285,30 @@ set_vercel_env INSTACOMP_AI_LOCAL_URL "$tunnel_url" production plain
 set_vercel_env INSTACOMP_AI_LOCAL_KEY "$local_key" production sensitive
 set_vercel_env INSTACOMP_SERVICE_TOKEN "$registry_token" production sensitive
 set_vercel_env INSTACOMP_SENTINEL_ARCHIVE_TOKEN "$archive_token" production sensitive
+
+sync_optional_teacher_env() {
+  local name="$1"
+  local value=""
+  value="$(read_env_value "$env_file" "$name")"
+  if [[ -z "$value" ]]; then
+    return 0
+  fi
+  set_vercel_env "$name" "$value" production sensitive
+  echo "PASS  Synced configured teacher credential $name to Vercel Production."
+}
+
+for teacher_env in \
+  GEMINI_API_KEY \
+  GOOGLE_GEMINI_API_KEY \
+  ANTHROPIC_API_KEY \
+  XAI_API_KEY \
+  GROQ_API_KEY \
+  PERPLEXITY_API_KEY \
+  OPENAI_API_KEY
+do
+  sync_optional_teacher_env "$teacher_env"
+done
+
 repair_vercel_root_directory
 npx vercel --prod --yes --cwd "$repo_root"
 
