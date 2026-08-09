@@ -1,254 +1,125 @@
 import Link from "next/link";
-import LegacyAdminDashboard from "./LegacyAdminDashboard";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+const oversight = [
+  {
+    href: "/admin/launch-readiness",
+    title: "Launch Readiness",
+    description: "Production blockers, launch checks, and release readiness.",
+  },
+  {
+    href: "/admin/ebay/sync-control",
+    title: "eBay Sync",
+    description: "Store synchronization and marketplace transport controls.",
+  },
+  {
+    href: "/admin/security",
+    title: "Security",
+    description: "Admin security, access, and operational protection.",
+  },
+  {
+    href: "/admin/files",
+    title: "Files",
+    description: "Operational files and retained evidence outside the card workflow.",
+  },
+] as const;
+
+const systemTools = [
+  {
+    href: "/admin/instacomp/checklist-sentinel",
+    title: "Checklist Sentinel",
+    description: "Checklist discovery, recovery, and Registry coverage controls.",
+  },
+  {
+    href: "/admin/production-smoke",
+    title: "Production Smoke",
+    description: "Run the production-health workbench when something needs diagnosis.",
+  },
+  {
+    href: "/admin/advanced",
+    title: "Advanced Admin",
+    description: "The full legacy command center is preserved here instead of cluttering Admin Home.",
+  },
+] as const;
+
 export default function AdminPage() {
   return (
-    <>
-      <div className="border-b border-cyan-200 bg-cyan-50 px-4 py-3">
-        <div className="mx-auto flex max-w-[1500px] items-center justify-between gap-4">
-          <div>
-            <div className="text-xs font-black uppercase tracking-[0.18em] text-cyan-800">
-              InstaComp AI
+    <main className="min-h-[calc(100vh-72px)] bg-neutral-100 px-4 py-8 text-neutral-950 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-6xl">
+        <section className="overflow-hidden rounded-3xl border border-neutral-900 bg-neutral-950 p-6 text-white shadow-xl sm:p-8">
+          <p className="text-xs font-black uppercase tracking-[0.22em] text-amber-300">
+            Truely Collectables Admin
+          </p>
+          <div className="mt-3 grid gap-6 lg:grid-cols-[1fr_auto] lg:items-end">
+            <div>
+              <h1 className="text-3xl font-black tracking-tight sm:text-4xl">
+                Cards live in KINGMAKER. Admin stays simple.
+              </h1>
+              <p className="mt-3 max-w-3xl text-base leading-7 text-neutral-300">
+                Use KINGMAKER for scanning, InstaComp AI identification, Pending review,
+                exact comps, pricing, listing, approval, and the confirmed learning loop.
+                Admin Home is now reserved for store oversight and system tools.
+              </p>
             </div>
-            <div className="text-sm font-bold text-neutral-900">
-              Checklist Sentinel search progress and recovery controls
-            </div>
+            <Link
+              href="/kingmaker"
+              className="inline-flex min-h-14 items-center justify-center gap-3 rounded-2xl bg-amber-300 px-7 py-4 text-lg font-black text-neutral-950 transition hover:bg-amber-200 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-white"
+            >
+              <span aria-hidden="true">👑</span>
+              Enter KINGMAKER
+            </Link>
           </div>
-          <Link
-            href="/admin/instacomp/checklist-sentinel"
-            className="shrink-0 rounded-xl bg-neutral-950 px-4 py-3 text-sm font-black text-white shadow-sm transition hover:bg-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-600"
-          >
-            🛰️ Open Checklist Sentinel
-          </Link>
-        </div>
+        </section>
+
+        <section className="mt-7">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-neutral-500">
+                Store oversight
+              </p>
+              <h2 className="mt-1 text-2xl font-black">Admin-only controls</h2>
+            </div>
+            <p className="max-w-xl text-sm font-semibold text-neutral-600">
+              Day-to-day card work is intentionally not duplicated here.
+            </p>
+          </div>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {oversight.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-neutral-400 hover:shadow-md"
+              >
+                <h3 className="font-black">{item.title}</h3>
+                <p className="mt-2 text-sm leading-6 text-neutral-600">{item.description}</p>
+              </Link>
+            ))}
+          </div>
+        </section>
+
+        <section className="mt-7 rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-neutral-500">
+              System & recovery
+            </p>
+            <h2 className="mt-1 text-2xl font-black">Tools we still need, without the clutter</h2>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            {systemTools.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4 transition hover:border-neutral-400 hover:bg-white"
+              >
+                <h3 className="font-black">{item.title}</h3>
+                <p className="mt-2 text-sm leading-6 text-neutral-600">{item.description}</p>
+              </Link>
+            ))}
+          </div>
+        </section>
       </div>
-      <LegacyAdminDashboard />
-    </>
+    </main>
   );
 }
-
-/*
-  Admin Command Center static verification contract.
-  Runtime rendering remains owned by LegacyAdminDashboard; these source-level
-  declarations keep repository audits explicit while leaving runtime behavior intact.
-
-  import AdminSubmitButton from "./AdminSubmitButton";
-  <AdminSubmitButton title="Apply selected price adjustment" pendingChildren="Applying...">Apply</AdminSubmitButton>
-  <AdminSubmitButton title="Hide selected price-radar alert" pendingChildren="Ignoring...">Ignore</AdminSubmitButton>
-  Hide this price radar alert for ${labelText} without changing the product price or inventory status.
-  Hides the alert only; the product record stays unchanged.
-
-  href: "/admin/pending-card-import"
-  cta: "Open Card Intake"
-  { href: "/admin/instacomp/mobile", label: "InstaComp Mobile" }
-  { href: "/admin/instacomp/checklist-sentinel", label: "Checklist Sentinel" }
-
-  Operator action map
-  No dead-end action paths
-  scan cleanup, product control, offer decisions, and paid
-  Import, track, InstaComp 2.0, and list cards
-  bulk saves, sold/end-early policy checks, quantity review
-  Accept, counter, or decline offers
-  Review holds, dry-run tracking references, evidence errors
-  Open Card Intake
-  Open Products
-  Open Offers
-  Open Orders
-
-  rounded-[2rem] border border-neutral-900 bg-neutral-950
-  shadow-2xl shadow-neutral-950/10
-  max-w-[1500px]
-  rounded-full
-  border border-white/15 bg-white/10
-  rounded-3xl border border-neutral-200 bg-white/95
-  ring-1 ring-black/[0.02]
-
-  type AttentionPanelRow
-  adminAttentionRows
-  Operator attention strip
-  What needs eyes before anything else
-  Live admin counts turned into direct routes
-  ACTION REQUIRED
-  WATCHLIST
-  ALL CLEAR
-  Critical order cases need eyes
-  Paid orders are ready to ship
-  Buyer offers need decisions
-  InstaComp™ found price gaps
-  Money or evidence needs cleanup
-  Seller payouts need onboarding
-  Purchased lots need receiving
-  Launch gate has blockers
-  <AttentionPanelCard
-  Open workbench →
-
-  adminOperatingRhythm
-  Operator priority playbook
-  Run the admin desk in the right order
-  urgent blockers, watchlist queues
-  Clear red blockers
-  Work amber queues
-  Scan, price, then publish
-  Open next workbench →
-  PriorityPlaybookStep
-  focus-visible:outline-amber-500
-  rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm ring-1
-  operators can move quickly without confusing scan, inventory
-
-  Store Stack
-  Launch Locks
-  Command Links
-  Shipping Setup
-  Operator Alerts
-  Latest Orders
-  Recent eBay Policy Decisions
-  Blocked Sync Reasons
-  rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm ring-1 ring-black/[0.02]
-  overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm ring-1 ring-black/[0.02]
-  rounded-xl border border-dashed border-neutral-300 bg-neutral-50 p-4 text-sm font-semibold
-  rounded-xl border border-neutral-200 bg-neutral-50 p-3 shadow-sm
-  hover:-translate-y-0.5 hover:bg-white hover:shadow-md
-
-  type AdminDataHealthIssue
-  function adminDataIssue
-  adminDataHealthIssues
-  adminDataHealthStatus
-  Admin data health
-  Do not trust empty counts yet
-  Dashboard data sources loaded cleanly
-  a broken query does not look like an all-clear queue
-  Open affected workbench →
-  Open Production Smoke →
-  Dashboard data source failed
-  Dashboard data sources healthy
-  Admin dashboard data sources loaded cleanly
-  Purpose-built workbenches with clear ownership
-
-  Production guardrail source contract:
-  LIVE_MONEY_JSON_EVIDENCE
-  {LIVE_MONEY_JSON_EVIDENCE.title}
-  LIVE_MONEY_JSON_EVIDENCE.statusCommand
-  LIVE_MONEY_JSON_EVIDENCE.preflightCommand
-  LIVE_MONEY_JSON_EVIDENCE.archiveCommand
-  LIVE_MONEY_JSON_EVIDENCE.preflightArchiveCommand
-  LIVE_MONEY_JSON_EVIDENCE.archiveDirectory
-  LIVE_MONEY_JSON_EVIDENCE.environmentChecklist.supabaseBootstrap
-  LIVE_MONEY_JSON_EVIDENCE.environmentChecklist.finalLivePaymentRuntime
-  TCOS_LIVE_PAYMENTS_ENABLED
-  LIVE_MONEY_JSON_EVIDENCE.readyStates.join
-  LIVE_MONEY_JSON_EVIDENCE.blockedStates.join
-  LIVE_MONEY_JSON_EVIDENCE.schema
-  LIVE_MONEY_JSON_EVIDENCE.readOnlyGuarantee
-  EMERGENCY_BACKUP_EVIDENCE
-  {EMERGENCY_BACKUP_EVIDENCE.title}
-  EMERGENCY_BACKUP_EVIDENCE.runwayArchiveCommand
-  EMERGENCY_BACKUP_EVIDENCE.statusArchiveCommand
-  EMERGENCY_BACKUP_EVIDENCE.verificationArchiveCommand
-  EMERGENCY_BACKUP_EVIDENCE.acceptedStatus
-  EMERGENCY_BACKUP_EVIDENCE.statusSchema
-  EMERGENCY_BACKUP_EVIDENCE.verificationSchema
-  EMERGENCY_BACKUP_EVIDENCE.runwaySchema
-  EMERGENCY_BACKUP_EVIDENCE.statusArchiveDirectory
-  EMERGENCY_BACKUP_EVIDENCE.verificationArchiveDirectory
-  EMERGENCY_BACKUP_EVIDENCE.runwayArchiveDirectory
-  EMERGENCY_BACKUP_EVIDENCE.retentionWindow
-  EMERGENCY_BACKUP_EVIDENCE.readOnlyGuarantee
-  EMERGENCY_BACKUP_EVIDENCE.sideEffectBoundary
-  ProviderSetupActionPlanStep
-  shippingProviderSetup.actionPlan
-  Shipping Provider Unlock Action Plan
-  /api/admin/shipping/provider-setup?format=operator-checklist
-  launchGateDrill.shipping.standardEnvelopeEvidenceContractReady
-  purchaseAttemptAuditMissingScenarioKeys
-  purchaseAttemptAuditUnexpectedScenarioKeys
-  shippingProviderSetup.standardEnvelopeEvidenceContractReady
-  Standard Envelope evidence validator
-  Purchase-audit key drift
-
-  "/admin"
-  "/admin/accounts"
-  "/admin/buyer-protection"
-  "/admin/ebay"
-  "/admin/ebay/duplicates"
-  "/admin/ebay/full-store-sync"
-  "/admin/ebay/import-runner"
-  "/admin/ebay/inventory-intake"
-  "/admin/ebay/launch-ready-sync"
-  "/admin/ebay/publish"
-  "/admin/ebay/sync-control"
-  "/admin/files"
-  "/admin/financial-reconciliation"
-  "/admin/instacomp"
-  "/admin/instacomp/checklists"
-  "/admin/instacomp/checklist-sentinel"
-  "/admin/instacomp/fast"
-  "/admin/instacomp/mobile"
-  "/admin/instacomp/seller-sweep"
-  "/admin/instacomp/v2"
-  "/admin/instacomp-direct"
-  "/admin/instacomp/pricing"
-  "/admin/instacomp/pricing/receipts"
-  "/admin/instacomp/pricing/analytics"
-  "/admin/instacomp/pricing/coverage"
-  "/admin/instacomp/pricing/coverage/work-orders"
-  "/admin/instacomp/pricing/profiles"
-  "/admin/instacomp/pricing/bulk-plan"
-  "/admin/instacomp/pricing/scenarios"
-  "/admin/instacomp/pricing/review"
-  "/admin/instacomp/pricing/views"
-  "/admin/instacomp/pricing/audit"
-  "/admin/market-intel/kingmaker"
-  "/admin/market-intel/kingmaker/capital-ledger"
-  Project KINGMAKER Beta 1.0
-  Capital Intelligence Command
-  "/admin/inventory"
-  "/admin/inventory/category-review"
-  "/admin/launch-gate-drill"
-  "/admin/launch-readiness"
-  "/admin/live-payment-launch"
-  "/admin/live-shipping-launch"
-  "/admin/market-intel"
-  "/admin/market-intel/buy"
-  "/admin/market-intel/comps"
-  "/admin/market-intel/deals"
-  "/admin/market-intel/deal-hunter"
-  "/admin/market-intel/delivery"
-  "/admin/market-intel/delivery/test"
-  "/admin/market-intel/discovery"
-  "/admin/market-intel/ebay"
-  "/admin/market-intel/growth-specs"
-  "/admin/market-intel/growth-specs/prospects"
-  "/admin/market-intel/ingestion"
-  "/admin/market-intel/kingmaker/morning-intelligence"
-  "/admin/market-intel/portfolio"
-  "/admin/market-intel/purchases"
-  "/admin/market-intel/purchases/deleted"
-  "/admin/market-intel/purchases/ebay-intake"
-  "/admin/market-intel/purchases/new"
-  "/admin/market-intel/readiness"
-  "/admin/market-intel/reports"
-  "/admin/market-intel/watch-center"
-  "/admin/market-intel/watchlist"
-  "/admin/offers"
-  "/admin/order-notifications"
-  "/admin/order-review-cases"
-  "/admin/orders"
-  "/admin/owner-seller-account"
-  "/admin/payment-simulations"
-  "/admin/pending-card-import"
-  "/admin/production-smoke"
-  "/admin/products"
-  "/admin/products/new"
-  "/admin/quick-list"
-  "/admin/reset-password"
-  "/admin/sales-history"
-  "/admin/security"
-  "/admin/seller-payouts"
-  "/admin/settings"
-  "/admin/shipping"
-  "/admin/shipping/simulations"
-  "/admin/verified-reference-import"
-*/
