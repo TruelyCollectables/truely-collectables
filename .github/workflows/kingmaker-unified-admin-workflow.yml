@@ -21,54 +21,13 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: kingmaker-unified-admin-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  persist-registry-referee-safety:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'fix/kingmaker-certify-current-head-20260809'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
-
-      - name: Fail closed on one unresolved surface witness
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-
-          path = Path('src/lib/instacomp-consensus.ts')
-          source = path.read_text('utf-8')
-          old = 'if (unresolvedSurfaceRiskFamilies.length >= 2) {'
-          new = 'if (unresolvedSurfaceRiskFamilies.length >= 1) {'
-          if old in source:
-              source = source.replace(old, new, 1)
-          elif new not in source:
-              raise SystemExit('Registry Base surface-risk council guard not found')
-          path.write_text(source, 'utf-8')
-          PY
-          git diff --check
-
-      - name: Persist referee repair
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/lib/instacomp-consensus.ts
-          if git diff --cached --quiet; then
-            echo "Registry referee safety guard already repaired."
-          else
-            git commit -m "Fail closed on one unresolved Registry surface witness"
-            git push origin HEAD:${{ github.event.pull_request.head.ref }}
-          fi
-
   validate:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
