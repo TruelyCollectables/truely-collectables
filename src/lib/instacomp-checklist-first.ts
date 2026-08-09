@@ -143,6 +143,29 @@ function optionalParallelMatches(input: unknown, candidate: unknown) {
   return !target || target === candidateValue;
 }
 
+function uniqueCompleteCandidateValue(
+  candidates: InstaCompChecklistCandidate[],
+  valueFor: (candidate: InstaCompChecklistCandidate) => unknown,
+) {
+  const values = candidates.map((candidate) => normalizedText(valueFor(candidate)));
+  if (values.some((value) => !value)) return null;
+  const unique = [...new Set(values)];
+  return unique.length === 1 ? unique[0] : null;
+}
+
+function reviewForProductAmbiguity(
+  candidates: InstaCompChecklistCandidate[],
+  reason: string,
+): InstaCompChecklistFirstDecision {
+  return {
+    status: "review_required",
+    aiRequired: true,
+    match: null,
+    candidates,
+    reasons: [reason],
+  };
+}
+
 export function resolveInstaCompChecklistFirst(params: {
   input: InstaCompChecklistLookupInput;
   candidates: InstaCompChecklistCandidate[];
@@ -151,8 +174,6 @@ export function resolveInstaCompChecklistFirst(params: {
   const missing = [
     ["year", yearStart(input.year)],
     ["manufacturer", normalizedText(input.manufacturer)],
-    ["brand", normalizedText(input.brand)],
-    ["set_name", normalizedText(input.setName)],
     ["card_number", normalizedCardNumber(input.cardNumber)],
     ["player", normalizedPlayer(input.player)],
   ]
@@ -169,31 +190,75 @@ export function resolveInstaCompChecklistFirst(params: {
     };
   }
 
-  const baseMatches = params.candidates.filter(
+  // Brand and set are still exact-identity dimensions, but bounded OCR often
+  // cannot read them directly. Allow the Registry to supply either dimension
+  // only when every candidate matching the hard core identity agrees. Any
+  // product/set disagreement stays fail-closed in review instead of guessing.
+  const coreMatches = params.candidates.filter(
     (candidate) =>
       yearStart(candidate.year) === yearStart(input.year) &&
       manufacturerMatches(input, candidate) &&
-      brandMatches(input, candidate) &&
-      setMatches(input, candidate) &&
       normalizedCardNumber(candidate.cardNumber) ===
         normalizedCardNumber(input.cardNumber) &&
       normalizedPlayer(candidate.player) === normalizedPlayer(input.player),
   );
 
-  if (!baseMatches.length) {
+  if (!coreMatches.length) {
     return {
       status: "not_found",
       aiRequired: true,
       match: null,
       candidates: [],
-      reasons: [
-        "no_year_manufacturer_brand_set_card_number_player_match",
-      ],
+      reasons: ["no_year_manufacturer_card_number_player_match"],
     };
   }
 
+  let productMatches = coreMatches;
+  if (normalizedText(input.brand)) {
+    productMatches = productMatches.filter((candidate) => brandMatches(input, candidate));
+    if (!productMatches.length) {
+      return {
+        status: "not_found",
+        aiRequired: true,
+        match: null,
+        candidates: [],
+        reasons: ["brand_conflicts_with_registry_candidates"],
+      };
+    }
+  } else if (
+    !uniqueCompleteCandidateValue(
+      productMatches,
+      (candidate) => candidate.brand || candidate.product,
+    )
+  ) {
+    return reviewForProductAmbiguity(
+      productMatches,
+      "brand_required_to_disambiguate_core_matches",
+    );
+  }
+
+  if (normalizedText(input.setName)) {
+    productMatches = productMatches.filter((candidate) => setMatches(input, candidate));
+    if (!productMatches.length) {
+      return {
+        status: "not_found",
+        aiRequired: true,
+        match: null,
+        candidates: [],
+        reasons: ["set_name_conflicts_with_registry_candidates"],
+      };
+    }
+  } else if (
+    !uniqueCompleteCandidateValue(productMatches, (candidate) => candidate.setName)
+  ) {
+    return reviewForProductAmbiguity(
+      productMatches,
+      "set_name_required_to_disambiguate_core_matches",
+    );
+  }
+
   const requestedRun = serialRun(input.serialNumber);
-  const typedMatches = baseMatches.filter(
+  const typedMatches = productMatches.filter(
     (candidate) =>
       (input.isAuto == null || candidate.isAuto === input.isAuto) &&
       (input.isRelic == null || candidate.isRelic === input.isRelic) &&
@@ -212,7 +277,7 @@ export function resolveInstaCompChecklistFirst(params: {
     };
   }
 
-  const reviewCandidates = typedMatches.length ? typedMatches : baseMatches;
+  const reviewCandidates = typedMatches.length ? typedMatches : productMatches;
   return {
     status: "review_required",
     aiRequired: true,

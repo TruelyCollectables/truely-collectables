@@ -9,6 +9,10 @@ const readiness = fs.readFileSync(
   "src/app/api/instacomp/internal-readiness/route.ts",
   "utf8",
 );
+const councilRuntime = fs.readFileSync(
+  "src/lib/instacomp-ai-council-runtime.ts",
+  "utf8",
+);
 const failures = [];
 
 if (!failover.includes("INSTACOMP_INTERNAL_ENGINE_NOT_CONFIGURED")) {
@@ -32,12 +36,19 @@ if (!scan.includes('provider: "instacomp_internal"')) {
 if (!scan.includes("const serialOcr = null as InstaCompSerialOcrResult | null;")) {
   failures.push("external serial identity reader is not disabled");
 }
-if (!scan.includes("runSecondaryVision: false")) {
-  failures.push("external AI council is not disabled");
+if (!councilRuntime.includes("export function shouldContinueCouncilRuntime")) {
+  failures.push("shared external-council runtime gate is missing");
 }
-if (!scan.includes('requestedTier: "basic"')) {
-  failures.push("AI council is not pinned to its zero-reader tier");
+if (!councilRuntime.includes("void params;")) {
+  failures.push("shared external-council runtime gate does not ignore requested execution state");
 }
+if (!councilRuntime.includes("return false;")) {
+  failures.push("external AI council runtime is not hard-stopped");
+}
+if (councilRuntime.includes("return true;")) {
+  failures.push("external AI council runtime contains an enabled continuation path");
+}
+
 if (readiness.includes("openAiEmergencyConfigured")) {
   failures.push("readiness still advertises OpenAI emergency");
 }
