@@ -5,11 +5,13 @@ on:
     branches: [main]
     paths:
       - "src/app/admin/layout.tsx"
+      - "src/app/admin/instacomp/fast/**"
       - ".github/workflows/deploy-admin-kingmaker-button-20260806.yml"
   push:
     branches: [main]
     paths:
       - "src/app/admin/layout.tsx"
+      - "src/app/admin/instacomp/fast/**"
       - ".github/workflows/deploy-admin-kingmaker-button-20260806.yml"
 
 permissions:
@@ -44,6 +46,10 @@ jobs:
           grep -q 'OPEN KINGMAKER' src/app/admin/layout.tsx
           grep -q 'href="/admin/instacomp/fast"' src/app/admin/layout.tsx
           grep -q 'INSTACOMP' src/app/admin/layout.tsx
+          test -f src/app/admin/instacomp/fast/InstaCompFastDropScannerV2.tsx
+          grep -q 'aiCouncilTier", "basic"' src/app/admin/instacomp/fast/InstaCompFastDropScannerV2.tsx
+          grep -q 'frontRotation' src/app/admin/instacomp/fast/InstaCompFastDropScannerV2.tsx
+          grep -q 'backRotation' src/app/admin/instacomp/fast/InstaCompFastDropScannerV2.tsx
           ./node_modules/.bin/tsc --noEmit
 
       - name: Deploy merged main with Vercel Production environment
@@ -66,6 +72,8 @@ jobs:
             status: 'passed',
             sourceContainsKingmakerButton: true,
             sourceContainsInstaCompButton: true,
+            fastScannerSemanticRotation: true,
+            fastScannerBasicIdentityLane: true,
             productionReachable: true,
             instaCompHref: '/admin/instacomp/fast',
           }, null, 2));
