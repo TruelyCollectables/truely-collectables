@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 
+// User-authored certification marker: this commit exists so GitHub executes the full PR audit suite on the persisted season-year patch.
 const scanner = fs.readFileSync('src/app/admin/instacomp/fast/InstaCompFastDropScanner.tsx', 'utf8');
 const scanRoute = fs.readFileSync('src/app/api/instacomp/scan/route.ts', 'utf8');
 
