@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getInstaCompServiceToken } from "../../../../lib/tcos-profit-hunter-secrets";
+import { filterExactEbayPriceInsightsRows } from "../../../../lib/instacomp-ebay-price-insights";
 import {
   loadExactCardMarketHistory,
   persistExactCardMarketHistory,
@@ -46,7 +47,10 @@ export async function POST(request: NextRequest) {
     if (!ai || typeof ai !== "object") {
       return json({ ok: false, error: "ai identity is required." }, 400);
     }
-    const sold = Array.isArray(body.sold) ? (body.sold as InstaCompComp[]) : [];
+
+    const suppliedSold = Array.isArray(body.sold) ? (body.sold as InstaCompComp[]) : [];
+    const priceInsights = filterExactEbayPriceInsightsRows(body.priceInsights, ai, 50);
+    const sold = [...suppliedSold, ...priceInsights.accepted];
     const active = Array.isArray(body.active) ? (body.active as InstaCompComp[]) : [];
     const targetListing =
       body.targetListing && typeof body.targetListing === "object"
@@ -63,7 +67,19 @@ export async function POST(request: NextRequest) {
       observedAt: String(body.observedAt || "").trim() || undefined,
     });
     return json(
-      { ok: result.status !== "blocked", ...result },
+      {
+        ok: result.status !== "blocked",
+        ...result,
+        priceInsights: {
+          source: "ebay_price_insights_owner_capture",
+          received: priceInsights.received,
+          normalized: priceInsights.normalized,
+          acceptedExactSold: priceInsights.accepted.length,
+          rejected: priceInsights.rejected,
+          identityMutated: false,
+          pricingAuthority: false,
+        },
+      },
       result.status === "blocked" ? 409 : 200,
     );
   } catch (error) {
