@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 async function main() {
   process.env.GEMINI_API_KEY = "test-gemini";
   process.env.ANTHROPIC_API_KEY = "test-anthropic";
-  delete process.env.XAI_API_KEY;
+  process.env.XAI_API_KEY = "test-xai";
   delete process.env.PERPLEXITY_API_KEY;
 
   const sharedSold = {
@@ -18,8 +18,9 @@ async function main() {
   };
 
   let disagreement = false;
+  let xaiContractChecked = false;
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async (input: RequestInfo | URL) => {
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.includes("generativelanguage.googleapis.com")) {
       return new Response(
@@ -63,6 +64,40 @@ async function main() {
         { status: 200, headers: { "content-type": "application/json" } },
       );
     }
+    if (url.includes("api.x.ai")) {
+      const requestBody = JSON.parse(String(init?.body || "{}"));
+      const webSearch = Array.isArray(requestBody.tools)
+        ? requestBody.tools.find((tool: any) => tool?.type === "web_search")
+        : null;
+      assert.ok(webSearch, "xAI teacher must use web_search");
+      assert.deepEqual(webSearch.filters?.allowed_domains, ["ebay.com", "130point.com"]);
+      assert.equal(webSearch.allowed_domains, undefined);
+      assert.equal(webSearch.enable_image_understanding, true);
+      xaiContractChecked = true;
+
+      const xaiSold = disagreement
+        ? { ...sharedSold, url: "https://www.ebay.com/itm/888888888888" }
+        : sharedSold;
+      return new Response(
+        JSON.stringify({
+          output: [
+            {
+              content: [
+                {
+                  type: "output_text",
+                  text: JSON.stringify({
+                    sold: [xaiSold],
+                    active: [],
+                    notes: "Grok independently checked the sale.",
+                  }),
+                },
+              ],
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
     throw new Error(`Unexpected mocked fetch URL: ${url}`);
   }) as typeof fetch;
 
@@ -98,7 +133,7 @@ async function main() {
       exactTitle: "2025 Bowman Chrome Prospects Franklin Arias #BCP-67",
       ai,
     });
-    assert.deepEqual(agreed.configuredTeachers.sort(), ["anthropic", "gemini"]);
+    assert.deepEqual(agreed.configuredTeachers.sort(), ["anthropic", "gemini", "xai"]);
     assert.equal(agreed.requiredVotes, 2);
     assert.equal(agreed.sold.status, "live");
     assert.equal(agreed.sold.results.length, 1);
@@ -106,6 +141,7 @@ async function main() {
     assert.equal(agreed.sold.results[0].sourceCategory, "sold");
     assert.equal(agreed.sold.results[0].price, 30);
     assert.ok(agreed.sold.results[0].flags.includes("eligible to teach InstaComp AI"));
+    assert.equal(xaiContractChecked, true);
 
     disagreement = true;
     const disagreed = await getTeacherExactMarketProviders({
@@ -115,7 +151,7 @@ async function main() {
     assert.equal(disagreed.requiredVotes, 2);
     assert.equal(disagreed.sold.status, "no_matches");
     assert.equal(disagreed.sold.results.length, 0);
-    assert.ok(disagreed.discovery.sold.length >= 2);
+    assert.ok(disagreed.discovery.sold.length >= 3);
 
     console.log("InstaComp outside-teacher market consensus regressions passed.");
   } finally {
