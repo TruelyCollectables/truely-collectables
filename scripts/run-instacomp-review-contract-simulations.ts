@@ -7,6 +7,7 @@ import {
 const scan: InstaCompAiLocalScan = {
   schema_version: "tcos.instacomp-ai.scan.v1",
   scan_id: "review-contract-123",
+  card_uuid: "00000000-0000-4000-8000-000000000001",
   status: "needs_review",
   pricing_allowed: false,
   learning_allowed: false,
