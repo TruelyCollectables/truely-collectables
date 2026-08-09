@@ -70,19 +70,31 @@ candidates = [
     service_root / "data" / "supervised-203" / "All scans.zip",
     repo_root / "All scans.zip",
 ]
+print("Searching bounded locations for the reviewed All scans.zip...", file=sys.stderr)
 for root in (home / "Downloads", home / "Desktop", home / "Documents"):
     if not root.is_dir():
         continue
-    for path in root.rglob("*.zip"):
-        try:
-            relative = path.relative_to(root)
-        except ValueError:
-            continue
-        if len(relative.parts) > 3:
-            continue
-        name = path.name.lower()
-        if name == "all scans.zip" or "scans" in name:
-            candidates.append(path)
+    # Direct children only.
+    try:
+        direct_entries = list(root.iterdir())
+    except OSError:
+        continue
+    for path in direct_entries:
+        if path.is_file() and path.suffix.lower() == ".zip":
+            name = path.name.lower()
+            if name == "all scans.zip" or "scans" in name:
+                candidates.append(path)
+        elif path.is_dir():
+            # Exactly one folder below the root; never recurse further.
+            try:
+                child_entries = list(path.iterdir())
+            except OSError:
+                continue
+            for child in child_entries:
+                if child.is_file() and child.suffix.lower() == ".zip":
+                    name = child.name.lower()
+                    if name == "all scans.zip" or "scans" in name:
+                        candidates.append(child)
 
 seen = set()
 for path in candidates:
