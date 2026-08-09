@@ -15,6 +15,14 @@ const required = [
 for (const [label, marker] of required) {
   if (!source.includes(marker)) throw new Error(`Missing ${label}: ${marker}`);
 }
-if (!source.includes('status: "draft"')) throw new Error('Pending Listing must remain draft-only.');
-if (source.includes('status: "active"')) throw new Error('UUID handoff must not activate inventory.');
+
+const inventoryInsertBlock =
+  source.split('const inventoryInsert = {', 2)[1]?.split('};', 1)[0] || '';
+if (!inventoryInsertBlock) throw new Error('Inventory insert block was not found.');
+if (!inventoryInsertBlock.includes('status: "draft"')) {
+  throw new Error('Pending Listing UUID handoff must create a draft.');
+}
+if (inventoryInsertBlock.includes('status: "active"')) {
+  throw new Error('UUID handoff inventory insert must never activate inventory.');
+}
 console.log('PASS InstaComp permanent card UUID upload → Pending Listing handoff');
