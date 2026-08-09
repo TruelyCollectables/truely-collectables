@@ -1,0 +1,1 @@
+PR #974 final Deal Hunter + InstaComp certification trigger.
