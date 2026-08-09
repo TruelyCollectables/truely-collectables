@@ -63,7 +63,11 @@ const enriched = enrichInstaCompChecklistInputFromOcr(
 assert.equal(enriched.input.year, "2025");
 assert.equal(enriched.input.manufacturer, "Panini");
 assert.equal(enriched.input.player, "Sonia Citron");
+assert.equal(enriched.input.brand, "Panini Prizm");
+assert.equal(enriched.input.setName, "Panini Prizm WNBA");
 assert.deepEqual(enriched.reasons.sort(), [
+  "ocr_bounded_inferred_brand",
+  "ocr_bounded_inferred_set",
   "ocr_inferred_manufacturer",
   "ocr_inferred_player",
   "ocr_inferred_year",

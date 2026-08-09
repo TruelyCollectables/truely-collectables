@@ -54,6 +54,11 @@ export type InstaCompComp = {
   matchScore: number;
   flags: string[];
   soldAt?: string | null;
+  itemId?: string | null;
+  seller?: string | null;
+  sellerName?: string | null;
+  sellerFeedbackPercent?: number | null;
+  sellerFeedbackScore?: number | null;
   listedAt?: string | null;
   observedAt?: string | null;
 };

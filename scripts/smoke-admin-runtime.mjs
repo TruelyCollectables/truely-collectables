@@ -264,6 +264,16 @@ const smokeRoutes = [
     expectedText: "Checklist Registry",
   },
   {
+    path: "/admin/instacomp/checklist-sentinel",
+    auth: true,
+    expectedText: "Checklist Sentinel",
+  },
+  {
+    path: "/admin/instacomp/fast",
+    auth: true,
+    expectedText: "InstaComp",
+  },
+  {
     path: "/admin/inventory",
     auth: true,
     expectedText: "Inventory Bridge",

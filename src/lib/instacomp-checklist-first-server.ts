@@ -197,12 +197,63 @@ export function enrichInstaCompChecklistInputFromOcr(
   const inferredManufacturer =
     input.manufacturer || inferManufacturerFromOcr(ocr, candidates);
   const inferredPlayer = input.player || inferPlayerFromOcr(ocr, candidates);
+  const boundedProductCandidates = candidates.filter((candidate) => {
+    if (
+      input.cardNumber &&
+      normalizedCardNumber(candidate.cardNumber) !== normalizedCardNumber(input.cardNumber)
+    ) {
+      return false;
+    }
+    if (
+      inferredYear &&
+      registryYearStart(candidate.year) !== registryYearStart(inferredYear)
+    ) {
+      return false;
+    }
+    if (inferredManufacturer) {
+      const target = normalizedText(inferredManufacturer);
+      const values = [candidate.manufacturer, candidate.brand, candidate.product]
+        .map(normalizedText)
+        .filter(Boolean);
+      if (
+        !values.some(
+          (value) =>
+            value === target || value.includes(target) || target.includes(value),
+        )
+      ) {
+        return false;
+      }
+    }
+    if (
+      inferredPlayer &&
+      normalizedText(candidate.player) !== normalizedText(inferredPlayer)
+    ) {
+      return false;
+    }
+    return true;
+  });
+  const uniqueBrands = uniqueNormalized(
+    boundedProductCandidates.map(
+      (candidate) => candidate.brand || candidate.product || null,
+    ),
+  );
+  const uniqueSets = uniqueNormalized(
+    boundedProductCandidates.map(
+      (candidate) => candidate.setName || candidate.product || null,
+    ),
+  );
+  const inferredBrand =
+    input.brand || (uniqueBrands.length === 1 ? uniqueBrands[0] : null);
+  const inferredSetName =
+    input.setName || (uniqueSets.length === 1 ? uniqueSets[0] : null);
   const reasons = [
     !input.year && inferredYear ? "ocr_inferred_year" : null,
     !input.manufacturer && inferredManufacturer
       ? "ocr_inferred_manufacturer"
       : null,
     !input.player && inferredPlayer ? "ocr_inferred_player" : null,
+    !input.brand && inferredBrand ? "ocr_bounded_inferred_brand" : null,
+    !input.setName && inferredSetName ? "ocr_bounded_inferred_set" : null,
   ].filter((value): value is string => Boolean(value));
 
   return {
@@ -210,6 +261,8 @@ export function enrichInstaCompChecklistInputFromOcr(
       ...input,
       year: inferredYear || null,
       manufacturer: inferredManufacturer || null,
+      brand: inferredBrand || null,
+      setName: inferredSetName || null,
       player: inferredPlayer || null,
       ocrText: null,
     },
