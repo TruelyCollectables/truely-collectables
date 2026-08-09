@@ -1,0 +1,66 @@
+name: InstaComp Supervised 203 Trusted Learning
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-supervised-203-trusted-learning.yml"
+      - "scripts/import-instacomp-supervised-203.mjs"
+      - "scripts/fixtures/instacomp-supervised-203/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Compile importer
+        run: node --check scripts/import-instacomp-supervised-203.mjs
+      - name: Verify all 203 supervised truths
+        run: node scripts/import-instacomp-supervised-203.mjs --contract-only
+
+  live-trusted-import:
+    needs: contract
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Pull protected Production Mac coordinates
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p "$RUNNER_TEMP/instacomp-203" .vercel
+          npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/instacomp-203/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          echo "PRODUCTION_ENV_FILE=$RUNNER_TEMP/instacomp-203/production.env" >> "$GITHUB_ENV"
+      - name: Import 203 operator-confirmed physical cards and export learning dataset
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/import-instacomp-supervised-203.mjs --receipt="$RUNNER_TEMP/instacomp-203/trusted-learning-receipt.json"
+      - name: Upload sanitized trusted-learning receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-supervised-203-trusted-learning-receipt
+          path: ${{ runner.temp }}/instacomp-203/trusted-learning-receipt.json
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Remove Production environment
+        if: always()
+        run: rm -f "$RUNNER_TEMP/instacomp-203/production.env"
