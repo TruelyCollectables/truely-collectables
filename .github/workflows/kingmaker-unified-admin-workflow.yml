@@ -9,6 +9,8 @@ on:
       - "scripts/patch-kingmaker-pending-compatibility.py"
       - "scripts/patch-kingmaker-architecture-rotation-contract.py"
       - "scripts/certify-kingmaker-instacomp-architecture.mjs"
+      - "scripts/run-admin-dashboard-actions-simulations.mjs"
+      - "scripts/check-production-guardrails.mjs"
       - "src/app/admin/**"
       - "src/app/kingmaker/**"
       - "src/app/api/account/seller/instacomp-pending/route.ts"
