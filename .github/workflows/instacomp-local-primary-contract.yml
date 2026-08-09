@@ -21,6 +21,7 @@ on:
       - "scripts/run-instacomp-ocr-registry-primary-regressions.ts"
       - "scripts/run-instacomp-prizm-surface-regressions.ts"
       - "scripts/apply-instacomp-seller-display-fix.py"
+      - "scripts/apply-instacomp-ocr-registry-context-fix.py"
       - ".github/workflows/instacomp-local-primary-contract.yml"
 
 permissions:
@@ -44,8 +45,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - name: Materialize complete eBay seller audit packet
-        run: python3 scripts/apply-instacomp-seller-display-fix.py
+      - name: Materialize final bounded Registry and seller audit fixes
+        run: |
+          python3 scripts/apply-instacomp-ocr-registry-context-fix.py
+          python3 scripts/apply-instacomp-seller-display-fix.py
       - name: Install dependencies
         run: |
           pip install -r services/instacomp-ai/requirements.txt
@@ -59,6 +62,7 @@ jobs:
           grep -q 'printedEvidence: params.externalOcr' src/app/api/instacomp/scan/route.ts
           grep -q 'printed_registry = (' services/instacomp-ai/app/main.py
           grep -q 'match_source="checklist_registry"' services/instacomp-ai/app/main.py
+          grep -q 'boundedProductCandidates' src/lib/instacomp-checklist-first-server.ts
           grep -q 'item?.seller?.username' src/app/api/instacomp/scan/route.ts
           grep -q 'Item #' src/app/admin/instacomp/fast/InstaCompFastWorkbench.tsx
       - name: Internal fail-closed regressions
@@ -117,7 +121,7 @@ jobs:
         run: |
           npm run build
           git checkout -- public/instacomp-release.json
-      - name: Persist verified seller audit packet
+      - name: Persist verified bounded Registry and seller audit packet
         shell: bash
         run: |
           set -euo pipefail
@@ -126,10 +130,12 @@ jobs:
           git add \
             src/app/api/instacomp/scan/route.ts \
             src/app/admin/instacomp/fast/InstaCompFastWorkbench.tsx \
+            src/lib/instacomp-checklist-first-server.ts \
+            scripts/run-instacomp-ocr-registry-primary-regressions.ts \
             scripts/instacomp-fast-workbench-certify.mjs
           if git diff --cached --quiet; then
-            echo "Seller audit packet already committed."
+            echo "Final bounded Registry and seller packet already committed."
           else
-            git commit -m "Show complete eBay seller audit data"
+            git commit -m "Finalize bounded Registry and seller audit data"
             git push origin HEAD:${{ github.head_ref }}
           fi
