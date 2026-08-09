@@ -126,5 +126,38 @@ if new_assert not in test:
     if old_assert not in test:
         raise SystemExit("OCR Registry regression assertion anchor missing")
     test = test.replace(old_assert, new_assert, 1)
-
 test_path.write_text(test)
+
+smoke_path = Path("scripts/smoke-admin-runtime.mjs")
+smoke = smoke_path.read_text()
+anchor = '''  {
+    path: "/admin/instacomp/checklists",
+    auth: true,
+    expectedText: "Checklist Registry",
+  },
+'''
+addition = '''  {
+    path: "/admin/instacomp/checklists",
+    auth: true,
+    expectedText: "Checklist Registry",
+  },
+  {
+    path: "/admin/instacomp/checklist-sentinel",
+    auth: true,
+    expectedText: "Checklist Sentinel",
+  },
+  {
+    path: "/admin/instacomp/fast",
+    auth: true,
+    expectedText: "InstaComp",
+  },
+'''
+if 'path: "/admin/instacomp/checklist-sentinel"' not in smoke:
+    if anchor not in smoke:
+        raise SystemExit("admin runtime smoke InstaComp anchor missing")
+    smoke = smoke.replace(anchor, addition, 1)
+if 'path: "/admin/instacomp/fast"' not in smoke:
+    if anchor not in smoke:
+        raise SystemExit("admin runtime smoke fast scanner anchor missing")
+    smoke = smoke.replace(anchor, addition, 1)
+smoke_path.write_text(smoke)
