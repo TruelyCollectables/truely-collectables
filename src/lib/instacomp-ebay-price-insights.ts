@@ -27,6 +27,18 @@ export type EbayPriceInsightsExactResult = {
   rejected: EbayPriceInsightsRejectedRow[];
 };
 
+type NormalizedPriceInsightsRow = {
+  comp: Omit<InstaCompComp, "matchScore" | "flags">;
+  index: number;
+  condition: string | null;
+  buyingOption: string | null;
+};
+
+type NormalizeResult = {
+  row: NormalizedPriceInsightsRow | null;
+  rejected: EbayPriceInsightsRejectedRow | null;
+};
+
 function clean(value: unknown) {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
 }
@@ -54,7 +66,7 @@ export function directEbayPriceInsightsItemUrl(value: unknown) {
   }
 }
 
-function normalizeRow(raw: unknown, index: number) {
+function normalizeRow(raw: unknown, index: number): NormalizeResult {
   const row = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const title = clean(row.title);
   const url = directEbayPriceInsightsItemUrl(row.url);
@@ -91,6 +103,8 @@ function normalizeRow(raw: unknown, index: number) {
     soldAt,
     listedAt: null,
     observedAt: capturedAt,
+    conditionText: condition,
+    buyingOption,
   };
   return {
     row: { comp, index, condition, buyingOption },
@@ -111,7 +125,7 @@ export function filterExactEbayPriceInsightsRows(
       if (result.rejected) rejected.push(result.rejected);
       return result.row;
     })
-    .filter((row): row is NonNullable<typeof row> => Boolean(row));
+    .filter((row): row is NormalizedPriceInsightsRow => row !== null);
 
   const exact = filterStrictExactMarketMatches(
     normalized.map((row) => row.comp),
