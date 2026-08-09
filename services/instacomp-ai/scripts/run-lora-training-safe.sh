@@ -17,4 +17,4 @@ else
 fi
 
 exec "$SERVICE_PYTHON" \
-  "$SERVICE_ROOT/scripts/run_lora_training.py" "$@"
+  "$SERVICE_ROOT/scripts/run_lora_training_checkpoint_safe.py" "$@"
