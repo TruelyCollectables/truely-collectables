@@ -15,10 +15,6 @@ on:
       - "scripts/check-instacomp-local-primary-contract.mjs"
       - "scripts/check-instacomp-provider-fallback.mjs"
       - "scripts/check-instacomp-no-external-reader-plan.mjs"
-      - "scripts/fix-instacomp-only-migration-contract.py"
-      - "scripts/patch-instacomp-ocr-registry-primary.py"
-      - "scripts/patch-instacomp-only.py"
-      - "scripts/patch-instacomp-no-stale-openai-handoff.py"
       - "scripts/run-instacomp-ai-council-runtime-regressions.ts"
       - "scripts/run-instacomp-internal-fail-closed-regressions.ts"
       - "scripts/run-instacomp-ocr-registry-primary-regressions.ts"
@@ -26,7 +22,7 @@ on:
       - ".github/workflows/instacomp-local-primary-contract.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   certify:
@@ -34,9 +30,6 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref }}
-          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -50,14 +43,15 @@ jobs:
         run: |
           pip install -r services/instacomp-ai/requirements.txt
           npm ci
-      - name: Apply OCR and Registry runtime patch
-        run: python scripts/patch-instacomp-ocr-registry-primary.py
-      - name: Apply InstaComp-only runtime patch
-        run: python scripts/patch-instacomp-only.py
-      - name: Fix exact migration-order contract
-        run: python scripts/fix-instacomp-only-migration-contract.py
-      - name: Remove stale external-reader handoff
-        run: python scripts/patch-instacomp-no-stale-openai-handoff.py
+      - name: Verify OCR and Registry primary wiring is already committed
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'printedEvidence?:' src/lib/instacomp-ai-local.ts
+          grep -q '"printed_evidence_json"' src/lib/instacomp-ai-local.ts
+          grep -q 'printedEvidence: params.externalOcr' src/app/api/instacomp/scan/route.ts
+          grep -q 'printed_registry = (' services/instacomp-ai/app/main.py
+          grep -q 'match_source="checklist_registry"' services/instacomp-ai/app/main.py
       - name: Internal fail-closed regressions
         run: node --import tsx scripts/run-instacomp-internal-fail-closed-regressions.ts
       - name: Council runtime hard-stop regressions
@@ -113,29 +107,3 @@ jobs:
         run: |
           npm run build
           git checkout -- public/instacomp-release.json
-      - name: Commit applied runtime patch
-        if: github.event.pull_request.head.repo.full_name == github.repository
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            services/instacomp-ai/app/main.py \
-            services/instacomp-ai/app/storage.py \
-            services/instacomp-ai/tests/test_storage_migration.py \
-            src/app/api/instacomp/internal-readiness/route.ts \
-            src/app/api/instacomp/scan/route.ts \
-            src/lib/instacomp-ai-local.ts \
-            src/lib/instacomp-ai-provider-failover.ts \
-            src/lib/instacomp-checklist-first-server.ts \
-            scripts/check-instacomp-local-primary-contract.mjs \
-            scripts/check-instacomp-provider-fallback.mjs \
-            scripts/fix-instacomp-only-migration-contract.py \
-            scripts/patch-instacomp-only.py \
-            scripts/patch-instacomp-no-stale-openai-handoff.py \
-            scripts/run-instacomp-internal-fail-closed-regressions.ts
-          if git diff --cached --quiet; then
-            echo "Runtime patch already committed."
-          else
-            git commit -m "Apply InstaComp-only runtime repair"
-            git push origin HEAD:${{ github.head_ref }}
-          fi
