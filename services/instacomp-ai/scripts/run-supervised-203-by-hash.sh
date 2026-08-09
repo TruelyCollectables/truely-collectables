@@ -8,10 +8,99 @@ python_bin="$service_root/.venv/bin/python"
 expected_sha="621d58db6fe31e15d462a72b649e66a8d742639ce39973570e790bae6d11081a"
 expected_size="79948156"
 
+if [[ "$(uname -s)" != "Darwin" ]]; then
+  echo "This supervised 203-card run is only allowed on the InstaComp Mac." >&2
+  exit 2
+fi
 if [[ ! -x "$python_bin" ]]; then
   echo "InstaComp Python runtime is missing: $python_bin" >&2
   exit 2
 fi
+if [[ -z "$repo_root" || "$(git -C "$repo_root" branch --show-current)" != "main" ]]; then
+  echo "The live InstaComp checkout must be on main before this import." >&2
+  exit 2
+fi
+if [[ -n "$(git -C "$repo_root" status --porcelain --untracked-files=no)" ]]; then
+  echo "Tracked working-tree changes are present; refusing to restart/import." >&2
+  git -C "$repo_root" status --short --untracked-files=no >&2
+  exit 2
+fi
+
+# The importer talks to the running FastAPI process. A git pull alone does not
+# reload Python modules, so restart the LaunchAgent before any card mutation.
+label="${INSTACOMP_AI_LAUNCHD_LABEL:-com.truelycollectables.instacomp-ai}"
+domain="gui/$(id -u)"
+echo "Restarting local InstaComp service from current main..."
+if ! launchctl kickstart -k "${domain}/${label}"; then
+  echo "Could not restart ${label}. Reinstall/restart InstaComp before importing." >&2
+  exit 2
+fi
+
+port="$(cd "$service_root" && "$python_bin" - <<'PY'
+from app.config import settings
+print(settings.port)
+PY
+)"
+api_key="$(cd "$service_root" && "$python_bin" - <<'PY'
+from app.config import settings
+print(settings.api_key)
+PY
+)"
+if [[ -z "$port" || ${#api_key} -ne 64 ]]; then
+  echo "Local InstaComp port/API key could not be loaded from current settings." >&2
+  exit 2
+fi
+
+# Fail closed until the restarted process proves the exact readback URL that
+# previously returned HTTP 422 is live and accepts limit=5000.
+echo "Preflighting live trusted-readback endpoint (limit=5000) before card mutation..."
+"$python_bin" - "$port" "$api_key" <<'PY'
+import json
+import sys
+import time
+
+import httpx
+
+port = sys.argv[1]
+api_key = sys.argv[2]
+base = f"http://127.0.0.1:{port}"
+headers = {"X-InstaComp-AI-Key": api_key, "Accept": "application/json"}
+last_error = "service did not answer"
+for _ in range(60):
+    try:
+        health = httpx.get(f"{base}/health", timeout=2.0)
+        if health.status_code == 200:
+            response = httpx.get(
+                f"{base}/v1/training/examples?trusted_only=true&limit=5000",
+                headers=headers,
+                timeout=20.0,
+            )
+            if response.status_code != 200:
+                print(
+                    "REFUSING IMPORT: trusted-readback preflight returned "
+                    f"HTTP {response.status_code}: {response.text[:800]}",
+                    file=sys.stderr,
+                )
+                raise SystemExit(3)
+            payload = response.json()
+            if payload.get("schema_version") != "tcos.instacomp-ai.training-examples.v1":
+                print(
+                    "REFUSING IMPORT: trusted-readback endpoint returned the wrong schema.",
+                    file=sys.stderr,
+                )
+                raise SystemExit(3)
+            print(
+                "PASS live trusted-readback preflight: "
+                f"HTTP 200, current trusted rows={payload.get('count', 0)}"
+            )
+            raise SystemExit(0)
+        last_error = f"health HTTP {health.status_code}"
+    except (httpx.HTTPError, ValueError, json.JSONDecodeError) as exc:
+        last_error = f"{type(exc).__name__}: {exc}"
+    time.sleep(1)
+print(f"REFUSING IMPORT: restarted InstaComp never became ready: {last_error}", file=sys.stderr)
+raise SystemExit(3)
+PY
 
 requested="${1:-$HOME/Downloads/All scans.zip}"
 requested_parent="$(dirname "$requested")"
