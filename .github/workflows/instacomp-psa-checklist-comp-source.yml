@@ -8,6 +8,7 @@ on:
       - "services/instacomp-ai/tests/test_sentinel_psa_sources.py"
       - "src/lib/instacomp-teacher-market-provider.ts"
       - "scripts/run-instacomp-teacher-market-provider-simulations.ts"
+      - "scripts/probe-psa-checklist-recovery.mjs"
       - ".github/workflows/instacomp-psa-checklist-comp-source.yml"
   workflow_dispatch:
 
@@ -36,9 +37,19 @@ jobs:
       - name: Run PSA and SGC Sentinel source policy tests
         working-directory: services/instacomp-ai
         run: pytest -q tests/test_sentinel_psa_sources.py
+      - name: Read-only live PSA checklist recovery probe
+        run: node scripts/probe-psa-checklist-recovery.mjs | tee psa-checklist-probe.jsonl
       - name: Install web dependencies
         run: npm ci
       - name: Run PSA graded-comp teacher regressions
         run: node --import tsx scripts/run-instacomp-teacher-market-provider-simulations.ts
       - name: Typecheck changed TypeScript path
         run: npx tsc --noEmit
+      - name: Upload sanitized PSA recovery probe
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: psa-checklist-recovery-probe-${{ github.run_id }}
+          path: psa-checklist-probe.jsonl
+          if-no-files-found: warn
+          retention-days: 14
