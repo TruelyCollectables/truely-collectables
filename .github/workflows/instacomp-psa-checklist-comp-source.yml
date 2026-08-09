@@ -1,0 +1,44 @@
+name: InstaComp PSA Checklist and Comp Source
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "services/instacomp-ai/app/sentinel_sources.py"
+      - "services/instacomp-ai/tests/test_sentinel_psa_sources.py"
+      - "src/lib/instacomp-teacher-market-provider.ts"
+      - "scripts/run-instacomp-teacher-market-provider-simulations.ts"
+      - ".github/workflows/instacomp-psa-checklist-comp-source.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/instacomp-ai/requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install Python service dependencies
+        run: pip install -r services/instacomp-ai/requirements.txt
+      - name: Compile Sentinel source layer
+        run: python -m compileall -q services/instacomp-ai/app
+      - name: Run PSA and SGC Sentinel source policy tests
+        working-directory: services/instacomp-ai
+        run: pytest -q tests/test_sentinel_psa_sources.py
+      - name: Install web dependencies
+        run: npm ci
+      - name: Run PSA graded-comp teacher regressions
+        run: node --import tsx scripts/run-instacomp-teacher-market-provider-simulations.ts
+      - name: Typecheck changed TypeScript path
+        run: npx tsc --noEmit
