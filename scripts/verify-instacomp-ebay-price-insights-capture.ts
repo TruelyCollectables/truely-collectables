@@ -37,6 +37,7 @@ const rows = [
     shippingPrice: 1.5,
     url: "https://www.ebay.com/itm/123456789002?foo=bar",
     condition: "Ungraded - Near Mint or Better",
+    buyingOption: "Offer accepted",
   },
   {
     title: "2024 Bowman Chrome Prospects George Lombard Jr #BCP-222 RC",
@@ -74,6 +75,9 @@ assert.ok(result.accepted.every((row) => row.source === "ebay_price_insights_own
 assert.ok(result.accepted.every((row) => row.sourceCategory === "sold"));
 assert.ok(result.accepted.every((row) => row.priceIncludesShipping === true));
 assert.ok(result.accepted.every((row) => row.flags.includes("strict exact identity")));
+assert.ok(result.accepted.every((row) => row.conditionText === "Ungraded - Near Mint or Better"));
+assert.ok(result.accepted.some((row) => row.buyingOption === "Buy It Now"));
+assert.ok(result.accepted.some((row) => row.buyingOption === "Offer accepted"));
 assert.ok(result.rejected.some((row) => row.reason.includes("strict exact-card")));
 assert.ok(result.rejected.some((row) => row.reason.includes("direct ebay.com/itm")));
 
@@ -86,6 +90,8 @@ console.log(
       acceptedExactSold: result.accepted.length,
       rejected: result.rejected.length,
       acceptedLandedPrices: result.accepted.map((row) => row.price),
+      conditions: result.accepted.map((row) => row.conditionText),
+      buyingOptions: result.accepted.map((row) => row.buyingOption),
     },
     null,
     2,
