@@ -10,7 +10,7 @@ import type {
 import { buildChecklistSourceStorageReceipt } from "./storage";
 
 export const PSA_APR_HTML_ADAPTER_ID = "psa-apr-set-html" as const;
-export const PSA_APR_HTML_ADAPTER_VERSION = "1.0.0" as const;
+export const PSA_APR_HTML_ADAPTER_VERSION = "1.1.0" as const;
 
 function clean(value: unknown) {
   return String(value ?? "")
@@ -174,6 +174,36 @@ function releaseSlug(artifact: ChecklistSourceArtifact) {
   }
 }
 
+function expectedPsaReleaseSlug(
+  releaseYear: string | null,
+  manufacturer: string,
+  product: string,
+) {
+  const manufacturerTokens = comparable(manufacturer).split("-").filter(Boolean);
+  let productTokens = comparable(product).split("-").filter(Boolean);
+  if (
+    manufacturerTokens.length > 0 &&
+    manufacturerTokens.every((token, index) => productTokens[index] === token)
+  ) {
+    productTokens = productTokens.slice(manufacturerTokens.length);
+  }
+  if (productTokens.join("-") === manufacturerTokens.join("-")) {
+    productTokens = [];
+  }
+  return [releaseYear || "", ...manufacturerTokens, ...productTokens]
+    .filter(Boolean)
+    .join("-");
+}
+
+function actualPsaReleaseSlug(sourceUrl: string) {
+  try {
+    const parts = new URL(sourceUrl).pathname.split("/").filter(Boolean);
+    return comparable(parts[2] || "");
+  } catch {
+    return "";
+  }
+}
+
 function issue(
   issues: ChecklistImportValidationIssue[],
   code: string,
@@ -201,6 +231,17 @@ export function parsePsaAprHtmlChecklist(artifact: ChecklistSourceArtifact): Che
       "psa_target_context_missing",
       "error",
       "PSA APR imports require Sentinel target manufacturer, product, and year/season context.",
+    );
+  }
+
+  const expectedSlug = expectedPsaReleaseSlug(releaseYear, manufacturer, product);
+  const actualSlug = actualPsaReleaseSlug(artifact.sourceUrl);
+  if (expectedSlug && actualSlug !== expectedSlug) {
+    issue(
+      issues,
+      "psa_release_slug_mismatch",
+      "error",
+      `PSA release slug ${actualSlug || "(missing)"} did not exactly match target ${expectedSlug}; subset/insert pages cannot satisfy a whole-release checklist.`,
     );
   }
 
