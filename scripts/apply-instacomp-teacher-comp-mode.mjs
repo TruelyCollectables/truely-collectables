@@ -112,6 +112,12 @@ function toComp`,
     "  const sold = consensusSold(votingAttempts, params.ai, requiredVotes);",
     "Trusted consensus uses voting teachers only",
   );
+  source = replaceOnce(
+    source,
+    "    .filter((row): row is InstaCompComp => Boolean(row))",
+    "    .filter((row): row is NonNullable<typeof row> => Boolean(row))",
+    "Teacher consensus nullable row narrowing",
+  );
   write(path, source);
 }
 
