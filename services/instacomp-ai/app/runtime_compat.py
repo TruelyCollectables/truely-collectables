@@ -12,7 +12,13 @@ from urllib.parse import urlparse
 import httpx
 
 from .sentinel import ChecklistSentinel
-from .sentinel_sources import DownloadedFile, SentinelSourceClient, _is_psa_set_apr_url
+from .sentinel_sources import (
+    Candidate,
+    DownloadedFile,
+    SentinelSourceClient,
+    _is_psa_set_apr_url,
+)
+from .verified_checklist_sources import verified_checklist_sources_for_target
 
 
 _CHROME_CANDIDATES = (
@@ -210,7 +216,38 @@ def install_sentinel_runtime_compat() -> None:
     if getattr(SentinelSourceClient, "_instacomp_psa_render_compat", False):
         return
 
+    original_search = SentinelSourceClient.search
     original_download = SentinelSourceClient.download
+
+    async def search_with_verified_recovery(
+        self: SentinelSourceClient,
+        source: dict,
+        target: dict,
+    ) -> list[Candidate]:
+        source_id = str(source.get("source_id") or "").strip()
+        verified = tuple(
+            item
+            for item in verified_checklist_sources_for_target(target.get("target_key"))
+            if item.source_id == source_id
+        )
+        if verified:
+            return [
+                Candidate(
+                    url=item.url,
+                    title=item.title,
+                    source_id=item.source_id,
+                    domain=(urlparse(item.url).hostname or "").lower(),
+                    trust_score=item.trust_score,
+                    import_policy="auto_import",
+                    exact_match=True,
+                    reason=(
+                        f"Manually verified exact checklist source on {item.verified_on}; "
+                        f"provenance: {item.provenance}."
+                    ),
+                )
+                for item in verified
+            ]
+        return await original_search(self, source, target)
 
     async def download_with_psa_render(
         self: SentinelSourceClient,
@@ -226,8 +263,11 @@ def install_sentinel_runtime_compat() -> None:
             return await _render_psa_apr_with_chrome(self, downloaded.url)
         return downloaded
 
+    SentinelSourceClient.search = search_with_verified_recovery
     SentinelSourceClient.download = download_with_psa_render
+    SentinelSourceClient._instacomp_verified_recovery_compat = True
     SentinelSourceClient._instacomp_psa_render_compat = True
+    SentinelSourceClient._instacomp_original_search = original_search
     SentinelSourceClient._instacomp_original_download = original_download
 
     # The Production relay accepts multipart field `sourceFile`; older Mac
