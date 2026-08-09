@@ -6,6 +6,8 @@ on:
     paths:
       - 'src/lib/instacomp-teacher-market-provider.ts'
       - 'src/lib/instacomp-teacher-runtime-status.ts'
+      - 'src/app/api/instacomp/live-scan/route.ts'
+      - 'src/app/api/instacomp/deal-hunter/evaluate/core.ts'
       - 'src/app/api/release/instacomp-gateway-teacher-smoke/route.ts'
       - 'src/app/api/release/instacomp-teacher-runtime-diagnostics/route.ts'
       - 'scripts/apply-instacomp-gateway-teachers-20260808.mjs'
@@ -43,7 +45,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Apply Gateway teacher runtime
+      - name: Apply Gateway teacher runtime and OIDC handoff
         run: node scripts/apply-instacomp-gateway-teachers-20260808.mjs
 
       - name: Reject malformed diff
@@ -71,7 +73,10 @@ jobs:
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/lib/instacomp-teacher-market-provider.ts
+          git add \
+            src/lib/instacomp-teacher-market-provider.ts \
+            src/app/api/instacomp/live-scan/route.ts \
+            src/app/api/instacomp/deal-hunter/evaluate/core.ts
           if git diff --cached --quiet; then
             exit 0
           fi
