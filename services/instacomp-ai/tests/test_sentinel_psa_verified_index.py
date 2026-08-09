@@ -42,7 +42,7 @@ def test_verified_psa_index_contains_exact_canary_whole_release_pages():
 
 
 @pytest.mark.asyncio
-async def test_psa_verified_index_returns_candidate_without_search_http(monkeypatch):
+async def test_psa_verified_index_returns_lead_without_search_http(monkeypatch):
     class ExplodingAsyncClient:
         def __init__(self, *args, **kwargs):
             raise AssertionError("verified PSA target must not need search HTTP")
@@ -58,7 +58,7 @@ async def test_psa_verified_index_returns_candidate_without_search_http(monkeypa
     assert row.url == "https://www.psacard.com/auctionprices/basketball-cards/2010-panini-prestige/95363"
     assert row.source_id == "psa"
     assert row.trust_score == 96
-    assert row.import_policy == "auto_import"
+    assert row.import_policy == "lead_only"
     assert row.exact_match is True
     assert "verified PSA whole-release index" in row.reason
 
