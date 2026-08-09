@@ -1,0 +1,149 @@
+name: InstaComp Fast Overnight Build 20260809
+
+on:
+  push:
+    branches:
+      - agent/instacomp-fast-overnight-audit
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instacomp-fast-overnight-build-20260809
+  cancel-in-progress: false
+
+jobs:
+  build-certify-and-persist:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+      STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+      ADMIN_PASSWORD: build-only-placeholder-password
+      ADMIN_SESSION_SECRET: build-only-placeholder-session-secret
+      EBAY_CLIENT_ID: build-only-placeholder-client-id
+      EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+      EBAY_ENVIRONMENT: production
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/instacomp-fast-overnight-audit
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Patch season-year preservation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/app/api/instacomp/scan/route.ts')
+          text = path.read_text()
+
+          helper_marker = 'function preserveSeasonYear('
+          if helper_marker not in text:
+              needle = 'function normalizeInstaCompAiResult(value: unknown): InstaCompAiResult {'
+              if needle not in text:
+                  raise SystemExit('Could not locate normalizeInstaCompAiResult insertion point')
+              helper = r'''function preserveSeasonYear(
+            evidenceYear: unknown,
+            registryYear: unknown,
+            identityContext?: unknown,
+          ): string | null {
+            const evidence = String(evidenceYear || "").trim();
+            const registry = String(registryYear || "").trim();
+            const context = String(identityContext || "").trim();
+            const candidates = [evidence, context];
+
+            for (const candidate of candidates) {
+              const match = candidate.match(/\b((?:19|20)\d{2})\s*[-/]\s*((?:19|20)?\d{2})\b/);
+              if (!match) continue;
+
+              const start = Number(match[1]);
+              const rawEnd = match[2];
+              const end = rawEnd.length === 2
+                ? Math.floor(start / 100) * 100 + Number(rawEnd)
+                : Number(rawEnd);
+              const canonical = `${start}-${String(end).slice(-2).padStart(2, "0")}`;
+              const registryNumber = Number(registry);
+
+              if (!registry || registryNumber === start || registryNumber === end) {
+                return canonical;
+              }
+            }
+
+            return registry || evidence || null;
+          }
+
+          '''
+              text = text.replace(needle, helper + needle, 1)
+
+          old = 'year: registryMatch.year ? String(registryMatch.year) : consensusAi.year,'
+          new = 'year: preserveSeasonYear(consensusAi.year, registryMatch.year, registrySetName),'
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif new not in text:
+              raise SystemExit('Could not locate Registry year override')
+
+          path.write_text(text)
+          PY
+
+      - name: Verify release-contract source
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/run-instacomp-fast-workbench-regressions.mjs
+          grep -q 'preserveSeasonYear(consensusAi.year, registryMatch.year, registrySetName)' src/app/api/instacomp/scan/route.ts
+          grep -q 'Year / season' src/app/admin/instacomp/fast/InstaCompFastDropScanner.tsx
+          grep -q 'Edit card' src/app/admin/instacomp/fast/InstaCompFastDropScanner.tsx
+          grep -q 'progressPercent' src/app/admin/instacomp/fast/InstaCompFastDropScanner.tsx
+          grep -q 'aiCouncilTier.*, "basic"' src/app/admin/instacomp/fast/InstaCompFastDropScanner.tsx
+          grep -q 'aiCouncilTier.*, "adaptive"' src/app/admin/instacomp/fast/InstaCompFastDropScanner.tsx
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript
+        run: ./node_modules/.bin/tsc --noEmit
+
+      - name: InstaComp regression battery
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run simulate:instacomp-accuracy
+          npm run simulate:instacomp-consensus
+          npm run simulate:instacomp-catalog-identity
+          npm run simulate:instacomp-card-knowledge
+          npm run simulate:instacomp-identity-guard
+          npm run simulate:instacomp-scan-review
+          npm run simulate:instacomp-jobs
+
+      - name: Production build
+        run: npm run build
+
+      - name: Persist certified backend patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- src/app/api/instacomp/scan/route.ts; then
+            echo 'Season-year patch already persisted.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/app/api/instacomp/scan/route.ts
+          git commit -m 'Preserve sports card season years'
+          git push origin HEAD:agent/instacomp-fast-overnight-audit
