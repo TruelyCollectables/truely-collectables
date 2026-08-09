@@ -4341,17 +4341,26 @@ async function identifyCardWithConfiguredProviderFailover(params: {
       ...internalReceipt.frontVisibleText,
       ...internalReceipt.backVisibleText,
     ].join(" ");
-    const registryProbeAi = {
+    const registryHintAi: InstaCompAiResult = {
       ...evidenceAi,
-      registryVisibleText,
-      // Internal resolver-only marker: the scanner council has already
-      // adjudicated hard parallel identity. It is never accepted from listing
-      // hints or OCR and is only true for a conflict-free council.
-      parallelEvidenceAdjudicated: evidenceConsensus.status === "consensus_confirmed",
       ...(listingIdentityHint.year ? { year: listingIdentityHint.year } : {}),
       ...(listingIdentityHint.brand ? { brand: listingIdentityHint.brand } : {}),
       ...(listingIdentityHint.setName ? { setName: listingIdentityHint.setName } : {}),
       ...(listingIdentityHint.cardNumber ? { cardNumber: listingIdentityHint.cardNumber } : {}),
+    };
+    const operatorRegistryAi = applyOperatorIdentityOverride(
+      registryHintAi,
+      operatorIdentityOverride,
+    );
+    const registryProbeAi = {
+      ...operatorRegistryAi,
+      registryVisibleText,
+      // Admin correction may supply the exact parallel after the operator has
+      // explicitly confirmed the card. Otherwise only conflict-free scanner
+      // evidence may mark parallel evidence adjudicated.
+      parallelEvidenceAdjudicated:
+        evidenceConsensus.status === "consensus_confirmed" ||
+        Boolean(operatorIdentityOverride?.parallel),
     };
     const receiptResolution = await revalidateChecklistRegistryReceipt({
       ai: registryProbeAi,
@@ -4405,7 +4414,7 @@ async function identifyCardWithConfiguredProviderFailover(params: {
       ? {
           ...consensusAi,
           player: registryMatch.player || consensusAi.player,
-          year: preserveSeasonYear(listingIdentityHint.year || consensusAi.year, registryMatch.year),
+          year: preserveSeasonYear(operatorIdentityOverride?.year || listingIdentityHint.year || consensusAi.year, registryMatch.year),
           brand:
             registryMatch.manufacturer ||
             registryMatch.brand ||
@@ -4439,14 +4448,24 @@ async function identifyCardWithConfiguredProviderFailover(params: {
         };
     const ai = applyOperatorIdentityOverride(registryAi, operatorIdentityOverride);
     const consensusCompSearchDecision = decideInstaCompCompSearch(consensus);
-    const compSearchDecision = identityDecision.confirmed
-      ? consensusCompSearchDecision
-      : {
-          allowed: false,
-          reason: "identity_review_required" as const,
+    const operatorOverrideComplete = Boolean(
+      operatorIdentityOverride && missingExactIdentityFields(ai).length === 0,
+    );
+    const compSearchDecision = operatorOverrideComplete
+      ? {
+          allowed: true,
+          reason: "identity_confirmed" as const,
           explanation:
-            "Comp search is blocked until visible evidence proves one exact checklist identity at 95% or higher.",
-        };
+            "The store owner supplied a complete explicit identity correction, so exact market search may run from that corrected identity. Reusable AI training still requires a matching Registry receipt.",
+        }
+      : identityDecision.confirmed
+        ? consensusCompSearchDecision
+        : {
+            allowed: false,
+            reason: "identity_review_required" as const,
+            explanation:
+              "Comp search is blocked until visible evidence proves one exact checklist identity at 95% or higher.",
+          };
 
     const queries = buildInstaCompQueries(ai);
     const links = buildCompLinks(queries.primary);

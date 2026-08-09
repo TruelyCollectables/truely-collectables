@@ -1,5 +1,6 @@
 import type { InstaCompAiResult } from "./instacomp";
 import type { InstaCompCatalogCompIdentity } from "./instacomp-catalog-identity";
+import { normalizeInstaCompSeasonYear } from "./instacomp-season-year";
 
 export type InstaCompConsensusIdentity = Partial<
   Pick<
@@ -791,8 +792,25 @@ function catalogTextFieldMatchesReader(
 ) {
   const catalogValue = normalizeValue(fieldValue(catalogIdentity, field));
   if (field === "year") {
+    const catalogText = String(catalogValue || "").trim();
+    const readerText = String(readerValue || "").trim();
+    const catalogSeason = normalizeInstaCompSeasonYear(catalogText);
+    const readerSeason = normalizeInstaCompSeasonYear(readerText);
+    if (catalogSeason && readerSeason) return catalogSeason === readerSeason;
+
     const catalogYear = comparableText(catalogValue).match(/\b((?:19|20)\d{2})\b/)?.[1];
     const readerYear = comparableText(readerValue).match(/\b((?:19|20)\d{2})\b/)?.[1];
+    const seasonIncludesYear = (season: string | null, year: string | undefined) => {
+      if (!season || !year) return false;
+      const [startText, endShort] = season.split("-");
+      const start = Number(startText);
+      let end = Math.floor(start / 100) * 100 + Number(endShort);
+      if (end < start) end += 100;
+      return Number(year) === start || Number(year) === end;
+    };
+
+    if (readerSeason && seasonIncludesYear(readerSeason, catalogYear)) return true;
+    if (catalogSeason && seasonIncludesYear(catalogSeason, readerYear)) return true;
     return Boolean(catalogYear && readerYear && catalogYear === readerYear);
   }
   if (field === "setName") {
