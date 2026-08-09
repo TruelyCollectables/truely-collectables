@@ -62,10 +62,13 @@ type FindingRow = {
 type ProxyPayload = {
   ok?: boolean;
   error?: string;
-  status?: SentinelStatus;
-  downloads?: DownloadRow[];
-  findings?: FindingRow[];
+  view?: string;
+  action?: string;
+  data?: unknown;
 };
+
+type DownloadsPayload = { downloads?: DownloadRow[] };
+type FindingsPayload = { findings?: FindingRow[] };
 
 function number(value: unknown) {
   const parsed = Number(value);
@@ -81,7 +84,9 @@ function dateTime(value: string | null | undefined) {
 function Metric({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-      <div className="text-[11px] font-black uppercase tracking-[0.18em] text-neutral-500">{label}</div>
+      <div className="text-[11px] font-black uppercase tracking-[0.18em] text-neutral-500">
+        {label}
+      </div>
       <div className="mt-2 text-2xl font-black text-white">{value}</div>
     </div>
   );
@@ -89,10 +94,24 @@ function Metric({ label, value }: { label: string; value: string | number }) {
 
 function StatusPill({ ok, children }: { ok: boolean; children: React.ReactNode }) {
   return (
-    <span className={`rounded-full border px-3 py-1 text-xs font-black ${ok ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-200" : "border-amber-300/30 bg-amber-300/10 text-amber-200"}`}>
+    <span
+      className={`rounded-full border px-3 py-1 text-xs font-black ${
+        ok
+          ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-200"
+          : "border-amber-300/30 bg-amber-300/10 text-amber-200"
+      }`}
+    >
       {children}
     </span>
   );
+}
+
+async function readProxy(response: Response, fallback: string) {
+  const payload = (await response.json().catch(() => ({}))) as ProxyPayload;
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(payload.error || fallback);
+  }
+  return payload;
 }
 
 export default function ChecklistSentinelPage() {
@@ -109,21 +128,23 @@ export default function ChecklistSentinelPage() {
     setError(null);
     try {
       const [statusResponse, downloadsResponse, findingsResponse] = await Promise.all([
-        fetch("/api/admin/instacomp/checklist-sentinel?action=status", { cache: "no-store" }),
-        fetch("/api/admin/instacomp/checklist-sentinel?action=downloads&limit=30", { cache: "no-store" }),
-        fetch("/api/admin/instacomp/checklist-sentinel?action=findings&limit=30", { cache: "no-store" }),
+        fetch("/api/instacomp/checklist-sentinel?view=status", { cache: "no-store" }),
+        fetch("/api/instacomp/checklist-sentinel?view=downloads", { cache: "no-store" }),
+        fetch("/api/instacomp/checklist-sentinel?view=findings", { cache: "no-store" }),
       ]);
-      const [statusPayload, downloadsPayload, findingsPayload] = (await Promise.all([
-        statusResponse.json().catch(() => ({})),
-        downloadsResponse.json().catch(() => ({})),
-        findingsResponse.json().catch(() => ({})),
-      ])) as [ProxyPayload, ProxyPayload, ProxyPayload];
-      if (!statusResponse.ok || statusPayload.ok === false) throw new Error(statusPayload.error || "Could not load Sentinel status.");
-      if (!downloadsResponse.ok || downloadsPayload.ok === false) throw new Error(downloadsPayload.error || "Could not load Sentinel downloads.");
-      if (!findingsResponse.ok || findingsPayload.ok === false) throw new Error(findingsPayload.error || "Could not load Sentinel findings.");
-      setStatus(statusPayload.status || null);
-      setDownloads(downloadsPayload.downloads || []);
-      setFindings(findingsPayload.findings || []);
+      const [statusPayload, downloadsPayload, findingsPayload] = await Promise.all([
+        readProxy(statusResponse, "Could not load Sentinel status."),
+        readProxy(downloadsResponse, "Could not load Sentinel downloads."),
+        readProxy(findingsResponse, "Could not load Sentinel findings."),
+      ]);
+
+      setStatus((statusPayload.data || null) as SentinelStatus | null);
+      setDownloads(
+        (((downloadsPayload.data || {}) as DownloadsPayload).downloads || []) as DownloadRow[],
+      );
+      setFindings(
+        (((findingsPayload.data || {}) as FindingsPayload).findings || []) as FindingRow[],
+      );
       setUpdatedAt(new Date());
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Sentinel status failed.");
@@ -142,13 +163,12 @@ export default function ChecklistSentinelPage() {
     setWorking(true);
     setError(null);
     try {
-      const response = await fetch("/api/admin/instacomp/checklist-sentinel", {
+      const response = await fetch("/api/instacomp/checklist-sentinel", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: actionName }),
       });
-      const payload = (await response.json().catch(() => ({}))) as ProxyPayload;
-      if (!response.ok || payload.ok === false) throw new Error(payload.error || "Sentinel action failed.");
+      await readProxy(response, "Sentinel action failed.");
       await load();
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Sentinel action failed.");
@@ -161,13 +181,16 @@ export default function ChecklistSentinelPage() {
   const pendingTargets = number(status?.targets?.pending);
   const totalTargets = number(status?.targets?.total);
   const completedTargets = Math.max(0, totalTargets - pendingTargets);
-  const progress = totalTargets > 0
-    ? Math.max(0, Math.min(100, completedTargets * 100 / totalTargets))
-    : 0;
+  const progress =
+    totalTargets > 0
+      ? Math.max(0, Math.min(100, (completedTargets * 100) / totalTargets))
+      : 0;
   const batchProgress = Math.max(0, Math.min(100, number(job?.progress_percent)));
   const connectionHealthy = Boolean(status?.enabled && !status.freeze_protection?.stale);
   const archived = useMemo(
-    () => downloads.filter((row) => String(row.status || "").includes("imported_registry")).length,
+    () =>
+      downloads.filter((row) => String(row.status || "").includes("imported_registry"))
+        .length,
     [downloads],
   );
   const leadOnly = useMemo(
@@ -180,19 +203,31 @@ export default function ChecklistSentinelPage() {
       <div className="mx-auto w-full max-w-[1500px] space-y-6">
         <div className="flex flex-col gap-4 rounded-3xl border border-cyan-300/20 bg-gradient-to-br from-cyan-400/10 via-neutral-950 to-blue-500/10 p-6 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <div className="text-xs font-black uppercase tracking-[0.24em] text-cyan-300">InstaComp AI</div>
+            <div className="text-xs font-black uppercase tracking-[0.24em] text-cyan-300">
+              InstaComp AI
+            </div>
             <h1 className="mt-2 text-3xl font-black sm:text-5xl">Checklist Sentinel™</h1>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-neutral-300">
-              The Mac owns the 24-hour checklist search and automatically drains newly pending checklist targets in safe batches. This page securely controls and reads it through Vercel and the permanent Cloudflare tunnel.
+              The Mac owns the 24-hour checklist search and automatically drains newly pending
+              checklist targets in safe batches. This page securely controls and reads it through
+              Vercel and the permanent Cloudflare tunnel.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <StatusPill ok={connectionHealthy}>{connectionHealthy ? "Mac connected" : "Mac unavailable"}</StatusPill>
-            <StatusPill ok={Boolean(status?.registry_import_configured)}>{status?.registry_import_configured ? "Central archive on" : "Central archive off"}</StatusPill>
+            <StatusPill ok={connectionHealthy}>
+              {connectionHealthy ? "Mac connected" : "Mac unavailable"}
+            </StatusPill>
+            <StatusPill ok={Boolean(status?.registry_import_configured)}>
+              {status?.registry_import_configured ? "Central archive on" : "Central archive off"}
+            </StatusPill>
           </div>
         </div>
 
-        {error ? <div className="rounded-2xl border border-red-400/40 bg-red-400/10 p-4 font-bold text-red-100">{error}</div> : null}
+        {error ? (
+          <div className="rounded-2xl border border-red-400/40 bg-red-400/10 p-4 font-bold text-red-100">
+            {error}
+          </div>
+        ) : null}
 
         <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
           <Metric label="Overall progress" value={`${progress.toFixed(1)}%`} />
@@ -207,26 +242,81 @@ export default function ChecklistSentinelPage() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-xl font-black">Checklist search backlog</h2>
-              <p className="mt-1 text-sm text-neutral-400">{job?.status || (loading ? "Loading…" : "No run recorded")} · safe batch progress {batchProgress.toFixed(1)}%</p>
+              <p className="mt-1 text-sm text-neutral-400">
+                {job?.status || (loading ? "Loading…" : "No run recorded")} · safe batch progress{" "}
+                {batchProgress.toFixed(1)}%
+              </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <button type="button" disabled={working} onClick={() => void action("run")} className="rounded-xl bg-cyan-300 px-4 py-3 text-sm font-black text-neutral-950 disabled:opacity-50">Run now</button>
-              <button type="button" disabled={working} onClick={() => void action("refresh-targets")} className="rounded-xl border border-white/20 px-4 py-3 text-sm font-black disabled:opacity-50">Refresh targets</button>
-              <button type="button" disabled={working} onClick={() => void load()} className="rounded-xl border border-white/20 px-4 py-3 text-sm font-black disabled:opacity-50">Refresh status</button>
+              <button
+                type="button"
+                disabled={working}
+                onClick={() => void action("run")}
+                className="rounded-xl bg-cyan-300 px-4 py-3 text-sm font-black text-neutral-950 disabled:opacity-50"
+              >
+                Run now
+              </button>
+              <button
+                type="button"
+                disabled={working}
+                onClick={() => void action("refresh-targets")}
+                className="rounded-xl border border-white/20 px-4 py-3 text-sm font-black disabled:opacity-50"
+              >
+                Refresh targets
+              </button>
+              <button
+                type="button"
+                disabled={working}
+                onClick={() => void load()}
+                className="rounded-xl border border-white/20 px-4 py-3 text-sm font-black disabled:opacity-50"
+              >
+                Refresh status
+              </button>
             </div>
           </div>
-          <div className="mt-5 h-5 overflow-hidden rounded-full bg-white/10" aria-label={`Checklist search progress ${progress.toFixed(1)} percent`}>
-            <div className="h-full rounded-full bg-cyan-300 transition-all" style={{ width: `${progress}%` }} />
+          <div
+            className="mt-5 h-5 overflow-hidden rounded-full bg-white/10"
+            aria-label={`Checklist search progress ${progress.toFixed(1)} percent`}
+          >
+            <div
+              className="h-full rounded-full bg-cyan-300 transition-all"
+              style={{ width: `${progress}%` }}
+            />
           </div>
           <div className="mt-3 flex flex-col gap-1 text-sm text-neutral-300 sm:flex-row sm:items-center sm:justify-between">
-            <span className="font-bold text-cyan-200">{progress.toFixed(1)}% complete · {completedTargets} of {totalTargets} targets attempted</span>
-            <span>Progress last updated: {updatedAt ? <time dateTime={updatedAt.toISOString()}>{updatedAt.toLocaleString()}</time> : "Not yet"}</span>
+            <span className="font-bold text-cyan-200">
+              {progress.toFixed(1)}% complete · {completedTargets} of {totalTargets} targets attempted
+            </span>
+            <span>
+              Progress last updated:{" "}
+              {updatedAt ? (
+                <time dateTime={updatedAt.toISOString()}>{updatedAt.toLocaleString()}</time>
+              ) : (
+                "Not yet"
+              )}
+            </span>
           </div>
           <div className="mt-5 grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
-            <div><span className="text-neutral-500">Current target:</span><br />{job?.current_target_key || "None"}</div>
-            <div><span className="text-neutral-500">Started:</span><br />{dateTime(job?.started_at)}</div>
-            <div><span className="text-neutral-500">Heartbeat:</span><br />{dateTime(job?.heartbeat_at)}</div>
-            <div><span className="text-neutral-500">Failures:</span><br />{number(job?.failed_count)}</div>
+            <div>
+              <span className="text-neutral-500">Current target:</span>
+              <br />
+              {job?.current_target_key || "None"}
+            </div>
+            <div>
+              <span className="text-neutral-500">Started:</span>
+              <br />
+              {dateTime(job?.started_at)}
+            </div>
+            <div>
+              <span className="text-neutral-500">Heartbeat:</span>
+              <br />
+              {dateTime(job?.heartbeat_at)}
+            </div>
+            <div>
+              <span className="text-neutral-500">Failures:</span>
+              <br />
+              {number(job?.failed_count)}
+            </div>
           </div>
         </section>
 
@@ -235,11 +325,19 @@ export default function ChecklistSentinelPage() {
             <h2 className="text-xl font-black">Freeze protection</h2>
             <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
               <StatusPill ok={Boolean(status?.freeze_protection?.sqlite_wal)}>SQLite WAL</StatusPill>
-              <StatusPill ok={Boolean(status?.freeze_protection?.atomic_downloads)}>Atomic files</StatusPill>
+              <StatusPill ok={Boolean(status?.freeze_protection?.atomic_downloads)}>
+                Atomic files
+              </StatusPill>
               <StatusPill ok={Boolean(status?.freeze_protection?.heartbeat)}>Heartbeat</StatusPill>
-              <StatusPill ok={Boolean(status?.freeze_protection?.resume_pending_targets)}>Safe resume</StatusPill>
+              <StatusPill ok={Boolean(status?.freeze_protection?.resume_pending_targets)}>
+                Safe resume
+              </StatusPill>
             </div>
-            <p className="mt-5 text-sm text-neutral-400">Checkpoint every {number(status?.checkpoint_seconds)} seconds. Daily schedule: {number(status?.schedule_hours)} hours. Pending backlog batches automatically continue until no due pending targets remain.</p>
+            <p className="mt-5 text-sm text-neutral-400">
+              Checkpoint every {number(status?.checkpoint_seconds)} seconds. Daily schedule:{" "}
+              {number(status?.schedule_hours)} hours. Pending backlog batches automatically continue
+              until no due pending targets remain.
+            </p>
           </div>
           <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6">
             <h2 className="text-xl font-black">Latest evidence</h2>
@@ -247,13 +345,21 @@ export default function ChecklistSentinelPage() {
               <Metric label="Download receipts" value={downloads.length} />
               <Metric label="Community leads" value={leadOnly} />
             </div>
-            <p className="mt-4 text-sm text-neutral-400">Community sources remain lead-only until provenance and redistribution permission are verified.</p>
+            <p className="mt-4 text-sm text-neutral-400">
+              Community sources remain lead-only until provenance and redistribution permission are
+              verified.
+            </p>
           </div>
         </section>
 
         <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-neutral-500">
-          <span>Progress refreshes automatically every 20 minutes. Last successful read: {updatedAt ? updatedAt.toLocaleString() : "Not yet"}</span>
-          <Link href="/admin" className="font-bold text-cyan-300 hover:text-cyan-200">Back to Admin</Link>
+          <span>
+            Progress refreshes automatically every 20 minutes. Last successful read:{" "}
+            {updatedAt ? updatedAt.toLocaleString() : "Not yet"}
+          </span>
+          <Link href="/admin" className="font-bold text-cyan-300 hover:text-cyan-200">
+            Back to Admin
+          </Link>
         </div>
       </div>
     </main>
