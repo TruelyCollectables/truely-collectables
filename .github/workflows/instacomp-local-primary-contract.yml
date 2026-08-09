@@ -12,6 +12,7 @@ on:
       - "src/app/api/instacomp/scan/route.ts"
       - "src/app/api/instacomp/internal-readiness/route.ts"
       - "src/app/api/account/seller/inventory/instacomp-card-edit/route.ts"
+      - "src/app/admin/instacomp/fast/**"
       - "scripts/check-instacomp-local-primary-contract.mjs"
       - "scripts/check-instacomp-provider-fallback.mjs"
       - "scripts/check-instacomp-no-external-reader-plan.mjs"
@@ -19,10 +20,11 @@ on:
       - "scripts/run-instacomp-internal-fail-closed-regressions.ts"
       - "scripts/run-instacomp-ocr-registry-primary-regressions.ts"
       - "scripts/run-instacomp-prizm-surface-regressions.ts"
+      - "scripts/apply-instacomp-seller-display-fix.py"
       - ".github/workflows/instacomp-local-primary-contract.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   certify:
@@ -30,6 +32,9 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -39,6 +44,8 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Materialize complete eBay seller audit packet
+        run: python3 scripts/apply-instacomp-seller-display-fix.py
       - name: Install dependencies
         run: |
           pip install -r services/instacomp-ai/requirements.txt
@@ -52,6 +59,8 @@ jobs:
           grep -q 'printedEvidence: params.externalOcr' src/app/api/instacomp/scan/route.ts
           grep -q 'printed_registry = (' services/instacomp-ai/app/main.py
           grep -q 'match_source="checklist_registry"' services/instacomp-ai/app/main.py
+          grep -q 'item?.seller?.username' src/app/api/instacomp/scan/route.ts
+          grep -q 'Item #' src/app/admin/instacomp/fast/InstaCompFastWorkbench.tsx
       - name: Internal fail-closed regressions
         run: node --import tsx scripts/run-instacomp-internal-fail-closed-regressions.ts
       - name: Council runtime hard-stop regressions
@@ -84,6 +93,7 @@ jobs:
           src/app/api/instacomp/scan/route.ts
           src/app/api/instacomp/internal-readiness/route.ts
           src/app/api/account/seller/inventory/instacomp-card-edit/route.ts
+          src/app/admin/instacomp/fast/InstaCompFastWorkbench.tsx
           src/lib/instacomp-ai-local.ts
           src/lib/instacomp-ai-provider-failover.ts
           src/lib/instacomp-ai-council-runtime.ts
@@ -107,3 +117,19 @@ jobs:
         run: |
           npm run build
           git checkout -- public/instacomp-release.json
+      - name: Persist verified seller audit packet
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            src/app/api/instacomp/scan/route.ts \
+            src/app/admin/instacomp/fast/InstaCompFastWorkbench.tsx \
+            scripts/instacomp-fast-workbench-certify.mjs
+          if git diff --cached --quiet; then
+            echo "Seller audit packet already committed."
+          else
+            git commit -m "Show complete eBay seller audit data"
+            git push origin HEAD:${{ github.head_ref }}
+          fi
