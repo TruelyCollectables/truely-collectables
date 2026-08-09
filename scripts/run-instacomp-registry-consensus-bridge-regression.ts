@@ -16,7 +16,7 @@ const visibleIdentity = {
   player: "Shedeur Sanders",
   year: "2025",
   brand: "Panini",
-  setName: "2025 Panini Origins Football",
+  setName: "Base - Rookies",
   cardNumber: "107",
   parallel: "Holo Blue",
   serialNumber: "162/199",
