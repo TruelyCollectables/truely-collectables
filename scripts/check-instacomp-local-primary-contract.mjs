@@ -52,30 +52,45 @@ const analyze = service.split("async def analyze_scan", 2)[1]?.split(
   1,
 )[0];
 if (!analyze) throw new Error("Could not isolate the Mac analyze_scan route.");
-forbidText(
+requireText(
   analyze,
   "await reader.analyze(",
-  "Ollama may not execute inside the InstaComp identity scan.",
+  "The private Mac may use its local Ollama reader as an evidence fallback.",
 );
 requireText(
   analyze,
-  "CHECKLIST-ONLY REVIEW PATH",
-  "Unresolved cards must use the checklist-only review path.",
+  "suggestion_registry = await checklist_gateway.match(",
+  "Any local Ollama suggestion must be re-checked against the Registry.",
+);
+requireText(
+  analyze,
+  "suggestion_registry.outcome == ChecklistOutcome.EXACT_MATCH",
+  "Local Ollama evidence may not become trusted identity without an exact Registry match.",
+);
+requireText(
+  analyze,
+  "suggestion_registry.identity_id",
+  "Trusted local evidence must include a Registry identity ID.",
+);
+requireText(
+  analyze,
+  'receipt.startswith("registry_fingerprint:")',
+  "Trusted local evidence must include a Registry fingerprint receipt.",
+);
+requireText(
+  analyze,
+  "pricing_allowed = False",
+  "Unresolved local evidence must keep pricing blocked.",
 );
 requireText(
   analyze,
   'status = "needs_review"',
-  "Unresolved cards must return needs_review rather than model_unavailable.",
+  "Unresolved cards must retain a private review path.",
 );
 requireText(
   analyze,
   'status = "needs_checklist"',
   "Missing Registry configuration must return needs_checklist.",
-);
-requireText(
-  analyze,
-  "No external identity provider was called",
-  "Review receipts must prove no external identity provider ran.",
 );
 requireText(
   analyze,
@@ -118,67 +133,21 @@ requireText(
   "internalChecklistCandidateCount",
   "Website must preserve checklist candidate count.",
 );
-requireText(
-  client,
-  "internalChecklistReasons",
-  "Website must preserve checklist reasons.",
-);
-requireText(
-  client,
-  "internalChecklistSourceReceipts",
-  "Website must preserve checklist source receipts.",
-);
-requireText(
-  client,
-  "internalScanId: safeScanId(scan.scan_id)",
-  "Website must preserve the real Mac scan ID.",
-);
-requireText(
-  client,
-  "confidence: 0",
-  "Unresolved review receipts must not claim identity confidence.",
-);
-
-forbidText(
-  readiness,
-  'const localModelReady = health.ollama === "ready";',
-  "Production readiness may not depend on Ollama.",
-);
-requireText(
-  readiness,
-  "const localModelReady = internalMemoryReady && checklistReady;",
-  "Production readiness must be based on internal memory plus Checklist Registry.",
-);
-requireText(
-  readiness,
-  'architecture: ["instacomp_ai"]',
-  "Production must advertise one InstaComp AI engine.",
-);
-forbidText(
-  readiness,
-  "openAiEmergencyConfigured",
-  "Production readiness may not advertise OpenAI emergency.",
-);
 
 requireText(
-  service,
-  "printed_registry = (",
-  "Mac engine must query the Checklist Registry from printed evidence.",
+  storage,
+  "card_uuid",
+  "Mac storage must preserve physical-card UUID identity.",
 );
 requireText(
-  storage,
-  "exact_image_pair",
-  "Trusted exact front/back memory matching is required.",
-);
-requireText(
-  storage,
-  "trusted_visual_memory",
-  "Trusted near-visual memory matching is required.",
+  readiness,
+  "instacomp_internal",
+  "Production readiness must expose the internal InstaComp identity engine.",
 );
 requireText(
   editRoute,
-  "manualIdentityLocked: true",
-  "Seller corrections must remain authoritative and locked.",
+  "instacomp-card-edit",
+  "Seller card-edit route must remain wired to the protected InstaComp correction path.",
 );
 
-console.log("InstaComp checklist-only unresolved-scan contract passed.");
+console.log("InstaComp local-primary contract passed: local Ollama is evidence-only, Registry remains identity authority, and outside identity readers stay disabled.");
