@@ -1,0 +1,61 @@
+name: InstaComp teacher comp mode
+
+on:
+  push:
+    branches:
+      - fix/instacomp-teacher-comp-mode-20260808
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  certify-and-apply:
+    if: ${{ !contains(github.event.head_commit.message || '', '[teacher-mode-applied]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/instacomp-teacher-comp-mode-20260808
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply student/teacher boundary and teacher-first comp chain
+        run: node scripts/apply-instacomp-teacher-comp-mode.mjs
+
+      - name: Reject malformed patch
+        run: git diff --check
+
+      - name: Run teacher consensus regressions
+        run: node --import tsx scripts/run-instacomp-teacher-market-provider-simulations.ts
+
+      - name: Run existing InstaComp consensus regressions
+        run: npm run simulate:instacomp-consensus
+
+      - name: Build Production application
+        run: npm run build
+
+      - name: Commit certified runtime changes
+        run: |
+          if git diff --quiet -- src/app/api/instacomp/deal-hunter/evaluate/core.ts src/app/api/instacomp/live-scan/route.ts src/lib/instacomp-teacher-market-provider.ts; then
+            echo "No runtime patch changes to commit."
+            exit 0
+          fi
+          git config user.name "Truely Collectables CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add \
+            src/app/api/instacomp/deal-hunter/evaluate/core.ts \
+            src/app/api/instacomp/live-scan/route.ts \
+            src/lib/instacomp-teacher-market-provider.ts
+          git commit -m "Activate outside-teacher InstaComp comp mode [teacher-mode-applied]"
+          git push origin HEAD:fix/instacomp-teacher-comp-mode-20260808
