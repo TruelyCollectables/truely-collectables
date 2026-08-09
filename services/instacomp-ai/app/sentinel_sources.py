@@ -125,11 +125,11 @@ DEFAULT_SOURCES: list[dict[str, Any]] = [
     },
     {
         "source_id": "psa",
-        "name": "PSA Auction Prices Realized set index",
-        "kind": "site_search",
+        "name": "PSA Auction Prices Realized first-party",
+        "kind": "psa_first_party",
         "trust_score": 96,
         "import_policy": "auto_import",
-        "search_url_template": "https://www.bing.com/search?q={query}",
+        "search_url_template": "https://www.psacard.com/auctionprices/search?q={query}",
         "domains": ["psacard.com", "www.psacard.com"],
     },
     {
@@ -427,12 +427,39 @@ def safe_filename(target: dict[str, Any], extension: str, sha256: str) -> str:
     return f"{slug[:160]}-{sha256[:12]}{extension}"
 
 
+def _psa_path_parts(url: str) -> list[str]:
+    parsed = urlparse(url)
+    parts = [part for part in parsed.path.split("/") if part]
+    if parts and re.fullmatch(r"[a-z]{2}(?:-[a-z]{2})?", parts[0], flags=re.IGNORECASE):
+        parts = parts[1:]
+    return parts
+
+
+def _canonical_psa_apr_url(url: str) -> str:
+    parsed = urlparse(url)
+    if (parsed.hostname or "").lower() not in {"psacard.com", "www.psacard.com"}:
+        return url
+    parts = _psa_path_parts(url)
+    if not parts or parts[0].lower() != "auctionprices":
+        return url
+    canonical_path = "/" + "/".join(parts)
+    return parsed._replace(
+        scheme="https",
+        netloc="www.psacard.com",
+        path=canonical_path,
+        params="",
+        query="",
+        fragment="",
+    ).geturl()
+
+
 def _is_psa_set_apr_url(url: str) -> bool:
     parsed = urlparse(url)
     if (parsed.hostname or "").lower() not in {"psacard.com", "www.psacard.com"}:
         return False
-    parts = [part for part in parsed.path.split("/") if part]
+    parts = _psa_path_parts(url)
     # Set-level APR: /auctionprices/<category>/<set-slug>/<numeric-set-id>
+    # PSA may prefix locale paths such as /en-CA/; those are canonicalized away.
     return (
         len(parts) == 4
         and parts[0].lower() == "auctionprices"
@@ -455,7 +482,7 @@ def _psa_expected_release_slug(target: dict[str, Any]) -> str:
 def _is_psa_exact_release_url(url: str, target: dict[str, Any]) -> bool:
     if not _is_psa_set_apr_url(url):
         return False
-    parts = [part for part in urlparse(url).path.split("/") if part]
+    parts = _psa_path_parts(url)
     expected = _psa_expected_release_slug(target)
     return bool(expected and parts[2].lower() == expected)
 
@@ -474,11 +501,62 @@ class SentinelSourceClient:
         self, source: dict[str, Any], target: dict[str, Any]
     ) -> list[Candidate]:
         query = self._query(source, target)
-        url = source["search_url_template"].format(query=quote_plus(query))
         headers = {
             "user-agent": USER_AGENT,
             "accept": "text/html,application/json;q=0.9,*/*;q=0.8",
         }
+        kind = source["kind"]
+
+        if kind == "psa_first_party":
+            direct_url = source["search_url_template"].format(query=quote_plus(query))
+            direct_error: httpx.HTTPError | None = None
+            try:
+                async with httpx.AsyncClient(
+                    timeout=self.timeout_seconds,
+                    follow_redirects=True,
+                    headers=headers,
+                ) as client:
+                    response = await client.get(direct_url)
+                    response.raise_for_status()
+                direct = self._html_candidates(
+                    source,
+                    target,
+                    response.text,
+                    str(response.url),
+                )
+                if direct:
+                    return direct
+            except httpx.HTTPError as error:
+                direct_error = error
+
+            # PSA first. SERP is only a fallback when PSA's own search endpoint
+            # is blocked or does not expose the exact whole-release set link.
+            fallback_query = (
+                f'site:psacard.com {query} "Auction Prices Realized" "Items in Set"'
+            )
+            fallback_url = (
+                "https://www.bing.com/search?q=" + quote_plus(fallback_query)
+            )
+            try:
+                async with httpx.AsyncClient(
+                    timeout=self.timeout_seconds,
+                    follow_redirects=True,
+                    headers=headers,
+                ) as client:
+                    response = await client.get(fallback_url)
+                    response.raise_for_status()
+                return self._html_candidates(
+                    source,
+                    target,
+                    response.text,
+                    str(response.url),
+                )
+            except httpx.HTTPError:
+                if direct_error is not None:
+                    raise direct_error
+                raise
+
+        url = source["search_url_template"].format(query=quote_plus(query))
         async with httpx.AsyncClient(
             timeout=self.timeout_seconds,
             follow_redirects=True,
@@ -486,7 +564,6 @@ class SentinelSourceClient:
         ) as client:
             response = await client.get(url)
             response.raise_for_status()
-        kind = source["kind"]
         if kind == "reddit_json":
             return self._reddit_candidates(source, target, response.json())
         if kind == "archive_json":
@@ -498,10 +575,9 @@ class SentinelSourceClient:
         if target.get("scope") == "discovery":
             query = str(target.get("product") or "")
         elif source_id == "psa":
-            # PSA titles use release/card year (for example `2010 Panini ...`),
-            # while our canonical target may use the hobby season `2010-11`.
-            # Search by the parsed first year but keep the full season untouched
-            # for Registry identity/persistence.
+            # PSA's own APR search works best with the card release identity.
+            # Keep hobby season canonicalization in Registry context, but search
+            # with the parsed release year PSA actually prints on its pages.
             query = " ".join(
                 str(value).strip()
                 for value in [
@@ -509,8 +585,6 @@ class SentinelSourceClient:
                     target.get("manufacturer"),
                     target.get("product"),
                     target.get("sport"),
-                    '"Auction Prices Realized"',
-                    '"Items in Set"',
                 ]
                 if value
             )
@@ -556,6 +630,8 @@ class SentinelSourceClient:
         seen: set[str] = set()
         for href, title in parser.anchors:
             url = unwrap_search_url(href, base_url)
+            if source.get("source_id") == "psa" and url:
+                url = _canonical_psa_apr_url(url)
             if not url or url in seen or not is_public_http_url(url):
                 continue
             seen.add(url)

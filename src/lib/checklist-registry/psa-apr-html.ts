@@ -10,7 +10,7 @@ import type {
 import { buildChecklistSourceStorageReceipt } from "./storage";
 
 export const PSA_APR_HTML_ADAPTER_ID = "psa-apr-set-html" as const;
-export const PSA_APR_HTML_ADAPTER_VERSION = "1.1.0" as const;
+export const PSA_APR_HTML_ADAPTER_VERSION = "1.2.0" as const;
 
 function clean(value: unknown) {
   return String(value ?? "")
@@ -195,13 +195,19 @@ function expectedPsaReleaseSlug(
     .join("-");
 }
 
-function actualPsaReleaseSlug(sourceUrl: string) {
+function psaAprPathParts(sourceUrl: string) {
   try {
     const parts = new URL(sourceUrl).pathname.split("/").filter(Boolean);
-    return comparable(parts[2] || "");
+    if (parts[0] && /^[a-z]{2}(?:-[a-z]{2})?$/i.test(parts[0])) parts.shift();
+    return parts;
   } catch {
-    return "";
+    return [] as string[];
   }
+}
+
+function actualPsaReleaseSlug(sourceUrl: string) {
+  const parts = psaAprPathParts(sourceUrl);
+  return comparable(parts[2] || "");
 }
 
 function issue(
@@ -429,12 +435,19 @@ export const psaAprHtmlChecklistAdapter: ChecklistSourceAdapter = {
   id: PSA_APR_HTML_ADAPTER_ID,
   version: PSA_APR_HTML_ADAPTER_VERSION,
   supports(artifact) {
-    return (
-      artifact.mimeType.toLowerCase() === "text/html" &&
-      /^https:\/\/(?:www\.)?psacard\.com\/auctionprices\/[^/]+\/[^/]+\/\d+(?:[/?#]|$)/i.test(
-        artifact.sourceUrl,
-      )
-    );
+    if (artifact.mimeType.toLowerCase() !== "text/html") return false;
+    try {
+      const url = new URL(artifact.sourceUrl);
+      if (!/^(?:www\.)?psacard\.com$/i.test(url.hostname)) return false;
+      const parts = psaAprPathParts(artifact.sourceUrl);
+      return (
+        parts.length === 4 &&
+        parts[0]?.toLowerCase() === "auctionprices" &&
+        /^\d+$/.test(parts[3] || "")
+      );
+    } catch {
+      return false;
+    }
   },
   parse: parsePsaAprHtmlChecklist,
 };

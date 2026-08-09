@@ -292,6 +292,16 @@ class ChecklistSentinel:
 
         try:
             sources = self.store.list_sources(enabled_only=True)
+            # PSA APR is a first-party checklist source and must run before any
+            # SERP-backed manufacturer/community discovery. Trust still orders
+            # the remaining sources after the PSA-first lane.
+            sources.sort(
+                key=lambda source: (
+                    0 if source.get("source_id") == "psa" else 1,
+                    -int(source.get("trust_score") or 0),
+                    str(source.get("source_id") or ""),
+                )
+            )
             for target in targets:
                 self.store.heartbeat(
                     job_id,
