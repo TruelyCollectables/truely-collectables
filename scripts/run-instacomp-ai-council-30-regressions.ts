@@ -8,59 +8,36 @@ const route = readFileSync(
   resolve(process.cwd(), "src/app/api/instacomp/scan/route.ts"),
   "utf8",
 );
+const runtime = readFileSync(
+  resolve(process.cwd(), "src/lib/instacomp-ai-council-runtime.ts"),
+  "utf8",
+);
 
 const checks: Array<[string, boolean]> = [
   [
-    "AI council hard cap is 30",
+    "legacy council configuration remains bounded if retained for compatibility",
     route.includes("const INSTACOMP_AI_COUNCIL_MAX_READERS = 30;"),
   ],
   [
-    "default minimum backup council is 8",
-    route.includes("process.env.INSTACOMP_AI_COUNCIL_MIN_READERS || 8"),
+    "production scan policy is pinned to the basic local-only identity lane",
+    route.includes('requestedTier: "basic",'),
   ],
   [
-    "adaptive scans run the backup council unless explicitly disabled",
-    route.includes("const INSTACOMP_AI_COUNCIL_ALWAYS_ON =") &&
-      route.includes("return INSTACOMP_AI_COUNCIL_MIN_READERS;"),
+    "production scan never runs outside secondary identity readers",
+    route.includes("runSecondaryVision: false"),
   ],
   [
-    "tiers scale through 12, 16, 24, and 30 readers",
-    route.includes('if (tier === "pro") return 12;') &&
-      route.includes('if (tier === "dealer") return 16;') &&
-      route.includes('tier === "high_end" || tier === "high-end"') &&
-      route.includes("return 24;") &&
-      route.includes("return INSTACOMP_AI_COUNCIL_MAX_READERS;"),
+    "shared council runtime is fail-closed even if callers request capacity",
+    runtime.includes("Production identity belongs exclusively to InstaComp AI on the Mac.") &&
+      runtime.includes("return false;"),
   ],
   [
-    "custom OpenAI-compatible slots are configurable without exposing secrets",
-    route.includes("INSTACOMP_AI_COUNCIL_${slot}") &&
-      route.includes("`${prefix}_BASE_URL`") &&
-      route.includes("`${prefix}_API_KEY`") &&
-      route.includes("`${prefix}_MODEL`") &&
-      !route.includes("apiKey: providerMeta.apiKey"),
+    "outside providers cannot regain an identity vote through the legacy family winner path",
+    route.includes(".filter((councilReader) => councilReader.voteEligible)") &&
+      route.includes("runSecondaryVision: false"),
   ],
   [
-    "reader passes include full, OCR, parallel, and clean-context views",
-    route.includes('detailMode: "full"') &&
-      route.includes('detailMode: "ocr"') &&
-      route.includes('detailMode: "parallel"') &&
-      route.includes('detailMode: "context"'),
-  ],
-  [
-    "route delegates failed-reader replacement to the bounded runtime helper",
-    route.includes("while (") &&
-      route.includes("shouldContinueCouncilRuntime({") &&
-      route.includes("completedReaders,") &&
-      route.includes("configuredReaderCount: configuredPlan.length"),
-  ],
-  [
-    "only one reader per AI family is eligible to vote",
-    route.includes("function markAiCouncilFamilyWinners") &&
-      route.includes("winners.set(reader.family, reader)") &&
-      route.includes(".filter((councilReader) => councilReader.voteEligible)"),
-  ],
-  [
-    "checklist evidence remains outside the AI family vote cap",
+    "checklist Registry remains the non-model exact-identity referee",
     route.includes("buildChecklistRegistryCatalogEvidence") &&
       route.includes("buildInstaCompEvidenceIdentityDecision"),
   ],
@@ -70,46 +47,42 @@ for (const [label, passed] of checks) {
   assert.equal(passed, true, label);
 }
 
-assert.equal(
-  shouldContinueCouncilRuntime({
+for (const scenario of [
+  {
+    completedReaders: 0,
+    desiredReaders: 30,
+    completedFamilies: [] as string[],
+    configuredFamilies: ["google", "groq", "openai"],
+    cursor: 0,
+    configuredReaderCount: 30,
+    primaryFamily: "instacomp_internal",
+  },
+  {
     completedReaders: 6,
     desiredReaders: 8,
     completedFamilies: ["google", "groq"],
     configuredFamilies: ["google", "groq", "ollama"],
     cursor: 8,
     configuredReaderCount: 12,
-    primaryFamily: "openai",
-  }),
-  true,
-  "failed readers are replaced from reserve capacity",
-);
-
-assert.equal(
-  shouldContinueCouncilRuntime({
-    completedReaders: 8,
-    desiredReaders: 8,
-    completedFamilies: ["google"],
-    configuredFamilies: ["google", "groq"],
-    cursor: 8,
-    configuredReaderCount: 12,
-    primaryFamily: "google",
-  }),
-  true,
-  "the council continues when reader capacity is met but no family independent of the winning primary has completed",
-);
-
-assert.equal(
-  shouldContinueCouncilRuntime({
+    primaryFamily: "instacomp_internal",
+  },
+  {
     completedReaders: 8,
     desiredReaders: 8,
     completedFamilies: ["google", "groq"],
     configuredFamilies: ["google", "groq", "ollama"],
     cursor: 8,
     configuredReaderCount: 12,
-    primaryFamily: "google",
-  }),
-  false,
-  "the council stops only after capacity and independent-family requirements are both satisfied",
-);
+    primaryFamily: "instacomp_internal",
+  },
+]) {
+  assert.equal(
+    shouldContinueCouncilRuntime(scenario),
+    false,
+    "outside identity council must remain hard-disabled regardless of requested or reserve capacity",
+  );
+}
 
-console.log(`InstaComp 8-30 AI council regressions passed (${checks.length + 3} assertions).`);
+console.log(
+  `InstaComp local-only identity council regressions passed (${checks.length + 3} assertions).`,
+);
