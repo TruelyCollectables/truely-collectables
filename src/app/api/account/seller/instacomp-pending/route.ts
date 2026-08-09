@@ -332,6 +332,40 @@ export async function GET(request: Request) {
           source: textValue(instaComp.source),
           scanId: textValue(instaComp.scanId),
           humanVerified: instaComp.humanVerified === true,
+          cardUuid:
+            textValue(instaComp.cardUuid) ||
+            textValue(ai.internalCardUuid) ||
+            null,
+          identity: {
+            sport: textValue(ai.sport),
+            league: textValue(ai.league),
+            year: textValue(ai.year),
+            manufacturer:
+              textValue(ai.manufacturer) || textValue(ai.brand),
+            brand: textValue(ai.brand),
+            setName: textValue(ai.setName) || textValue(ai.set_name),
+            subset: textValue(ai.subset),
+            player: textValue(ai.player),
+            team: textValue(ai.team),
+            cardNumber: textValue(ai.cardNumber) || textValue(ai.card_number),
+            parallel:
+              textValue(ai.checklistParallel) ||
+              textValue(ai.parallelName) ||
+              textValue(ai.parallel),
+            variation: textValue(ai.variation),
+            serialNumber: textValue(ai.serialNumber) || exactSerialNumber,
+            isRookie: ai.isRookie === true || collectibleAsset.rookie === true,
+            isAuto: ai.isAuto === true || collectibleAsset.autograph === true,
+            isRelic: ai.isRelic === true || collectibleAsset.memorabilia === true,
+            inscription:
+              ai.internalInscription === true || collectibleAsset.inscription === true,
+            inscriptionText:
+              textValue(ai.internalInscriptionText) ||
+              textValue(collectibleAsset.inscription_text),
+            memorabiliaType:
+              textValue(ai.internalMemorabiliaType) ||
+              textValue(collectibleAsset.memorabilia_type),
+          },
           serialNumber: textValue(ai.serialNumber) || exactSerialNumber,
           hasBackImage,
           backImageSource: storedPair.hasStoredBackImage

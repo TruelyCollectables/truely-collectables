@@ -72,14 +72,16 @@ for (const required of [
   "job?.error",
   "Blank no longer means Base.",
   "No Base or look-alike parallel was substituted.",
+  "rotatedImageFile",
+  '"/api/account/seller/inventory/instacomp-image-rotate"',
+  "Retry This Card",
+  "Replace Manual Identity with AI",
   "never auto-published",
 ]) {
   requireText(auditedPending, required, "audited KINGMAKER Pending Listings");
 }
 for (const forbidden of [
   "failed: 100",
-  'formData.set("frontImage", frontImage)',
-  'formData.set("backImage", backImage)',
 ]) {
   rejectText(auditedPending, forbidden, "audited KINGMAKER Pending Listings");
 }

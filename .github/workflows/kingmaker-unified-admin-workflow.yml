@@ -1,0 +1,130 @@
+name: KINGMAKER Unified Admin Workflow
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/kingmaker-unified-admin-workflow.yml"
+      - "scripts/patch-kingmaker-pending-full-review.py"
+      - "scripts/patch-kingmaker-pending-compatibility.py"
+      - "scripts/patch-kingmaker-architecture-rotation-contract.py"
+      - "scripts/certify-kingmaker-instacomp-architecture.mjs"
+      - "src/app/admin/**"
+      - "src/app/kingmaker/**"
+      - "src/app/api/account/seller/instacomp-pending/route.ts"
+      - "src/app/api/account/seller/inventory/instacomp-card-edit/route.ts"
+      - "src/app/api/account/seller/inventory/instacomp-image-rotate/route.ts"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kingmaker-unified-admin-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/kingmaker-unified-admin-workflow-20260809
+          fetch-depth: 0
+
+      - name: Apply Pending and certification compatibility patches
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-kingmaker-pending-full-review.py
+          python3 scripts/patch-kingmaker-pending-compatibility.py
+          python3 scripts/patch-kingmaker-architecture-rotation-contract.py
+          git diff --check
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Existing KINGMAKER FBI contract
+        run: node scripts/check-kingmaker-fbi-contract.mjs
+
+      - name: Existing scan-to-list release matrix
+        run: node --import tsx scripts/run-instacomp-scan-to-list-release-gate.ts
+
+      - name: Reconciled KINGMAKER architecture contract
+        run: node scripts/certify-kingmaker-instacomp-architecture.mjs
+
+      - name: TypeScript contract
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder
+          SUPABASE_SERVICE_ROLE_KEY: ci-placeholder
+        run: npx tsc --noEmit --pretty false
+
+      - name: KINGMAKER unified workflow contract
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          admin = Path('src/app/admin/page.tsx').read_text('utf-8')
+          layout = Path('src/app/admin/layout.tsx').read_text('utf-8')
+          home = Path('src/app/kingmaker/page.tsx').read_text('utf-8')
+          queue = Path('src/app/kingmaker/KingmakerInstaCompQueue.tsx').read_text('utf-8')
+          pending = Path('src/app/kingmaker/pending/page.tsx').read_text('utf-8')
+          pending_api = Path('src/app/api/account/seller/instacomp-pending/route.ts').read_text('utf-8')
+          edit_api = Path('src/app/api/account/seller/inventory/instacomp-card-edit/route.ts').read_text('utf-8')
+          rotate_api = Path('src/app/api/account/seller/inventory/instacomp-image-rotate/route.ts').read_text('utf-8')
+          architecture = Path('scripts/certify-kingmaker-instacomp-architecture.mjs').read_text('utf-8')
+
+          assert 'Enter KINGMAKER' in admin
+          assert '/admin/advanced' in admin and '/admin/advanced' in layout
+          assert 'LegacyAdminDashboard' not in admin
+          assert 'KingmakerInstaCompQueue' in home
+          assert '/api/account/seller/instacomp-scan/intake' in queue
+          assert 'cardUuid' in queue
+          assert 'multiple' in queue
+          assert 'Nothing publishes automatically' in queue
+          assert 'Edit All Fields' in pending
+          assert 'Rotate 90°' in pending
+          assert 'rotatedImageFile' in pending
+          assert 'formData.set("frontImage", frontImage)' in pending
+          assert 'formData.set("backImage", backImage)' in pending
+          assert 'Retry This Card' in pending
+          assert 'Replace Manual Identity with AI' in pending
+          assert 'Re-scan and Replace Locked Identity' in pending
+          assert 'Blank no longer means Base.' in pending
+          assert 'No Base or look-alike parallel was substituted.' in pending
+          assert 'soldCompEvidence' in pending and 'activeCompetition' in pending
+          assert 'standardizedTitle' in pending
+          assert '.replace(/\\bBase\\b/gi' in pending
+          assert 'cardUuid:' in pending_api and 'identity:' in pending_api
+          assert 'displayTitle' in edit_api and '.replace(/\\bBase\\b/gi' in edit_api
+          assert 'description: nextDescription' in edit_api
+          assert 'persistNormalizedInstaCompImagePair' in rotate_api
+          assert 'form.get("frontImage") ?? form.get("front")' in rotate_api
+          assert 'form.get("backImage") ?? form.get("back")' in rotate_api
+          assert 'published: false' in rotate_api
+          assert 'rotatedImageFile' in architecture
+          assert 'formData.set("frontImage", frontImage)' not in architecture.split('for (const forbidden of [', 1)[1].split(']) {', 1)[0]
+          print('PASS KINGMAKER unified scan -> Pending -> correction -> pricing workflow contract')
+          PY
+
+      - name: Persist tested generated changes
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            scripts/certify-kingmaker-instacomp-architecture.mjs \
+            src/app/kingmaker/pending/page.tsx \
+            src/app/api/account/seller/instacomp-pending/route.ts \
+            src/app/api/account/seller/inventory/instacomp-card-edit/route.ts \
+            src/app/api/account/seller/inventory/instacomp-image-rotate/route.ts
+          if ! git diff --cached --quiet; then
+            git commit -m "Reconcile Pending rotation with KINGMAKER safety contracts [skip ci]"
+            git push origin HEAD:feature/kingmaker-unified-admin-workflow-20260809
+          fi
