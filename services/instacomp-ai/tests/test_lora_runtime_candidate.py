@@ -22,7 +22,13 @@ def load_sidecar_module():
     return module
 
 
-def write_adapter(tmp_path: Path, *, promotion: bool = True, regressions: list | None = None) -> Path:
+def write_adapter(
+    tmp_path: Path,
+    *,
+    promotion: bool = True,
+    regressions: list | None = None,
+    deployment_field: str = "automatic_deployment",
+) -> Path:
     adapter = tmp_path / "adapter"
     adapter.mkdir()
     (adapter / "adapter_config.json").write_text(
@@ -45,7 +51,7 @@ def write_adapter(tmp_path: Path, *, promotion: bool = True, regressions: list |
         },
         "promotion": {
             "eligible_for_runtime_candidate": promotion and not bool(regressions),
-            "automatic_promotion": False,
+            deployment_field: False,
         },
     }
     (adapter / "validation-test.json").write_text(
@@ -108,15 +114,25 @@ def test_candidate_response_requires_core_identity() -> None:
         )
 
 
-def test_sidecar_accepts_only_passed_held_out_receipt(tmp_path: Path) -> None:
+def test_sidecar_accepts_actual_validator_receipt_schema(tmp_path: Path) -> None:
     module = load_sidecar_module()
-    adapter = write_adapter(tmp_path)
+    adapter = write_adapter(tmp_path, deployment_field="automatic_deployment")
     preflight = module.validate_adapter(adapter)
     assert preflight["promotion_candidate"] is True
+    assert preflight["automatic_deployment"] is False
     assert preflight["automatic_promotion"] is False
     assert preflight["held_out_examples"] == 30
     assert preflight["registry_remains_identity_authority"] is True
     assert len(preflight["adapter_weights_sha256"]) == 64
+
+
+def test_sidecar_accepts_legacy_automatic_promotion_alias(tmp_path: Path) -> None:
+    module = load_sidecar_module()
+    adapter = write_adapter(tmp_path, deployment_field="automatic_promotion")
+    preflight = module.validate_adapter(adapter)
+    assert preflight["promotion_candidate"] is True
+    assert preflight["automatic_deployment"] is False
+    assert preflight["automatic_promotion"] is False
 
 
 def test_sidecar_rejects_adapter_with_critical_regression(tmp_path: Path) -> None:
