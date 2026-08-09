@@ -3,17 +3,31 @@ name: InstaComp Local Primary Contract
 on:
   pull_request:
     paths:
+      - "services/instacomp-ai/**"
       - "src/lib/instacomp.ts"
+      - "src/lib/instacomp-ai-local.ts"
+      - "src/lib/instacomp-ai-provider-failover.ts"
+      - "src/lib/instacomp-ai-council-runtime.ts"
       - "src/lib/instacomp-checklist-first-server.ts"
+      - "src/lib/instacomp-identity-guard.ts"
       - "src/app/api/instacomp/scan/route.ts"
+      - "src/app/api/instacomp/internal-readiness/route.ts"
+      - "src/app/api/account/seller/inventory/instacomp-card-edit/route.ts"
       - "src/app/admin/instacomp/fast/**"
+      - "scripts/check-instacomp-local-primary-contract.mjs"
+      - "scripts/check-instacomp-provider-fallback.mjs"
+      - "scripts/check-instacomp-no-external-reader-plan.mjs"
+      - "scripts/instacomp-fast-workbench-certify.mjs"
+      - "scripts/run-instacomp-ai-council-runtime-regressions.ts"
+      - "scripts/run-instacomp-internal-fail-closed-regressions.ts"
+      - "scripts/run-instacomp-ocr-registry-primary-regressions.ts"
+      - "scripts/run-instacomp-prizm-surface-regressions.ts"
+      - "scripts/run-instacomp-season-year-simulations.ts"
       - "scripts/smoke-admin-runtime.mjs"
-      - "scripts/apply-instacomp-seller-display-fix.py"
-      - "scripts/apply-instacomp-ocr-registry-context-fix.py"
       - ".github/workflows/instacomp-local-primary-contract.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: instacomp-local-primary-${{ github.event.pull_request.number || github.ref }}
@@ -22,43 +36,68 @@ concurrency:
 jobs:
   certify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          ref: ${{ github.head_ref }}
-          fetch-depth: 0
-      - name: Materialize final audited source
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/instacomp-ai/requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
         run: |
-          python3 scripts/apply-instacomp-ocr-registry-context-fix.py
-          python3 scripts/apply-instacomp-seller-display-fix.py
-      - name: Verify materialized source
+          pip install -r services/instacomp-ai/requirements.txt
+          npm ci
+      - name: Verify final high-volume scanner wiring
         shell: bash
         run: |
           set -euo pipefail
+          node scripts/instacomp-fast-workbench-certify.mjs
           grep -q 'boundedProductCandidates' src/lib/instacomp-checklist-first-server.ts
           grep -q 'sellerFeedbackPercent' src/lib/instacomp.ts
           grep -q 'item?.seller?.username' src/app/api/instacomp/scan/route.ts
           grep -q 'Item #' src/app/admin/instacomp/fast/InstaCompFastWorkbench.tsx
           grep -q 'path: "/admin/instacomp/checklist-sentinel"' scripts/smoke-admin-runtime.mjs
           grep -q 'path: "/admin/instacomp/fast"' scripts/smoke-admin-runtime.mjs
-      - name: Persist materialized source
-        shell: bash
+      - name: Season-year regressions
+        run: node --import tsx scripts/run-instacomp-season-year-simulations.ts
+      - name: Internal fail-closed regressions
+        run: node --import tsx scripts/run-instacomp-internal-fail-closed-regressions.ts
+      - name: Council runtime hard-stop regressions
+        run: node --import tsx scripts/run-instacomp-ai-council-runtime-regressions.ts
+      - name: OCR to Registry primary regressions
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key
+        run: node --import tsx scripts/run-instacomp-ocr-registry-primary-regressions.ts
+      - name: Prizm surface regressions
+        run: node --import tsx scripts/run-instacomp-prizm-surface-regressions.ts
+      - name: Internal architecture contract
+        run: node scripts/check-instacomp-local-primary-contract.mjs
+      - name: InstaComp-only identity gate
+        run: node scripts/check-instacomp-provider-fallback.mjs
+      - name: No external reader execution gate
+        run: node scripts/check-instacomp-no-external-reader-plan.mjs
+      - name: Mac engine tests
+        working-directory: services/instacomp-ai
         run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            src/app/api/instacomp/scan/route.ts \
-            src/app/admin/instacomp/fast/InstaCompFastWorkbench.tsx \
-            src/lib/instacomp.ts \
-            src/lib/instacomp-checklist-first-server.ts \
-            scripts/run-instacomp-ocr-registry-primary-regressions.ts \
-            scripts/instacomp-fast-workbench-certify.mjs \
-            scripts/smoke-admin-runtime.mjs
-          if git diff --cached --quiet; then
-            echo "Final audited source already materialized."
-          else
-            git commit -m "Materialize final InstaComp audit fixes"
-            git push origin HEAD:${{ github.head_ref }}
-          fi
+          python -m compileall app tests
+          pytest -q
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Production build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key
+          NEXT_PUBLIC_SITE_URL: https://example.com
+          INSTACOMP_SERVICE_TOKEN: placeholder-service-token
+          INTERNAL_PUBLISH_WEBHOOK_SECRET: placeholder-internal-publish-secret
+          INTERNAL_IMPORT_WEBHOOK_SECRET: placeholder-internal-import-secret
+        run: |
+          npm run build
+          git checkout -- public/instacomp-release.json
