@@ -7,6 +7,7 @@ printed evidence and the internal Checklist Registry.
 """
 
 from . import local_vision as _local_vision
+from . import verified_checklist_sources_modern_extra as _verified_checklist_sources_modern_extra
 from .pattern_memory import apply_trusted_pattern_style
 from .psa_policy import install_psa_lead_only_policy
 from .runtime_compat import install_sentinel_runtime_compat
