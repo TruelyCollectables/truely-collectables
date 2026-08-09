@@ -7,6 +7,16 @@ on:
       - ".github/workflows/instacomp-supervised-203-trusted-learning.yml"
       - "scripts/import-instacomp-supervised-203.mjs"
       - "scripts/fixtures/instacomp-supervised-203/**"
+      - "src/lib/instacomp-supervised-203.ts"
+      - "src/app/api/release/instacomp-supervised-203/route.ts"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-supervised-203-trusted-learning.yml"
+      - "scripts/import-instacomp-supervised-203.mjs"
+      - "scripts/fixtures/instacomp-supervised-203/**"
+      - "src/lib/instacomp-supervised-203.ts"
+      - "src/app/api/release/instacomp-supervised-203/route.ts"
   workflow_dispatch:
 
 permissions:
@@ -15,52 +25,85 @@ permissions:
 jobs:
   contract:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
+      - name: Install exact dependencies
+        run: npm ci
       - name: Compile importer
         run: node --check scripts/import-instacomp-supervised-203.mjs
       - name: Verify all 203 supervised truths
         run: node scripts/import-instacomp-supervised-203.mjs --contract-only
+      - name: TypeScript
+        run: npx tsc --noEmit --pretty false
 
   live-trusted-import:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     needs: contract
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_SCOPE: truelycollectables-projects
+      IMPORT_URL: https://truelycollectables.com/api/release/instacomp-supervised-203
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Pull protected Production Mac coordinates
+      - name: Wait for Production route and import all 203 trusted lessons
         shell: bash
         run: |
           set -euo pipefail
           test -n "${VERCEL_TOKEN:-}"
-          mkdir -p "$RUNNER_TEMP/instacomp-203" .vercel
-          npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
-          npx vercel@56.2.0 env pull "$RUNNER_TEMP/instacomp-203/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
-          echo "PRODUCTION_ENV_FILE=$RUNNER_TEMP/instacomp-203/production.env" >> "$GITHUB_ENV"
-      - name: Import 203 operator-confirmed physical cards and export learning dataset
-        shell: bash
-        run: |
-          set -euo pipefail
-          node scripts/import-instacomp-supervised-203.mjs --receipt="$RUNNER_TEMP/instacomp-203/trusted-learning-receipt.json"
+          receipt="$RUNNER_TEMP/instacomp-supervised-203-live-import.json"
+          ready=0
+          for attempt in $(seq 1 60); do
+            code="$(curl -sS -o "$receipt" -w '%{http_code}' --max-time 300 \
+              -X POST \
+              -H "Authorization: Bearer $VERCEL_TOKEN" \
+              -H 'Accept: application/json' \
+              "$IMPORT_URL" || true)"
+            if [[ "$code" == "200" ]] && node - "$receipt" <<'NODE'
+          const fs = require('fs');
+          const payload = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          process.exit(payload?.success === true && payload?.finalTrustedVerified === 203 ? 0 : 1);
+          NODE
+            then
+              ready=1
+              break
+            fi
+            # 404/405 normally means Production has not deployed the new route yet.
+            # 409/503 is a real fail-closed import response, but retry briefly in
+            # case the Mac/tunnel is restarting during deployment.
+            sleep 10
+          done
+          if [[ "$ready" != "1" ]]; then
+            echo "Production supervised-203 trusted import did not complete." >&2
+            cat "$receipt" >&2 || true
+            exit 1
+          fi
+          node - "$receipt" <<'NODE'
+          const fs = require('fs');
+          const payload = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          const summary = {
+            total: payload.total,
+            completePhysicalScanPairs: payload.completePhysicalScanPairs,
+            alreadyTrusted: payload.alreadyTrusted,
+            insertedTrustedLessons: payload.insertedTrustedLessons,
+            failedInsertCount: payload.failedInsertCount,
+            finalTrustedVerified: payload.finalTrustedVerified,
+            finalMissingScanIds: payload.finalMissingScanIds,
+            trainingReadiness: payload.trainingReadiness,
+            trainingExportDeferred: payload.trainingExportDeferred,
+            nothingPublished: payload.nothingPublished,
+          };
+          console.log(JSON.stringify(summary, null, 2));
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## InstaComp supervised 203 trusted import\n\n\`\`\`json\n${JSON.stringify(summary, null, 2)}\n\`\`\`\n`);
+          NODE
       - name: Upload sanitized trusted-learning receipt
-        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: instacomp-supervised-203-trusted-learning-receipt
-          path: ${{ runner.temp }}/instacomp-203/trusted-learning-receipt.json
-          if-no-files-found: warn
+          path: ${{ runner.temp }}/instacomp-supervised-203-live-import.json
+          if-no-files-found: error
           retention-days: 30
-      - name: Remove Production environment
-        if: always()
-        run: rm -f "$RUNNER_TEMP/instacomp-203/production.env"
