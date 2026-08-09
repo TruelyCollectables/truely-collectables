@@ -13,6 +13,12 @@ from .deal_hunter_learning import (
     record_decision_learning_event,
 )
 from .storage import MemoryStore
+from .teacher_comp_learning import (
+    initialize_teacher_comp_learning,
+    load_teacher_comp_receipts,
+    record_teacher_comp_receipt,
+    teacher_comp_learning_stats,
+)
 from .training import export_training_dataset, training_readiness
 
 ALLOWED_DEAL_HUNTER_FEEDBACK = {
@@ -24,6 +30,7 @@ ALLOWED_DEAL_HUNTER_FEEDBACK = {
 
 def build_training_router(require_api_key: Callable, store: MemoryStore, *, image_store_path: Path, training_export_path: Path) -> APIRouter:
     initialize_decision_learning(store.path)
+    initialize_teacher_comp_learning(store.path)
     router = APIRouter(prefix="/v1/training", tags=["training"], dependencies=[Depends(require_api_key)])
 
     @router.get("/readiness")
@@ -36,12 +43,32 @@ def build_training_router(require_api_key: Callable, store: MemoryStore, *, imag
             "feedback_storage": "deal_hunter_learning_events",
             "identity_training_separated": True,
         }
+        result["teacher_comp_learning"] = teacher_comp_learning_stats(store.path)
         return result
 
     @router.get("/examples")
     async def examples(trusted_only: bool = Query(default=True), limit: int = Query(default=100, ge=1, le=2000)):
         rows = store.list_training_examples(trusted_only=trusted_only, limit=limit)
         return {"schema_version": "tcos.instacomp-ai.training-examples.v1", "count": len(rows), "examples": [row.model_dump(mode="json") for row in rows]}
+
+    @router.get("/teacher-comp-receipts")
+    async def teacher_comp_receipts(limit: int = Query(default=100, ge=1, le=2000)):
+        rows = load_teacher_comp_receipts(store.path, limit=limit)
+        return {
+            "schema_version": "tcos.instacomp-ai.teacher-comp-receipts.v1",
+            "count": len(rows),
+            "student_mode": True,
+            "pricing_authority": False,
+            "identity_training_mutation_allowed": False,
+            "receipts": rows,
+        }
+
+    @router.post("/teacher-comp-receipt")
+    async def teacher_comp_receipt(body: dict[str, Any] = Body(...)):
+        try:
+            return record_teacher_comp_receipt(store.path, body)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @router.get("/deal-hunter/lessons")
     async def deal_hunter_lessons():

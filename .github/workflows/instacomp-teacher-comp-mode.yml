@@ -1,0 +1,61 @@
+name: InstaComp teacher comp mode
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  certify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out candidate
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          python -m pip install --disable-pip-version-check pytest
+
+      - name: Reject malformed diff
+        run: git diff --check origin/main...HEAD
+
+      - name: Run teacher consensus regressions
+        run: node --import tsx scripts/run-instacomp-teacher-market-provider-simulations.ts
+
+      - name: Run teacher runtime configuration regressions
+        run: node --import tsx scripts/run-instacomp-teacher-runtime-status-simulations.ts
+
+      - name: Run InstaComp AI teacher learning regressions
+        run: |
+          cd services/instacomp-ai
+          python -m pytest tests/test_teacher_comp_learning.py tests/test_teacher_comp_registry_binding.py -q
+          python -m compileall -q app
+
+      - name: Run existing InstaComp consensus regressions
+        run: npm run simulate:instacomp-consensus
+
+      - name: Build Production application
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://ci-placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: ci-placeholder-service-role-key
+        run: npm run build

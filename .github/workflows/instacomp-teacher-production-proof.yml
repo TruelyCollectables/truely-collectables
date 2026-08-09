@@ -1,0 +1,107 @@
+name: InstaComp Teacher Production Proof
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/lib/instacomp-teacher-market-provider.ts'
+      - 'src/lib/instacomp-teacher-learning-bridge.ts'
+      - 'src/lib/instacomp-teacher-runtime-status.ts'
+      - 'src/app/api/instacomp/live-scan/route.ts'
+      - 'src/app/api/instacomp/deal-hunter/evaluate/core.ts'
+      - 'src/app/api/release/instacomp-teacher-runtime-diagnostics/route.ts'
+      - 'services/instacomp-ai/app/teacher_comp_learning.py'
+      - 'services/instacomp-ai/app/training_routes.py'
+      - '.github/workflows/instacomp-teacher-production-proof.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-and-prove:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+      SITE_URL: https://truelycollectables.com
+    steps:
+      - name: Check out exact main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Deploy exact current main to Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p .vercel
+          npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          git fetch origin main
+          git checkout --detach origin/main
+          echo "INSTACOMP_TEACHER_PROOF_DEPLOY_SHA=$(git rev-parse HEAD)"
+          npx vercel@56.2.0 --prod --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Prove Production teacher configuration and Mac learning bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 30); do
+            code="$(curl -sS -o teacher-diagnostics.json -w '%{http_code}' --max-time 60 -X POST \
+              -H "Authorization: Bearer $VERCEL_TOKEN" \
+              "$SITE_URL/api/release/instacomp-teacher-runtime-diagnostics" || true)"
+            if [[ "$code" == "200" ]] && node -e "const p=require('./teacher-diagnostics.json'); process.exit(p.success===true?0:1)"; then
+              break
+            fi
+            if [[ "$attempt" == "30" ]]; then
+              echo "Teacher runtime diagnostics never became ready; HTTP=$code" >&2
+              cat teacher-diagnostics.json >&2 || true
+              exit 1
+            fi
+            sleep 10
+          done
+          node - <<'NODE'
+          const p=require('./teacher-diagnostics.json');
+          if(!p.success) throw new Error(JSON.stringify(p));
+          const c=p.configuration||{};
+          const m=p.mac||{};
+          const safe={
+            votingTeacherCount:c.votingTeacherCount,
+            requiredVotes:c.requiredVotes,
+            teacherConsensusOperational:c.teacherConsensusOperational,
+            geminiConfigured:c.geminiConfigured,
+            anthropicConfigured:c.anthropicConfigured,
+            xaiConfigured:c.xaiConfigured,
+            perplexityConfigured:c.perplexityConfigured,
+            openAiConfigured:c.openAiConfigured,
+            serpApiConfigured:c.serpApiConfigured,
+            googleCseConfigured:c.googleCseConfigured,
+            macLearningBridgeConfigured:c.macLearningBridgeConfigured,
+            macReachable:m.reachable,
+            teacherLearningEndpointAvailable:m.teacherLearningEndpointAvailable,
+            macStatus:m.status,
+            teacherCompLearning:m.teacherCompLearning||null,
+            checkedAt:p.checkedAt,
+          };
+          console.log('INSTACOMP_TEACHER_PRODUCTION_PROOF='+JSON.stringify(safe));
+          if(Number(c.votingTeacherCount||0)<2 || c.teacherConsensusOperational!==true){
+            throw new Error('Production does not have at least two usable voting teacher AIs.');
+          }
+          if(c.macLearningBridgeConfigured!==true){
+            throw new Error('Production website-to-Mac teacher learning bridge is not configured.');
+          }
+          if(m.reachable!==true || m.teacherLearningEndpointAvailable!==true){
+            throw new Error('Physical InstaComp AI Mac is not yet exposing the teacher-comp learning endpoint.');
+          }
+          NODE
