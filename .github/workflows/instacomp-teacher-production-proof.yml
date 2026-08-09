@@ -122,16 +122,17 @@ jobs:
             "$SITE_URL/api/release/instacomp-gateway-teacher-smoke" || true)"
           if [[ "$code" != "200" ]]; then
             echo "Production Gateway teacher smoke failed; HTTP=$code" >&2
-            node -e "const fs=require('fs'); try { const p=JSON.parse(fs.readFileSync('gateway-smoke.json','utf8')); console.error(JSON.stringify({success:p.success,gatewayTeachersOperational:p.gatewayTeachersOperational,gatewayAuthenticationAvailable:p.gatewayAuthenticationAvailable,configuredTeachers:p.configuredTeachers,requiredVotes:p.requiredVotes,gatewayAttempts:p.gatewayAttempts,consensusSoldStatus:p.consensusSoldStatus})); } catch {}" || true
+            node -e "const fs=require('fs'); try { const p=JSON.parse(fs.readFileSync('gateway-smoke.json','utf8')); console.error(JSON.stringify({success:p.success,gatewayTeachersOperational:p.gatewayTeachersOperational,automaticVercelGatewayAuthProven:p.automaticVercelGatewayAuthProven,configuredTeachers:p.configuredTeachers,requiredVotes:p.requiredVotes,gatewayAttempts:p.gatewayAttempts,consensusSoldStatus:p.consensusSoldStatus})); } catch {}" || true
             exit 1
           fi
           node - <<'NODE'
           const p=require('./gateway-smoke.json');
-          if(p.success!==true || p.gatewayTeachersOperational!==true){
-            throw new Error('Production Gateway teacher pair is not operational.');
+          if(p.success!==true || p.gatewayTeachersOperational!==true || p.automaticVercelGatewayAuthProven!==true){
+            throw new Error('Production automatic-OIDC Gateway teacher pair is not operational.');
           }
           console.log('INSTACOMP_GATEWAY_TEACHER_PRODUCTION_SMOKE='+JSON.stringify({
             gatewayTeachersOperational:p.gatewayTeachersOperational,
+            automaticVercelGatewayAuthProven:p.automaticVercelGatewayAuthProven,
             configuredTeachers:p.configuredTeachers,
             requiredVotes:p.requiredVotes,
             gatewayAttempts:p.gatewayAttempts,
