@@ -140,7 +140,7 @@ export default function ChecklistSentinelAdminPage() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action: actionName }),
       });
-      const payload = (await response.json()) as ProxyPayload;
+      const payload = (await response.json().catch(() => ({}))) as ProxyPayload;
       if (!response.ok || !payload.ok) throw new Error(payload.error || "Sentinel action failed.");
       await load();
     } catch (actionError) {

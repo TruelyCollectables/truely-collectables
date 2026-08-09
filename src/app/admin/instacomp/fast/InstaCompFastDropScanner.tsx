@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 type CompRow = {
   title?: string | null;
@@ -297,7 +297,7 @@ export default function InstaCompFastDropScanner() {
     if (!card.back) {
       patchCard(card.id, {
         status: "ready",
-        totalMs: Date.now() - startedAt,
+        totalMs: performance.now() - startedAt,
         progressPercent: 100,
         progressStage: "Identity complete — add the back for exact-card pricing",
       });
@@ -321,7 +321,7 @@ export default function InstaCompFastDropScanner() {
       patchCard(card.id, {
         exactResult: data,
         status: "ready",
-        totalMs: Date.now() - startedAt,
+        totalMs: performance.now() - startedAt,
         progressPercent: 100,
         progressStage: data.exactMarket?.teacherLearning?.studentTrainingEligible
           ? "Complete — exact market verified and student lesson eligible"
@@ -330,7 +330,7 @@ export default function InstaCompFastDropScanner() {
     } catch (error) {
       patchCard(card.id, {
         status: "ready",
-        totalMs: Date.now() - startedAt,
+        totalMs: performance.now() - startedAt,
         progressPercent: 100,
         progressStage: "Identity complete — exact comps need attention",
         error:
@@ -342,7 +342,7 @@ export default function InstaCompFastDropScanner() {
   }
 
   async function identify(card: QueueCard) {
-    const startedAt = Date.now();
+    const startedAt = performance.now();
     patchCard(card.id, {
       status: "identifying",
       error: null,
@@ -359,7 +359,7 @@ export default function InstaCompFastDropScanner() {
       if (!response.ok || data.ok === false) {
         throw new Error(data.error || "InstaComp could not identify this card.");
       }
-      const identityMs = Date.now() - startedAt;
+      const identityMs = performance.now() - startedAt;
       patchCard(card.id, {
         fastResult: data,
         identityMs,
@@ -383,8 +383,8 @@ export default function InstaCompFastDropScanner() {
     } catch (error) {
       patchCard(card.id, {
         status: "error",
-        identityMs: Date.now() - startedAt,
-        totalMs: Date.now() - startedAt,
+        identityMs: performance.now() - startedAt,
+        totalMs: performance.now() - startedAt,
         progressPercent: 100,
         progressStage: "Stopped — card identification failed",
         error: error instanceof Error ? error.message : "Card identification failed.",
@@ -408,9 +408,9 @@ export default function InstaCompFastDropScanner() {
       for (let index = 0; index < pairs.length; index += 1) {
         const pair = pairs[index];
         const [front, back] = await Promise.all([
-          normalizedCardImage(pair.front, `instacomp-${Date.now()}-${index + 1}-front`),
+          normalizedCardImage(pair.front, `instacomp-${performance.now()}-${index + 1}-front`),
           pair.back
-            ? normalizedCardImage(pair.back, `instacomp-${Date.now()}-${index + 1}-back`)
+            ? normalizedCardImage(pair.back, `instacomp-${performance.now()}-${index + 1}-back`)
             : Promise.resolve(null),
         ]);
         prepared.push({
@@ -566,10 +566,6 @@ function CardResult({ card, onRotate, onRescan, onCorrection, onRemove }: {
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [draft, setDraft] = useState<CardIdentity>({});
-
-  useEffect(() => {
-    if (!editing && ai) setDraft({ ...ai });
-  }, [ai, editing]);
 
   async function saveCorrection() {
     const scanId = card.exactResult?.scanId || card.fastResult?.scanId;
