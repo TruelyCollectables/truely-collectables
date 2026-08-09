@@ -83,6 +83,7 @@ jobs:
             geminiConfigured:c.geminiConfigured,
             anthropicConfigured:c.anthropicConfigured,
             xaiConfigured:c.xaiConfigured,
+            groqConfigured:c.groqConfigured,
             perplexityConfigured:c.perplexityConfigured,
             openAiConfigured:c.openAiConfigured,
             serpApiConfigured:c.serpApiConfigured,
