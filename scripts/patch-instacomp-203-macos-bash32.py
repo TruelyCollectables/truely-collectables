@@ -31,9 +31,9 @@ old = '''else
   [[ -n "$archive" ]] || {
 '''
 new = '''else
-  # macOS still ships Bash 3.2, which has no associative arrays. Keep archive
-  # discovery in Python so the physical Mac does not depend on GNU/Bash-4+ shell
-  # features such as `declare -A` or GNU find's `-maxdepth`.
+  # macOS still ships Bash 3.2. Keep archive discovery in Python so the
+  # physical Mac does not depend on newer shell-only collection features or
+  # GNU-only find depth flags.
   archive="$("$python_bin" - "$HOME" "$service_root" "$repo_root" "$expected_archive_sha" <<'PY'
 import hashlib
 import pathlib
