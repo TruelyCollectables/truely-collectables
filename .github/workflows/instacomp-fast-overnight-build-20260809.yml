@@ -193,3 +193,5 @@ jobs:
 
       - name: Production build
         run: npm run build
+
+# certification-trigger: post-release-blocker-fix
