@@ -1,0 +1,99 @@
+name: InstaComp Fast Workbench Final Patch
+
+on:
+  push:
+    branches:
+      - agent/instacomp-fast-workbench-final
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instacomp-fast-workbench-final-patch
+  cancel-in-progress: false
+
+jobs:
+  patch-and-certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/instacomp-fast-workbench-final
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Apply season-year patch to core scanner
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/app/api/instacomp/scan/route.ts')
+          text = path.read_text()
+
+          import_anchor = 'import { readValidatedInstaCompImage } from "../../../../lib/instacomp-image-safety";\n'
+          import_line = 'import { preserveSeasonYear } from "../../../../lib/instacomp-season-year";\n'
+          if import_line not in text:
+              if import_anchor not in text:
+                  raise SystemExit('season-year import anchor missing')
+              text = text.replace(import_anchor, import_anchor + import_line, 1)
+
+          old = 'year: registryMatch.year ? String(registryMatch.year) : consensusAi.year,'
+          new = 'year: preserveSeasonYear(consensusAi.year, registryMatch.year),'
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif new not in text:
+              raise SystemExit('registry year assignment anchor missing')
+
+          path.write_text(text)
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run season-year simulations
+        run: node --import tsx scripts/run-instacomp-season-year-simulations.ts
+
+      - name: Certify fast workbench wiring
+        run: node scripts/instacomp-fast-workbench-certify.mjs
+
+      - name: TypeScript check
+        run: ./node_modules/.bin/tsc --noEmit
+
+      - name: Run InstaComp accuracy regressions
+        run: npm run simulate:instacomp-accuracy
+
+      - name: Run InstaComp consensus regressions
+        run: npm run simulate:instacomp-consensus
+
+      - name: Run InstaComp catalog identity regressions
+        run: npm run simulate:instacomp-catalog-identity
+
+      - name: Run InstaComp knowledge regressions
+        run: npm run simulate:instacomp-card-knowledge
+
+      - name: Run InstaComp identity guard regressions
+        run: npm run simulate:instacomp-identity-guard
+
+      - name: Run InstaComp scan review regressions
+        run: npm run simulate:instacomp-scan-review
+
+      - name: Persist tested patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "No generated scanner patch remained to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/api/instacomp/scan/route.ts
+          git commit -m "Preserve InstaComp season years"
+          git push origin HEAD:agent/instacomp-fast-workbench-final
