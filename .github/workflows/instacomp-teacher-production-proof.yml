@@ -15,6 +15,10 @@ on:
       - 'services/instacomp-ai/app/training_routes.py'
       - 'services/instacomp-ai/scripts/update-live-from-main.sh'
       - '.github/workflows/instacomp-teacher-production-proof.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/instacomp-teacher-production-proof.yml'
   workflow_dispatch:
 
 permissions:
