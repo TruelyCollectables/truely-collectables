@@ -414,7 +414,7 @@ class ChecklistSentinel:
         client: SentinelSourceClient,
     ) -> dict[str, int]:
         counts = {"found": 0, "downloaded": 0, "imported": 0, "duplicates": 0}
-        exact_download_id: str | None = None
+        recovered_download_id: str | None = None
         lead_count = 0
         candidate_count = 0
         seen_urls: set[str] = set()
@@ -480,7 +480,7 @@ class ChecklistSentinel:
                 if status == "lead_only":
                     lead_count += 1
                     continue
-                if status != "validated_candidate" or exact_download_id:
+                if status != "validated_candidate" or recovered_download_id:
                     continue
 
                 try:
@@ -491,6 +491,7 @@ class ChecklistSentinel:
                 existing = self.store.sha_exists(downloaded.sha256)
                 if existing:
                     counts["duplicates"] += 1
+                    existing_status = str(existing.get("status") or "")
                     self.store.record_finding(
                         job_id=job_id,
                         target_key=target["target_key"],
@@ -502,10 +503,16 @@ class ChecklistSentinel:
                         exact_match=True,
                         content_type=downloaded.content_type,
                         status="duplicate_sha256",
-                        reason=f"Same bytes already stored as {existing['download_id']}.",
+                        reason=(
+                            f"Same bytes already stored as {existing['download_id']} "
+                            f"with status {existing_status or 'unknown'}."
+                        ),
                     )
-                    exact_download_id = str(existing["download_id"])
-                    break
+                    if existing_status == "imported_registry":
+                        recovered_download_id = str(existing["download_id"])
+                        break
+                    lead_count += 1
+                    continue
 
                 local_path = persist_download(
                     self.download_root,
@@ -530,25 +537,27 @@ class ChecklistSentinel:
                     status=registry_status,
                     registry_receipt=receipt,
                 )
-                exact_download_id = download_id
                 counts["downloaded"] += 1
                 if registry_status == "imported_registry":
                     counts["imported"] += 1
-                break
+                    recovered_download_id = download_id
+                    break
+                lead_count += 1
 
             await asyncio.sleep(self.search_delay_seconds)
-            if exact_download_id:
+            if recovered_download_id:
                 break
 
-        if exact_download_id:
+        if recovered_download_id:
             self.store.mark_target(
                 target["target_key"],
                 "recovered",
                 retry_after_seconds=self.interval_seconds,
-                recovered_download_id=exact_download_id,
+                recovered_download_id=recovered_download_id,
                 metadata={
                     "candidate_count": candidate_count,
                     "lead_count": lead_count,
+                    "registry_required": True,
                 },
             )
         elif lead_count:
@@ -559,6 +568,7 @@ class ChecklistSentinel:
                 metadata={
                     "candidate_count": candidate_count,
                     "lead_count": lead_count,
+                    "registry_required": True,
                 },
             )
         else:
@@ -569,6 +579,7 @@ class ChecklistSentinel:
                 metadata={
                     "candidate_count": candidate_count,
                     "lead_count": 0,
+                    "registry_required": True,
                 },
             )
         return counts
@@ -619,17 +630,28 @@ class ChecklistSentinel:
                         },
                     )
             payload = response.json() if response.content else {}
-            if response.is_success and payload.get("ok") is True:
-                receipt = str(
-                    payload.get("receipt")
-                    or payload.get("importId")
-                    or payload.get("id")
-                    or ""
-                ).strip()
+            receipt = str(
+                payload.get("receipt")
+                or payload.get("importId")
+                or payload.get("id")
+                or ""
+            ).strip()
+            if (
+                response.is_success
+                and payload.get("ok") is True
+                and payload.get("registryImported") is True
+            ):
                 return "imported_registry", receipt or None
+            if response.is_success and payload.get("ok") is True:
+                return "downloaded_local_pending_registry_validation", receipt or None
             return (
                 "downloaded_local_registry_rejected",
-                str(payload.get("error") or response.status_code)[:1000],
+                receipt
+                or str(
+                    payload.get("registryError")
+                    or payload.get("error")
+                    or response.status_code
+                )[:1000],
             )
         except (httpx.HTTPError, OSError, ValueError, json.JSONDecodeError) as error:
             return "downloaded_local_registry_error", str(error)[:1000]
