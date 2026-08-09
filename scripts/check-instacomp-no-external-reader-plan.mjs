@@ -7,10 +7,16 @@ const runtime = readFileSync(
   "utf8",
 );
 
-const runtimeGate = runtime.match(
-  /export function shouldContinueCouncilRuntime\([\s\S]*?\n}/,
-)?.[0];
-assert.ok(runtimeGate, "shared council runtime gate was not found");
+const runtimeStart = runtime.indexOf(
+  "export function shouldContinueCouncilRuntime(",
+);
+assert.notEqual(runtimeStart, -1, "shared council runtime gate was not found");
+const runtimeTail = runtime.slice(runtimeStart);
+const runtimeEnd = runtimeTail.indexOf("\n}\n", runtimeTail.indexOf(") {"));
+assert.notEqual(runtimeEnd, -1, "shared council runtime gate body was not found");
+const runtimeGate = runtimeTail.slice(0, runtimeEnd + 3);
+
+assert.match(runtimeGate, /Production identity belongs exclusively to InstaComp AI on the Mac\./);
 assert.match(runtimeGate, /return false;/);
 assert.doesNotMatch(runtimeGate, /return\s*\(/);
 
