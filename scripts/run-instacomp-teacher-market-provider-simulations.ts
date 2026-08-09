@@ -4,6 +4,7 @@ async function main() {
   process.env.GEMINI_API_KEY = "test-gemini";
   process.env.ANTHROPIC_API_KEY = "test-anthropic";
   process.env.XAI_API_KEY = "test-xai";
+  process.env.GROQ_API_KEY = "test-groq";
   delete process.env.PERPLEXITY_API_KEY;
 
   const sharedSold = {
@@ -19,6 +20,7 @@ async function main() {
 
   let disagreement = false;
   let xaiContractChecked = false;
+  let groqContractChecked = false;
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -98,6 +100,43 @@ async function main() {
         { status: 200, headers: { "content-type": "application/json" } },
       );
     }
+    if (url.includes("api.groq.com")) {
+      const requestBody = JSON.parse(String(init?.body || "{}"));
+      assert.equal(requestBody.model, "groq/compound");
+      assert.deepEqual(requestBody.response_format, { type: "json_object" });
+      assert.deepEqual(requestBody.compound_custom?.tools?.enabled_tools, [
+        "web_search",
+        "visit_website",
+      ]);
+      assert.deepEqual(requestBody.search_settings?.include_domains, [
+        "ebay.com",
+        "130point.com",
+      ]);
+      assert.equal(requestBody.search_settings?.country, "united states");
+      const headers = new Headers(init?.headers);
+      assert.equal(headers.get("Groq-Model-Version"), "latest");
+      groqContractChecked = true;
+
+      const groqSold = disagreement
+        ? { ...sharedSold, url: "https://www.ebay.com/itm/777777777777" }
+        : sharedSold;
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  sold: [groqSold],
+                  active: [],
+                  notes: "Groq Compound independently checked the sale.",
+                }),
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
     throw new Error(`Unexpected mocked fetch URL: ${url}`);
   }) as typeof fetch;
 
@@ -133,8 +172,13 @@ async function main() {
       exactTitle: "2025 Bowman Chrome Prospects Franklin Arias #BCP-67",
       ai,
     });
-    assert.deepEqual(agreed.configuredTeachers.sort(), ["anthropic", "gemini", "xai"]);
-    assert.equal(agreed.requiredVotes, 2);
+    assert.deepEqual(agreed.configuredTeachers.sort(), [
+      "anthropic",
+      "gemini",
+      "groq",
+      "xai",
+    ]);
+    assert.equal(agreed.requiredVotes, 3);
     assert.equal(agreed.sold.status, "live");
     assert.equal(agreed.sold.results.length, 1);
     assert.equal(agreed.sold.results[0].source, "teacher_consensus_exact_sold");
@@ -142,16 +186,17 @@ async function main() {
     assert.equal(agreed.sold.results[0].price, 30);
     assert.ok(agreed.sold.results[0].flags.includes("eligible to teach InstaComp AI"));
     assert.equal(xaiContractChecked, true);
+    assert.equal(groqContractChecked, true);
 
     disagreement = true;
     const disagreed = await getTeacherExactMarketProviders({
       exactTitle: "2025 Bowman Chrome Prospects Franklin Arias #BCP-67",
       ai,
     });
-    assert.equal(disagreed.requiredVotes, 2);
+    assert.equal(disagreed.requiredVotes, 3);
     assert.equal(disagreed.sold.status, "no_matches");
     assert.equal(disagreed.sold.results.length, 0);
-    assert.ok(disagreed.discovery.sold.length >= 3);
+    assert.ok(disagreed.discovery.sold.length >= 4);
 
     console.log("InstaComp outside-teacher market consensus regressions passed.");
   } finally {
