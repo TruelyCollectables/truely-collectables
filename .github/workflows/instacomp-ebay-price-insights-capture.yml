@@ -1,0 +1,35 @@
+name: InstaComp eBay Price Insights Capture
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-ebay-price-insights-capture.yml"
+      - "src/lib/instacomp-ebay-price-insights.ts"
+      - "src/lib/instacomp-exact-market-provider.ts"
+      - "src/app/api/instacomp/market-history/route.ts"
+      - "scripts/verify-instacomp-ebay-price-insights-capture.ts"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exact-sold-capture:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Verify Price Insights exact sold firewall
+        run: npx tsx scripts/verify-instacomp-ebay-price-insights-capture.ts
+      - name: TypeScript contract
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder
+          SUPABASE_SERVICE_ROLE_KEY: ci-placeholder
+        run: npx tsc --noEmit
