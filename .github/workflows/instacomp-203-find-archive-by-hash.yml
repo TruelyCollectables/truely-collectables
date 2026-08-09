@@ -1,0 +1,35 @@
+name: InstaComp 203 Find Archive By Hash
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-203-find-archive-by-hash.yml"
+      - "services/instacomp-ai/scripts/run-supervised-203-by-hash.sh"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify filename-independent bounded resolver
+        run: |
+          set -euo pipefail
+          bash -n services/instacomp-ai/scripts/run-supervised-203-by-hash.sh
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('services/instacomp-ai/scripts/run-supervised-203-by-hash.sh')
+          text = p.read_text('utf-8')
+          assert '621d58db6fe31e15d462a72b649e66a8d742639ce39973570e790bae6d11081a' in text
+          assert '79948156' in text
+          assert 'rglob(' not in text
+          assert 'os.walk(' not in text
+          assert 'run-supervised-203-permanent-uuid.sh' in text
+          assert 'path.suffix.lower() == ".zip"' in text
+          print('PASS: bounded resolver finds reviewed ZIP by size + SHA, not filename')
+          PY
