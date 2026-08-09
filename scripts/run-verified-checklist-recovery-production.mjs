@@ -161,6 +161,14 @@ function absoluteHrefDocument(html, sourceUrl) {
   );
 }
 
+function selectedYearMismatch(entry, selected) {
+  const expectedYear = Number(entry?.release?.releaseYear || 0);
+  if (!expectedYear) return false;
+  const url = String(selected?.source?.finalUrl || selected?.source?.selectedUrl || "");
+  const years = [...url.matchAll(/(?:19|20)\d{2}/g)].map((match) => Number(match[0]));
+  return years.length > 0 && !years.includes(expectedYear);
+}
+
 async function withCapturedPage(entry, source) {
   const chrome = chromeBinary();
   if (!chrome) throw new Error("No Chrome/Chromium binary is available for verified page capture.");
@@ -235,7 +243,9 @@ function needsCapture(entry, source, selected, error) {
   if (!host.endsWith("beckett.com")) return false;
   if (error) return true;
   const parserErrors = selected?.parsed?.errors?.filter((issue) => issue.severity === "error") || [];
-  return Number(selected?.parsed?.cards?.length || 0) < Number(entry.minimumCardRows || 25) || parserErrors.length > 0;
+  return selectedYearMismatch(entry, selected)
+    || Number(selected?.parsed?.cards?.length || 0) < Number(entry.minimumCardRows || 25)
+    || parserErrors.length > 0;
 }
 
 async function parseSource(entry, source) {
@@ -248,6 +258,11 @@ async function parseSource(entry, source) {
   }
   if (!needsCapture(entry, source, direct, directError)) {
     if (directError) throw directError;
+    if (selectedYearMismatch(entry, direct)) {
+      throw new Error(
+        `Verified source resolved to a different release year: ${direct?.source?.finalUrl || direct?.source?.selectedUrl || source.url}`,
+      );
+    }
     return { ...direct, capture: null, attempts: [{ mode: "direct", status: "selected" }] };
   }
   const attempts = [];
@@ -256,6 +271,8 @@ async function parseSource(entry, source) {
       mode: "direct",
       status: "rejected",
       cards: direct.parsed.cards.length,
+      selectedUrl: direct.source.finalUrl || direct.source.selectedUrl,
+      yearMismatch: selectedYearMismatch(entry, direct),
       issues: limitedIssues(direct.parsed.errors || []),
     });
   } else if (directError) {
