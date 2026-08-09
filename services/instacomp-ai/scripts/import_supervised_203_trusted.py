@@ -41,6 +41,13 @@ def canonical_uuid(value: object) -> str:
         raise RuntimeError(f"Invalid permanent card UUID: {value!r}") from exc
 
 
+def optional_uuid(value: object) -> str:
+    try:
+        return canonical_uuid(value)
+    except RuntimeError:
+        return ""
+
+
 def read_env_value(path: Path, name: str) -> str:
     if not path.is_file():
         return ""
@@ -304,7 +311,7 @@ def main() -> int:
                 external_id = card["s"]
                 existing = receipt.get("cards", {}).get(external_id) or {}
                 existing_scan = str(existing.get("scanId") or "")
-                existing_card_uuid = str(existing.get("cardUuid") or "")
+                existing_card_uuid = optional_uuid(existing.get("cardUuid"))
                 if (
                     existing_scan
                     and existing_card_uuid
@@ -425,7 +432,7 @@ def main() -> int:
                 "ordinal": int(card["o"]),
                 "reviewId": external_id,
                 "cardUuid": normalized_uuid,
-                "latestScanId": canonical_uuid(scan_id),
+                "latestScanId": str(scan_id),
                 "player": card.get("p"),
                 "year": card.get("y"),
                 "brand": card.get("b"),
