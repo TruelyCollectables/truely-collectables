@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import inspect
 
-from app.runtime_compat import _psa_requires_browser_render, install_sentinel_runtime_compat
+import httpx
+
+from app.runtime_compat import (
+    _psa_http_error_requires_browser_render,
+    _psa_requires_browser_render,
+    install_sentinel_runtime_compat,
+)
 from app.sentinel import ChecklistSentinel
 from app.sentinel_sources import DownloadedFile, SentinelSourceClient
 
@@ -10,11 +16,11 @@ from app.sentinel_sources import DownloadedFile, SentinelSourceClient
 PSA_URL = "https://www.psacard.com/auctionprices/basketball-cards/2010-panini-elite-black-box/101090"
 
 
-def downloaded(url: str, content: bytes) -> DownloadedFile:
+def downloaded(url: str, content: bytes, content_type: str = "text/html") -> DownloadedFile:
     return DownloadedFile(
         url=url,
         content=content,
-        content_type="text/html",
+        content_type=content_type,
         sha256="0" * 64,
         extension=".html",
     )
@@ -23,6 +29,13 @@ def downloaded(url: str, content: bytes) -> DownloadedFile:
 def test_psa_next_flight_shell_requires_browser_render() -> None:
     shell = b'<html>collectors-web/_next (self.__next_f=self.__next_f||[]).push([0])</html>'
     assert _psa_requires_browser_render(downloaded(PSA_URL, shell)) is True
+
+
+def test_psa_next_flight_shell_ignores_misleading_content_type() -> None:
+    shell = b'<html>collectors-web/_next (self.__next_f=self.__next_f||[]).push([0])</html>'
+    assert _psa_requires_browser_render(
+        downloaded(PSA_URL, shell, content_type="application/octet-stream")
+    ) is True
 
 
 def test_psa_rendered_items_table_stays_on_normal_path() -> None:
@@ -38,6 +51,29 @@ def test_non_psa_html_never_invokes_psa_browser_fallback() -> None:
         )
         is False
     )
+
+
+def status_error(url: str, status_code: int) -> httpx.HTTPStatusError:
+    request = httpx.Request("GET", url)
+    response = httpx.Response(status_code, request=request)
+    return httpx.HTTPStatusError(
+        f"HTTP {status_code}",
+        request=request,
+        response=response,
+    )
+
+
+def test_exact_psa_http_403_requires_browser_fallback() -> None:
+    assert _psa_http_error_requires_browser_render(PSA_URL, status_error(PSA_URL, 403)) is True
+
+
+def test_exact_psa_non_403_does_not_bypass_http_failure() -> None:
+    assert _psa_http_error_requires_browser_render(PSA_URL, status_error(PSA_URL, 404)) is False
+
+
+def test_non_psa_403_does_not_bypass_http_failure() -> None:
+    url = "https://example.com/checklist.html"
+    assert _psa_http_error_requires_browser_render(url, status_error(url, 403)) is False
 
 
 def test_runtime_compat_is_idempotent_and_uses_source_file_relay_contract() -> None:
