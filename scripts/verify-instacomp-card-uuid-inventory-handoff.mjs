@@ -3,6 +3,7 @@ import fs from 'node:fs';
 
 const path = 'src/app/api/account/seller/instacomp-scan/intake/route.ts';
 const source = fs.readFileSync(path, 'utf8');
+const activation = fs.readFileSync('src/lib/inventory-activation.ts', 'utf8');
 const required = [
   ['physical card UUID validation', 'function physicalCardUuid(scan: InstaCompAiLocalScan)'],
   ['missing-column rollout guard', 'function isMissingCardUuidColumn(error: unknown)'],
@@ -25,4 +26,16 @@ if (!inventoryInsertBlock.includes('status: "draft"')) {
 if (inventoryInsertBlock.includes('status: "active"')) {
   throw new Error('UUID handoff inventory insert must never activate inventory.');
 }
-console.log('PASS InstaComp permanent card UUID upload → Pending Listing handoff');
+
+for (const marker of [
+  '| "missing_card_uuid"',
+  'const hasPermanentCardUuid = validPhysicalCardUuid(instaComp.cardUuid);',
+  'if (requiresFrontBackListing && !hasPermanentCardUuid)',
+  'blockers.push("missing_card_uuid")',
+]) {
+  if (!activation.includes(marker)) {
+    throw new Error(`Missing permanent-card activation firewall: ${marker}`);
+  }
+}
+
+console.log('PASS InstaComp permanent card UUID upload → Pending Listing → activation firewall');
