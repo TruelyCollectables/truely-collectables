@@ -1,0 +1,61 @@
+name: PR 974 Fast Command Link Repair
+
+on:
+  push:
+    branches:
+      - agent/instacomp-fast-overnight-audit
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pr974-fast-command-link-repair
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/instacomp-fast-overnight-audit
+          fetch-depth: 0
+
+      - name: Add Fast scanner command-center link
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          dashboard_path = Path('src/app/admin/LegacyAdminDashboard.tsx')
+          dashboard = dashboard_path.read_text()
+          fast_link = '{ href: "/admin/instacomp/fast", label: "InstaComp Fast" }'
+          if fast_link not in dashboard:
+              marker = '        { href: "/admin/instacomp/mobile", label: "InstaComp Mobile" },\n'
+              if marker not in dashboard:
+                  raise SystemExit('Could not locate InstaComp Mobile command link')
+              dashboard = dashboard.replace(marker, marker + f'        {fast_link},\n', 1)
+          dashboard_path.write_text(dashboard)
+
+          page_path = Path('src/app/admin/page.tsx')
+          page = page_path.read_text()
+          static_route = '  "/admin/instacomp/fast"\n'
+          if static_route not in page:
+              marker = '  "/admin/instacomp/checklist-sentinel"\n'
+              if marker not in page:
+                  raise SystemExit('Could not locate InstaComp static route contract insertion point')
+              page = page.replace(marker, marker + static_route, 1)
+          page_path.write_text(page)
+          PY
+
+      - name: Persist repair and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/app/admin/LegacyAdminDashboard.tsx src/app/admin/page.tsx
+          git rm .github/workflows/pr974-fast-command-link-repair.yml
+          git commit -m 'Link InstaComp Fast from admin command center'
+          git push origin HEAD:agent/instacomp-fast-overnight-audit
