@@ -1,35 +1,42 @@
 import fs from "node:fs";
 
-const path = "src/lib/instacomp-teacher-market-provider.ts";
-let source = fs.readFileSync(path, "utf8");
-
-function replaceOnce(search, replacement, label) {
-  const count = source.split(search).length - 1;
-  if (count !== 1) throw new Error(`${label}: expected exactly one match, found ${count}`);
-  source = source.replace(search, replacement);
+function patchFile(path, callback) {
+  const before = fs.readFileSync(path, "utf8");
+  const after = callback(before);
+  if (after === before) throw new Error(`${path}: patch made no changes`);
+  fs.writeFileSync(path, after);
 }
 
-replaceOnce(
-  'const XAI_API_KEY = String(process.env.XAI_API_KEY || "").trim();\nconst PERPLEXITY_API_KEY',
-  'const XAI_API_KEY = String(process.env.XAI_API_KEY || "").trim();\nconst GROQ_API_KEY = String(process.env.GROQ_API_KEY || "").trim();\nconst PERPLEXITY_API_KEY',
-  "Groq API key",
-);
+function replaceExactlyOnce(source, search, replacement, label) {
+  const count = source.split(search).length - 1;
+  if (count !== 1) throw new Error(`${label}: expected exactly one match, found ${count}`);
+  return source.replace(search, replacement);
+}
 
-replaceOnce(
-  'const XAI_MODEL = String(\n  process.env.INSTACOMP_TEACHER_XAI_MODEL || "grok-4.5",\n).trim();\nconst TEACHER_TIMEOUT_MS',
-  'const XAI_MODEL = String(\n  process.env.INSTACOMP_TEACHER_XAI_MODEL || "grok-4.5",\n).trim();\nconst GROQ_MODEL = String(\n  process.env.INSTACOMP_TEACHER_GROQ_MODEL || "groq/compound",\n).trim();\nconst TEACHER_TIMEOUT_MS',
-  "Groq model",
-);
-
-replaceOnce(
-  'export type TeacherName = "gemini" | "anthropic" | "xai" | "perplexity";',
-  'export type TeacherName = "gemini" | "anthropic" | "xai" | "groq" | "perplexity";',
-  "Groq teacher name",
-);
-
-replaceOnce(
-  'function priceFromText(value: string) {',
-  `async function runGroq(prompt: string): Promise<TeacherAttempt> {
+patchFile("src/lib/instacomp-teacher-market-provider.ts", (input) => {
+  let source = input;
+  source = replaceExactlyOnce(
+    source,
+    'const XAI_API_KEY = String(process.env.XAI_API_KEY || "").trim();\nconst PERPLEXITY_API_KEY',
+    'const XAI_API_KEY = String(process.env.XAI_API_KEY || "").trim();\nconst GROQ_API_KEY = String(process.env.GROQ_API_KEY || "").trim();\nconst PERPLEXITY_API_KEY',
+    "Groq API key",
+  );
+  source = replaceExactlyOnce(
+    source,
+    'const XAI_MODEL = String(\n  process.env.INSTACOMP_TEACHER_XAI_MODEL || "grok-4.5",\n).trim();\nconst TEACHER_TIMEOUT_MS',
+    'const XAI_MODEL = String(\n  process.env.INSTACOMP_TEACHER_XAI_MODEL || "grok-4.5",\n).trim();\nconst GROQ_MODEL = String(\n  process.env.INSTACOMP_TEACHER_GROQ_MODEL || "groq/compound",\n).trim();\nconst TEACHER_TIMEOUT_MS',
+    "Groq model",
+  );
+  source = replaceExactlyOnce(
+    source,
+    'export type TeacherName = "gemini" | "anthropic" | "xai" | "perplexity";',
+    'export type TeacherName = "gemini" | "anthropic" | "xai" | "groq" | "perplexity";',
+    "Groq teacher name",
+  );
+  source = replaceExactlyOnce(
+    source,
+    'function priceFromText(value: string) {',
+    `async function runGroq(prompt: string): Promise<TeacherAttempt> {
   if (!GROQ_API_KEY) {
     return { teacher: "groq", configured: false, ok: false, sold: [], active: [], notes: "", error: null };
   }
@@ -78,14 +85,31 @@ replaceOnce(
 }
 
 function priceFromText(value: string) {`,
-  "Groq teacher implementation",
-);
+    "Groq teacher implementation",
+  );
+  source = replaceExactlyOnce(
+    source,
+    '    runXai(prompt),\n    runPerplexity(params.exactTitle),',
+    '    runXai(prompt),\n    runGroq(prompt),\n    runPerplexity(params.exactTitle),',
+    "Groq teacher execution",
+  );
+  return source;
+});
 
-replaceOnce(
-  '    runXai(prompt),\n    runPerplexity(params.exactTitle),',
-  '    runXai(prompt),\n    runGroq(prompt),\n    runPerplexity(params.exactTitle),',
-  "Groq teacher execution",
-);
+patchFile("services/instacomp-ai/app/teacher_comp_learning.py", (source) => {
+  source = replaceExactlyOnce(
+    source,
+    '    required_votes = max(2, required_votes)\n\n    accepted_sold =',
+    '    required_votes = max(2, required_votes)\n    expected_required_votes = max(2, len(configured) // 2 + 1)\n\n    accepted_sold =',
+    "Mac teacher majority threshold",
+  );
+  source = replaceExactlyOnce(
+    source,
+    '        and len(configured) >= 2\n        and required_votes >= 2\n        and trusted_sold_count > 0',
+    '        and len(configured) >= 2\n        and required_votes >= expected_required_votes\n        and trusted_sold_count > 0',
+    "Mac trusted teacher majority enforcement",
+  );
+  return source;
+});
 
-fs.writeFileSync(path, source);
-console.log("Applied Groq Compound as an InstaComp voting comp teacher.");
+console.log("Applied Groq Compound teacher and Mac majority enforcement.");
