@@ -8,6 +8,7 @@ printed evidence and the internal Checklist Registry.
 
 from . import local_vision as _local_vision
 from . import verified_checklist_sources_modern_extra as _verified_checklist_sources_modern_extra
+from .deterministic_checklist_recovery import install_deterministic_checklist_recovery
 from .pattern_memory import apply_trusted_pattern_style
 from .psa_policy import install_psa_lead_only_policy
 from .runtime_compat import install_sentinel_runtime_compat
@@ -27,3 +28,4 @@ async def _analyze_local_vision_with_trusted_style_memory(front, back, settings)
 _local_vision.analyze_local_vision = _analyze_local_vision_with_trusted_style_memory
 install_psa_lead_only_policy()
 install_sentinel_runtime_compat()
+install_deterministic_checklist_recovery()
