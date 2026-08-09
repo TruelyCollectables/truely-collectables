@@ -78,7 +78,7 @@ jobs:
       - name: Validate and spreadsheet verified checklist batch
         run: node --import tsx scripts/run-verified-checklist-recovery-production.mjs
 
-      - name: Require some deterministic checklist output
+      - name: Require complete deterministic checklist output
         shell: bash
         run: |
           set -euo pipefail
@@ -92,11 +92,19 @@ jobs:
           if (receipt.inventoryTargets < 70) throw new Error('Verified inventory unexpectedly shrank.');
           const good = Number(receipt.statuses?.validated || 0) + Number(receipt.statuses?.already_live || 0);
           if (receipt.batch.selected > 0 && good < 1) throw new Error('Batch produced no validated checklist source.');
+          const incomplete = (receipt.results || []).filter((result) => {
+            if (!['validated', 'already_live'].includes(result.status)) return false;
+            return Number(result.counts?.cards || 0) < 25;
+          });
+          if (incomplete.length) {
+            throw new Error(`Incomplete checklist rows escaped validation: ${incomplete.map((result) => `${result.targetKey}=${result.counts?.cards || 0}`).join(', ')}`);
+          }
           console.log('Validated targets:', good, 'of', receipt.batch.selected);
           console.log('Normalized totals:', receipt.normalizedTotals);
           NODE
 
       - name: Upload validation spreadsheets and receipt
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: verified-checklist-validation-batch-${{ matrix.batch }}
@@ -201,7 +209,7 @@ jobs:
           export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
           node --import tsx scripts/run-verified-checklist-recovery-production.mjs
 
-      - name: Require Production import receipt
+      - name: Require complete Production import receipt
         shell: bash
         run: |
           set -euo pipefail
@@ -213,11 +221,19 @@ jobs:
           if (receipt.mode !== 'apply') throw new Error('Expected apply-mode receipt.');
           const good = Number(receipt.statuses?.imported || 0) + Number(receipt.statuses?.already_live || 0);
           if (receipt.batch.selected > 0 && good < 1) throw new Error('Production batch imported no checklist target.');
+          const incomplete = (receipt.results || []).filter((result) => {
+            if (!['imported', 'already_live'].includes(result.status)) return false;
+            return Number(result.counts?.cards || 0) < 25;
+          });
+          if (incomplete.length) {
+            throw new Error(`Production completeness gate failed: ${incomplete.map((result) => `${result.targetKey}=${result.counts?.cards || 0}`).join(', ')}`);
+          }
           console.log('Production accepted targets:', good, 'of', receipt.batch.selected);
           console.log('Normalized totals:', receipt.normalizedTotals);
           NODE
 
       - name: Upload sanitized Production spreadsheets and receipt
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: verified-checklist-production-batch-${{ matrix.batch }}
