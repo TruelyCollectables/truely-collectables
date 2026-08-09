@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timezone
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
@@ -137,6 +137,37 @@ def _merge_identity(primary: CardIdentity, fallback: CardIdentity) -> CardIdenti
         if values.get(field) in {None, ""} and value not in {None, ""}:
             values[field] = value
     return CardIdentity.model_validate(values)
+
+
+def _normalize_card_uuid(value: str | None) -> str | None:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return None
+    try:
+        return str(UUID(normalized))
+    except (ValueError, AttributeError) as exc:
+        raise HTTPException(status_code=400, detail="card_uuid must be a valid UUID") from exc
+
+
+def _resolve_card_uuid(
+    *,
+    requested: str | None,
+    image_pair_sha256: str,
+    first_scan_id: str,
+) -> str:
+    requested_uuid = _normalize_card_uuid(requested)
+    exact_pair_uuid = store.card_uuid_for_image_pair(image_pair_sha256)
+    if requested_uuid and exact_pair_uuid and requested_uuid != exact_pair_uuid:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "The exact front/back image pair is already bound to another "
+                "physical-card UUID."
+            ),
+        )
+    # First ingest intentionally uses the first scan UUID as the permanent card
+    # UUID. Rescans keep it while receiving their own new scan event UUID.
+    return requested_uuid or exact_pair_uuid or first_scan_id
 
 
 def _memory_source(match: MemoryMatch) -> str:
@@ -275,6 +306,7 @@ async def archived_scan_image(scan_id: str, side: str):
 def _save_scan(
     *,
     scan_id: str,
+    card_uuid: str,
     created_at: datetime,
     front_image,
     back_image,
@@ -286,6 +318,7 @@ def _save_scan(
 ) -> None:
     store.save_scan(
         scan_id=scan_id,
+        card_uuid=card_uuid,
         created_at=created_at,
         front_sha256=front_image.sha256,
         back_sha256=back_image.sha256 if back_image else None,
@@ -316,6 +349,7 @@ async def analyze_scan(
     front: UploadFile = File(...),
     back: UploadFile | None = File(default=None),
     printed_evidence_json: str | None = Form(default=None),
+    card_uuid: str | None = Form(default=None),
 ) -> AnalyzeResponse:
     front_content = await front.read()
     back_content = await back.read() if back else None
@@ -346,6 +380,11 @@ async def analyze_scan(
     combined_hash = pair_hash(
         front_image.sha256,
         back_image.sha256 if back_image else None,
+    )
+    physical_card_uuid = _resolve_card_uuid(
+        requested=card_uuid,
+        image_pair_sha256=combined_hash,
+        first_scan_id=scan_id,
     )
     printed_evidence = parse_printed_evidence(printed_evidence_json)
     printed_identity = identity_from_printed_evidence(printed_evidence)
@@ -388,6 +427,7 @@ async def analyze_scan(
         status = "trusted_memory_match"
         _save_scan(
             scan_id=scan_id,
+            card_uuid=physical_card_uuid,
             created_at=created_at,
             front_image=front_image,
             back_image=back_image,
@@ -399,6 +439,7 @@ async def analyze_scan(
         )
         return AnalyzeResponse(
             scan_id=scan_id,
+            card_uuid=physical_card_uuid,
             created_at=created_at,
             status=status,
             front_sha256=front_image.sha256,
@@ -464,6 +505,7 @@ async def analyze_scan(
         status = "trusted_memory_match"
         _save_scan(
             scan_id=scan_id,
+            card_uuid=physical_card_uuid,
             created_at=created_at,
             front_image=front_image,
             back_image=back_image,
@@ -487,6 +529,7 @@ async def analyze_scan(
         )
         return AnalyzeResponse(
             scan_id=scan_id,
+            card_uuid=physical_card_uuid,
             created_at=created_at,
             status=status,
             front_sha256=front_image.sha256,
@@ -675,6 +718,7 @@ async def analyze_scan(
 
     result = AnalyzeResponse(
         scan_id=scan_id,
+        card_uuid=physical_card_uuid,
         created_at=created_at,
         status=status,
         front_sha256=front_image.sha256,
@@ -701,6 +745,7 @@ async def analyze_scan(
     )
     _save_scan(
         scan_id=scan_id,
+        card_uuid=physical_card_uuid,
         created_at=created_at,
         front_image=front_image,
         back_image=back_image,

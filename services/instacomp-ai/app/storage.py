@@ -81,6 +81,7 @@ class MemoryStore:
                 PRAGMA foreign_keys=ON;
                 CREATE TABLE IF NOT EXISTS scans (
                     scan_id TEXT PRIMARY KEY,
+                    card_uuid TEXT,
                     created_at TEXT NOT NULL,
                     front_sha256 TEXT NOT NULL,
                     back_sha256 TEXT,
@@ -129,6 +130,7 @@ class MemoryStore:
                 row["name"] for row in db.execute("PRAGMA table_info(scans)").fetchall()
             }
             for column in [
+                "card_uuid",
                 "front_reference_sha256",
                 "back_reference_sha256",
                 "front_perceptual_hash",
@@ -141,6 +143,13 @@ class MemoryStore:
                 "CREATE INDEX IF NOT EXISTS scans_front_phash_idx "
                 "ON scans(front_perceptual_hash)"
             )
+            db.execute(
+                "CREATE INDEX IF NOT EXISTS scans_card_uuid_idx "
+                "ON scans(card_uuid)"
+            )
+            # Legacy scans predate card_uuid. Their historical scan UUID is the
+            # safest permanent seed because no physical-card key existed yet.
+            db.execute("UPDATE scans SET card_uuid = scan_id WHERE card_uuid IS NULL")
 
     def ready(self) -> bool:
         try:
@@ -155,6 +164,7 @@ class MemoryStore:
         self,
         *,
         scan_id: str,
+        card_uuid: str | None = None,
         created_at: datetime,
         front_sha256: str,
         back_sha256: str | None,
@@ -168,19 +178,23 @@ class MemoryStore:
         checklist: dict,
         status: str,
     ) -> None:
+        resolved_card_uuid = str(card_uuid or scan_id).strip()
+        if not resolved_card_uuid:
+            raise ValueError("card_uuid or scan_id is required")
         with self.connection() as db:
             db.execute(
                 """
                 INSERT INTO scans (
-                    scan_id, created_at, front_sha256, back_sha256,
+                    scan_id, card_uuid, created_at, front_sha256, back_sha256,
                     image_pair_sha256, front_reference_sha256,
                     back_reference_sha256, front_perceptual_hash,
                     back_perceptual_hash, local_suggestion_json,
                     local_vision_json, checklist_json, status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     scan_id,
+                    resolved_card_uuid,
                     created_at.isoformat(),
                     front_sha256,
                     back_sha256,
@@ -203,6 +217,24 @@ class MemoryStore:
                 is not None
             )
 
+    def card_uuid_for_image_pair(self, image_pair_sha256: str) -> str | None:
+        """Return only an exact-image-pair physical-card UUID.
+
+        Near-visual memory is deliberately forbidden here because two distinct
+        physical copies can share the same card design.
+        """
+        with self.connection() as db:
+            row = db.execute(
+                "SELECT card_uuid FROM scans "
+                "WHERE image_pair_sha256 = ? AND card_uuid IS NOT NULL "
+                "ORDER BY created_at DESC LIMIT 1",
+                (image_pair_sha256,),
+            ).fetchone()
+        if row is None:
+            return None
+        value = str(row["card_uuid"] or "").strip()
+        return value or None
+
     def get_scan(self, scan_id: str) -> dict | None:
         with self.connection() as db:
             row = db.execute(
@@ -213,6 +245,7 @@ class MemoryStore:
             return None
         return {
             "scan_id": row["scan_id"],
+            "card_uuid": row["card_uuid"],
             "created_at": row["created_at"],
             "front_sha256": row["front_sha256"],
             "back_sha256": row["back_sha256"],
