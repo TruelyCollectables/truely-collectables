@@ -15,7 +15,7 @@ concurrency:
 jobs:
   patch-and-certify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
         with:
@@ -27,15 +27,25 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Apply final core scanner patches
+      - name: Apply final audited patches
         shell: bash
         run: |
           set -euo pipefail
           python3 scripts/apply-instacomp-fast-workbench-final-patch.py
           python3 scripts/apply-instacomp-final-audit-fixes.py
+          python3 scripts/apply-repo-audit-fixes.py
 
-      - name: Install dependencies
+      - name: Refresh lockfile for patched dependency override
+        run: npm install --package-lock-only --ignore-scripts
+
+      - name: Install exact audited dependency tree
         run: npm ci
+
+      - name: Run dependency security gate
+        run: node scripts/run-dependency-security-audit.mjs
+
+      - name: Run admin dashboard gate
+        run: npm run verify:admin-dashboard
 
       - name: Run season-year simulations
         run: node --import tsx scripts/run-instacomp-season-year-simulations.ts
@@ -72,7 +82,7 @@ jobs:
         run: |
           set -euo pipefail
           if git diff --quiet; then
-            echo "No generated scanner patch remained to commit."
+            echo "No generated patch remained to commit."
             exit 0
           fi
           git config user.name "github-actions[bot]"
@@ -80,6 +90,9 @@ jobs:
           git add \
             src/app/api/instacomp/scan/route.ts \
             src/app/admin/instacomp/fast/InstaCompFastWorkbench.tsx \
-            src/lib/instacomp-consensus.ts
-          git commit -m "Finalize InstaComp audited runtime"
+            src/lib/instacomp-consensus.ts \
+            src/app/admin/instacomp/checklist-sentinel/page.tsx \
+            package.json \
+            package-lock.json
+          git commit -m "Finalize InstaComp and FBI CIA audit fixes"
           git push origin HEAD:agent/instacomp-fast-workbench-final
