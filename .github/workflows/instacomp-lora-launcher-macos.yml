@@ -1,0 +1,55 @@
+name: InstaComp LoRA Launcher Mac
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-lora-launcher-macos.yml"
+      - "services/instacomp-ai/scripts/run_lora_training.py"
+      - "services/instacomp-ai/tests/test_lora_launcher_path.py"
+      - "services/instacomp-ai/requirements-training.txt"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instacomp-lora-launcher-mac-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mac-preflight:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            services/instacomp-ai/requirements.txt
+            services/instacomp-ai/requirements-training.txt
+
+      - name: Install InstaComp training runtime
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -r services/instacomp-ai/requirements-training.txt
+
+      - name: Compile launcher and service package
+        run: |
+          set -euo pipefail
+          python -m compileall -q services/instacomp-ai/app services/instacomp-ai/scripts/run_lora_training.py
+
+      - name: Prove launcher works from repo and service roots
+        run: |
+          set -euo pipefail
+          PYTHONPATH=services/instacomp-ai python -m pytest -q services/instacomp-ai/tests/test_lora_launcher_path.py
+
+      - name: Run real MLX-VLM LoRA CLI preflight on macOS
+        working-directory: services/instacomp-ai
+        run: |
+          set -euo pipefail
+          python scripts/run_lora_training.py --preflight-only
