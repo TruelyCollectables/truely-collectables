@@ -5,7 +5,6 @@ import argparse
 import json
 import subprocess
 import sys
-from importlib import metadata
 from pathlib import Path
 
 from packaging.version import InvalidVersion, Version
@@ -19,7 +18,9 @@ from app.storage import MemoryStore
 from app.training import export_training_dataset, training_readiness
 
 DEFAULT_MODEL = "mlx-community/Qwen3-VL-2B-Instruct-4bit"
-MIN_MLX_VLM_VERSION = Version("0.6.8")
+PINNED_MLX_VLM_VERSION = Version("0.6.8")
+LORA_VENV = SERVICE_ROOT / ".venv-lora"
+LORA_REQUIREMENTS = SERVICE_ROOT / "requirements-lora-runtime.txt"
 
 
 def _validated_mlx_vlm_version(raw_version: str) -> Version:
@@ -28,31 +29,103 @@ def _validated_mlx_vlm_version(raw_version: str) -> Version:
     except InvalidVersion as exc:
         raise SystemExit(
             f"Installed mlx-vlm version is invalid: {raw_version!r}. "
-            "Reinstall services/instacomp-ai/requirements-training.txt."
+            "Rebuild the isolated LoRA runtime."
         ) from exc
-    if parsed < MIN_MLX_VLM_VERSION:
+    if parsed < PINNED_MLX_VLM_VERSION:
         raise SystemExit(
             "Installed mlx-vlm is too old for InstaComp front+back training. "
-            f"Found {parsed}; require >= {MIN_MLX_VLM_VERSION}. "
+            f"Found {parsed}; require >= {PINNED_MLX_VLM_VERSION}. "
             "Older releases contain the confirmed Qwen3-VL multi-image SFT "
-            "image_grid_thw collation bug that crashes at the first training step. "
-            "Run: services/instacomp-ai/.venv/bin/python -m pip install --upgrade "
-            "-r services/instacomp-ai/requirements-training.txt"
+            "image_grid_thw collation bug that crashes at the first training step."
         )
     return parsed
 
 
-def preflight_training_runtime() -> dict:
-    try:
-        raw_version = metadata.version("mlx-vlm")
-    except metadata.PackageNotFoundError as exc:
-        raise SystemExit(
-            "Training runtime missing: install services/instacomp-ai/requirements-training.txt first."
-        ) from exc
+def _lora_python() -> Path:
+    if sys.platform == "win32":
+        return LORA_VENV / "Scripts" / "python.exe"
+    return LORA_VENV / "bin" / "python"
 
-    version = _validated_mlx_vlm_version(raw_version)
+
+def _probe_mlx_vlm_version(python_bin: Path) -> str | None:
+    if not python_bin.is_file():
+        return None
     probe = subprocess.run(
-        [sys.executable, "-m", "mlx_vlm.lora", "--help"],
+        [
+            str(python_bin),
+            "-c",
+            "from importlib.metadata import version; print(version('mlx-vlm'))",
+        ],
+        cwd=SERVICE_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if probe.returncode != 0:
+        return None
+    value = probe.stdout.strip()
+    return value or None
+
+
+def ensure_training_runtime() -> tuple[Path, Version]:
+    if sys.platform != "darwin":
+        raise SystemExit("InstaComp MLX LoRA training requires the Apple Silicon Mac runtime.")
+    if not LORA_REQUIREMENTS.is_file():
+        raise SystemExit(f"LoRA runtime requirements missing: {LORA_REQUIREMENTS}")
+
+    python_bin = _lora_python()
+    if not python_bin.is_file():
+        print(f"Creating isolated LoRA runtime: {LORA_VENV}", flush=True)
+        subprocess.run(
+            [sys.executable, "-m", "venv", str(LORA_VENV)],
+            cwd=SERVICE_ROOT,
+            check=True,
+        )
+
+    raw_version = _probe_mlx_vlm_version(python_bin)
+    parsed = None
+    if raw_version is not None:
+        try:
+            parsed = Version(raw_version)
+        except InvalidVersion:
+            parsed = None
+
+    if parsed != PINNED_MLX_VLM_VERSION:
+        print(
+            f"Installing isolated MLX-VLM {PINNED_MLX_VLM_VERSION} training runtime...",
+            flush=True,
+        )
+        subprocess.run(
+            [
+                str(python_bin),
+                "-m",
+                "pip",
+                "install",
+                "--upgrade",
+                "-r",
+                str(LORA_REQUIREMENTS),
+            ],
+            cwd=SERVICE_ROOT,
+            check=True,
+        )
+        raw_version = _probe_mlx_vlm_version(python_bin)
+
+    if raw_version is None:
+        raise SystemExit("Isolated LoRA runtime did not install mlx-vlm successfully.")
+    version = _validated_mlx_vlm_version(raw_version)
+    if version != PINNED_MLX_VLM_VERSION:
+        raise SystemExit(
+            "Isolated LoRA runtime is not on the certified version. "
+            f"Found {version}; expected {PINNED_MLX_VLM_VERSION}."
+        )
+    return python_bin, version
+
+
+def preflight_training_runtime() -> dict:
+    training_python, version = ensure_training_runtime()
+    probe = subprocess.run(
+        [str(training_python), "-m", "mlx_vlm.lora", "--help"],
         cwd=SERVICE_ROOT,
         check=False,
         capture_output=True,
@@ -81,13 +154,15 @@ def preflight_training_runtime() -> dict:
             + ", ".join(missing)
         )
     return {
-        "schema_version": "tcos.instacomp-ai.lora-runtime-preflight.v2",
+        "schema_version": "tcos.instacomp-ai.lora-runtime-preflight.v3",
         "status": "ready",
         "mlx_vlm_version": str(version),
-        "minimum_mlx_vlm_version": str(MIN_MLX_VLM_VERSION),
+        "certified_mlx_vlm_version": str(PINNED_MLX_VLM_VERSION),
         "multi_image_front_back_training": "supported",
+        "runtime_isolated_from_service": True,
+        "service_python": sys.executable,
+        "training_python": str(training_python),
         "service_root": str(SERVICE_ROOT),
-        "python": sys.executable,
     }
 
 
@@ -133,9 +208,10 @@ def main() -> int:
     adapter_root = settings.resolve_local_path("./data/training/adapters")
     adapter_root.mkdir(parents=True, exist_ok=True)
     adapter_path = adapter_root / f"instacomp-{dataset_path.name}.safetensors"
+    training_python = runtime["training_python"]
 
     command = [
-        sys.executable,
+        training_python,
         "-m",
         "mlx_vlm.lora",
         "--model-path",
@@ -170,13 +246,17 @@ def main() -> int:
         str(adapter_path),
     ]
     plan = {
-        "schema_version": "tcos.instacomp-ai.lora-plan.v1",
+        "schema_version": "tcos.instacomp-ai.lora-plan.v2",
         "runtime": runtime,
         "readiness": readiness,
         "dataset": manifest,
         "model": args.model,
         "adapter_path": str(adapter_path),
         "command": command,
+        "held_out_validation": {
+            "examples": manifest.get("validation_examples", 0),
+            "policy": "reserved for locked post-training validation; not fed to the trainer",
+        },
         "promotion_rule": "Do not deploy unless the locked five-card and held-out validation suites improve with zero critical regressions.",
     }
     print(json.dumps(plan, indent=2))
