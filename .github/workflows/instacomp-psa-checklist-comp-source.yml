@@ -7,7 +7,9 @@ on:
       - "services/instacomp-ai/app/sentinel.py"
       - "services/instacomp-ai/app/sentinel_routes.py"
       - "services/instacomp-ai/app/sentinel_sources.py"
+      - "services/instacomp-ai/app/psa_verified_sets.py"
       - "services/instacomp-ai/tests/test_sentinel_psa_sources.py"
+      - "services/instacomp-ai/tests/test_sentinel_psa_verified_index.py"
       - "services/instacomp-ai/tests/test_sentinel_registry_recovery_gate.py"
       - "services/instacomp-ai/scripts/probe-psa-sentinel.py"
       - "src/app/api/instacomp/checklist-sentinel/import/route.ts"
@@ -44,7 +46,7 @@ jobs:
         run: python -m compileall -q services/instacomp-ai/app
       - name: Run PSA Sentinel and Registry recovery-gate tests
         working-directory: services/instacomp-ai
-        run: pytest -q tests/test_sentinel_psa_sources.py tests/test_sentinel_registry_recovery_gate.py
+        run: pytest -q tests/test_sentinel_psa_sources.py tests/test_sentinel_psa_verified_index.py tests/test_sentinel_registry_recovery_gate.py
       - name: Read-only live PSA probe through actual Sentinel source client
         working-directory: services/instacomp-ai
         shell: bash
@@ -60,6 +62,9 @@ jobs:
       - name: Typecheck integrated Registry and teacher paths
         run: npx tsc --noEmit
       - name: Production build gate
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://ci-placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
         run: npm run build
       - name: Upload sanitized PSA recovery probe
         if: always()
