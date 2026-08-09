@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from pathlib import Path
 
+# Workflow-trigger touch: 2026-08-09 verified PSA index hotfix.
 ROOT = Path(__file__).resolve().parents[1]
 PATH = ROOT / "services/instacomp-ai/app/sentinel_sources.py"
 text = PATH.read_text("utf-8")
