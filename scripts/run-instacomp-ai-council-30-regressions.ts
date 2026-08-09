@@ -9,6 +9,11 @@ const route = readFileSync(
   "utf8",
 );
 
+const runtimeSource = readFileSync(
+  resolve(process.cwd(), "src/lib/instacomp-ai-council-runtime.ts"),
+  "utf8",
+);
+
 const checks: Array<[string, boolean]> = [
   [
     "AI council hard cap is 30",
@@ -19,12 +24,12 @@ const checks: Array<[string, boolean]> = [
     route.includes("process.env.INSTACOMP_AI_COUNCIL_MIN_READERS || 8"),
   ],
   [
-    "adaptive scans run the backup council unless explicitly disabled",
+    "adaptive scans retain the dormant backup council plan",
     route.includes("const INSTACOMP_AI_COUNCIL_ALWAYS_ON =") &&
       route.includes("return INSTACOMP_AI_COUNCIL_MIN_READERS;"),
   ],
   [
-    "tiers scale through 12, 16, 24, and 30 readers",
+    "tiers retain 12, 16, 24, and 30 reader capacity definitions",
     route.includes('if (tier === "pro") return 12;') &&
       route.includes('if (tier === "dealer") return 16;') &&
       route.includes('tier === "high_end" || tier === "high-end"') &&
@@ -32,7 +37,7 @@ const checks: Array<[string, boolean]> = [
       route.includes("return INSTACOMP_AI_COUNCIL_MAX_READERS;"),
   ],
   [
-    "custom OpenAI-compatible slots are configurable without exposing secrets",
+    "custom OpenAI-compatible slots remain configurable without exposing secrets",
     route.includes("INSTACOMP_AI_COUNCIL_${slot}") &&
       route.includes("`${prefix}_BASE_URL`") &&
       route.includes("`${prefix}_API_KEY`") &&
@@ -40,29 +45,34 @@ const checks: Array<[string, boolean]> = [
       !route.includes("apiKey: providerMeta.apiKey"),
   ],
   [
-    "reader passes include full, OCR, parallel, and clean-context views",
+    "reader passes retain full, OCR, parallel, and clean-context definitions",
     route.includes('detailMode: "full"') &&
       route.includes('detailMode: "ocr"') &&
       route.includes('detailMode: "parallel"') &&
       route.includes('detailMode: "context"'),
   ],
   [
-    "route delegates failed-reader replacement to the bounded runtime helper",
+    "route delegates council continuation to the shared runtime kill-switch",
     route.includes("while (") &&
       route.includes("shouldContinueCouncilRuntime({") &&
       route.includes("completedReaders,") &&
       route.includes("configuredReaderCount: configuredPlan.length"),
   ],
   [
-    "only one reader per AI family is eligible to vote",
+    "only one reader per AI family would be eligible to vote if council runtime is restored",
     route.includes("function markAiCouncilFamilyWinners") &&
       route.includes("winners.set(reader.family, reader)") &&
       route.includes(".filter((councilReader) => councilReader.voteEligible)"),
   ],
   [
-    "checklist evidence remains outside the AI family vote cap",
+    "checklist evidence remains outside the dormant AI family vote cap",
     route.includes("buildChecklistRegistryCatalogEvidence") &&
       route.includes("buildInstaCompEvidenceIdentityDecision"),
+  ],
+  [
+    "website council execution is explicitly disabled because production identity belongs to InstaComp AI on the Mac",
+    runtimeSource.includes("Production identity belongs exclusively to InstaComp AI on the Mac.") &&
+      runtimeSource.includes("return false;"),
   ],
 ];
 
@@ -70,8 +80,8 @@ for (const [label, passed] of checks) {
   assert.equal(passed, true, label);
 }
 
-assert.equal(
-  shouldContinueCouncilRuntime({
+for (const scenario of [
+  {
     completedReaders: 6,
     desiredReaders: 8,
     completedFamilies: ["google", "groq"],
@@ -79,13 +89,8 @@ assert.equal(
     cursor: 8,
     configuredReaderCount: 12,
     primaryFamily: "openai",
-  }),
-  true,
-  "failed readers are replaced from reserve capacity",
-);
-
-assert.equal(
-  shouldContinueCouncilRuntime({
+  },
+  {
     completedReaders: 8,
     desiredReaders: 8,
     completedFamilies: ["google"],
@@ -93,13 +98,8 @@ assert.equal(
     cursor: 8,
     configuredReaderCount: 12,
     primaryFamily: "google",
-  }),
-  true,
-  "the council continues when reader capacity is met but no family independent of the winning primary has completed",
-);
-
-assert.equal(
-  shouldContinueCouncilRuntime({
+  },
+  {
     completedReaders: 8,
     desiredReaders: 8,
     completedFamilies: ["google", "groq"],
@@ -107,9 +107,13 @@ assert.equal(
     cursor: 8,
     configuredReaderCount: 12,
     primaryFamily: "google",
-  }),
-  false,
-  "the council stops only after capacity and independent-family requirements are both satisfied",
-);
+  },
+]) {
+  assert.equal(
+    shouldContinueCouncilRuntime(scenario),
+    false,
+    "website AI council runtime remains disabled for every capacity/family state",
+  );
+}
 
-console.log(`InstaComp 8-30 AI council regressions passed (${checks.length + 3} assertions).`);
+console.log(`InstaComp 8-30 council boundary regressions passed (${checks.length + 3} assertions).`);
