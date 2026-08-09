@@ -852,6 +852,7 @@ export default async function AdminDashboard() {
         { href: "/admin/market-intel/discovery", label: "Discovery Desk" },
         { href: "/admin/market-intel/ebay", label: "Active Scanner" },
         { href: "/admin/market-intel/deals", label: "Deal Engine" },
+        { href: "/admin/market-intel/deal-hunter", label: "Deal Hunter AI" },
         { href: "/admin/market-intel/growth-specs", label: "Growth Specs" },
         {
           href: "/admin/market-intel/growth-specs/prospects",

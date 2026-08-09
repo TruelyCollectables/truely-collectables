@@ -329,6 +329,11 @@ const smokeRoutes = [
     expectedText: "Shark List™ Deal Engine",
   },
   {
+    path: "/admin/market-intel/deal-hunter",
+    auth: true,
+    expectedText: "InstaComp AI Deal Hunter",
+  },
+  {
     path: "/admin/market-intel/growth-specs",
     auth: true,
     expectedText: "Growth Spec Lab™",

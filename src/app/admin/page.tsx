@@ -214,6 +214,7 @@ export default function AdminPage() {
   "/admin/market-intel/buy"
   "/admin/market-intel/comps"
   "/admin/market-intel/deals"
+  "/admin/market-intel/deal-hunter"
   "/admin/market-intel/delivery"
   "/admin/market-intel/delivery/test"
   "/admin/market-intel/discovery"
