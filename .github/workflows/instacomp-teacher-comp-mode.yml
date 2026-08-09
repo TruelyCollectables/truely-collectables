@@ -33,7 +33,7 @@ jobs:
       - name: Install dependencies
         run: |
           npm ci
-          python -m pip install --disable-pip-version-check pytest
+          python -m pip install --disable-pip-version-check -r services/instacomp-ai/requirements.txt
 
       - name: Reject malformed diff
         run: git diff --check origin/main...HEAD
