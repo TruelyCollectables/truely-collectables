@@ -81,6 +81,12 @@ if [[ "${INSTACOMP_AI_LORA_ACTIVATION_PREFLIGHT_ONLY:-0}" == "1" ]]; then
   exit 0
 fi
 
+# A prior interrupted activation can leave .env enabled and the sidecar resident
+# without ever producing an activation receipt. Normalize to the known-safe
+# disabled state before beginning a new real activation. This is idempotent and
+# does not touch adapter weights, lessons, images, Registry data, or inventory.
+bash "$service_root/scripts/disable-lora-candidate-macos.sh" >/dev/null 2>&1 || true
+
 port="${INSTACOMP_AI_LORA_CANDIDATE_PORT:-8791}"
 [[ "$port" =~ ^[0-9]+$ && "$port" -ge 1024 && "$port" -le 65535 ]] || {
   echo "Invalid candidate port: $port" >&2
@@ -98,7 +104,7 @@ main_label="${INSTACOMP_AI_LAUNCHD_LABEL:-com.truelycollectables.instacomp-ai}"
 # replace the service environment in the middle of a candidate promotion.
 if ! launchctl print "$domain/$main_label" >/dev/null 2>&1; then
   echo "Refusing activation: the InstaComp main LaunchAgent is not running." >&2
-  echo "Start/repair the main service first; candidate activation changed nothing." >&2
+  echo "Start/repair the main service first; candidate remains disabled." >&2
   exit 2
 fi
 
@@ -150,15 +156,14 @@ chmod 600 "$env_file"
 # Re-read settings from the same service-root context used by the LaunchAgent and
 # fail before launch if the written candidate configuration is not what runtime
 # will consume.
-runtime_config="$({
+runtime_config="$(
   cd "$service_root"
-  "$service_python" - "$adapter" "$url" <<'PY'
+  "$service_python" - "$url" <<'PY'
 import json
 import sys
 from app.config import settings
 
-expected_adapter = sys.argv[1]
-expected_url = sys.argv[2]
+expected_url = sys.argv[1]
 payload = {
     "enabled": settings.lora_candidate_enabled,
     "url": settings.lora_candidate_url,
@@ -169,7 +174,7 @@ if settings.lora_candidate_url.rstrip("/") != expected_url.rstrip("/"):
     raise SystemExit("candidate URL did not reload from .env")
 print(json.dumps(payload, separators=(",", ":")))
 PY
-} )"
+)"
 [[ -n "$runtime_config" ]] || {
   echo "Candidate runtime configuration could not be re-read after .env update." >&2
   exit 2
