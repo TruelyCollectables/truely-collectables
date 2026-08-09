@@ -120,13 +120,19 @@ export async function POST(request: NextRequest) {
     const body = record(parsedBody);
     const inventoryItemId = clean(body.inventoryItemId, 100);
     const title = clean(body.title, 300);
+    // Structural Base remains identity data only and is suppressed from every
+    // operator/listing title even when a manual correction is submitted.
+    const displayTitle = title
+      .replace(/\bBase\b/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
     const exactParallel = clean(body.parallel, 120);
     const baseSelected = /^base$/i.test(exactParallel);
     const storedParallel = baseSelected ? null : exactParallel || null;
     const serialStamp = exactSerialStamp(body.printRun);
     const normalizedPrintRun = printRunFromSerial(serialStamp);
 
-    if (!inventoryItemId || !title) {
+    if (!inventoryItemId || !displayTitle) {
       return NextResponse.json(
         { error: "Card and title are required." },
         { status: 400 },
@@ -159,7 +165,7 @@ export async function POST(request: NextRequest) {
 
     let query = supabase
       .from("inventory_items")
-      .select("id,seller_account_id,status,metadata")
+      .select("id,seller_account_id,status,metadata,description,category,condition")
       .eq("id", inventoryItemId)
       .eq("store_id", storeId)
       .eq("status", "draft");
@@ -178,6 +184,15 @@ export async function POST(request: NextRequest) {
     }
 
     const metadata = record(item.metadata);
+    const nextDescription = Object.prototype.hasOwnProperty.call(body, "description")
+      ? nullableText(body.description, 5000)
+      : item.description || null;
+    const nextCategory = Object.prototype.hasOwnProperty.call(body, "category")
+      ? nullableText(body.category, 160)
+      : item.category || null;
+    const nextCondition = Object.prototype.hasOwnProperty.call(body, "condition")
+      ? nullableText(body.condition, 120)
+      : item.condition || null;
     const instaComp = record(metadata.instacomp);
     const ai = record(instaComp.ai);
     const collectibleAsset = record(metadata.collectible_asset);
@@ -203,7 +218,7 @@ export async function POST(request: NextRequest) {
             normalizedPrintRun,
           }),
           operatorId: account.id,
-          notes: `Seller confirmed private draft ${inventoryItemId}: ${title}`,
+          notes: `Seller confirmed private draft ${inventoryItemId}: ${displayTitle}`,
         });
         learningStatus = "stored";
         learningLessonId = lesson.lessonId;
@@ -293,7 +308,14 @@ export async function POST(request: NextRequest) {
 
     const { error: updateError } = await supabase
       .from("inventory_items")
-      .update({ title, metadata: nextMetadata, updated_at: editedAt })
+      .update({
+        title: displayTitle,
+        description: nextDescription,
+        category: nextCategory,
+        condition: nextCondition,
+        metadata: nextMetadata,
+        updated_at: editedAt,
+      })
       .eq("id", inventoryItemId)
       .eq("store_id", storeId)
       .eq("status", "draft");
@@ -301,7 +323,10 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      title,
+      title: displayTitle,
+      description: nextDescription,
+      category: nextCategory,
+      condition: nextCondition,
       parallel: exactParallel,
       serialNumber: serialStamp,
       printRun: normalizedPrintRun,
