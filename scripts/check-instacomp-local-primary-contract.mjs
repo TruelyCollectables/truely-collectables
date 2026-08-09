@@ -149,10 +149,58 @@ requireText(
   "localModelReady",
   "Production readiness must expose the internal identity readiness gate.",
 );
+
+// Seller correction route: certify actual authorization, ownership, mutation,
+// and Mac-learning behavior instead of checking for its own filename literal.
 requireText(
   editRoute,
-  "instacomp-card-edit",
-  "Seller card-edit route must remain wired to the protected InstaComp correction path.",
+  "getAuthenticatedAccountFromRequest(request)",
+  "Seller card correction must require an authenticated account.",
+);
+requireText(
+  editRoute,
+  "ensureAccountStoreMembership({",
+  "Seller card correction must require active store membership.",
+);
+requireText(
+  editRoute,
+  'role: "seller"',
+  "Seller card correction must enforce seller role membership.",
+);
+requireText(
+  editRoute,
+  '.eq("status", "draft")',
+  "Seller card correction must be limited to draft inventory.",
+);
+requireText(
+  editRoute,
+  'query.eq("seller_account_id", account.id)',
+  "Seller card correction must be scoped to the seller-owned inventory item.",
+);
+requireText(
+  editRoute,
+  "confirmInstaCompAiLocalLesson({",
+  "Seller-confirmed corrections must be teachable to the private Mac engine.",
+);
+requireText(
+  editRoute,
+  'identity_source: "seller_manual_edit"',
+  "Seller correction metadata must record its human source.",
+);
+requireText(
+  editRoute,
+  "manualIdentityLocked: true",
+  "Seller-confirmed identity must be locked against automatic replacement.",
+);
+requireText(
+  editRoute,
+  "suggestedPrice: null",
+  "Seller identity correction must not silently auto-price the card.",
+);
+requireText(
+  editRoute,
+  "published: false",
+  "Seller card correction must remain unpublished until downstream review.",
 );
 
-console.log("InstaComp local-primary contract passed: local Ollama is evidence-only, Registry remains identity authority, and outside identity readers stay disabled.");
+console.log("InstaComp local-primary contract passed: local Ollama is evidence-only, Registry remains identity authority, seller corrections are protected, and outside identity readers stay disabled.");
