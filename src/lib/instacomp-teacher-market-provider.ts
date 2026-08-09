@@ -341,7 +341,7 @@ async function runXai(prompt: string): Promise<TeacherAttempt> {
         tools: [
           {
             type: "web_search",
-            allowed_domains: ["ebay.com", "130point.com"],
+            filters: { allowed_domains: ["ebay.com", "130point.com"] },
             enable_image_understanding: true,
           },
         ],
