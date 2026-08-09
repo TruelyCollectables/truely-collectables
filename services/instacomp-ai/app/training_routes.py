@@ -19,6 +19,10 @@ from .teacher_comp_learning import (
     record_teacher_comp_receipt,
     teacher_comp_learning_stats,
 )
+from .teacher_comp_training import (
+    export_teacher_comp_training_dataset,
+    teacher_comp_training_readiness,
+)
 from .training import export_training_dataset, training_readiness
 
 ALLOWED_DEAL_HUNTER_FEEDBACK = {
@@ -37,13 +41,17 @@ def build_training_router(require_api_key: Callable, store: MemoryStore, *, imag
     async def readiness():
         result = training_readiness(store.list_training_examples(trusted_only=True))
         lessons = load_decision_lessons(store.path)
+        teacher_receipts = load_teacher_comp_receipts(store.path, limit=2000)
         result["deal_hunter_decision_learning"] = {
             "policy": decision_learning_manifest(),
             "persisted_trusted_lessons": len(lessons),
             "feedback_storage": "deal_hunter_learning_events",
             "identity_training_separated": True,
         }
-        result["teacher_comp_learning"] = teacher_comp_learning_stats(store.path)
+        result["teacher_comp_learning"] = {
+            **teacher_comp_learning_stats(store.path),
+            "dataset": teacher_comp_training_readiness(teacher_receipts),
+        }
         return result
 
     @router.get("/examples")
@@ -66,9 +74,39 @@ def build_training_router(require_api_key: Callable, store: MemoryStore, *, imag
     @router.post("/teacher-comp-receipt")
     async def teacher_comp_receipt(body: dict[str, Any] = Body(...)):
         try:
-            return record_teacher_comp_receipt(store.path, body)
+            result = record_teacher_comp_receipt(store.path, body)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        dataset_refresh: dict[str, Any] = {
+            "status": "skipped",
+            "reason": "Receipt is retained but is not eligible for student comp training.",
+        }
+        if result.get("student_training_eligible") is True:
+            try:
+                dataset_refresh = {
+                    "status": "saved",
+                    **export_teacher_comp_training_dataset(
+                        load_teacher_comp_receipts(store.path, limit=2000),
+                        destination_root=training_export_path,
+                        validation_percent=15,
+                    ),
+                }
+            except ValueError as exc:
+                dataset_refresh = {"status": "failed", "reason": str(exc)}
+        return {**result, "dataset_refresh": dataset_refresh}
+
+    @router.post("/teacher-comp-export")
+    async def teacher_comp_export(validation_percent: int = Query(default=15, ge=0, le=50)):
+        rows = load_teacher_comp_receipts(store.path, limit=2000)
+        try:
+            return export_teacher_comp_training_dataset(
+                rows,
+                destination_root=training_export_path,
+                validation_percent=validation_percent,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @router.get("/deal-hunter/lessons")
     async def deal_hunter_lessons():

@@ -2,6 +2,7 @@ export type InstaCompTeacherRuntimeConfiguration = {
   geminiConfigured: boolean;
   anthropicConfigured: boolean;
   xaiConfigured: boolean;
+  groqConfigured: boolean;
   perplexityConfigured: boolean;
   openAiConfigured: boolean;
   serpApiConfigured: boolean;
@@ -32,6 +33,7 @@ export function resolveInstaCompTeacherRuntimeConfiguration(
   const geminiConfigured = configured(env.GEMINI_API_KEY || env.GOOGLE_GEMINI_API_KEY);
   const anthropicConfigured = configured(env.ANTHROPIC_API_KEY);
   const xaiConfigured = configured(env.XAI_API_KEY);
+  const groqConfigured = configured(env.GROQ_API_KEY);
   const perplexityConfigured = configured(env.PERPLEXITY_API_KEY);
   const openAiConfigured = configured(env.OPENAI_API_KEY);
   const serpApiConfigured = configured(env.SERPAPI_API_KEY);
@@ -43,6 +45,7 @@ export function resolveInstaCompTeacherRuntimeConfiguration(
     geminiConfigured,
     anthropicConfigured,
     xaiConfigured,
+    groqConfigured,
   ].filter(Boolean).length;
   const requiredVotes = teacherRequiredVotes(votingTeacherCount);
   const macLearningBridgeConfigured = Boolean(
@@ -53,6 +56,7 @@ export function resolveInstaCompTeacherRuntimeConfiguration(
     geminiConfigured,
     anthropicConfigured,
     xaiConfigured,
+    groqConfigured,
     perplexityConfigured,
     openAiConfigured,
     serpApiConfigured,

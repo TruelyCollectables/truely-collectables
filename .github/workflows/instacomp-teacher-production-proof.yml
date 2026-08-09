@@ -11,7 +11,9 @@ on:
       - 'src/app/api/instacomp/deal-hunter/evaluate/core.ts'
       - 'src/app/api/release/instacomp-teacher-runtime-diagnostics/route.ts'
       - 'services/instacomp-ai/app/teacher_comp_learning.py'
+      - 'services/instacomp-ai/app/teacher_comp_training.py'
       - 'services/instacomp-ai/app/training_routes.py'
+      - 'services/instacomp-ai/scripts/update-live-from-main.sh'
       - '.github/workflows/instacomp-teacher-production-proof.yml'
   workflow_dispatch:
 
@@ -83,6 +85,7 @@ jobs:
             geminiConfigured:c.geminiConfigured,
             anthropicConfigured:c.anthropicConfigured,
             xaiConfigured:c.xaiConfigured,
+            groqConfigured:c.groqConfigured,
             perplexityConfigured:c.perplexityConfigured,
             openAiConfigured:c.openAiConfigured,
             serpApiConfigured:c.serpApiConfigured,

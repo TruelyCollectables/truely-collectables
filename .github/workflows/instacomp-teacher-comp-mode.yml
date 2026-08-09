@@ -42,12 +42,23 @@ jobs:
         run: node --import tsx scripts/run-instacomp-teacher-market-provider-simulations.ts
 
       - name: Run teacher runtime configuration regressions
-        run: node --import tsx scripts/run-instacomp-teacher-runtime-status-simulations.ts
+        run: |
+          node --import tsx scripts/run-instacomp-teacher-runtime-status-simulations.ts
+          node --import tsx scripts/run-instacomp-groq-runtime-status-simulations.ts
+
+      - name: Verify fail-closed Mac teacher credential sync
+        run: |
+          bash -n services/instacomp-ai/scripts/update-live-from-main.sh
+          node scripts/run-instacomp-mac-teacher-env-sync-simulations.mjs
 
       - name: Run InstaComp AI teacher learning regressions
         run: |
           cd services/instacomp-ai
-          python -m pytest tests/test_teacher_comp_learning.py tests/test_teacher_comp_registry_binding.py -q
+          python -m pytest \
+            tests/test_teacher_comp_learning.py \
+            tests/test_teacher_comp_registry_binding.py \
+            tests/test_teacher_comp_majority.py \
+            tests/test_teacher_comp_training.py -q
           python -m compileall -q app
 
       - name: Run existing InstaComp consensus regressions
