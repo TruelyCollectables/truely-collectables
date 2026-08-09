@@ -9,6 +9,8 @@ assert.equal(teacherRequiredVotes(1), 2);
 assert.equal(teacherRequiredVotes(2), 2);
 assert.equal(teacherRequiredVotes(3), 2);
 assert.equal(teacherRequiredVotes(4), 3);
+assert.equal(teacherRequiredVotes(5), 3);
+assert.equal(teacherRequiredVotes(6), 4);
 
 const none = resolveInstaCompTeacherRuntimeConfiguration({});
 assert.equal(none.votingTeacherCount, 0);
@@ -23,8 +25,8 @@ const gatewayOnly = resolveInstaCompTeacherRuntimeConfiguration({
   INSTACOMP_AI_LOCAL_KEY: "local-key",
 });
 assert.equal(gatewayOnly.gatewayOidcAvailable, true);
-assert.equal(gatewayOnly.gatewayGoogleConfigured, true);
-assert.equal(gatewayOnly.gatewayXaiConfigured, true);
+assert.equal(gatewayOnly.gatewayInclusionAiConfigured, true);
+assert.equal(gatewayOnly.gatewayPoolsideConfigured, true);
 assert.equal(gatewayOnly.votingTeacherCount, 2);
 assert.equal(gatewayOnly.requiredVotes, 2);
 assert.equal(gatewayOnly.teacherConsensusOperational, true);
@@ -43,22 +45,22 @@ const one = resolveInstaCompTeacherRuntimeConfiguration({
   INSTACOMP_AI_LOCAL_KEY: "local-key",
 });
 assert.equal(one.geminiConfigured, true);
-assert.equal(one.gatewayGoogleConfigured, false);
+assert.equal(one.gatewayInclusionAiConfigured, false);
+assert.equal(one.gatewayPoolsideConfigured, false);
 assert.equal(one.votingTeacherCount, 1);
 assert.equal(one.teacherConsensusOperational, false);
 assert.equal(one.macLearningBridgeConfigured, true);
 
-const duplicateProviderFamiliesDoNotDoubleVote =
-  resolveInstaCompTeacherRuntimeConfiguration({
-    VERCEL: "1",
-    GEMINI_API_KEY: "gemini-direct",
-    XAI_API_KEY: "xai-direct",
-  });
-assert.equal(duplicateProviderFamiliesDoNotDoubleVote.gatewayGoogleConfigured, false);
-assert.equal(duplicateProviderFamiliesDoNotDoubleVote.gatewayXaiConfigured, false);
-assert.equal(duplicateProviderFamiliesDoNotDoubleVote.votingTeacherCount, 2);
-assert.equal(duplicateProviderFamiliesDoNotDoubleVote.requiredVotes, 2);
-assert.equal(duplicateProviderFamiliesDoNotDoubleVote.teacherConsensusOperational, true);
+const gatewayPlusDirectFamilies = resolveInstaCompTeacherRuntimeConfiguration({
+  VERCEL: "1",
+  GEMINI_API_KEY: "gemini-direct",
+  XAI_API_KEY: "xai-direct",
+});
+assert.equal(gatewayPlusDirectFamilies.gatewayInclusionAiConfigured, true);
+assert.equal(gatewayPlusDirectFamilies.gatewayPoolsideConfigured, true);
+assert.equal(gatewayPlusDirectFamilies.votingTeacherCount, 4);
+assert.equal(gatewayPlusDirectFamilies.requiredVotes, 3);
+assert.equal(gatewayPlusDirectFamilies.teacherConsensusOperational, true);
 
 const two = resolveInstaCompTeacherRuntimeConfiguration({
   GOOGLE_GEMINI_API_KEY: "gemini",
