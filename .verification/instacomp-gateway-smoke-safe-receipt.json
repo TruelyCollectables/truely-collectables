@@ -1,0 +1,35 @@
+{
+  "schema": "truelycollectables.instacompGatewayTeacherSafeFailureReceipt.v1",
+  "success": false,
+  "automaticVercelGatewayAuthProven": false,
+  "gatewayTeachersOperational": false,
+  "configuredTeachers": null,
+  "requiredVotes": 2,
+  "gatewayAttempts": [
+    {
+      "teacher": "gateway_google",
+      "configured": true,
+      "ok": false,
+      "error": "Free tier users do not have access to this model. Upgrade to paid credits at https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai%3Fmodal%3Dtop-up for unrestricted access.",
+      "soldCount": 0,
+      "activeCount": 0,
+      "notes": ""
+    },
+    {
+      "teacher": "gateway_xai",
+      "configured": true,
+      "ok": false,
+      "error": "Free tier users do not have access to this model. Upgrade to paid credits at https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai%3Fmodal%3Dtop-up for unrestricted access.",
+      "soldCount": 0,
+      "activeCount": 0,
+      "notes": ""
+    }
+  ],
+  "consensusSoldStatus": "error",
+  "consensusSoldCount": 0,
+  "discoverySoldCount": 0,
+  "discoveryActiveCount": 0,
+  "routeError": null,
+  "secretValuesExposed": false,
+  "checkedAt": "2026-08-09T03:13:30.772Z"
+}
