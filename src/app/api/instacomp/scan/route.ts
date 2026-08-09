@@ -53,6 +53,7 @@ import { detectGradingDetails } from "../../../../lib/grading-cert";
 import { normalizeInstaCompSideImages } from "../../../../lib/instacomp-image-orientation";
 import { extractInstaCompUntrustedListingIdentityHint } from "../../../../lib/instacomp-listing-identity-hint";
 import { readValidatedInstaCompImage } from "../../../../lib/instacomp-image-safety";
+import { preserveSeasonYear } from "../../../../lib/instacomp-season-year";
 import {
   formatUntrustedOcrEvidence,
   normalizeOpenAiCompatibleBaseUrl,
@@ -4329,7 +4330,7 @@ async function identifyCardWithConfiguredProviderFailover(params: {
       ? {
           ...consensusAi,
           player: registryMatch.player || consensusAi.player,
-          year: registryMatch.year ? String(registryMatch.year) : consensusAi.year,
+          year: preserveSeasonYear(consensusAi.year, registryMatch.year),
           brand:
             registryMatch.manufacturer ||
             registryMatch.brand ||
