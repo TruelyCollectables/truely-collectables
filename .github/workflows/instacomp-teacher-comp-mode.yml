@@ -41,6 +41,9 @@ jobs:
       - name: Run teacher consensus regressions
         run: node --import tsx scripts/run-instacomp-teacher-market-provider-simulations.ts
 
+      - name: Run teacher runtime configuration regressions
+        run: node --import tsx scripts/run-instacomp-teacher-runtime-status-simulations.ts
+
       - name: Run InstaComp AI teacher learning regressions
         run: |
           cd services/instacomp-ai
