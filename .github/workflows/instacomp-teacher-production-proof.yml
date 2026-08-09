@@ -10,6 +10,7 @@ on:
       - 'src/app/api/instacomp/live-scan/route.ts'
       - 'src/app/api/instacomp/deal-hunter/evaluate/core.ts'
       - 'src/app/api/release/instacomp-teacher-runtime-diagnostics/route.ts'
+      - 'src/app/api/release/instacomp-gateway-teacher-smoke/route.ts'
       - 'services/instacomp-ai/app/teacher_comp_learning.py'
       - 'services/instacomp-ai/app/teacher_comp_training.py'
       - 'services/instacomp-ai/app/training_routes.py'
@@ -23,7 +24,7 @@ permissions:
 jobs:
   deploy-and-prove:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_SCOPE: truelycollectables-projects
@@ -82,6 +83,9 @@ jobs:
             votingTeacherCount:c.votingTeacherCount,
             requiredVotes:c.requiredVotes,
             teacherConsensusOperational:c.teacherConsensusOperational,
+            gatewayOidcAvailable:c.gatewayOidcAvailable,
+            gatewayInclusionAiConfigured:c.gatewayInclusionAiConfigured,
+            gatewayPoolsideConfigured:c.gatewayPoolsideConfigured,
             geminiConfigured:c.geminiConfigured,
             anthropicConfigured:c.anthropicConfigured,
             xaiConfigured:c.xaiConfigured,
@@ -107,4 +111,35 @@ jobs:
           if(m.reachable!==true || m.teacherLearningEndpointAvailable!==true){
             throw new Error('Physical InstaComp AI Mac is not yet exposing the teacher-comp learning endpoint.');
           }
+          NODE
+
+      - name: Prove Production Gateway teachers perform real web-search tool calls
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl -sS -o gateway-smoke.json -w '%{http_code}' --max-time 280 -X POST \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "$SITE_URL/api/release/instacomp-gateway-teacher-smoke" || true)"
+          if [[ "$code" != "200" ]]; then
+            echo "Production Gateway teacher smoke failed; HTTP=$code" >&2
+            node -e "const fs=require('fs'); try { const p=JSON.parse(fs.readFileSync('gateway-smoke.json','utf8')); console.error(JSON.stringify({success:p.success,gatewayTeachersOperational:p.gatewayTeachersOperational,automaticVercelGatewayAuthProven:p.automaticVercelGatewayAuthProven,configuredTeachers:p.configuredTeachers,requiredVotes:p.requiredVotes,gatewayAttempts:p.gatewayAttempts,consensusSoldStatus:p.consensusSoldStatus})); } catch {}" || true
+            exit 1
+          fi
+          node - <<'NODE'
+          const p=require('./gateway-smoke.json');
+          if(p.success!==true || p.gatewayTeachersOperational!==true || p.automaticVercelGatewayAuthProven!==true){
+            throw new Error('Production automatic-OIDC Gateway teacher pair is not operational.');
+          }
+          console.log('INSTACOMP_GATEWAY_TEACHER_PRODUCTION_SMOKE='+JSON.stringify({
+            gatewayTeachersOperational:p.gatewayTeachersOperational,
+            automaticVercelGatewayAuthProven:p.automaticVercelGatewayAuthProven,
+            configuredTeachers:p.configuredTeachers,
+            requiredVotes:p.requiredVotes,
+            gatewayAttempts:p.gatewayAttempts,
+            consensusSoldStatus:p.consensusSoldStatus,
+            consensusSoldCount:p.consensusSoldCount,
+            discoverySoldCount:p.discoverySoldCount,
+            discoveryActiveCount:p.discoveryActiveCount,
+            checkedAt:p.checkedAt,
+          }));
           NODE

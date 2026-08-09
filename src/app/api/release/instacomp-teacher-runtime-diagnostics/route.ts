@@ -96,12 +96,15 @@ export async function POST(request: Request) {
     return Response.json({ success: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  const configuration = resolveInstaCompTeacherRuntimeConfiguration();
+  // Vercel's AI SDK consumes deployment OIDC automatically. This status call
+  // reports only platform/config presence; the separate live Gateway smoke is
+  // the authority for whether model + search-tool access actually works.
+  const configuration = resolveInstaCompTeacherRuntimeConfiguration(process.env);
   const mac = await macTrainingReadiness();
   return Response.json(
     {
       success: true,
-      schema: "truelycollectables.instacompTeacherRuntimeDiagnostics.v1",
+      schema: "truelycollectables.instacompTeacherRuntimeDiagnostics.v2",
       configuration,
       mac,
       boundaries: {
@@ -109,6 +112,8 @@ export async function POST(request: Request) {
         instaCompAiPricingAuthority: false,
         instaCompAiIdentityAuthorityFromTeacherReceipts: false,
         minimumVotingTeachersForTrustedSoldTruth: 2,
+        duplicateProviderFamilyVotesAllowed: false,
+        liveGatewaySmokeRequiredForOperationalProof: true,
       },
       checkedAt: new Date().toISOString(),
     },

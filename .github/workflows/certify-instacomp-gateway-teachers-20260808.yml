@@ -1,0 +1,108 @@
+name: Certify InstaComp Gateway Teachers 20260808
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/lib/instacomp-teacher-market-provider.ts'
+      - 'src/lib/instacomp-teacher-runtime-status.ts'
+      - 'src/app/api/release/instacomp-gateway-teacher-smoke/route.ts'
+      - 'src/app/api/release/instacomp-teacher-runtime-diagnostics/route.ts'
+      - 'scripts/run-instacomp-gateway-teacher-contract.mjs'
+      - 'scripts/run-instacomp-teacher-runtime-status-simulations.ts'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/certify-instacomp-gateway-teachers-20260808.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_SCOPE: truelycollectables-projects
+
+jobs:
+  certify:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out committed branch source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Reject malformed diff
+        run: git diff --check origin/main...HEAD
+
+      - name: Run Gateway and existing teacher regressions
+        run: |
+          node scripts/run-instacomp-gateway-teacher-contract.mjs
+          node --import tsx scripts/run-instacomp-teacher-runtime-status-simulations.ts
+          node --import tsx scripts/run-instacomp-groq-runtime-status-simulations.ts
+          node --import tsx scripts/run-instacomp-teacher-market-provider-simulations.ts
+          npm run simulate:instacomp-consensus
+
+      - name: Build Production application
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+          NEXT_PUBLIC_SUPABASE_URL: https://ci-placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: ci-placeholder-service-role-key
+        run: npm run build
+
+      - name: Deploy preview from exact committed source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx vercel@56.2.0 --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee /tmp/vercel-preview.log
+          preview_url="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' /tmp/vercel-preview.log | tail -n 1)"
+          test -n "$preview_url"
+          echo "PREVIEW_URL=$preview_url" >> "$GITHUB_ENV"
+
+      - name: Prove both Gateway teachers live with automatic Vercel OIDC
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 24); do
+            code="$(curl -sS -o gateway-smoke.json -w '%{http_code}' --max-time 280 -X POST \
+              -H "Authorization: Bearer $VERCEL_TOKEN" \
+              "$PREVIEW_URL/api/release/instacomp-gateway-teacher-smoke" || true)"
+            if [[ "$code" == "200" ]] && node -e "const p=require('./gateway-smoke.json'); process.exit(p.success===true&&p.gatewayTeachersOperational===true&&p.automaticVercelGatewayAuthProven===true?0:1)"; then
+              break
+            fi
+            if [[ "$attempt" == "24" ]]; then
+              echo "Gateway teacher smoke failed; HTTP=$code" >&2
+              node -e "const fs=require('fs'); try { const p=JSON.parse(fs.readFileSync('gateway-smoke.json','utf8')); const safe={success:p.success,gatewayTeachersOperational:p.gatewayTeachersOperational,automaticVercelGatewayAuthProven:p.automaticVercelGatewayAuthProven,configuredTeachers:p.configuredTeachers,requiredVotes:p.requiredVotes,gatewayAttempts:p.gatewayAttempts,consensusSoldStatus:p.consensusSoldStatus}; console.error(JSON.stringify(safe)); } catch {}" || true
+              exit 1
+            fi
+            sleep 5
+          done
+          node - <<'NODE'
+          const p=require('./gateway-smoke.json');
+          const safe={
+            success:p.success,
+            gatewayTeachersOperational:p.gatewayTeachersOperational,
+            automaticVercelGatewayAuthProven:p.automaticVercelGatewayAuthProven,
+            configuredTeachers:p.configuredTeachers,
+            requiredVotes:p.requiredVotes,
+            gatewayAttempts:p.gatewayAttempts,
+            consensusSoldStatus:p.consensusSoldStatus,
+            consensusSoldCount:p.consensusSoldCount,
+            discoverySoldCount:p.discoverySoldCount,
+            discoveryActiveCount:p.discoveryActiveCount,
+            checkedAt:p.checkedAt,
+          };
+          console.log('INSTACOMP_GATEWAY_TEACHER_LIVE_SMOKE='+JSON.stringify(safe));
+          NODE

@@ -4,6 +4,9 @@ export type InstaCompTeacherRuntimeConfiguration = {
   xaiConfigured: boolean;
   groqConfigured: boolean;
   perplexityConfigured: boolean;
+  gatewayOidcAvailable: boolean;
+  gatewayInclusionAiConfigured: boolean;
+  gatewayPoolsideConfigured: boolean;
   openAiConfigured: boolean;
   serpApiConfigured: boolean;
   googleCseConfigured: boolean;
@@ -35,17 +38,34 @@ export function resolveInstaCompTeacherRuntimeConfiguration(
   const xaiConfigured = configured(env.XAI_API_KEY);
   const groqConfigured = configured(env.GROQ_API_KEY);
   const perplexityConfigured = configured(env.PERPLEXITY_API_KEY);
+
+  // Vercel provisions short-lived OIDC for deployed Functions automatically.
+  // The AI SDK consumes it internally; depending on runtime it is not guaranteed
+  // to be readable as a normal env variable. VERCEL=1 therefore means Gateway
+  // platform auth is expected, while the protected live smoke proves real access.
+  const gatewayOidcAvailable = Boolean(
+    env.VERCEL === "1" ||
+      configured(env.AI_GATEWAY_API_KEY) ||
+      configured(env.VERCEL_OIDC_TOKEN),
+  );
+  const gatewayInclusionAiConfigured = gatewayOidcAvailable;
+  const gatewayPoolsideConfigured = gatewayOidcAvailable;
   const openAiConfigured = configured(env.OPENAI_API_KEY);
   const serpApiConfigured = configured(env.SERPAPI_API_KEY);
   const googleCseConfigured = Boolean(
     configured(env.GOOGLE_CSE_API_KEY || env.GOOGLE_CUSTOM_SEARCH_API_KEY) &&
       configured(env.GOOGLE_CSE_CX || env.GOOGLE_CUSTOM_SEARCH_CX),
   );
+
+  // Every entry is an independent model-provider family. Perplexity remains
+  // discovery/corroboration only and therefore is intentionally not counted.
   const votingTeacherCount = [
     geminiConfigured,
     anthropicConfigured,
     xaiConfigured,
     groqConfigured,
+    gatewayInclusionAiConfigured,
+    gatewayPoolsideConfigured,
   ].filter(Boolean).length;
   const requiredVotes = teacherRequiredVotes(votingTeacherCount);
   const macLearningBridgeConfigured = Boolean(
@@ -58,6 +78,9 @@ export function resolveInstaCompTeacherRuntimeConfiguration(
     xaiConfigured,
     groqConfigured,
     perplexityConfigured,
+    gatewayOidcAvailable,
+    gatewayInclusionAiConfigured,
+    gatewayPoolsideConfigured,
     openAiConfigured,
     serpApiConfigured,
     googleCseConfigured,

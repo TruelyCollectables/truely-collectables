@@ -8,12 +8,36 @@ assert.equal(teacherRequiredVotes(0), 2);
 assert.equal(teacherRequiredVotes(1), 2);
 assert.equal(teacherRequiredVotes(2), 2);
 assert.equal(teacherRequiredVotes(3), 2);
+assert.equal(teacherRequiredVotes(4), 3);
+assert.equal(teacherRequiredVotes(5), 3);
+assert.equal(teacherRequiredVotes(6), 4);
 
 const none = resolveInstaCompTeacherRuntimeConfiguration({});
 assert.equal(none.votingTeacherCount, 0);
 assert.equal(none.requiredVotes, 2);
 assert.equal(none.teacherConsensusOperational, false);
+assert.equal(none.gatewayOidcAvailable, false);
 assert.equal(none.macLearningBridgeConfigured, false);
+
+const gatewayOnly = resolveInstaCompTeacherRuntimeConfiguration({
+  VERCEL: "1",
+  INSTACOMP_AI_LOCAL_URL: "https://instacomp.truelycollectables.com",
+  INSTACOMP_AI_LOCAL_KEY: "local-key",
+});
+assert.equal(gatewayOnly.gatewayOidcAvailable, true);
+assert.equal(gatewayOnly.gatewayInclusionAiConfigured, true);
+assert.equal(gatewayOnly.gatewayPoolsideConfigured, true);
+assert.equal(gatewayOnly.votingTeacherCount, 2);
+assert.equal(gatewayOnly.requiredVotes, 2);
+assert.equal(gatewayOnly.teacherConsensusOperational, true);
+assert.equal(gatewayOnly.macLearningBridgeConfigured, true);
+
+const localPulledOidc = resolveInstaCompTeacherRuntimeConfiguration({
+  VERCEL_OIDC_TOKEN: "oidc-token",
+});
+assert.equal(localPulledOidc.gatewayOidcAvailable, true);
+assert.equal(localPulledOidc.votingTeacherCount, 2);
+assert.equal(localPulledOidc.teacherConsensusOperational, true);
 
 const one = resolveInstaCompTeacherRuntimeConfiguration({
   GEMINI_API_KEY: "gemini",
@@ -21,9 +45,22 @@ const one = resolveInstaCompTeacherRuntimeConfiguration({
   INSTACOMP_AI_LOCAL_KEY: "local-key",
 });
 assert.equal(one.geminiConfigured, true);
+assert.equal(one.gatewayInclusionAiConfigured, false);
+assert.equal(one.gatewayPoolsideConfigured, false);
 assert.equal(one.votingTeacherCount, 1);
 assert.equal(one.teacherConsensusOperational, false);
 assert.equal(one.macLearningBridgeConfigured, true);
+
+const gatewayPlusDirectFamilies = resolveInstaCompTeacherRuntimeConfiguration({
+  VERCEL: "1",
+  GEMINI_API_KEY: "gemini-direct",
+  XAI_API_KEY: "xai-direct",
+});
+assert.equal(gatewayPlusDirectFamilies.gatewayInclusionAiConfigured, true);
+assert.equal(gatewayPlusDirectFamilies.gatewayPoolsideConfigured, true);
+assert.equal(gatewayPlusDirectFamilies.votingTeacherCount, 4);
+assert.equal(gatewayPlusDirectFamilies.requiredVotes, 3);
+assert.equal(gatewayPlusDirectFamilies.teacherConsensusOperational, true);
 
 const two = resolveInstaCompTeacherRuntimeConfiguration({
   GOOGLE_GEMINI_API_KEY: "gemini",
@@ -45,8 +82,7 @@ assert.equal(two.serpApiConfigured, true);
 assert.equal(two.googleCseConfigured, true);
 
 const invalidMac = resolveInstaCompTeacherRuntimeConfiguration({
-  GEMINI_API_KEY: "gemini",
-  ANTHROPIC_API_KEY: "claude",
+  VERCEL: "1",
   INSTACOMP_AI_LOCAL_URL: "https://example.com",
   INSTACOMP_AI_LOCAL_KEY: "local-key",
 });

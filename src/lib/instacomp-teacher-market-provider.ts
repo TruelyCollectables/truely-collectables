@@ -1,3 +1,5 @@
+import { generateText, stepCountIs } from "ai";
+import { gateway } from "@ai-sdk/gateway";
 import type {
   InstaCompAiResult,
   InstaCompComp,
@@ -26,10 +28,23 @@ const XAI_MODEL = String(
 const GROQ_MODEL = String(
   process.env.INSTACOMP_TEACHER_GROQ_MODEL || "groq/compound",
 ).trim();
+const GATEWAY_INCLUSIONAI_MODEL = String(
+  process.env.INSTACOMP_GATEWAY_INCLUSIONAI_MODEL || "inclusionai/ling-3.0-flash-free",
+).trim();
+const GATEWAY_POOLSIDE_MODEL = String(
+  process.env.INSTACOMP_GATEWAY_POOLSIDE_MODEL || "poolside/laguna-s-2.1-free",
+).trim();
 const TEACHER_TIMEOUT_MS = 120_000;
 const MAX_ROWS_PER_TEACHER = 12;
 
-export type TeacherName = "gemini" | "anthropic" | "xai" | "groq" | "perplexity";
+export type TeacherName =
+  | "gemini"
+  | "anthropic"
+  | "xai"
+  | "groq"
+  | "gateway_inclusionai"
+  | "gateway_poolside"
+  | "perplexity";
 
 type TeacherMarketRow = {
   title: string;
@@ -419,6 +434,108 @@ async function runGroq(prompt: string): Promise<TeacherAttempt> {
   }
 }
 
+
+function gatewayPlatformAvailable() {
+  return Boolean(
+    clean(process.env.AI_GATEWAY_API_KEY || process.env.VERCEL_OIDC_TOKEN) ||
+      process.env.VERCEL === "1",
+  );
+}
+
+async function runGatewayInclusionAi(prompt: string): Promise<TeacherAttempt> {
+  const configured = gatewayPlatformAvailable();
+  if (!configured) {
+    return { teacher: "gateway_inclusionai", configured: false, ok: false, sold: [], active: [], notes: "", error: null };
+  }
+  try {
+    const result = await generateText({
+      model: GATEWAY_INCLUSIONAI_MODEL,
+      prompt,
+      temperature: 0,
+      maxOutputTokens: 6000,
+      timeout: TEACHER_TIMEOUT_MS,
+      tools: {
+        perplexity_search: gateway.tools.perplexitySearch({
+          searchDomainFilter: ["ebay.com", "130point.com"],
+        }),
+      },
+      prepareStep: ({ stepNumber }) =>
+        stepNumber === 0
+          ? { toolChoice: { type: "tool", toolName: "perplexity_search" } }
+          : { toolChoice: "none" },
+      stopWhen: stepCountIs(3),
+    });
+    const parsed = parseJsonObject(result.text);
+    return {
+      teacher: "gateway_inclusionai",
+      configured: true,
+      ok: true,
+      ...parsed,
+      notes: [parsed.notes, "Vercel AI Gateway automatic OIDC; InclusionAI Ling free model + Perplexity Search."].filter(Boolean).join(" "),
+      error: null,
+    };
+  } catch (error) {
+    return {
+      teacher: "gateway_inclusionai",
+      configured: true,
+      ok: false,
+      sold: [],
+      active: [],
+      notes: "",
+      error: sanitizeInstaCompProviderError(error instanceof Error ? error.message : String(error)),
+    };
+  }
+}
+
+async function runGatewayPoolside(prompt: string): Promise<TeacherAttempt> {
+  const configured = gatewayPlatformAvailable();
+  if (!configured) {
+    return { teacher: "gateway_poolside", configured: false, ok: false, sold: [], active: [], notes: "", error: null };
+  }
+  try {
+    const result = await generateText({
+      model: GATEWAY_POOLSIDE_MODEL,
+      prompt,
+      temperature: 0,
+      maxOutputTokens: 6000,
+      timeout: TEACHER_TIMEOUT_MS,
+      tools: {
+        parallel_search: gateway.tools.parallelSearch({
+          mode: "one-shot",
+          maxResults: 10,
+          sourcePolicy: {
+            includeDomains: ["ebay.com", "130point.com"],
+          },
+        }),
+      },
+      prepareStep: ({ stepNumber }) =>
+        stepNumber === 0
+          ? { toolChoice: { type: "tool", toolName: "parallel_search" } }
+          : { toolChoice: "none" },
+      stopWhen: stepCountIs(3),
+    });
+    const parsed = parseJsonObject(result.text);
+    return {
+      teacher: "gateway_poolside",
+      configured: true,
+      ok: true,
+      ...parsed,
+      notes: [parsed.notes, "Vercel AI Gateway automatic OIDC; Poolside Laguna free model + Parallel Search."].filter(Boolean).join(" "),
+      error: null,
+    };
+  } catch (error) {
+    return {
+      teacher: "gateway_poolside",
+      configured: true,
+      ok: false,
+      sold: [],
+      active: [],
+      notes: "",
+      error: sanitizeInstaCompProviderError(error instanceof Error ? error.message : String(error)),
+    };
+  }
+}
+
 function priceFromText(value: string) {
   const match = value.replace(/,/g, "").match(/(?:US\s*)?\$\s*(\d+(?:\.\d{1,2})?)/i);
   return match?.[1] ? money(match[1]) : null;
@@ -568,8 +685,10 @@ export async function getTeacherExactMarketProviders(params: {
   const prompt = teacherPrompt(params.exactTitle, params.ai);
   const attempts = await Promise.all([
     runGemini(prompt),
+    runGatewayInclusionAi(prompt),
     runAnthropic(prompt),
     runXai(prompt),
+    runGatewayPoolside(prompt),
     runGroq(prompt),
     runPerplexity(params.exactTitle),
   ]);
