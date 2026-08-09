@@ -12,6 +12,8 @@ import pytest
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = SERVICE_ROOT.parents[1]
 SCRIPT = SERVICE_ROOT / "scripts" / "run_lora_training.py"
+SAFE_SCRIPT = SERVICE_ROOT / "scripts" / "run-lora-training-safe.sh"
+RESUME_PATCH = SERVICE_ROOT / "scripts" / "lora-resume-freeze-patch" / "sitecustomize.py"
 
 
 def run_help(cwd: Path) -> subprocess.CompletedProcess[str]:
@@ -64,6 +66,19 @@ def test_lora_launcher_imports_app_from_service_root() -> None:
     result = run_help(SERVICE_ROOT)
     assert result.returncode == 0, result.stderr
     assert "--preflight-only" in result.stdout
+
+
+def test_safe_resume_launcher_enables_freeze_patch() -> None:
+    shell = SAFE_SCRIPT.read_text("utf-8")
+    patch = RESUME_PATCH.read_text("utf-8")
+    assert "INSTACOMP_MLX_SAFE_RESUME=1" in shell
+    assert "lora-resume-freeze-patch" in shell
+    freeze_at = patch.index("trainer_utils.freeze_model(model)")
+    apply_at = patch.index("_upstream_apply_lora_layers(model, adapter_path)")
+    assert freeze_at < apply_at
+    assert "non-LoRA base" in patch
+    assert 'name.endswith("lora_a")' in patch
+    assert 'name.endswith("lora_b")' in patch
 
 
 def test_lora_launcher_rejects_known_broken_multi_image_runtime() -> None:
