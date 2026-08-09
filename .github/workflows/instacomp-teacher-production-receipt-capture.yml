@@ -1,0 +1,86 @@
+name: InstaComp Teacher Production Receipt Capture
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/instacomp-teacher-production-receipt-capture.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      SITE_URL: https://truelycollectables.com
+      VERIFY_BRANCH: ops/verify-instacomp-teacher-production-final-20260808
+    steps:
+      - name: Check out verification branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.VERIFY_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fetch protected Production diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          code="$(curl -sS -o teacher-diagnostics.raw.json -w '%{http_code}' --max-time 60 -X POST \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "$SITE_URL/api/release/instacomp-teacher-runtime-diagnostics")"
+          test "$code" = "200"
+
+      - name: Write safe receipt only
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .verification
+          node - <<'NODE'
+          const fs=require('fs');
+          const p=JSON.parse(fs.readFileSync('teacher-diagnostics.raw.json','utf8'));
+          if(p.success!==true) throw new Error('Production diagnostic did not return success=true');
+          const c=p.configuration||{};
+          const m=p.mac||{};
+          const safe={
+            schema:'truelycollectables.instacompTeacherProductionSafeReceipt.v1',
+            votingTeacherCount:Number(c.votingTeacherCount||0),
+            requiredVotes:Number(c.requiredVotes||0),
+            teacherConsensusOperational:c.teacherConsensusOperational===true,
+            geminiConfigured:c.geminiConfigured===true,
+            anthropicConfigured:c.anthropicConfigured===true,
+            xaiConfigured:c.xaiConfigured===true,
+            groqConfigured:c.groqConfigured===true,
+            perplexityConfigured:c.perplexityConfigured===true,
+            openAiConfigured:c.openAiConfigured===true,
+            serpApiConfigured:c.serpApiConfigured===true,
+            googleCseConfigured:c.googleCseConfigured===true,
+            macLearningBridgeConfigured:c.macLearningBridgeConfigured===true,
+            macReachable:m.reachable===true,
+            teacherLearningEndpointAvailable:m.teacherLearningEndpointAvailable===true,
+            macStatus:String(m.status||''),
+            teacherCompLearning:m.teacherCompLearning||null,
+            checkedAt:p.checkedAt||null,
+            secretValuesExposed:false
+          };
+          fs.writeFileSync('.verification/instacomp-teacher-production-safe-receipt.json',JSON.stringify(safe,null,2)+'\n');
+          NODE
+          rm -f teacher-diagnostics.raw.json
+
+      - name: Commit safe receipt to verification branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Truely Collectables CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add .verification/instacomp-teacher-production-safe-receipt.json
+          if git diff --cached --quiet; then
+            echo "Safe receipt unchanged."
+            exit 0
+          fi
+          git commit -m "Capture safe InstaComp teacher Production receipt"
+          git push origin HEAD:"$VERIFY_BRANCH"
