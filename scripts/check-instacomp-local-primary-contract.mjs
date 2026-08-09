@@ -37,21 +37,26 @@ requireText(
   "const serialOcr = null as InstaCompSerialOcrResult | null;",
   "External serial identity reading must remain disabled.",
 );
-
-const councilGate = councilRuntime.match(
-  /export function shouldContinueCouncilRuntime\([\s\S]*?\n}/,
-)?.[0];
-if (!councilGate) {
-  throw new Error("Shared AI council runtime gate was not found.");
-}
 requireText(
-  councilGate,
+  councilRuntime,
+  "export function shouldContinueCouncilRuntime",
+  "Shared AI council runtime gate was not found.",
+);
+requireText(
+  councilRuntime,
+  "void params;",
+  "Shared AI council runtime gate must ignore requested execution state.",
+);
+requireText(
+  councilRuntime,
   "return false;",
   "Website AI council execution must remain hard-stopped.",
 );
-if (/return\s*\(/.test(councilGate)) {
-  throw new Error("Website AI council runtime may not contain an executable continuation path.");
-}
+forbidText(
+  councilRuntime,
+  "return true;",
+  "Website AI council runtime may not contain an enabled continuation path.",
+);
 
 const analyze = service.split("async def analyze_scan", 2)[1]?.split(
   '@app.post(\n    "/v1/lessons"',
