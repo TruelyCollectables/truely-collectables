@@ -1,4 +1,4 @@
-name: Patch Admin Runtime Smoke 20260809
+name: Patch Final InstaComp Certification Regressions 20260809
 
 on:
   push:
@@ -20,46 +20,71 @@ jobs:
           ref: fix/kingmaker-certify-current-head-20260809
           fetch-depth: 0
 
-      - name: Register simple and advanced Admin runtime smoke routes
+      - name: Apply fail-closed certification fixes
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
 
-          path = Path('scripts/smoke-admin-runtime.mjs')
-          source = path.read_text('utf-8')
-          old = '''  {
-              path: "/admin",
-              auth: true,
-              expectedText: "Command Center",
-            },'''.replace('              ', '')
-          new = '''  {
-              path: "/admin",
-              auth: true,
-              expectedText: "Cards live in KINGMAKER",
-            },
-            {
-              path: "/admin/advanced",
-              auth: true,
-              expectedText: "Advanced Admin",
-            },'''.replace('              ', '')
-          if old in source:
-              source = source.replace(old, new, 1)
-          elif 'path: "/admin/advanced"' not in source:
+          smoke_path = Path('scripts/smoke-admin-runtime.mjs')
+          smoke = smoke_path.read_text('utf-8')
+          old_smoke = '''  {
+            path: "/admin",
+            auth: true,
+            expectedText: "Command Center",
+          },'''
+          new_smoke = '''  {
+            path: "/admin",
+            auth: true,
+            expectedText: "Cards live in KINGMAKER",
+          },
+          {
+            path: "/admin/advanced",
+            auth: true,
+            expectedText: "Advanced Admin",
+          },'''
+          if old_smoke in smoke:
+              smoke = smoke.replace(old_smoke, new_smoke, 1)
+          elif 'path: "/admin/advanced"' not in smoke:
               raise SystemExit('Admin smoke route block not found')
-          path.write_text(source, 'utf-8')
+          smoke_path.write_text(smoke, 'utf-8')
+
+          learning_path = Path('src/lib/instacomp-learning-server.ts')
+          learning = learning_path.read_text('utf-8')
+          old_guard = '''  // Free-form finish/color prose from one scanner may not veto an otherwise
+          // exact Base Registry candidate after a conflict-free multi-reader council.
+          // Adjacent-year Base recovery remains fail-closed.
+          if (parallelProfile.baseLike && adjacentYearRecovered) {
+            continue;
+          }'''
+          new_guard = '''  // Raw unresolved finish/color evidence must remain fail-closed for Base.
+          // Only a conflict-free multi-reader council may mark that note evidence as
+          // adjudicated audit context; adjacent-year Base recovery is always blocked.
+          const unresolvedSurfaceRisk =
+            parallelProfile.surfaceRisk && ai.parallelEvidenceAdjudicated !== true;
+          if (
+            parallelProfile.baseLike &&
+            (unresolvedSurfaceRisk || adjacentYearRecovered)
+          ) {
+            continue;
+          }'''
+          if old_guard in learning:
+              learning = learning.replace(old_guard, new_guard, 1)
+          elif 'const unresolvedSurfaceRisk =' not in learning:
+              raise SystemExit('Registry Base surface-risk guard not found')
+          learning_path.write_text(learning, 'utf-8')
           PY
           git diff --check
 
-      - name: Persist runtime smoke coverage
+      - name: Persist fixes
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add scripts/smoke-admin-runtime.mjs
+          git add scripts/smoke-admin-runtime.mjs src/lib/instacomp-learning-server.ts
           if git diff --cached --quiet; then
-            echo "Runtime smoke already migrated."
+            echo "Certification fixes already persisted."
           else
-            git commit -m "Cover simple and advanced Admin runtime routes"
+            git commit -m "Restore fail-closed Registry surface guard and Admin smoke coverage"
             git push origin HEAD:fix/kingmaker-certify-current-head-20260809
           fi
