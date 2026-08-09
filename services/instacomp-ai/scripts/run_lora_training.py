@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -159,18 +160,73 @@ def preflight_training_runtime() -> dict:
             + ", ".join(missing)
         )
     return {
-        "schema_version": "tcos.instacomp-ai.lora-runtime-preflight.v4",
+        "schema_version": "tcos.instacomp-ai.lora-runtime-preflight.v5",
         "status": "ready",
         "mlx_vlm_version": str(version),
         "certified_mlx_vlm_version": str(PINNED_MLX_VLM_VERSION),
         "multi_image_front_back_training": "supported",
-        "checkpoint_resume": "supported",
+        "checkpoint_resume": "supported_as_adapter_bundle_directory",
         "memory_bounded_image_resize": "supported",
         "runtime_isolated_from_service": True,
         "service_python": sys.executable,
         "training_python": str(training_python),
         "service_root": str(SERVICE_ROOT),
     }
+
+
+def _validate_adapter_bundle(bundle: Path) -> Path:
+    bundle = bundle.expanduser().resolve()
+    if not bundle.is_dir():
+        raise SystemExit(f"Resume adapter bundle is not a directory: {bundle}")
+    config_path = bundle / "adapter_config.json"
+    weights_path = bundle / "adapters.safetensors"
+    if not config_path.is_file():
+        raise SystemExit(f"Resume adapter bundle is missing adapter_config.json: {bundle}")
+    if not weights_path.is_file() or weights_path.stat().st_size <= 0:
+        raise SystemExit(f"Resume adapter bundle is missing adapters.safetensors: {bundle}")
+    try:
+        config = json.loads(config_path.read_text("utf-8"))
+    except Exception as exc:
+        raise SystemExit(f"Resume adapter config is not valid JSON: {config_path}") from exc
+    if not isinstance(config, dict) or not (
+        isinstance(config.get("lora_parameters"), dict) or config.get("rank") is not None
+    ):
+        raise SystemExit(
+            "Resume adapter config does not contain MLX-VLM LoRA parameters: "
+            f"{config_path}"
+        )
+    return bundle
+
+
+def prepare_resume_adapter_bundle(
+    resume_adapter: Path | None,
+    *,
+    adapter_root: Path,
+) -> Path | None:
+    if resume_adapter is None:
+        return None
+    source = resume_adapter.expanduser().resolve()
+    if source.is_dir():
+        return _validate_adapter_bundle(source)
+    if not source.is_file():
+        raise SystemExit(f"Resume adapter does not exist: {source}")
+    if source.suffix.lower() != ".safetensors":
+        raise SystemExit(
+            "Resume adapter must be an MLX-VLM adapter bundle directory or a .safetensors checkpoint."
+        )
+
+    sibling_config = source.parent / "adapter_config.json"
+    if not sibling_config.is_file():
+        raise SystemExit(
+            "Cannot recover this legacy checkpoint because adapter_config.json is missing beside it: "
+            f"{sibling_config}"
+        )
+
+    bundle = adapter_root / "resume-bundles" / source.stem
+    bundle.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, bundle / "adapters.safetensors")
+    shutil.copy2(sibling_config, bundle / "adapter_config.json")
+    return _validate_adapter_bundle(bundle)
 
 
 def build_lora_command(
@@ -195,8 +251,8 @@ def build_lora_command(
         raise SystemExit("--iters must be greater than zero.")
     if epochs <= 0:
         raise SystemExit("--epochs must be greater than zero.")
-    if resume_adapter is not None and not resume_adapter.is_file():
-        raise SystemExit(f"Resume adapter does not exist: {resume_adapter}")
+    if resume_adapter is not None:
+        _validate_adapter_bundle(resume_adapter)
 
     command = [
         training_python,
@@ -255,7 +311,7 @@ def main() -> int:
         "--iters",
         type=int,
         default=None,
-        help="Run an exact number of training iterations instead of epochs.",
+        help="Run an exact number of additional training iterations instead of epochs.",
     )
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--learning-rate", type=float, default=2e-4)
@@ -273,7 +329,10 @@ def main() -> int:
         "--resume-adapter",
         type=Path,
         default=None,
-        help="Warm-start/resume from a previously saved MLX-VLM LoRA adapter checkpoint.",
+        help=(
+            "Warm-start from an MLX-VLM adapter bundle directory or a legacy .safetensors "
+            "checkpoint that still has adapter_config.json beside it."
+        ),
     )
     parser.add_argument("--allow-small-dataset", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
@@ -297,6 +356,14 @@ def main() -> int:
             "Use --allow-small-dataset only for a disposable engineering smoke test."
         )
 
+    adapter_root = settings.resolve_local_path("./data/training/adapters")
+    adapter_root.mkdir(parents=True, exist_ok=True)
+    resume_adapter_input = args.resume_adapter.expanduser().resolve() if args.resume_adapter else None
+    resume_bundle = prepare_resume_adapter_bundle(
+        resume_adapter_input,
+        adapter_root=adapter_root,
+    )
+
     manifest = export_training_dataset(
         examples,
         image_store_path=settings.resolve_local_path(settings.image_store_path),
@@ -304,11 +371,9 @@ def main() -> int:
         validation_percent=15,
     )
     dataset_path = Path(manifest["destination"])
-    adapter_root = settings.resolve_local_path("./data/training/adapters")
-    adapter_root.mkdir(parents=True, exist_ok=True)
-    adapter_path = adapter_root / f"instacomp-{dataset_path.name}.safetensors"
+    adapter_bundle = adapter_root / f"instacomp-{dataset_path.name}"
+    adapter_path = adapter_bundle / "adapters.safetensors"
     training_python = runtime["training_python"]
-    resume_adapter = args.resume_adapter.expanduser().resolve() if args.resume_adapter else None
     resize_shape = (int(args.image_resize_shape[0]), int(args.image_resize_shape[1]))
 
     command = build_lora_command(
@@ -323,16 +388,23 @@ def main() -> int:
         lora_rank=args.lora_rank,
         lora_alpha=args.lora_alpha,
         image_resize_shape=resize_shape,
-        resume_adapter=resume_adapter,
+        resume_adapter=resume_bundle,
     )
     plan = {
-        "schema_version": "tcos.instacomp-ai.lora-plan.v3",
+        "schema_version": "tcos.instacomp-ai.lora-plan.v4",
         "runtime": runtime,
         "readiness": readiness,
         "dataset": manifest,
         "model": args.model,
-        "adapter_path": str(adapter_path),
-        "resume_adapter": str(resume_adapter) if resume_adapter else None,
+        "adapter_path": str(adapter_bundle),
+        "adapter_weights": str(adapter_path),
+        "resume_adapter_input": str(resume_adapter_input) if resume_adapter_input else None,
+        "resume_adapter_bundle": str(resume_bundle) if resume_bundle else None,
+        "resume_semantics": (
+            "warm_start_weights_only_optimizer_and_data_cursor_restart"
+            if resume_bundle
+            else None
+        ),
         "training_schedule": {
             "epochs": None if args.iters is not None else args.epochs,
             "iters": args.iters,
@@ -357,9 +429,17 @@ def main() -> int:
     completed = subprocess.run(command, cwd=SERVICE_ROOT, check=False)
     if completed.returncode != 0:
         return completed.returncode
-    if not adapter_path.is_file():
-        raise SystemExit("Training command finished without producing the expected adapter.")
-    print(json.dumps({"status": "trained", "adapter_path": str(adapter_path)}, indent=2))
+    config_path = adapter_bundle / "adapter_config.json"
+    if not adapter_path.is_file() or not config_path.is_file():
+        raise SystemExit(
+            "Training command finished without producing a complete adapter bundle "
+            "(adapter_config.json + adapters.safetensors)."
+        )
+    print(json.dumps({
+        "status": "trained",
+        "adapter_path": str(adapter_bundle),
+        "adapter_weights": str(adapter_path),
+    }, indent=2))
     return 0
 
 
