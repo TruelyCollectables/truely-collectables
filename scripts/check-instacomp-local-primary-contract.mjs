@@ -20,6 +20,7 @@ const readiness = read("src/app/api/instacomp/internal-readiness/route.ts");
 const editRoute = read(
   "src/app/api/account/seller/inventory/instacomp-card-edit/route.ts",
 );
+const councilRuntime = read("src/lib/instacomp-ai-council-runtime.ts");
 
 requireText(
   route,
@@ -36,61 +37,75 @@ requireText(
   "const serialOcr = null as InstaCompSerialOcrResult | null;",
   "External serial identity reading must remain disabled.",
 );
+
+const councilGate = councilRuntime.match(
+  /export function shouldContinueCouncilRuntime\([\s\S]*?\n}/,
+)?.[0];
+if (!councilGate) {
+  throw new Error("Shared AI council runtime gate was not found.");
+}
 requireText(
-  route,
-  "runSecondaryVision: false",
-  "External AI council execution must remain disabled.",
+  councilGate,
+  "return false;",
+  "Website AI council execution must remain hard-stopped.",
 );
-requireText(
-  route,
-  'requestedTier: "basic"',
-  "External AI council must remain on its zero-reader tier.",
-);
+if (/return\s*\(/.test(councilGate)) {
+  throw new Error("Website AI council runtime may not contain an executable continuation path.");
+}
 
 const analyze = service.split("async def analyze_scan", 2)[1]?.split(
   '@app.post(\n    "/v1/lessons"',
   1,
 )[0];
 if (!analyze) throw new Error("Could not isolate the Mac analyze_scan route.");
-forbidText(
+
+// Local Ollama is permitted as evidence after trusted memory + OCR/Registry.
+// It is never an identity authority: the exact Registry identity and current
+// fingerprint are required before it can unlock identity or pricing.
+requireText(
   analyze,
-  "await reader.analyze(",
-  "Ollama may not execute inside the InstaComp identity scan.",
+  "LOCAL EVIDENCE FALLBACK",
+  "Mac scan must identify local-model execution as evidence fallback.",
 );
 requireText(
   analyze,
-  "CHECKLIST-ONLY REVIEW PATH",
-  "Unresolved cards must use the checklist-only review path.",
+  "suggestion = await reader.analyze(",
+  "Mac scan must retain its local Ollama evidence fallback.",
 );
 requireText(
   analyze,
-  'status = "needs_review"',
-  "Unresolved cards must return needs_review rather than model_unavailable.",
+  "suggestion_registry = await checklist_gateway.match(",
+  "Local-model evidence must be sent back through the Checklist Registry.",
 );
 requireText(
   analyze,
-  'status = "needs_checklist"',
-  "Missing Registry configuration must return needs_checklist.",
+  "suggestion_registry.outcome == ChecklistOutcome.EXACT_MATCH",
+  "Local-model evidence may only lock an exact Registry match.",
 );
 requireText(
   analyze,
-  "No external identity provider was called",
-  "Review receipts must prove no external identity provider ran.",
+  'receipt.startswith("registry_fingerprint:")',
+  "Local-model evidence requires a current Registry fingerprint receipt.",
 );
 requireText(
   analyze,
-  "result = AnalyzeResponse(",
-  "Every unresolved scan must still construct a response.",
+  'match_source = "ollama_backup"',
+  "Registry-locked local-model evidence must retain explicit provenance.",
+);
+requireText(
+  analyze,
+  "trusted_identity = None",
+  "Unresolved local evidence must not become trusted identity.",
+);
+requireText(
+  analyze,
+  "pricing_allowed = False",
+  "Unresolved local evidence must keep pricing blocked.",
 );
 requireText(
   analyze,
   "_save_scan(",
-  "Every unresolved scan must be archived with its scan ID and checklist receipt.",
-);
-requireText(
-  analyze,
-  "return result",
-  "The Mac must return its saved review receipt.",
+  "Every scan outcome must remain archived with its scan ID and checklist receipt.",
 );
 
 forbidText(
@@ -142,7 +157,7 @@ requireText(
 forbidText(
   readiness,
   'const localModelReady = health.ollama === "ready";',
-  "Production readiness may not depend on Ollama.",
+  "Production readiness may not depend only on Ollama.",
 );
 requireText(
   readiness,
@@ -181,4 +196,4 @@ requireText(
   "Seller corrections must remain authoritative and locked.",
 );
 
-console.log("InstaComp checklist-only unresolved-scan contract passed.");
+console.log("InstaComp Registry-locked local-primary contract passed.");
