@@ -74,9 +74,27 @@ def build_training_router(require_api_key: Callable, store: MemoryStore, *, imag
     @router.post("/teacher-comp-receipt")
     async def teacher_comp_receipt(body: dict[str, Any] = Body(...)):
         try:
-            return record_teacher_comp_receipt(store.path, body)
+            result = record_teacher_comp_receipt(store.path, body)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        dataset_refresh: dict[str, Any] = {
+            "status": "skipped",
+            "reason": "Receipt is retained but is not eligible for student comp training.",
+        }
+        if result.get("student_training_eligible") is True:
+            try:
+                dataset_refresh = {
+                    "status": "saved",
+                    **export_teacher_comp_training_dataset(
+                        load_teacher_comp_receipts(store.path, limit=2000),
+                        destination_root=training_export_path,
+                        validation_percent=15,
+                    ),
+                }
+            except ValueError as exc:
+                dataset_refresh = {"status": "failed", "reason": str(exc)}
+        return {**result, "dataset_refresh": dataset_refresh}
 
     @router.post("/teacher-comp-export")
     async def teacher_comp_export(validation_percent: int = Query(default=15, ge=0, le=50)):
