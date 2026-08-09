@@ -6,6 +6,7 @@ on:
     paths:
       - ".github/workflows/instacomp-card-uuid-platform.yml"
       - "scripts/patch-instacomp-card-uuid-platform.py"
+      - "scripts/fix-instacomp-card-uuid-backcompat.py"
       - "scripts/verify-instacomp-card-uuid-platform.mjs"
       - "services/instacomp-ai/app/models.py"
       - "services/instacomp-ai/app/storage.py"
@@ -43,6 +44,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/patch-instacomp-card-uuid-platform.py
+          python3 scripts/fix-instacomp-card-uuid-backcompat.py
           git diff --check
           node scripts/verify-instacomp-card-uuid-platform.mjs
 
