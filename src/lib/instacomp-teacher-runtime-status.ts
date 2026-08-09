@@ -4,6 +4,9 @@ export type InstaCompTeacherRuntimeConfiguration = {
   xaiConfigured: boolean;
   groqConfigured: boolean;
   perplexityConfigured: boolean;
+  gatewayOidcAvailable: boolean;
+  gatewayGoogleConfigured: boolean;
+  gatewayXaiConfigured: boolean;
   openAiConfigured: boolean;
   serpApiConfigured: boolean;
   googleCseConfigured: boolean;
@@ -35,16 +38,23 @@ export function resolveInstaCompTeacherRuntimeConfiguration(
   const xaiConfigured = configured(env.XAI_API_KEY);
   const groqConfigured = configured(env.GROQ_API_KEY);
   const perplexityConfigured = configured(env.PERPLEXITY_API_KEY);
+  const gatewayOidcAvailable = configured(env.AI_GATEWAY_API_KEY || env.VERCEL_OIDC_TOKEN);
+  const gatewayGoogleConfigured = gatewayOidcAvailable && !geminiConfigured;
+  const gatewayXaiConfigured = gatewayOidcAvailable && !xaiConfigured;
   const openAiConfigured = configured(env.OPENAI_API_KEY);
   const serpApiConfigured = configured(env.SERPAPI_API_KEY);
   const googleCseConfigured = Boolean(
     configured(env.GOOGLE_CSE_API_KEY || env.GOOGLE_CUSTOM_SEARCH_API_KEY) &&
       configured(env.GOOGLE_CSE_CX || env.GOOGLE_CUSTOM_SEARCH_CX),
   );
+
+  // Provider families count once. If a direct Google/xAI key is present, the
+  // matching Gateway adapter stands down rather than creating a duplicate vote
+  // from the same underlying model provider.
   const votingTeacherCount = [
-    geminiConfigured,
+    geminiConfigured || gatewayGoogleConfigured,
     anthropicConfigured,
-    xaiConfigured,
+    xaiConfigured || gatewayXaiConfigured,
     groqConfigured,
   ].filter(Boolean).length;
   const requiredVotes = teacherRequiredVotes(votingTeacherCount);
@@ -58,6 +68,9 @@ export function resolveInstaCompTeacherRuntimeConfiguration(
     xaiConfigured,
     groqConfigured,
     perplexityConfigured,
+    gatewayOidcAvailable,
+    gatewayGoogleConfigured,
+    gatewayXaiConfigured,
     openAiConfigured,
     serpApiConfigured,
     googleCseConfigured,
