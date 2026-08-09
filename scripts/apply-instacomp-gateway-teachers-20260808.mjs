@@ -1,27 +1,30 @@
 import fs from 'node:fs';
 
-const path = 'src/lib/instacomp-teacher-market-provider.ts';
-let source = fs.readFileSync(path, 'utf8');
-
-function replaceOnce(anchor, replacement, label) {
+function replaceOnce(source, anchor, replacement, label) {
   const count = source.split(anchor).length - 1;
   if (count !== 1) throw new Error(`${label} anchor count ${count}, expected 1`);
-  source = source.replace(anchor, replacement);
+  return source.replace(anchor, replacement);
 }
 
-replaceOnce(
+const providerPath = 'src/lib/instacomp-teacher-market-provider.ts';
+let source = fs.readFileSync(providerPath, 'utf8');
+
+source = replaceOnce(
+  source,
   'import type {\n  InstaCompAiResult,\n  InstaCompComp,\n  InstaCompProviderResult,\n} from "./instacomp";\n',
   'import { generateText, stepCountIs } from "ai";\nimport { createGateway } from "@ai-sdk/gateway";\nimport type {\n  InstaCompAiResult,\n  InstaCompComp,\n  InstaCompProviderResult,\n} from "./instacomp";\n',
   'AI SDK import',
 );
 
-replaceOnce(
+source = replaceOnce(
+  source,
   'const GROQ_MODEL = String(\n  process.env.INSTACOMP_TEACHER_GROQ_MODEL || "groq/compound",\n).trim();\n',
   'const GROQ_MODEL = String(\n  process.env.INSTACOMP_TEACHER_GROQ_MODEL || "groq/compound",\n).trim();\nconst GATEWAY_GOOGLE_MODEL = String(\n  process.env.INSTACOMP_GATEWAY_GOOGLE_MODEL || "google/gemini-3.6-flash",\n).trim();\nconst GATEWAY_XAI_MODEL = String(\n  process.env.INSTACOMP_GATEWAY_XAI_MODEL || "xai/grok-4.5",\n).trim();\n',
   'Gateway model constants',
 );
 
-replaceOnce(
+source = replaceOnce(
+  source,
   'export type TeacherName = "gemini" | "anthropic" | "xai" | "groq" | "perplexity";\n',
   'export type TeacherName =\n  | "gemini"\n  | "anthropic"\n  | "xai"\n  | "groq"\n  | "gateway_google"\n  | "gateway_xai"\n  | "perplexity";\n',
   'TeacherName union',
@@ -142,23 +145,47 @@ async function runGatewayXai(
 
 `;
 
-replaceOnce(
+source = replaceOnce(
+  source,
   'function priceFromText(value: string) {\n',
   gatewayBlock + 'function priceFromText(value: string) {\n',
   'Gateway teacher insertion',
 );
 
-replaceOnce(
+source = replaceOnce(
+  source,
   'export async function getTeacherExactMarketProviders(params: {\n  exactTitle: string;\n  ai: InstaCompAiResult;\n}): Promise<TeacherConsensusMarketResult> {\n',
   'export async function getTeacherExactMarketProviders(params: {\n  exactTitle: string;\n  ai: InstaCompAiResult;\n  gatewayOidcToken?: string;\n}): Promise<TeacherConsensusMarketResult> {\n',
   'Teacher provider signature',
 );
 
-replaceOnce(
+source = replaceOnce(
+  source,
   '  const attempts = await Promise.all([\n    runGemini(prompt),\n    runAnthropic(prompt),\n    runXai(prompt),\n    runGroq(prompt),\n    runPerplexity(params.exactTitle),\n  ]);\n',
   '  const attempts = await Promise.all([\n    runGemini(prompt),\n    runGatewayGoogle(prompt, params.gatewayOidcToken),\n    runAnthropic(prompt),\n    runXai(prompt),\n    runGatewayXai(prompt, params.gatewayOidcToken),\n    runGroq(prompt),\n    runPerplexity(params.exactTitle),\n  ]);\n',
   'Teacher attempt list',
 );
 
-fs.writeFileSync(path, source);
-console.log('Applied Vercel AI Gateway teacher runtime patch.');
+fs.writeFileSync(providerPath, source);
+
+const liveScanPath = 'src/app/api/instacomp/live-scan/route.ts';
+let liveScan = fs.readFileSync(liveScanPath, 'utf8');
+liveScan = replaceOnce(
+  liveScan,
+  '    teacher = await getTeacherExactMarketProviders({ exactTitle, ai });\n',
+  '    teacher = await getTeacherExactMarketProviders({\n      exactTitle,\n      ai,\n      gatewayOidcToken: String(request.headers.get("x-vercel-oidc-token") || "").trim() || undefined,\n    });\n',
+  'live-scan Gateway OIDC handoff',
+);
+fs.writeFileSync(liveScanPath, liveScan);
+
+const dealHunterPath = 'src/app/api/instacomp/deal-hunter/evaluate/core.ts';
+let dealHunter = fs.readFileSync(dealHunterPath, 'utf8');
+dealHunter = replaceOnce(
+  dealHunter,
+  '    const internalHeaders = new Headers({ Accept: "application/json" });\n    internalHeaders.set(\n      "x-tcos-instacomp-service-token",\n      getInstaCompServiceToken(),\n    );\n',
+  '    const internalHeaders = new Headers({ Accept: "application/json" });\n    internalHeaders.set(\n      "x-tcos-instacomp-service-token",\n      getInstaCompServiceToken(),\n    );\n    const vercelOidcToken = String(request.headers.get("x-vercel-oidc-token") || "").trim();\n    if (vercelOidcToken) internalHeaders.set("x-vercel-oidc-token", vercelOidcToken);\n',
+  'Deal Hunter internal Gateway OIDC handoff',
+);
+fs.writeFileSync(dealHunterPath, dealHunter);
+
+console.log('Applied Vercel AI Gateway teacher runtime and OIDC handoff patches.');
