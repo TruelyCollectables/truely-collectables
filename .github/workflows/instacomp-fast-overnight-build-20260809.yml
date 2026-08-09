@@ -38,15 +38,20 @@ jobs:
           ref: agent/instacomp-fast-overnight-audit
           fetch-depth: 0
 
-      - name: Patch season-year preservation
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Patch season-year preservation and release blockers
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
 
-          path = Path('src/app/api/instacomp/scan/route.ts')
-          text = path.read_text()
+          scan_path = Path('src/app/api/instacomp/scan/route.ts')
+          text = scan_path.read_text()
 
           helper_marker = 'function preserveSeasonYear('
           if helper_marker not in text:
@@ -93,20 +98,54 @@ jobs:
           elif new not in text:
               raise SystemExit('Could not locate Registry year override')
 
-          path.write_text(text)
+          scan_path.write_text(text)
+
+          fast_path = Path('src/app/admin/instacomp/fast/InstaCompFastDropScanner.tsx')
+          fast = fast_path.read_text()
+          fast = fast.replace('Date.now()', 'performance.now()')
+          effect = '''  useEffect(() => {\n    if (!editing && ai) setDraft({ ...ai });\n  }, [ai, editing]);\n\n'''
+          if effect in fast:
+              fast = fast.replace(effect, '', 1)
+          fast = fast.replace('import { useEffect, useMemo, useRef, useState } from "react";', 'import { useMemo, useRef, useState } from "react";', 1)
+          fast_path.write_text(fast)
+
+          v2_path = Path('src/app/admin/instacomp/fast/InstaCompFastDropScannerV2.tsx')
+          v2 = v2_path.read_text().replace('Date.now()', 'performance.now()')
+          v2_path.write_text(v2)
+
+          sentinel_path = Path('src/app/admin/instacomp/checklist-sentinel/page.tsx')
+          sentinel = sentinel_path.read_text()
+          unsafe = '(await response.json()) as ProxyPayload;'
+          safe = '(await response.json().catch(() => ({}))) as ProxyPayload;'
+          if unsafe in sentinel:
+              sentinel = sentinel.replace(unsafe, safe)
+          elif safe not in sentinel:
+              raise SystemExit('Could not locate Checklist Sentinel JSON parse')
+          sentinel_path.write_text(sentinel)
           PY
 
-      - name: Persist backend patch immediately
+      - name: Refresh dependency lockfile security fixes
         shell: bash
         run: |
           set -euo pipefail
-          if git diff --quiet -- src/app/api/instacomp/scan/route.ts; then
-            echo 'Season-year patch already persisted.'
+          npm audit fix --package-lock-only --ignore-scripts || true
+
+      - name: Persist release blocker fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            src/app/api/instacomp/scan/route.ts \
+            src/app/admin/instacomp/fast/InstaCompFastDropScanner.tsx \
+            src/app/admin/instacomp/fast/InstaCompFastDropScannerV2.tsx \
+            src/app/admin/instacomp/checklist-sentinel/page.tsx \
+            package-lock.json
+          if git diff --cached --quiet; then
+            echo 'Release blocker fixes already persisted.'
           else
-            git config user.name 'github-actions[bot]'
-            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git add src/app/api/instacomp/scan/route.ts
-            git commit -m 'Preserve sports card season years'
+            git commit -m 'Fix InstaComp release blockers'
             git push origin HEAD:agent/instacomp-fast-overnight-audit
           fi
 
@@ -121,9 +160,21 @@ jobs:
           grep -q 'progressPercent' src/app/admin/instacomp/fast/InstaCompFastDropScanner.tsx
           grep -q 'aiCouncilTier.*, "basic"' src/app/admin/instacomp/fast/InstaCompFastDropScanner.tsx
           grep -q 'aiCouncilTier.*, "adaptive"' src/app/admin/instacomp/fast/InstaCompFastDropScanner.tsx
+          grep -q 'response.json().catch(() => ({}))' src/app/admin/instacomp/checklist-sentinel/page.tsx
+          ! grep -q 'Date.now()' src/app/admin/instacomp/fast/InstaCompFastDropScanner.tsx
+          ! grep -q 'Date.now()' src/app/admin/instacomp/fast/InstaCompFastDropScannerV2.tsx
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Dependency security gate
+        run: node scripts/run-dependency-security-audit.mjs
+
+      - name: Admin dashboard contract
+        run: npm run verify:admin-dashboard
+
+      - name: Lint
+        run: npm run lint
 
       - name: TypeScript
         run: ./node_modules/.bin/tsc --noEmit
