@@ -21,53 +21,13 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: kingmaker-unified-admin-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  repair-admin-audit:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'fix/kingmaker-certify-current-head-20260809'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
-
-      - name: Restore exact Admin audit script and exempt Advanced Admin self-route
-        run: |
-          set -euo pipefail
-          git show 8a2e83747484df21e347af24e11ba732c0536468:scripts/run-admin-dashboard-actions-simulations.mjs > scripts/run-admin-dashboard-actions-simulations.mjs
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path('scripts/run-admin-dashboard-actions-simulations.mjs')
-          source = path.read_text('utf-8')
-          old = 'const adminDashboardLinkExemptions = new Set(["/admin", "/admin/login"]);'
-          new = 'const adminDashboardLinkExemptions = new Set(["/admin", "/admin/login", "/admin/advanced"]);'
-          if old not in source:
-              raise SystemExit('Admin dashboard link exemption marker not found')
-          source = source.replace(old, new, 1)
-          path.write_text(source, 'utf-8')
-          PY
-          git diff --check
-
-      - name: Persist repaired audit script
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add scripts/run-admin-dashboard-actions-simulations.mjs
-          if git diff --cached --quiet; then
-            echo "Admin audit script already repaired."
-          else
-            git commit -m "Fix Advanced Admin static-link audit ownership"
-            git push origin HEAD:${{ github.event.pull_request.head.ref }}
-          fi
-
   validate:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
