@@ -1,9 +1,9 @@
 name: PR 974 Deal Hunter Admin Integration
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/instacomp-fast-overnight-audit
+      - main
 
 permissions:
   contents: write
