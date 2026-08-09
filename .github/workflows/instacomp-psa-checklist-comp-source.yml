@@ -39,7 +39,10 @@ jobs:
         run: pytest -q tests/test_sentinel_psa_sources.py
       - name: Read-only live PSA probe through actual Sentinel source client
         working-directory: services/instacomp-ai
-        run: python scripts/probe-psa-sentinel.py | tee ../../psa-checklist-probe.jsonl
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/probe-psa-sentinel.py | tee ../../psa-checklist-probe.jsonl
       - name: Install web dependencies
         run: npm ci
       - name: Run PSA graded-comp teacher regressions
