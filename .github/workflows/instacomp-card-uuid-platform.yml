@@ -11,6 +11,7 @@ on:
       - "services/instacomp-ai/app/storage.py"
       - "services/instacomp-ai/app/training.py"
       - "services/instacomp-ai/app/main.py"
+      - "services/instacomp-ai/scripts/import_supervised_203_trusted.py"
       - "services/instacomp-ai/scripts/update-live-from-main.sh"
       - "services/instacomp-ai/tests/test_card_uuid_tracking.py"
       - "src/lib/instacomp-ai-local.ts"
@@ -23,7 +24,7 @@ permissions:
 
 concurrency:
   group: instacomp-card-uuid-platform-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   EXPECTED_BRANCH: feature/instacomp-card-uuid-platform-20260808
@@ -55,7 +56,7 @@ jobs:
         run: |
           set -euo pipefail
           pip install -r services/instacomp-ai/requirements.txt
-          python -m compileall services/instacomp-ai/app services/instacomp-ai/tests
+          python -m compileall services/instacomp-ai/app services/instacomp-ai/tests services/instacomp-ai/scripts/import_supervised_203_trusted.py
           PYTHONPATH=services/instacomp-ai pytest -q services/instacomp-ai/tests
 
       - uses: actions/setup-node@v4
