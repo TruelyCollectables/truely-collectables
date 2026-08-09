@@ -23,13 +23,13 @@ _CHROME_CANDIDATES = (
 )
 
 
+def _is_exact_psa_apr_url(url: str) -> bool:
+    host = (urlparse(url).hostname or "").lower()
+    return host in {"psacard.com", "www.psacard.com"} and _is_psa_set_apr_url(url)
+
+
 def _psa_requires_browser_render(downloaded: DownloadedFile) -> bool:
-    host = (urlparse(downloaded.url).hostname or "").lower()
-    if host not in {"psacard.com", "www.psacard.com"}:
-        return False
-    if not _is_psa_set_apr_url(downloaded.url):
-        return False
-    if "html" not in downloaded.content_type.lower():
+    if not _is_exact_psa_apr_url(downloaded.url):
         return False
     lowered = downloaded.content.lower()
     has_rows = (
@@ -39,7 +39,17 @@ def _psa_requires_browser_render(downloaded: DownloadedFile) -> bool:
     )
     if has_rows:
         return False
+    # PSA currently serves its Next.js Flight/bootstrap shell to the plain
+    # HTTP client. Do not trust Content-Type alone here; CDN/bot responses can
+    # vary while the body still proves that browser rendering is required.
     return b"self.__next_f" in lowered or b"collectors-web/_next" in lowered
+
+
+def _psa_http_error_requires_browser_render(url: str, error: httpx.HTTPStatusError) -> bool:
+    if not _is_exact_psa_apr_url(url):
+        return False
+    response = error.response
+    return response is not None and response.status_code == 403
 
 
 def _chrome_binary() -> str | None:
@@ -63,7 +73,7 @@ async def _render_psa_apr_with_chrome(
     chrome = _chrome_binary()
     if not chrome:
         raise ValueError(
-            "PSA APR returned only its Next.js shell and no supported Chrome/Chromium binary is installed."
+            "PSA APR requires browser rendering and no supported Chrome/Chromium binary is installed."
         )
 
     timeout = max(45.0, min(float(client.timeout_seconds) * 2.0, 150.0))
@@ -206,7 +216,12 @@ def install_sentinel_runtime_compat() -> None:
         self: SentinelSourceClient,
         url: str,
     ) -> DownloadedFile:
-        downloaded = await original_download(self, url)
+        try:
+            downloaded = await original_download(self, url)
+        except httpx.HTTPStatusError as error:
+            if _psa_http_error_requires_browser_render(url, error):
+                return await _render_psa_apr_with_chrome(self, url)
+            raise
         if _psa_requires_browser_render(downloaded):
             return await _render_psa_apr_with_chrome(self, downloaded.url)
         return downloaded
