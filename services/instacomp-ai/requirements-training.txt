@@ -1,2 +1,4 @@
 -r requirements.txt
-mlx-vlm[train]>=0.5,<1; sys_platform == "darwin"
+# The MLX LoRA trainer is intentionally isolated in .venv-lora because
+# mlx-vlm 0.6.8 requires Starlette 1.x while the live FastAPI service uses
+# the compatible Starlette 0.47.x line. See requirements-lora-runtime.txt.
