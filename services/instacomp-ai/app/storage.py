@@ -6,7 +6,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from .images import perceptual_hash_distance
 from .models import (
@@ -28,6 +28,72 @@ def utc_now() -> datetime:
 
 def normalize(value: object) -> str:
     return " ".join(str(value or "").strip().lower().split())
+
+
+def canonical_uuid_or_none(value: object) -> str | None:
+    try:
+        return str(UUID(str(value or "").strip()))
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
+def repair_legacy_card_uuids(db: sqlite3.Connection) -> int:
+    """Replace legacy/non-UUID physical-card keys with stable real UUIDs.
+
+    Exact front/back image-pair rows share one generated UUID. Existing valid
+    UUIDs are preserved and become the seed for any legacy rows with the same
+    exact image pair. Training-example JSON is updated because card_uuid is
+    tracking metadata carried with the example, never a visual/model target.
+    """
+    rows = db.execute(
+        "SELECT scan_id, card_uuid, image_pair_sha256 FROM scans "
+        "ORDER BY created_at ASC, scan_id ASC"
+    ).fetchall()
+    pair_uuid: dict[str, str] = {}
+    for row in rows:
+        pair_hash = str(row["image_pair_sha256"] or "").strip()
+        valid = canonical_uuid_or_none(row["card_uuid"])
+        if pair_hash and valid and pair_hash not in pair_uuid:
+            pair_uuid[pair_hash] = valid
+
+    repaired = 0
+    for row in rows:
+        current = canonical_uuid_or_none(row["card_uuid"])
+        if current:
+            continue
+        pair_hash = str(row["image_pair_sha256"] or "").strip()
+        resolved = pair_uuid.get(pair_hash)
+        if not resolved:
+            resolved = canonical_uuid_or_none(row["scan_id"]) or str(uuid4())
+            if pair_hash:
+                pair_uuid[pair_hash] = resolved
+        db.execute(
+            "UPDATE scans SET card_uuid = ? WHERE scan_id = ?",
+            (resolved, row["scan_id"]),
+        )
+        repaired += 1
+
+    examples = db.execute(
+        "SELECT te.training_example_id, te.example_json, s.card_uuid "
+        "FROM training_examples te JOIN scans s ON s.scan_id = te.scan_id"
+    ).fetchall()
+    for row in examples:
+        card_uuid = canonical_uuid_or_none(row["card_uuid"])
+        if not card_uuid:
+            continue
+        try:
+            payload = json.loads(row["example_json"])
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict) or payload.get("card_uuid") == card_uuid:
+            continue
+        payload["card_uuid"] = card_uuid
+        db.execute(
+            "UPDATE training_examples SET example_json = ? "
+            "WHERE training_example_id = ?",
+            (json.dumps(payload), row["training_example_id"]),
+        )
+    return repaired
 
 
 def identity_fingerprint(identity: CardIdentity) -> str:
@@ -147,9 +213,9 @@ class MemoryStore:
                 "CREATE INDEX IF NOT EXISTS scans_card_uuid_idx "
                 "ON scans(card_uuid)"
             )
-            # Legacy scans predate card_uuid. Their historical scan UUID is the
-            # safest permanent seed because no physical-card key existed yet.
-            db.execute("UPDATE scans SET card_uuid = scan_id WHERE card_uuid IS NULL")
+            # Legacy logical scan IDs such as SCAN-0001 are not valid permanent
+            # physical-card UUIDs. Repair them once and keep the result stable.
+            repair_legacy_card_uuids(db)
 
     def ready(self) -> bool:
         try:
@@ -178,9 +244,20 @@ class MemoryStore:
         checklist: dict,
         status: str,
     ) -> None:
-        resolved_card_uuid = str(card_uuid or scan_id).strip()
-        if not resolved_card_uuid:
-            raise ValueError("card_uuid or scan_id is required")
+        requested_uuid = canonical_uuid_or_none(card_uuid)
+        if card_uuid is not None and not requested_uuid:
+            raise ValueError("card_uuid must be a valid UUID")
+        exact_pair_uuid = self.card_uuid_for_image_pair(image_pair_sha256)
+        if requested_uuid and exact_pair_uuid and requested_uuid != exact_pair_uuid:
+            raise ValueError(
+                "The exact front/back image pair is already bound to another card_uuid"
+            )
+        resolved_card_uuid = (
+            requested_uuid
+            or exact_pair_uuid
+            or canonical_uuid_or_none(scan_id)
+            or str(uuid4())
+        )
         with self.connection() as db:
             db.execute(
                 """
@@ -232,8 +309,7 @@ class MemoryStore:
             ).fetchone()
         if row is None:
             return None
-        value = str(row["card_uuid"] or "").strip()
-        return value or None
+        return canonical_uuid_or_none(row["card_uuid"])
 
     def get_scan(self, scan_id: str) -> dict | None:
         with self.connection() as db:
