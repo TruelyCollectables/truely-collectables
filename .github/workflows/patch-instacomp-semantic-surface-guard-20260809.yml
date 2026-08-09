@@ -1,0 +1,67 @@
+name: Patch InstaComp Semantic Surface Guard 20260809
+
+on:
+  push:
+    branches:
+      - fix/kingmaker-certify-current-head-20260809
+    paths:
+      - ".github/workflows/patch-instacomp-semantic-surface-guard-20260809.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-persist:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/kingmaker-certify-current-head-20260809
+          fetch-depth: 0
+
+      - name: Restore raw unresolved surface fail-closed guard
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/lib/instacomp-learning-server.ts')
+          source = path.read_text('utf-8')
+          old = '''  // Free-form finish/color prose from one scanner may not veto an otherwise
+          // exact Base Registry candidate after a conflict-free multi-reader council.
+          // Adjacent-year Base recovery remains fail-closed.
+          if (parallelProfile.baseLike && adjacentYearRecovered) {
+            continue;
+          }'''
+          new = '''  // Raw unresolved finish/color evidence must remain fail-closed for Base.
+          // Only a conflict-free multi-reader council may mark that note evidence as
+          // adjudicated audit context; adjacent-year Base recovery is always blocked.
+          const unresolvedSurfaceRisk =
+            parallelProfile.surfaceRisk && ai.parallelEvidenceAdjudicated !== true;
+          if (
+            parallelProfile.baseLike &&
+            (unresolvedSurfaceRisk || adjacentYearRecovered)
+          ) {
+            continue;
+          }'''
+          if old in source:
+              source = source.replace(old, new, 1)
+          elif 'const unresolvedSurfaceRisk =' not in source:
+              raise SystemExit('Registry surface guard target not found')
+          path.write_text(source, 'utf-8')
+          PY
+          git diff --check
+
+      - name: Persist Registry guard
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/instacomp-learning-server.ts
+          if git diff --cached --quiet; then
+            echo "Registry guard already fixed."
+          else
+            git commit -m "Restore fail-closed Registry surface evidence guard"
+            git push origin HEAD:fix/kingmaker-certify-current-head-20260809
+          fi
