@@ -96,12 +96,20 @@ export async function POST(request: Request) {
     return Response.json({ success: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  const configuration = resolveInstaCompTeacherRuntimeConfiguration();
+  // Vercel Functions provide OIDC on the request context/header. Builds/local
+  // pulls may instead expose VERCEL_OIDC_TOKEN directly. Feed only the presence
+  // into the status resolver; the token value is never returned.
+  const requestOidc = String(request.headers.get("x-vercel-oidc-token") || "").trim();
+  const configuration = resolveInstaCompTeacherRuntimeConfiguration({
+    ...process.env,
+    VERCEL_OIDC_TOKEN:
+      String(process.env.VERCEL_OIDC_TOKEN || "").trim() || requestOidc || undefined,
+  });
   const mac = await macTrainingReadiness();
   return Response.json(
     {
       success: true,
-      schema: "truelycollectables.instacompTeacherRuntimeDiagnostics.v1",
+      schema: "truelycollectables.instacompTeacherRuntimeDiagnostics.v2",
       configuration,
       mac,
       boundaries: {
@@ -109,6 +117,7 @@ export async function POST(request: Request) {
         instaCompAiPricingAuthority: false,
         instaCompAiIdentityAuthorityFromTeacherReceipts: false,
         minimumVotingTeachersForTrustedSoldTruth: 2,
+        duplicateProviderFamilyVotesAllowed: false,
       },
       checkedAt: new Date().toISOString(),
     },
