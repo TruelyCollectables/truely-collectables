@@ -1,3 +1,5 @@
+import { generateText, stepCountIs } from "ai";
+import { gateway } from "@ai-sdk/gateway";
 import type {
   InstaCompAiResult,
   InstaCompComp,
@@ -26,10 +28,23 @@ const XAI_MODEL = String(
 const GROQ_MODEL = String(
   process.env.INSTACOMP_TEACHER_GROQ_MODEL || "groq/compound",
 ).trim();
+const GATEWAY_GOOGLE_MODEL = String(
+  process.env.INSTACOMP_GATEWAY_GOOGLE_MODEL || "google/gemini-3.6-flash",
+).trim();
+const GATEWAY_XAI_MODEL = String(
+  process.env.INSTACOMP_GATEWAY_XAI_MODEL || "xai/grok-4.5",
+).trim();
 const TEACHER_TIMEOUT_MS = 120_000;
 const MAX_ROWS_PER_TEACHER = 12;
 
-export type TeacherName = "gemini" | "anthropic" | "xai" | "groq" | "perplexity";
+export type TeacherName =
+  | "gemini"
+  | "anthropic"
+  | "xai"
+  | "groq"
+  | "gateway_google"
+  | "gateway_xai"
+  | "perplexity";
 
 type TeacherMarketRow = {
   title: string;
@@ -419,6 +434,108 @@ async function runGroq(prompt: string): Promise<TeacherAttempt> {
   }
 }
 
+
+function gatewayPlatformAvailable() {
+  return Boolean(
+    clean(process.env.AI_GATEWAY_API_KEY || process.env.VERCEL_OIDC_TOKEN) ||
+      process.env.VERCEL === "1",
+  );
+}
+
+async function runGatewayGoogle(prompt: string): Promise<TeacherAttempt> {
+  const configured = gatewayPlatformAvailable() && !GEMINI_API_KEY;
+  if (!configured) {
+    return { teacher: "gateway_google", configured: false, ok: false, sold: [], active: [], notes: "", error: null };
+  }
+  try {
+    const result = await generateText({
+      model: GATEWAY_GOOGLE_MODEL,
+      prompt,
+      temperature: 0,
+      maxOutputTokens: 6000,
+      timeout: TEACHER_TIMEOUT_MS,
+      tools: {
+        perplexity_search: gateway.tools.perplexitySearch({
+          searchDomainFilter: ["ebay.com", "130point.com"],
+        }),
+      },
+      prepareStep: ({ stepNumber }) =>
+        stepNumber === 0
+          ? { toolChoice: { type: "tool", toolName: "perplexity_search" } }
+          : { toolChoice: "none" },
+      stopWhen: stepCountIs(3),
+    });
+    const parsed = parseJsonObject(result.text);
+    return {
+      teacher: "gateway_google",
+      configured: true,
+      ok: true,
+      ...parsed,
+      notes: [parsed.notes, "Vercel AI Gateway automatic OIDC; Google model + Perplexity Search."].filter(Boolean).join(" "),
+      error: null,
+    };
+  } catch (error) {
+    return {
+      teacher: "gateway_google",
+      configured: true,
+      ok: false,
+      sold: [],
+      active: [],
+      notes: "",
+      error: sanitizeInstaCompProviderError(error instanceof Error ? error.message : String(error)),
+    };
+  }
+}
+
+async function runGatewayXai(prompt: string): Promise<TeacherAttempt> {
+  const configured = gatewayPlatformAvailable() && !XAI_API_KEY;
+  if (!configured) {
+    return { teacher: "gateway_xai", configured: false, ok: false, sold: [], active: [], notes: "", error: null };
+  }
+  try {
+    const result = await generateText({
+      model: GATEWAY_XAI_MODEL,
+      prompt,
+      temperature: 0,
+      maxOutputTokens: 6000,
+      timeout: TEACHER_TIMEOUT_MS,
+      tools: {
+        parallel_search: gateway.tools.parallelSearch({
+          mode: "one-shot",
+          maxResults: 10,
+          sourcePolicy: {
+            includeDomains: ["ebay.com", "130point.com"],
+          },
+        }),
+      },
+      prepareStep: ({ stepNumber }) =>
+        stepNumber === 0
+          ? { toolChoice: { type: "tool", toolName: "parallel_search" } }
+          : { toolChoice: "none" },
+      stopWhen: stepCountIs(3),
+    });
+    const parsed = parseJsonObject(result.text);
+    return {
+      teacher: "gateway_xai",
+      configured: true,
+      ok: true,
+      ...parsed,
+      notes: [parsed.notes, "Vercel AI Gateway automatic OIDC; xAI model + Parallel Search."].filter(Boolean).join(" "),
+      error: null,
+    };
+  } catch (error) {
+    return {
+      teacher: "gateway_xai",
+      configured: true,
+      ok: false,
+      sold: [],
+      active: [],
+      notes: "",
+      error: sanitizeInstaCompProviderError(error instanceof Error ? error.message : String(error)),
+    };
+  }
+}
+
 function priceFromText(value: string) {
   const match = value.replace(/,/g, "").match(/(?:US\s*)?\$\s*(\d+(?:\.\d{1,2})?)/i);
   return match?.[1] ? money(match[1]) : null;
@@ -568,8 +685,10 @@ export async function getTeacherExactMarketProviders(params: {
   const prompt = teacherPrompt(params.exactTitle, params.ai);
   const attempts = await Promise.all([
     runGemini(prompt),
+    runGatewayGoogle(prompt),
     runAnthropic(prompt),
     runXai(prompt),
+    runGatewayXai(prompt),
     runGroq(prompt),
     runPerplexity(params.exactTitle),
   ]);
