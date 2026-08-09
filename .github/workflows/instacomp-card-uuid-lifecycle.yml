@@ -68,6 +68,7 @@ jobs:
             src/modules/inventory/types.ts \
             src/modules/inventory/repository.ts \
             src/modules/inventory/engine.ts \
+            src/lib/collectible-sale-history.ts \
             src/lib/checkout-order-finalization.ts
           if ! git diff --cached --quiet; then
             git commit -m "Carry permanent card UUID through inventory and orders [skip ci]"
