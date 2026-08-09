@@ -18,7 +18,7 @@ assert.equal(none.gatewayOidcAvailable, false);
 assert.equal(none.macLearningBridgeConfigured, false);
 
 const gatewayOnly = resolveInstaCompTeacherRuntimeConfiguration({
-  VERCEL_OIDC_TOKEN: "oidc-token",
+  VERCEL: "1",
   INSTACOMP_AI_LOCAL_URL: "https://instacomp.truelycollectables.com",
   INSTACOMP_AI_LOCAL_KEY: "local-key",
 });
@@ -29,6 +29,13 @@ assert.equal(gatewayOnly.votingTeacherCount, 2);
 assert.equal(gatewayOnly.requiredVotes, 2);
 assert.equal(gatewayOnly.teacherConsensusOperational, true);
 assert.equal(gatewayOnly.macLearningBridgeConfigured, true);
+
+const localPulledOidc = resolveInstaCompTeacherRuntimeConfiguration({
+  VERCEL_OIDC_TOKEN: "oidc-token",
+});
+assert.equal(localPulledOidc.gatewayOidcAvailable, true);
+assert.equal(localPulledOidc.votingTeacherCount, 2);
+assert.equal(localPulledOidc.teacherConsensusOperational, true);
 
 const one = resolveInstaCompTeacherRuntimeConfiguration({
   GEMINI_API_KEY: "gemini",
@@ -43,7 +50,7 @@ assert.equal(one.macLearningBridgeConfigured, true);
 
 const duplicateProviderFamiliesDoNotDoubleVote =
   resolveInstaCompTeacherRuntimeConfiguration({
-    VERCEL_OIDC_TOKEN: "oidc-token",
+    VERCEL: "1",
     GEMINI_API_KEY: "gemini-direct",
     XAI_API_KEY: "xai-direct",
   });
@@ -73,7 +80,7 @@ assert.equal(two.serpApiConfigured, true);
 assert.equal(two.googleCseConfigured, true);
 
 const invalidMac = resolveInstaCompTeacherRuntimeConfiguration({
-  VERCEL_OIDC_TOKEN: "oidc-token",
+  VERCEL: "1",
   INSTACOMP_AI_LOCAL_URL: "https://example.com",
   INSTACOMP_AI_LOCAL_KEY: "local-key",
 });
