@@ -230,9 +230,10 @@ def build_sentinel_router(
         return {"sources": sentinel.store.list_sources()}
 
     # Sentinel posts a multipart source file to localhost. The relay validates
-    # the dedicated archive credential and exact bytes, then sends only a small
-    # signed metadata request to Vercel. Production independently re-fetches the
-    # public source and verifies the same SHA-256 before private archival.
+    # the dedicated archive credential, bounded byte count, and exact SHA-256,
+    # then forwards those exact bytes to the protected central Registry route.
+    # This supports public sources that reject cloud/datacenter re-fetches while
+    # still requiring Registry parsing/validation before a target is recovered.
     @outer.post(
         "/v1/checklist-sentinel/registry-import-relay",
         tags=["InstaComp AI Checklist Sentinel"],
@@ -287,6 +288,7 @@ def build_sentinel_router(
 
         digest = hashlib.sha256()
         byte_count = 0
+        chunks: list[bytes] = []
         while True:
             chunk = await file.read(1024 * 1024)
             if not chunk:
@@ -298,7 +300,10 @@ def build_sentinel_router(
                     detail="Checklist source exceeds 50 MB limit.",
                 )
             digest.update(chunk)
+            chunks.append(bytes(chunk))
 
+        if byte_count <= 0:
+            raise HTTPException(status_code=400, detail="Checklist source is empty.")
         actual_sha = digest.hexdigest()
         if actual_sha != expected_sha:
             raise HTTPException(
@@ -306,6 +311,9 @@ def build_sentinel_router(
                 detail="Local checklist SHA-256 receipt mismatch.",
             )
 
+        source_bytes = b"".join(chunks)
+        content_type = (file.content_type or "application/octet-stream")[:200]
+        file_name = (file.filename or "checklist-source.bin")[:300]
         payload = {
             "targetKey": target_key[:500],
             "sport": sport[:120],
@@ -316,12 +324,11 @@ def build_sentinel_router(
             "sourceUrl": source_url[:4000],
             "sha256": expected_sha,
             "source": source[:120],
-            "byteCount": byte_count,
-            "contentType": (file.content_type or "application/octet-stream")[:200],
-            "fileName": (file.filename or "checklist-source.bin")[:300],
+            "byteCount": str(byte_count),
+            "contentType": content_type,
+            "fileName": file_name,
         }
         headers = {
-            "content-type": "application/json",
             "x-instacomp-sentinel-archive-token": archive_token,
         }
         try:
@@ -330,7 +337,17 @@ def build_sentinel_router(
                 follow_redirects=False,
                 headers=headers,
             ) as client:
-                response = await client.post(central_url, json=payload)
+                response = await client.post(
+                    central_url,
+                    data=payload,
+                    files={
+                        "sourceFile": (
+                            file_name,
+                            source_bytes,
+                            content_type,
+                        )
+                    },
+                )
             data = response.json() if response.content else {}
         except (httpx.HTTPError, json.JSONDecodeError, ValueError) as exc:
             raise HTTPException(
