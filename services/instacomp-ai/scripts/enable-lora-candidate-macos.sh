@@ -38,6 +38,22 @@ service_python="$service_root/.venv/bin/python"
   exit 2
 }
 
+# Prove the exact service import path before changing .env or launchd state.
+# The activation command is normally invoked from the repository root, while
+# `app` lives under services/instacomp-ai. Always execute service imports from
+# service_root so repo-root invocation cannot fail with ModuleNotFoundError.
+main_port="$(
+  cd "$service_root"
+  "$service_python" - <<'PY'
+from app.config import settings
+print(settings.port)
+PY
+)"
+[[ "$main_port" =~ ^[0-9]+$ && "$main_port" -ge 1024 && "$main_port" -le 65535 ]] || {
+  echo "Invalid InstaComp main-service port resolved from app.config: $main_port" >&2
+  exit 2
+}
+
 lora_python="$service_root/.venv-lora/bin/python"
 if [[ ! -x "$lora_python" ]]; then
   echo "Creating isolated LoRA runtime..."
@@ -57,6 +73,14 @@ fi
 preflight="$($lora_python "$service_root/scripts/run_lora_candidate_server.py" --adapter "$adapter" --preflight-only)"
 printf '%s\n' "$preflight"
 
+# CI and operator diagnostics may request the complete no-side-effect activation
+# preflight. This still exercises the same repo-root -> service-root import path,
+# adapter receipt gate, and isolated MLX runtime used by real activation.
+if [[ "${INSTACOMP_AI_LORA_ACTIVATION_PREFLIGHT_ONLY:-0}" == "1" ]]; then
+  echo "PASS LoRA candidate activation preflight: no runtime state changed."
+  exit 0
+fi
+
 port="${INSTACOMP_AI_LORA_CANDIDATE_PORT:-8791}"
 [[ "$port" =~ ^[0-9]+$ && "$port" -ge 1024 && "$port" -le 65535 ]] || {
   echo "Invalid candidate port: $port" >&2
@@ -64,9 +88,35 @@ port="${INSTACOMP_AI_LORA_CANDIDATE_PORT:-8791}"
 }
 url="http://127.0.0.1:${port}"
 env_file="$service_root/.env"
-mkdir -p "$service_root/data/logs" "$service_root/data/lora-candidate"
+label="com.truelycollectables.instacomp-ai-lora-candidate"
+domain="gui/$(id -u)"
+launch_agents="$HOME/Library/LaunchAgents"
+plist="$launch_agents/${label}.plist"
+main_label="${INSTACOMP_AI_LAUNCHD_LABEL:-com.truelycollectables.instacomp-ai}"
+
+# Real activation requires the already-installed main service. Do not rebuild or
+# replace the service environment in the middle of a candidate promotion.
+if ! launchctl print "$domain/$main_label" >/dev/null 2>&1; then
+  echo "Refusing activation: the InstaComp main LaunchAgent is not running." >&2
+  echo "Start/repair the main service first; candidate activation changed nothing." >&2
+  exit 2
+fi
+
+mkdir -p "$service_root/data/logs" "$service_root/data/lora-candidate" "$launch_agents"
 touch "$env_file"
 chmod 600 "$env_file"
+
+activation_complete=0
+rollback_on_exit() {
+  status=$?
+  if [[ "$activation_complete" != "1" ]]; then
+    set +e
+    bash "$service_root/scripts/disable-lora-candidate-macos.sh" >/dev/null 2>&1
+    echo "LoRA candidate activation failed; candidate runtime was automatically rolled back to disabled." >&2
+  fi
+  exit "$status"
+}
+trap rollback_on_exit EXIT
 
 "$service_python" - "$env_file" "$adapter" "$url" "$port" <<'PY'
 from pathlib import Path
@@ -97,11 +147,34 @@ path.write_text("\n".join(out).rstrip() + "\n", encoding="utf-8")
 PY
 chmod 600 "$env_file"
 
-label="com.truelycollectables.instacomp-ai-lora-candidate"
-domain="gui/$(id -u)"
-launch_agents="$HOME/Library/LaunchAgents"
-plist="$launch_agents/${label}.plist"
-mkdir -p "$launch_agents"
+# Re-read settings from the same service-root context used by the LaunchAgent and
+# fail before launch if the written candidate configuration is not what runtime
+# will consume.
+runtime_config="$({
+  cd "$service_root"
+  "$service_python" - "$adapter" "$url" <<'PY'
+import json
+import sys
+from app.config import settings
+
+expected_adapter = sys.argv[1]
+expected_url = sys.argv[2]
+payload = {
+    "enabled": settings.lora_candidate_enabled,
+    "url": settings.lora_candidate_url,
+}
+if settings.lora_candidate_enabled is not True:
+    raise SystemExit("candidate setting did not reload as enabled")
+if settings.lora_candidate_url.rstrip("/") != expected_url.rstrip("/"):
+    raise SystemExit("candidate URL did not reload from .env")
+print(json.dumps(payload, separators=(",", ":")))
+PY
+} )"
+[[ -n "$runtime_config" ]] || {
+  echo "Candidate runtime configuration could not be re-read after .env update." >&2
+  exit 2
+}
+
 cat > "$plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -143,18 +216,9 @@ done
   exit 2
 }
 
-main_label="${INSTACOMP_AI_LAUNCHD_LABEL:-com.truelycollectables.instacomp-ai}"
-if launchctl print "$domain/$main_label" >/dev/null 2>&1; then
-  launchctl kickstart -k "$domain/$main_label"
-else
-  bash "$service_root/scripts/install-macos.sh"
-fi
+# Restart only the existing main service so it reloads the candidate flag.
+launchctl kickstart -k "$domain/$main_label"
 
-main_port="$($service_python - <<'PY'
-from app.config import settings
-print(settings.port)
-PY
-)"
 main_health=""
 for _ in $(seq 1 90); do
   if main_health="$(curl --silent --fail --max-time 2 "http://127.0.0.1:${main_port}/health" 2>/dev/null)"; then
@@ -168,7 +232,7 @@ done
 }
 
 receipt="$service_root/data/lora-candidate/activation-$(date -u +%Y%m%dT%H%M%SZ).json"
-PREFLIGHT_JSON="$preflight" SIDECAR_HEALTH_JSON="$sidecar_health" MAIN_HEALTH_JSON="$main_health" RECEIPT="$receipt" ADAPTER="$adapter" COMMIT="$(git -C "$repo_root" rev-parse HEAD)" \
+PREFLIGHT_JSON="$preflight" SIDECAR_HEALTH_JSON="$sidecar_health" MAIN_HEALTH_JSON="$main_health" RUNTIME_CONFIG_JSON="$runtime_config" RECEIPT="$receipt" ADAPTER="$adapter" COMMIT="$(git -C "$repo_root" rev-parse HEAD)" \
   "$service_python" - <<'PY'
 import json
 import os
@@ -178,14 +242,23 @@ from pathlib import Path
 preflight = json.loads(os.environ["PREFLIGHT_JSON"])
 sidecar = json.loads(os.environ["SIDECAR_HEALTH_JSON"])
 main = json.loads(os.environ["MAIN_HEALTH_JSON"])
-if preflight.get("promotion_candidate") is not True or preflight.get("automatic_promotion") is not False:
+runtime_config = json.loads(os.environ["RUNTIME_CONFIG_JSON"])
+if preflight.get("promotion_candidate") is not True:
     raise SystemExit("candidate preflight was not promotion-eligible")
+if preflight.get("automatic_deployment") is not False:
+    raise SystemExit("candidate preflight did not preserve automatic_deployment=false")
 if sidecar.get("ok") is not True or sidecar.get("validation_eligible") is not True:
     raise SystemExit("candidate sidecar health is not eligible")
+if sidecar.get("adapter_weights_sha256") != preflight.get("adapter_weights_sha256"):
+    raise SystemExit("candidate sidecar adapter hash does not match preflight")
+if sidecar.get("validation_receipt") != preflight.get("validation_receipt_name"):
+    raise SystemExit("candidate sidecar validation receipt does not match preflight")
+if runtime_config.get("enabled") is not True:
+    raise SystemExit("candidate runtime setting is not enabled")
 if main.get("ok") is not True:
     raise SystemExit("main InstaComp health is not ready")
 receipt = {
-    "schema_version": "tcos.instacomp-ai.lora-candidate-activation.v1",
+    "schema_version": "tcos.instacomp-ai.lora-candidate-activation.v2",
     "activated_at": datetime.now(timezone.utc).isoformat(),
     "commit": os.environ["COMMIT"],
     "adapter": os.environ["ADAPTER"],
@@ -194,6 +267,7 @@ receipt = {
     "validation_eligible": True,
     "runtime_candidate_enabled": True,
     "registry_remains_identity_authority": True,
+    "automatic_deployment": False,
     "automatic_promotion": False,
     "nothing_published": True,
 }
@@ -202,4 +276,6 @@ path.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
 print(json.dumps(receipt, indent=2))
 PY
 
+activation_complete=1
+trap - EXIT
 echo "LoRA candidate is enabled as evidence-only. Roll back with: bash services/instacomp-ai/scripts/disable-lora-candidate-macos.sh"
