@@ -30,17 +30,32 @@ jobs:
           node-version: 20
           cache: npm
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Install dependencies
-        run: npm ci
+        run: |
+          npm ci
+          python -m pip install --disable-pip-version-check pytest
 
       - name: Apply student/teacher boundary and teacher-first comp chain
-        run: node scripts/apply-instacomp-teacher-comp-mode.mjs
+        run: |
+          node scripts/apply-instacomp-teacher-comp-mode.mjs
+          node scripts/apply-instacomp-teacher-learning-bridge.mjs
 
       - name: Reject malformed patch
         run: git diff --check
 
       - name: Run teacher consensus regressions
         run: node --import tsx scripts/run-instacomp-teacher-market-provider-simulations.ts
+
+      - name: Run InstaComp AI teacher learning regressions
+        run: |
+          cd services/instacomp-ai
+          python -m pytest tests/test_teacher_comp_learning.py -q
+          python -m compileall -q app
 
       - name: Run existing InstaComp consensus regressions
         run: npm run simulate:instacomp-consensus
