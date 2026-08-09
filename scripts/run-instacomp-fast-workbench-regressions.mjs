@@ -9,7 +9,7 @@ const checks = [
   ['progress stage text', scanner.includes('progressStage')],
   ['operator correction persistence', scanner.includes('/api/instacomp/knowledge/confirm')],
   ['season year preservation helper', scanRoute.includes('preserveSeasonYear')],
-  ['registry year uses season helper', scanRoute.includes('preserveSeasonYear(consensusAi.year, registryMatch.year)')],
+  ['registry year uses season helper', scanRoute.includes('preserveSeasonYear(consensusAi.year, registryMatch.year, registrySetName)')],
   ['fast lane is basic', scanner.includes('form.append("aiCouncilTier", "basic")')],
   ['exact market remains adaptive', scanner.includes('form.append("aiCouncilTier", "adaptive")')],
   ['semantic rotation remains wired', scanner.includes('frontRotation') && scanner.includes('backRotation')],
