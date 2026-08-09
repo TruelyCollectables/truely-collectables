@@ -85,6 +85,30 @@ assert.ok(
     (issue) => issue.code === "psa_target_identity_mismatch",
   ),
 );
+assert.ok(
+  mismatch.validation.issues.some(
+    (issue) => issue.code === "psa_release_slug_mismatch",
+  ),
+);
+
+const subset = parsePsaAprHtmlChecklist(
+  artifact(
+    completeHtml.replace(
+      "2010 Panini Elite Black Box",
+      "2010 Panini Elite Black Box Crusade",
+    ),
+    {
+      sourceUrl:
+        "https://www.psacard.com/auctionprices/basketball-cards/2010-panini-elite-black-box-crusade/101091",
+    },
+  ),
+);
+assert.equal(subset.validation.status, "validation_required");
+assert.ok(
+  subset.validation.issues.some(
+    (issue) => issue.code === "psa_release_slug_mismatch" && issue.severity === "error",
+  ),
+);
 
 assert.equal(
   psaAprHtmlChecklistAdapter.supports(
