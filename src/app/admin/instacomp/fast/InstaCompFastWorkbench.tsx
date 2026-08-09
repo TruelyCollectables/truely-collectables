@@ -368,10 +368,11 @@ export default function InstaCompFastWorkbench() {
       const form = new FormData();
       form.append("frontImage", card.front, card.front.name);
       form.append("backImage", card.back, card.back.name);
-      form.append("aiCouncilTier", "adaptive");
+      form.append("aiCouncilTier", "basic");
       const correction = card.operatorIdentity;
       if (correction) {
         form.append("listingTitleHint", identityTitle(correction));
+        form.append("operatorIdentityOverride", JSON.stringify(correction));
         form.append("operatorSerialNumberOverride", correction.serialNumber || "none");
       }
 

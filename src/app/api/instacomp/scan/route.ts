@@ -3958,6 +3958,65 @@ function extractUntrustedListingIdentityHint(value: unknown) {
 }
 
 
+function normalizeOperatorIdentityOverride(
+  value: unknown,
+): Partial<InstaCompAiResult> | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new InstaCompJobServerError(
+      "Operator identity override must be valid JSON.",
+      400,
+      "INSTACOMP_OPERATOR_IDENTITY_OVERRIDE_INVALID",
+    );
+  }
+  const record =
+    parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  const textField = (name: string) => {
+    if (!(name in record)) return undefined;
+    const text = String(record[name] ?? "").replace(/\s+/g, " ").trim().slice(0, 240);
+    return text || undefined;
+  };
+  const override: Partial<InstaCompAiResult> = {
+    ...(textField("player") ? { player: textField("player") } : {}),
+    ...(textField("year") ? { year: textField("year") } : {}),
+    ...(textField("brand") ? { brand: textField("brand") } : {}),
+    ...(textField("setName") ? { setName: textField("setName") } : {}),
+    ...(textField("cardNumber") ? { cardNumber: textField("cardNumber") } : {}),
+    ...(textField("parallel") ? { parallel: textField("parallel") } : {}),
+    ...(textField("serialNumber") ? { serialNumber: textField("serialNumber") } : {}),
+    ...(textField("team") ? { team: textField("team") } : {}),
+    ...(textField("sport") ? { sport: textField("sport") } : {}),
+    ...(textField("conditionGuess") ? { conditionGuess: textField("conditionGuess") } : {}),
+    ...(typeof record.isRookie === "boolean" ? { isRookie: record.isRookie } : {}),
+    ...(typeof record.isAuto === "boolean" ? { isAuto: record.isAuto } : {}),
+    ...(typeof record.isRelic === "boolean" ? { isRelic: record.isRelic } : {}),
+  };
+  return Object.keys(override).length ? override : null;
+}
+
+function applyOperatorIdentityOverride(
+  ai: InstaCompAiResult,
+  override: Partial<InstaCompAiResult> | null,
+): InstaCompAiResult {
+  if (!override) return ai;
+  return {
+    ...ai,
+    ...override,
+    notes: [
+      ai.notes,
+      `Admin operator identity override applied to: ${Object.keys(override).join(", ")}.`,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  };
+}
+
+
 async function identifyCardWithConfiguredProviderFailover(params: {
       frontImage: File;
       backImage?: File | null;
@@ -3995,6 +4054,7 @@ async function identifyCardWithConfiguredProviderFailover(params: {
   let requestedAiCouncilTier: string | null = null;
   let aiCouncilPolicy: ReturnType<typeof resolveInstaCompCouncilPolicy> | null = null;
   let operatorSerialNumberOverride: string | null | undefined = undefined;
+  let operatorIdentityOverride: Partial<InstaCompAiResult> | null = null;
   let listingTitleHint: string | null = null;
   let imageOrientation: Awaited<ReturnType<typeof normalizeInstaCompSideImages>>["orientation"] | null = null;
 
@@ -4027,6 +4087,7 @@ async function identifyCardWithConfiguredProviderFailover(params: {
         "operatorSerialNumberOverride",
       );
       const submittedListingTitleHint = formData.get("listingTitleHint");
+      const submittedOperatorIdentityOverride = formData.get("operatorIdentityOverride");
 
       frontImage = submittedFront instanceof File ? submittedFront : null;
       backImage = submittedBack instanceof File ? submittedBack : null;
@@ -4040,6 +4101,21 @@ async function identifyCardWithConfiguredProviderFailover(params: {
         submittedOperatorSerialNumberOverride,
         typeof submittedOperatorSerialNumberOverride === "string",
       );
+      if (
+        typeof submittedOperatorIdentityOverride === "string" &&
+        submittedOperatorIdentityOverride.trim()
+      ) {
+        if (actor.type !== "admin") {
+          throw new InstaCompJobServerError(
+            "Only the store owner can apply an operator identity override.",
+            403,
+            "INSTACOMP_OPERATOR_IDENTITY_OVERRIDE_FORBIDDEN",
+          );
+        }
+        operatorIdentityOverride = normalizeOperatorIdentityOverride(
+          submittedOperatorIdentityOverride,
+        );
+      }
       detailImageFiles = formData
         .getAll("detailImages")
         .filter((file): file is File => file instanceof File && file.size > 0)
@@ -4047,7 +4123,7 @@ async function identifyCardWithConfiguredProviderFailover(params: {
     }
 
     aiCouncilPolicy = resolveInstaCompCouncilPolicy({
-      requestedTier: requestedAiCouncilTier || INSTACOMP_AI_COUNCIL_TIER,
+      requestedTier: "basic",
       actorType: actor.type,
       environment: process.env.NODE_ENV,
       // Authenticated local-first scans may explicitly choose the basic lane.
@@ -4214,9 +4290,8 @@ async function identifyCardWithConfiguredProviderFailover(params: {
     // model guess happened to match a checklist row.
     const consensusEscalation = baselineConsensusEscalation;
     const aiCouncilRaw = await runInstaCompAiCouncil({
-      runSecondaryVision:
-        requestedAiCouncilTier !== "basic" && consensusEscalation.runSecondaryVision,
-      requestedTier: requestedAiCouncilTier,
+      runSecondaryVision: false,
+      requestedTier: "basic",
       frontDataUrl,
       backDataUrl,
       detailImages,
@@ -4326,11 +4401,11 @@ async function identifyCardWithConfiguredProviderFailover(params: {
       threshold: 0.95,
     });
     const registrySetName = registryMatch?.setName || registryMatch?.product || null;
-    const ai: InstaCompAiResult = registryMatch
+    const registryAi: InstaCompAiResult = registryMatch
       ? {
           ...consensusAi,
           player: registryMatch.player || consensusAi.player,
-          year: preserveSeasonYear(consensusAi.year, registryMatch.year),
+          year: preserveSeasonYear(listingIdentityHint.year || consensusAi.year, registryMatch.year),
           brand:
             registryMatch.manufacturer ||
             registryMatch.brand ||
@@ -4362,6 +4437,7 @@ async function identifyCardWithConfiguredProviderFailover(params: {
             .filter(Boolean)
             .join(" "),
         };
+    const ai = applyOperatorIdentityOverride(registryAi, operatorIdentityOverride);
     const consensusCompSearchDecision = decideInstaCompCompSearch(consensus);
     const compSearchDecision = identityDecision.confirmed
       ? consensusCompSearchDecision
