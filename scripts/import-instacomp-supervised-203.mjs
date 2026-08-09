@@ -125,7 +125,11 @@ const envFile = process.env.PRODUCTION_ENV_FILE;
 if (!envFile || !fs.existsSync(envFile)) throw new Error('PRODUCTION_ENV_FILE is required.');
 const base = valueFromEnvFile(envFile, 'INSTACOMP_AI_LOCAL_URL').replace(/\/+$/,'');
 const key = valueFromEnvFile(envFile, 'INSTACOMP_AI_LOCAL_KEY');
-if (!/^https:\/\/[^/]+\.truelycollectables\.com$/i.test(base) || !key) throw new Error('Protected physical Mac coordinates unavailable.');
+const safePublicHttps = /^https:\/\//i.test(base) && !/^https:\/\/(?:127\.0\.0\.1|localhost)(?::|\/|$)/i.test(base);
+if (!safePublicHttps || !key) {
+  console.error(JSON.stringify({coordinateDiagnostic:{urlPresent:Boolean(base),keyPresent:Boolean(key),https:/^https:\/\//i.test(base),localhost:/^https?:\/\/(?:127\.0\.0\.1|localhost)(?::|\/|$)/i.test(base),urlLength:base.length,keyLength:key.length}}));
+  throw new Error('Protected physical Mac coordinates unavailable.');
+}
 
 const receipt = {
   schema:'tcos.instacomp-ai.supervised-203-import-receipt.v1',
