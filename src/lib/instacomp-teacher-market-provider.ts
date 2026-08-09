@@ -386,7 +386,6 @@ async function runPerplexity(exactTitle: string): Promise<TeacherAttempt> {
       body: JSON.stringify({
         query: `${exactTitle} eBay sold completed`,
         max_results: 20,
-        search_context_size: "high",
         country: "US",
       }),
       signal: AbortSignal.timeout(60_000),
@@ -395,32 +394,14 @@ async function runPerplexity(exactTitle: string): Promise<TeacherAttempt> {
     if (!response.ok) {
       throw new Error(clean(payload?.error?.message) || `Perplexity HTTP ${response.status}`);
     }
-    const sold = (Array.isArray(payload?.results) ? payload.results : [])
-      .map((row: any): TeacherMarketRow | null => {
-        const url = directEbayItemUrl(row?.url);
-        const text = `${clean(row?.title)} ${clean(row?.snippet)}`;
-        const itemPrice = priceFromText(text);
-        const soldAt = validDate(row?.date || row?.last_updated);
-        if (!url || itemPrice === null || !soldAt) return null;
-        return {
-          title: clean(row?.title),
-          itemPrice,
-          shippingPrice: 0,
-          url,
-          imageUrl: null,
-          soldAt,
-          listedAt: null,
-          identityEvidence: clean(row?.snippet).slice(0, 1000),
-        };
-      })
-      .filter((row: TeacherMarketRow | null): row is TeacherMarketRow => Boolean(row));
+    const resultCount = Array.isArray(payload?.results) ? payload.results.length : 0;
     return {
       teacher: "perplexity",
       configured: true,
       ok: true,
-      sold,
+      sold: [],
       active: [],
-      notes: "Perplexity Search discovery only; rows still require cross-teacher agreement.",
+      notes: `Perplexity Search returned ${resultCount} discovery result${resultCount === 1 ? "" : "s"}; it is corroboration-only until exact sold date and shipping are explicitly proven.`,
       error: null,
     };
   } catch (error) {
@@ -523,7 +504,7 @@ function consensusSold(
         ).slice(0, 20),
       } satisfies InstaCompComp;
     })
-    .filter((row): row is InstaCompComp => Boolean(row))
+    .filter((row): row is NonNullable<typeof row> => Boolean(row))
     .sort((left, right) => right.matchScore - left.matchScore)
     .slice(0, 12);
 }
@@ -539,11 +520,12 @@ export async function getTeacherExactMarketProviders(params: {
     runXai(prompt),
     runPerplexity(params.exactTitle),
   ]);
-  const configuredTeachers = attempts
+  const votingAttempts = attempts.filter((attempt) => attempt.teacher !== "perplexity");
+  const configuredTeachers = votingAttempts
     .filter((attempt) => attempt.configured)
     .map((attempt) => attempt.teacher);
   const requiredVotes = requiredTeacherVotes(configuredTeachers.length);
-  const sold = consensusSold(attempts, params.ai, requiredVotes);
+  const sold = consensusSold(votingAttempts, params.ai, requiredVotes);
   const discoverySold = attempts.flatMap((attempt) =>
     attempt.ok ? strictTeacherRows(attempt, "sold", params.ai) : [],
   );

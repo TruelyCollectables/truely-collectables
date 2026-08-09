@@ -430,7 +430,7 @@ export async function POST(request: NextRequest) {
     const internalForm = new FormData();
     internalForm.set("frontImage", front, front.name || "front.jpg");
     internalForm.set("backImage", back, back.name || "back.jpg");
-    internalForm.set("aiCouncilTier", "basic");
+    internalForm.set("aiCouncilTier", "adaptive");
     const listingTitleHint = text(listing.title, 1000);
     if (listingTitleHint) internalForm.set("listingTitleHint", listingTitleHint);
     const internalHeaders = new Headers({ Accept: "application/json" });
