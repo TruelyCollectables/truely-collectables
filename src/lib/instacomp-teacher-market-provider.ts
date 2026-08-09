@@ -28,6 +28,7 @@ const GROQ_MODEL = String(
 ).trim();
 const TEACHER_TIMEOUT_MS = 120_000;
 const MAX_ROWS_PER_TEACHER = 12;
+const TEACHER_MARKET_DOMAINS = ["ebay.com", "130point.com", "psacard.com"];
 
 export type TeacherName = "gemini" | "anthropic" | "xai" | "groq" | "perplexity";
 
@@ -157,6 +158,7 @@ function teacherPrompt(exactTitle: string, ai: InstaCompAiResult) {
   return [
     "You are an independent sports-card market teacher for Truely Collectables InstaComp.",
     "Search the live web. eBay sold/completed listings are the primary target; 130point may be used only to corroborate an eBay sale.",
+    "For PSA-graded cards, also inspect psacard.com Auction Prices Realized and PSA cert Sales History as independent identity and realized-sale evidence. PSA Estimate and PSA Price Guide values are reference-only and are NEVER sold comps. If PSA corroborates an eBay sale, return the direct eBay item URL only after the exact PSA card identity and PSA grade match.",
     "The local InstaComp AI is a STUDENT and must not be treated as authority. The identity JSON below is the canonical target supplied by the verified InstaComp Registry/workflow.",
     "Never return a similar card. Player, year/season, manufacturer/brand/product, exact set/insert, card number, parallel/variation, print-run denominator, autograph/relic state, raw/graded state, grading company and grade must match whenever applicable.",
     "A /199 card is never a comp for /299. A numbered card is never a comp for an unnumbered card. A different insert/set is never a comp even when player and card number look similar.",
@@ -288,7 +290,7 @@ async function runAnthropic(prompt: string): Promise<TeacherAttempt> {
             type: "web_search_20260318",
             name: "web_search",
             max_uses: 10,
-            allowed_domains: ["ebay.com", "130point.com"],
+            allowed_domains: TEACHER_MARKET_DOMAINS,
             allowed_callers: ["direct"],
           },
         ],
@@ -345,7 +347,7 @@ async function runXai(prompt: string): Promise<TeacherAttempt> {
         tools: [
           {
             type: "web_search",
-            filters: { allowed_domains: ["ebay.com", "130point.com"] },
+            filters: { allowed_domains: TEACHER_MARKET_DOMAINS },
             enable_image_understanding: true,
           },
         ],
@@ -394,7 +396,7 @@ async function runGroq(prompt: string): Promise<TeacherAttempt> {
           },
         },
         search_settings: {
-          include_domains: ["ebay.com", "130point.com"],
+          include_domains: TEACHER_MARKET_DOMAINS,
           country: "united states",
         },
       }),
@@ -436,7 +438,7 @@ async function runPerplexity(exactTitle: string): Promise<TeacherAttempt> {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        query: `${exactTitle} eBay sold completed`,
+        query: `${exactTitle} eBay sold completed PSA Auction Prices Realized`,
         max_results: 20,
         country: "US",
       }),
