@@ -1,0 +1,62 @@
+name: InstaComp Card UUID Inventory Handoff
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-card-uuid-inventory-handoff.yml"
+      - "scripts/patch-instacomp-card-uuid-inventory-handoff.py"
+      - "scripts/verify-instacomp-card-uuid-inventory-handoff.mjs"
+      - "src/app/api/account/seller/instacomp-scan/intake/route.ts"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instacomp-card-uuid-inventory-handoff-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_BRANCH: feature/instacomp-card-uuid-inventory-handoff-20260808
+
+jobs:
+  apply-test-and-persist:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Apply UUID inventory handoff patch
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-instacomp-card-uuid-inventory-handoff.py
+          git diff --check
+          node scripts/verify-instacomp-card-uuid-inventory-handoff.mjs
+          node scripts/certify-instacomp-scanner-pipeline.mjs
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: TypeScript and production build
+        run: |
+          set -euo pipefail
+          npm ci >/dev/null
+          npx tsc --noEmit
+          npm run build
+
+      - name: Persist generated intake route
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/api/account/seller/instacomp-scan/intake/route.ts
+          if ! git diff --cached --quiet; then
+            git commit -m "Carry permanent card UUID into Pending Listings [skip ci]"
+            git push origin "HEAD:$EXPECTED_BRANCH"
+          fi
