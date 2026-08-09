@@ -1,0 +1,63 @@
+name: InstaComp Sentinel PSA Verified Index
+
+on:
+  push:
+    branches:
+      - fix/sentinel-psa-verified-index-20260809-v5
+    paths:
+      - "scripts/patch-sentinel-psa-verified-index.py"
+      - "services/instacomp-ai/app/psa_verified_sets.py"
+      - "services/instacomp-ai/tests/test_sentinel_psa_verified_index.py"
+      - ".github/workflows/instacomp-sentinel-psa-verified-index.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instacomp-sentinel-psa-verified-index-v5
+  cancel-in-progress: true
+
+jobs:
+  apply-test-persist:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/sentinel-psa-verified-index-20260809-v5
+          fetch-depth: 0
+
+      - name: Apply verified PSA index patch
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-sentinel-psa-verified-index.py
+          git diff --check
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/instacomp-ai/requirements.txt
+
+      - name: Install InstaComp AI dependencies
+        run: pip install -r services/instacomp-ai/requirements.txt
+
+      - name: Compile Sentinel
+        working-directory: services/instacomp-ai
+        run: python -m compileall -q app
+
+      - name: Run PSA source and Registry recovery tests
+        working-directory: services/instacomp-ai
+        run: pytest -q tests/test_sentinel_psa_sources.py tests/test_sentinel_psa_verified_index.py tests/test_sentinel_registry_recovery_gate.py
+
+      - name: Persist tested runtime change
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add services/instacomp-ai/app/sentinel_sources.py
+          if ! git diff --cached --quiet; then
+            git commit -m "Use verified PSA set index before search [skip ci]"
+            git push origin HEAD:fix/sentinel-psa-verified-index-20260809-v5
+          fi
