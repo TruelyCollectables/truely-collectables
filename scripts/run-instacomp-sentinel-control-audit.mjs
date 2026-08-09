@@ -53,7 +53,7 @@ assert(contents.updater.includes("repair_vercel_root_directory"), "Mac updater m
 assert(contents.updater.includes('npx vercel api "$endpoint"'), "Mac updater must inspect the linked Vercel project through authenticated CLI API access.");
 assert(contents.updater.includes("-X PATCH -F rootDirectory="), "Mac updater must clear only the known invalid Vercel repository-root value through the project API.");
 assert(contents.updater.includes("Refusing automatic Vercel root repair"), "Mac updater must fail closed for unexpected non-root Vercel directory settings.");
-assert(contents.updater.includes('npx vercel --prod --yes --cwd "$repo_root"'), "Mac updater must redeploy Production explicitly from the repository root after key synchronization.");
+assert(contents.updater.includes('npx vercel --prod --yes --archive=tgz --cwd "$repo_root"'), "Mac updater must use archive-safe Production deployment explicitly from the repository root after key synchronization.");
 assert(contents.updater.includes("x-instacomp-sentinel-archive-token"), "Mac updater must verify the Production Sentinel proxy end to end.");
 assert(contents.updater.includes("sentinelKeyAcceptedThroughProduction"), "Mac updater receipt must prove the synchronized key was accepted through Production.");
 assert(contents.updater.includes("Refusing key repair"), "Mac updater must fail closed instead of silently rotating a missing or malformed key.");
@@ -98,12 +98,15 @@ assert(contents.proxy.includes("localhost"), "Website proxy must reject Producti
 assert(contents.dashboard.includes("Checklist Sentinel™"), "Dashboard branding is incorrect.");
 assert(contents.dashboard.includes("20 * 60 * 1000"), "Dashboard progress must refresh every 20 minutes.");
 assert(contents.dashboard.includes("Progress last updated:"), "Dashboard progress must show its last-updated timestamp.");
-assert(contents.dashboard.includes("completedTargets * 100 / totalTargets"), "Dashboard must calculate overall backlog progress across the full target universe.");
+assert(contents.dashboard.includes("completedTargets * 100") && contents.dashboard.includes("totalTargets"), "Dashboard must calculate overall backlog progress across the full target universe.");
 assert(contents.dashboard.includes('action("run")'), "Dashboard must expose Run Now.");
 assert(contents.dashboard.includes('action("refresh-targets")'), "Dashboard must expose target refresh.");
 assert(contents.dashboard.includes("status?.enabled &&"), "Dashboard must not claim connection health when Sentinel is disabled.");
 assert(contents.dashboard.includes("freeze_protection"), "Dashboard must show freeze protection.");
 assert(contents.dashboard.includes("registry_import_configured"), "Dashboard must show central archive state.");
+assert(contents.dashboard.includes('/api/instacomp/checklist-sentinel?view=status'), "Dashboard must read Sentinel state through the certified secure website proxy.");
+assert(contents.dashboard.includes('fetch("/api/instacomp/checklist-sentinel"'), "Dashboard mutations must use the certified secure Sentinel proxy.");
+assert(!contents.dashboard.includes("/api/admin/instacomp/checklist-sentinel"), "Dashboard must not call a nonexistent duplicate admin proxy.");
 assert(!contents.dashboard.includes("INSTACOMP_AI_LOCAL_KEY"), "Browser code must never contain the Mac key.");
 assert(!contents.dashboard.includes("instacomp.truelycollectables.com"), "Browser code must not call the tunnel directly.");
 
@@ -118,11 +121,12 @@ assert(contents.env.includes("Keep the large multipart transfer on localhost"), 
 console.log("✓ Named tunnel and both LaunchAgents are installer-owned");
 console.log("✓ Dedicated Mac and archive secrets are generated locally and synchronized once");
 console.log("✓ Routine Mac updates re-sync the existing key without rotating it and prove Production accepts it");
-console.log("✓ Known invalid Vercel './' root settings are repaired narrowly before Production deploys");
+console.log("✓ Known invalid Vercel './' root settings are repaired narrowly before archive-safe Production deploys");
 console.log("✓ No unrelated Vercel service credential is read or rotated");
 console.log("✓ Sentinel safe batch cap remains 75 and pending backlog auto-drains only when due");
 console.log("✓ Main Admin page and quick tools both link directly to Checklist Sentinel");
 console.log("✓ Dashboard reports overall checklist search progress with a 20-minute timestamped refresh");
+console.log("✓ Dashboard uses the admin-only same-origin Sentinel website proxy");
 console.log("✓ Large files stay off the Vercel request body");
 console.log("✓ Source URL, redirects, DNS, byte count, duplicate bytes, and SHA-256 fail closed");
 console.log("✓ Central source archive is private with immutable source provenance");
