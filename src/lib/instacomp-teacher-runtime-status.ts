@@ -38,7 +38,16 @@ export function resolveInstaCompTeacherRuntimeConfiguration(
   const xaiConfigured = configured(env.XAI_API_KEY);
   const groqConfigured = configured(env.GROQ_API_KEY);
   const perplexityConfigured = configured(env.PERPLEXITY_API_KEY);
-  const gatewayOidcAvailable = configured(env.AI_GATEWAY_API_KEY || env.VERCEL_OIDC_TOKEN);
+
+  // Vercel provisions short-lived OIDC for deployed Functions automatically.
+  // The AI SDK consumes it internally; depending on runtime it is not guaranteed
+  // to be readable as a normal env variable. VERCEL=1 therefore means Gateway
+  // platform auth is expected, while the protected live smoke proves real access.
+  const gatewayOidcAvailable = Boolean(
+    env.VERCEL === "1" ||
+      configured(env.AI_GATEWAY_API_KEY) ||
+      configured(env.VERCEL_OIDC_TOKEN),
+  );
   const gatewayGoogleConfigured = gatewayOidcAvailable && !geminiConfigured;
   const gatewayXaiConfigured = gatewayOidcAvailable && !xaiConfigured;
   const openAiConfigured = configured(env.OPENAI_API_KEY);
@@ -48,9 +57,8 @@ export function resolveInstaCompTeacherRuntimeConfiguration(
       configured(env.GOOGLE_CSE_CX || env.GOOGLE_CUSTOM_SEARCH_CX),
   );
 
-  // Provider families count once. If a direct Google/xAI key is present, the
-  // matching Gateway adapter stands down rather than creating a duplicate vote
-  // from the same underlying model provider.
+  // Provider families count once. Direct Google/xAI credentials suppress their
+  // matching Gateway adapters so one underlying provider can never cast two votes.
   const votingTeacherCount = [
     geminiConfigured || gatewayGoogleConfigured,
     anthropicConfigured,
