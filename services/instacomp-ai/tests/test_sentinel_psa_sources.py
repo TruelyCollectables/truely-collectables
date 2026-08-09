@@ -27,9 +27,9 @@ def target():
     }
 
 
-def test_psa_is_high_trust_and_uses_first_party_search_before_serp():
+def test_psa_is_high_trust_first_party_verification_before_serp():
     assert AUTO_IMPORT_DOMAINS["psacard.com"] == 96
-    assert source("psa")["import_policy"] == "auto_import"
+    assert source("psa")["import_policy"] == "lead_only"
     assert source("psa")["kind"] == "psa_first_party"
     assert source("psa")["search_url_template"] == (
         "https://www.psacard.com/auctionprices/search?q={query}"
@@ -81,7 +81,7 @@ def test_psa_query_uses_first_year_without_serp_syntax():
     assert "spreadsheet OR PDF" not in query
 
 
-def test_psa_html_candidates_drop_card_and_subset_pages_keep_exact_release():
+def test_psa_html_candidates_drop_card_and_subset_pages_keep_exact_release_as_lead():
     client = SentinelSourceClient(timeout_seconds=5, max_download_bytes=1_000_000)
     html = """
     <a href="https://www.psacard.com/en-CA/auctionprices/basketball-cards/2010-panini-threads/99999">2010 Panini Threads</a>
@@ -93,7 +93,7 @@ def test_psa_html_candidates_drop_card_and_subset_pages_keep_exact_release():
     assert len(rows) == 1
     assert rows[0].url == "https://www.psacard.com/auctionprices/basketball-cards/2010-panini-threads/99999"
     assert rows[0].exact_match is True
-    assert rows[0].import_policy == "auto_import"
+    assert rows[0].import_policy == "lead_only"
     assert rows[0].trust_score == 96
 
 
