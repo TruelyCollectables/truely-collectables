@@ -35,13 +35,15 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Verify button source and TypeScript
+      - name: Verify admin launcher source and TypeScript
         shell: bash
         run: |
           set -euo pipefail
           npm ci
           grep -q 'href="/kingmaker"' src/app/admin/layout.tsx
           grep -q 'OPEN KINGMAKER' src/app/admin/layout.tsx
+          grep -q 'href="/admin/instacomp/fast"' src/app/admin/layout.tsx
+          grep -q 'INSTACOMP' src/app/admin/layout.tsx
           ./node_modules/.bin/tsc --noEmit
 
       - name: Deploy merged main with Vercel Production environment
@@ -51,7 +53,7 @@ jobs:
           set -euo pipefail
           test -n "${VERCEL_TOKEN:-}"
           npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
-          npx vercel@56.2.0 deploy --prod --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" | tee /tmp/admin-kingmaker-deploy.txt
+          npx vercel@56.2.0 deploy --prod --yes --archive=tgz --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" | tee /tmp/admin-kingmaker-deploy.txt
 
           curl -fsS "https://truelycollectables.com/api/instacomp/internal-readiness?ts=$(date +%s)" -o /tmp/readiness.json
           node - <<'NODE'
@@ -62,8 +64,9 @@ jobs:
           }
           console.log(JSON.stringify({
             status: 'passed',
-            sourceContainsButton: true,
+            sourceContainsKingmakerButton: true,
+            sourceContainsInstaCompButton: true,
             productionReachable: true,
-            href: '/kingmaker',
+            instaCompHref: '/admin/instacomp/fast',
           }, null, 2));
           NODE
