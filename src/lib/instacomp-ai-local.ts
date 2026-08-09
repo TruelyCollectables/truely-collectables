@@ -26,7 +26,9 @@ export type InstaCompAiLocalSuggestion = {
 export type InstaCompAiLocalScan = {
   schema_version: "tcos.instacomp-ai.scan.v1";
   scan_id: string;
-  card_uuid: string;
+  // Older test/archive payloads may predate card_uuid. Real scanner intake
+  // still fails closed if the Mac does not return a valid permanent UUID.
+  card_uuid?: string | null;
   created_at?: string;
   status:
     | "trusted_memory_match"

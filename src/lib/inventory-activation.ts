@@ -9,6 +9,7 @@ export type InventoryActivationBlocker =
   | "missing_quantity"
   | "missing_image"
   | "missing_back_image"
+  | "missing_card_uuid"
   | "missing_authenticity_disclosure"
   | "missing_cert_provider"
   | "missing_pass_guarantee_authenticator"
@@ -25,6 +26,13 @@ function recordValue(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function validPhysicalCardUuid(value: unknown) {
+  const normalized = cleanText(String(value || ""))?.toLowerCase() || "";
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+    normalized,
+  );
 }
 
 function isAutographSensitive(params: {
@@ -87,6 +95,7 @@ export function getInventoryActivationBlockers(params: {
     instaComp.hasBackImage === true &&
       cleanText(String(instaComp.backSha256 || "")),
   );
+  const hasPermanentCardUuid = validPhysicalCardUuid(instaComp.cardUuid);
   const cardAutographObserved = collectibleAsset.autograph === true;
   const registryConfirmedCardAutograph = Boolean(
     cardAutographObserved &&
@@ -133,6 +142,9 @@ export function getInventoryActivationBlockers(params: {
   if (!params.imageUrl) blockers.push("missing_image");
   if (requiresFrontBackListing && !hasBackImageReceipt) {
     blockers.push("missing_back_image");
+  }
+  if (requiresFrontBackListing && !hasPermanentCardUuid) {
+    blockers.push("missing_card_uuid");
   }
   if (publicationStatus === "review_required") {
     blockers.push("instacomp_listing_review_required");

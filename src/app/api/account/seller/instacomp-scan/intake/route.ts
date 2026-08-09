@@ -77,6 +77,31 @@ function receiptValue(scan: InstaCompAiLocalScan, prefix: string) {
   );
 }
 
+function physicalCardUuid(scan: InstaCompAiLocalScan) {
+  const value = text(scan.card_uuid, 64)?.toLowerCase() || null;
+  return value &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value)
+    ? value
+    : null;
+}
+
+function isMissingCardUuidColumn(error: unknown) {
+  const record = recordValue(error);
+  const code = String(record.code || "").toUpperCase();
+  const message = [record.message, record.details, record.hint]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return (
+    code === "42703" ||
+    code === "PGRST204" ||
+    (message.includes("card_uuid") &&
+      (message.includes("does not exist") ||
+        message.includes("could not find") ||
+        message.includes("schema cache")))
+  );
+}
+
 function canonicalFields(identity: Record<string, unknown>) {
   return {
     sport: text(identity.sport, 80),
@@ -325,6 +350,19 @@ export async function POST(request: NextRequest) {
       front: normalizedSides.frontFile,
       back: normalizedSides.backFile,
     });
+    const cardUuid = physicalCardUuid(scan);
+    if (!cardUuid) {
+      return NextResponse.json(
+        {
+          success: false,
+          code: "PHYSICAL_CARD_UUID_REQUIRED",
+          error:
+            "InstaComp did not return a valid permanent UUID for this physical card.",
+          scan,
+        },
+        { status: 409, headers: { "Cache-Control": "no-store" } },
+      );
+    }
     const identity = lockedIdentity(scan);
     const registryIdentityId =
       scan.checklist?.identity_id || receiptValue(scan, "registry_identity:");
@@ -469,6 +507,7 @@ export async function POST(request: NextRequest) {
     const metadata = {
       instacomp: {
         source: "mac_registry_scanner",
+        cardUuid,
         scanId: scan.scan_id,
         imagePairSha256,
         frontSha256,
@@ -523,23 +562,38 @@ export async function POST(request: NextRequest) {
       seller_review: { identity_confirmed: false },
     };
 
-    const { data: inserted, error: insertError } = await supabase
+    const inventoryInsert = {
+      store_id: storeId,
+      seller_account_id: account.id,
+      title: appliedListing.title,
+      description: appliedListing.description,
+      category: "Trading Card Singles",
+      condition: grading.condition,
+      status: "draft",
+      quantity: 1,
+      price: 0,
+      metadata,
+    };
+    let { data: inserted, error: insertError } = await supabase
       .from("inventory_items")
-      .insert({
-        store_id: storeId,
-        seller_account_id: account.id,
-        title: appliedListing.title,
-        description: appliedListing.description,
-        category: "Trading Card Singles",
-        condition: grading.condition,
-        status: "draft",
-        quantity: 1,
-        price: 0,
-        metadata,
-      })
+      .insert({ ...inventoryInsert, card_uuid: cardUuid })
       .select("id,title,status,price,metadata")
       .single();
+
+    // During a rolling schema deployment, metadata remains the durable UUID
+    // handoff. Retry without the first-class column only when Postgres/PostgREST
+    // proves that card_uuid has not reached this database yet.
+    if (insertError && isMissingCardUuidColumn(insertError)) {
+      const fallback = await supabase
+        .from("inventory_items")
+        .insert(inventoryInsert)
+        .select("id,title,status,price,metadata")
+        .single();
+      inserted = fallback.data;
+      insertError = fallback.error;
+    }
     if (insertError) throw insertError;
+    if (!inserted) throw new Error("Inventory draft was not returned after UUID intake.");
 
     const persistedImages = await persistNormalizedInstaCompImagePair({
       supabase,
@@ -573,6 +627,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         success: true,
+        cardUuid,
         inventoryItemId: inserted.id,
         title: inserted.title,
         listingOutput,
