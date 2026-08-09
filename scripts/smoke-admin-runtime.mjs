@@ -244,6 +244,11 @@ const smokeRoutes = [
     expectedText: "Pricing Audit",
   },
   {
+    path: "/admin/instacomp/fast",
+    auth: true,
+    expectedText: "InstaComp",
+  },
+  {
     path: "/admin/instacomp/v2",
     auth: true,
     expectedText: "InstaComp™ 2.0",
