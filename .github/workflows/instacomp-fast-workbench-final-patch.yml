@@ -28,7 +28,11 @@ jobs:
           cache: npm
 
       - name: Apply final core scanner patches
-        run: python3 scripts/apply-instacomp-fast-workbench-final-patch.py
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/apply-instacomp-fast-workbench-final-patch.py
+          python3 scripts/apply-instacomp-final-audit-fixes.py
 
       - name: Install dependencies
         run: npm ci
@@ -73,6 +77,9 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/app/api/instacomp/scan/route.ts src/app/admin/instacomp/fast/InstaCompFastWorkbench.tsx
-          git commit -m "Finalize InstaComp workbench runtime"
+          git add \
+            src/app/api/instacomp/scan/route.ts \
+            src/app/admin/instacomp/fast/InstaCompFastWorkbench.tsx \
+            src/lib/instacomp-consensus.ts
+          git commit -m "Finalize InstaComp audited runtime"
           git push origin HEAD:agent/instacomp-fast-workbench-final
