@@ -15,7 +15,7 @@ assert.match(runtimeGate, /return false;/);
 assert.doesNotMatch(runtimeGate, /return\s*\(/);
 
 assert.doesNotMatch(route, /provider:\s*"openai_emergency"/);
-assert.match(route, /runSecondaryVision:\s*false/);
-assert.match(route, /requestedTier:\s*"basic"/);
+assert.match(route, /provider:\s*"instacomp_internal"/);
+assert.match(route, /const serialOcr = null as InstaCompSerialOcrResult \| null;/);
 
 console.log("InstaComp no-external-reader execution gate passed.");
