@@ -9,6 +9,14 @@ const adminPageSource = await readFile(
   new URL("../src/app/admin/page.tsx", import.meta.url),
   "utf8",
 );
+const legacyAdminDashboardSource = await readFile(
+  new URL("../src/app/admin/LegacyAdminDashboard.tsx", import.meta.url),
+  "utf8",
+);
+const advancedAdminPageSource = await readFile(
+  new URL("../src/app/admin/advanced/page.tsx", import.meta.url),
+  "utf8",
+);
 const adminInventoryPageSource = await readFile(
   new URL("../src/app/admin/inventory/page.tsx", import.meta.url),
   "utf8",
@@ -170,17 +178,17 @@ function assert(condition, message) {
 
 scenario("admin command center price radar forms use pending-aware submits", () => {
   assert(
-    adminPageSource.includes('import AdminSubmitButton from "./AdminSubmitButton";'),
+    legacyAdminDashboardSource.includes('import AdminSubmitButton from "./AdminSubmitButton";'),
     "Expected admin command center to import the shared admin submit button.",
   );
   assert(
-    (adminPageSource.match(/<AdminSubmitButton/g) || []).length >= 2,
+    (legacyAdminDashboardSource.match(/<AdminSubmitButton/g) || []).length >= 2,
     "Expected price adjustment and ignore forms to use pending-aware submits.",
   );
 
   for (const label of ["Applying...", "Ignoring..."]) {
     assert(
-      adminPageSource.includes(label),
+      legacyAdminDashboardSource.includes(label),
       `Expected admin command center pending label ${label}.`,
     );
   }
@@ -190,7 +198,7 @@ scenario("admin command center price radar forms use pending-aware submits", () 
     "Hides the alert only; the product record stays unchanged.",
   ]) {
     assert(
-      adminPageSource.includes(fragment),
+      legacyAdminDashboardSource.includes(fragment),
       `Expected admin command center price-radar action-scope fragment ${fragment}.`,
     );
   }
@@ -230,8 +238,36 @@ scenario("inventory bridge and manual product submits explain scope", () => {
     '{ href: "/admin/instacomp/mobile", label: "InstaComp Mobile" }',
   ]) {
     assert(
-      adminPageSource.includes(fragment),
+      legacyAdminDashboardSource.includes(fragment),
       `Expected admin listing shortcut fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("simple admin home routes card work to KINGMAKER and preserves advanced admin", () => {
+  for (const fragment of [
+    "Cards live in KINGMAKER. Admin stays simple.",
+    "Enter KINGMAKER",
+    'href="/kingmaker"',
+    'href: "/admin/advanced"',
+    "The full legacy command center is preserved here instead of cluttering Admin Home.",
+  ]) {
+    assert(
+      adminPageSource.includes(fragment),
+      `Expected simple Admin Home architecture fragment ${fragment}.`,
+    );
+  }
+
+  for (const fragment of [
+    'import LegacyAdminDashboard from "../LegacyAdminDashboard";',
+    "<LegacyAdminDashboard />",
+    'href="/admin"',
+    'href="/kingmaker"',
+    "The original command center is preserved here for diagnostics and uncommon operations.",
+  ]) {
+    assert(
+      advancedAdminPageSource.includes(fragment),
+      `Expected Advanced Admin preservation fragment ${fragment}.`,
     );
   }
 });
@@ -330,7 +366,7 @@ scenario("admin command center exposes no-dead-end operator action map", () => {
     "Open Orders",
   ]) {
     assert(
-      adminPageSource.includes(fragment),
+      legacyAdminDashboardSource.includes(fragment),
       `Expected admin action map fragment ${fragment}.`,
     );
   }
@@ -347,7 +383,7 @@ scenario("admin command center uses professional command presentation", () => {
     "ring-1 ring-black/[0.02]",
   ]) {
     assert(
-      adminPageSource.includes(fragment),
+      legacyAdminDashboardSource.includes(fragment),
       `Expected admin command center presentation fragment ${fragment}.`,
     );
   }
@@ -359,7 +395,7 @@ scenario("admin command center uses professional command presentation", () => {
     "border border-white/20 text-white hover:bg-white/10",
   ]) {
     assert(
-      !adminPageSource.includes(roughShell),
+      !legacyAdminDashboardSource.includes(roughShell),
       `Expected admin command center to avoid rough shell fragment ${roughShell}.`,
     );
   }
@@ -387,7 +423,7 @@ scenario("admin command center exposes first-screen operator attention strip", (
     "Open workbench →",
   ]) {
     assert(
-      adminPageSource.includes(fragment),
+      legacyAdminDashboardSource.includes(fragment),
       `Expected admin attention strip fragment ${fragment}.`,
     );
   }
@@ -409,7 +445,7 @@ scenario("admin command center exposes a professional priority playbook", () => 
     "operators can move quickly without confusing scan, inventory",
   ]) {
     assert(
-      adminPageSource.includes(fragment),
+      legacyAdminDashboardSource.includes(fragment),
       `Expected admin priority playbook/polish fragment ${fragment}.`,
     );
   }
@@ -433,7 +469,7 @@ scenario("admin command center keeps lower operating panels visually finished", 
     "focus-visible:outline-amber-500",
   ]) {
     assert(
-      adminPageSource.includes(fragment),
+      legacyAdminDashboardSource.includes(fragment),
       `Expected lower admin dashboard polish fragment ${fragment}.`,
     );
   }
@@ -456,7 +492,7 @@ scenario("admin command center surfaces data-source health before counts", () =>
     "Admin dashboard data sources loaded cleanly",
   ]) {
     assert(
-      adminPageSource.includes(fragment),
+      legacyAdminDashboardSource.includes(fragment),
       `Expected admin data-health fragment ${fragment}.`,
     );
   }
@@ -561,8 +597,8 @@ scenario("admin command center keeps critical operator routes one click away", (
     "/admin/shipping/simulations",
   ]) {
     assert(
-      adminPageSource.includes(`"${route}"`) ||
-        adminPageSource.includes(`\`${route}`),
+      legacyAdminDashboardSource.includes(`"${route}"`) ||
+        legacyAdminDashboardSource.includes(`\`${route}`),
       `Expected admin command center to expose route ${route}.`,
     );
   }
@@ -681,8 +717,8 @@ scenario("admin static page inventory stays linked and runtime-smoked", () => {
     if (adminDashboardLinkExemptions.has(route)) continue;
 
     assert(
-      adminPageSource.includes(`"${route}"`) ||
-        adminPageSource.includes(`\`${route}`),
+      legacyAdminDashboardSource.includes(`"${route}"`) ||
+        legacyAdminDashboardSource.includes(`\`${route}`),
       `Expected admin command center to link static page route ${route}.`,
     );
   }
@@ -725,22 +761,22 @@ scenario("admin TSX surfaces avoid rough legacy shell fragments", () => {
 
 scenario("admin command center uses professional playbook copy", () => {
   assert(
-    adminPageSource.includes("Purpose-built workbenches with clear ownership"),
+    legacyAdminDashboardSource.includes("Purpose-built workbenches with clear ownership"),
     "Expected admin playbook headline to use professional operator copy.",
   );
   assert(
-    adminPageSource.includes(
+    legacyAdminDashboardSource.includes(
       "operators can move quickly without confusing scan, inventory",
     ),
     "Expected admin playbook detail to explain the operator workflow clearly.",
   );
   assert(
-    !adminPageSource.includes("Big buttons") &&
-      !adminPageSource.includes("gray brick") &&
-      !adminPageSource.includes("Stop bugging me") &&
-      !adminPageSource.includes("No pricing fires") &&
-      !adminPageSource.includes("This is the first stop") &&
-      !adminPageSource.toLowerCase().includes("bullshit"),
+    !legacyAdminDashboardSource.includes("Big buttons") &&
+      !legacyAdminDashboardSource.includes("gray brick") &&
+      !legacyAdminDashboardSource.includes("Stop bugging me") &&
+      !legacyAdminDashboardSource.includes("No pricing fires") &&
+      !legacyAdminDashboardSource.includes("This is the first stop") &&
+      !legacyAdminDashboardSource.toLowerCase().includes("bullshit"),
     "Expected admin command center to avoid rough operator copy.",
   );
 });
