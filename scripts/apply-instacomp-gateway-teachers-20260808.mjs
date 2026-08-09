@@ -11,7 +11,7 @@ function replaceOnce(anchor, replacement, label) {
 
 replaceOnce(
   'import type {\n  InstaCompAiResult,\n  InstaCompComp,\n  InstaCompProviderResult,\n} from "./instacomp";\n',
-  'import { generateText, stepCountIs } from "ai";\nimport { gateway } from "@ai-sdk/gateway";\nimport type {\n  InstaCompAiResult,\n  InstaCompComp,\n  InstaCompProviderResult,\n} from "./instacomp";\n',
+  'import { generateText, stepCountIs } from "ai";\nimport { createGateway } from "@ai-sdk/gateway";\nimport type {\n  InstaCompAiResult,\n  InstaCompComp,\n  InstaCompProviderResult,\n} from "./instacomp";\n',
   'AI SDK import',
 );
 
@@ -28,26 +28,33 @@ replaceOnce(
 );
 
 const gatewayBlock = `
-function gatewayAuthAvailable() {
-  return Boolean(
-    clean(process.env.AI_GATEWAY_API_KEY || process.env.VERCEL_OIDC_TOKEN),
+function gatewayAuthToken(explicitToken?: string) {
+  return clean(
+    explicitToken ||
+      process.env.AI_GATEWAY_API_KEY ||
+      process.env.VERCEL_OIDC_TOKEN,
   );
 }
 
-async function runGatewayGoogle(prompt: string): Promise<TeacherAttempt> {
-  const configured = gatewayAuthAvailable() && !GEMINI_API_KEY;
+async function runGatewayGoogle(
+  prompt: string,
+  explicitToken?: string,
+): Promise<TeacherAttempt> {
+  const token = gatewayAuthToken(explicitToken);
+  const configured = Boolean(token) && !GEMINI_API_KEY;
   if (!configured) {
     return { teacher: "gateway_google", configured: false, ok: false, sold: [], active: [], notes: "", error: null };
   }
   try {
+    const oidcGateway = createGateway({ apiKey: token });
     const result = await generateText({
-      model: gateway(GATEWAY_GOOGLE_MODEL),
+      model: oidcGateway(GATEWAY_GOOGLE_MODEL),
       prompt,
       temperature: 0,
       maxOutputTokens: 6000,
       timeout: TEACHER_TIMEOUT_MS,
       tools: {
-        perplexity_search: gateway.tools.perplexitySearch({
+        perplexity_search: oidcGateway.tools.perplexitySearch({
           searchDomainFilter: ["ebay.com", "130point.com"],
         }),
       },
@@ -79,20 +86,25 @@ async function runGatewayGoogle(prompt: string): Promise<TeacherAttempt> {
   }
 }
 
-async function runGatewayXai(prompt: string): Promise<TeacherAttempt> {
-  const configured = gatewayAuthAvailable() && !XAI_API_KEY;
+async function runGatewayXai(
+  prompt: string,
+  explicitToken?: string,
+): Promise<TeacherAttempt> {
+  const token = gatewayAuthToken(explicitToken);
+  const configured = Boolean(token) && !XAI_API_KEY;
   if (!configured) {
     return { teacher: "gateway_xai", configured: false, ok: false, sold: [], active: [], notes: "", error: null };
   }
   try {
+    const oidcGateway = createGateway({ apiKey: token });
     const result = await generateText({
-      model: gateway(GATEWAY_XAI_MODEL),
+      model: oidcGateway(GATEWAY_XAI_MODEL),
       prompt,
       temperature: 0,
       maxOutputTokens: 6000,
       timeout: TEACHER_TIMEOUT_MS,
       tools: {
-        parallel_search: gateway.tools.parallelSearch({
+        parallel_search: oidcGateway.tools.parallelSearch({
           mode: "one-shot",
           maxResults: 10,
           sourcePolicy: {
@@ -137,8 +149,14 @@ replaceOnce(
 );
 
 replaceOnce(
+  'export async function getTeacherExactMarketProviders(params: {\n  exactTitle: string;\n  ai: InstaCompAiResult;\n}): Promise<TeacherConsensusMarketResult> {\n',
+  'export async function getTeacherExactMarketProviders(params: {\n  exactTitle: string;\n  ai: InstaCompAiResult;\n  gatewayOidcToken?: string;\n}): Promise<TeacherConsensusMarketResult> {\n',
+  'Teacher provider signature',
+);
+
+replaceOnce(
   '  const attempts = await Promise.all([\n    runGemini(prompt),\n    runAnthropic(prompt),\n    runXai(prompt),\n    runGroq(prompt),\n    runPerplexity(params.exactTitle),\n  ]);\n',
-  '  const attempts = await Promise.all([\n    runGemini(prompt),\n    runGatewayGoogle(prompt),\n    runAnthropic(prompt),\n    runXai(prompt),\n    runGatewayXai(prompt),\n    runGroq(prompt),\n    runPerplexity(params.exactTitle),\n  ]);\n',
+  '  const attempts = await Promise.all([\n    runGemini(prompt),\n    runGatewayGoogle(prompt, params.gatewayOidcToken),\n    runAnthropic(prompt),\n    runXai(prompt),\n    runGatewayXai(prompt, params.gatewayOidcToken),\n    runGroq(prompt),\n    runPerplexity(params.exactTitle),\n  ]);\n',
   'Teacher attempt list',
 );
 
