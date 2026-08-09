@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "services/instacomp-ai/**"
+      - "src/lib/instacomp.ts"
       - "src/lib/instacomp-ai-local.ts"
       - "src/lib/instacomp-ai-provider-failover.ts"
       - "src/lib/instacomp-ai-council-runtime.ts"
@@ -64,6 +65,7 @@ jobs:
           grep -q 'printed_registry = (' services/instacomp-ai/app/main.py
           grep -q 'match_source="checklist_registry"' services/instacomp-ai/app/main.py
           grep -q 'boundedProductCandidates' src/lib/instacomp-checklist-first-server.ts
+          grep -q 'sellerFeedbackPercent' src/lib/instacomp.ts
           grep -q 'item?.seller?.username' src/app/api/instacomp/scan/route.ts
           grep -q 'Item #' src/app/admin/instacomp/fast/InstaCompFastWorkbench.tsx
           grep -q 'path: "/admin/instacomp/checklist-sentinel"' scripts/smoke-admin-runtime.mjs
@@ -101,6 +103,7 @@ jobs:
           src/app/api/instacomp/internal-readiness/route.ts
           src/app/api/account/seller/inventory/instacomp-card-edit/route.ts
           src/app/admin/instacomp/fast/InstaCompFastWorkbench.tsx
+          src/lib/instacomp.ts
           src/lib/instacomp-ai-local.ts
           src/lib/instacomp-ai-provider-failover.ts
           src/lib/instacomp-ai-council-runtime.ts
@@ -133,6 +136,7 @@ jobs:
           git add \
             src/app/api/instacomp/scan/route.ts \
             src/app/admin/instacomp/fast/InstaCompFastWorkbench.tsx \
+            src/lib/instacomp.ts \
             src/lib/instacomp-checklist-first-server.ts \
             scripts/run-instacomp-ocr-registry-primary-regressions.ts \
             scripts/instacomp-fast-workbench-certify.mjs \
