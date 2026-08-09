@@ -77,12 +77,13 @@ def test_candidate_strict_improvement_without_regression_is_eligible() -> None:
     assert score["critical_improvements"][0]["field"] == "parallel"
 
 
-def test_any_critical_regression_blocks_promotion() -> None:
+def test_any_critical_regression_blocks_promotion_even_with_net_improvement() -> None:
     module = load_module()
     source = row("scan-2")
     expected = expected_identity(module, source)
     baseline_identity = dict(expected)
     baseline_identity["parallel"] = "Silver"
+    baseline_identity["year"] = "2024"
     candidate_identity = dict(expected)
     candidate_identity["player"] = "Wrong Player"
 
@@ -95,6 +96,7 @@ def test_any_critical_regression_blocks_promotion() -> None:
     assert score["gates"]["strict_improvement"] is True
     assert score["gates"]["no_critical_regressions"] is False
     assert score["gates"]["promotion_candidate"] is False
+    assert {item["field"] for item in score["critical_improvements"]} >= {"parallel", "year"}
     assert any(item["field"] == "player" for item in score["critical_regressions"])
 
 
