@@ -10,6 +10,7 @@ export type InventoryItem = {
   store_id: string;
   seller_account_id: string | null;
   legacy_product_id: number | null;
+  card_uuid: string | null;
   sku: string | null;
   title: string;
   description: string | null;
@@ -38,6 +39,7 @@ export type InventoryItem = {
 export type LegacyProductSnapshot = {
   id: number;
   seller_account_id: string | null;
+  card_uuid: string | null;
   sku: string | null;
   title: string;
   description: string | null;
@@ -69,6 +71,7 @@ export type StorefrontFeatureFlags = {
 export type UniversalInventoryItem = {
   inventoryItemId: string | null;
   legacyProductId: number;
+  cardUuid: string | null;
   sellerAccountId: string | null;
   sku: string | null;
   title: string;
@@ -125,6 +128,7 @@ export type InventorySearchParams = {
 export type CreateInventoryItemInput = {
   seller_account_id?: string | null;
   legacy_product_id?: number | null;
+  card_uuid?: string | null;
   sku?: string | null;
   title: string;
   description?: string | null;

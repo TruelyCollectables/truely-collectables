@@ -66,6 +66,21 @@ function nullableMoney(value: unknown) {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
+function normalizeCardUuid(value: unknown) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(normalized)
+    ? normalized
+    : null;
+}
+
+function metadataCardUuid(value: unknown) {
+  const metadata = recordValue(value);
+  const instacomp = recordValue(metadata.instacomp);
+  return normalizeCardUuid(
+    instacomp.cardUuid ?? instacomp.card_uuid ?? metadata.cardUuid ?? metadata.card_uuid,
+  );
+}
+
 function normalizeEvidenceStatus(value: unknown): SaleEvidenceStatus {
   return value === "verified" || value === "manual" ? value : "unresolved";
 }
@@ -147,7 +162,7 @@ export async function listRecentSoldStorefrontItems(params: {
   const { data: products, error: productError } = await params.supabase
     .from("products")
     .select(
-      "id,seller_account_id,sku,title,description,price,quantity,image_url,ebay_item_id,player,sport,sold_at,sold_price,sold_source,sold_reference,sold_price_status,archive_after,archived_at",
+      "id,seller_account_id,card_uuid,sku,title,description,price,quantity,image_url,ebay_item_id,player,sport,sold_at,sold_price,sold_source,sold_reference,sold_price_status,archive_after,archived_at",
     )
     .eq("store_id", params.storeId)
     .lte("quantity", 0)
@@ -164,7 +179,7 @@ export async function listRecentSoldStorefrontItems(params: {
   const { data: inventoryRows, error: inventoryError } = await params.supabase
     .from("inventory_items")
     .select(
-      "id,legacy_product_id,sku,category,status,quantity,price,metadata,sold_at,sold_price,sold_source,sold_reference,sold_price_status,archive_after,archived_at",
+      "id,legacy_product_id,card_uuid,sku,category,status,quantity,price,metadata,sold_at,sold_price,sold_source,sold_reference,sold_price_status,archive_after,archived_at",
     )
     .eq("store_id", params.storeId)
     .in("legacy_product_id", productIds);
@@ -196,9 +211,15 @@ export async function listRecentSoldStorefrontItems(params: {
         inventory?.sold_price_status || product.sold_price_status,
       );
 
+      const cardUuid =
+        normalizeCardUuid(inventory?.card_uuid) ??
+        metadataCardUuid(inventory?.metadata) ??
+        normalizeCardUuid(product.card_uuid);
+
       return {
         inventoryItemId: inventory?.id || null,
         legacyProductId: Number(product.id),
+        cardUuid,
         sellerAccountId: product.seller_account_id || null,
         sku: product.sku || inventory?.sku || null,
         title,
