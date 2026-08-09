@@ -138,7 +138,7 @@ export function buildExactMarketObservation(params: {
     tax: null,
     delivered_price: delivered,
     currency: comp.currency || "USD",
-    condition_text: null,
+    condition_text: String(comp.conditionText || "").trim() || null,
     match_score: Number.isFinite(Number(comp.matchScore)) ? Number(comp.matchScore) : null,
     effective_at: effectiveAt,
     observed_at: dateValue(params.observedAt) || new Date().toISOString(),
