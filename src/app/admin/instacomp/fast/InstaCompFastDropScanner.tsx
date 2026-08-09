@@ -98,6 +98,10 @@ type Rotation = 0 | 90 | 180 | 270;
 const MAX_SCAN_EDGE = 2400;
 const IDENTITY_CONCURRENCY = 2;
 
+function readElapsedClockMs() {
+  return performance.now();
+}
+
 function money(value: unknown) {
   const number = Number(value);
   if (!Number.isFinite(number) || number <= 0) return "—";
@@ -297,7 +301,7 @@ export default function InstaCompFastDropScanner() {
     if (!card.back) {
       patchCard(card.id, {
         status: "ready",
-        totalMs: performance.now() - startedAt,
+        totalMs: readElapsedClockMs() - startedAt,
         progressPercent: 100,
         progressStage: "Identity complete — add the back for exact-card pricing",
       });
@@ -321,7 +325,7 @@ export default function InstaCompFastDropScanner() {
       patchCard(card.id, {
         exactResult: data,
         status: "ready",
-        totalMs: performance.now() - startedAt,
+        totalMs: readElapsedClockMs() - startedAt,
         progressPercent: 100,
         progressStage: data.exactMarket?.teacherLearning?.studentTrainingEligible
           ? "Complete — exact market verified and student lesson eligible"
@@ -330,7 +334,7 @@ export default function InstaCompFastDropScanner() {
     } catch (error) {
       patchCard(card.id, {
         status: "ready",
-        totalMs: performance.now() - startedAt,
+        totalMs: readElapsedClockMs() - startedAt,
         progressPercent: 100,
         progressStage: "Identity complete — exact comps need attention",
         error:
@@ -342,7 +346,7 @@ export default function InstaCompFastDropScanner() {
   }
 
   async function identify(card: QueueCard) {
-    const startedAt = performance.now();
+    const startedAt = readElapsedClockMs();
     patchCard(card.id, {
       status: "identifying",
       error: null,
@@ -359,7 +363,7 @@ export default function InstaCompFastDropScanner() {
       if (!response.ok || data.ok === false) {
         throw new Error(data.error || "InstaComp could not identify this card.");
       }
-      const identityMs = performance.now() - startedAt;
+      const identityMs = readElapsedClockMs() - startedAt;
       patchCard(card.id, {
         fastResult: data,
         identityMs,
@@ -383,8 +387,8 @@ export default function InstaCompFastDropScanner() {
     } catch (error) {
       patchCard(card.id, {
         status: "error",
-        identityMs: performance.now() - startedAt,
-        totalMs: performance.now() - startedAt,
+        identityMs: readElapsedClockMs() - startedAt,
+        totalMs: readElapsedClockMs() - startedAt,
         progressPercent: 100,
         progressStage: "Stopped — card identification failed",
         error: error instanceof Error ? error.message : "Card identification failed.",
@@ -408,9 +412,9 @@ export default function InstaCompFastDropScanner() {
       for (let index = 0; index < pairs.length; index += 1) {
         const pair = pairs[index];
         const [front, back] = await Promise.all([
-          normalizedCardImage(pair.front, `instacomp-${performance.now()}-${index + 1}-front`),
+          normalizedCardImage(pair.front, `instacomp-${readElapsedClockMs()}-${index + 1}-front`),
           pair.back
-            ? normalizedCardImage(pair.back, `instacomp-${performance.now()}-${index + 1}-back`)
+            ? normalizedCardImage(pair.back, `instacomp-${readElapsedClockMs()}-${index + 1}-back`)
             : Promise.resolve(null),
         ]);
         prepared.push({

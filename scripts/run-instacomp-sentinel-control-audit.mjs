@@ -53,7 +53,7 @@ assert(contents.updater.includes("repair_vercel_root_directory"), "Mac updater m
 assert(contents.updater.includes('npx vercel api "$endpoint"'), "Mac updater must inspect the linked Vercel project through authenticated CLI API access.");
 assert(contents.updater.includes("-X PATCH -F rootDirectory="), "Mac updater must clear only the known invalid Vercel repository-root value through the project API.");
 assert(contents.updater.includes("Refusing automatic Vercel root repair"), "Mac updater must fail closed for unexpected non-root Vercel directory settings.");
-assert(contents.updater.includes('npx vercel --prod --yes --cwd "$repo_root"'), "Mac updater must redeploy Production explicitly from the repository root after key synchronization.");
+assert(contents.updater.includes('npx vercel --prod --yes --archive=tgz --cwd "$repo_root"'), "Mac updater must redeploy Production explicitly from the repository root after key synchronization.");
 assert(contents.updater.includes("x-instacomp-sentinel-archive-token"), "Mac updater must verify the Production Sentinel proxy end to end.");
 assert(contents.updater.includes("sentinelKeyAcceptedThroughProduction"), "Mac updater receipt must prove the synchronized key was accepted through Production.");
 assert(contents.updater.includes("Refusing key repair"), "Mac updater must fail closed instead of silently rotating a missing or malformed key.");
