@@ -4,7 +4,11 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
+      - "services/instacomp-ai/app/__init__.py"
       - "services/instacomp-ai/app/sentinel*.py"
+      - "services/instacomp-ai/app/runtime_compat.py"
+      - "services/instacomp-ai/app/verified_checklist_sources*.py"
+      - "services/instacomp-ai/app/deterministic_checklist_recovery.py"
       - "services/instacomp-ai/app/settings_routes.py"
       - "services/instacomp-ai/scripts/install-sentinel-control.sh"
       - "services/instacomp-ai/scripts/update-live-from-main.sh"
@@ -13,6 +17,9 @@ on:
       - "data/checklist-recovery-modern-gap-keys.txt"
       - "services/instacomp-ai/tests/test_sentinel.py"
       - "services/instacomp-ai/tests/test_sentinel_control.py"
+      - "services/instacomp-ai/tests/test_runtime_compat.py"
+      - "services/instacomp-ai/tests/test_verified_checklist_recovery.py"
+      - "services/instacomp-ai/tests/test_deterministic_checklist_recovery.py"
       - "services/instacomp-ai/CHECKLIST_SENTINEL.md"
       - "src/lib/instacomp-sentinel-auth.ts"
       - "src/app/api/instacomp/checklist-sentinel/**"
@@ -24,7 +31,11 @@ on:
   push:
     branches: [main]
     paths:
+      - "services/instacomp-ai/app/__init__.py"
       - "services/instacomp-ai/app/sentinel*.py"
+      - "services/instacomp-ai/app/runtime_compat.py"
+      - "services/instacomp-ai/app/verified_checklist_sources*.py"
+      - "services/instacomp-ai/app/deterministic_checklist_recovery.py"
       - "services/instacomp-ai/app/settings_routes.py"
       - "services/instacomp-ai/scripts/install-sentinel-control.sh"
       - "services/instacomp-ai/scripts/update-live-from-main.sh"
@@ -33,6 +44,9 @@ on:
       - "data/checklist-recovery-modern-gap-keys.txt"
       - "services/instacomp-ai/tests/test_sentinel.py"
       - "services/instacomp-ai/tests/test_sentinel_control.py"
+      - "services/instacomp-ai/tests/test_runtime_compat.py"
+      - "services/instacomp-ai/tests/test_verified_checklist_recovery.py"
+      - "services/instacomp-ai/tests/test_deterministic_checklist_recovery.py"
       - "services/instacomp-ai/CHECKLIST_SENTINEL.md"
       - "src/lib/instacomp-sentinel-auth.ts"
       - "src/app/api/instacomp/checklist-sentinel/**"
@@ -94,12 +108,13 @@ jobs:
           print("Audited recovery target inventory: 375 unique parseable exact-set keys")
           PY
 
-      - name: Run Sentinel, control, and storage migration tests
+      - name: Run Sentinel, control, recovery, and storage migration tests
         working-directory: services/instacomp-ai
         env:
           INSTACOMP_AI_SENTINEL_ENABLED: "false"
         run: |
           pytest -q tests/test_sentinel.py tests/test_sentinel_control.py
+          pytest -q tests/test_runtime_compat.py tests/test_verified_checklist_recovery.py tests/test_deterministic_checklist_recovery.py
           pytest -q tests/test_storage_migration.py
 
       - name: Import FastAPI service and certify Sentinel routes
