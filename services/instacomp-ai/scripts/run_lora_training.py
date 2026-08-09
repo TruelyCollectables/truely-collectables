@@ -21,6 +21,8 @@ DEFAULT_MODEL = "mlx-community/Qwen3-VL-2B-Instruct-4bit"
 PINNED_MLX_VLM_VERSION = Version("0.6.8")
 LORA_VENV = SERVICE_ROOT / ".venv-lora"
 LORA_REQUIREMENTS = SERVICE_ROOT / "requirements-lora-runtime.txt"
+DEFAULT_IMAGE_RESIZE_SHAPE = (768, 768)
+DEFAULT_STEPS_PER_SAVE = 25
 
 
 def _validated_mlx_vlm_version(raw_version: str) -> Version:
@@ -141,11 +143,14 @@ def preflight_training_runtime() -> dict:
         "--model-path",
         "--dataset",
         "--epochs",
+        "--iters",
         "--batch-size",
         "--learning-rate",
         "--lora-rank",
         "--lora-alpha",
         "--output-path",
+        "--adapter-path",
+        "--image-resize-shape",
     ]
     missing = [flag for flag in required if flag not in output]
     if missing:
@@ -154,16 +159,90 @@ def preflight_training_runtime() -> dict:
             + ", ".join(missing)
         )
     return {
-        "schema_version": "tcos.instacomp-ai.lora-runtime-preflight.v3",
+        "schema_version": "tcos.instacomp-ai.lora-runtime-preflight.v4",
         "status": "ready",
         "mlx_vlm_version": str(version),
         "certified_mlx_vlm_version": str(PINNED_MLX_VLM_VERSION),
         "multi_image_front_back_training": "supported",
+        "checkpoint_resume": "supported",
+        "memory_bounded_image_resize": "supported",
         "runtime_isolated_from_service": True,
         "service_python": sys.executable,
         "training_python": str(training_python),
         "service_root": str(SERVICE_ROOT),
     }
+
+
+def build_lora_command(
+    *,
+    training_python: str,
+    model: str,
+    dataset_path: Path,
+    output_path: Path,
+    batch_size: int,
+    epochs: int,
+    iters: int | None,
+    learning_rate: float,
+    lora_rank: int,
+    lora_alpha: int,
+    image_resize_shape: tuple[int, int],
+    resume_adapter: Path | None,
+) -> list[str]:
+    height, width = image_resize_shape
+    if height < 224 or width < 224:
+        raise SystemExit("Training image resize shape must be at least 224x224.")
+    if iters is not None and iters <= 0:
+        raise SystemExit("--iters must be greater than zero.")
+    if epochs <= 0:
+        raise SystemExit("--epochs must be greater than zero.")
+    if resume_adapter is not None and not resume_adapter.is_file():
+        raise SystemExit(f"Resume adapter does not exist: {resume_adapter}")
+
+    command = [
+        training_python,
+        "-m",
+        "mlx_vlm.lora",
+        "--model-path",
+        model,
+        "--dataset",
+        str(dataset_path),
+        "--split",
+        "train",
+        "--batch-size",
+        str(batch_size),
+    ]
+    if iters is not None:
+        command.extend(["--iters", str(iters)])
+    else:
+        command.extend(["--epochs", str(epochs)])
+    command.extend([
+        "--learning-rate",
+        str(learning_rate),
+        "--lora-rank",
+        str(lora_rank),
+        "--lora-alpha",
+        str(lora_alpha),
+        "--lora-dropout",
+        "0.05",
+        "--gradient-accumulation-steps",
+        "4",
+        "--grad-checkpoint",
+        "--train-on-completions",
+        "--image-resize-shape",
+        str(height),
+        str(width),
+        "--steps-per-report",
+        "5",
+        "--steps-per-eval",
+        "25",
+        "--steps-per-save",
+        str(DEFAULT_STEPS_PER_SAVE),
+        "--output-path",
+        str(output_path),
+    ])
+    if resume_adapter is not None:
+        command.extend(["--adapter-path", str(resume_adapter)])
+    return command
 
 
 def main() -> int:
@@ -172,10 +251,30 @@ def main() -> int:
     )
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--epochs", type=int, default=2)
+    parser.add_argument(
+        "--iters",
+        type=int,
+        default=None,
+        help="Run an exact number of training iterations instead of epochs.",
+    )
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--learning-rate", type=float, default=2e-4)
     parser.add_argument("--lora-rank", type=int, default=16)
     parser.add_argument("--lora-alpha", type=int, default=32)
+    parser.add_argument(
+        "--image-resize-shape",
+        type=int,
+        nargs=2,
+        metavar=("HEIGHT", "WIDTH"),
+        default=DEFAULT_IMAGE_RESIZE_SHAPE,
+        help="Memory-bound every training image before VLM encoding (default: 768 768).",
+    )
+    parser.add_argument(
+        "--resume-adapter",
+        type=Path,
+        default=None,
+        help="Warm-start/resume from a previously saved MLX-VLM LoRA adapter checkpoint.",
+    )
     parser.add_argument("--allow-small-dataset", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--preflight-only", action="store_true")
@@ -209,49 +308,41 @@ def main() -> int:
     adapter_root.mkdir(parents=True, exist_ok=True)
     adapter_path = adapter_root / f"instacomp-{dataset_path.name}.safetensors"
     training_python = runtime["training_python"]
+    resume_adapter = args.resume_adapter.expanduser().resolve() if args.resume_adapter else None
+    resize_shape = (int(args.image_resize_shape[0]), int(args.image_resize_shape[1]))
 
-    command = [
-        training_python,
-        "-m",
-        "mlx_vlm.lora",
-        "--model-path",
-        args.model,
-        "--dataset",
-        str(dataset_path),
-        "--split",
-        "train",
-        "--batch-size",
-        str(args.batch_size),
-        "--epochs",
-        str(args.epochs),
-        "--learning-rate",
-        str(args.learning_rate),
-        "--lora-rank",
-        str(args.lora_rank),
-        "--lora-alpha",
-        str(args.lora_alpha),
-        "--lora-dropout",
-        "0.05",
-        "--gradient-accumulation-steps",
-        "4",
-        "--grad-checkpoint",
-        "--train-on-completions",
-        "--steps-per-report",
-        "5",
-        "--steps-per-eval",
-        "25",
-        "--steps-per-save",
-        "50",
-        "--output-path",
-        str(adapter_path),
-    ]
+    command = build_lora_command(
+        training_python=training_python,
+        model=args.model,
+        dataset_path=dataset_path,
+        output_path=adapter_path,
+        batch_size=args.batch_size,
+        epochs=args.epochs,
+        iters=args.iters,
+        learning_rate=args.learning_rate,
+        lora_rank=args.lora_rank,
+        lora_alpha=args.lora_alpha,
+        image_resize_shape=resize_shape,
+        resume_adapter=resume_adapter,
+    )
     plan = {
-        "schema_version": "tcos.instacomp-ai.lora-plan.v2",
+        "schema_version": "tcos.instacomp-ai.lora-plan.v3",
         "runtime": runtime,
         "readiness": readiness,
         "dataset": manifest,
         "model": args.model,
         "adapter_path": str(adapter_path),
+        "resume_adapter": str(resume_adapter) if resume_adapter else None,
+        "training_schedule": {
+            "epochs": None if args.iters is not None else args.epochs,
+            "iters": args.iters,
+            "steps_per_save": DEFAULT_STEPS_PER_SAVE,
+        },
+        "memory_profile": {
+            "image_resize_shape": list(resize_shape),
+            "original_archived_images_untouched": True,
+            "reason": "Bound VLM image-token memory on the Mac while preserving the trusted image archive.",
+        },
         "command": command,
         "held_out_validation": {
             "examples": manifest.get("validation_examples", 0),
