@@ -1,0 +1,52 @@
+name: PR 974 Fast Smoke Route Repair
+
+on:
+  push:
+    branches:
+      - agent/instacomp-fast-overnight-audit
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pr974-fast-smoke-route-repair
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/instacomp-fast-overnight-audit
+          fetch-depth: 0
+
+      - name: Add Fast scanner runtime-smoke coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('scripts/smoke-admin-runtime.mjs')
+          text = path.read_text()
+          fast_route = '    path: "/admin/instacomp/fast",'
+          if fast_route not in text:
+              marker = '  {\n    path: "/admin/instacomp/v2",\n    auth: true,\n    expectedText: "InstaComp™ 2.0",\n  },\n'
+              addition = '  {\n    path: "/admin/instacomp/fast",\n    auth: true,\n    expectedText: "InstaComp",\n  },\n' + marker
+              if marker not in text:
+                  raise SystemExit('Could not locate InstaComp V2 smoke route insertion point')
+              text = text.replace(marker, addition, 1)
+          path.write_text(text)
+          PY
+
+      - name: Persist repair and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add scripts/smoke-admin-runtime.mjs
+          git rm .github/workflows/pr974-fast-smoke-route-repair.yml
+          git commit -m 'Cover InstaComp Fast in admin runtime smoke'
+          git push origin HEAD:agent/instacomp-fast-overnight-audit
