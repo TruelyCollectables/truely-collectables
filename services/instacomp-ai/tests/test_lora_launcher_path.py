@@ -36,6 +36,9 @@ def test_lora_launcher_imports_app_from_repo_root() -> None:
     result = run_help(REPO_ROOT)
     assert result.returncode == 0, result.stderr
     assert "Train a private InstaComp vision LoRA adapter" in result.stdout
+    assert "--resume-adapter" in result.stdout
+    assert "--image-resize-shape" in result.stdout
+    assert "--iters" in result.stdout
 
 
 def test_lora_launcher_imports_app_from_service_root() -> None:
@@ -53,3 +56,52 @@ def test_lora_launcher_rejects_known_broken_multi_image_runtime() -> None:
 def test_lora_launcher_accepts_upstream_multi_image_fix_release() -> None:
     module = load_launcher_module()
     assert str(module._validated_mlx_vlm_version("0.6.8")) == "0.6.8"
+
+
+def test_lora_command_memory_bounds_images_and_resumes_checkpoint(tmp_path: Path) -> None:
+    module = load_launcher_module()
+    checkpoint = tmp_path / "checkpoint.safetensors"
+    checkpoint.write_bytes(b"checkpoint")
+    dataset = tmp_path / "dataset"
+    output = tmp_path / "next.safetensors"
+
+    command = module.build_lora_command(
+        training_python="/tmp/lora-python",
+        model="mlx-community/Qwen3-VL-2B-Instruct-4bit",
+        dataset_path=dataset,
+        output_path=output,
+        batch_size=1,
+        epochs=2,
+        iters=296,
+        learning_rate=2e-4,
+        lora_rank=16,
+        lora_alpha=32,
+        image_resize_shape=(768, 768),
+        resume_adapter=checkpoint,
+    )
+
+    assert command[command.index("--iters") + 1] == "296"
+    assert "--epochs" not in command
+    resize_index = command.index("--image-resize-shape")
+    assert command[resize_index + 1 : resize_index + 3] == ["768", "768"]
+    assert command[command.index("--adapter-path") + 1] == str(checkpoint)
+    assert command[command.index("--steps-per-save") + 1] == "25"
+
+
+def test_lora_command_rejects_missing_resume_checkpoint(tmp_path: Path) -> None:
+    module = load_launcher_module()
+    with pytest.raises(SystemExit, match="Resume adapter does not exist"):
+        module.build_lora_command(
+            training_python="/tmp/lora-python",
+            model="mlx-community/Qwen3-VL-2B-Instruct-4bit",
+            dataset_path=tmp_path / "dataset",
+            output_path=tmp_path / "next.safetensors",
+            batch_size=1,
+            epochs=2,
+            iters=296,
+            learning_rate=2e-4,
+            lora_rank=16,
+            lora_alpha=32,
+            image_resize_shape=(768, 768),
+            resume_adapter=tmp_path / "missing.safetensors",
+        )
