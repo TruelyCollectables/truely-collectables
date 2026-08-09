@@ -55,6 +55,20 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _automatic_deployment_disabled(promotion: dict[str, Any]) -> bool:
+    """Accept the validator's canonical field and the older runtime alias.
+
+    validate_lora_candidate.py writes `automatic_deployment: false`. The first
+    runtime-candidate bridge accidentally checked only `automatic_promotion`,
+    which rejected a legitimate passed receipt. Keep the legacy alias readable
+    so already-created test/compat receipts remain safe, but make the validator
+    field authoritative when it is present.
+    """
+    if "automatic_deployment" in promotion:
+        return promotion.get("automatic_deployment") is False
+    return promotion.get("automatic_promotion") is False
+
+
 def _receipt_for_adapter(adapter: Path) -> tuple[Path, dict[str, Any]]:
     matches: list[tuple[Path, dict[str, Any]]] = []
     for path in sorted(adapter.glob("validation-*.json"), reverse=True):
@@ -81,7 +95,7 @@ def _receipt_for_adapter(adapter: Path) -> tuple[Path, dict[str, Any]]:
             and gates.get("candidate_not_worse_exact") is True
             and not score.get("critical_regressions")
             and promotion.get("eligible_for_runtime_candidate") is True
-            and promotion.get("automatic_promotion") is False
+            and _automatic_deployment_disabled(promotion)
         ):
             matches.append((path, payload))
     if not matches:
@@ -118,6 +132,7 @@ def validate_adapter(adapter: Path) -> dict[str, Any]:
         "validation_receipt_name": receipt_path.name,
         "held_out_examples": int(receipt.get("held_out_examples") or 0),
         "promotion_candidate": True,
+        "automatic_deployment": False,
         "automatic_promotion": False,
         "registry_remains_identity_authority": True,
         "nothing_published": True,
