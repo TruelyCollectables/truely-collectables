@@ -1,0 +1,65 @@
+name: Patch Admin Runtime Smoke 20260809
+
+on:
+  push:
+    branches:
+      - fix/kingmaker-certify-current-head-20260809
+    paths:
+      - ".github/workflows/patch-admin-runtime-smoke-20260809.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-persist:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/kingmaker-certify-current-head-20260809
+          fetch-depth: 0
+
+      - name: Register simple and advanced Admin runtime smoke routes
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('scripts/smoke-admin-runtime.mjs')
+          source = path.read_text('utf-8')
+          old = '''  {
+              path: "/admin",
+              auth: true,
+              expectedText: "Command Center",
+            },'''.replace('              ', '')
+          new = '''  {
+              path: "/admin",
+              auth: true,
+              expectedText: "Cards live in KINGMAKER",
+            },
+            {
+              path: "/admin/advanced",
+              auth: true,
+              expectedText: "Advanced Admin",
+            },'''.replace('              ', '')
+          if old in source:
+              source = source.replace(old, new, 1)
+          elif 'path: "/admin/advanced"' not in source:
+              raise SystemExit('Admin smoke route block not found')
+          path.write_text(source, 'utf-8')
+          PY
+          git diff --check
+
+      - name: Persist runtime smoke coverage
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/smoke-admin-runtime.mjs
+          if git diff --cached --quiet; then
+            echo "Runtime smoke already migrated."
+          else
+            git commit -m "Cover simple and advanced Admin runtime routes"
+            git push origin HEAD:fix/kingmaker-certify-current-head-20260809
+          fi
