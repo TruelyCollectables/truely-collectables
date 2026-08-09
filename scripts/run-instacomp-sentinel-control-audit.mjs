@@ -105,6 +105,17 @@ assert(contents.proxy.includes("isValidInstaCompSentinelArchiveRequest"), "Insta
 assert(contents.proxy.includes("X-InstaComp-AI-Key"), "Website proxy must authenticate to the Mac.");
 assert(contents.proxy.includes("INSTACOMP_AI_LOCAL_URL"), "Website proxy must use the configured permanent tunnel.");
 assert(contents.proxy.includes("localhost"), "Website proxy must reject Production localhost configuration.");
+assert(contents.proxy.includes('action === "requeue-audited-recovery"'), "Operational bridge must expose only the fixed audited recovery action outside admin mutations.");
+assert(contents.proxy.includes("x-tcos-github-recovery-token"), "Operational bridge must require an ephemeral GitHub workflow token.");
+assert(contents.proxy.includes("/actions/runs/${runId}"), "Operational bridge must verify the exact GitHub Actions run.");
+assert(contents.proxy.includes('run.event !== "pull_request"'), "Operational bridge must require a same-repository pull-request run.");
+assert(contents.proxy.includes('run.status !== "in_progress"'), "Operational bridge must reject replay after the trusted workflow run ends.");
+assert(contents.proxy.includes('run.head_branch !== GITHUB_RECOVERY_BRANCH'), "Operational bridge must pin the one-shot recovery branch.");
+assert(contents.proxy.includes("GITHUB_RECOVERY_TARGET_PATH"), "Operational bridge must verify the audited target file.");
+assert(contents.proxy.includes("?ref=main"), "Operational bridge must compare the payload with the target file on current main.");
+assert(contents.proxy.includes("targetKeys.length !== 375"), "Operational bridge must require all 375 audited targets.");
+assert(contents.proxy.includes("exactStringArrayEqual(targetKeys, expectedKeys)"), "Operational bridge must require byte-order-equivalent audited target keys.");
+assert(contents.proxy.includes('body: JSON.stringify({ target_keys: targetKeys, priority: 1 })'), "Operational bridge may only requeue the audited keys at recovery priority.");
 
 assert(contents.dashboard.includes("Checklist Sentinel™"), "Dashboard branding is incorrect.");
 assert(contents.dashboard.includes("20 * 60 * 1000"), "Dashboard progress must refresh every 20 minutes.");
@@ -140,6 +151,7 @@ console.log("✓ No unrelated Vercel service credential is read or rotated");
 console.log("✓ Sentinel safe batch cap remains 75 and pending backlog auto-drains only when due");
 console.log("✓ Verified target-scoped checklist sources bypass noisy SERPs without widening domain trust");
 console.log("✓ Exact verified full pages can be browser-captured while unverified URLs remain blocked");
+console.log("✓ Trusted GitHub recovery run can requeue only the exact 375-key main-branch audit file");
 console.log("✓ Main Admin system tools and quick tools both expose Checklist Sentinel");
 console.log("✓ Dashboard reports overall checklist search progress with a 20-minute timestamped refresh");
 console.log("✓ Large files stay off the Vercel request body");
