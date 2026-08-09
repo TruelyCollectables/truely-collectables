@@ -19,6 +19,12 @@ const GET_PATHS: Record<string, string> = {
   sources: "/v1/checklist-sentinel/sources",
 };
 
+const GITHUB_RECOVERY_REPO = "TruelyCollectables/truely-collectables";
+const GITHUB_RECOVERY_BRANCH = "ops/checklist-recovery-live-20260809";
+const GITHUB_RECOVERY_WORKFLOW = "Checklist Recovery Live Requeue 20260809";
+const GITHUB_RECOVERY_TARGET_PATH = "data/checklist-recovery-modern-gap-keys.txt";
+const GITHUB_API_VERSION = "2022-11-28";
+
 function response(payload: unknown, status = 200) {
   return NextResponse.json(payload, {
     status,
@@ -81,6 +87,119 @@ async function callMac(path: string, init: RequestInit = {}) {
   return payload;
 }
 
+function githubHeaders(token: string) {
+  return {
+    Accept: "application/vnd.github+json",
+    Authorization: `Bearer ${token}`,
+    "X-GitHub-Api-Version": GITHUB_API_VERSION,
+    "User-Agent": "Truely-Collectables-Checklist-Recovery",
+  };
+}
+
+function recoveryTargetKeysFromText(value: string) {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"));
+}
+
+function exactStringArrayEqual(left: string[], right: string[]) {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+async function requireTrustedGitHubRecoveryRun(
+  request: Request,
+  body: { githubRunId?: unknown; targetKeys?: unknown },
+): Promise<string[]> {
+  const token = String(request.headers.get("x-tcos-github-recovery-token") || "").trim();
+  const runId = Number(body.githubRunId);
+  const targetKeys = Array.isArray(body.targetKeys)
+    ? body.targetKeys.map((value) => String(value || "").trim())
+    : [];
+
+  if (!token || !Number.isSafeInteger(runId) || runId <= 0) {
+    throw new InstaCompJobServerError(
+      "A valid GitHub recovery run is required.",
+      403,
+      "SENTINEL_GITHUB_RECOVERY_REQUIRED",
+    );
+  }
+  if (targetKeys.length !== 375 || new Set(targetKeys).size !== 375 || targetKeys.some((key) => !key.includes("|"))) {
+    throw new InstaCompJobServerError(
+      "The recovery payload must contain the exact 375 audited checklist targets.",
+      409,
+      "SENTINEL_RECOVERY_TARGET_MISMATCH",
+    );
+  }
+
+  const runResponse = await fetch(
+    `https://api.github.com/repos/${GITHUB_RECOVERY_REPO}/actions/runs/${runId}`,
+    {
+      headers: githubHeaders(token),
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(15_000),
+    },
+  );
+  const run = (await runResponse.json().catch(() => null)) as
+    | {
+        name?: unknown;
+        event?: unknown;
+        status?: unknown;
+        head_branch?: unknown;
+        repository?: { full_name?: unknown };
+        head_repository?: { full_name?: unknown };
+      }
+    | null;
+  if (
+    !runResponse.ok ||
+    !run ||
+    run.name !== GITHUB_RECOVERY_WORKFLOW ||
+    run.event !== "pull_request" ||
+    run.status !== "in_progress" ||
+    run.head_branch !== GITHUB_RECOVERY_BRANCH ||
+    run.repository?.full_name !== GITHUB_RECOVERY_REPO ||
+    run.head_repository?.full_name !== GITHUB_RECOVERY_REPO
+  ) {
+    throw new InstaCompJobServerError(
+      "GitHub recovery run identity was rejected.",
+      403,
+      "SENTINEL_GITHUB_RECOVERY_REJECTED",
+    );
+  }
+
+  const targetFileResponse = await fetch(
+    `https://api.github.com/repos/${GITHUB_RECOVERY_REPO}/contents/${GITHUB_RECOVERY_TARGET_PATH}?ref=main`,
+    {
+      headers: githubHeaders(token),
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(15_000),
+    },
+  );
+  const targetFile = (await targetFileResponse.json().catch(() => null)) as
+    | { content?: unknown; encoding?: unknown }
+    | null;
+  if (!targetFileResponse.ok || !targetFile || targetFile.encoding !== "base64") {
+    throw new InstaCompJobServerError(
+      "The audited recovery target file could not be verified against main.",
+      502,
+      "SENTINEL_RECOVERY_TARGET_FILE_UNAVAILABLE",
+    );
+  }
+  const encoded = String(targetFile.content || "").replace(/\s+/g, "");
+  const expectedKeys = recoveryTargetKeysFromText(Buffer.from(encoded, "base64").toString("utf8"));
+  if (expectedKeys.length !== 375 || new Set(expectedKeys).size !== 375 || !exactStringArrayEqual(targetKeys, expectedKeys)) {
+    throw new InstaCompJobServerError(
+      "Recovery payload does not exactly match the audited target file on main.",
+      409,
+      "SENTINEL_RECOVERY_TARGET_MISMATCH",
+    );
+  }
+
+  return expectedKeys;
+}
+
 function errorResponse(error: unknown) {
   if (error instanceof InstaCompJobServerError) {
     return response({ ok: false, code: error.code, error: error.message }, error.status);
@@ -131,10 +250,35 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const body = (await request.json().catch(() => ({}))) as {
+      action?: unknown;
+      githubRunId?: unknown;
+      targetKeys?: unknown;
+    };
+    const action = String(body.action || "");
+
+    if (action === "requeue-audited-recovery") {
+      const targetKeys = await requireTrustedGitHubRecoveryRun(request, body);
+      const refreshed = await callMac("/v1/checklist-sentinel/refresh-targets", {
+        method: "POST",
+        body: "{}",
+      });
+      const requeued = await callMac("/v1/checklist-sentinel/requeue-targets", {
+        method: "POST",
+        body: JSON.stringify({ target_keys: targetKeys, priority: 1 }),
+      });
+      return response({
+        ok: true,
+        action,
+        githubRunId: Number(body.githubRunId),
+        auditedTargetCount: targetKeys.length,
+        refreshed,
+        requeued,
+      });
+    }
+
     const actor = await requireAdmin(request);
     assertTrustedInstaCompMutationRequest({ request, actor });
-    const body = (await request.json().catch(() => ({}))) as { action?: unknown };
-    const action = String(body.action || "");
     if (action === "run") {
       const data = await callMac("/v1/checklist-sentinel/run", {
         method: "POST",
