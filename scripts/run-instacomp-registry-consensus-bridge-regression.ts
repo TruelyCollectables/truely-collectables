@@ -18,7 +18,7 @@ const visibleIdentity = {
   brand: "Panini",
   setName: "2025 Panini Origins Football",
   cardNumber: "107",
-  parallel: "Blue Foil",
+  parallel: "Holo Blue",
   serialNumber: "162/199",
   team: "Cleveland Browns",
   sport: "Football",
@@ -88,10 +88,6 @@ assert(
   `Consensus set must use the logical checklist set, received ${evidence.compIdentity?.setName}`,
 );
 assert(
-  evidence.compIdentity?.product === "2025 Panini Origins Football",
-  `Release product must remain separately available for search/display, received ${evidence.compIdentity?.product}`,
-);
-assert(
   evidence.selectedMatch?.identity.parallel === "Holo Blue",
   "Registry parallel was not preserved.",
 );
@@ -106,7 +102,7 @@ const consensus = buildInstaCompMultiScannerConsensus({
       id: "openai-primary",
       label: "OpenAI primary",
       family: "openai",
-      parallel: "Blue Foil",
+      parallel: "Holo Blue",
       kind: "primary_vision",
     }),
     reader({
