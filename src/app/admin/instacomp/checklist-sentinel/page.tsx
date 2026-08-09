@@ -1,53 +1,70 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-const DASHBOARD_REFRESH_MS = 20 * 60 * 1000;
-
-type Job = {
-  job_id?: string;
-  trigger?: string;
-  status?: string;
-  started_at?: string | null;
-  completed_at?: string | null;
-  heartbeat_at?: string | null;
-  total_targets?: number;
-  processed_targets?: number;
-  found_count?: number;
-  downloaded_count?: number;
-  imported_count?: number;
-  duplicate_count?: number;
-  failed_count?: number;
-  current_target_key?: string | null;
-  progress_percent?: number;
-  error?: string | null;
-};
-
 type SentinelStatus = {
-  name?: string;
   enabled?: boolean;
   schedule_hours?: number;
   checkpoint_seconds?: number;
+  registry_import_configured?: boolean;
   freeze_protection?: {
-    stale?: boolean;
     sqlite_wal?: boolean;
     atomic_downloads?: boolean;
     heartbeat?: boolean;
+    stale?: boolean;
     resume_pending_targets?: boolean;
   };
-  targets?: { pending?: number; total?: number; [key: string]: number | undefined };
-  latest_job?: Job | null;
-  registry_import_configured?: boolean;
-  target_feed_configured?: boolean;
+  targets?: {
+    total?: number;
+    pending?: number;
+    found?: number;
+    failed?: number;
+    already_local?: number;
+    downloaded?: number;
+    no_remote_source?: number;
+  };
+  latest_job?: {
+    id?: string | null;
+    status?: string | null;
+    started_at?: string | null;
+    heartbeat_at?: string | null;
+    finished_at?: string | null;
+    current_target_key?: string | null;
+    processed_count?: number;
+    found_count?: number;
+    failed_count?: number;
+    imported_count?: number;
+    total_targets?: number;
+    progress_percent?: number;
+  } | null;
+};
+
+type DownloadRow = {
+  id?: number;
+  target_key?: string | null;
+  source_url?: string | null;
+  source_kind?: string | null;
+  status?: string | null;
+  downloaded_at?: string | null;
+};
+
+type FindingRow = {
+  id?: number;
+  target_key?: string | null;
+  source_url?: string | null;
+  source_kind?: string | null;
+  status?: string | null;
+  evidence?: string | null;
+  created_at?: string | null;
 };
 
 type ProxyPayload = {
   ok?: boolean;
-  data?: SentinelStatus | Record<string, unknown>;
   error?: string;
-  code?: string;
+  status?: SentinelStatus;
+  downloads?: DownloadRow[];
+  findings?: FindingRow[];
 };
 
 function number(value: unknown) {
@@ -56,92 +73,82 @@ function number(value: unknown) {
 }
 
 function dateTime(value: string | null | undefined) {
-  if (!value) return "Not yet";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
-}
-
-function StatusPill({ ok, children }: { ok: boolean; children: ReactNode }) {
-  return (
-    <span
-      className={`inline-flex rounded-full border px-3 py-1 text-xs font-black uppercase tracking-wide ${
-        ok
-          ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
-          : "border-red-400/40 bg-red-400/10 text-red-200"
-      }`}
-    >
-      {children}
-    </span>
-  );
+  if (!value) return "Not recorded";
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) ? parsed.toLocaleString() : value;
 }
 
 function Metric({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-      <div className="text-xs font-bold uppercase tracking-[0.16em] text-neutral-400">{label}</div>
-      <div className="mt-2 text-3xl font-black text-white">{value}</div>
+      <div className="text-[11px] font-black uppercase tracking-[0.18em] text-neutral-500">{label}</div>
+      <div className="mt-2 text-2xl font-black text-white">{value}</div>
     </div>
   );
 }
 
-export default function ChecklistSentinelAdminPage() {
+function StatusPill({ ok, children }: { ok: boolean; children: React.ReactNode }) {
+  return (
+    <span className={`rounded-full border px-3 py-1 text-xs font-black ${ok ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-200" : "border-amber-300/30 bg-amber-300/10 text-amber-200"}`}>
+      {children}
+    </span>
+  );
+}
+
+export default function ChecklistSentinelPage() {
   const [status, setStatus] = useState<SentinelStatus | null>(null);
-  const [downloads, setDownloads] = useState<Record<string, unknown>[]>([]);
-  const [findings, setFindings] = useState<Record<string, unknown>[]>([]);
+  const [downloads, setDownloads] = useState<DownloadRow[]>([]);
+  const [findings, setFindings] = useState<FindingRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
 
   const load = useCallback(async () => {
+    setLoading(true);
     setError(null);
     try {
       const [statusResponse, downloadsResponse, findingsResponse] = await Promise.all([
-        fetch("/api/instacomp/checklist-sentinel?view=status", { cache: "no-store" }),
-        fetch("/api/instacomp/checklist-sentinel?view=downloads", { cache: "no-store" }),
-        fetch("/api/instacomp/checklist-sentinel?view=findings", { cache: "no-store" }),
+        fetch("/api/admin/instacomp/checklist-sentinel?action=status", { cache: "no-store" }),
+        fetch("/api/admin/instacomp/checklist-sentinel?action=downloads&limit=30", { cache: "no-store" }),
+        fetch("/api/admin/instacomp/checklist-sentinel?action=findings&limit=30", { cache: "no-store" }),
       ]);
       const [statusPayload, downloadsPayload, findingsPayload] = (await Promise.all([
         statusResponse.json().catch(() => ({})),
         downloadsResponse.json().catch(() => ({})),
         findingsResponse.json().catch(() => ({})),
-      ])) as ProxyPayload[];
-      if (!statusResponse.ok || !statusPayload.ok) {
-        throw new Error(statusPayload.error || "Sentinel status could not be loaded.");
-      }
-      setStatus(statusPayload.data as SentinelStatus);
-      const downloadData = downloadsPayload.data as { downloads?: Record<string, unknown>[] } | undefined;
-      const findingData = findingsPayload.data as { findings?: Record<string, unknown>[] } | undefined;
-      setDownloads(Array.isArray(downloadData?.downloads) ? downloadData.downloads : []);
-      setFindings(Array.isArray(findingData?.findings) ? findingData.findings : []);
+      ])) as [ProxyPayload, ProxyPayload, ProxyPayload];
+      if (!statusResponse.ok || statusPayload.ok === false) throw new Error(statusPayload.error || "Could not load Sentinel status.");
+      if (!downloadsResponse.ok || downloadsPayload.ok === false) throw new Error(downloadsPayload.error || "Could not load Sentinel downloads.");
+      if (!findingsResponse.ok || findingsPayload.ok === false) throw new Error(findingsPayload.error || "Could not load Sentinel findings.");
+      setStatus(statusPayload.status || null);
+      setDownloads(downloadsPayload.downloads || []);
+      setFindings(findingsPayload.findings || []);
       setUpdatedAt(new Date());
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Sentinel dashboard failed.");
+      setError(loadError instanceof Error ? loadError.message : "Sentinel status failed.");
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    const initialLoad = window.setTimeout(() => void load(), 0);
-    const timer = window.setInterval(() => void load(), DASHBOARD_REFRESH_MS);
-    return () => {
-      window.clearTimeout(initialLoad);
-      window.clearInterval(timer);
-    };
+    void load();
+    const timer = window.setInterval(() => void load(), 20 * 60 * 1000);
+    return () => window.clearInterval(timer);
   }, [load]);
 
   async function action(actionName: "run" | "refresh-targets") {
     setWorking(true);
     setError(null);
     try {
-      const response = await fetch("/api/instacomp/checklist-sentinel", {
+      const response = await fetch("/api/admin/instacomp/checklist-sentinel", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: actionName }),
       });
       const payload = (await response.json().catch(() => ({}))) as ProxyPayload;
-      if (!response.ok || !payload.ok) throw new Error(payload.error || "Sentinel action failed.");
+      if (!response.ok || payload.ok === false) throw new Error(payload.error || "Sentinel action failed.");
       await load();
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Sentinel action failed.");
@@ -158,14 +165,9 @@ export default function ChecklistSentinelAdminPage() {
     ? Math.max(0, Math.min(100, completedTargets * 100 / totalTargets))
     : 0;
   const batchProgress = Math.max(0, Math.min(100, number(job?.progress_percent)));
-  const connectionHealthy = Boolean(
-    status?.enabled && !status.freeze_protection?.stale,
-  );
+  const connectionHealthy = Boolean(status?.enabled && !status.freeze_protection?.stale);
   const archived = useMemo(
-    () =>
-      downloads.filter((row) =>
-        String(row.status || "").includes("imported_registry"),
-      ).length,
+    () => downloads.filter((row) => String(row.status || "").includes("imported_registry")).length,
     [downloads],
   );
   const leadOnly = useMemo(
@@ -175,7 +177,7 @@ export default function ChecklistSentinelAdminPage() {
 
   return (
     <main className="min-h-screen bg-neutral-950 px-4 py-8 text-white sm:px-8">
-      <div className="mx-auto max-w-7xl space-y-6">
+      <div className="mx-auto w-full max-w-[1500px] space-y-6">
         <div className="flex flex-col gap-4 rounded-3xl border border-cyan-300/20 bg-gradient-to-br from-cyan-400/10 via-neutral-950 to-blue-500/10 p-6 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <div className="text-xs font-black uppercase tracking-[0.24em] text-cyan-300">InstaComp AI</div>
@@ -186,15 +188,11 @@ export default function ChecklistSentinelAdminPage() {
           </div>
           <div className="flex flex-wrap gap-2">
             <StatusPill ok={connectionHealthy}>{connectionHealthy ? "Mac connected" : "Mac unavailable"}</StatusPill>
-            <StatusPill ok={Boolean(status?.registry_import_configured)}>
-              {status?.registry_import_configured ? "Central archive on" : "Central archive off"}
-            </StatusPill>
+            <StatusPill ok={Boolean(status?.registry_import_configured)}>{status?.registry_import_configured ? "Central archive on" : "Central archive off"}</StatusPill>
           </div>
         </div>
 
-        {error ? (
-          <div className="rounded-2xl border border-red-400/40 bg-red-400/10 p-4 font-bold text-red-100">{error}</div>
-        ) : null}
+        {error ? <div className="rounded-2xl border border-red-400/40 bg-red-400/10 p-4 font-bold text-red-100">{error}</div> : null}
 
         <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
           <Metric label="Overall progress" value={`${progress.toFixed(1)}%`} />
@@ -209,49 +207,20 @@ export default function ChecklistSentinelAdminPage() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-xl font-black">Checklist search backlog</h2>
-              <p className="mt-1 text-sm text-neutral-400">
-                {job?.status || (loading ? "Loading…" : "No run recorded")} · safe batch progress {batchProgress.toFixed(1)}%
-              </p>
+              <p className="mt-1 text-sm text-neutral-400">{job?.status || (loading ? "Loading…" : "No run recorded")} · safe batch progress {batchProgress.toFixed(1)}%</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                disabled={working}
-                onClick={() => void action("run")}
-                className="rounded-xl bg-cyan-300 px-4 py-3 text-sm font-black text-neutral-950 disabled:opacity-50"
-              >
-                Run now
-              </button>
-              <button
-                type="button"
-                disabled={working}
-                onClick={() => void action("refresh-targets")}
-                className="rounded-xl border border-white/20 px-4 py-3 text-sm font-black disabled:opacity-50"
-              >
-                Refresh targets
-              </button>
-              <button
-                type="button"
-                disabled={working}
-                onClick={() => void load()}
-                className="rounded-xl border border-white/20 px-4 py-3 text-sm font-black disabled:opacity-50"
-              >
-                Refresh status
-              </button>
+              <button type="button" disabled={working} onClick={() => void action("run")} className="rounded-xl bg-cyan-300 px-4 py-3 text-sm font-black text-neutral-950 disabled:opacity-50">Run now</button>
+              <button type="button" disabled={working} onClick={() => void action("refresh-targets")} className="rounded-xl border border-white/20 px-4 py-3 text-sm font-black disabled:opacity-50">Refresh targets</button>
+              <button type="button" disabled={working} onClick={() => void load()} className="rounded-xl border border-white/20 px-4 py-3 text-sm font-black disabled:opacity-50">Refresh status</button>
             </div>
           </div>
           <div className="mt-5 h-5 overflow-hidden rounded-full bg-white/10" aria-label={`Checklist search progress ${progress.toFixed(1)} percent`}>
             <div className="h-full rounded-full bg-cyan-300 transition-all" style={{ width: `${progress}%` }} />
           </div>
           <div className="mt-3 flex flex-col gap-1 text-sm text-neutral-300 sm:flex-row sm:items-center sm:justify-between">
-            <span className="font-bold text-cyan-200">
-              {progress.toFixed(1)}% complete · {completedTargets} of {totalTargets} targets attempted
-            </span>
-            <span>
-              Progress last updated: {updatedAt ? (
-                <time dateTime={updatedAt.toISOString()}>{updatedAt.toLocaleString()}</time>
-              ) : "Not yet"}
-            </span>
+            <span className="font-bold text-cyan-200">{progress.toFixed(1)}% complete · {completedTargets} of {totalTargets} targets attempted</span>
+            <span>Progress last updated: {updatedAt ? <time dateTime={updatedAt.toISOString()}>{updatedAt.toLocaleString()}</time> : "Not yet"}</span>
           </div>
           <div className="mt-5 grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
             <div><span className="text-neutral-500">Current target:</span><br />{job?.current_target_key || "None"}</div>
@@ -270,9 +239,7 @@ export default function ChecklistSentinelAdminPage() {
               <StatusPill ok={Boolean(status?.freeze_protection?.heartbeat)}>Heartbeat</StatusPill>
               <StatusPill ok={Boolean(status?.freeze_protection?.resume_pending_targets)}>Safe resume</StatusPill>
             </div>
-            <p className="mt-5 text-sm text-neutral-400">
-              Checkpoint every {number(status?.checkpoint_seconds)} seconds. Daily schedule: {number(status?.schedule_hours)} hours. Pending backlog batches automatically continue until no due pending targets remain.
-            </p>
+            <p className="mt-5 text-sm text-neutral-400">Checkpoint every {number(status?.checkpoint_seconds)} seconds. Daily schedule: {number(status?.schedule_hours)} hours. Pending backlog batches automatically continue until no due pending targets remain.</p>
           </div>
           <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6">
             <h2 className="text-xl font-black">Latest evidence</h2>
@@ -280,16 +247,12 @@ export default function ChecklistSentinelAdminPage() {
               <Metric label="Download receipts" value={downloads.length} />
               <Metric label="Community leads" value={leadOnly} />
             </div>
-            <p className="mt-4 text-sm text-neutral-400">
-              Community sources remain lead-only until provenance and redistribution permission are verified.
-            </p>
+            <p className="mt-4 text-sm text-neutral-400">Community sources remain lead-only until provenance and redistribution permission are verified.</p>
           </div>
         </section>
 
         <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-neutral-500">
-          <span>
-            Progress refreshes automatically every 20 minutes. Last successful read: {updatedAt ? updatedAt.toLocaleString() : "Not yet"}
-          </span>
+          <span>Progress refreshes automatically every 20 minutes. Last successful read: {updatedAt ? updatedAt.toLocaleString() : "Not yet"}</span>
           <Link href="/admin" className="font-bold text-cyan-300 hover:text-cyan-200">Back to Admin</Link>
         </div>
       </div>
