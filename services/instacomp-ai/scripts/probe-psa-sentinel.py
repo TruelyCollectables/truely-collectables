@@ -3,7 +3,13 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import sys
 from html.parser import HTMLParser
+from pathlib import Path
+
+SERVICE_ROOT = Path(__file__).resolve().parents[1]
+if str(SERVICE_ROOT) not in sys.path:
+    sys.path.insert(0, str(SERVICE_ROOT))
 
 from app.sentinel_sources import DEFAULT_SOURCES, SentinelSourceClient
 
