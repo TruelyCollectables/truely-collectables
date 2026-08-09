@@ -184,6 +184,7 @@ export default function AdminPage() {
   "/admin/instacomp"
   "/admin/instacomp/checklists"
   "/admin/instacomp/checklist-sentinel"
+  "/admin/instacomp/fast"
   "/admin/instacomp/mobile"
   "/admin/instacomp/seller-sweep"
   "/admin/instacomp/v2"
