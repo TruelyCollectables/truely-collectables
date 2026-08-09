@@ -34,26 +34,11 @@ export async function POST(request: Request) {
     return Response.json({ success: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  const requestOidc = String(request.headers.get("x-vercel-oidc-token") || "").trim();
-  const gatewayOidcToken =
-    String(process.env.AI_GATEWAY_API_KEY || process.env.VERCEL_OIDC_TOKEN || "").trim() ||
-    requestOidc;
-
-  if (!gatewayOidcToken) {
-    return Response.json(
-      {
-        success: false,
-        schema: "truelycollectables.instacompGatewayTeacherSmoke.v1",
-        error: "Vercel OIDC / AI Gateway authentication is unavailable in this runtime.",
-        secretsExposed: false,
-      },
-      { status: 503, headers: { "Cache-Control": "no-store" } },
-    );
-  }
-
+  // This call intentionally supplies no model-provider key and no manually
+  // forwarded OIDC token. A successful response therefore proves the deployed
+  // Vercel Function's automatic AI Gateway OIDC path and both search tools.
   const result = await getTeacherExactMarketProviders({
     exactTitle: "2025 Panini Prizm WNBA Hailey Van Lith #139 Cracked Ice Prizm",
-    gatewayOidcToken,
     ai: {
       player: "Hailey Van Lith",
       year: "2025",
@@ -82,8 +67,8 @@ export async function POST(request: Request) {
   return Response.json(
     {
       success: operational,
-      schema: "truelycollectables.instacompGatewayTeacherSmoke.v1",
-      gatewayAuthenticationAvailable: true,
+      schema: "truelycollectables.instacompGatewayTeacherSmoke.v2",
+      automaticVercelGatewayAuthProven: operational,
       gatewayTeachersOperational: operational,
       configuredTeachers: result.configuredTeachers,
       requiredVotes: result.requiredVotes,
