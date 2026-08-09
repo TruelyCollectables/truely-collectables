@@ -5,13 +5,64 @@ import argparse
 import json
 import subprocess
 import sys
+from importlib import metadata
 from pathlib import Path
+
+SERVICE_ROOT = Path(__file__).resolve().parents[1]
+if str(SERVICE_ROOT) not in sys.path:
+    sys.path.insert(0, str(SERVICE_ROOT))
 
 from app.config import settings
 from app.storage import MemoryStore
 from app.training import export_training_dataset, training_readiness
 
 DEFAULT_MODEL = "mlx-community/Qwen3-VL-2B-Instruct-4bit"
+
+
+def preflight_training_runtime() -> dict:
+    try:
+        version = metadata.version("mlx-vlm")
+    except metadata.PackageNotFoundError as exc:
+        raise SystemExit(
+            "Training runtime missing: install services/instacomp-ai/requirements-training.txt first."
+        ) from exc
+
+    probe = subprocess.run(
+        [sys.executable, "-m", "mlx_vlm.lora", "--help"],
+        cwd=SERVICE_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    output = "\n".join(filter(None, [probe.stdout, probe.stderr]))
+    if probe.returncode != 0:
+        raise SystemExit(
+            "MLX-VLM LoRA preflight failed before dataset export.\n" + output[-2000:]
+        )
+    required = [
+        "--model-path",
+        "--dataset",
+        "--epochs",
+        "--batch-size",
+        "--learning-rate",
+        "--lora-rank",
+        "--lora-alpha",
+        "--output-path",
+    ]
+    missing = [flag for flag in required if flag not in output]
+    if missing:
+        raise SystemExit(
+            "Installed MLX-VLM LoRA CLI is incompatible; missing flags: "
+            + ", ".join(missing)
+        )
+    return {
+        "schema_version": "tcos.instacomp-ai.lora-runtime-preflight.v1",
+        "status": "ready",
+        "mlx_vlm_version": version,
+        "service_root": str(SERVICE_ROOT),
+        "python": sys.executable,
+    }
 
 
 def main() -> int:
@@ -26,7 +77,13 @@ def main() -> int:
     parser.add_argument("--lora-alpha", type=int, default=32)
     parser.add_argument("--allow-small-dataset", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--preflight-only", action="store_true")
     args = parser.parse_args()
+
+    runtime = preflight_training_runtime()
+    print(json.dumps(runtime, indent=2))
+    if args.preflight_only:
+        return 0
 
     settings.ensure_directories()
     store = MemoryStore(settings.resolve_local_path(settings.database_path))
@@ -88,6 +145,7 @@ def main() -> int:
     ]
     plan = {
         "schema_version": "tcos.instacomp-ai.lora-plan.v1",
+        "runtime": runtime,
         "readiness": readiness,
         "dataset": manifest,
         "model": args.model,
@@ -99,7 +157,7 @@ def main() -> int:
     if args.dry_run:
         return 0
 
-    completed = subprocess.run(command, check=False)
+    completed = subprocess.run(command, cwd=SERVICE_ROOT, check=False)
     if completed.returncode != 0:
         return completed.returncode
     if not adapter_path.is_file():
