@@ -13,6 +13,7 @@ const required = [
   [types, 'card_uuid?: string | null;', 'create/update inventory UUID input'],
   [repo, 'card_uuid: input.card_uuid ?? null', 'repository create UUID persistence'],
   [repo, 'card_uuid: input.card_uuid ?? existing?.card_uuid ?? null', 'repository upsert UUID preservation'],
+  [repo, 'filters.push(`card_uuid.eq.${searchValue.toLowerCase()}`)', 'exact physical-card UUID inventory search'],
   [engine, 'metadataCardUuid(inventoryItem.metadata)', 'metadata UUID fallback'],
   [engine, 'cardUuid: validCardUuid(product.card_uuid)', 'product-only UUID mapping'],
   [engine, 'card_uuid: product.card_uuid', 'product backfill UUID propagation'],
@@ -30,4 +31,4 @@ if (checkout.includes('card_uuid: crypto.randomUUID')) {
 if (engine.includes('cardUuid: crypto.randomUUID')) {
   throw new Error('Inventory must never regenerate a physical-card UUID.');
 }
-console.log('PASS one permanent physical card UUID survives inventory → product → universal inventory → order item');
+console.log('PASS one permanent physical card UUID survives inventory → product → universal inventory → order item and remains searchable');
