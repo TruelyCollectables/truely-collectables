@@ -103,12 +103,15 @@ jobs:
           def repair_clock(path_text: str) -> str:
               path_text = path_text.replace('Date.now()', 'readElapsedClockMs()')
               path_text = path_text.replace('performance.now()', 'readElapsedClockMs()')
+              helper_body = 'function readElapsedClockMs() {\n  return performance.now();\n}\n\n'
+              recursive_body = 'function readElapsedClockMs() {\n  return readElapsedClockMs();\n}\n\n'
+              if recursive_body in path_text:
+                  path_text = path_text.replace(recursive_body, helper_body, 1)
               if 'function readElapsedClockMs()' not in path_text:
                   marker = 'const IDENTITY_CONCURRENCY = 2;\n\n'
                   if marker not in path_text:
                       raise SystemExit('Could not locate Fast scanner clock helper insertion point')
-                  helper = 'function readElapsedClockMs() {\n  return performance.now();\n}\n\n'
-                  path_text = path_text.replace(marker, marker + helper, 1)
+                  path_text = path_text.replace(marker, marker + helper_body, 1)
               return path_text
 
           fast_path = Path('src/app/admin/instacomp/fast/InstaCompFastDropScanner.tsx')
@@ -137,18 +140,8 @@ jobs:
           smoke = smoke_path.read_text()
           sentinel_route = '    path: "/admin/instacomp/checklist-sentinel",'
           if sentinel_route not in smoke:
-              marker = '''  {
-            path: "/admin/instacomp/checklists",
-            auth: true,
-            expectedText: "Checklist Registry",
-          },
-          '''
-              addition = marker + '''  {
-            path: "/admin/instacomp/checklist-sentinel",
-            auth: true,
-            expectedText: "Checklist Sentinel™",
-          },
-          '''
+              marker = '  {\n    path: "/admin/instacomp/checklists",\n    auth: true,\n    expectedText: "Checklist Registry",\n  },\n'
+              addition = marker + '  {\n    path: "/admin/instacomp/checklist-sentinel",\n    auth: true,\n    expectedText: "Checklist Sentinel™",\n  },\n'
               if marker not in smoke:
                   raise SystemExit('Could not locate admin runtime smoke checklist insertion point')
               smoke = smoke.replace(marker, addition, 1)
@@ -242,4 +235,4 @@ jobs:
       - name: Production build
         run: npm run build
 
-# certification-trigger: integration-fix-pass
+# certification-trigger: idempotent-integration-fix-pass
