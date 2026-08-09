@@ -21,7 +21,12 @@ const smokeRoutes = [
   {
     path: "/admin",
     auth: true,
-    expectedText: "Command Center",
+    expectedText: "Cards live in KINGMAKER",
+  },
+  {
+    path: "/admin/advanced",
+    auth: true,
+    expectedText: "Advanced Admin",
   },
   {
     path: "/admin/instacomp-direct",

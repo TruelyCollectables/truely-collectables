@@ -2622,7 +2622,7 @@ assertFileIncludes("live money go/no-go README instructions", "README.md", [
   "READY_FOR_RUNTIME_SWITCH",
   "Read-only guarantee",
 ]);
-assertFileIncludes("admin dashboard shipping evidence validator source", "src/app/admin/page.tsx", [
+assertFileIncludes("advanced admin dashboard shipping evidence validator source", "src/app/admin/LegacyAdminDashboard.tsx", [
   "LIVE_MONEY_JSON_EVIDENCE",
   "{LIVE_MONEY_JSON_EVIDENCE.title}",
   "LIVE_MONEY_JSON_EVIDENCE.statusCommand",

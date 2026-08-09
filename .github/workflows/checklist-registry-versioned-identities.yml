@@ -72,11 +72,20 @@ jobs:
             'utf8',
           );
           for (const marker of [
+            '.from("checklist_versions")',
+            '.eq("is_active", true)',
+            '.eq("status", "live")',
+            '.from("checklist_sets")',
+            'activeVersionIds.has(String(row.version_id))',
+          ]) {
+            if (!source.includes(marker)) throw new Error(`Missing Registry marker: ${marker}`);
+          }
+          for (const forbidden of [
             'version:checklist_versions!inner(id,is_active,status)',
             '.eq("version.is_active", true)',
             '.eq("version.status", "live")',
           ]) {
-            if (!source.includes(marker)) throw new Error(`Missing Registry marker: ${marker}`);
+            if (source.includes(forbidden)) throw new Error(`Legacy wide Registry marker still present: ${forbidden}`);
           }
           NODE
 

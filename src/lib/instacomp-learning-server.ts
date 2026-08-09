@@ -891,10 +891,15 @@ export function chooseRegistryMatch(
     ai,
     [ai.setName, brand, product, setName].filter(Boolean).join(" "),
   );
-  // Free-form finish/color prose from one scanner may not veto an otherwise
-  // exact Base Registry candidate after a conflict-free multi-reader council.
-  // Adjacent-year Base recovery remains fail-closed.
-  if (parallelProfile.baseLike && adjacentYearRecovered) {
+  // Raw unresolved finish/color evidence must remain fail-closed for Base.
+  // Only a conflict-free multi-reader council may mark note evidence as adjudicated.
+  // Adjacent-year Base recovery remains fail-closed regardless of note adjudication.
+  const unresolvedSurfaceRisk =
+    parallelProfile.surfaceRisk && ai.parallelEvidenceAdjudicated !== true;
+  if (
+    parallelProfile.baseLike &&
+    (unresolvedSurfaceRisk || adjacentYearRecovered)
+  ) {
     continue;
   }
 

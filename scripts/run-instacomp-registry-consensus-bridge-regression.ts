@@ -16,9 +16,9 @@ const visibleIdentity = {
   player: "Shedeur Sanders",
   year: "2025",
   brand: "Panini",
-  setName: "2025 Panini Origins Football",
+  setName: "Base - Rookies",
   cardNumber: "107",
-  parallel: "Blue Foil",
+  parallel: "Holo Blue",
   serialNumber: "162/199",
   team: "Cleveland Browns",
   sport: "Football",
@@ -84,8 +84,8 @@ assert(
   `Consensus brand must use manufacturer Panini, received ${evidence.compIdentity?.brand}`,
 );
 assert(
-  evidence.compIdentity?.setName === "2025 Panini Origins Football",
-  `Consensus set must use the release product, received ${evidence.compIdentity?.setName}`,
+  evidence.compIdentity?.setName === "Base - Rookies",
+  `Consensus set must use the logical checklist set, received ${evidence.compIdentity?.setName}`,
 );
 assert(
   evidence.selectedMatch?.identity.parallel === "Holo Blue",
@@ -102,7 +102,7 @@ const consensus = buildInstaCompMultiScannerConsensus({
       id: "openai-primary",
       label: "OpenAI primary",
       family: "openai",
-      parallel: "Blue Foil",
+      parallel: "Holo Blue",
       kind: "primary_vision",
     }),
     reader({
@@ -126,8 +126,8 @@ assert(
 );
 assert(consensus.finalIdentity.brand === "Panini", "Final manufacturer/brand changed.");
 assert(
-  consensus.finalIdentity.setName === "2025 Panini Origins Football",
-  "Final product/set changed.",
+  consensus.finalIdentity.setName === "Base - Rookies",
+  `Final identity must use the logical checklist set, received ${consensus.finalIdentity.setName}`,
 );
 assert(
   consensus.finalIdentity.parallel === "Holo Blue",

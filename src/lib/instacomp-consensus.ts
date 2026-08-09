@@ -902,7 +902,7 @@ function guardCatalogRefereeAgainstHardEvidence(params: {
   );
 
   if (isGenericBase(catalogParallel)) {
-    if (unresolvedSurfaceRiskFamilies.length >= 2) {
+    if (unresolvedSurfaceRiskFamilies.length >= 1) {
       conflicts.push(
         "catalog Base parallel conflicts with unresolved visible surface/finish evidence",
       );

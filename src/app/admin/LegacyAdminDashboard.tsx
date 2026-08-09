@@ -831,6 +831,7 @@ export default async function AdminDashboard() {
         { href: "/admin/instacomp/v2", label: "InstaComp 2.0" },
         { href: "/admin/instacomp/seller-sweep", label: "Seller Sweep" },
         { href: "/admin/instacomp/checklists", label: "Checklist Registry" },
+        { href: "/admin/instacomp/checklist-sentinel", label: "Checklist Sentinel™" },
         { href: "/admin/instacomp-direct", label: "Direct Scan Lab" },
         { href: "/admin/instacomp", label: "Scan Lab" },
         { href: "/admin/quick-list", label: "Quick List" },
