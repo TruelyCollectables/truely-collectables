@@ -33,30 +33,62 @@ jobs:
           git checkout --detach origin/main
           echo "DEPLOYING_MAIN_SHA=$(git rev-parse HEAD)"
           npx vercel@56.2.0 --prod --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
-      - name: Read latest completed Deal Hunter provider diagnostics
+      - name: Read exact identity and pricing-stage diagnostics
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsS --max-time 60 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" \
-            "$SITE_URL/api/release/instacomp-deal-hunter-learning-self-test?mode=status" > status.json
-          RUN_ID="$(node -e "const p=require('./status.json'); const r=(p.runs||[]).find(x=>x.status==='completed'); if(!r?.runId) process.exit(2); process.stdout.write(r.runId)")"
-          echo "LATEST_COMPLETED_RUN_ID=$RUN_ID"
-          curl -fsS --max-time 60 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" \
-            "$SITE_URL/api/release/instacomp-deal-hunter-history-status?since=2026-08-08T22:00:00Z&runId=$RUN_ID" > diagnostics.json
+          for attempt in $(seq 1 30); do
+            code="$(curl -sS -o diagnostics.json -w '%{http_code}' --max-time 60 -X POST \
+              -H "Authorization: Bearer $VERCEL_TOKEN" \
+              "$SITE_URL/api/release/instacomp-deal-hunter-candidate-diagnostics" || true)"
+            if [[ "$code" == "200" ]] && node -e "const p=require('./diagnostics.json'); process.exit(p.success===true?0:1)"; then
+              break
+            fi
+            if [[ "$attempt" == "30" ]]; then
+              echo "Candidate diagnostics never became ready; HTTP=$code" >&2
+              cat diagnostics.json >&2 || true
+              exit 1
+            fi
+            sleep 10
+          done
           cat diagnostics.json
           node - <<'NODE'
           const p=require('./diagnostics.json');
           if(!p.success) throw new Error(JSON.stringify(p));
-          const candidates=p.completedRunCandidates?.candidates||[];
-          const exactMarket={};
-          const messages={};
-          const missing={};
-          for(const c of candidates){
-            const s=c.exactMarket?.status||'unknown'; exactMarket[s]=(exactMarket[s]||0)+1;
-            for(const f of c.exactMarket?.missingIdentityFields||[]) missing[f]=(missing[f]||0)+1;
-            for(const row of c.exactMarket?.providerMessages||[]){
-              const key=[row.label,row.status,row.message].join(' | '); messages[key]=(messages[key]||0)+1;
-            }
+          const latestRun=(p.latestRuns||[])[0]||null;
+          const runId=latestRun?.run_id||null;
+          const rows=(p.productionCandidates||[]).filter(r=>!runId || r.run_id===runId);
+          const byError={};
+          const byLabel={};
+          const identity=[];
+          for(const row of rows){
+            const ev=row.evaluation||{};
+            const code=ev.errorCode||ev.error_code||'NONE';
+            const label=row.deal_label||ev.dealLabel||'NONE';
+            byError[code]=(byError[code]||0)+1;
+            byLabel[label]=(byLabel[label]||0)+1;
+            const ai=row.identity||{};
+            const market=row.exact_market||{};
+            identity.push({
+              candidateKey:row.candidate_key,
+              title:row.title,
+              player:ai.playerName||ai.player||null,
+              year:ai.year||null,
+              brand:ai.brand||null,
+              setName:ai.setName||ai.set||null,
+              cardNumber:ai.cardNumber||null,
+              parallel:ai.parallel||ai.parallelName||null,
+              serialNumber:ai.serialNumber||ai.serial||null,
+              autograph:ai.autograph??ai.isAutograph??null,
+              relic:ai.relic??ai.isRelic??null,
+              identityConfidence:ai.confidence??null,
+              exactMarketStatus:market.status||null,
+              missingIdentityFields:market.missingIdentityFields||[],
+              pricingEligibleSoldCount:market.pricingEligibleSoldCount??market.soldCount??null,
+              trustedSuggestedPrice:market.trustedSuggestedPrice??null,
+              errorCode:code,
+              reason:ev.reason||null,
+            });
           }
-          console.log('DEAL_HUNTER_PROVIDER_DIAGNOSTICS='+JSON.stringify({runId:p.completedRunCandidates?.runId,count:candidates.length,totalObservationCount:p.totalObservationCount,observationCountSince:p.observationCountSince,exactMarket,missingIdentityFields:missing,providerMessages:messages}));
+          console.log('DEAL_HUNTER_LIVE_IDENTITY_DIAGNOSTICS='+JSON.stringify({latestRun,runCandidateCount:rows.length,byError,byLabel,identity}));
           NODE
