@@ -38,6 +38,15 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r services/instacomp-ai/requirements-training.txt
 
+      - name: Verify fixed MLX-VLM multi-image release
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from importlib.metadata import version
+          assert version("mlx-vlm") == "0.6.8", version("mlx-vlm")
+          print("PASS mlx-vlm 0.6.8 multi-image SFT fix is installed")
+          PY
+
       - name: Compile launcher and service package
         run: |
           set -euo pipefail
