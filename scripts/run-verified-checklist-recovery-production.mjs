@@ -108,7 +108,7 @@ function entryFor(targetKey, source) {
       ? "official_manufacturer"
       : "approved_reference_dataset",
     redistributionAllowed: false,
-    minimumCardRows: 3,
+    minimumCardRows: 25,
     release: {
       canonicalName: canonicalName(targetKey),
       exactSetKey: targetKey,
@@ -228,14 +228,14 @@ async function withCapturedPage(entry, source) {
   }
 }
 
-function needsCapture(source, selected, error) {
+function needsCapture(entry, source, selected, error) {
   const host = (() => {
     try { return new URL(source.url).hostname.toLowerCase(); } catch { return ""; }
   })();
   if (!host.endsWith("beckett.com")) return false;
   if (error) return true;
   const parserErrors = selected?.parsed?.errors?.filter((issue) => issue.severity === "error") || [];
-  return Number(selected?.parsed?.cards?.length || 0) < 3 || parserErrors.length > 0;
+  return Number(selected?.parsed?.cards?.length || 0) < Number(entry.minimumCardRows || 25) || parserErrors.length > 0;
 }
 
 async function parseSource(entry, source) {
@@ -246,7 +246,7 @@ async function parseSource(entry, source) {
   } catch (error) {
     directError = error;
   }
-  if (!needsCapture(source, direct, directError)) {
+  if (!needsCapture(entry, source, direct, directError)) {
     if (directError) throw directError;
     return { ...direct, capture: null, attempts: [{ mode: "direct", status: "selected" }] };
   }
@@ -382,7 +382,7 @@ async function processTarget(db, target, state) {
     }
 
     const parserErrors = (selected.parsed.errors || []).filter((issue) => issue.severity === "error");
-    if (parserErrors.length || selected.parsed.cards.length < 3) {
+    if (parserErrors.length || selected.parsed.cards.length < Number(entry.minimumCardRows || 25)) {
       failures.push({
         sourceId: source.sourceId,
         url: source.url,
