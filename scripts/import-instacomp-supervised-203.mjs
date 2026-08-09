@@ -81,17 +81,11 @@ function loadCards() {
   if (cards[198].q !== null) throw new Error('SCAN-0199 must be plain Concourse (no parallel).');
   return cards;
 }
-function parseEnvFile(file) {
-  const out = {};
-  for (const line of fs.readFileSync(file,'utf8').split(/\r?\n/)) {
-    if (!line || line.trim().startsWith('#') || !line.includes('=')) continue;
-    const idx = line.indexOf('=');
-    const key = line.slice(0,idx).trim();
-    let value = line.slice(idx+1).trim();
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) value=value.slice(1,-1);
-    out[key]=value;
-  }
-  return out;
+function valueFromEnvFile(file, key) {
+  const envText = fs.readFileSync(file, 'utf8');
+  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = envText.match(new RegExp(`^${escaped}=(?:"([^"]*)"|'([^']*)'|([^\\r\\n]*))`, 'm'));
+  return String(match?.[1] ?? match?.[2] ?? match?.[3] ?? '').trim();
 }
 async function api(base,key,route,options={}) {
   const response = await fetch(base + route, {
@@ -129,9 +123,8 @@ if (contractOnly) {
 
 const envFile = process.env.PRODUCTION_ENV_FILE;
 if (!envFile || !fs.existsSync(envFile)) throw new Error('PRODUCTION_ENV_FILE is required.');
-const env = parseEnvFile(envFile);
-const base = String(env.INSTACOMP_AI_LOCAL_URL || '').trim().replace(/\/+$/,'');
-const key = String(env.INSTACOMP_AI_LOCAL_KEY || '').trim();
+const base = valueFromEnvFile(envFile, 'INSTACOMP_AI_LOCAL_URL').replace(/\/+$/,'');
+const key = valueFromEnvFile(envFile, 'INSTACOMP_AI_LOCAL_KEY');
 if (!/^https:\/\/[^/]+\.truelycollectables\.com$/i.test(base) || !key) throw new Error('Protected physical Mac coordinates unavailable.');
 
 const receipt = {
