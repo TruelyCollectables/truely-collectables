@@ -8,6 +8,7 @@ on:
       - "scripts/patch-instacomp-card-uuid-inventory-handoff.py"
       - "scripts/verify-instacomp-card-uuid-inventory-handoff.mjs"
       - "src/app/api/account/seller/instacomp-scan/intake/route.ts"
+      - "src/lib/inventory-activation.ts"
   workflow_dispatch:
 
 permissions:
