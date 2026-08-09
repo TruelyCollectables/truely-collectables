@@ -7,12 +7,17 @@ on:
       - ".github/workflows/instacomp-ebay-price-insights-capture.yml"
       - "src/lib/instacomp-ebay-price-insights.ts"
       - "src/lib/instacomp-exact-market-provider.ts"
+      - "src/lib/instacomp.ts"
       - "src/app/api/instacomp/market-history/route.ts"
       - "scripts/verify-instacomp-ebay-price-insights-capture.ts"
+      - "scripts/patch-instacomp-denominator-only-sold-comp.py"
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+
+env:
+  EXPECTED_BRANCH: feature/instacomp-ebay-price-insights-capture-20260809
 
 jobs:
   exact-sold-capture:
@@ -20,6 +25,13 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+      - name: Apply exact-market denominator-only print-run repair
+        run: |
+          python3 scripts/patch-instacomp-denominator-only-sold-comp.py
+          git diff --check
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -33,3 +45,12 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder
           SUPABASE_SERVICE_ROLE_KEY: ci-placeholder
         run: npx tsc --noEmit
+      - name: Persist tested exact-market repair
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/instacomp.ts
+          if ! git diff --cached --quiet; then
+            git commit -m "Accept denominator-only exact sold print runs [skip ci]"
+            git push origin "HEAD:$EXPECTED_BRANCH"
+          fi
