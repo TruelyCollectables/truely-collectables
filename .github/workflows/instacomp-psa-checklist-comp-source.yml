@@ -6,9 +6,9 @@ on:
     paths:
       - "services/instacomp-ai/app/sentinel_sources.py"
       - "services/instacomp-ai/tests/test_sentinel_psa_sources.py"
+      - "services/instacomp-ai/scripts/probe-psa-sentinel.py"
       - "src/lib/instacomp-teacher-market-provider.ts"
       - "scripts/run-instacomp-teacher-market-provider-simulations.ts"
-      - "scripts/probe-psa-checklist-recovery.mjs"
       - ".github/workflows/instacomp-psa-checklist-comp-source.yml"
   workflow_dispatch:
 
@@ -37,8 +37,9 @@ jobs:
       - name: Run PSA and SGC Sentinel source policy tests
         working-directory: services/instacomp-ai
         run: pytest -q tests/test_sentinel_psa_sources.py
-      - name: Read-only live PSA checklist recovery probe
-        run: node scripts/probe-psa-checklist-recovery.mjs | tee psa-checklist-probe.jsonl
+      - name: Read-only live PSA probe through actual Sentinel source client
+        working-directory: services/instacomp-ai
+        run: python scripts/probe-psa-sentinel.py | tee ../../psa-checklist-probe.jsonl
       - name: Install web dependencies
         run: npm ci
       - name: Run PSA graded-comp teacher regressions
