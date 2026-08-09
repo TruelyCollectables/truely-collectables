@@ -29,7 +29,7 @@ AUTO_IMPORT_DOMAINS = {
     "leaftradingcards.com": 98,
     "www.leaftradingcards.com": 98,
     # PSA APR set pages expose deterministic `No. | Subject | Auction Results`
-    # tables. Only set-level APR URLs are allowed through _html_candidates.
+    # tables. Only exact whole-release APR URLs may auto-import.
     "psacard.com": 96,
     "www.psacard.com": 96,
     "baseballcardpedia.com": 92,
@@ -440,6 +440,26 @@ def _is_psa_set_apr_url(url: str) -> bool:
     )
 
 
+def _psa_expected_release_slug(target: dict[str, Any]) -> str:
+    year = str(target.get("year") or "").strip()
+    manufacturer_tokens = normalize_text(target.get("manufacturer")).split()
+    product_tokens = normalize_text(target.get("product")).split()
+    if manufacturer_tokens and product_tokens[: len(manufacturer_tokens)] == manufacturer_tokens:
+        product_tokens = product_tokens[len(manufacturer_tokens) :]
+    if product_tokens == manufacturer_tokens:
+        product_tokens = []
+    pieces = [year, *manufacturer_tokens, *product_tokens]
+    return "-".join(piece for piece in pieces if piece)
+
+
+def _is_psa_exact_release_url(url: str, target: dict[str, Any]) -> bool:
+    if not _is_psa_set_apr_url(url):
+        return False
+    parts = [part for part in urlparse(url).path.split("/") if part]
+    expected = _psa_expected_release_slug(target)
+    return bool(expected and parts[2].lower() == expected)
+
+
 class SentinelSourceClient:
     def __init__(
         self,
@@ -542,7 +562,7 @@ class SentinelSourceClient:
             host = (urlparse(url).hostname or "").lower()
             if host.endswith("google.com") or host.endswith("bing.com"):
                 continue
-            if source.get("source_id") == "psa" and not _is_psa_set_apr_url(url):
+            if source.get("source_id") == "psa" and not _is_psa_exact_release_url(url, target):
                 continue
             trust, policy = candidate_trust(url)
             exact, reason = exact_target_match(target, title, url)
