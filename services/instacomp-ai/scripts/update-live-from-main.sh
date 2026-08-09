@@ -321,7 +321,7 @@ do
 done
 
 repair_vercel_root_directory
-npx vercel --prod --yes --cwd "$repo_root"
+npx vercel --prod --yes --archive=tgz --cwd "$repo_root"
 
 registry_probe_file="$service_root/data/runtime-updates/$timestamp-production-registry.json"
 registry_probe_url="${site_url}/api/instacomp/checklist-lookup"
