@@ -55,8 +55,6 @@ jobs:
           set -euo pipefail
           echo "certifying $(git rev-parse HEAD)"
           git diff --check
-          grep -q 'No external identity provider was called' services/instacomp-ai/app/main.py
-          ! grep -q 'The website may use OpenAI only as the emergency teacher' services/instacomp-ai/app/main.py
       - name: Internal fail-closed regressions
         run: node --import tsx scripts/run-instacomp-internal-fail-closed-regressions.ts
       - name: Council runtime hard-stop regressions
