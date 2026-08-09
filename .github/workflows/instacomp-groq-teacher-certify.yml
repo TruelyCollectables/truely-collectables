@@ -1,0 +1,84 @@
+name: InstaComp Groq teacher certify
+
+on:
+  push:
+    branches:
+      - fix/instacomp-groq-teacher-20260808
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  certify-and-apply:
+    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message || '', '[groq-teacher-applied]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out Groq teacher branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/instacomp-groq-teacher-20260808
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          python -m pip install --disable-pip-version-check pytest
+
+      - name: Apply Groq teacher and Mac majority guard
+        run: node scripts/apply-instacomp-groq-teacher.mjs
+
+      - name: Reject malformed patch
+        run: git diff --check
+
+      - name: Verify four-teacher provider consensus and Groq API contract
+        run: node --import tsx scripts/run-instacomp-teacher-market-provider-simulations.ts
+
+      - name: Verify Groq runtime voting thresholds
+        run: |
+          node --import tsx scripts/run-instacomp-teacher-runtime-status-simulations.ts
+          node --import tsx scripts/run-instacomp-groq-runtime-status-simulations.ts
+
+      - name: Verify InstaComp AI majority and learning boundaries
+        run: |
+          cd services/instacomp-ai
+          python -m pytest \
+            tests/test_teacher_comp_learning.py \
+            tests/test_teacher_comp_registry_binding.py \
+            tests/test_teacher_comp_majority.py -q
+          python -m compileall -q app
+
+      - name: Run existing InstaComp consensus regressions
+        run: npm run simulate:instacomp-consensus
+
+      - name: Build Production application
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://ci-placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: ci-placeholder-service-role-key
+        run: npm run build
+
+      - name: Commit certified runtime patch
+        if: ${{ github.event_name != 'pull_request' }}
+        run: |
+          git config user.name "Truely Collectables CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add \
+            src/lib/instacomp-teacher-market-provider.ts \
+            services/instacomp-ai/app/teacher_comp_learning.py
+          git commit -m "Add Groq Compound voting teacher [groq-teacher-applied]"
+          git push origin HEAD:fix/instacomp-groq-teacher-20260808
