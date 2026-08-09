@@ -10,31 +10,27 @@ on:
       - ".github/workflows/instacomp-ollama-structured-vision-20260806.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: instacomp-ollama-structured-vision-20260806
-  cancel-in-progress: false
-
-env:
-  EXPECTED_BRANCH: fix/instacomp-ollama-structured-vision-20260806
+  group: instacomp-ollama-structured-vision-20260806-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   apply-and-test:
+    name: certify-current-source
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ env.EXPECTED_BRANCH }}
           fetch-depth: 0
 
-      - name: Apply exact runtime patch
+      - name: Verify structured Ollama runtime is already materialized
         shell: bash
         run: |
           set -euo pipefail
-          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
-          python3 scripts/patch-instacomp-ollama-structured-vision.py
+          echo "certifying $(git rev-parse HEAD)"
           grep -q 'OLLAMA_OUTPUT_SCHEMA = OllamaStructuredSuggestion.model_json_schema()' services/instacomp-ai/app/ollama.py
           grep -q '/api/chat' services/instacomp-ai/app/ollama.py
           grep -q 'progressive=False' services/instacomp-ai/app/ollama.py
@@ -54,15 +50,3 @@ jobs:
           pip install -r services/instacomp-ai/requirements.txt
           python -m compileall services/instacomp-ai/app services/instacomp-ai/tests
           PYTHONPATH=services/instacomp-ai pytest -q services/instacomp-ai/tests
-
-      - name: Persist tested runtime file
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add services/instacomp-ai/app/ollama.py
-          if ! git diff --cached --quiet; then
-            git commit -m "Use structured Ollama vision output [skip ci]"
-            git push origin HEAD:$EXPECTED_BRANCH
-          fi
