@@ -8,6 +8,8 @@ import sys
 from importlib import metadata
 from pathlib import Path
 
+from packaging.version import InvalidVersion, Version
+
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
 if str(SERVICE_ROOT) not in sys.path:
     sys.path.insert(0, str(SERVICE_ROOT))
@@ -17,16 +19,38 @@ from app.storage import MemoryStore
 from app.training import export_training_dataset, training_readiness
 
 DEFAULT_MODEL = "mlx-community/Qwen3-VL-2B-Instruct-4bit"
+MIN_MLX_VLM_VERSION = Version("0.6.8")
+
+
+def _validated_mlx_vlm_version(raw_version: str) -> Version:
+    try:
+        parsed = Version(raw_version)
+    except InvalidVersion as exc:
+        raise SystemExit(
+            f"Installed mlx-vlm version is invalid: {raw_version!r}. "
+            "Reinstall services/instacomp-ai/requirements-training.txt."
+        ) from exc
+    if parsed < MIN_MLX_VLM_VERSION:
+        raise SystemExit(
+            "Installed mlx-vlm is too old for InstaComp front+back training. "
+            f"Found {parsed}; require >= {MIN_MLX_VLM_VERSION}. "
+            "Older releases contain the confirmed Qwen3-VL multi-image SFT "
+            "image_grid_thw collation bug that crashes at the first training step. "
+            "Run: services/instacomp-ai/.venv/bin/python -m pip install --upgrade "
+            "-r services/instacomp-ai/requirements-training.txt"
+        )
+    return parsed
 
 
 def preflight_training_runtime() -> dict:
     try:
-        version = metadata.version("mlx-vlm")
+        raw_version = metadata.version("mlx-vlm")
     except metadata.PackageNotFoundError as exc:
         raise SystemExit(
             "Training runtime missing: install services/instacomp-ai/requirements-training.txt first."
         ) from exc
 
+    version = _validated_mlx_vlm_version(raw_version)
     probe = subprocess.run(
         [sys.executable, "-m", "mlx_vlm.lora", "--help"],
         cwd=SERVICE_ROOT,
@@ -57,9 +81,11 @@ def preflight_training_runtime() -> dict:
             + ", ".join(missing)
         )
     return {
-        "schema_version": "tcos.instacomp-ai.lora-runtime-preflight.v1",
+        "schema_version": "tcos.instacomp-ai.lora-runtime-preflight.v2",
         "status": "ready",
-        "mlx_vlm_version": version,
+        "mlx_vlm_version": str(version),
+        "minimum_mlx_vlm_version": str(MIN_MLX_VLM_VERSION),
+        "multi_image_front_back_training": "supported",
         "service_root": str(SERVICE_ROOT),
         "python": sys.executable,
     }
