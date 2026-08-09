@@ -6,10 +6,12 @@ on:
     paths:
       - ".github/workflows/instacomp-lora-launcher-macos.yml"
       - "services/instacomp-ai/scripts/run_lora_training.py"
+      - "services/instacomp-ai/scripts/run_lora_training_checkpoint_safe.py"
       - "services/instacomp-ai/scripts/run-lora-training-safe.sh"
       - "services/instacomp-ai/scripts/mlx_vlm_lora_safe_resume.py"
       - "services/instacomp-ai/scripts/lora-resume-freeze-patch/sitecustomize.py"
       - "services/instacomp-ai/tests/test_lora_launcher_path.py"
+      - "services/instacomp-ai/tests/test_lora_checkpoint_safe.py"
       - "services/instacomp-ai/requirements-training.txt"
       - "services/instacomp-ai/requirements-lora-runtime.txt"
   workflow_dispatch:
@@ -49,13 +51,16 @@ jobs:
           python -m compileall -q \
             services/instacomp-ai/app \
             services/instacomp-ai/scripts/run_lora_training.py \
+            services/instacomp-ai/scripts/run_lora_training_checkpoint_safe.py \
             services/instacomp-ai/scripts/mlx_vlm_lora_safe_resume.py \
             services/instacomp-ai/scripts/lora-resume-freeze-patch/sitecustomize.py
 
       - name: Prove launcher works from repo and service roots
         run: |
           set -euo pipefail
-          PYTHONPATH=services/instacomp-ai python -m pytest -q services/instacomp-ai/tests/test_lora_launcher_path.py
+          PYTHONPATH=services/instacomp-ai python -m pytest -q \
+            services/instacomp-ai/tests/test_lora_launcher_path.py \
+            services/instacomp-ai/tests/test_lora_checkpoint_safe.py
 
       - name: Bootstrap and preflight isolated MLX LoRA runtime on macOS
         working-directory: services/instacomp-ai
