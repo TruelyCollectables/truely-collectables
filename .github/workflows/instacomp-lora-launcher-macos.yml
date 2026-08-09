@@ -8,6 +8,7 @@ on:
       - "services/instacomp-ai/scripts/run_lora_training.py"
       - "services/instacomp-ai/tests/test_lora_launcher_path.py"
       - "services/instacomp-ai/requirements-training.txt"
+      - "services/instacomp-ai/requirements-lora-runtime.txt"
   workflow_dispatch:
 
 permissions:
@@ -31,21 +32,13 @@ jobs:
           cache-dependency-path: |
             services/instacomp-ai/requirements.txt
             services/instacomp-ai/requirements-training.txt
+            services/instacomp-ai/requirements-lora-runtime.txt
 
-      - name: Install InstaComp training runtime
+      - name: Install InstaComp service-side training bridge
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
           python -m pip install -r services/instacomp-ai/requirements-training.txt
-
-      - name: Verify fixed MLX-VLM multi-image release
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          from importlib.metadata import version
-          assert version("mlx-vlm") == "0.6.8", version("mlx-vlm")
-          print("PASS mlx-vlm 0.6.8 multi-image SFT fix is installed")
-          PY
 
       - name: Compile launcher and service package
         run: |
@@ -57,8 +50,17 @@ jobs:
           set -euo pipefail
           PYTHONPATH=services/instacomp-ai python -m pytest -q services/instacomp-ai/tests/test_lora_launcher_path.py
 
-      - name: Run real MLX-VLM LoRA CLI preflight on macOS
+      - name: Bootstrap and preflight isolated MLX LoRA runtime on macOS
         working-directory: services/instacomp-ai
         run: |
           set -euo pipefail
           python scripts/run_lora_training.py --preflight-only
+
+      - name: Verify isolated fixed MLX-VLM multi-image release
+        run: |
+          set -euo pipefail
+          services/instacomp-ai/.venv-lora/bin/python - <<'PY'
+          from importlib.metadata import version
+          assert version("mlx-vlm") == "0.6.8", version("mlx-vlm")
+          print("PASS isolated mlx-vlm 0.6.8 multi-image SFT fix is installed")
+          PY
