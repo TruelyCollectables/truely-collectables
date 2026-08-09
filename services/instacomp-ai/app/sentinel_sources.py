@@ -29,7 +29,7 @@ AUTO_IMPORT_DOMAINS = {
     "leaftradingcards.com": 98,
     "www.leaftradingcards.com": 98,
     # PSA APR set pages expose deterministic `No. | Subject | Auction Results`
-    # tables.  Only set-level APR URLs are allowed through _html_candidates.
+    # tables. Only set-level APR URLs are allowed through _html_candidates.
     "psacard.com": 96,
     "www.psacard.com": 96,
     "baseballcardpedia.com": 92,
@@ -478,10 +478,14 @@ class SentinelSourceClient:
         if target.get("scope") == "discovery":
             query = str(target.get("product") or "")
         elif source_id == "psa":
+            # PSA titles use release/card year (for example `2010 Panini ...`),
+            # while our canonical target may use the hobby season `2010-11`.
+            # Search by the parsed first year but keep the full season untouched
+            # for Registry identity/persistence.
             query = " ".join(
                 str(value).strip()
                 for value in [
-                    target.get("season") or target.get("year"),
+                    target.get("year") or target.get("season"),
                     target.get("manufacturer"),
                     target.get("product"),
                     target.get("sport"),
@@ -494,7 +498,7 @@ class SentinelSourceClient:
             query = " ".join(
                 str(value).strip()
                 for value in [
-                    target.get("season") or target.get("year"),
+                    target.get("year") or target.get("season"),
                     target.get("manufacturer"),
                     target.get("product"),
                     target.get("sport"),
