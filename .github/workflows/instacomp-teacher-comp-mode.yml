@@ -54,7 +54,7 @@ jobs:
       - name: Run InstaComp AI teacher learning regressions
         run: |
           cd services/instacomp-ai
-          python -m pytest tests/test_teacher_comp_learning.py -q
+          python -m pytest tests/test_teacher_comp_learning.py tests/test_teacher_comp_registry_binding.py -q
           python -m compileall -q app
 
       - name: Run existing InstaComp consensus regressions
