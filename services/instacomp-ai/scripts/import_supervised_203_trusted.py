@@ -8,6 +8,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import time
 import unicodedata
 import uuid
 import zipfile
@@ -175,6 +176,23 @@ def write_json(path: Path, payload: dict | list) -> None:
     temp.replace(path)
 
 
+def trusted_example_matches(
+    examples: list[dict],
+    *,
+    scan_id: str,
+    card_uuid: str,
+    card: dict,
+) -> bool:
+    return any(
+        isinstance(example, dict)
+        and example.get("scan_id") == scan_id
+        and canonical_uuid(example.get("card_uuid")) == canonical_uuid(card_uuid)
+        and example.get("trusted") is True
+        and identity_matches(example.get("confirmed_identity"), card)
+        for example in examples
+    )
+
+
 def verify_existing(
     client: httpx.Client,
     *,
@@ -196,13 +214,11 @@ def verify_existing(
                 "/v1/training/examples?trusted_only=true&limit=5000",
                 timeout=45,
             ).get("examples") or []
-        return any(
-            isinstance(example, dict)
-            and example.get("scan_id") == scan_id
-            and canonical_uuid(example.get("card_uuid")) == canonical_uuid(card_uuid)
-            and example.get("trusted") is True
-            and identity_matches(example.get("confirmed_identity"), card)
-            for example in rows
+        return trusted_example_matches(
+            rows,
+            scan_id=scan_id,
+            card_uuid=card_uuid,
+            card=card,
         )
     except httpx.HTTPStatusError as exc:
         status = exc.response.status_code if exc.response is not None else "unknown"
@@ -315,10 +331,64 @@ def main() -> int:
         if health.get("database") != "ready":
             raise SystemExit(f"Local InstaComp database is not ready: {health}")
 
+        # One bulk trusted read makes resume effectively instant. Every row in the
+        # receipt was archive-verified before it was written, so on resume we only
+        # need to prove that the exact trusted training row still exists. A full
+        # archive readback for all 203 cards still runs before final success.
+        resume_examples = get_json(
+            client,
+            "/v1/training/examples?trusted_only=true&limit=5000",
+            timeout=60,
+        ).get("examples") or []
+        resumable_ids: set[str] = set()
+        for card in cards:
+            external_id = card["s"]
+            row = receipt.get("cards", {}).get(external_id) or {}
+            scan_id = str(row.get("scanId") or "")
+            card_uuid = optional_uuid(row.get("cardUuid"))
+            if (
+                row.get("status") == "trusted_verified"
+                and scan_id
+                and card_uuid
+                and trusted_example_matches(
+                    resume_examples,
+                    scan_id=scan_id,
+                    card_uuid=card_uuid,
+                    card=card,
+                )
+            ):
+                resumable_ids.add(external_id)
+
+        if resumable_ids:
+            first_missing = next(
+                (int(card["o"]) for card in cards if card["s"] not in resumable_ids),
+                TOTAL_CARDS + 1,
+            )
+            print(
+                f"RESUME checkpoint: {len(resumable_ids)}/203 already trusted; "
+                f"continuing at {first_missing if first_missing <= TOTAL_CARDS else 'final verification'}.",
+                flush=True,
+            )
+
         with tempfile.TemporaryDirectory(prefix="instacomp-supervised-203-") as temp_dir:
             temp_root = Path(temp_dir)
             with zipfile.ZipFile(archive) as zf:
-                zf.extractall(temp_root)
+                needed_files: list[str] = []
+                for card in cards:
+                    if card["s"] in resumable_ids:
+                        continue
+                    ordinal = int(card["o"])
+                    front_index = (ordinal - 1) * 2
+                    needed_files.extend([
+                        scan_filename(front_index),
+                        scan_filename(front_index + 1),
+                    ])
+                for name in needed_files:
+                    zf.extract(name, temp_root)
+                print(
+                    f"Extracted {len(needed_files)} images for {len(needed_files) // 2} remaining cards.",
+                    flush=True,
+                )
 
             for card in cards:
                 ordinal = int(card["o"])
@@ -326,49 +396,61 @@ def main() -> int:
                 existing = receipt.get("cards", {}).get(external_id) or {}
                 existing_scan = str(existing.get("scanId") or "")
                 existing_card_uuid = optional_uuid(existing.get("cardUuid"))
-                if (
-                    existing_scan
-                    and existing_card_uuid
-                    and verify_existing(
-                        client,
-                        scan_id=existing_scan,
-                        card_uuid=existing_card_uuid,
-                        card=card,
-                    )
-                ):
-                    print(
-                        f"[{ordinal:03d}/203] VERIFIED {external_id} card={existing_card_uuid} scan={existing_scan}",
-                        flush=True,
-                    )
-                    existing["status"] = "trusted_verified"
-                    receipt["cards"][external_id] = existing
+                if external_id in resumable_ids:
                     continue
 
                 front_index = (ordinal - 1) * 2
                 back_index = front_index + 1
                 front_path = temp_root / scan_filename(front_index)
                 back_path = temp_root / scan_filename(back_index)
-                print(f"[{ordinal:03d}/203] ANALYZE {external_id} {front_path.name} + {back_path.name}", flush=True)
+                print(f"[{ordinal:03d}/203] ARCHIVE {external_id} {front_path.name} + {back_path.name}", flush=True)
 
-                analyze_data = {
-                    "printed_evidence_json": json.dumps(printed_evidence(card), separators=(",", ":")),
-                }
+                archive_data = {}
                 if existing_card_uuid:
-                    analyze_data["card_uuid"] = canonical_uuid(existing_card_uuid)
+                    archive_data["card_uuid"] = canonical_uuid(existing_card_uuid)
 
-                with front_path.open("rb") as front_handle, back_path.open("rb") as back_handle:
-                    analyze = client.post(
-                        "/v1/scans/analyze",
-                        files={
-                            "front": (front_path.name, front_handle, "image/jpeg"),
-                            "back": (back_path.name, back_handle, "image/jpeg"),
-                        },
-                        data=analyze_data,
-                        timeout=240,
+                archived_response = None
+                for attempt in range(1, 5):
+                    try:
+                        with front_path.open("rb") as front_handle, back_path.open("rb") as back_handle:
+                            archived_response = client.post(
+                                "/v1/scans/supervised-archive",
+                                files={
+                                    "front": (front_path.name, front_handle, "image/jpeg"),
+                                    "back": (back_path.name, back_handle, "image/jpeg"),
+                                },
+                                data=archive_data,
+                                timeout=90,
+                            )
+                        break
+                    except httpx.TransportError as exc:
+                        if attempt >= 4:
+                            raise
+                        print(
+                            f"[{ordinal:03d}/203] transport retry {attempt}/3 after {type(exc).__name__}: {exc}",
+                            file=sys.stderr,
+                            flush=True,
+                        )
+                        # launchd normally brings the local service back if it was
+                        # interrupted. Wait briefly for health, then retry the same
+                        # exact pair; image-pair UUID binding makes that safe.
+                        for _ in range(30):
+                            try:
+                                probe = client.get("/health", timeout=2)
+                                if probe.status_code == 200:
+                                    break
+                            except httpx.TransportError:
+                                pass
+                            time.sleep(1)
+                        time.sleep(min(attempt * 2, 6))
+                if archived_response is None:
+                    raise RuntimeError(f"{external_id} supervised archive did not return a response")
+                if archived_response.status_code >= 400:
+                    raise RuntimeError(
+                        f"{external_id} supervised archive HTTP {archived_response.status_code}: "
+                        f"{archived_response.text[:1000]}"
                     )
-                if analyze.status_code >= 400:
-                    raise RuntimeError(f"{external_id} analyze HTTP {analyze.status_code}: {analyze.text[:1000]}")
-                analyzed = analyze.json()
+                analyzed = archived_response.json()
                 scan_id = canonical_uuid(analyzed.get("scan_id"))
                 card_uuid = canonical_uuid(analyzed.get("card_uuid"))
                 if not existing_card_uuid and card_uuid != scan_id:
