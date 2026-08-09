@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build-certify-and-persist:
+  patch-persist-and-certify:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
@@ -37,11 +37,6 @@ jobs:
         with:
           ref: agent/instacomp-fast-overnight-audit
           fetch-depth: 0
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
 
       - name: Patch season-year preservation
         shell: bash
@@ -101,6 +96,20 @@ jobs:
           path.write_text(text)
           PY
 
+      - name: Persist backend patch immediately
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- src/app/api/instacomp/scan/route.ts; then
+            echo 'Season-year patch already persisted.'
+          else
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add src/app/api/instacomp/scan/route.ts
+            git commit -m 'Preserve sports card season years'
+            git push origin HEAD:agent/instacomp-fast-overnight-audit
+          fi
+
       - name: Verify release-contract source
         shell: bash
         run: |
@@ -133,17 +142,3 @@ jobs:
 
       - name: Production build
         run: npm run build
-
-      - name: Persist certified backend patch
-        shell: bash
-        run: |
-          set -euo pipefail
-          if git diff --quiet -- src/app/api/instacomp/scan/route.ts; then
-            echo 'Season-year patch already persisted.'
-            exit 0
-          fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/app/api/instacomp/scan/route.ts
-          git commit -m 'Preserve sports card season years'
-          git push origin HEAD:agent/instacomp-fast-overnight-audit
