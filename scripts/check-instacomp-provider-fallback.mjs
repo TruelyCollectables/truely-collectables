@@ -36,19 +36,17 @@ if (!scan.includes('provider: "instacomp_internal"')) {
 if (!scan.includes("const serialOcr = null as InstaCompSerialOcrResult | null;")) {
   failures.push("external serial identity reader is not disabled");
 }
-
-const runtimeGate = councilRuntime.match(
-  /export function shouldContinueCouncilRuntime\([\s\S]*?\n}/,
-)?.[0];
-if (!runtimeGate) {
+if (!councilRuntime.includes("export function shouldContinueCouncilRuntime")) {
   failures.push("shared external-council runtime gate is missing");
-} else {
-  if (!runtimeGate.includes("return false;")) {
-    failures.push("external AI council runtime is not hard-stopped");
-  }
-  if (/return\s*\(/.test(runtimeGate)) {
-    failures.push("external AI council runtime contains an executable continuation path");
-  }
+}
+if (!councilRuntime.includes("void params;")) {
+  failures.push("shared external-council runtime gate does not ignore requested execution state");
+}
+if (!councilRuntime.includes("return false;")) {
+  failures.push("external AI council runtime is not hard-stopped");
+}
+if (councilRuntime.includes("return true;")) {
+  failures.push("external AI council runtime contains an enabled continuation path");
 }
 
 if (readiness.includes("openAiEmergencyConfigured")) {
