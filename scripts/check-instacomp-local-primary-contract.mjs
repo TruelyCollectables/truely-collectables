@@ -141,8 +141,13 @@ requireText(
 );
 requireText(
   readiness,
-  "instacomp_internal",
-  "Production readiness must expose the internal InstaComp identity engine.",
+  'architecture: ["instacomp_ai"]',
+  "Production readiness must expose InstaComp AI as the internal identity architecture.",
+);
+requireText(
+  readiness,
+  "localModelReady",
+  "Production readiness must expose the internal identity readiness gate.",
 );
 requireText(
   editRoute,
