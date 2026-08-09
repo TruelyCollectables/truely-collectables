@@ -33,8 +33,8 @@ export async function POST(request: NextRequest) {
     const form = await request.formData();
     const inventoryItemId = clean(form.get("inventoryItemId"), 100);
     const rotatedSide = clean(form.get("rotatedSide"), 20).toLowerCase();
-    const front = form.get("front");
-    const back = form.get("back");
+    const front = form.get("frontImage") ?? form.get("front");
+    const back = form.get("backImage") ?? form.get("back");
     if (!inventoryItemId || !(front instanceof File) || !(back instanceof File)) {
       return NextResponse.json(
         { error: "Pending card plus distinct front and back image files are required." },

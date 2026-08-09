@@ -25,6 +25,15 @@ type CardIdentity = {
   memorabiliaType?: string | null;
 };
 
+type CompEvidence = {
+  title?: string | null;
+  price?: number | null;
+  url?: string | null;
+  sourceLabel?: string | null;
+  soldAt?: string | null;
+  listedAt?: string | null;
+};
+
 type PendingCard = {
   inventoryItemId: string;
   title: string;
@@ -44,6 +53,8 @@ type PendingCard = {
     suggestedPrice?: number | null;
     listingPrice?: number | null;
     reliableSoldCompCount?: number;
+    soldCompEvidence?: CompEvidence[];
+    activeCompetition?: CompEvidence[];
     identity?: CardIdentity | null;
   };
 };
@@ -174,7 +185,7 @@ async function fileFromUrl(url: string, name: string) {
   });
 }
 
-async function rotateClockwise(file: File, name: string) {
+async function rotatedImageFile(file: File, name: string) {
   const bitmap = await createImageBitmap(file);
   const canvas = document.createElement("canvas");
   canvas.width = bitmap.height;
@@ -281,7 +292,7 @@ export default function KingmakerPendingPage() {
     const edit = edits[card.inventoryItemId];
     if (!edit) return;
     if (!edit.parallel.trim()) {
-      setPageError("Enter Base or the exact checklist parallel. Blank is never treated as Base.");
+      setPageError("Blank no longer means Base. Enter Base or the exact checklist parallel.");
       return;
     }
     const finalTitle = standardizedTitle(edit) || edit.title.trim();
@@ -359,21 +370,25 @@ export default function KingmakerPendingPage() {
         fileFromUrl(card.frontImageUrl, "front"),
         fileFromUrl(card.backImageUrl, "back"),
       ]);
-      const [front, back] = await Promise.all([
-        side === "front" ? rotateClockwise(frontOriginal, "front") : Promise.resolve(frontOriginal),
-        side === "back" ? rotateClockwise(backOriginal, "back") : Promise.resolve(backOriginal),
+      const [frontImage, backImage] = await Promise.all([
+        side === "front"
+          ? rotatedImageFile(frontOriginal, "front")
+          : Promise.resolve(frontOriginal),
+        side === "back"
+          ? rotatedImageFile(backOriginal, "back")
+          : Promise.resolve(backOriginal),
       ]);
       const session = await getFreshAccountSession(5 * 60, false);
       if (!session?.access_token) throw new Error("Seller login is required.");
-      const form = new FormData();
-      form.append("inventoryItemId", card.inventoryItemId);
-      form.append("rotatedSide", side);
-      form.append("front", front, front.name);
-      form.append("back", back, back.name);
+      const formData = new FormData();
+      formData.set("inventoryItemId", card.inventoryItemId);
+      formData.set("rotatedSide", side);
+      formData.set("frontImage", frontImage);
+      formData.set("backImage", backImage);
       const response = await fetch("/api/account/seller/inventory/instacomp-image-rotate", {
         method: "POST",
         headers: { Authorization: `Bearer ${session.access_token}` },
-        body: form,
+        body: formData,
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || data.success !== true) throw new Error(data.error || "Could not rotate stored card image.");
@@ -421,7 +436,7 @@ export default function KingmakerPendingPage() {
         setLocalStage((current) => ({ ...current, [card.inventoryItemId]: "review" }));
         setLocalError((current) => ({
           ...current,
-          [card.inventoryItemId]: data.parallelDecision?.evidence || "Exact identity remains unresolved. No look-alike parallel was substituted.",
+          [card.inventoryItemId]: data.parallelDecision?.evidence || "The exact parallel remains unresolved. No Base or look-alike parallel was substituted.",
         }));
       }
       await load();
@@ -482,6 +497,8 @@ export default function KingmakerPendingPage() {
                     : "waiting";
             const stage = localStage[card.inventoryItemId] || storedStage;
             const error = localError[card.inventoryItemId] || (stage === "failed" ? job?.error || "" : "");
+            const soldCompEvidence = card.instaComp.soldCompEvidence || [];
+            const activeCompetition = card.instaComp.activeCompetition || [];
             const suggested = Number(card.instaComp.suggestedPrice || 0);
             const priceChoices = suggested > 0
               ? [
@@ -536,6 +553,23 @@ export default function KingmakerPendingPage() {
                     <div className="rounded-lg bg-neutral-100 p-3"><span className="font-black">Exact sold comps</span><p>{card.instaComp.reliableSoldCompCount || 0}</p></div>
                   </div>
                 </div>
+
+                {(soldCompEvidence.length || activeCompetition.length) ? (
+                  <div className="grid gap-4 border-b-2 border-neutral-900 bg-neutral-50 p-4 lg:grid-cols-2">
+                    <MarketEvidencePanel
+                      title="Exact sold evidence"
+                      subtitle="Sold transactions used to establish market value"
+                      rows={soldCompEvidence}
+                      dateKey="soldAt"
+                    />
+                    <MarketEvidencePanel
+                      title="Active competition"
+                      subtitle="Current asking prices shown separately from sold value"
+                      rows={activeCompetition}
+                      dateKey="listedAt"
+                    />
+                  </div>
+                ) : null}
 
                 <div className="grid gap-4 p-4 md:grid-cols-2">
                   {([ ["front", card.frontImageUrl], ["back", card.backImageUrl] ] as const).map(([side, url]) => (
@@ -682,13 +716,28 @@ export default function KingmakerPendingPage() {
                     >
                       Edit All Fields
                     </button>
+                    {stage === "failed" ? (
+                      <button
+                        type="button"
+                        onClick={() => void runExactIdentity(card)}
+                        disabled={!pairReady || Boolean(busyId)}
+                        className="rounded-xl bg-red-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"
+                      >
+                        Retry This Card
+                      </button>
+                    ) : null}
                     <button
                       type="button"
+                      title={job?.manualIdentityLocked ? "Re-scan and Replace Locked Identity" : "Run Exact Identity"}
                       onClick={() => void runExactIdentity(card)}
                       disabled={!pairReady || Boolean(busyId)}
                       className="rounded-xl bg-sky-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"
                     >
-                      {isBusy ? "Working…" : job?.manualIdentityLocked ? "Re-scan & Replace Locked Identity" : "Run Exact Identity"}
+                      {isBusy
+                        ? "Working…"
+                        : job?.manualIdentityLocked
+                          ? "Replace Manual Identity with AI"
+                          : "Run Exact Identity"}
                     </button>
                   </div>
                 </div>
@@ -698,5 +747,58 @@ export default function KingmakerPendingPage() {
         </section>
       </div>
     </main>
+  );
+}
+
+function MarketEvidencePanel({
+  title,
+  subtitle,
+  rows,
+  dateKey,
+}: {
+  title: string;
+  subtitle: string;
+  rows: CompEvidence[];
+  dateKey: "soldAt" | "listedAt";
+}) {
+  return (
+    <div className="rounded-xl border border-neutral-300 bg-white p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="font-black">{title}</h3>
+          <p className="mt-1 text-xs font-semibold text-neutral-500">{subtitle}</p>
+        </div>
+        <span className="rounded-full bg-neutral-950 px-2.5 py-1 text-xs font-black text-white">
+          {rows.length}
+        </span>
+      </div>
+      {rows.length ? (
+        <div className="mt-3 space-y-2">
+          {rows.slice(0, 5).map((row, index) => (
+            <div key={`${row.url || row.title || title}-${index}`} className="rounded-lg bg-neutral-100 p-3 text-sm">
+              {row.url ? (
+                <a
+                  href={row.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-bold underline decoration-neutral-400 underline-offset-2"
+                >
+                  {row.title || "Market listing"}
+                </a>
+              ) : (
+                <p className="font-bold">{row.title || "Market listing"}</p>
+              )}
+              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs font-semibold text-neutral-600">
+                <span>{money(row.price)}</span>
+                {row.sourceLabel ? <span>{row.sourceLabel}</span> : null}
+                {row[dateKey] ? <span>{row[dateKey]}</span> : null}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-3 text-sm font-semibold text-neutral-500">None accepted yet.</p>
+      )}
+    </div>
   );
 }
