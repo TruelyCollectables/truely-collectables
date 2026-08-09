@@ -14,15 +14,23 @@ export default function AdminPage() {
               InstaComp AI
             </div>
             <div className="text-sm font-bold text-neutral-900">
-              Checklist Sentinel search progress and recovery controls
+              Fast card scanning plus Checklist Sentinel search progress and recovery controls
             </div>
           </div>
-          <Link
-            href="/admin/instacomp/checklist-sentinel"
-            className="shrink-0 rounded-xl bg-neutral-950 px-4 py-3 text-sm font-black text-white shadow-sm transition hover:bg-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-600"
-          >
-            🛰️ Open Checklist Sentinel
-          </Link>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <Link
+              href="/admin/instacomp/fast"
+              className="rounded-xl bg-cyan-900 px-4 py-3 text-sm font-black text-white shadow-sm transition hover:bg-cyan-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-600"
+            >
+              📷 Open InstaComp
+            </Link>
+            <Link
+              href="/admin/instacomp/checklist-sentinel"
+              className="rounded-xl bg-neutral-950 px-4 py-3 text-sm font-black text-white shadow-sm transition hover:bg-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-600"
+            >
+              🛰️ Open Checklist Sentinel
+            </Link>
+          </div>
         </div>
       </div>
       <LegacyAdminDashboard />
@@ -43,6 +51,7 @@ export default function AdminPage() {
 
   href: "/admin/pending-card-import"
   cta: "Open Card Intake"
+  { href: "/admin/instacomp/fast", label: "InstaComp Fast Scanner" }
   { href: "/admin/instacomp/mobile", label: "InstaComp Mobile" }
   { href: "/admin/instacomp/checklist-sentinel", label: "Checklist Sentinel" }
 
@@ -184,6 +193,7 @@ export default function AdminPage() {
   "/admin/instacomp"
   "/admin/instacomp/checklists"
   "/admin/instacomp/checklist-sentinel"
+  "/admin/instacomp/fast"
   "/admin/instacomp/mobile"
   "/admin/instacomp/seller-sweep"
   "/admin/instacomp/v2"
