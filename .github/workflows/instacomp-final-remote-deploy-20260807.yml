@@ -1,0 +1,111 @@
+name: InstaComp Final Remote Production Deploy 20260807
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-final-remote-deploy-20260807.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instacomp-final-remote-deploy-20260807
+  cancel-in-progress: true
+
+env:
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  PRODUCTION_ORIGIN: https://truelycollectables.com
+  EXPECTED_MAC_FINGERPRINT: 35104b3dcb06eaac76a02175b422d7429e843e7c25fdcf5746b94e3e77a72218
+
+jobs:
+  deploy-and-prove:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Prove current main still has certified Mac runtime source
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(python - <<'PY'
+          from hashlib import sha256
+          from pathlib import Path
+          root = Path('services/instacomp-ai')
+          digest = sha256()
+          for relative in ('app/local_vision.py', 'app/ollama.py'):
+              digest.update(relative.encode('utf-8'))
+              digest.update(b'\0')
+              digest.update((root / relative).read_bytes())
+              digest.update(b'\0')
+          print(digest.hexdigest())
+          PY
+          )"
+          echo "main_source=$(git rev-parse HEAD)"
+          echo "runtime_fingerprint=$actual"
+          test "$actual" = "$EXPECTED_MAC_FINGERPRINT"
+
+      - name: Install and link Production project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          npm ci >/dev/null
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Deploy current main with synchronized Mac credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/vercel-deploy.log"
+          npx --yes vercel@56.2.0 deploy --prod --yes --force --no-color --cwd "$GITHUB_WORKSPACE" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee "$log"
+          url="$(grep -Eo 'https://[A-Za-z0-9.-]+\.vercel\.app' "$log" | tail -n 1)"
+          test -n "$url"
+          echo "deployment_url=$url"
+
+      - name: Prove Production sees exact repaired Mac runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          readiness="$RUNNER_TEMP/readiness.json"
+          ok=0
+          for attempt in $(seq 1 24); do
+            code="$(curl -sS --max-time 30 -o "$readiness" -w '%{http_code}' -H 'Cache-Control: no-cache' "$PRODUCTION_ORIGIN/api/instacomp/internal-readiness?finalremote=1&attempt=$attempt&ts=$(date +%s)")"
+            if [[ "$code" = "200" ]] && node - "$readiness" "$EXPECTED_MAC_FINGERPRINT" <<'NODE'
+          const fs = require('node:fs');
+          const b = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          const expected = process.argv[3];
+          for (const k of ['ok','configured','reachable','internalMemoryReady','checklistReady','localModelReady']) {
+            if (b[k] !== true) process.exit(1);
+          }
+          if (b.runtimeSourceFingerprint !== expected) process.exit(1);
+          NODE
+            then
+              ok=1
+              break
+            fi
+            sleep 5
+          done
+          cat "$readiness"
+          test "$ok" = "1"
+          node - "$readiness" "$EXPECTED_MAC_FINGERPRINT" <<'NODE'
+          const fs = require('node:fs');
+          const b = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          const expected = process.argv[3];
+          for (const k of ['ok','configured','reachable','internalMemoryReady','checklistReady','localModelReady']) {
+            if (b[k] !== true) throw new Error(`Readiness failed: ${k}=${b[k]}`);
+          }
+          if (b.runtimeSourceFingerprint !== expected) throw new Error(`Fingerprint mismatch: ${b.runtimeSourceFingerprint}`);
+          console.log(`PASS exact Production Mac fingerprint ${expected}`);
+          NODE
