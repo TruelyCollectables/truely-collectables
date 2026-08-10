@@ -8,6 +8,8 @@ export const maxDuration = 300;
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const SONIA_RAW_FRONT_SHA256 = "eaacec37493b419f1d397df739aedd9df218639ded876c481b2fb28b2b3eb2b1";
 const SONIA_RAW_BACK_SHA256 = "3ecd070456e09342ed83ca88193ed2d029cd8a77ed5b2e2ae1ce443e9866978c";
+const SONIA_NORMALIZED_FRONT_SHA256 = "9dac4f6e94ff5d2180c0dda73008ec46f214dfde2cd59314493186ce1b5dc46d";
+const SONIA_NORMALIZED_BACK_SHA256 = "5feb7d055f8ba36c6b8f6e8ad9622d1587d1267614d9ce9c2bfb841f04ff20e8";
 
 function response(payload: unknown, status = 200) {
   return NextResponse.json(payload, {
@@ -73,6 +75,37 @@ function compactIdentity(example: Record<string, unknown> | undefined) {
   } : null;
 }
 
+function compactMemorySearchBody(body: Awaited<ReturnType<typeof readBody>>) {
+  if (body.kind !== "json") return body;
+  const value = objectValue(body.value);
+  const matches = Array.isArray(value?.matches) ? value.matches : [];
+  return {
+    kind: "json" as const,
+    value: {
+      schema_version: value?.schema_version || null,
+      match_count: matches.length,
+      first_match: matches.length ? (() => {
+        const match = objectValue(matches[0]);
+        const identity = objectValue(match?.identity);
+        return {
+          score: match?.score || null,
+          verification_state: match?.verification_state || null,
+          verification_source: match?.verification_source || null,
+          identity: identity ? {
+            player: identity.player || null,
+            year: identity.year || null,
+            manufacturer: identity.manufacturer || null,
+            brand: identity.brand || null,
+            set_name: identity.set_name || null,
+            card_number: identity.card_number || null,
+            parallel: identity.parallel || null,
+          } : null,
+        };
+      })() : null,
+    },
+  };
+}
+
 export async function POST(request: Request) {
   try {
     requireAcceptanceToken(request);
@@ -109,26 +142,22 @@ export async function POST(request: Request) {
       const item = objectValue(row);
       return item?.front_sha256 === SONIA_RAW_FRONT_SHA256 && item?.back_sha256 === SONIA_RAW_BACK_SHA256;
     }) as Record<string, unknown> | undefined;
+    const normalizedExample = examples.find((row) => {
+      const item = objectValue(row);
+      return item?.front_sha256 === SONIA_NORMALIZED_FRONT_SHA256 && item?.back_sha256 === SONIA_NORMALIZED_BACK_SHA256;
+    }) as Record<string, unknown> | undefined;
 
-    const archiveStartedAt = Date.now();
-    const archiveRes = await fetch(`${localUrl}/v1/scans/supervised-archive`, {
-      method: "POST",
-      headers: authHeaders,
-      body: imageForm(frontBytes, backBytes),
-      cache: "no-store",
-      signal: AbortSignal.timeout(120_000),
-    });
-    const archiveBody = await readBody(archiveRes);
-    const archiveDurationMs = Date.now() - archiveStartedAt;
-    const archiveValue = archiveBody.kind === "json" ? objectValue(archiveBody.value) : null;
-    const normalizedFrontSha = typeof archiveValue?.front_sha256 === "string" ? archiveValue.front_sha256 : null;
-    const normalizedBackSha = typeof archiveValue?.back_sha256 === "string" ? archiveValue.back_sha256 : null;
-    const normalizedExample = normalizedFrontSha && normalizedBackSha
-      ? examples.find((row) => {
-          const item = objectValue(row);
-          return item?.front_sha256 === normalizedFrontSha && item?.back_sha256 === normalizedBackSha;
-        }) as Record<string, unknown> | undefined
-      : undefined;
+    const memorySearchStartedAt = Date.now();
+    const memorySearchRes = await fetch(
+      `${localUrl}/v1/lessons/search?player=${encodeURIComponent("Sonia Citron")}&card_number=122&limit=10`,
+      {
+        headers: authHeaders,
+        cache: "no-store",
+        signal: AbortSignal.timeout(90_000),
+      },
+    );
+    const memorySearchBody = await readBody(memorySearchRes);
+    const memorySearchDurationMs = Date.now() - memorySearchStartedAt;
 
     const analyzeStartedAt = Date.now();
     const analyzeRes = await fetch(`${localUrl}/v1/scans/analyze`, {
@@ -143,29 +172,28 @@ export async function POST(request: Request) {
 
     return response({
       ok: true,
-      schema_version: "tcos.instacomp-ai.acceptance-mac-stage-isolation.v2",
+      schema_version: "tcos.instacomp-ai.acceptance-mac-stage-isolation.v3",
       exact_frozen_raw_hashes_expected: true,
       trusted_training_readback: {
         http_status: examplesRes.status,
         http_ok: examplesRes.ok,
         total_trusted_examples: Number(examplesRaw?.count || examples.length || 0),
         raw_artifact_hash_pair_present: Boolean(rawHashExample),
-        normalized_hashes_from_mac: {
-          front_sha256: normalizedFrontSha,
-          back_sha256: normalizedBackSha,
+        normalized_hashes_from_prior_proven_archive_stage: {
+          front_sha256: SONIA_NORMALIZED_FRONT_SHA256,
+          back_sha256: SONIA_NORMALIZED_BACK_SHA256,
         },
         exact_frozen_pair_present: Boolean(normalizedExample),
         exact_pair_card_uuid_present: Boolean(normalizedExample?.card_uuid),
         exact_pair_identity: compactIdentity(normalizedExample),
       },
-      supervised_archive_stage: {
-        purpose: "image_validation_persistence_exact_pair_uuid_and_scan_storage_only",
-        http_status: archiveRes.status,
-        http_ok: archiveRes.ok,
-        duration_ms: archiveDurationMs,
-        body: archiveBody,
-        creates_identity: false,
-        publishes_inventory: false,
+      trusted_lesson_search_control: {
+        purpose: "exercise_the_same_store_search_called_after_reader_without_mutation",
+        http_status: memorySearchRes.status,
+        http_ok: memorySearchRes.ok,
+        duration_ms: memorySearchDurationMs,
+        body: compactMemorySearchBody(memorySearchBody),
+        mutation: false,
       },
       full_analyze_stage: {
         http_status: analyzeRes.status,
@@ -179,7 +207,7 @@ export async function POST(request: Request) {
       frozen_truth_changed: false,
       local_url_exposed: false,
       local_key_exposed: false,
-      diagnostic_local_mutation: "one supervised archive scan row only; no identity lesson and no inventory publication",
+      diagnostic_local_mutation: "none from the lesson-search control; the failing frozen analyze remains unchanged and does not publish inventory",
       nothing_published: true,
     });
   } catch (error) {
