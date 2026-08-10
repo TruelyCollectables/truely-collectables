@@ -1,0 +1,211 @@
+name: InstaComp LoRA Mac Stage Isolation 20260810
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-lora-mac-stage-isolation-20260810.yml"
+      - "src/app/api/instacomp/acceptance-mac-stage-isolation/route.ts"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: instacomp-production-acceptance-global
+  cancel-in-progress: false
+
+env:
+  EXPECTED_BRANCH: ops/instacomp-lora-stage-isolation-20260810
+  CERTIFIED_RUNTIME_COMMIT: 51f8320ff7f9e9baf540ea2399a38a91c8e24ee7
+  FROZEN_IMAGE_ARTIFACT_ID: "8994498762"
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  PRODUCTION_ORIGIN: https://truelycollectables.com
+  EVIDENCE_DIR: evidence/instacomp-lora-mac-stage-isolation-20260810
+  TEMP_DIR: /tmp/instacomp-lora-mac-stage-isolation-20260810
+
+jobs:
+  isolate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Prove diagnostic-only scope from activated runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$CERTIFIED_RUNTIME_COMMIT^{commit}"
+          changed="$(git diff --name-only "$CERTIFIED_RUNTIME_COMMIT"...HEAD | sort)"
+          expected="$(printf '%s\n' '.github/workflows/instacomp-lora-mac-stage-isolation-20260810.yml' 'src/app/api/instacomp/acceptance-mac-stage-isolation/route.ts' | sort)"
+          test "$changed" = "$expected"
+          grep -Fq 'supervised-archive' src/app/api/instacomp/acceptance-mac-stage-isolation/route.ts
+          grep -Fq 'training/examples?trusted_only=true&limit=5000' src/app/api/instacomp/acceptance-mac-stage-isolation/route.ts
+          grep -Fq 'scanner_logic_changed: false' src/app/api/instacomp/acceptance-mac-stage-isolation/route.ts
+          grep -Fq 'registry_truth_changed: false' src/app/api/instacomp/acceptance-mac-stage-isolation/route.ts
+          mkdir -p "$EVIDENCE_DIR" "$TEMP_DIR"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: TypeScript and isolated Production build before deployment
+        shell: bash
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+          NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+          STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+          STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+          ADMIN_PASSWORD: build-only-placeholder-password
+          ADMIN_SESSION_SECRET: build-only-placeholder-session-secret
+          EBAY_CLIENT_ID: build-only-placeholder-client-id
+          EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+          EBAY_ENVIRONMENT: production
+          TCOS_LIVE_PAYMENTS_ENABLED: "false"
+          TCOS_SHIPPING_PURCHASE_MODE: dry_run
+          TCOS_LIVE_SHIPPING_ENABLED: "false"
+        run: |
+          set -euo pipefail
+          npm ci
+          npx tsc --noEmit --pretty false
+          npm run build:isolated
+
+      - name: Download immutable frozen image artifact and prove Sonia hashes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          archive="$TEMP_DIR/frozen-five.zip"
+          curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${FROZEN_IMAGE_ARTIFACT_ID}/zip" -o "$archive"
+          mkdir -p "$TEMP_DIR/frozen-five"
+          unzip -q "$archive" -d "$TEMP_DIR/frozen-five"
+          front="$TEMP_DIR/frozen-five/01-ef0e06a3-a6de-4242-8c52-52b420185850-front.jpg"
+          back="$TEMP_DIR/frozen-five/01-ef0e06a3-a6de-4242-8c52-52b420185850-back.jpg"
+          test -s "$front" -a -s "$back"
+          front_sha="$(sha256sum "$front" | awk '{print $1}')"
+          back_sha="$(sha256sum "$back" | awk '{print $1}')"
+          test "$front_sha" = "eaacec37493b419f1d397df739aedd9df218639ded876c481b2fb28b2b3eb2b1"
+          test "$back_sha" = "3ecd070456e09342ed83ca88193ed2d029cd8a77ed5b2e2ae1ce443e9866978c"
+          cp "$front" "$TEMP_DIR/front.jpg"
+          cp "$back" "$TEMP_DIR/back.jpg"
+          printf '{"artifactId":%s,"frontSha256":"%s","backSha256":"%s","exact":true}\n' \
+            "$FROZEN_IMAGE_ARTIFACT_ID" "$front_sha" "$back_sha" > "$EVIDENCE_DIR/frozen-image-proof.json"
+
+      - name: Link Production project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Prove stale acceptance credential absent
+        shell: bash
+        run: |
+          set -euo pipefail
+          list="$TEMP_DIR/env-before.txt"
+          npx --yes vercel@56.2.0 env ls production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$list"
+          if grep -Eq '(^|[[:space:]])INSTACOMP_ACCEPTANCE_SERVICE_TOKEN([[:space:]]|$)' "$list"; then
+            npx --yes vercel@56.2.0 env rm INSTACOMP_ACCEPTANCE_SERVICE_TOKEN production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null 2>&1 || true
+          fi
+          npx --yes vercel@56.2.0 env ls production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$list"
+          ! grep -Eq '(^|[[:space:]])INSTACOMP_ACCEPTANCE_SERVICE_TOKEN([[:space:]]|$)' "$list"
+          rm -f "$list"
+
+      - name: Provision isolated diagnostic credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          openssl rand -hex 32 > "$TEMP_DIR/acceptance-token"
+          chmod 600 "$TEMP_DIR/acceptance-token"
+          secret="$(cat "$TEMP_DIR/acceptance-token")"
+          echo "::add-mask::$secret"
+          npx --yes vercel@56.2.0 env add INSTACOMP_ACCEPTANCE_SERVICE_TOKEN production --force --sensitive --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" < "$TEMP_DIR/acceptance-token" >/dev/null
+          touch "$TEMP_DIR/token-provisioned"
+
+      - name: Deploy temporary stage-isolation source
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$EVIDENCE_DIR/diagnostic-deploy.log"
+          npx --yes vercel@56.2.0 deploy --prod --yes --force --no-color --cwd "$GITHUB_WORKSPACE" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee "$log"
+          grep -Fq "InstaComp release manifest bound to $(git rev-parse HEAD)." "$log"
+          touch "$TEMP_DIR/diagnostic-deployed"
+
+      - name: Isolate Mac scan stages with exact frozen Sonia pair
+        shell: bash
+        run: |
+          set -euo pipefail
+          token="$(cat "$TEMP_DIR/acceptance-token")"
+          echo "::add-mask::$token"
+          out="$EVIDENCE_DIR/mac-stage-isolation.json"
+          code="$(curl -sS --max-time 280 -o "$out" -w '%{http_code}' -X POST \
+            -H "x-tcos-instacomp-service-token: $token" \
+            -F "front=@$TEMP_DIR/front.jpg;type=image/jpeg" \
+            -F "back=@$TEMP_DIR/back.jpg;type=image/jpeg" \
+            "$PRODUCTION_ORIGIN/api/instacomp/acceptance-mac-stage-isolation")"
+          printf '%s\n' "$code" > "$EVIDENCE_DIR/mac-stage-isolation-http.txt"
+          test "$code" = "200"
+          node - <<'NODE'
+          const fs=require('node:fs');
+          const p=JSON.parse(fs.readFileSync(`${process.env.EVIDENCE_DIR}/mac-stage-isolation.json`,'utf8'));
+          console.log(JSON.stringify(p,null,2));
+          if(p.ok!==true) throw new Error(`${p.code||'diagnostic_failed'} ${p.error||''}`);
+          if(p.trusted_training_readback?.exact_frozen_pair_present!==true) throw new Error('exact frozen pair is missing from trusted training memory');
+          NODE
+
+      - name: Remove isolated diagnostic credential
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f "$TEMP_DIR/token-provisioned" ]; then exit 0; fi
+          for attempt in 1 2 3; do
+            npx --yes vercel@56.2.0 env rm INSTACOMP_ACCEPTANCE_SERVICE_TOKEN production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null 2>&1 || true
+            list="$TEMP_DIR/env-after.txt"
+            npx --yes vercel@56.2.0 env ls production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$list"
+            if ! grep -Eq '(^|[[:space:]])INSTACOMP_ACCEPTANCE_SERVICE_TOKEN([[:space:]]|$)' "$list"; then rm -f "$list"; touch "$TEMP_DIR/token-removed"; exit 0; fi
+            rm -f "$list"; sleep 3
+          done
+          exit 1
+
+      - name: Restore exact activated-runtime website and remove diagnostic route
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f "$TEMP_DIR/diagnostic-deployed" ]; then exit 0; fi
+          test -f "$TEMP_DIR/token-removed"
+          git checkout --detach "$CERTIFIED_RUNTIME_COMMIT"
+          log="$EVIDENCE_DIR/clean-runtime-deploy.log"
+          npx --yes vercel@56.2.0 deploy --prod --yes --force --no-color --cwd "$GITHUB_WORKSPACE" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee "$log"
+          grep -Fq "InstaComp release manifest bound to $CERTIFIED_RUNTIME_COMMIT." "$log"
+          body="$EVIDENCE_DIR/diagnostic-route-removed.txt"
+          removed="$(curl -sS --max-time 30 -o "$body" -w '%{http_code}' -X POST "$PRODUCTION_ORIGIN/api/instacomp/acceptance-mac-stage-isolation")"
+          test "$removed" = "404"
+          printf '{"restoredRuntime":"%s","temporaryCredentialPresent":false,"temporaryDiagnosticRouteHttp":%s}\n' \
+            "$CERTIFIED_RUNTIME_COMMIT" "$removed" > "$EVIDENCE_DIR/cleanup-proof.json"
+
+      - name: Upload stage-isolation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-lora-mac-stage-isolation-20260810
+          path: evidence/instacomp-lora-mac-stage-isolation-20260810
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Remove temporary files
+        if: always()
+        shell: bash
+        run: rm -rf "$TEMP_DIR" .vercel
