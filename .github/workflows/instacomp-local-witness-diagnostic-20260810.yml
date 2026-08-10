@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  PINNED_MAIN: 77f5c7ea77e8332133e6d6fea414e7821c1d3902
+  PINNED_SAFE_MAIN: c2e0a56b5252a965aea4c301bd29b12b46d9b4f6
   EXPECTED_BRANCH: ops/instacomp-local-witness-diagnostic-20260810-1454
   EXPECTED_MAC_FINGERPRINT: 5ab5a655abf8352f5eac7c1df836028ff839f9fb784afd9dd3b3c487c1cd605d
   FROZEN_IMAGE_ARTIFACT_ID: "8994498762"
@@ -39,14 +39,23 @@ jobs:
           ref: ${{ env.EXPECTED_BRANCH }}
           fetch-depth: 0
 
-      - name: Lock exact current source and diagnostic-only diff
+      - name: Lock safe source and diagnostic-only diff
         shell: bash
         run: |
           set -euo pipefail
           test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
           git fetch origin main --quiet
-          test "$(git rev-parse origin/main)" = "$PINNED_MAIN"
-          changed="$(git diff --name-only "$PINNED_MAIN"...HEAD | sort)"
+          current_main="$(git rev-parse origin/main)"
+          git merge-base --is-ancestor "$PINNED_SAFE_MAIN" "$current_main"
+          protected="$(git diff --name-only "$PINNED_SAFE_MAIN" "$current_main" -- \
+            services/instacomp-ai \
+            src/app/api/instacomp/scan/route.ts \
+            src/lib/instacomp-ai-local.ts \
+            src/lib/instacomp-consensus.ts \
+            src/lib/instacomp-ai-council-security.ts | sort)"
+          test -z "$protected"
+          merge_base="$(git merge-base "$PINNED_SAFE_MAIN" HEAD)"
+          changed="$(git diff --name-only "$merge_base" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/instacomp-local-witness-diagnostic-20260810.yml' \
             'src/app/api/instacomp/ops/local-witness-diagnostic/route.ts' | sort)"
@@ -54,6 +63,8 @@ jobs:
           grep -Fq 'tcos.instacomp.localWitnessDiagnostic.v1' src/app/api/instacomp/ops/local-witness-diagnostic/route.ts
           grep -Fq 'FROZEN_IMAGE_HASH_MISMATCH' src/app/api/instacomp/ops/local-witness-diagnostic/route.ts
           mkdir -p "$EVIDENCE_DIR" "$TEMP_DIR/frozen"
+          echo "START_MAIN=$current_main" >> "$GITHUB_ENV"
+          printf '{"pinnedSafeMain":"%s","startMain":"%s","protectedSourceDrift":false,"diagnosticOnly":true}\n' "$PINNED_SAFE_MAIN" "$current_main" > "$EVIDENCE_DIR/source-lock.json"
 
       - name: Prove exact repaired Mac is live before mutation
         shell: bash
@@ -117,13 +128,11 @@ jobs:
           npx --yes vercel@56.2.0 env add INSTACOMP_ACCEPTANCE_SERVICE_TOKEN production --force --sensitive --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" < "$TEMP_DIR/acceptance-token" >/dev/null
           touch "$TEMP_DIR/token-provisioned"
 
-      - name: Deploy exact temporary diagnostic head
+      - name: Deploy temporary read-only diagnostic bridge
         shell: bash
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
-          git fetch origin main --quiet
-          test "$(git rev-parse origin/main)" = "$PINNED_MAIN"
           npx --yes vercel@56.2.0 deploy --prod --yes --force --archive=tgz --no-color --cwd "$GITHUB_WORKSPACE" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$EVIDENCE_DIR/diagnostic-deploy.log" 2>&1
           touch "$TEMP_DIR/diagnostic-deployed"
 
@@ -172,14 +181,16 @@ jobs:
           done
           test -f "$TEMP_DIR/token-removed"
 
-      - name: Clean redeploy exact current main and prove temporary route removed
+      - name: Clean redeploy latest main and prove temporary route removed
         if: always()
         shell: bash
         run: |
           set -euo pipefail
           if [ ! -f "$TEMP_DIR/diagnostic-deployed" ]; then exit 0; fi
           test -f "$TEMP_DIR/token-removed"
-          git checkout --detach "$PINNED_MAIN"
+          git fetch origin main --quiet
+          clean_main="$(git rev-parse origin/main)"
+          git checkout --detach "$clean_main"
           npx --yes vercel@56.2.0 deploy --prod --yes --force --archive=tgz --no-color --cwd "$GITHUB_WORKSPACE" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$EVIDENCE_DIR/clean-deploy.log" 2>&1
           out="$EVIDENCE_DIR/readiness-after.json"
           ready=0
@@ -191,8 +202,8 @@ jobs:
           test "$ready" = "1"
           route_code="$(curl -sS --max-time 30 -o "$TEMP_DIR/removed-route.txt" -w '%{http_code}' -X POST "$PRODUCTION_ORIGIN/api/instacomp/ops/local-witness-diagnostic?removed=1&ts=$(date +%s)")"
           test "$route_code" = "404"
-          printf '{"clean":true,"deployedMain":"%s","acceptanceCredentialPresent":false,"temporaryRouteRemoved":true,"runtimeSourceFingerprint":"%s","diagnosticCompleted":%s}\n' \
-            "$PINNED_MAIN" "$EXPECTED_MAC_FINGERPRINT" "$([ -f "$TEMP_DIR/diagnostic-complete" ] && echo true || echo false)" > "$EVIDENCE_DIR/cleanup-proof.json"
+          printf '{"clean":true,"startMain":"%s","deployedMain":"%s","acceptanceCredentialPresent":false,"temporaryRouteRemoved":true,"runtimeSourceFingerprint":"%s","diagnosticCompleted":%s}\n' \
+            "$START_MAIN" "$clean_main" "$EXPECTED_MAC_FINGERPRINT" "$([ -f "$TEMP_DIR/diagnostic-complete" ] && echo true || echo false)" > "$EVIDENCE_DIR/cleanup-proof.json"
 
       - name: Upload diagnostic evidence
         if: always()
