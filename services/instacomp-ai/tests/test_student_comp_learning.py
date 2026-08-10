@@ -4,6 +4,8 @@ from app.student_comp_learning import _trusted_training_memory
 from app.teacher_comp_learning import load_teacher_comp_receipts, record_teacher_comp_receipt
 from app.teacher_comp_training import build_teacher_comp_training_example
 
+# Online comp learning may calibrate the student, but verified teachers remain market truth.
+
 
 def trusted_receipt() -> dict:
     identity = {
