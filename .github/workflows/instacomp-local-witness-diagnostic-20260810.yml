@@ -1,0 +1,173 @@
+name: InstaComp Local Witness Diagnostic 20260810
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-local-witness-diagnostic-20260810.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instacomp-production-acceptance-global
+  cancel-in-progress: false
+
+env:
+  PINNED_MAIN: 0221a4b8214c1564a1d35dcfa53a4a45539f66ff
+  EXPECTED_BRANCH: ops/instacomp-local-witness-diagnostic-20260810-1448
+  EXPECTED_MAC_FINGERPRINT: 5ab5a655abf8352f5eac7c1df836028ff839f9fb784afd9dd3b3c487c1cd605d
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  EVIDENCE_DIR: evidence/instacomp-local-witness-diagnostic-20260810
+  TEMP_DIR: /tmp/instacomp-local-witness-diagnostic-20260810
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Lock current source and diagnostic-only diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main --quiet
+          test "$(git rev-parse origin/main)" = "$PINNED_MAIN"
+          changed="$(git diff --name-only "$PINNED_MAIN"...HEAD | sort)"
+          test "$changed" = '.github/workflows/instacomp-local-witness-diagnostic-20260810.yml'
+          mkdir -p "$EVIDENCE_DIR" "$TEMP_DIR"
+
+      - name: Pull Production connection metadata securely
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx --yes vercel@56.2.0 env pull "$TEMP_DIR/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Resolve protected Mac and database credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROD_ENV="$TEMP_DIR/production.env" RUNTIME_ENV="$TEMP_DIR/runtime.env" GH_SUPABASE_ACCESS_TOKEN="$GH_SUPABASE_ACCESS_TOKEN" node - <<'NODE'
+          const fs=require('node:fs');
+          const p={};
+          for(const raw of fs.readFileSync(process.env.PROD_ENV,'utf8').split(/\r?\n/)){
+            const line=raw.trim(); if(!line||line.startsWith('#'))continue;
+            const i=line.indexOf('='); if(i<1)continue;
+            const k=line.slice(0,i).trim(); let v=line.slice(i+1).trim();
+            if(v.startsWith('"')&&v.endsWith('"')){try{v=JSON.parse(v)}catch{v=v.slice(1,-1)}}
+            p[k]=v;
+          }
+          (async()=>{
+            const supabaseUrl=String(p.NEXT_PUBLIC_SUPABASE_URL||'').trim();
+            const macUrl=String(p.INSTACOMP_AI_LOCAL_URL||'').trim().replace(/\/+$/,'');
+            const macKey=String(p.INSTACOMP_AI_LOCAL_KEY||'').trim();
+            if(!supabaseUrl||!macUrl||!macKey) throw new Error('Required Production connection metadata is missing.');
+            const ref=new URL(supabaseUrl).hostname.split('.')[0];
+            const r=await fetch(`https://api.supabase.com/v1/projects/${ref}/api-keys?reveal=true`,{headers:{Authorization:`Bearer ${process.env.GH_SUPABASE_ACCESS_TOKEN}`}});
+            const body=await r.text(); if(!r.ok) throw new Error(`Supabase key lookup HTTP ${r.status}`);
+            const keys=body?JSON.parse(body):[]; const val=e=>String(e?.api_key||e?.key||e?.value||'');
+            const modern=keys.find(e=>/^sb_secret_/i.test(val(e)));
+            const legacy=keys.find(e=>e?.name==='service_role'&&/^eyJ/.test(val(e)))||keys.find(e=>e?.secret_jwt_template?.role==='service_role'&&/^eyJ/.test(val(e)));
+            const serverKey=val(modern||legacy); if(!serverKey) throw new Error('No Production server key.');
+            for(const secret of [supabaseUrl,serverKey,macUrl,macKey]) console.log(`::add-mask::${secret}`);
+            fs.writeFileSync(process.env.RUNTIME_ENV,JSON.stringify({supabaseUrl,serverKey,macUrl,macKey}),{mode:0o600});
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+
+      - name: Prove exact repaired Mac before diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUNTIME_ENV="$TEMP_DIR/runtime.env" EXPECTED_MAC_FINGERPRINT="$EXPECTED_MAC_FINGERPRINT" node - <<'NODE'
+          const fs=require('node:fs');
+          const r=JSON.parse(fs.readFileSync(process.env.RUNTIME_ENV,'utf8'));
+          (async()=>{
+            const h=await fetch(`${r.macUrl}/health`,{headers:{'X-InstaComp-AI-Key':r.macKey},signal:AbortSignal.timeout(30000)});
+            const text=await h.text(); if(!h.ok) throw new Error(`Mac health HTTP ${h.status}`);
+            const b=text?JSON.parse(text):{};
+            const actual=String(b.runtime_source_fingerprint||b.runtimeSourceFingerprint||'');
+            if(actual!==process.env.EXPECTED_MAC_FINGERPRINT) throw new Error(`Mac fingerprint ${actual} != expected`);
+            fs.writeFileSync(`${process.env.EVIDENCE_DIR}/health.json`,JSON.stringify({ok:true,runtimeSourceFingerprint:actual,app:b.app||null,version:b.version||null},null,2)+'\n');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+
+      - name: Run frozen Sonia direct Mac witness diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUNTIME_ENV="$TEMP_DIR/runtime.env" EVIDENCE_DIR="$EVIDENCE_DIR" node - <<'NODE'
+          const fs=require('node:fs'); const crypto=require('node:crypto');
+          const r=JSON.parse(fs.readFileSync(process.env.RUNTIME_ENV,'utf8'));
+          const itemId='ef0e06a3-a6de-4242-8c52-52b420185850';
+          const expectedFront='eaacec37493b419f1d397df739aedd9df218639ded876c481b2fb28b2b3eb2b1';
+          const expectedBack='3ecd070456e09342ed83ca88193ed2d029cd8a77ed5b2e2ae1ce443e9866978c';
+          const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
+          const rec=v=>v&&typeof v==='object'&&!Array.isArray(v)?v:{};
+          (async()=>{
+            const q=new URL(`${r.supabaseUrl}/rest/v1/inventory_images`);
+            q.searchParams.set('select','inventory_item_id,image_url,alt_text,sort_order,is_primary');
+            q.searchParams.set('inventory_item_id',`eq.${itemId}`);
+            q.searchParams.set('order','sort_order.asc');
+            const db=await fetch(q,{headers:{apikey:r.serverKey,Authorization:`Bearer ${r.serverKey}`},signal:AbortSignal.timeout(30000)});
+            const rows=await db.json(); if(!db.ok) throw new Error(`Inventory image query HTTP ${db.status}`);
+            const ordered=rows.filter(x=>x.image_url).sort((a,b)=>(b.is_primary?1:0)-(a.is_primary?1:0)||Number(a.sort_order||0)-Number(b.sort_order||0));
+            const frontRow=ordered.find(x=>/\bfront\b/i.test(String(x.alt_text||'')))||ordered.find(x=>x.is_primary)||ordered[0];
+            const backRow=ordered.find(x=>/\bback\b/i.test(String(x.alt_text||''))&&x.image_url!==frontRow?.image_url)||ordered.find(x=>!x.is_primary&&x.image_url!==frontRow?.image_url)||ordered.find(x=>x.image_url!==frontRow?.image_url);
+            if(!frontRow?.image_url||!backRow?.image_url) throw new Error('Frozen Sonia image pair missing.');
+            const [fr,br]=await Promise.all([fetch(frontRow.image_url,{signal:AbortSignal.timeout(30000)}),fetch(backRow.image_url,{signal:AbortSignal.timeout(30000)})]);
+            if(!fr.ok||!br.ok) throw new Error(`Frozen image download failed ${fr.status}/${br.status}`);
+            const fb=Buffer.from(await fr.arrayBuffer()), bb=Buffer.from(await br.arrayBuffer());
+            if(sha(fb)!==expectedFront||sha(bb)!==expectedBack) throw new Error('Frozen Sonia image hash mismatch.');
+            const form=new FormData();
+            form.append('front',new File([fb],'front.jpg',{type:fr.headers.get('content-type')||'image/jpeg'}),'front.jpg');
+            form.append('back',new File([bb],'back.jpg',{type:br.headers.get('content-type')||'image/jpeg'}),'back.jpg');
+            const res=await fetch(`${r.macUrl}/v1/scans/analyze`,{method:'POST',headers:{'X-InstaComp-AI-Key':r.macKey},body:form,signal:AbortSignal.timeout(180000)});
+            const raw=await res.text(); let b={}; try{b=raw?JSON.parse(raw):{}}catch{b={detail:`non-json:${raw.slice(0,300)}`}}
+            const lv=rec(b.local_vision); const f=rec(lv.front); const back=rec(lv.back); const hints=rec(lv.identity_hints);
+            const diagnostic={
+              httpStatus:res.status, ok:res.ok,
+              scanId:b.scan_id||null, status:b.status||null, matchSource:b.match_source||null,
+              checklist:{outcome:b.checklist?.outcome||null,identityId:b.checklist?.identity_id||null,reasons:b.checklist?.reasons||[]},
+              localVision:{
+                appleVisionAvailable:lv.apple_vision_available??null,
+                opencvAvailable:lv.opencv_available??null,
+                combinedText:String(lv.combined_text||'').slice(0,1000),
+                identityHints:hints,
+                front:{width:f.width??null,height:f.height??null,errors:Array.isArray(f.errors)?f.errors:[],ocr:Array.isArray(f.ocr)?f.ocr.slice(0,30):[]},
+                back:{width:back.width??null,height:back.height??null,errors:Array.isArray(back.errors)?back.errors:[],ocr:Array.isArray(back.ocr)?back.ocr.slice(0,30):[]}
+              },
+              localSuggestion:b.local_suggestion?{provider:b.local_suggestion.provider||null,model:b.local_suggestion.model||null,confidence:b.local_suggestion.confidence??null}:null,
+              trustedIdentityPresent:Boolean(b.trusted_identity),
+              pricingAllowed:b.pricing_allowed===true,
+              learningAllowed:b.learning_allowed===true
+            };
+            fs.writeFileSync(`${process.env.EVIDENCE_DIR}/sonia-local-witness.json`,JSON.stringify(diagnostic,null,2)+'\n');
+            console.log(JSON.stringify(diagnostic,null,2));
+            if(!res.ok) process.exit(2);
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+
+      - name: Upload diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-local-witness-diagnostic-20260810
+          path: evidence/instacomp-local-witness-diagnostic-20260810
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Remove temporary credentials
+        if: always()
+        shell: bash
+        run: rm -rf "$TEMP_DIR" .vercel .env.local .env.production.local
