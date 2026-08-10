@@ -1,0 +1,63 @@
+name: Ops Deal Hunter Market Memory Readback 20260810
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/ops-deal-hunter-memory-readback-20260810.yml'
+
+permissions:
+  contents: read
+
+env:
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  SITE_URL: https://truelycollectables.com
+
+jobs:
+  readback:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Read latest durable Deal Hunter run and candidate outcomes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          curl -fsS --max-time 60 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$SITE_URL/api/release/instacomp-deal-hunter-learning-self-test?mode=status" > status.json
+          curl -fsS --max-time 60 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$SITE_URL/api/release/instacomp-deal-hunter-candidate-diagnostics" > diagnostics.json
+          node - <<'NODE'
+          const s=require('./status.json'); const p=require('./diagnostics.json');
+          if(!s.success) throw new Error('status failed: '+JSON.stringify(s));
+          if(!p.success) throw new Error('diagnostics failed: '+JSON.stringify(p));
+          const latest=(Array.isArray(s.runs)?s.runs:[])[0] || (Array.isArray(p.latestRuns)?p.latestRuns:[])[0] || null;
+          const runId=latest?.runId||latest?.run_id||null;
+          const all=Array.isArray(p.macCandidates)?p.macCandidates:[];
+          const rows=runId ? all.filter(r=>r.runId===runId) : all.slice(0,20);
+          const errors={}; const labels={};
+          for(const r of rows){
+            const e=r.errorCode||'NONE'; errors[e]=(errors[e]||0)+1;
+            const l=r.dealLabel||'NONE'; labels[l]=(labels[l]||0)+1;
+          }
+          const memoryRows=rows.filter(r=>r.exactMarket?.historicalSoldMemory?.used===true || r.exactMarket?.paidSoldSearchesSkipped===true || r.exactMarket?.status==='ready_from_memory');
+          const noTrusted=rows.filter(r=>r.errorCode==='DEAL_HUNTER_NO_TRUSTED_PRICING');
+          const evalFailures=rows.filter(r=>r.errorCode==='DEAL_HUNTER_EVALUATION_FAILED');
+          const actionable=rows.filter(r=>r.actionable||r.alertworthy);
+          const receipt={
+            physicalMacHealthy:s.physicalMacHealthy,
+            scheduler:s.scheduler,
+            latestRun:latest,
+            runId,
+            candidateCount:rows.length,
+            errorCounts:errors,
+            dealLabelCounts:labels,
+            memoryReuseCount:memoryRows.length,
+            noTrustedPricingCount:noTrusted.length,
+            evaluationFailureCount:evalFailures.length,
+            actionableCount:actionable.length,
+            actionable,
+            candidates:rows.map(r=>({title:r.title,lane:r.lane,status:r.status,errorCode:r.errorCode,errorMessage:r.errorMessage,dealLabel:r.dealLabel,actionable:r.actionable,alertworthy:r.alertworthy,identity:r.identity,exactMarket:r.exactMarket}))
+          };
+          console.log('DEAL_HUNTER_MEMORY_READBACK='+JSON.stringify(receipt));
+          if(!latest) throw new Error('No latest run');
+          if(rows.length===0) throw new Error('No candidate rows for latest run');
+          NODE
