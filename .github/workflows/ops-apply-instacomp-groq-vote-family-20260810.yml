@@ -1,0 +1,51 @@
+name: Ops Apply InstaComp Groq Vote Family 20260810
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/lib/instacomp-groq-vote-family.trigger'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    if: github.event.pull_request.head.ref == 'feature/instacomp-free-comp-learning-council-20260810'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/instacomp-free-comp-learning-council-20260810
+          fetch-depth: 0
+      - name: Apply provider-family vote safety patch
+        run: python scripts/ops/patch-instacomp-groq-vote-family-20260810.py
+      - name: Reject malformed diff
+        run: git diff --check
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Run teacher council regression
+        run: npx tsx scripts/run-instacomp-teacher-market-provider-simulations.ts
+      - name: Run teacher runtime regressions
+        run: |
+          npx tsx scripts/run-instacomp-teacher-runtime-status-simulations.ts
+          npx tsx scripts/run-instacomp-groq-runtime-status-simulations.ts
+      - name: Run TypeScript check
+        run: npx tsc --noEmit
+      - name: Remove one-shot machinery
+        run: |
+          rm -f scripts/ops/patch-instacomp-groq-vote-family-20260810.py
+          rm -f src/lib/instacomp-groq-vote-family.trigger
+      - name: Commit validated safety fix
+        run: |
+          set -euo pipefail
+          git config user.name 'TruelyCollectables'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'Count Groq search lanes as one trust vote'
+          git push origin HEAD:feature/instacomp-free-comp-learning-council-20260810
