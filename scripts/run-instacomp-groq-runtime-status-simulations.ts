@@ -10,6 +10,7 @@ const groqOnly = resolveInstaCompTeacherRuntimeConfiguration({
   GROQ_API_KEY: "configured",
 });
 assert.equal(groqOnly.groqConfigured, true);
+assert.equal(groqOnly.groqBrowserConfigured, true);
 assert.equal(groqOnly.votingTeacherCount, 1);
 assert.equal(groqOnly.requiredVotes, 2);
 assert.equal(groqOnly.teacherConsensusOperational, false);
