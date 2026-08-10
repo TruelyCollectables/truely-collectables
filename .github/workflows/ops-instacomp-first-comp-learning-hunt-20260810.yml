@@ -1,0 +1,130 @@
+name: Ops InstaComp First Comp Learning Hunt 20260810
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/ops-instacomp-first-comp-learning-hunt-20260810.yml'
+
+permissions:
+  contents: read
+
+env:
+  REQUIRED_LEARN_COMMIT: b825dfb55277a3c07a6ae3967e73f049ee12c8fd
+  SITE_URL: https://truelycollectables.com
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+jobs:
+  hunt-learn:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Lock current main containing comp learn mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$REQUIRED_LEARN_COMMIT" origin/main
+          git checkout --detach origin/main
+          echo "CURRENT_MAIN=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          grep -Fq '"online_comp_learn_mode": True' services/instacomp-ai/app/training_routes.py
+          grep -Fq '"student_hypothesis_endpoint": "/v1/training/student-comp-hypothesis"' services/instacomp-ai/app/training_routes.py
+
+      - name: Capture pre-hunt learning state and idle scheduler
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 60 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$SITE_URL/api/release/instacomp-teacher-runtime-diagnostics" > teacher-pre.json
+          node - <<'NODE'
+          const fs=require('fs'); const p=require('./teacher-pre.json');
+          if(!p.success) throw new Error(JSON.stringify(p));
+          const c=p.configuration||{}, mac=p.mac||{}, learning=mac.teacherCompLearning||{}, dataset=learning.dataset||{};
+          if(!c.onlineCompLearnMode) throw new Error('Web comp learn mode off');
+          if(!c.teacherConsensusOperational) throw new Error('Teacher consensus not operational');
+          if(Number(c.votingTeacherCount||0) < Number(c.requiredVotes||2)) throw new Error('Insufficient voting teachers');
+          if(!mac.reachable || mac.status!=='ready' || !learning.online_comp_learn_mode) throw new Error('Mac comp learn mode not ready');
+          const pre=Number(dataset.eligible_example_count||0);
+          fs.appendFileSync(process.env.GITHUB_ENV,`PRE_LESSONS=${pre}\n`);
+          console.log('PRE_LEARNING='+JSON.stringify({currentMain:process.env.CURRENT_MAIN,eligibleExampleCount:pre,votingTeacherCount:c.votingTeacherCount,requiredVotes:c.requiredVotes,macStatus:mac.status}));
+          NODE
+
+          : > scheduler-pre.json
+          for i in $(seq 1 80); do
+            code="$(curl -sS --max-time 45 -o scheduler-pre.json -w '%{http_code}' -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$SITE_URL/api/release/instacomp-deal-hunter-learning-self-test?mode=status" || true)"
+            if [ "$code" = 200 ]; then
+              running="$(node -e "const p=require('./scheduler-pre.json'); process.stdout.write(String(Boolean(p.scheduler?.running)))")"
+              if [ "$running" = false ]; then break; fi
+            fi
+            sleep 15
+          done
+          node - <<'NODE'
+          const fs=require('fs'); const p=require('./scheduler-pre.json');
+          if(!p.success||!p.physicalMacHealthy||!p.scheduler?.enabled||!p.scheduler?.evaluationKeyConfigured||p.scheduler?.running) throw new Error(JSON.stringify(p));
+          fs.appendFileSync(process.env.GITHUB_ENV,`PRE_COMPLETED=${p.scheduler.lastCompletedAt||''}\n`);
+          console.log('SCHEDULER_READY');
+          NODE
+
+      - name: Force one real Deal Hunter comp-learning run
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl -sS --max-time 330 -o trigger.json -w '%{http_code}' -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$SITE_URL/api/release/instacomp-deal-hunter-learning-self-test?pass=1" || true)"
+          echo "trigger_http=$code"
+          test -s trigger.json && cat trigger.json || true
+
+      - name: Poll durable run receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > status.json
+          for i in $(seq 1 160); do
+            code="$(curl -sS --max-time 45 -o status.json -w '%{http_code}' -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$SITE_URL/api/release/instacomp-deal-hunter-learning-self-test?mode=status" || true)"
+            if [ "$code" = 200 ]; then
+              completed="$(node -e "const p=require('./status.json'); process.stdout.write(String(p.scheduler?.lastCompletedAt||''))")"
+              running="$(node -e "const p=require('./status.json'); process.stdout.write(String(Boolean(p.scheduler?.running)))")"
+              if [ -n "$completed" ] && [ "$completed" != "$PRE_COMPLETED" ] && [ "$running" = false ]; then break; fi
+            fi
+            sleep 15
+          done
+          node - <<'NODE'
+          const fs=require('fs'); const p=require('./status.json'); const latest=Array.isArray(p.runs)?p.runs[0]:null;
+          console.log('DEAL_HUNTER_LEARNING_RUN='+JSON.stringify(latest));
+          if(!p.success||!latest||latest.status!=='completed') throw new Error('No completed durable run receipt');
+          if(Number(latest.discoveryCount||0)<=0||Number(latest.evaluatedCount||0)<=0) throw new Error('Discovery/evaluation empty');
+          fs.appendFileSync(process.env.GITHUB_ENV,'RUN_ID='+String(latest.runId||'')+'\n');
+          NODE
+
+      - name: Read exact candidate outcomes
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 60 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$SITE_URL/api/release/instacomp-deal-hunter-candidate-diagnostics" > diagnostics.json
+          node - <<'NODE'
+          const p=require('./diagnostics.json'); if(!p.success) throw new Error(JSON.stringify(p));
+          const runId=process.env.RUN_ID;
+          const rows=(Array.isArray(p.macCandidates)?p.macCandidates:[]).filter(r=>r.runId===runId);
+          if(rows.length===0) throw new Error('No candidate receipts for current run');
+          const errors={}, labels={};
+          for(const r of rows){ const e=r.errorCode||'NONE'; errors[e]=(errors[e]||0)+1; const l=r.dealLabel||'NONE'; labels[l]=(labels[l]||0)+1; }
+          const memoryRows=rows.filter(r=>r.exactMarket?.historicalSoldMemory?.used===true || r.exactMarket?.paidSoldSearchesSkipped===true || r.exactMarket?.status==='ready_from_memory');
+          const actionable=rows.filter(r=>r.actionable||r.alertworthy);
+          console.log('CANDIDATE_RECEIPT='+JSON.stringify({runId,candidateCount:rows.length,errorCounts:errors,dealLabelCounts:labels,memoryReuseCount:memoryRows.length,actionableCount:actionable.length,actionable,sample:rows.slice(0,20).map(r=>({title:r.title,lane:r.lane,status:r.status,errorCode:r.errorCode,errorMessage:r.errorMessage,identity:r.identity,exactMarket:r.exactMarket,dealLabel:r.dealLabel,actionable:r.actionable,alertworthy:r.alertworthy}))}));
+          NODE
+
+      - name: Read post-hunt learning state
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 60 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$SITE_URL/api/release/instacomp-teacher-runtime-diagnostics" > teacher-post.json
+          node - <<'NODE'
+          const p=require('./teacher-post.json'); if(!p.success) throw new Error(JSON.stringify(p));
+          const c=p.configuration||{}, mac=p.mac||{}, learning=mac.teacherCompLearning||{}, dataset=learning.dataset||{};
+          const post=Number(dataset.eligible_example_count||0), pre=Number(process.env.PRE_LESSONS||0);
+          const receipt={currentMain:process.env.CURRENT_MAIN,runId:process.env.RUN_ID,preEligibleExamples:pre,postEligibleExamples:post,newEligibleLessons:post-pre,onlineCompLearnMode:Boolean(learning.online_comp_learn_mode),studentMode:Boolean(dataset.student_mode),pricingAuthority:dataset.pricing_authority===true,autoPromotion:dataset.auto_promotion===true,identityTrainingSeparated:Boolean(dataset.identity_training_separated),teacherConsensusOperational:Boolean(c.teacherConsensusOperational),votingTeacherCount:Number(c.votingTeacherCount||0),requiredVotes:Number(c.requiredVotes||0),checkedAt:p.checkedAt||null};
+          console.log('INSTACOMP_FIRST_COMP_LEARNING_RECEIPT='+JSON.stringify(receipt));
+          if(!receipt.onlineCompLearnMode||!receipt.studentMode||receipt.pricingAuthority||receipt.autoPromotion||!receipt.identityTrainingSeparated) throw new Error('Learning safety boundary changed');
+          NODE
