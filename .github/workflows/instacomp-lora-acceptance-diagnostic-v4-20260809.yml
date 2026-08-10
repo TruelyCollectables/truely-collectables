@@ -1,0 +1,244 @@
+name: InstaComp LoRA Acceptance Runtime Diagnostic V4 20260809
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-lora-acceptance-diagnostic-v4-20260809.yml"
+      - "src/app/api/instacomp/acceptance-runtime-diagnostic/route.ts"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instacomp-production-acceptance-global
+  cancel-in-progress: false
+
+env:
+  EXPECTED_BRANCH: ops/instacomp-lora-acceptance-diagnostic-v4-20260809
+  CERTIFIED_RUNTIME_COMMIT: 51f8320ff7f9e9baf540ea2399a38a91c8e24ee7
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  PRODUCTION_ORIGIN: https://truelycollectables.com
+  EVIDENCE_DIR: evidence/instacomp-lora-acceptance-diagnostic-v4-20260809
+  TEMP_DIR: /tmp/instacomp-lora-acceptance-diagnostic-v4-20260809
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Prove temporary diagnostic scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --quiet
+          test "$(git rev-parse origin/main)" = "$CERTIFIED_RUNTIME_COMMIT"
+          changed="$(git diff --name-only "$CERTIFIED_RUNTIME_COMMIT"...HEAD | sort)"
+          expected="$(printf '%s\n' '.github/workflows/instacomp-lora-acceptance-diagnostic-v4-20260809.yml' 'src/app/api/instacomp/acceptance-runtime-diagnostic/route.ts' | sort)"
+          test "$changed" = "$expected"
+          grep -Fq 'INSTACOMP_ACCEPTANCE_SERVICE_TOKEN' src/app/api/instacomp/acceptance-runtime-diagnostic/route.ts
+          grep -Fq 'timingSafeEqual' src/app/api/instacomp/acceptance-runtime-diagnostic/route.ts
+          grep -Fq 'nothing_published: true' src/app/api/instacomp/acceptance-runtime-diagnostic/route.ts
+          ! grep -Eq 'INSTACOMP_AI_LOCAL_KEY|INSTACOMP_AI_LOCAL_URL' src/app/api/instacomp/acceptance-runtime-diagnostic/route.ts
+          mkdir -p "$EVIDENCE_DIR" "$TEMP_DIR"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: TypeScript and isolated Production build before any deployment
+        shell: bash
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+          NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+          STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+          STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+          ADMIN_PASSWORD: build-only-placeholder-password
+          ADMIN_SESSION_SECRET: build-only-placeholder-session-secret
+          EBAY_CLIENT_ID: build-only-placeholder-client-id
+          EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+          EBAY_ENVIRONMENT: production
+          TCOS_LIVE_PAYMENTS_ENABLED: "false"
+          TCOS_SHIPPING_PURCHASE_MODE: dry_run
+          TCOS_LIVE_SHIPPING_ENABLED: "false"
+        run: |
+          set -euo pipefail
+          npm ci
+          npx tsc --noEmit --pretty false
+          npm run build:isolated
+
+      - name: Link Production project only after build passes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Prove stale diagnostic credential absent
+        shell: bash
+        run: |
+          set -euo pipefail
+          list="$TEMP_DIR/env-before.txt"
+          npx --yes vercel@56.2.0 env ls production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$list"
+          if grep -Eq '(^|[[:space:]])INSTACOMP_ACCEPTANCE_SERVICE_TOKEN([[:space:]]|$)' "$list"; then
+            npx --yes vercel@56.2.0 env rm INSTACOMP_ACCEPTANCE_SERVICE_TOKEN production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null 2>&1 || true
+          fi
+          npx --yes vercel@56.2.0 env ls production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$list"
+          ! grep -Eq '(^|[[:space:]])INSTACOMP_ACCEPTANCE_SERVICE_TOKEN([[:space:]]|$)' "$list"
+          rm -f "$list"
+
+      - name: Provision isolated diagnostic credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          openssl rand -hex 32 > "$TEMP_DIR/acceptance-token"
+          chmod 600 "$TEMP_DIR/acceptance-token"
+          secret="$(cat "$TEMP_DIR/acceptance-token")"
+          echo "::add-mask::$secret"
+          npx --yes vercel@56.2.0 env add INSTACOMP_ACCEPTANCE_SERVICE_TOKEN production --force --sensitive --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" < "$TEMP_DIR/acceptance-token" >/dev/null
+          touch "$TEMP_DIR/token-provisioned"
+
+      - name: Deploy temporary diagnostic source
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$EVIDENCE_DIR/diagnostic-deploy.log"
+          npx --yes vercel@56.2.0 deploy --prod --yes --force --no-color --cwd "$GITHUB_WORKSPACE" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee "$log"
+          grep -Fq "InstaComp release manifest bound to $(git rev-parse HEAD)." "$log"
+          touch "$TEMP_DIR/diagnostic-deployed"
+
+      - name: Resolve Production database key privately and stage exact frozen images
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes vercel@56.2.0 env pull "$TEMP_DIR/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          PRODUCTION_ENV_PATH="$TEMP_DIR/production.env" GH_SUPABASE_ACCESS_TOKEN="$GH_SUPABASE_ACCESS_TOKEN" TEMP_DIR="$TEMP_DIR" EVIDENCE_DIR="$EVIDENCE_DIR" node - <<'NODE'
+          const fs=require('node:fs');
+          const crypto=require('node:crypto');
+          const {createClient}=require('@supabase/supabase-js');
+          const expected={front:'eaacec37493b419f1d397df739aedd9df218639ded876c481b2fb28b2b3eb2b1',back:'3ecd070456e09342ed83ca88193ed2d029cd8a77ed5b2e2ae1ce443e9866978c'};
+          const inventoryId='ef0e06a3-a6de-4242-8c52-52b420185850';
+          const p={};
+          for(const raw of fs.readFileSync(process.env.PRODUCTION_ENV_PATH,'utf8').split(/\r?\n/)){
+            const line=raw.trim(); if(!line||line.startsWith('#'))continue;
+            const i=line.indexOf('='); if(i<1)continue;
+            const k=line.slice(0,i).trim(); let v=line.slice(i+1).trim();
+            if(v.startsWith('"')&&v.endsWith('"')){try{v=JSON.parse(v)}catch{v=v.slice(1,-1)}}
+            p[k]=v;
+          }
+          const text=v=>String(v??'').trim();
+          const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
+          function choose(rows){
+            const ordered=rows.map(r=>({url:text(r.image_url),alt:text(r.alt_text),order:Number(r.sort_order||0),primary:r.is_primary===true})).filter(r=>r.url).sort((a,b)=>a.primary!==b.primary?(a.primary?-1:1):a.order-b.order);
+            const front=ordered.find(r=>/\bfront\b/i.test(r.alt))||ordered.find(r=>r.primary)||ordered[0];
+            const back=ordered.find(r=>/\bback\b/i.test(r.alt)&&r.url!==front?.url)||ordered.find(r=>!r.primary&&r.url!==front?.url)||ordered.find(r=>r.url!==front?.url);
+            if(!front?.url||!back?.url||front.url===back.url)throw new Error('Distinct frozen image pair not found');
+            return [front.url,back.url];
+          }
+          (async()=>{
+            const supabaseUrl=text(p.NEXT_PUBLIC_SUPABASE_URL); if(!supabaseUrl)throw new Error('Missing Production Supabase URL');
+            const ref=new URL(supabaseUrl).hostname.split('.')[0];
+            const kr=await fetch(`https://api.supabase.com/v1/projects/${ref}/api-keys?reveal=true`,{headers:{Authorization:`Bearer ${process.env.GH_SUPABASE_ACCESS_TOKEN}`}});
+            const body=await kr.text(); if(!kr.ok)throw new Error(`Supabase key lookup HTTP ${kr.status}`);
+            const keys=body?JSON.parse(body):[]; const val=e=>String(e?.api_key||e?.key||e?.value||'');
+            const modern=keys.find(e=>/^sb_secret_/i.test(val(e))); const legacy=keys.find(e=>e?.name==='service_role'&&/^eyJ/.test(val(e)))||keys.find(e=>e?.secret_jwt_template?.role==='service_role'&&/^eyJ/.test(val(e)));
+            const serverKey=val(modern||legacy); if(!serverKey)throw new Error('No Production server key');
+            console.log(`::add-mask::${supabaseUrl}`); console.log(`::add-mask::${serverKey}`);
+            const db=createClient(supabaseUrl,serverKey,{auth:{persistSession:false,autoRefreshToken:false}});
+            const q=await db.from('inventory_images').select('inventory_item_id,image_url,alt_text,sort_order,is_primary').eq('inventory_item_id',inventoryId).order('sort_order',{ascending:true});
+            if(q.error)throw new Error(`Image query failed: ${q.error.message}`);
+            const [fu,bu]=choose(q.data||[]); const [fr,br]=await Promise.all([fetch(fu,{signal:AbortSignal.timeout(30000)}),fetch(bu,{signal:AbortSignal.timeout(30000)})]);
+            if(!fr.ok||!br.ok)throw new Error(`Image HTTP front=${fr.status} back=${br.status}`);
+            const fb=Buffer.from(await fr.arrayBuffer()), bb=Buffer.from(await br.arrayBuffer());
+            const fh=sha(fb), bh=sha(bb); if(fh!==expected.front||bh!==expected.back)throw new Error(`Frozen image hash mismatch front=${fh===expected.front} back=${bh===expected.back}`);
+            fs.writeFileSync(`${process.env.TEMP_DIR}/front.jpg`,fb,{mode:0o600}); fs.writeFileSync(`${process.env.TEMP_DIR}/back.jpg`,bb,{mode:0o600});
+            fs.writeFileSync(`${process.env.EVIDENCE_DIR}/frozen-image-proof.json`,JSON.stringify({inventoryItemId:inventoryId,frontSha256:fh,backSha256:bh,exact:true},null,2)+'\n');
+          })().catch(e=>{console.error(e.message);process.exit(1)});
+          NODE
+
+      - name: Call temporary diagnostic against exact frozen Sonia card
+        shell: bash
+        run: |
+          set -euo pipefail
+          token="$(cat "$TEMP_DIR/acceptance-token")"
+          echo "::add-mask::$token"
+          out="$EVIDENCE_DIR/mac-scan-diagnostic.json"
+          code="$(curl -sS --max-time 270 -o "$out" -w '%{http_code}' -X POST -H "x-tcos-instacomp-service-token: $token" -F "front=@$TEMP_DIR/front.jpg;type=image/jpeg" -F "back=@$TEMP_DIR/back.jpg;type=image/jpeg" "$PRODUCTION_ORIGIN/api/instacomp/acceptance-runtime-diagnostic")"
+          printf '%s\n' "$code" > "$EVIDENCE_DIR/mac-scan-diagnostic-http.txt"
+          node - <<'NODE'
+          const fs=require('node:fs');
+          const p=JSON.parse(fs.readFileSync(`${process.env.EVIDENCE_DIR}/mac-scan-diagnostic.json`,'utf8'));
+          console.log(JSON.stringify(p,null,2));
+          if(p.ok!==true)throw new Error(`diagnostic endpoint failed: ${p.code||'unknown'} ${p.error||''}`);
+          NODE
+          test "$code" = "200"
+
+      - name: Remove isolated diagnostic credential
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f "$TEMP_DIR/token-provisioned" ]; then exit 0; fi
+          for attempt in 1 2 3; do
+            npx --yes vercel@56.2.0 env rm INSTACOMP_ACCEPTANCE_SERVICE_TOKEN production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null 2>&1 || true
+            list="$TEMP_DIR/env-after.txt"
+            npx --yes vercel@56.2.0 env ls production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$list"
+            if ! grep -Eq '(^|[[:space:]])INSTACOMP_ACCEPTANCE_SERVICE_TOKEN([[:space:]]|$)' "$list"; then rm -f "$list"; touch "$TEMP_DIR/token-removed"; exit 0; fi
+            rm -f "$list"; sleep 3
+          done
+          echo "Temporary acceptance credential could not be proven removed." >&2
+          exit 1
+
+      - name: Redeploy exact main so temporary endpoint disappears
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f "$TEMP_DIR/diagnostic-deployed" ]; then exit 0; fi
+          test -f "$TEMP_DIR/token-removed"
+          git fetch origin main --quiet
+          test "$(git rev-parse origin/main)" = "$CERTIFIED_RUNTIME_COMMIT"
+          git checkout --detach "$CERTIFIED_RUNTIME_COMMIT"
+          log="$EVIDENCE_DIR/clean-main-deploy.log"
+          npx --yes vercel@56.2.0 deploy --prod --yes --force --no-color --cwd "$GITHUB_WORKSPACE" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee "$log"
+          grep -Fq "InstaComp release manifest bound to $CERTIFIED_RUNTIME_COMMIT." "$log"
+          ready="$EVIDENCE_DIR/readiness-clean.json"
+          ok=0
+          for attempt in $(seq 1 18); do
+            status="$(curl -sS --max-time 30 -o "$ready" -w '%{http_code}' -H 'Cache-Control: no-cache' "$PRODUCTION_ORIGIN/api/instacomp/internal-readiness?diagnostic-clean=$attempt&ts=$(date +%s)")"
+            if [ "$status" = "200" ] && node -e 'const fs=require("node:fs");const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));if(p.ok!==true)process.exit(1)' "$ready"; then ok=1; break; fi
+            sleep 5
+          done
+          test "$ok" = "1"
+          removed_body="$EVIDENCE_DIR/diagnostic-route-removed.json"
+          removed_code="$(curl -sS --max-time 30 -o "$removed_body" -w '%{http_code}' -X POST "$PRODUCTION_ORIGIN/api/instacomp/acceptance-runtime-diagnostic")"
+          test "$removed_code" = "404"
+          printf '{"cleanMain":"%s","temporaryCredentialPresent":false,"temporaryDiagnosticRouteHttp":%s}\n' "$CERTIFIED_RUNTIME_COMMIT" "$removed_code" > "$EVIDENCE_DIR/cleanup-proof.json"
+
+      - name: Upload diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-lora-acceptance-diagnostic-v4-20260809
+          path: evidence/instacomp-lora-acceptance-diagnostic-v4-20260809
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Remove temporary files
+        if: always()
+        shell: bash
+        run: rm -rf "$TEMP_DIR" .env.local .env.production.local
