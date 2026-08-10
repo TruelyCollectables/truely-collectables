@@ -525,6 +525,14 @@ function itemKey(url: string) {
   return directEbayItemUrl(url) || url;
 }
 
+function teacherVoteFamily(teacher: TeacherName) {
+  // Groq Compound and Groq GPT-OSS browser search are distinct discovery
+  // methods, but they share one provider credential and therefore contribute
+  // at most one independent trust vote for any sold listing.
+  if (teacher === "groq" || teacher === "groq_browser") return "groq";
+  return teacher;
+}
+
 function requiredTeacherVotes(configuredCount: number) {
   if (configuredCount < 2) return 2;
   return Math.floor(configuredCount / 2) + 1;
@@ -537,14 +545,15 @@ function consensusSold(
 ) {
   const byItem = new Map<
     string,
-    Array<{ teacher: TeacherName; comp: InstaCompComp }>
+    Array<{ teacher: TeacherName; voteFamily: string; comp: InstaCompComp }>
   >();
   for (const attempt of attempts.filter((row) => row.ok)) {
+    const voteFamily = teacherVoteFamily(attempt.teacher);
     for (const comp of strictTeacherRows(attempt, "sold", ai)) {
       const key = itemKey(comp.url);
       const group = byItem.get(key) || [];
-      if (!group.some((row) => row.teacher === attempt.teacher)) {
-        group.push({ teacher: attempt.teacher, comp });
+      if (!group.some((row) => row.voteFamily === voteFamily)) {
+        group.push({ teacher: attempt.teacher, voteFamily, comp });
       }
       byItem.set(key, group);
     }
@@ -613,7 +622,8 @@ export async function getTeacherExactMarketProviders(params: {
   const configuredTeachers = votingAttempts
     .filter((attempt) => attempt.configured)
     .map((attempt) => attempt.teacher);
-  const requiredVotes = requiredTeacherVotes(configuredTeachers.length);
+  const configuredVoteFamilies = new Set(configuredTeachers.map(teacherVoteFamily));
+  const requiredVotes = requiredTeacherVotes(configuredVoteFamilies.size);
   const sold = consensusSold(votingAttempts, params.ai, requiredVotes);
   const discoverySold = searchAttempts.flatMap((attempt) =>
     attempt.ok ? strictTeacherRows(attempt, "sold", params.ai) : [],
