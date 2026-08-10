@@ -16,18 +16,39 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Read physical Mac runtime identity
+      - name: Compare physical Mac identity with current source fingerprint
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p evidence/instacomp-live-runtime-identity-20260810
-          out=evidence/instacomp-live-runtime-identity-20260810/runtime-identity.json
+          dir=evidence/instacomp-live-runtime-identity-20260810
+          mkdir -p "$dir"
+          out="$dir/runtime-identity.json"
           code="$(curl -sS --max-time 30 -o "$out" -w '%{http_code}' https://instacomp.truelycollectables.com/v1/runtime-identity)"
           test "$code" = "200"
-          python3 - "$out" <<'PY'
-          import json,sys
-          data=json.load(open(sys.argv[1],encoding='utf-8'))
-          print(json.dumps(data,indent=2,sort_keys=True))
+          python3 - "$out" "$dir/fingerprint-comparison.json" <<'PY'
+          import hashlib,json,pathlib,sys
+          live=json.load(open(sys.argv[1],encoding='utf-8'))
+          root=pathlib.Path('services/instacomp-ai')
+          files=(
+              'app/__init__.py','app/main.py','app/local_vision.py','app/ollama.py',
+              'app/lora_candidate_runtime.py','scripts/run_lora_candidate_server.py',
+          )
+          digest=hashlib.sha256()
+          for relative in files:
+              digest.update(relative.encode())
+              digest.update(b'\0')
+              digest.update((root/relative).read_bytes())
+              digest.update(b'\0')
+          expected=digest.hexdigest()
+          actual=str(live.get('runtime_source_fingerprint') or '')
+          result={
+              'expected_current_source_fingerprint':expected,
+              'live_physical_mac_fingerprint':actual,
+              'exact_match':actual==expected,
+              'tracked_files':list(files),
+          }
+          pathlib.Path(sys.argv[2]).write_text(json.dumps(result,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(result,indent=2))
           PY
       - uses: actions/upload-artifact@v4
         if: always()
