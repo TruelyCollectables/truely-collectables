@@ -18,29 +18,31 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Read Ivan Demidov trusted market-memory status
+      - name: Read Ivan and legacy trusted sold memory
         shell: bash
         run: |
           set -euo pipefail
           test -n "${VERCEL_TOKEN:-}"
           curl -fsS --max-time 90 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$SITE_URL/api/release/instacomp-deal-hunter-demidov-status" > ivan.json
+          curl -fsS --max-time 90 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$SITE_URL/api/release/instacomp-deal-hunter-history-status?since=2026-07-01T00:00:00Z" > history.json
           node - <<'NODE'
           const p=require('./ivan.json');
+          const h=require('./history.json');
           if(!p.success) throw new Error(JSON.stringify(p));
+          if(!h.success) throw new Error(JSON.stringify(h));
           const candidates=Array.isArray(p.candidates)?p.candidates:[];
           const trusted=candidates.filter(c=>c.trustedHistory?.registryIdentityId);
           const compact={
             ivanCandidateCount:Number(p.ivanCandidateCount||candidates.length||0),
             trustedIvanHistoryCount:Number(p.trustedIvanHistoryCount||trusted.length||0),
-            trusted:trusted.slice(0,20).map(c=>({
-              title:c.title,
-              listingItemId:c.listingItemId,
-              status:c.status,
-              dealLabel:c.dealLabel,
-              identity:c.identity,
-              trustedHistory:c.trustedHistory
-            })),
-            checkedAt:p.checkedAt||null
+            currentRegistryHistory:{
+              totalObservationCount:Number(h.totalObservationCount||0),
+              observationCountSince:Number(h.observationCountSince||0),
+              latestIdentity:h.latestIdentity||null
+            },
+            legacySoldCensus:h.legacySoldCensus||null,
+            trusted:trusted.slice(0,20).map(c=>({title:c.title,listingItemId:c.listingItemId,status:c.status,dealLabel:c.dealLabel,identity:c.identity,trustedHistory:c.trustedHistory})),
+            checkedAt:h.checkedAt||p.checkedAt||null
           };
-          console.log('IVAN_TRUSTED_MEMORY='+JSON.stringify(compact));
+          console.log('TRUSTED_MARKET_MEMORY_CENSUS='+JSON.stringify(compact));
           NODE
