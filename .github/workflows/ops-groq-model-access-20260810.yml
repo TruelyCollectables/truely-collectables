@@ -27,10 +27,15 @@ jobs:
           GROQ_API_KEY="$(node - <<'NODE'
           const fs=require('fs');
           const lines=fs.readFileSync('.env.production.local','utf8').split(/\r?\n/);
-          const line=lines.find(v=>v.startsWith('GROQ_API_KEY='));
-          if(!line) process.exit(2);
-          let value=line.slice('GROQ_API_KEY='.length).trim();
-          if((value.startsWith('"')&&value.endsWith('"'))||(value.startsWith("'")&&value.endsWith("'"))) value=value.slice(1,-1);
+          let value='';
+          for(const line of lines){
+            const m=line.match(/^\s*(?:export\s+)?GROQ_API_KEY\s*=\s*(.*)\s*$/);
+            if(!m) continue;
+            value=m[1].trim();
+            if((value.startsWith('"')&&value.endsWith('"'))||(value.startsWith("'")&&value.endsWith("'"))) value=value.slice(1,-1);
+            break;
+          }
+          if(!value) process.exit(2);
           process.stdout.write(value);
           NODE
           )"
