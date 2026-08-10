@@ -46,7 +46,7 @@ async function readBody(res: Response) {
   }
 }
 
-function imageForm(frontBytes: Buffer, backBytes: Buffer) {
+function imageForm(frontBytes: ArrayBuffer, backBytes: ArrayBuffer) {
   const form = new FormData();
   form.append("front", new Blob([frontBytes], { type: "image/jpeg" }), "front.jpg");
   form.append("back", new Blob([backBytes], { type: "image/jpeg" }), "back.jpg");
@@ -73,8 +73,8 @@ export async function POST(request: Request) {
     }
 
     const [frontBytes, backBytes] = await Promise.all([
-      front.arrayBuffer().then((value) => Buffer.from(value)),
-      back.arrayBuffer().then((value) => Buffer.from(value)),
+      front.arrayBuffer(),
+      back.arrayBuffer(),
     ]);
     const authHeaders = { "X-InstaComp-AI-Key": localKey };
 
