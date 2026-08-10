@@ -1,0 +1,89 @@
+name: InstaComp Production Deploy Truth 20260807
+
+on:
+  push:
+    branches:
+      - ops/instacomp-production-deploy-truth-20260807
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/instacomp-production-deploy-truth-20260807.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+jobs:
+  inspect-production:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/instacomp-production-deploy-truth-20260807
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Resolve current Production deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          echo "::add-mask::$VERCEL_TOKEN"
+          mkdir -p evidence/instacomp-production-deploy-truth-20260807
+          npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const project = JSON.parse(fs.readFileSync('.vercel/project.json', 'utf8'));
+          const projectId = String(project.projectId || '');
+          const teamId = String(project.orgId || '');
+          if (!projectId || !teamId) throw new Error('Vercel project metadata missing projectId/orgId');
+          const url = new URL('https://api.vercel.com/v6/deployments');
+          url.searchParams.set('projectId', projectId);
+          url.searchParams.set('teamId', teamId);
+          url.searchParams.set('target', 'production');
+          url.searchParams.set('limit', '10');
+          const response = await fetch(url, { headers: { Authorization: `Bearer ${process.env.VERCEL_TOKEN}` } });
+          const raw = await response.text();
+          if (!response.ok) throw new Error(`Vercel deployments API HTTP ${response.status}: ${raw.slice(0, 500)}`);
+          const body = raw ? JSON.parse(raw) : {};
+          const deployments = Array.isArray(body.deployments) ? body.deployments : [];
+          const clean = deployments.map((deployment) => ({
+            uid: deployment.uid || deployment.id || null,
+            url: deployment.url || null,
+            name: deployment.name || null,
+            target: deployment.target || null,
+            readyState: deployment.readyState || deployment.state || null,
+            readySubstate: deployment.readySubstate || null,
+            createdAt: deployment.createdAt || deployment.created || null,
+            buildingAt: deployment.buildingAt || null,
+            ready: deployment.ready || null,
+            aliasAssigned: deployment.aliasAssigned ?? null,
+            source: deployment.source || null,
+            githubCommitSha: deployment.meta?.githubCommitSha || deployment.meta?.githubCommitRef || null,
+            githubCommitRef: deployment.meta?.githubCommitRef || null,
+            githubCommitMessage: deployment.meta?.githubCommitMessage || null,
+            githubPrId: deployment.meta?.githubPrId || null,
+          }));
+          const receipt = {
+            schema: 'tcos.instacomp.productionDeployTruth.v1',
+            capturedAt: new Date().toISOString(),
+            projectId,
+            teamId,
+            deploymentCount: clean.length,
+            deployments: clean,
+          };
+          fs.writeFileSync('evidence/instacomp-production-deploy-truth-20260807/receipt.json', JSON.stringify(receipt, null, 2));
+          console.log(JSON.stringify(receipt, null, 2));
+          NODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-production-deploy-truth-20260807
+          path: evidence/instacomp-production-deploy-truth-20260807/receipt.json
+          if-no-files-found: error
+          retention-days: 30
