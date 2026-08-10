@@ -18,7 +18,7 @@ env:
   GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
   CHECKLIST_RECOVERY_BATCH_SIZE: "15"
   CHECKLIST_RECOVERY_BATCH_INDEX: "4"
-  CHECKLIST_RECOVERY_WORKERS: "2"
+  CHECKLIST_RECOVERY_WORKERS: "1"
   CHECKLIST_RECOVERY_APPLY: "true"
 
 jobs:
@@ -93,12 +93,12 @@ jobs:
           set -a; source "$PRODUCTION_ENV_PATH"; set +a
           export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
           log="$RUNNER_TEMP/batch4.log"
-          for attempt in 1 2 3 4; do
+          for attempt in 1 2 3 4 5 6; do
             set +e; node --import tsx scripts/run-verified-checklist-recovery-production.mjs 2>&1 | tee "$log"; s=${PIPESTATUS[0]}; set -e
             [ "$s" -eq 0 ] && break
-            grep -Eiq 'Cloudflare|HTTP (520|521|522|523|524|5[0-9][0-9])|ECONNRESET|ETIMEDOUT|fetch failed|network.*error|socket hang up|schema cache.*retry|Could not query the database for the schema cache' "$log" || exit "$s"
-            [ "$attempt" -eq 4 ] && exit "$s"
-            sleep $((attempt*10))
+            grep -Eiq 'Cloudflare|HTTP (520|521|522|523|524|5[0-9][0-9])|ECONNRESET|ETIMEDOUT|fetch failed|network.*error|socket hang up|schema cache.*retry|Could not query the database for the schema cache|Too many connections issued to the database|too many connections' "$log" || exit "$s"
+            [ "$attempt" -eq 6 ] && exit "$s"
+            sleep $((attempt*15))
           done
       - name: Require Batch 4 receipt
         run: |
