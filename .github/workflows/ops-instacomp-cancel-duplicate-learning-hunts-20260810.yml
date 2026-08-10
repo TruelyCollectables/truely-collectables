@@ -1,0 +1,36 @@
+name: Ops InstaComp Cancel Duplicate Learning Hunts 20260810
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/ops-instacomp-cancel-duplicate-learning-hunts-20260810.yml'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cancel-duplicates:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Cancel hunt workflow runs after run 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          api="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/ops-instacomp-first-comp-learning-hunt-20260810.yml/runs?event=pull_request&per_page=50"
+          curl -fsS -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' "$api" > runs.json
+          node - <<'NODE' > ids.txt
+          const p=require('./runs.json');
+          for(const r of p.workflow_runs||[]){
+            if(Number(r.run_number)>1 && !['completed','cancelled'].includes(String(r.status||''))) console.log(r.id);
+          }
+          NODE
+          while read -r id; do
+            [ -n "$id" ] || continue
+            echo "cancelling duplicate hunt run $id"
+            curl -fsS -X POST -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${id}/cancel" >/dev/null || true
+          done < ids.txt
