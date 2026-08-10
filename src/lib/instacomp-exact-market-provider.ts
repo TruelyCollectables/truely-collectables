@@ -16,7 +16,8 @@ const SOLD_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const EMPTY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const ACTIVE_CACHE_TTL_MS = 45 * 60 * 1000;
 const RESULT_LIMIT = 100;
-const MAX_QUERY_ATTEMPTS = 1;
+const MAX_QUERY_ATTEMPTS = 6;
+const MAX_SERPAPI_QUERY_ATTEMPTS = 1;
 
 type EbayLane = "sold" | "active";
 
@@ -485,7 +486,7 @@ export async function providerAcrossQueries(params: {
   let firstError: string | null = null;
   let successfulAttemptCount = 0;
 
-  for (const query of params.queries) {
+  for (const query of params.queries.slice(0, MAX_SERPAPI_QUERY_ATTEMPTS)) {
     const fetched = await fetchLane(query, params.lane);
     if (!fetched.ok) {
       firstError ||= fetched.message;
