@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import base64
 import re
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 import httpx
 
@@ -117,15 +117,49 @@ def _fallback_with_candidate_receipt(
     return fallback.model_copy(update={"raw": raw})
 
 
+async def _analyze_with_candidate_fallback(
+    self,
+    original_analyze: Callable[..., Awaitable[ModelSuggestion]],
+    front: bytes,
+    back: bytes | None,
+    *,
+    local_vision: LocalVisionEvidence | None = None,
+) -> ModelSuggestion:
+    """Run candidate evidence first, but never let its ordinary failures own scan uptime."""
+    if not getattr(self.settings, "lora_candidate_enabled", False):
+        return await original_analyze(
+            self,
+            front,
+            back,
+            local_vision=local_vision,
+        )
+    try:
+        return await _analyze_candidate(
+            self.settings,
+            front,
+            back,
+            local_vision=local_vision,
+        )
+    except Exception as exc:
+        # The LoRA candidate is evidence-only. Any ordinary candidate-side
+        # exception must fall back to the exact established reader rather than
+        # escaping to FastAPI as HTTP 500. BaseException remains uncaught.
+        fallback = await original_analyze(
+            self,
+            front,
+            back,
+            local_vision=local_vision,
+        )
+        return _fallback_with_candidate_receipt(fallback, exc)
+
+
 def install_lora_candidate_runtime() -> None:
     """Put the validated LoRA candidate ahead of Ollama in the same evidence slot.
 
     Disabled is the default. Any ordinary candidate-side runtime failure falls
-    back to the exact pre-existing Ollama implementation. BaseException is not
-    caught, so cancellation, KeyboardInterrupt and process termination still
-    propagate normally. A successful candidate suggestion never becomes
-    identity authority here; main.py still performs the fresh Registry
-    UUID/fingerprint lock and otherwise fails closed.
+    back to the exact pre-existing Ollama implementation. A successful candidate
+    suggestion never becomes identity authority here; main.py still performs the
+    fresh Registry UUID/fingerprint lock and otherwise fails closed.
     """
     from . import ollama as ollama_module
 
@@ -141,32 +175,13 @@ def install_lora_candidate_runtime() -> None:
         *,
         local_vision: LocalVisionEvidence | None = None,
     ) -> ModelSuggestion:
-        if not getattr(self.settings, "lora_candidate_enabled", False):
-            return await original_analyze(
-                self,
-                front,
-                back,
-                local_vision=local_vision,
-            )
-        try:
-            return await _analyze_candidate(
-                self.settings,
-                front,
-                back,
-                local_vision=local_vision,
-            )
-        except Exception as exc:
-            # The candidate is evidence-only and must never turn an otherwise
-            # usable established reader path into an HTTP 500. Preserve the
-            # original fallback result and attach only a bounded diagnostic
-            # receipt. Identity still requires a fresh central Registry lock.
-            fallback = await original_analyze(
-                self,
-                front,
-                back,
-                local_vision=local_vision,
-            )
-            return _fallback_with_candidate_receipt(fallback, exc)
+        return await _analyze_with_candidate_fallback(
+            self,
+            original_analyze,
+            front,
+            back,
+            local_vision=local_vision,
+        )
 
     cls.analyze = analyze_with_candidate
     cls._instacomp_lora_candidate_installed = True
