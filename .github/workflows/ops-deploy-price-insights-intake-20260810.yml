@@ -23,6 +23,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
       - name: Lock exact current main containing Price Insights intake
         shell: bash
         run: |
@@ -33,7 +37,11 @@ jobs:
           echo "DEPLOYED_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
           test -f src/app/admin/market-intel/deal-hunter/price-insights/page.tsx
           test -f src/app/api/admin/market-intel/deal-hunter/price-insights/route.ts
-          node --import tsx scripts/verify-deal-hunter-price-insights-intake.ts
+      - name: Install dependencies and rerun Price Insights regression
+        run: |
+          set -euo pipefail
+          npm ci
+          npx tsx scripts/verify-deal-hunter-price-insights-intake.ts
       - name: Deploy exact current main to Production
         shell: bash
         run: |
