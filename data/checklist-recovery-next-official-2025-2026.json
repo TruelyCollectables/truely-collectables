@@ -1,0 +1,134 @@
+{
+  "schema": "tcos.checklist.nextOfficialCandidates.v1",
+  "createdOn": "2026-08-10",
+  "status": "candidate_pending_exact_registry_gap_reconciliation",
+  "rules": {
+    "minimumCardRows": 25,
+    "requireExactYear": true,
+    "requireExactProduct": true,
+    "promotion": "fail_closed",
+    "notes": "Official/direct sources only. Do not promote any candidate until its exact Registry target key is reconciled and the normal parser/plan/persistence gates pass."
+  },
+  "candidates": [
+    {
+      "release": "2026 Bowman Baseball",
+      "sport": "baseball",
+      "manufacturer": "bowman",
+      "sourceId": "topps",
+      "sourceUrl": "https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2026_Bowman_Baseball_Checklist.pdf?v=1775743176",
+      "sourceType": "official_pdf",
+      "observedPages": 15,
+      "observedParsedTextLines": 1239
+    },
+    {
+      "release": "2026 Topps Chrome Baseball",
+      "sport": "baseball",
+      "manufacturer": "topps",
+      "sourceId": "topps",
+      "sourceUrl": "https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2026_Topps_Chrome_Baseball_Checklist_Final_7.22.pdf?v=1785169183",
+      "sourceType": "official_pdf",
+      "observedPages": 63,
+      "observedParsedTextLines": 2059
+    },
+    {
+      "release": "2026 Topps Heritage Baseball",
+      "sport": "baseball",
+      "manufacturer": "topps",
+      "sourceId": "topps",
+      "sourceUrl": "https://cdn.shopify.com/s/files/1/0662/9749/5709/files/Checklist_26THBB_3.20.pdf?v=1774362662",
+      "sourceType": "official_pdf",
+      "observedPages": 25,
+      "observedParsedTextLines": 1598
+    },
+    {
+      "release": "2026 Topps Series 1 Baseball",
+      "sport": "baseball",
+      "manufacturer": "topps",
+      "sourceId": "topps",
+      "sourceUrl": "https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2026_Topps_Series_1_Baseball_Checklist_2-23.pdf?v=1772557808",
+      "sourceType": "official_pdf",
+      "observedPages": 53,
+      "observedParsedTextLines": 3336
+    },
+    {
+      "release": "2026 Topps Series 2 Baseball",
+      "sport": "baseball",
+      "manufacturer": "topps",
+      "sourceId": "topps",
+      "sourceUrl": "https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2026_Topps_Series_2_Baseball_Checklist_5-11.pdf?v=1778521905",
+      "sourceType": "official_pdf",
+      "observedPages": 56,
+      "observedParsedTextLines": 3531
+    },
+    {
+      "release": "2026 Topps Tribute Baseball",
+      "sport": "baseball",
+      "manufacturer": "topps",
+      "sourceId": "topps",
+      "sourceUrl": "https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2026_Topps_Tribute_Baseball_Checklist_1.pdf?v=1782740369",
+      "sourceType": "official_pdf",
+      "observedPages": 16,
+      "observedParsedTextLines": 801
+    },
+    {
+      "release": "2025 Bowman Baseball",
+      "sport": "baseball",
+      "manufacturer": "bowman",
+      "sourceId": "topps",
+      "sourceUrl": "https://cdn.shopify.com/s/files/1/0662/9749/5709/files/MLB2507-2025BowmanBaseballChecklist2.pdf?v=1746543006",
+      "sourceType": "official_pdf",
+      "observedPages": 24,
+      "observedParsedTextLines": 1153
+    },
+    {
+      "release": "2025 Bowman Chrome Baseball",
+      "sport": "baseball",
+      "manufacturer": "bowman",
+      "sourceId": "topps",
+      "sourceUrl": "https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2025_Bowman_Chrome_Baseball_Checklist.pdf?v=1755030361",
+      "sourceType": "official_pdf",
+      "observedPages": 17,
+      "observedParsedTextLines": 881
+    },
+    {
+      "release": "2025 Bowman Draft Baseball",
+      "sport": "baseball",
+      "manufacturer": "bowman",
+      "sourceId": "topps",
+      "sourceUrl": "https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2025_Bowman_Draft_Baseball_Checklist.pdf?v=1766089735%5C",
+      "sourceType": "official_pdf",
+      "observedPages": 36,
+      "observedParsedTextLines": 1767
+    },
+    {
+      "release": "2025 Topps Baseball Update Series",
+      "sport": "baseball",
+      "manufacturer": "topps",
+      "sourceId": "topps",
+      "sourceUrl": "https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2025_Topps_Update_Series_BB_Checklist_Final_V3.pdf?v=1762291180",
+      "sourceType": "official_pdf",
+      "observedPages": 60,
+      "observedParsedTextLines": 2498
+    },
+    {
+      "release": "2025 Topps Chrome Baseball Update Series",
+      "sport": "baseball",
+      "manufacturer": "topps",
+      "sourceId": "topps",
+      "sourceUrl": "https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2025_Topps_Chrome_Update_Series_Baseball_Checklist.pdf?v=1780407368",
+      "sourceType": "official_pdf",
+      "observedPages": 25,
+      "observedParsedTextLines": 1289
+    },
+    {
+      "release": "2025 Topps Stadium Club Baseball",
+      "sport": "baseball",
+      "manufacturer": "topps",
+      "sourceId": "topps",
+      "sourceUrl": "https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2025_Topps_Stadium_Club_Baseball_Checklist.pdf?v=1769109095",
+      "sourceType": "official_pdf",
+      "observedPages": 13,
+      "observedParsedTextLines": 654
+    }
+  ]
+}
