@@ -1,0 +1,104 @@
+name: Ops Activate InstaComp Comp Learn Mode 20260810
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/ops-activate-instacomp-comp-learn-mode-20260810.yml'
+
+permissions:
+  contents: read
+
+env:
+  REQUIRED_FIX: b825dfb55277a3c07a6ae3967e73f049ee12c8fd
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  SITE_URL: https://truelycollectables.com
+
+jobs:
+  activate-and-prove:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Lock current main containing comp learn mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$REQUIRED_FIX" origin/main
+          git checkout --detach origin/main
+          sha="$(git rev-parse HEAD)"
+          echo "DEPLOYED_SHA=$sha" >> "$GITHUB_ENV"
+          grep -Fq 'onlineCompLearnMode: true' src/lib/instacomp-teacher-runtime-status.ts
+          grep -Fq 'studentHypothesis' src/lib/instacomp-teacher-market-provider.ts
+          grep -Fq 'teacherVoteFamily' src/lib/instacomp-teacher-market-provider.ts
+          grep -Fq 'runGroqBrowserTeacher' src/lib/instacomp-teacher-market-provider.ts
+          grep -Fq 'runOpenRouterCritic' src/lib/instacomp-teacher-market-provider.ts
+          grep -Fq 'runCloudflareCritic' src/lib/instacomp-teacher-market-provider.ts
+          echo "activation_main=$sha"
+
+      - name: Deploy exact current main to Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          npx --yes vercel@56.2.0 deploy --prod --yes --force --archive=tgz --no-color --cwd "$GITHUB_WORKSPACE" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" | tee deploy.log
+          grep -Fq 'https://' deploy.log
+
+      - name: Read safe teacher runtime and Mac learning state
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 90 -X POST \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "$SITE_URL/api/release/instacomp-teacher-runtime-diagnostics" > runtime.json
+          node - <<'NODE'
+          const p=require('./runtime.json');
+          if(!p.success) throw new Error(JSON.stringify(p));
+          const c=p.configuration||{};
+          const mac=p.mac||{};
+          const learning=mac.teacherCompLearning||{};
+          const receipt={
+            deployedSha:process.env.DEPLOYED_SHA,
+            configuration:{
+              geminiConfigured:Boolean(c.geminiConfigured),
+              anthropicConfigured:Boolean(c.anthropicConfigured),
+              xaiConfigured:Boolean(c.xaiConfigured),
+              groqConfigured:Boolean(c.groqConfigured),
+              groqBrowserConfigured:Boolean(c.groqBrowserConfigured),
+              openRouterConfigured:Boolean(c.openRouterConfigured),
+              cloudflareConfigured:Boolean(c.cloudflareConfigured),
+              perplexityConfigured:Boolean(c.perplexityConfigured),
+              openAiConfigured:Boolean(c.openAiConfigured),
+              serpApiConfigured:Boolean(c.serpApiConfigured),
+              votingTeacherCount:Number(c.votingTeacherCount||0),
+              requiredVotes:Number(c.requiredVotes||0),
+              teacherConsensusOperational:Boolean(c.teacherConsensusOperational),
+              macLearningBridgeConfigured:Boolean(c.macLearningBridgeConfigured),
+              onlineCompLearnMode:Boolean(c.onlineCompLearnMode)
+            },
+            mac:{
+              reachable:Boolean(mac.reachable),
+              teacherLearningEndpointAvailable:Boolean(mac.teacherLearningEndpointAvailable),
+              status:mac.status||null,
+              onlineCompLearnMode:Boolean(learning.online_comp_learn_mode),
+              studentHypothesisEndpoint:learning.student_hypothesis_endpoint||null,
+              dataset:learning.dataset||null,
+              error:mac.error||null
+            },
+            boundaries:p.boundaries||null,
+            checkedAt:p.checkedAt||null
+          };
+          console.log('INSTACOMP_COMP_LEARN_ACTIVATION='+JSON.stringify(receipt));
+          if(!c.onlineCompLearnMode) throw new Error('Production web comp learn mode is not active');
+          if(!c.groqConfigured || !c.groqBrowserConfigured) throw new Error('Groq free search lanes are not configured');
+          if(!c.macLearningBridgeConfigured) throw new Error('Mac learning bridge is not configured');
+          if(!p.boundaries || p.boundaries.instaCompAiPricingAuthority!==false) throw new Error('Pricing-authority boundary changed');
+          if(!p.boundaries || Number(p.boundaries.minimumVotingTeachersForTrustedSoldTruth||0)<2) throw new Error('Trusted sold consensus boundary weakened');
+          if(!receipt.mac.onlineCompLearnMode) console.log('MAC_SERVICE_UPDATE_REQUIRED=true');
+          else console.log('MAC_COMP_LEARN_MODE_ACTIVE=true');
+          NODE
