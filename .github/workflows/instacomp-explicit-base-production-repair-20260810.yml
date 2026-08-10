@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/instacomp-explicit-base-production-repair-20260810.yml"
-  workflow_dispatch:
+      - "src/app/api/instacomp/ops/frozen-sonia-repair/route.ts"
 
 permissions:
   contents: read
@@ -17,7 +17,7 @@ concurrency:
 
 env:
   PROOF_MAIN_SHA: 2f6599cbd9a190a02269da4a80064156c48e8a0a
-  CANONICAL_MAC_URL: https://instacomp.truelycollectables.com
+  PROOF_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
   VERCEL_SCOPE: truelycollectables-projects
   VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
   PRODUCTION_ORIGIN: https://truelycollectables.com
@@ -25,8 +25,6 @@ env:
   SONIA_INVENTORY_ID: ef0e06a3-a6de-4242-8c52-52b420185850
   SONIA_FRONT_SHA256: eaacec37493b419f1d397df739aedd9df218639ded876c481b2fb28b2b3eb2b1
   SONIA_BACK_SHA256: 3ecd070456e09342ed83ca88193ed2d029cd8a77ed5b2e2ae1ce443e9866978c
-  SONIA_NORMALIZED_FRONT_SHA256: 9dac4f6e94ff5d2180c0dda73008ec46f214dfde2cd59314493186ce1b5dc46d
-  SONIA_NORMALIZED_BACK_SHA256: 5feb7d055f8ba36c6b8f6e8ad9622d1587d1267614d9ce9c2bfb841f04ff20e8
   SONIA_REGISTRY_ID: 2a7d4ddd-e9f7-4ce2-904c-b1a17b33ae4f
   SONIA_REGISTRY_FINGERPRINT: 4366f96b6cf8b136e5ae4da70c35539d56e1793de0a42bcccbf970a892791e59
   EVIDENCE_DIR: evidence/instacomp-explicit-base-production-repair-20260810
@@ -39,7 +37,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ env.PROOF_MAIN_SHA }}
+          ref: ${{ env.PROOF_HEAD_SHA }}
           fetch-depth: 1
 
       - uses: actions/setup-node@v4
@@ -47,54 +45,38 @@ jobs:
           node-version: "22"
           cache: npm
 
-      - name: Lock exact merged source and current main
+      - name: Lock exact main plus temporary two-file ops delta
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$PROOF_MAIN_SHA"
+          test "$(git rev-parse HEAD)" = "$PROOF_HEAD_SHA"
           git fetch --no-tags --depth=1 origin main
           test "$(git rev-parse origin/main)" = "$PROOF_MAIN_SHA"
+          changed="$(git diff --name-only "$PROOF_MAIN_SHA" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/instacomp-explicit-base-production-repair-20260810.yml' \
+            'src/app/api/instacomp/ops/frozen-sonia-repair/route.ts' | sort)"
+          test "$changed" = "$expected"
+          grep -Fq 'FROZEN_IMAGE_HASH_MISMATCH' src/app/api/instacomp/ops/frozen-sonia-repair/route.ts
+          grep -Fq 'EXPECTED_REGISTRY_ID = "2a7d4ddd-e9f7-4ce2-904c-b1a17b33ae4f"' src/app/api/instacomp/ops/frozen-sonia-repair/route.ts
+          grep -Fq 'ACCEPTANCE_AUTH_REJECTED' src/app/api/instacomp/ops/frozen-sonia-repair/route.ts
           mkdir -p "$EVIDENCE_DIR" "$TEMP_DIR/frozen"
-          grep -Fq 'return "base";' src/lib/instacomp-checklist-first.ts
-          grep -Fq 'Explicit Base is real' src/lib/instacomp-checklist-first.ts
-          printf '{"proofMain":"%s","frozenImageArtifactId":%s,"registryMutation":false,"inventoryMutation":false,"pricingMutation":false,"publishingMutation":false,"intendedMacMutation":"one corrected operator-confirmed lesson for exact frozen Sonia image pair"}\n' "$PROOF_MAIN_SHA" "$FROZEN_IMAGE_ARTIFACT_ID" > "$EVIDENCE_DIR/source-lock.json"
+          printf '{"proofMain":"%s","proofHead":"%s","frozenImageArtifactId":%s,"registryMutation":false,"inventoryMutation":false,"pricingMutation":false,"publishingMutation":false,"modelWeightsMutation":false,"temporaryOpsDelta":["workflow","one-card repair route"]}\n' \
+            "$PROOF_MAIN_SHA" "$PROOF_HEAD_SHA" "$FROZEN_IMAGE_ARTIFACT_ID" > "$EVIDENCE_DIR/source-lock.json"
 
-      - name: Install and link Production project
+      - name: Install dependencies and link Production project
         shell: bash
         run: |
           set -euo pipefail
           test -n "${VERCEL_TOKEN:-}"
           npm ci >/dev/null
           npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
-          npx --yes vercel@56.2.0 env pull "$TEMP_DIR/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
 
-      - name: Recover existing Mac credential privately
+      - name: TypeScript compile temporary route
         shell: bash
         run: |
           set -euo pipefail
-          PRODUCTION_ENV_PATH="$TEMP_DIR/production.env" RUNTIME_ENV_PATH="$TEMP_DIR/runtime-env.sh" CANONICAL_MAC_URL="$CANONICAL_MAC_URL" node - <<'NODE'
-          const fs=require('node:fs');
-          const p={};
-          for(const raw of fs.readFileSync(process.env.PRODUCTION_ENV_PATH,'utf8').split(/\r?\n/)){
-            const line=raw.trim(); if(!line||line.startsWith('#')) continue;
-            const i=line.indexOf('='); if(i<1) continue;
-            const k=line.slice(0,i).trim(); let v=line.slice(i+1).trim();
-            if(v.startsWith('"')&&v.endsWith('"')){try{v=JSON.parse(v)}catch{v=v.slice(1,-1)}}
-            else if(v.startsWith("'")&&v.endsWith("'")) v=v.slice(1,-1);
-            p[k]=v;
-          }
-          const localUrl=String(process.env.CANONICAL_MAC_URL||'').trim().replace(/\/+$/,'');
-          const localKey=String(p.INSTACOMP_AI_LOCAL_KEY||'').trim();
-          if(localUrl!=='https://instacomp.truelycollectables.com') throw new Error('Canonical Mac tunnel contract changed');
-          if(!/^[0-9a-fA-F]{64}$/.test(localKey)) throw new Error('Production INSTACOMP_AI_LOCAL_KEY is not the expected 256-bit key');
-          console.log(`::add-mask::${localKey}`);
-          fs.writeFileSync(process.env.RUNTIME_ENV_PATH,[
-            `export INSTACOMP_AI_LOCAL_URL=${JSON.stringify(localUrl)}`,
-            `export INSTACOMP_AI_LOCAL_KEY=${JSON.stringify(localKey)}`,
-            ''
-          ].join('\n'),{mode:0o600});
-          console.log('PASS existing synchronized Mac credential recovered privately');
-          NODE
+          npx tsc --noEmit
 
       - name: Download immutable frozen-five images and prove Sonia hashes
         shell: bash
@@ -136,10 +118,11 @@ jobs:
           npx --yes vercel@56.2.0 env add INSTACOMP_ACCEPTANCE_SERVICE_TOKEN production --force --sensitive --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" < "$TEMP_DIR/acceptance-token" >/dev/null
           touch "$TEMP_DIR/token-provisioned"
 
-      - name: Deploy exact merged explicit-Base fix
+      - name: Deploy exact temporary proof head
         shell: bash
         run: |
           set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PROOF_HEAD_SHA"
           git fetch --no-tags --depth=1 origin main
           test "$(git rev-parse origin/main)" = "$PROOF_MAIN_SHA"
           log="$EVIDENCE_DIR/proof-deploy.log"
@@ -185,123 +168,42 @@ jobs:
           if(id!==process.env.SONIA_REGISTRY_ID) throw new Error(`identityId=${id}`);
           if(fp!==process.env.SONIA_REGISTRY_FINGERPRINT) throw new Error(`fingerprint=${fp}`);
           const locked=body.lockedFields||{};
-          for(const [k,v] of [['player','Sonia Citron'],['cardNumber','122'],['parallel','Base']]){
-            if(String(locked[k]??'')!==v) throw new Error(`${k}=${locked[k]}`);
-          }
-          console.log(JSON.stringify({status:'passed',registryIdentityId:id,registryFingerprintSha256:fp,candidateCount:body.candidateCount,identificationPath:body.identificationPath},null,2));
+          if(String(locked.player||'')!=='Sonia Citron') throw new Error(`player=${locked.player}`);
+          if(String(locked.cardNumber||'')!=='122') throw new Error(`cardNumber=${locked.cardNumber}`);
+          if(String(locked.parallel||'')!=='Base') throw new Error(`parallel=${locked.parallel}`);
+          console.log(JSON.stringify({status:'passed',registryIdentityId:id,registryFingerprintSha256:fp,candidateCount:body.candidateCount},null,2));
           NODE
           touch "$TEMP_DIR/registry-proved"
 
-      - name: Read current Mac runtime and stale Sonia memory before correction
+      - name: Repair frozen Sonia memory through one-card internal bridge and rerun Mac analyze
         shell: bash
         run: |
           set -euo pipefail
           test -f "$TEMP_DIR/registry-proved"
-          source "$TEMP_DIR/runtime-env.sh"
-          curl -fsS --max-time 30 "$INSTACOMP_AI_LOCAL_URL/v1/runtime-identity" > "$EVIDENCE_DIR/mac-runtime-before.json"
-          curl -fsS --max-time 30 -H "X-InstaComp-AI-Key: $INSTACOMP_AI_LOCAL_KEY" \
-            --get --data-urlencode 'player=Sonia Citron' --data-urlencode 'year=2025' \
-            --data-urlencode 'set_name=Base' --data-urlencode 'card_number=122' \
-            --data-urlencode 'parallel=Orange Cracked Ice Prizm' --data-urlencode 'limit=10' \
-            "$INSTACOMP_AI_LOCAL_URL/v1/lessons/search" > "$EVIDENCE_DIR/sonia-memory-before.json"
-
-      - name: Archive exact frozen pair without identity and add corrected operator lesson
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -f "$TEMP_DIR/registry-proved"
-          source "$TEMP_DIR/runtime-env.sh"
+          token="$(cat "$TEMP_DIR/acceptance-token")"
+          echo "::add-mask::$token"
           front="$TEMP_DIR/frozen/01-${SONIA_INVENTORY_ID}-front.jpg"
           back="$TEMP_DIR/frozen/01-${SONIA_INVENTORY_ID}-back.jpg"
-          archive="$EVIDENCE_DIR/sonia-supervised-archive.json"
-          code="$(curl -sS --max-time 90 -o "$archive" -w '%{http_code}' -X POST \
-            -H "X-InstaComp-AI-Key: $INSTACOMP_AI_LOCAL_KEY" \
+          result="$EVIDENCE_DIR/frozen-sonia-repair.json"
+          code="$(curl -sS --max-time 280 -o "$result" -w '%{http_code}' -X POST \
+            -H "x-tcos-instacomp-service-token: $token" \
             -F "front=@${front};type=image/jpeg" \
             -F "back=@${back};type=image/jpeg" \
-            "$INSTACOMP_AI_LOCAL_URL/v1/scans/supervised-archive")"
-          test "$code" = "200"
-          SONIA_NORMALIZED_FRONT_SHA256="$SONIA_NORMALIZED_FRONT_SHA256" SONIA_NORMALIZED_BACK_SHA256="$SONIA_NORMALIZED_BACK_SHA256" node - "$archive" "$TEMP_DIR/lesson-request.json" <<'NODE'
-          const fs=require('node:fs');
-          const a=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
-          if(!a.scan_id) throw new Error('supervised archive missing scan_id');
-          if(a.identity_created!==false||a.nothing_published!==true) throw new Error('supervised archive crossed identity/publishing boundary');
-          if(String(a.front_sha256||'')!==process.env.SONIA_NORMALIZED_FRONT_SHA256) throw new Error(`normalized front hash=${a.front_sha256}`);
-          if(String(a.back_sha256||'')!==process.env.SONIA_NORMALIZED_BACK_SHA256) throw new Error(`normalized back hash=${a.back_sha256}`);
-          const lesson={
-            scan_id:a.scan_id,
-            state:'operator_confirmed',
-            identity:{
-              sport:'Basketball',
-              year:'2025',
-              manufacturer:'Panini',
-              brand:'Prizm',
-              set_name:'Base',
-              player:'Sonia Citron',
-              team:'Washington Mystics',
-              card_number:'122',
-              parallel:'Base',
-              autograph:false,
-              memorabilia:false
-            },
-            verification_source:`frozen_acceptance_v8_registry:${process.env.SONIA_REGISTRY_ID}`,
-            operator_id:'tcos_frozen_truth_repair_20260810',
-            notes:`Corrected exact frozen-image trusted memory after Production Registry locked canonical Base UUID ${process.env.SONIA_REGISTRY_ID} fingerprint ${process.env.SONIA_REGISTRY_FINGERPRINT}. No inventory, pricing, or publishing mutation.`,
-            rejected_identity:{
-              year:'2025',
-              manufacturer:'Panini',
-              brand:'Panini Prizm WNBA',
-              set_name:'Base',
-              player:'Sonia Citron',
-              card_number:'122',
-              parallel:'Orange Cracked Ice Prizm'
-            }
-          };
-          fs.writeFileSync(process.argv[3],JSON.stringify(lesson));
-          NODE
-          lesson="$EVIDENCE_DIR/sonia-corrected-lesson.json"
-          code="$(curl -sS --max-time 45 -o "$lesson" -w '%{http_code}' -X POST \
-            -H 'content-type: application/json' \
-            -H "X-InstaComp-AI-Key: $INSTACOMP_AI_LOCAL_KEY" \
-            --data-binary "@$TEMP_DIR/lesson-request.json" \
-            "$INSTACOMP_AI_LOCAL_URL/v1/lessons")"
-          test "$code" = "200"
-          node - "$lesson" <<'NODE'
-          const fs=require('node:fs');
-          const b=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
-          if(b.state!=='operator_confirmed'||b.trusted!==true) throw new Error(`lesson state/trust ${b.state}/${b.trusted}`);
-          if(b.identity?.player!=='Sonia Citron'||b.identity?.card_number!=='122'||b.identity?.parallel!=='Base') throw new Error('corrected lesson identity mismatch');
-          if(b.rejected_identity?.parallel!=='Orange Cracked Ice Prizm') throw new Error('rejected stale identity not recorded');
-          console.log(JSON.stringify({lesson_id:b.lesson_id,scan_id:b.scan_id,state:b.state,trusted:b.trusted,identity:b.identity,rejected_identity:b.rejected_identity,training_example_id:b.training_example_id},null,2));
-          NODE
-          touch "$TEMP_DIR/lesson-corrected"
-
-      - name: Re-run exact frozen Sonia through unchanged live Mac analyze path
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -f "$TEMP_DIR/lesson-corrected"
-          source "$TEMP_DIR/runtime-env.sh"
-          front="$TEMP_DIR/frozen/01-${SONIA_INVENTORY_ID}-front.jpg"
-          back="$TEMP_DIR/frozen/01-${SONIA_INVENTORY_ID}-back.jpg"
-          result="$EVIDENCE_DIR/sonia-direct-mac-after-correction.json"
-          code="$(curl -sS --max-time 180 -o "$result" -w '%{http_code}' -X POST \
-            -H "X-InstaComp-AI-Key: $INSTACOMP_AI_LOCAL_KEY" \
-            -F "front=@${front};type=image/jpeg" \
-            -F "back=@${back};type=image/jpeg" \
-            "$INSTACOMP_AI_LOCAL_URL/v1/scans/analyze")"
+            "$PRODUCTION_ORIGIN/api/instacomp/ops/frozen-sonia-repair")"
           test "$code" = "200"
           SONIA_REGISTRY_ID="$SONIA_REGISTRY_ID" SONIA_REGISTRY_FINGERPRINT="$SONIA_REGISTRY_FINGERPRINT" node - "$result" <<'NODE'
           const fs=require('node:fs');
           const b=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
-          if(b.status!=='trusted_memory_match') throw new Error(`status=${b.status}`);
-          if(b.match_source!=='exact_image_pair') throw new Error(`match_source=${b.match_source}`);
-          if(b.pricing_allowed!==true||b.learning_allowed!==true) throw new Error(`pricing/learning=${b.pricing_allowed}/${b.learning_allowed}`);
-          if(b.trusted_identity?.player!=='Sonia Citron'||b.trusted_identity?.card_number!=='122'||b.trusted_identity?.parallel!=='Base') throw new Error('trusted identity mismatch');
-          if(b.checklist?.outcome!=='exact_match') throw new Error(`checklist=${b.checklist?.outcome}`);
-          if(String(b.checklist?.identity_id||'')!==process.env.SONIA_REGISTRY_ID) throw new Error(`identity_id=${b.checklist?.identity_id}`);
-          const receipts=Array.isArray(b.checklist?.source_receipts)?b.checklist.source_receipts:[];
-          if(!receipts.includes(`registry_fingerprint:${process.env.SONIA_REGISTRY_FINGERPRINT}`)) throw new Error('exact Registry fingerprint receipt missing');
-          console.log(JSON.stringify({status:b.status,match_source:b.match_source,pricing_allowed:b.pricing_allowed,identity:b.trusted_identity,registryIdentityId:b.checklist.identity_id,sourceReceipts:receipts,localVisionPresent:Boolean(b.local_vision)},null,2));
+          if(b.ok!==true) throw new Error(`ok=${b.ok} code=${b.code||''} error=${b.error||''}`);
+          if(b.registry?.identityId!==process.env.SONIA_REGISTRY_ID) throw new Error(`registry=${b.registry?.identityId}`);
+          if(String(b.registry?.fingerprintSha256||'').toLowerCase()!==process.env.SONIA_REGISTRY_FINGERPRINT) throw new Error('registry fingerprint mismatch');
+          if(b.lesson?.trusted!==true||b.lesson?.state!=='operator_confirmed') throw new Error('corrected lesson not trusted');
+          if(b.analyze?.status!=='trusted_memory_match'||b.analyze?.matchSource!=='exact_image_pair') throw new Error(`analyze=${b.analyze?.status}/${b.analyze?.matchSource}`);
+          if(b.analyze?.pricingAllowed!==true||b.analyze?.learningAllowed!==true) throw new Error('pricing/learning gate not open');
+          if(b.analyze?.checklistOutcome!=='exact_match'||b.analyze?.registryIdentityId!==process.env.SONIA_REGISTRY_ID) throw new Error('Mac Registry exact lock missing');
+          if(b.analyze?.identity?.player!=='Sonia Citron'||b.analyze?.identity?.card_number!=='122'||b.analyze?.identity?.parallel!=='Base') throw new Error('trusted Base identity mismatch');
+          if(b.nothingPublished!==true||b.inventoryMutation!==false||b.pricingMutation!==false||b.modelWeightsMutation!==false) throw new Error('mutation boundary violated');
+          console.log(JSON.stringify({status:'passed',lesson:b.lesson,analyze:b.analyze,nothingPublished:b.nothingPublished},null,2));
           NODE
           touch "$TEMP_DIR/mac-scan-passed"
 
@@ -318,7 +220,7 @@ jobs:
           rm -f "$list"
           touch "$TEMP_DIR/token-removed"
 
-      - name: Clean redeploy current main without proof credential
+      - name: Clean redeploy current main without proof route or credential
         if: always()
         shell: bash
         run: |
@@ -328,21 +230,28 @@ jobs:
           git fetch --no-tags --depth=1 origin main
           git checkout --detach origin/main
           clean_sha="$(git rev-parse HEAD)"
+          test ! -f src/app/api/instacomp/ops/frozen-sonia-repair/route.ts
           log="$EVIDENCE_DIR/clean-deploy.log"
           npx --yes vercel@56.2.0 deploy --prod --yes --force --archive=tgz --no-color --cwd "$GITHUB_WORKSPACE" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee "$log"
-          printf '{"clean":true,"deployedMain":"%s","acceptanceCredentialPresent":false,"macLessonCorrectionPersists":true}\n' "$clean_sha" > "$EVIDENCE_DIR/cleanup-proof.json"
+          code="$(curl -sS --max-time 30 -o "$EVIDENCE_DIR/temporary-route-after-cleanup.txt" -w '%{http_code}' -X POST "$PRODUCTION_ORIGIN/api/instacomp/ops/frozen-sonia-repair")"
+          test "$code" = "404"
+          printf '{"clean":true,"deployedMain":"%s","acceptanceCredentialPresent":false,"temporaryRepairRoutePresent":false,"correctedMacLessonPersists":true}\n' "$clean_sha" > "$EVIDENCE_DIR/cleanup-proof.json"
+          touch "$TEMP_DIR/clean-redeployed"
 
       - name: Final pass marker
         if: always()
         shell: bash
         run: |
-          if [ -f "$TEMP_DIR/mac-scan-passed" ] && [ -f "$TEMP_DIR/token-removed" ]; then
-            printf '{"status":"passed","registryExact":true,"correctedLessonCreated":true,"directMacAnalyze200":true,"nothingPublished":true}\n' > "$EVIDENCE_DIR/final.json"
+          if [ -f "$TEMP_DIR/registry-proved" ] && [ -f "$TEMP_DIR/mac-scan-passed" ] && [ -f "$TEMP_DIR/token-removed" ] && [ -f "$TEMP_DIR/clean-redeployed" ]; then
+            printf '{"status":"passed","registryExact":true,"correctedLessonCreated":true,"directMacAnalyze200":true,"temporaryRouteRemoved":true,"acceptanceCredentialRemoved":true,"nothingPublished":true}\n' > "$EVIDENCE_DIR/final.json"
           else
-            printf '{"status":"incomplete_or_failed","registryExact":%s,"correctedLessonCreated":%s,"directMacAnalyze200":%s,"nothingPublished":true}\n' \
+            printf '{"status":"incomplete_or_failed","registryExact":%s,"correctedLessonCreated":%s,"directMacAnalyze200":%s,"temporaryRouteRemoved":%s,"acceptanceCredentialRemoved":%s,"nothingPublished":true}\n' \
               "$([ -f "$TEMP_DIR/registry-proved" ] && echo true || echo false)" \
-              "$([ -f "$TEMP_DIR/lesson-corrected" ] && echo true || echo false)" \
-              "$([ -f "$TEMP_DIR/mac-scan-passed" ] && echo true || echo false)" > "$EVIDENCE_DIR/final.json"
+              "$([ -f "$TEMP_DIR/mac-scan-passed" ] && echo true || echo false)" \
+              "$([ -f "$TEMP_DIR/mac-scan-passed" ] && echo true || echo false)" \
+              "$([ -f "$TEMP_DIR/clean-redeployed" ] && echo true || echo false)" \
+              "$([ -f "$TEMP_DIR/token-removed" ] && echo true || echo false)" > "$EVIDENCE_DIR/final.json"
+            exit 1
           fi
 
       - name: Upload evidence
